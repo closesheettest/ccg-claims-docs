@@ -14,7 +14,7 @@ const initialData = {
   lossLocation: "",
   signerEmail: "",
   paEmail: "claims@iambenitopaul.com",
-  representativeName: "Benito Paul",
+  representativeName: "",
   representativeEmail: "",
   homeowner1: "",
   homeowner2: "",
