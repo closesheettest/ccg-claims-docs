@@ -12,6 +12,7 @@ const initialData = {
   insuranceCompany: "",
   policyNumber: "",
   lossLocation: "",
+  lossLocationSameAsAddress: true,
   signerEmail: "",
   paEmail: "claims@iambenitopaul.com",
   representativeName: "",
@@ -206,6 +207,31 @@ function FormField({
         }}
       />
     </div>
+  );
+}
+
+function CheckboxField({ label, checked, onChange }) {
+  return (
+    <label
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        fontSize: 14,
+        color: "#374151",
+        fontWeight: 500,
+        marginBottom: 8,
+        cursor: "pointer",
+      }}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        style={{ width: 16, height: 16 }}
+      />
+      {label}
+    </label>
   );
 }
 
@@ -440,6 +466,9 @@ function SignatureDisplay({ name, value, title }) {
 function LetterOfRepresentation({ data, sig1, sig2 }) {
   const hasSecond = Boolean(data.homeowner2?.trim());
   const fullAddress = formatAddress(data);
+  const displayedLossLocation = data.lossLocationSameAsAddress
+    ? fullAddress
+    : data.lossLocation;
 
   return (
     <div
@@ -486,7 +515,9 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
           </div>
           <div>
             <Label>Loss Location</Label>
-            <FieldBox>{data.lossLocation}</FieldBox>
+            <FieldBox>
+              <div style={{ whiteSpace: "pre-line" }}>{displayedLossLocation}</div>
+            </FieldBox>
           </div>
           <div>
             <Label>Policy #</Label>
@@ -1029,6 +1060,22 @@ export default function App() {
 
   const hasSecond = Boolean(data.homeowner2?.trim());
 
+  const propertyAddressText = [
+    data.address,
+    [data.city, data.state, data.zip].filter(Boolean).join(", "),
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  useEffect(() => {
+    if (data.lossLocationSameAsAddress) {
+      setData((prev) => ({
+        ...prev,
+        lossLocation: propertyAddressText,
+      }));
+    }
+  }, [data.address, data.city, data.state, data.zip, data.lossLocationSameAsAddress]);
+
   const update = (key, value) => {
     setData((prev) => ({ ...prev, [key]: value }));
   };
@@ -1096,6 +1143,61 @@ export default function App() {
             <CardContent>
               <div style={{ display: "grid", gap: 24 }}>
                 <Card style={{ padding: 20, background: "#f8fafc" }}>
+                  <SectionTitle>Homeowner Info</SectionTitle>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+                      gap: 16,
+                    }}
+                  >
+                    <FormField
+                      label="Homeowner 1"
+                      value={data.homeowner1}
+                      onChange={(v) => update("homeowner1", v)}
+                    />
+                    <FormField
+                      label="Homeowner 2"
+                      value={data.homeowner2}
+                      onChange={(v) => update("homeowner2", v)}
+                    />
+                    <FormField
+                      label="Phone"
+                      value={data.phone}
+                      onChange={(v) => update("phone", v)}
+                    />
+                    <FormField
+                      label="Homeowner Email"
+                      type="email"
+                      value={data.signerEmail}
+                      onChange={(v) => update("signerEmail", v)}
+                    />
+                    <div style={{ gridColumn: "1 / -1" }}>
+                      <FormField
+                        label="Address"
+                        value={data.address}
+                        onChange={(v) => update("address", v)}
+                      />
+                    </div>
+                    <FormField
+                      label="City"
+                      value={data.city}
+                      onChange={(v) => update("city", v)}
+                    />
+                    <FormField
+                      label="State"
+                      value={data.state}
+                      onChange={(v) => update("state", v)}
+                    />
+                    <FormField
+                      label="ZIP"
+                      value={data.zip}
+                      onChange={(v) => update("zip", v)}
+                    />
+                  </div>
+                </Card>
+
+                <Card style={{ padding: 20, background: "#f8fafc" }}>
                   <SectionTitle>Insurance Info</SectionTitle>
                   <div
                     style={{
@@ -1120,68 +1222,23 @@ export default function App() {
                       value={data.policyNumber}
                       onChange={(v) => update("policyNumber", v)}
                     />
-                    <FormField
-                      label="Phone"
-                      value={data.phone}
-                      onChange={(v) => update("phone", v)}
-                    />
+                    <div style={{ gridColumn: "1 / -1" }}>
+                      <CheckboxField
+                        label="Loss location is same as property address"
+                        checked={data.lossLocationSameAsAddress}
+                        onChange={(checked) =>
+                          update("lossLocationSameAsAddress", checked)
+                        }
+                      />
+                    </div>
                     <div style={{ gridColumn: "1 / -1" }}>
                       <FormField
                         label="Loss Location"
                         value={data.lossLocation}
                         onChange={(v) => update("lossLocation", v)}
+                        disabled={data.lossLocationSameAsAddress}
                       />
                     </div>
-                  </div>
-                </Card>
-
-                <Card style={{ padding: 20, background: "#f8fafc" }}>
-                  <SectionTitle>Homeowner Info</SectionTitle>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-                      gap: 16,
-                    }}
-                  >
-                    <FormField
-                      label="Homeowner 1"
-                      value={data.homeowner1}
-                      onChange={(v) => update("homeowner1", v)}
-                    />
-                    <FormField
-                      label="Homeowner 2"
-                      value={data.homeowner2}
-                      onChange={(v) => update("homeowner2", v)}
-                    />
-                    <div style={{ gridColumn: "1 / -1" }}>
-                      <FormField
-                        label="Address"
-                        value={data.address}
-                        onChange={(v) => update("address", v)}
-                      />
-                    </div>
-                    <FormField
-                      label="City"
-                      value={data.city}
-                      onChange={(v) => update("city", v)}
-                    />
-                    <FormField
-                      label="State"
-                      value={data.state}
-                      onChange={(v) => update("state", v)}
-                    />
-                    <FormField
-                      label="ZIP"
-                      value={data.zip}
-                      onChange={(v) => update("zip", v)}
-                    />
-                    <FormField
-                      label="Homeowner Email"
-                      type="email"
-                      value={data.signerEmail}
-                      onChange={(v) => update("signerEmail", v)}
-                    />
                   </div>
                 </Card>
 
