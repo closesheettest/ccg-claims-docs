@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, FileSignature, Mail, RotateCcw, Send } from "lucide-react";
+import {
+  ArrowLeft,
+  FileSignature,
+  Mail,
+  RotateCcw,
+  Send,
+} from "lucide-react";
 
 const initialData = {
   date: "",
@@ -30,23 +31,168 @@ const initialData = {
   initials2: "",
 };
 
-function FormField({ label, value, onChange, type = "text", placeholder = "", disabled = false }) {
+function Button({
+  children,
+  onClick,
+  type = "button",
+  variant = "default",
+  disabled = false,
+}) {
+  const baseStyle = {
+    height: 44,
+    padding: "0 16px",
+    borderRadius: 14,
+    border: "1px solid #d1d5db",
+    cursor: disabled ? "not-allowed" : "pointer",
+    fontSize: 14,
+    fontWeight: 600,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    opacity: disabled ? 0.6 : 1,
+  };
+
+  const styles =
+    variant === "outline"
+      ? {
+          ...baseStyle,
+          background: "#fff",
+          color: "#111827",
+        }
+      : {
+          ...baseStyle,
+          background: "#111827",
+          color: "#fff",
+          border: "1px solid #111827",
+        };
+
   return (
-    <div className="space-y-2">
-      <Label className="text-sm text-slate-700">{label}</Label>
-      <Input
+    <button type={type} onClick={onClick} style={styles} disabled={disabled}>
+      {children}
+    </button>
+  );
+}
+
+function Card({ children }) {
+  return (
+    <div
+      style={{
+        background: "#fff",
+        borderRadius: 24,
+        boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+        border: "1px solid #e5e7eb",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function CardHeader({ children }) {
+  return <div style={{ padding: 24, paddingBottom: 12 }}>{children}</div>;
+}
+
+function CardTitle({ children }) {
+  return (
+    <div style={{ fontSize: 30, fontWeight: 700, color: "#111827" }}>
+      {children}
+    </div>
+  );
+}
+
+function CardDescription({ children }) {
+  return (
+    <div style={{ fontSize: 14, color: "#6b7280", marginTop: 8 }}>
+      {children}
+    </div>
+  );
+}
+
+function CardContent({ children }) {
+  return <div style={{ padding: 24, paddingTop: 12 }}>{children}</div>;
+}
+
+function Label({ children }) {
+  return (
+    <label
+      style={{
+        display: "block",
+        fontSize: 14,
+        color: "#374151",
+        marginBottom: 8,
+        fontWeight: 500,
+      }}
+    >
+      {children}
+    </label>
+  );
+}
+
+function Separator() {
+  return (
+    <div
+      style={{
+        width: "100%",
+        height: 1,
+        background: "#e5e7eb",
+        margin: "8px 0",
+      }}
+    />
+  );
+}
+
+function FieldBox({ children }) {
+  return (
+    <div
+      style={{
+        minHeight: 44,
+        border: "1px solid #d1d5db",
+        borderRadius: 14,
+        padding: "10px 12px",
+        background: "#fff",
+        fontSize: 14,
+        color: "#111827",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function FormField({
+  label,
+  value,
+  onChange,
+  type = "text",
+  placeholder = "",
+  disabled = false,
+}) {
+  return (
+    <div>
+      <Label>{label}</Label>
+      <input
         type={type}
         value={value}
         placeholder={placeholder}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
-        className="h-11 rounded-xl"
+        style={{
+          width: "100%",
+          height: 44,
+          borderRadius: 14,
+          border: "1px solid #d1d5db",
+          padding: "0 12px",
+          fontSize: 14,
+          boxSizing: "border-box",
+          background: disabled ? "#f3f4f6" : "#fff",
+        }}
       />
     </div>
   );
 }
 
-function SignaturePad({ title, value, onChange, height = "h-40" }) {
+function SignaturePad({ title, value, onChange, height = 160 }) {
   const canvasRef = useRef(null);
   const drawingRef = useRef(false);
 
@@ -56,6 +202,7 @@ function SignaturePad({ title, value, onChange, height = "h-40" }) {
 
     const rect = canvas.getBoundingClientRect();
     const ratio = Math.max(window.devicePixelRatio || 1, 1);
+
     canvas.width = rect.width * ratio;
     canvas.height = rect.height * ratio;
 
@@ -111,17 +258,39 @@ function SignaturePad({ title, value, onChange, height = "h-40" }) {
   };
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <Label className="text-sm font-medium text-slate-700">{title}</Label>
-        <Button type="button" variant="outline" size="sm" onClick={clear}>
-          <RotateCcw className="mr-2 h-4 w-4" /> Clear
+    <div style={{ marginBottom: 16 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 8,
+        }}
+      >
+        <Label>{title}</Label>
+        <Button variant="outline" onClick={clear}>
+          <RotateCcw size={16} /> Clear
         </Button>
       </div>
-      <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-2 shadow-sm">
+
+      <div
+        style={{
+          border: "1px dashed #cbd5e1",
+          borderRadius: 16,
+          background: "#fff",
+          padding: 8,
+        }}
+      >
         <canvas
           ref={canvasRef}
-          className={`${height} w-full touch-none rounded-xl bg-slate-50`}
+          style={{
+            width: "100%",
+            height,
+            borderRadius: 12,
+            background: "#f8fafc",
+            touchAction: "none",
+            display: "block",
+          }}
           onMouseDown={start}
           onMouseMove={move}
           onMouseUp={end}
@@ -136,19 +305,112 @@ function SignaturePad({ title, value, onChange, height = "h-40" }) {
 }
 
 function InitialsPad({ title, value, onChange }) {
-  return <SignaturePad title={title} value={value} onChange={onChange} height="h-20" />;
+  return (
+    <SignaturePad
+      title={title}
+      value={value}
+      onChange={onChange}
+      height={80}
+    />
+  );
 }
 
 function InitialsImage({ value }) {
   return (
-    <div className="mt-2 flex h-16 items-center justify-center overflow-hidden rounded-xl border bg-slate-50">
-      {value ? <img src={value} alt="Initials" className="h-full w-full object-contain" /> : <span>__</span>}
+    <div
+      style={{
+        marginTop: 8,
+        height: 64,
+        border: "1px solid #d1d5db",
+        borderRadius: 12,
+        background: "#f8fafc",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        overflow: "hidden",
+      }}
+    >
+      {value ? (
+        <img
+          src={value}
+          alt="Initials"
+          style={{ width: "100%", height: "100%", objectFit: "contain" }}
+        />
+      ) : (
+        <span>__</span>
+      )}
     </div>
   );
 }
 
 function formatAddress(data) {
-  return [data.address, [data.city, data.state, data.zip].filter(Boolean).join(", ")].filter(Boolean).join("\n");
+  return [data.address, [data.city, data.state, data.zip].filter(Boolean).join(", ")]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function gradientHeader(title) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        background: "linear-gradient(90deg, #1f7a4d, #6b46c1)",
+        padding: "20px 24px",
+        color: "#fff",
+      }}
+    >
+      <div style={{ fontSize: 22, fontWeight: 700 }}>{title}</div>
+      <div style={{ fontSize: 18, fontWeight: 700 }}>CAPITAL CLAIMS GROUP</div>
+    </div>
+  );
+}
+
+function twoColGrid(children) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+        gap: 16,
+        padding: 24,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function SignatureDisplay({ name, value, title }) {
+  return (
+    <div>
+      <div style={{ marginBottom: 8, fontSize: 14, fontWeight: 500 }}>{title}</div>
+      <div
+        style={{
+          display: "flex",
+          height: 160,
+          alignItems: "center",
+          justifyContent: "center",
+          overflow: "hidden",
+          borderRadius: 16,
+          border: "1px dashed #cbd5e1",
+          background: "#f8fafc",
+        }}
+      >
+        {value ? (
+          <img
+            src={value}
+            alt={title}
+            style={{ width: "100%", height: "100%", objectFit: "contain" }}
+          />
+        ) : (
+          <span style={{ color: "#94a3b8", fontSize: 14 }}>Signature pending</span>
+        )}
+      </div>
+      <div style={{ marginTop: 8, fontSize: 14, color: "#475569" }}>{name}</div>
+    </div>
+  );
 }
 
 function LetterOfRepresentation({ data, sig1, sig2 }) {
@@ -156,47 +418,132 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
   const fullAddress = formatAddress(data);
 
   return (
-    <div className="rounded-3xl overflow-hidden border bg-white shadow-sm">
-      <div className="flex items-center justify-between bg-gradient-to-r from-emerald-700 to-violet-700 px-6 py-5 text-white">
-        <div className="text-2xl font-bold">Letter of Representation</div>
-        <div className="text-lg font-semibold">CAPITAL CLAIMS GROUP</div>
-      </div>
+    <div
+      style={{
+        borderRadius: 24,
+        overflow: "hidden",
+        border: "1px solid #e5e7eb",
+        background: "#fff",
+        boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+      }}
+    >
+      {gradientHeader("Letter of Representation")}
 
-      <div className="grid grid-cols-1 gap-4 p-6 md:grid-cols-2">
-        <div><Label>Date</Label><div className="mt-2 rounded-xl border px-3 py-2">{data.date}</div></div>
-        <div><Label>Insurance Company</Label><div className="mt-2 rounded-xl border px-3 py-2">{data.insuranceCompany}</div></div>
-        <div><Label>Address</Label><div className="mt-2 whitespace-pre-line rounded-xl border px-3 py-2">{fullAddress}</div></div>
-        <div><Label>State</Label><div className="mt-2 rounded-xl border px-3 py-2">{data.state}</div></div>
-        <div><Label>Claim #</Label><div className="mt-2 rounded-xl border px-3 py-2">{data.claimNumber}</div></div>
-        <div><Label>Client / Insured</Label><div className="mt-2 rounded-xl border px-3 py-2">{[data.homeowner1, data.homeowner2].filter(Boolean).join(", ")}</div></div>
-        <div><Label>Loss Location</Label><div className="mt-2 rounded-xl border px-3 py-2">{data.lossLocation}</div></div>
-        <div><Label>Policy #</Label><div className="mt-2 rounded-xl border px-3 py-2">{data.policyNumber}</div></div>
-        <div><Label>Date of Loss</Label><div className="mt-2 rounded-xl border px-3 py-2">{data.dateOfLoss}</div></div>
-        <div><Label>Signer Email (recipient)</Label><div className="mt-2 rounded-xl border px-3 py-2">{data.signerEmail}</div></div>
-      </div>
-
-      <div className="space-y-4 px-6 pb-6 text-[15px] leading-8 text-slate-800">
-        <Separator />
-        <p><strong>Dear Claims Manager:</strong></p>
-        <p>This correspondence will serve to inform you and the Insurance Company that your insured has formally retained our services to assist them in evaluating and presenting their above-referenced claim. We have enclosed a copy of our signed representation notice, which we request that you record in your claim file and properly provide us with a written acknowledgment of our involvement.</p>
-        <p>Additionally, we request that all further contact and communication involving this claim’s processing from the Insurance Company be directed exclusively through our offices. This also extends to your representative contractor/claims agents and/or any other claims agents you may be using in the processing of this claim.</p>
-        <p>Further, as the policy sets forth the duties, rights, and parameters of coverage, it is critical that we have expedited access to this information, we hereby request a true and complete certified copy of the applicable policy contract including the declarations page, all policy endorsements, and the original policy application. Please expedite these documents to our attention.</p>
-        <p className="italic">Also, please note that Capital Claims Group Inc. should be named as an additional payee on all insurance drafts and/or payments, pursuant to the enclosed Notice of Loss/Notice of Representation signed by the Insured(s). The insured(s) hereby reserve all rights to make claims under the policy for replacement cost benefits as set forth in the policy and likewise invoke their rights to repair, rebuild or replace the damaged property.</p>
-        <p>Surely, you understand the Assured’s need to have this claim processed as quickly as possible, and as such, we will be undertaking all necessary steps to document and prepare their claim for submission. We look forward to working cooperatively with you to reach a fair and prompt resolution to this claim.</p>
-        <p className="italic">The Assureds hereby reserve all of their rights under the policy and the laws of this State and nothing contained herein is intended to waive or prejudice said rights.</p>
-
-        <div className={`grid gap-6 pt-4 ${hasSecond ? "md:grid-cols-2" : "md:grid-cols-1"}`}>
+      {twoColGrid(
+        <>
           <div>
-            <div className="mb-2 text-sm font-medium">Homeowner 1 Signature</div>
-            <div className="flex h-40 items-center justify-center overflow-hidden rounded-2xl border border-dashed bg-slate-50">{sig1 ? <img src={sig1} alt="Signature 1" className="h-full w-full object-contain" /> : <span className="text-sm text-slate-400">Signature pending</span>}</div>
-            <div className="mt-2 text-sm text-slate-600">{data.homeowner1}</div>
+            <Label>Date</Label>
+            <FieldBox>{data.date}</FieldBox>
           </div>
+          <div>
+            <Label>Insurance Company</Label>
+            <FieldBox>{data.insuranceCompany}</FieldBox>
+          </div>
+          <div>
+            <Label>Address</Label>
+            <FieldBox>
+              <div style={{ whiteSpace: "pre-line" }}>{fullAddress}</div>
+            </FieldBox>
+          </div>
+          <div>
+            <Label>State</Label>
+            <FieldBox>{data.state}</FieldBox>
+          </div>
+          <div>
+            <Label>Claim #</Label>
+            <FieldBox>{data.claimNumber}</FieldBox>
+          </div>
+          <div>
+            <Label>Client / Insured</Label>
+            <FieldBox>{[data.homeowner1, data.homeowner2].filter(Boolean).join(", ")}</FieldBox>
+          </div>
+          <div>
+            <Label>Loss Location</Label>
+            <FieldBox>{data.lossLocation}</FieldBox>
+          </div>
+          <div>
+            <Label>Policy #</Label>
+            <FieldBox>{data.policyNumber}</FieldBox>
+          </div>
+          <div>
+            <Label>Date of Loss</Label>
+            <FieldBox>{data.dateOfLoss}</FieldBox>
+          </div>
+          <div>
+            <Label>Signer Email (recipient)</Label>
+            <FieldBox>{data.signerEmail}</FieldBox>
+          </div>
+        </>
+      )}
+
+      <div style={{ padding: "0 24px 24px", color: "#1f2937", fontSize: 15, lineHeight: 1.9 }}>
+        <Separator />
+        <p>
+          <strong>Dear Claims Manager:</strong>
+        </p>
+        <p>
+          This correspondence will serve to inform you and the Insurance Company
+          that your insured has formally retained our services to assist them in
+          evaluating and presenting their above-referenced claim. We have enclosed
+          a copy of our signed representation notice, which we request that you
+          record in your claim file and properly provide us with a written
+          acknowledgment of our involvement.
+        </p>
+        <p>
+          Additionally, we request that all further contact and communication
+          involving this claim’s processing from the Insurance Company be directed
+          exclusively through our offices. This also extends to your representative
+          contractor/claims agents and/or any other claims agents you may be using
+          in the processing of this claim.
+        </p>
+        <p>
+          Further, as the policy sets forth the duties, rights, and parameters of
+          coverage, it is critical that we have expedited access to this
+          information, we hereby request a true and complete certified copy of the
+          applicable policy contract including the declarations page, all policy
+          endorsements, and the original policy application. Please expedite these
+          documents to our attention.
+        </p>
+        <p style={{ fontStyle: "italic" }}>
+          Also, please note that Capital Claims Group Inc. should be named as an
+          additional payee on all insurance drafts and/or payments, pursuant to the
+          enclosed Notice of Loss/Notice of Representation signed by the Insured(s).
+          The insured(s) hereby reserve all rights to make claims under the policy
+          for replacement cost benefits as set forth in the policy and likewise
+          invoke their rights to repair, rebuild or replace the damaged property.
+        </p>
+        <p>
+          Surely, you understand the Assured’s need to have this claim processed as
+          quickly as possible, and as such, we will be undertaking all necessary
+          steps to document and prepare their claim for submission. We look forward
+          to working cooperatively with you to reach a fair and prompt resolution
+          to this claim.
+        </p>
+        <p style={{ fontStyle: "italic" }}>
+          The Assureds hereby reserve all of their rights under the policy and the
+          laws of this State and nothing contained herein is intended to waive or
+          prejudice said rights.
+        </p>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: hasSecond ? "1fr 1fr" : "1fr",
+            gap: 24,
+            paddingTop: 16,
+          }}
+        >
+          <SignatureDisplay
+            title="Homeowner 1 Signature"
+            name={data.homeowner1}
+            value={sig1}
+          />
           {hasSecond && (
-            <div>
-              <div className="mb-2 text-sm font-medium">Homeowner 2 Signature</div>
-              <div className="flex h-40 items-center justify-center overflow-hidden rounded-2xl border border-dashed bg-slate-50">{sig2 ? <img src={sig2} alt="Signature 2" className="h-full w-full object-contain" /> : <span className="text-sm text-slate-400">Signature pending</span>}</div>
-              <div className="mt-2 text-sm text-slate-600">{data.homeowner2}</div>
-            </div>
+            <SignatureDisplay
+              title="Homeowner 2 Signature"
+              name={data.homeowner2}
+              value={sig2}
+            />
           )}
         </div>
       </div>
@@ -204,147 +551,425 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
   );
 }
 
-function PublicAdjusterContract({ data, sig1, sig2, onInitials1Change, onInitials2Change }) {
+function PublicAdjusterContract({
+  data,
+  sig1,
+  sig2,
+  onInitials1Change,
+  onInitials2Change,
+}) {
   const hasSecond = Boolean(data.homeowner2?.trim());
   const insuredNames = [data.homeowner1, data.homeowner2].filter(Boolean).join(", ");
 
   return (
-    <div className="space-y-6">
-      <div className="rounded-3xl overflow-hidden border bg-white shadow-sm">
-        <div className="flex items-center justify-between bg-gradient-to-r from-emerald-700 to-violet-700 px-6 py-5 text-white">
-          <div className="text-2xl font-bold">Public Adjuster Contract</div>
-          <div className="text-lg font-semibold">CAPITAL CLAIMS GROUP</div>
-        </div>
+    <div style={{ display: "grid", gap: 24 }}>
+      <div
+        style={{
+          borderRadius: 24,
+          overflow: "hidden",
+          border: "1px solid #e5e7eb",
+          background: "#fff",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+        }}
+      >
+        {gradientHeader("Public Adjuster Contract")}
 
-        <div className="grid grid-cols-1 gap-4 p-6 md:grid-cols-2">
-          <div><Label>Insured Name(s)</Label><div className="mt-2 rounded-xl border px-3 py-2">{insuredNames}</div></div>
-          <div><Label>Loss Description</Label><div className="mt-2 rounded-xl border px-3 py-2">{data.lossDescription}</div></div>
-          <div><Label>Claim Type</Label><div className="mt-2 rounded-xl border px-3 py-2">{data.claimType}</div></div>
-          <div><Label>Situation</Label><div className="mt-2 rounded-xl border px-3 py-2">{data.situation}</div></div>
-          <div><Label>Phone</Label><div className="mt-2 rounded-xl border px-3 py-2">{data.phone}</div></div>
-          <div><Label>Insurer</Label><div className="mt-2 rounded-xl border px-3 py-2">{data.insuranceCompany}</div></div>
-          <div><Label>Date of Loss</Label><div className="mt-2 rounded-xl border px-3 py-2">{data.dateOfLoss}</div></div>
-          <div><Label>Policy #</Label><div className="mt-2 rounded-xl border px-3 py-2">{data.policyNumber}</div></div>
-          <div><Label>Claim #</Label><div className="mt-2 rounded-xl border px-3 py-2">{data.claimNumber}</div></div>
-          <div><Label>Street Address</Label><div className="mt-2 rounded-xl border px-3 py-2">{data.address}</div></div>
-          <div><Label>City</Label><div className="mt-2 rounded-xl border px-3 py-2">{data.city}</div></div>
-          <div><Label>State</Label><div className="mt-2 rounded-xl border px-3 py-2">{data.state}</div></div>
-          <div><Label>ZIP</Label><div className="mt-2 rounded-xl border px-3 py-2">{data.zip}</div></div>
-          <div className="md:col-span-2"><Label>Signer Email (recipient)</Label><div className="mt-2 rounded-xl border px-3 py-2">{data.signerEmail}</div></div>
-        </div>
+        {twoColGrid(
+          <>
+            <div>
+              <Label>Insured Name(s)</Label>
+              <FieldBox>{insuredNames}</FieldBox>
+            </div>
+            <div>
+              <Label>Loss Description</Label>
+              <FieldBox>{data.lossDescription}</FieldBox>
+            </div>
+            <div>
+              <Label>Claim Type</Label>
+              <FieldBox>{data.claimType}</FieldBox>
+            </div>
+            <div>
+              <Label>Situation</Label>
+              <FieldBox>{data.situation}</FieldBox>
+            </div>
+            <div>
+              <Label>Phone</Label>
+              <FieldBox>{data.phone}</FieldBox>
+            </div>
+            <div>
+              <Label>Insurer</Label>
+              <FieldBox>{data.insuranceCompany}</FieldBox>
+            </div>
+            <div>
+              <Label>Date of Loss</Label>
+              <FieldBox>{data.dateOfLoss}</FieldBox>
+            </div>
+            <div>
+              <Label>Policy #</Label>
+              <FieldBox>{data.policyNumber}</FieldBox>
+            </div>
+            <div>
+              <Label>Claim #</Label>
+              <FieldBox>{data.claimNumber}</FieldBox>
+            </div>
+            <div>
+              <Label>Street Address</Label>
+              <FieldBox>{data.address}</FieldBox>
+            </div>
+            <div>
+              <Label>City</Label>
+              <FieldBox>{data.city}</FieldBox>
+            </div>
+            <div>
+              <Label>State</Label>
+              <FieldBox>{data.state}</FieldBox>
+            </div>
+            <div>
+              <Label>ZIP</Label>
+              <FieldBox>{data.zip}</FieldBox>
+            </div>
+            <div style={{ gridColumn: "1 / -1" }}>
+              <Label>Signer Email (recipient)</Label>
+              <FieldBox>{data.signerEmail}</FieldBox>
+            </div>
+          </>
+        )}
 
-        <div className="space-y-5 px-6 pb-6 text-[15px] leading-7 text-slate-800">
-          <div className="rounded-xl bg-slate-100 px-4 py-3 font-bold">PUBLIC ADJUSTER CONTRACT</div>
+        <div style={{ padding: "0 24px 24px", color: "#1f2937", fontSize: 15, lineHeight: 1.7 }}>
+          <div
+            style={{
+              borderRadius: 12,
+              background: "#f3f4f6",
+              padding: "12px 16px",
+              fontWeight: 700,
+              marginBottom: 20,
+            }}
+          >
+            PUBLIC ADJUSTER CONTRACT
+          </div>
 
-          <p><strong>1. SERVICE FEE:</strong> The insured(s) hereby retains Capital Claims Group to be its public adjuster and hereby appoints Capital Claims Group to be its independent appraiser to appraise, advise, negotiate, and/or settle the above-referenced claim. The insured(s) agrees to pay and hereby assigns to Capital Claims Group 10% of all payments made by the insurance company related to this claim. In the event appraisal, mediation is demanded, or a lawsuit ensues regarding the above-mentioned claim, there will be an additional charge of five percent. The total contractual percentage shall not exceed the maximum allowed by law.</p>
+          <p>
+            <strong>1. SERVICE FEE:</strong> The insured(s) hereby retains Capital
+            Claims Group to be its public adjuster and hereby appoints Capital Claims
+            Group to be its independent appraiser to appraise, advise, negotiate,
+            and/or settle the above-referenced claim. The insured(s) agrees to pay and
+            hereby assigns to Capital Claims Group 10% of all payments made by the
+            insurance company related to this claim. In the event appraisal, mediation
+            is demanded, or a lawsuit ensues regarding the above-mentioned claim, there
+            will be an additional charge of five percent. The total contractual
+            percentage shall not exceed the maximum allowed by law.
+          </p>
 
-          <p><strong>2. ADDITIONAL PAYEE:</strong> The insured authorizes and requests the insurer and the insured’s mortgage carrier to have Capital Claims Group appear as an additional payee on all checks issued regarding the above-mentioned claim. The insured hereby grants Capital Claims Group a lien on recovered proceeds received by the insurer to the extent of the fee due to Capital Claims Group pursuant to this agreement.</p>
+          <p>
+            <strong>2. ADDITIONAL PAYEE:</strong> The insured authorizes and requests
+            the insurer and the insured’s mortgage carrier to have Capital Claims Group
+            appear as an additional payee on all checks issued regarding the
+            above-mentioned claim. The insured hereby grants Capital Claims Group a
+            lien on recovered proceeds received by the insurer to the extent of the fee
+            due to Capital Claims Group pursuant to this agreement.
+          </p>
 
-          <p><strong>3. THIRD-PARTY FEES:</strong> The insured understands it may be necessary to incur professional fees on the insured’s behalf to properly adjust the claim. These fees may include, but are not limited to, a General Contractor, Engineer, Claim Appraiser, Plumber, Roofer, and Environmental Hygienist. The insured understands that no professional fees will be incurred without the insured’s written or verbal authorization, and that the insured may then be responsible for such fees.</p>
+          <p>
+            <strong>3. THIRD-PARTY FEES:</strong> The insured understands it may be
+            necessary to incur professional fees on the insured’s behalf to properly
+            adjust the claim. These fees may include, but are not limited to, a General
+            Contractor, Engineer, Claim Appraiser, Plumber, Roofer, and Environmental
+            Hygienist. The insured understands that no professional fees will be
+            incurred without the insured’s written or verbal authorization, and that
+            the insured may then be responsible for such fees.
+          </p>
 
-          <div className={`grid gap-4 ${hasSecond ? "md:grid-cols-2" : "md:grid-cols-1"}`}>
-            <InitialsPad title="Initials – Homeowner 1" value={data.initials1} onChange={onInitials1Change} />
-            {hasSecond && <InitialsPad title="Initials – Homeowner 2" value={data.initials2} onChange={onInitials2Change} />}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: hasSecond ? "1fr 1fr" : "1fr",
+              gap: 24,
+            }}
+          >
+            <InitialsPad
+              title="Initials – Homeowner 1"
+              value={data.initials1}
+              onChange={onInitials1Change}
+            />
+            {hasSecond && (
+              <InitialsPad
+                title="Initials – Homeowner 2"
+                value={data.initials2}
+                onChange={onInitials2Change}
+              />
+            )}
           </div>
         </div>
       </div>
 
-      <div className="rounded-3xl border bg-white px-6 py-8 shadow-sm text-[15px] leading-7 text-slate-800 space-y-5">
-        <p><strong>4. ENDORSEMENT:</strong> The insured’s endorsement on any insurance proceeds check will be deemed to be an agreement with the terms and conditions of any related settlement regarding the above-mentioned claim.</p>
+      <Card>
+        <CardContent>
+          <div style={{ color: "#1f2937", fontSize: 15, lineHeight: 1.8 }}>
+            <p>
+              <strong>4. ENDORSEMENT:</strong> The insured’s endorsement on any
+              insurance proceeds check will be deemed to be an agreement with the terms
+              and conditions of any related settlement regarding the above-mentioned
+              claim.
+            </p>
 
-        <p><strong>5. AFFIDAVIT:</strong> I, <span className="inline-block min-w-[220px] border-b border-slate-700 px-1">{insuredNames || "Named insured"}</span>, a named insured under the above-mentioned policy, hereby swear and attest that I have the authority to enter into this contract and settle all claims issued on behalf of all named insureds. Insured acknowledges, understands, and agrees that under section 626.8796, Florida Statutes, an agreement with a public adjuster must be signed by all named insureds.</p>
+            <p>
+              <strong>5. AFFIDAVIT:</strong> I,{" "}
+              <span
+                style={{
+                  display: "inline-block",
+                  minWidth: 220,
+                  borderBottom: "1px solid #334155",
+                  padding: "0 4px",
+                }}
+              >
+                {insuredNames || "Named insured"}
+              </span>
+              , a named insured under the above-mentioned policy, hereby swear and
+              attest that I have the authority to enter into this contract and settle
+              all claims issued on behalf of all named insureds. Insured acknowledges,
+              understands, and agrees that under section 626.8796, Florida Statutes, an
+              agreement with a public adjuster must be signed by all named insureds.
+            </p>
 
-        <p><strong>6. LEGAL:</strong> Capital Claims Group is not a law firm and does not offer legal advice, and there will be no attorney-client relationship with the insured(s). The insured is hereby advised of the right to counsel and may consult with an attorney regarding their claim independently of Capital Claims Group.</p>
+            <p>
+              <strong>6. LEGAL:</strong> Capital Claims Group is not a law firm and
+              does not offer legal advice, and there will be no attorney-client
+              relationship with the insured(s). The insured is hereby advised of the
+              right to counsel and may consult with an attorney regarding their claim
+              independently of Capital Claims Group.
+            </p>
 
-        <p><strong>7. LETTER OF PROTECTION:</strong> The insured understands and agrees that if it becomes necessary to retain an attorney, the insured authorizes and agrees to a Letter of Protection for Capital Claims Group.</p>
+            <p>
+              <strong>7. LETTER OF PROTECTION:</strong> The insured understands and
+              agrees that if it becomes necessary to retain an attorney, the insured
+              authorizes and agrees to a Letter of Protection for Capital Claims Group.
+            </p>
 
-        <p><strong>8. REPRESENTATION:</strong> The insured hereby affirms that no other claim(s) have been filed in reference to the same peril and that no other legal representation is involved with the claim other than <span className="inline-block min-w-[220px] border-b border-slate-700 px-1">{data.representativeName}</span>.</p>
+            <p>
+              <strong>8. REPRESENTATION:</strong> The insured hereby affirms that no
+              other claim(s) have been filed in reference to the same peril and that no
+              other legal representation is involved with the claim other than{" "}
+              <span
+                style={{
+                  display: "inline-block",
+                  minWidth: 220,
+                  borderBottom: "1px solid #334155",
+                  padding: "0 4px",
+                }}
+              >
+                {data.representativeName}
+              </span>
+              .
+            </p>
 
-        <div className={`grid gap-4 ${hasSecond ? "md:grid-cols-2" : "md:grid-cols-1"}`}>
-          <div>
-            <div className="text-sm font-medium">Initials – Homeowner 1</div>
-            <InitialsImage value={data.initials1} />
-          </div>
-          {hasSecond && (
-            <div>
-              <div className="text-sm font-medium">Initials – Homeowner 2</div>
-              <InitialsImage value={data.initials2} />
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: hasSecond ? "1fr 1fr" : "1fr",
+                gap: 24,
+                marginTop: 16,
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 500 }}>
+                  Initials – Homeowner 1
+                </div>
+                <InitialsImage value={data.initials1} />
+              </div>
+              {hasSecond && (
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 500 }}>
+                    Initials – Homeowner 2
+                  </div>
+                  <InitialsImage value={data.initials2} />
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      </div>
-
-      <div className="rounded-3xl border bg-white px-6 py-8 shadow-sm text-[15px] leading-7 text-slate-800 space-y-5">
-        <p><strong>9. SEVERABILITY:</strong> Unenforceability or invalidity of one or more clauses in this Agreement shall not affect any other clause.</p>
-
-        <p><strong>10. DISPUTE:</strong> In the event of litigation arising from this agreement, the venue shall be in Miami-Dade County, Florida. The prevailing party shall be entitled to recover its court costs, reasonable attorney fees, including those incurred during any appeal proceedings, and interest on any past due fees at the maximum rate permitted by applicable law.</p>
-
-        <p><strong>11. COMMERCIAL POLICY CANCELLATION:</strong> You, the insured(s), may cancel this contract for any reason without penalty or obligation to you within 10 days after the date of this contract.</p>
-
-        <div className={`grid gap-4 ${hasSecond ? "md:grid-cols-2" : "md:grid-cols-1"}`}>
-          <div>
-            <div className="text-sm font-medium">Initials – Homeowner 1</div>
-            <InitialsImage value={data.initials1} />
           </div>
-          {hasSecond && (
-            <div>
-              <div className="text-sm font-medium">Initials – Homeowner 2</div>
-              <InitialsImage value={data.initials2} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent>
+          <div style={{ color: "#1f2937", fontSize: 15, lineHeight: 1.8 }}>
+            <p>
+              <strong>9. SEVERABILITY:</strong> Unenforceability or invalidity of one
+              or more clauses in this Agreement shall not affect any other clause.
+            </p>
+
+            <p>
+              <strong>10. DISPUTE:</strong> In the event of litigation arising from
+              this agreement, the venue shall be in Miami-Dade County, Florida. The
+              prevailing party shall be entitled to recover its court costs,
+              reasonable attorney fees, including those incurred during any appeal
+              proceedings, and interest on any past due fees at the maximum rate
+              permitted by applicable law.
+            </p>
+
+            <p>
+              <strong>11. COMMERCIAL POLICY CANCELLATION:</strong> You, the insured(s),
+              may cancel this contract for any reason without penalty or obligation to
+              you within 10 days after the date of this contract.
+            </p>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: hasSecond ? "1fr 1fr" : "1fr",
+                gap: 24,
+                marginTop: 16,
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 500 }}>
+                  Initials – Homeowner 1
+                </div>
+                <InitialsImage value={data.initials1} />
+              </div>
+              {hasSecond && (
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 500 }}>
+                    Initials – Homeowner 2
+                  </div>
+                  <InitialsImage value={data.initials2} />
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      </div>
-
-      <div className="rounded-3xl border bg-white px-6 py-8 shadow-sm text-[15px] leading-7 text-slate-800 space-y-5">
-        <p><strong>12. RESIDENTIAL POLICY CANCELLATION:</strong> You, the insured, may cancel this contract for any reason without penalty or obligation to you within 10 days after the date of this contract.</p>
-
-        <p className="font-semibold">The notice of cancellation shall be provided to Capital Claims Group, submitted in writing, and sent by certified mail, return receipt requested, or another form of mailing that provides proof thereof, at the address specified in the contract.</p>
-
-        <p className="font-semibold">Pursuant to s. 817.234, Florida Statutes, any person who, with the intent to injure, defraud, or deceive any insurer or insured, prepares, presents, or causes to be presented a proof of loss or estimate of cost or repair of damaged property in support of a claim under an insurance policy, knowing that the proof of loss or estimate of claim or repairs contains any false, incomplete, or misleading information concerning any fact or thing material to the claim, commits a felony of the third degree, punishable as provided in s. 775.082, s. 775.803, or s. 775.084, Florida Statutes.</p>
-
-        <p className="font-semibold">Insured(s) have read, understand and voluntarily sign the foregoing Agreement. A computer or faxed signature or copy of this document shall be deemed to have the same effect as the original.</p>
-
-        <div className={`grid gap-4 ${hasSecond ? "md:grid-cols-2" : "md:grid-cols-1"}`}>
-          <div>
-            <div className="text-sm font-medium">Initials – Homeowner 1</div>
-            <InitialsImage value={data.initials1} />
           </div>
-          {hasSecond && (
-            <div>
-              <div className="text-sm font-medium">Initials – Homeowner 2</div>
-              <InitialsImage value={data.initials2} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent>
+          <div style={{ color: "#1f2937", fontSize: 15, lineHeight: 1.8 }}>
+            <p>
+              <strong>12. RESIDENTIAL POLICY CANCELLATION:</strong> You, the insured,
+              may cancel this contract for any reason without penalty or obligation to
+              you within 10 days after the date of this contract.
+            </p>
+
+            <p style={{ fontWeight: 600 }}>
+              The notice of cancellation shall be provided to Capital Claims Group,
+              submitted in writing, and sent by certified mail, return receipt
+              requested, or another form of mailing that provides proof thereof, at the
+              address specified in the contract.
+            </p>
+
+            <p style={{ fontWeight: 600 }}>
+              Pursuant to s. 817.234, Florida Statutes, any person who, with the intent
+              to injure, defraud, or deceive any insurer or insured, prepares,
+              presents, or causes to be presented a proof of loss or estimate of cost
+              or repair of damaged property in support of a claim under an insurance
+              policy, knowing that the proof of loss or estimate of claim or repairs
+              contains any false, incomplete, or misleading information concerning any
+              fact or thing material to the claim, commits a felony of the third
+              degree, punishable as provided in s. 775.082, s. 775.803, or s. 775.084,
+              Florida Statutes.
+            </p>
+
+            <p style={{ fontWeight: 600 }}>
+              Insured(s) have read, understand and voluntarily sign the foregoing
+              Agreement. A computer or faxed signature or copy of this document shall
+              be deemed to have the same effect as the original.
+            </p>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: hasSecond ? "1fr 1fr" : "1fr",
+                gap: 24,
+                marginTop: 16,
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 500 }}>
+                  Initials – Homeowner 1
+                </div>
+                <InitialsImage value={data.initials1} />
+              </div>
+              {hasSecond && (
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 500 }}>
+                    Initials – Homeowner 2
+                  </div>
+                  <InitialsImage value={data.initials2} />
+                </div>
+              )}
             </div>
-          )}
-        </div>
 
-        <div className="rounded-xl bg-slate-100 px-4 py-3 font-bold">Insured Signature</div>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div><Label>Insured (Print)</Label><div className="mt-2 rounded-xl border px-3 py-2">{insuredNames}</div></div>
-          <div><Label>Date</Label><div className="mt-2 rounded-xl border px-3 py-2">{data.date}</div></div>
-        </div>
+            <div
+              style={{
+                borderRadius: 12,
+                background: "#f3f4f6",
+                padding: "12px 16px",
+                fontWeight: 700,
+                marginTop: 24,
+              }}
+            >
+              Insured Signature
+            </div>
 
-        <div className={`grid gap-6 pt-2 ${hasSecond ? "md:grid-cols-2" : "md:grid-cols-1"}`}>
-          <div>
-            <div className="mb-2 text-sm font-medium">Homeowner 1 Signature</div>
-            <div className="flex h-40 items-center justify-center overflow-hidden rounded-2xl border border-dashed bg-slate-50">{sig1 ? <img src={sig1} alt="Signature 1" className="h-full w-full object-contain" /> : <span className="text-sm text-slate-400">Signature pending</span>}</div>
-            <div className="mt-2 text-sm text-slate-600">{data.homeowner1}</div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+                gap: 16,
+                marginTop: 16,
+              }}
+            >
+              <div>
+                <Label>Insured (Print)</Label>
+                <FieldBox>{insuredNames}</FieldBox>
+              </div>
+              <div>
+                <Label>Date</Label>
+                <FieldBox>{data.date}</FieldBox>
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: hasSecond ? "1fr 1fr" : "1fr",
+                gap: 24,
+                paddingTop: 16,
+              }}
+            >
+              <SignatureDisplay
+                title="Homeowner 1 Signature"
+                name={data.homeowner1}
+                value={sig1}
+              />
+              {hasSecond && (
+                <SignatureDisplay
+                  title="Homeowner 2 Signature"
+                  name={data.homeowner2}
+                  value={sig2}
+                />
+              )}
+            </div>
+
+            <div
+              style={{
+                borderTop: "3px solid #7c3aed",
+                marginTop: 24,
+                paddingTop: 16,
+                fontSize: 14,
+                color: "#374151",
+              }}
+            >
+              <div style={{ fontWeight: 700 }}>3600 Red Rd suite Ste 601B</div>
+              <div>
+                Miramar, FL 33025 • claims@capitalclaimgroup.com • +1 (954)
+                571-3035 • www.ccgclaims.com
+              </div>
+              <div style={{ marginTop: 8, fontWeight: 600, color: "#7c3aed" }}>
+                License No: G240595
+              </div>
+            </div>
           </div>
-          {hasSecond && (
-            <div>
-              <div className="mb-2 text-sm font-medium">Homeowner 2 Signature</div>
-              <div className="flex h-40 items-center justify-center overflow-hidden rounded-2xl border border-dashed bg-slate-50">{sig2 ? <img src={sig2} alt="Signature 2" className="h-full w-full object-contain" /> : <span className="text-sm text-slate-400">Signature pending</span>}</div>
-              <div className="mt-2 text-sm text-slate-600">{data.homeowner2}</div>
-            </div>
-          )}
-        </div>
-
-        <Separator className="border-violet-500" />
-        <div className="text-sm text-slate-700">
-          <div className="font-semibold">3600 Red Rd suite Ste 601B</div>
-          <div>Miramar, FL 33025 &nbsp; • &nbsp; claims@capitalclaimgroup.com &nbsp; • &nbsp; +1 (954) 571-3035 &nbsp; • &nbsp; www.ccgclaims.com</div>
-          <div className="mt-2 font-medium text-violet-700">License No: G240595</div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -353,14 +978,16 @@ export default function App() {
   const [view, setView] = useState("input");
   const [activeDoc, setActiveDoc] = useState("lor");
   const [signMode, setSignMode] = useState("now");
-  const [pendingSend, setPendingSend] = useState(false);
   const [data, setData] = useState(initialData);
   const [sig1, setSig1] = useState("");
   const [sig2, setSig2] = useState("");
+  const [pendingSend, setPendingSend] = useState(false);
 
   const hasSecond = Boolean(data.homeowner2?.trim());
 
-  const update = (key, value) => setData((prev) => ({ ...prev, [key]: value }));
+  const update = (key, value) => {
+    setData((prev) => ({ ...prev, [key]: value }));
+  };
 
   const openDoc = (doc) => {
     setActiveDoc(doc);
@@ -372,66 +999,212 @@ export default function App() {
 
   const submitDoc = () => {
     if (pendingSend) {
-      alert(`This would send the ${activeDoc === "lor" ? "Letter of Representation" : "PA Agreement"} to ${data.signerEmail} for signature and send a copy/notification to ${data.paEmail}.`);
+      alert(
+        `This would send the ${
+          activeDoc === "lor" ? "Letter of Representation" : "PA Agreement"
+        } to ${data.signerEmail} for signature and send a copy/notification to ${data.paEmail}.`
+      );
     } else {
-      alert(`This would email copies of the ${activeDoc === "lor" ? "Letter of Representation" : "PA Agreement"} to ${data.signerEmail} and ${data.paEmail}.`);
+      alert(
+        `This would email copies of the ${
+          activeDoc === "lor" ? "Letter of Representation" : "PA Agreement"
+        } to ${data.signerEmail} and ${data.paEmail}.`
+      );
     }
     setView("input");
     setPendingSend(false);
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 p-4 md:p-8">
-      <div className="mx-auto max-w-6xl space-y-6">
+    <div
+      style={{
+        minHeight: "100vh",
+        background: "#f1f5f9",
+        padding: 16,
+        boxSizing: "border-box",
+      }}
+    >
+      <style>{`
+        body {
+          margin: 0;
+          font-family: Arial, Helvetica, sans-serif;
+        }
+      `}</style>
+
+      <div
+        style={{
+          maxWidth: 1100,
+          margin: "0 auto",
+          display: "grid",
+          gap: 24,
+        }}
+      >
         {view === "input" && (
-          <Card className="rounded-3xl border-0 shadow-sm">
+          <Card>
             <CardHeader>
-              <CardTitle className="text-2xl">Claim Intake</CardTitle>
-              <CardDescription>Enter the information once, choose sign now or send for signing, then choose the document.</CardDescription>
+              <CardTitle>Claim Intake</CardTitle>
+              <CardDescription>
+                Enter the information once, choose sign now or send for signing,
+                then choose the document.
+              </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-5">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <FormField label="Date" type="date" value={data.date} onChange={(v) => update("date", v)} />
-                <FormField label="Insurance Company" value={data.insuranceCompany} onChange={(v) => update("insuranceCompany", v)} />
-                <FormField label="Policy #" value={data.policyNumber} onChange={(v) => update("policyNumber", v)} />
-                <FormField label="Phone" value={data.phone} onChange={(v) => update("phone", v)} />
-                <FormField label="Representative Name" value={data.representativeName} onChange={(v) => update("representativeName", v)} />
-                <FormField label="Homeowner 1" value={data.homeowner1} onChange={(v) => update("homeowner1", v)} />
-                <FormField label="Homeowner 2" value={data.homeowner2} onChange={(v) => update("homeowner2", v)} />
-                <div className="md:col-span-2"><FormField label="Address" value={data.address} onChange={(v) => update("address", v)} /></div>
-                <FormField label="City" value={data.city} onChange={(v) => update("city", v)} />
-                <FormField label="State" value={data.state} onChange={(v) => update("state", v)} />
-                <FormField label="ZIP" value={data.zip} onChange={(v) => update("zip", v)} />
-                <div className="md:col-span-2"><FormField label="Loss Location" value={data.lossLocation} onChange={(v) => update("lossLocation", v)} /></div>
-                <FormField label="Homeowner Email" type="email" value={data.signerEmail} onChange={(v) => update("signerEmail", v)} />
-                <FormField label="PA Email" type="email" value={data.paEmail} onChange={(v) => update("paEmail", v)} />
+
+            <CardContent>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+                  gap: 16,
+                }}
+              >
+                <FormField
+                  label="Date"
+                  type="date"
+                  value={data.date}
+                  onChange={(v) => update("date", v)}
+                />
+                <FormField
+                  label="Insurance Company"
+                  value={data.insuranceCompany}
+                  onChange={(v) => update("insuranceCompany", v)}
+                />
+                <FormField
+                  label="Policy #"
+                  value={data.policyNumber}
+                  onChange={(v) => update("policyNumber", v)}
+                />
+                <FormField
+                  label="Phone"
+                  value={data.phone}
+                  onChange={(v) => update("phone", v)}
+                />
+                <FormField
+                  label="Representative Name"
+                  value={data.representativeName}
+                  onChange={(v) => update("representativeName", v)}
+                />
+                <FormField
+                  label="Homeowner 1"
+                  value={data.homeowner1}
+                  onChange={(v) => update("homeowner1", v)}
+                />
+                <FormField
+                  label="Homeowner 2"
+                  value={data.homeowner2}
+                  onChange={(v) => update("homeowner2", v)}
+                />
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <FormField
+                    label="Address"
+                    value={data.address}
+                    onChange={(v) => update("address", v)}
+                  />
+                </div>
+                <FormField
+                  label="City"
+                  value={data.city}
+                  onChange={(v) => update("city", v)}
+                />
+                <FormField
+                  label="State"
+                  value={data.state}
+                  onChange={(v) => update("state", v)}
+                />
+                <FormField
+                  label="ZIP"
+                  value={data.zip}
+                  onChange={(v) => update("zip", v)}
+                />
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <FormField
+                    label="Loss Location"
+                    value={data.lossLocation}
+                    onChange={(v) => update("lossLocation", v)}
+                  />
+                </div>
+                <FormField
+                  label="Homeowner Email"
+                  type="email"
+                  value={data.signerEmail}
+                  onChange={(v) => update("signerEmail", v)}
+                />
+                <FormField
+                  label="PA Email"
+                  type="email"
+                  value={data.paEmail}
+                  onChange={(v) => update("paEmail", v)}
+                />
               </div>
 
-              <Separator />
+              <div style={{ marginTop: 20 }}>
+                <Separator />
+              </div>
 
-              <div className="space-y-3">
-                <div className="text-sm font-medium text-slate-700">Signing option</div>
-                <div className="grid gap-3 md:grid-cols-2">
-                  <Button variant={signMode === "now" ? "default" : "outline"} className="rounded-2xl" onClick={() => setSignMode("now")}>
-                    <FileSignature className="mr-2 h-4 w-4" /> Sign Now
+              <div style={{ marginTop: 20 }}>
+                <div
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: "#374151",
+                    marginBottom: 12,
+                  }}
+                >
+                  Signing option
+                </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                    gap: 12,
+                  }}
+                >
+                  <Button
+                    variant={signMode === "now" ? "default" : "outline"}
+                    onClick={() => setSignMode("now")}
+                  >
+                    <FileSignature size={16} /> Sign Now
                   </Button>
-                  <Button variant={signMode === "send" ? "default" : "outline"} className="rounded-2xl" onClick={() => setSignMode("send")}>
-                    <Send className="mr-2 h-4 w-4" /> Send for Signing
+
+                  <Button
+                    variant={signMode === "send" ? "default" : "outline"}
+                    onClick={() => setSignMode("send")}
+                  >
+                    <Send size={16} /> Send for Signing
                   </Button>
                 </div>
-                <div className="text-xs text-slate-500">
-                  Both options open the form for review first. Then the rep can either sign now in-app or send it out for signature from the document screen.
+
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: "#6b7280",
+                    marginTop: 10,
+                  }}
+                >
+                  Both options open the form for review first. Then the rep can
+                  either sign now in-app or send it out for signature from the
+                  document screen.
                 </div>
               </div>
 
-              <Separator />
+              <div style={{ marginTop: 20 }}>
+                <Separator />
+              </div>
 
-              <div className="grid gap-3 md:grid-cols-2">
-                <Button className="rounded-2xl" onClick={() => openDoc("lor")}>
-                  <FileSignature className="mr-2 h-4 w-4" /> Letter of Representation
+              <div
+                style={{
+                  marginTop: 20,
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: 12,
+                }}
+              >
+                <Button onClick={() => openDoc("lor")}>
+                  <FileSignature size={16} /> Letter of Representation
                 </Button>
-                <Button variant="outline" className="rounded-2xl" onClick={() => openDoc("pac")}>
-                  <FileSignature className="mr-2 h-4 w-4" /> PA Agreement
+
+                <Button variant="outline" onClick={() => openDoc("pac")}>
+                  <FileSignature size={16} /> PA Agreement
                 </Button>
               </div>
             </CardContent>
@@ -440,9 +1213,11 @@ export default function App() {
 
         {view === "sign" && (
           <>
-            <Button variant="outline" className="rounded-2xl" onClick={() => setView("input")}>
-              <ArrowLeft className="mr-2 h-4 w-4" /> Back
-            </Button>
+            <div>
+              <Button variant="outline" onClick={() => setView("input")}>
+                <ArrowLeft size={16} /> Back
+              </Button>
+            </div>
 
             {activeDoc === "lor" ? (
               <LetterOfRepresentation data={data} sig1={sig1} sig2={sig2} />
@@ -456,21 +1231,39 @@ export default function App() {
               />
             )}
 
-            <Card className="rounded-3xl border-0 shadow-sm">
+            <Card>
               <CardHeader>
-                <CardTitle className="text-2xl">{pendingSend ? "Review & Send for Signing" : "Sign Document"}</CardTitle>
-                <CardDescription>{pendingSend ? "Review the form, then send it to the homeowner for signature." : "These signatures apply to the selected document."}</CardDescription>
+                <CardTitle>
+                  {pendingSend ? "Review & Send for Signing" : "Sign Document"}
+                </CardTitle>
+                <CardDescription>
+                  {pendingSend
+                    ? "Review the form, then send it to the homeowner for signature."
+                    : "These signatures apply to the selected document."}
+                </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
+
+              <CardContent>
                 {!pendingSend && (
                   <>
-                    <SignaturePad title="Homeowner 1 Signature" value={sig1} onChange={setSig1} />
-                    {hasSecond && <SignaturePad title="Homeowner 2 Signature" value={sig2} onChange={setSig2} />}
+                    <SignaturePad
+                      title="Homeowner 1 Signature"
+                      value={sig1}
+                      onChange={setSig1}
+                    />
+                    {hasSecond && (
+                      <SignaturePad
+                        title="Homeowner 2 Signature"
+                        value={sig2}
+                        onChange={setSig2}
+                      />
+                    )}
                   </>
                 )}
-                <div className="flex flex-wrap gap-3 pt-2">
-                  <Button className="rounded-2xl" onClick={submitDoc}>
-                    {pendingSend ? <Send className="mr-2 h-4 w-4" /> : <Mail className="mr-2 h-4 w-4" />}
+
+                <div style={{ display: "flex", gap: 12, paddingTop: 8 }}>
+                  <Button onClick={submitDoc}>
+                    {pendingSend ? <Send size={16} /> : <Mail size={16} />}
                     {pendingSend ? "Send for Signing" : "Submit & Email Copies"}
                   </Button>
                 </div>
