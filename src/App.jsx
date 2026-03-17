@@ -1061,24 +1061,31 @@ export default function App() {
 
   const saveClaimToSupabase = async () => {
     const { error } = await supabase.from("claims").insert([
-      {
-        date: data.date,
-        insurance_company: data.insuranceCompany,
-        policy_number: data.policyNumber,
-        representative_name: data.representativeName,
-        representative_email: data.representativeEmail,
-        homeowner1: data.homeowner1,
-        homeowner2: data.homeowner2,
-        phone: data.phone,
-        address: data.address,
-        city: data.city,
-        state: data.state,
-        zip: data.zip,
-        loss_location: data.lossLocation,
-        homeowner_email: data.signerEmail,
-        pa_email: data.paEmail,
-      },
-    ]);
+  {
+    date: data.date,
+    insurance_company: data.insuranceCompany,
+    policy_number: data.policyNumber,
+    claim_number: data.claimNumber,
+    representative_name: data.representativeName,
+    representative_email: data.representativeEmail,
+    homeowner1: data.homeowner1,
+    homeowner2: data.homeowner2,
+    phone: data.phone,
+    address: data.address,
+    city: data.city,
+    state: data.state,
+    zip: data.zip,
+    loss_location: data.lossLocation,
+    date_of_loss: data.dateOfLoss,
+    situation: data.situation,
+    homeowner_email: data.signerEmail,
+    pa_email: data.paEmail,
+    signature1: sig1,
+    signature2: sig2,
+    initials1: data.initials1,
+    initials2: data.initials2,
+  },
+]);
 
     return error;
   };
