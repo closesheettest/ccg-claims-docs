@@ -15,6 +15,7 @@ const initialData = {
   signerEmail: "",
   paEmail: "claims@iambenitopaul.com",
   representativeName: "Benito Paul",
+  representativeEmail: "",
   homeowner1: "",
   homeowner2: "",
   address: "",
@@ -344,7 +345,10 @@ function InitialsImage({ value }) {
 }
 
 function formatAddress(data) {
-  return [data.address, [data.city, data.state, data.zip].filter(Boolean).join(", ")]
+  return [
+    data.address,
+    [data.city, data.state, data.zip].filter(Boolean).join(", "),
+  ]
     .filter(Boolean)
     .join("\n");
 }
@@ -385,7 +389,9 @@ function twoColGrid(children) {
 function SignatureDisplay({ name, value, title }) {
   return (
     <div>
-      <div style={{ marginBottom: 8, fontSize: 14, fontWeight: 500 }}>{title}</div>
+      <div style={{ marginBottom: 8, fontSize: 14, fontWeight: 500 }}>
+        {title}
+      </div>
       <div
         style={{
           display: "flex",
@@ -405,7 +411,9 @@ function SignatureDisplay({ name, value, title }) {
             style={{ width: "100%", height: "100%", objectFit: "contain" }}
           />
         ) : (
-          <span style={{ color: "#94a3b8", fontSize: 14 }}>Signature pending</span>
+          <span style={{ color: "#94a3b8", fontSize: 14 }}>
+            Signature pending
+          </span>
         )}
       </div>
       <div style={{ marginTop: 8, fontSize: 14, color: "#475569" }}>{name}</div>
@@ -419,6 +427,7 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
 
   return (
     <div
+      id="printable-document"
       style={{
         borderRadius: 24,
         overflow: "hidden",
@@ -455,7 +464,9 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
           </div>
           <div>
             <Label>Client / Insured</Label>
-            <FieldBox>{[data.homeowner1, data.homeowner2].filter(Boolean).join(", ")}</FieldBox>
+            <FieldBox>
+              {[data.homeowner1, data.homeowner2].filter(Boolean).join(", ")}
+            </FieldBox>
           </div>
           <div>
             <Label>Loss Location</Label>
@@ -476,7 +487,14 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
         </>
       )}
 
-      <div style={{ padding: "0 24px 24px", color: "#1f2937", fontSize: 15, lineHeight: 1.9 }}>
+      <div
+        style={{
+          padding: "0 24px 24px",
+          color: "#1f2937",
+          fontSize: 15,
+          lineHeight: 1.9,
+        }}
+      >
         <Separator />
         <p>
           <strong>Dear Claims Manager:</strong>
@@ -559,11 +577,14 @@ function PublicAdjusterContract({
   onInitials2Change,
 }) {
   const hasSecond = Boolean(data.homeowner2?.trim());
-  const insuredNames = [data.homeowner1, data.homeowner2].filter(Boolean).join(", ");
+  const insuredNames = [data.homeowner1, data.homeowner2].filter(Boolean).join(
+    ", "
+  );
 
   return (
     <div style={{ display: "grid", gap: 24 }}>
       <div
+        id="printable-document"
         style={{
           borderRadius: 24,
           overflow: "hidden",
@@ -635,7 +656,14 @@ function PublicAdjusterContract({
           </>
         )}
 
-        <div style={{ padding: "0 24px 24px", color: "#1f2937", fontSize: 15, lineHeight: 1.7 }}>
+        <div
+          style={{
+            padding: "0 24px 24px",
+            color: "#1f2937",
+            fontSize: 15,
+            lineHeight: 1.7,
+          }}
+        >
           <div
             style={{
               borderRadius: 12,
@@ -1002,13 +1030,13 @@ export default function App() {
       alert(
         `This would send the ${
           activeDoc === "lor" ? "Letter of Representation" : "PA Agreement"
-        } to ${data.signerEmail} for signature and send a copy/notification to ${data.paEmail}.`
+        } to ${data.signerEmail} for signature and notify ${data.representativeEmail || "the representative"} and ${data.paEmail}.`
       );
     } else {
       alert(
-        `This would email copies of the ${
+        `This would email signed copies of the ${
           activeDoc === "lor" ? "Letter of Representation" : "PA Agreement"
-        } to ${data.signerEmail} and ${data.paEmail}.`
+        } to ${data.signerEmail}, ${data.representativeEmail || "the representative"}, and ${data.paEmail}.`
       );
     }
     setView("input");
@@ -1082,6 +1110,12 @@ export default function App() {
                   label="Representative Name"
                   value={data.representativeName}
                   onChange={(v) => update("representativeName", v)}
+                />
+                <FormField
+                  label="Representative Email"
+                  type="email"
+                  value={data.representativeEmail}
+                  onChange={(v) => update("representativeEmail", v)}
                 />
                 <FormField
                   label="Homeowner 1"
