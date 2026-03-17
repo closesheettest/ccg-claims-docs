@@ -1133,6 +1133,37 @@ export default function App() {
       alert("Error saving: " + error.message);
       return;
     }
+    const emailResponse = await fetch("/.netlify/functions/send-email", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    to: [data.signerEmail, data.representativeEmail, data.paEmail].filter(Boolean),
+    subject:
+      activeDoc === "lor"
+        ? "Letter of Representation Submitted"
+        : "PA Agreement Submitted",
+    html: `
+      <h2>Claim Document Submitted</h2>
+      <p><strong>Document:</strong> ${
+        activeDoc === "lor" ? "Letter of Representation" : "PA Agreement"
+      }</p>
+      <p><strong>Insurance Company:</strong> ${data.insuranceCompany || ""}</p>
+      <p><strong>Policy Number:</strong> ${data.policyNumber || ""}</p>
+      <p><strong>Homeowner 1:</strong> ${data.homeowner1 || ""}</p>
+      <p><strong>Homeowner 2:</strong> ${data.homeowner2 || ""}</p>
+      <p><strong>Representative:</strong> ${data.representativeName || ""}</p>
+    `,
+  }),
+});
+
+const emailResult = await emailResponse.json();
+
+if (!emailResponse.ok) {
+  alert("Saved to database, but email failed: " + (emailResult.error || "Unknown error"));
+  return;
+}
 
     if (pendingSend) {
       alert(
