@@ -1349,9 +1349,21 @@ if (!emailResponse.ok) {
                 </Card>
               </div>
 
-              <div style={{ marginTop: 20 }}>
-                <Separator />
-              </div>
+<div
+  style={{
+    fontSize: 18,
+    color: "red",
+    fontWeight: "bold",
+    marginTop: 14,
+    textAlign: "center",
+  }}
+>
+  First pick which function sign now or send for signing then click on the form you want
+</div>
+
+<div style={{ marginTop: 20 }}>
+  <Separator />
+</div>
 
               <div style={{ marginTop: 20 }}>
                 <div
@@ -1387,17 +1399,7 @@ if (!emailResponse.ok) {
                   </Button>
                 </div>
 
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: "#6b7280",
-                    marginTop: 10,
-                  }}
-                >
-                  Both options open the form for review first. Then the rep can
-                  either sign now in-app or send it out for signature from the
-                  document screen.
-                </div>
+                
               </div>
 
               <div style={{ marginTop: 20 }}>
