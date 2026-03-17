@@ -75,7 +75,7 @@ function Button({
   );
 }
 
-function Card({ children }) {
+function Card({ children, style = {} }) {
   return (
     <div
       style={{
@@ -83,6 +83,7 @@ function Card({ children }) {
         borderRadius: 24,
         boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
         border: "1px solid #e5e7eb",
+        ...style,
       }}
     >
       {children}
@@ -127,6 +128,21 @@ function Label({ children }) {
     >
       {children}
     </label>
+  );
+}
+
+function SectionTitle({ children }) {
+  return (
+    <div
+      style={{
+        fontSize: 16,
+        fontWeight: 700,
+        color: "#111827",
+        marginBottom: 14,
+      }}
+    >
+      {children}
+    </div>
   );
 }
 
@@ -1078,96 +1094,125 @@ export default function App() {
             </CardHeader>
 
             <CardContent>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-                  gap: 16,
-                }}
-              >
-                <FormField
-                  label="Date"
-                  type="date"
-                  value={data.date}
-                  onChange={(v) => update("date", v)}
-                />
-                <FormField
-                  label="Insurance Company"
-                  value={data.insuranceCompany}
-                  onChange={(v) => update("insuranceCompany", v)}
-                />
-                <FormField
-                  label="Policy #"
-                  value={data.policyNumber}
-                  onChange={(v) => update("policyNumber", v)}
-                />
-                <FormField
-                  label="Phone"
-                  value={data.phone}
-                  onChange={(v) => update("phone", v)}
-                />
-                <FormField
-                  label="Representative Name"
-                  value={data.representativeName}
-                  onChange={(v) => update("representativeName", v)}
-                />
-                <FormField
-                  label="Representative Email"
-                  type="email"
-                  value={data.representativeEmail}
-                  onChange={(v) => update("representativeEmail", v)}
-                />
-                <FormField
-                  label="Homeowner 1"
-                  value={data.homeowner1}
-                  onChange={(v) => update("homeowner1", v)}
-                />
-                <FormField
-                  label="Homeowner 2"
-                  value={data.homeowner2}
-                  onChange={(v) => update("homeowner2", v)}
-                />
-                <div style={{ gridColumn: "1 / -1" }}>
-                  <FormField
-                    label="Address"
-                    value={data.address}
-                    onChange={(v) => update("address", v)}
-                  />
-                </div>
-                <FormField
-                  label="City"
-                  value={data.city}
-                  onChange={(v) => update("city", v)}
-                />
-                <FormField
-                  label="State"
-                  value={data.state}
-                  onChange={(v) => update("state", v)}
-                />
-                <FormField
-                  label="ZIP"
-                  value={data.zip}
-                  onChange={(v) => update("zip", v)}
-                />
-                <div style={{ gridColumn: "1 / -1" }}>
-                  <FormField
-                    label="Loss Location"
-                    value={data.lossLocation}
-                    onChange={(v) => update("lossLocation", v)}
-                  />
-                </div>
-                <FormField
-                  label="Homeowner Email"
-                  type="email"
-                  value={data.signerEmail}
-                  onChange={(v) => update("signerEmail", v)}
-                />
-                <FormField
-                  label="PA Email"
-                  type="email"
-                  value={data.paEmail}
-                  onChange={(v) => update("paEmail", v)}
-                />
+              <div style={{ display: "grid", gap: 24 }}>
+                <Card style={{ padding: 20, background: "#f8fafc" }}>
+                  <SectionTitle>Insurance Info</SectionTitle>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+                      gap: 16,
+                    }}
+                  >
+                    <FormField
+                      label="Date"
+                      type="date"
+                      value={data.date}
+                      onChange={(v) => update("date", v)}
+                    />
+                    <FormField
+                      label="Insurance Company"
+                      value={data.insuranceCompany}
+                      onChange={(v) => update("insuranceCompany", v)}
+                    />
+                    <FormField
+                      label="Policy #"
+                      value={data.policyNumber}
+                      onChange={(v) => update("policyNumber", v)}
+                    />
+                    <FormField
+                      label="Phone"
+                      value={data.phone}
+                      onChange={(v) => update("phone", v)}
+                    />
+                    <div style={{ gridColumn: "1 / -1" }}>
+                      <FormField
+                        label="Loss Location"
+                        value={data.lossLocation}
+                        onChange={(v) => update("lossLocation", v)}
+                      />
+                    </div>
+                  </div>
+                </Card>
+
+                <Card style={{ padding: 20, background: "#f8fafc" }}>
+                  <SectionTitle>Homeowner Info</SectionTitle>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+                      gap: 16,
+                    }}
+                  >
+                    <FormField
+                      label="Homeowner 1"
+                      value={data.homeowner1}
+                      onChange={(v) => update("homeowner1", v)}
+                    />
+                    <FormField
+                      label="Homeowner 2"
+                      value={data.homeowner2}
+                      onChange={(v) => update("homeowner2", v)}
+                    />
+                    <div style={{ gridColumn: "1 / -1" }}>
+                      <FormField
+                        label="Address"
+                        value={data.address}
+                        onChange={(v) => update("address", v)}
+                      />
+                    </div>
+                    <FormField
+                      label="City"
+                      value={data.city}
+                      onChange={(v) => update("city", v)}
+                    />
+                    <FormField
+                      label="State"
+                      value={data.state}
+                      onChange={(v) => update("state", v)}
+                    />
+                    <FormField
+                      label="ZIP"
+                      value={data.zip}
+                      onChange={(v) => update("zip", v)}
+                    />
+                    <FormField
+                      label="Homeowner Email"
+                      type="email"
+                      value={data.signerEmail}
+                      onChange={(v) => update("signerEmail", v)}
+                    />
+                  </div>
+                </Card>
+
+                <Card style={{ padding: 20, background: "#f8fafc" }}>
+                  <SectionTitle>Office Info</SectionTitle>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+                      gap: 16,
+                    }}
+                  >
+                    <FormField
+                      label="Representative Name"
+                      value={data.representativeName}
+                      onChange={(v) => update("representativeName", v)}
+                    />
+                    <FormField
+                      label="Representative Email"
+                      type="email"
+                      value={data.representativeEmail}
+                      onChange={(v) => update("representativeEmail", v)}
+                    />
+                    <FormField
+                      label="PA Email"
+                      type="email"
+                      value={data.paEmail}
+                      onChange={(v) => update("paEmail", v)}
+                    />
+                  </div>
+                </Card>
               </div>
 
               <div style={{ marginTop: 20 }}>
