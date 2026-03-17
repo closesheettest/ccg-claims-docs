@@ -9,7 +9,7 @@ import {
 import { supabase } from "./lib/supabase";
 
 const initialData = {
-  date: "",
+  date: new Date().toISOString().split("T")[0],
   insuranceCompany: "",
   policyNumber: "",
   lossLocation: "",
