@@ -6,6 +6,7 @@ import {
   RotateCcw,
   Send,
 } from "lucide-react";
+import { supabase } from "./lib/supabase";
 
 const initialData = {
   date: "",
@@ -1058,6 +1059,30 @@ export default function App() {
   const [sig2, setSig2] = useState("");
   const [pendingSend, setPendingSend] = useState(false);
 
+  const saveClaimToSupabase = async () => {
+    const { error } = await supabase.from("claims").insert([
+      {
+        date: data.date,
+        insurance_company: data.insuranceCompany,
+        policy_number: data.policyNumber,
+        representative_name: data.representativeName,
+        representative_email: data.representativeEmail,
+        homeowner1: data.homeowner1,
+        homeowner2: data.homeowner2,
+        phone: data.phone,
+        address: data.address,
+        city: data.city,
+        state: data.state,
+        zip: data.zip,
+        loss_location: data.lossLocation,
+        homeowner_email: data.signerEmail,
+        pa_email: data.paEmail,
+      },
+    ]);
+
+    return error;
+  };
+
   const hasSecond = Boolean(data.homeowner2?.trim());
 
   const propertyAddressText = [
@@ -1074,7 +1099,13 @@ export default function App() {
         lossLocation: propertyAddressText,
       }));
     }
-  }, [data.address, data.city, data.state, data.zip, data.lossLocationSameAsAddress]);
+  }, [
+    data.address,
+    data.city,
+    data.state,
+    data.zip,
+    data.lossLocationSameAsAddress,
+  ]);
 
   const update = (key, value) => {
     setData((prev) => ({ ...prev, [key]: value }));
@@ -1088,20 +1119,28 @@ export default function App() {
     setView("sign");
   };
 
-  const submitDoc = () => {
+  const submitDoc = async () => {
+    const error = await saveClaimToSupabase();
+
+    if (error) {
+      alert("Error saving: " + error.message);
+      return;
+    }
+
     if (pendingSend) {
       alert(
-        `This would send the ${
+        `Saved successfully! This would send the ${
           activeDoc === "lor" ? "Letter of Representation" : "PA Agreement"
         } to ${data.signerEmail} for signature and notify ${data.representativeEmail || "the representative"} and ${data.paEmail}.`
       );
     } else {
       alert(
-        `This would email signed copies of the ${
+        `Saved successfully! This would email signed copies of the ${
           activeDoc === "lor" ? "Letter of Representation" : "PA Agreement"
         } to ${data.signerEmail}, ${data.representativeEmail || "the representative"}, and ${data.paEmail}.`
       );
     }
+
     setView("input");
     setPendingSend(false);
   };
