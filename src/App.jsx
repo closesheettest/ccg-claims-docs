@@ -733,16 +733,16 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
         style={{
           padding: "0 20px 22px",
           color: "#111827",
-          fontSize: 18,
-          lineHeight: 1.72,
+          fontSize: 17,
+          lineHeight: 1.6,
           fontFamily: "Arial, Helvetica, sans-serif",
         }}
       >
-        <div style={{ borderTop: "1px solid #4b5563", marginBottom: 12 }} />
+        <div style={{ borderTop: "1px solid #9ca3af", marginBottom: 12 }} />
 
-        <p style={{ margin: "0 0 8px", fontWeight: 500 }}>Dear Claims Manager:</p>
+        <p style={{ margin: "0 0 8px", fontWeight: 400 }}>Dear Claims Manager:</p>
 
-        <p style={{ margin: "0 0 10px" }}>
+        <p style={{ margin: "0 0 8px" }}>
           This correspondence will serve to inform you and the Insurance Company
           that your insured has formally retained our services to assist them in
           evaluating and presenting their above-referenced claim. We have enclosed
@@ -751,7 +751,7 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
           acknowledgment of our involvement.
         </p>
 
-        <p style={{ margin: "0 0 10px" }}>
+        <p style={{ margin: "0 0 8px" }}>
           Additionally, we request that all further contact and communication
           involving this claim’s processing from the Insurance Company be directed
           exclusively through our offices. This also extends to your representative
@@ -759,7 +759,7 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
           in the processing of this claim.
         </p>
 
-        <p style={{ margin: "0 0 10px" }}>
+        <p style={{ margin: "0 0 8px" }}>
           Further, as the policy sets forth the duties, rights, and parameters of
           coverage, it is critical that we have expedited access to this
           information, we hereby request a true and complete certified copy of the
@@ -768,7 +768,7 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
           documents to our attention.
         </p>
 
-        <p style={{ margin: "0 0 10px", fontStyle: "italic" }}>
+        <p style={{ margin: "0 0 8px", fontStyle: "italic" }}>
           Also, please note that Capital Claims Group Inc. should be named as an
           additional payee on all insurance drafts and/or payments, pursuant to the
           enclosed Notice of Loss/Notice of Representation signed by the Insured(s).
@@ -777,7 +777,7 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
           invoke their rights to repair, rebuild or replace the damaged property.
         </p>
 
-        <p style={{ margin: "0 0 10px" }}>
+        <p style={{ margin: "0 0 8px" }}>
           Surely, you understand the Assured’s need to have this claim processed as
           quickly as possible, and as such, we will be undertaking all necessary
           steps to document and prepare their claim for submission. We look forward
