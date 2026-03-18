@@ -17,7 +17,6 @@ const initialData = {
   signerEmail: "",
   paEmail: "claims@iambenitopaul.com",
   representativeName: "",
-  representativeEmail: "",
   homeowner1: "",
   homeowner2: "",
   address: "",
@@ -1287,7 +1286,6 @@ export default function App() {
         policy_number: data.policyNumber,
         claim_number: data.claimNumber,
         representative_name: data.representativeName,
-        representative_email: data.representativeEmail,
         homeowner1: data.homeowner1,
         homeowner2: data.homeowner2,
         phone: data.phone,
@@ -1360,7 +1358,7 @@ export default function App() {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        to: [data.signerEmail, data.representativeEmail, data.paEmail].filter(Boolean),
+        to: [data.signerEmail,  data.paEmail].filter(Boolean),
         subject:
           activeDoc === "lor"
             ? "Letter of Representation Submitted"
@@ -1390,15 +1388,13 @@ export default function App() {
       alert(
         `Saved successfully! This would send the ${
           activeDoc === "lor" ? "Letter of Representation" : "PA Agreement"
-        } to ${data.signerEmail} for signature and notify ${
-          data.representativeEmail || "the representative"
-        } and ${data.paEmail}.`
+        } to ${data.signerEmail} for signature and notify  ${data.paEmail}.`
       );
     } else {
       alert(
         `Saved successfully! This would email signed copies of the ${
           activeDoc === "lor" ? "Letter of Representation" : "PA Agreement"
-        } to ${data.signerEmail}, ${data.representativeEmail || "the representative"}, and ${data.paEmail}.`
+        } to ${data.signerEmail} and ${data.paEmail}.`
       );
     }
 
