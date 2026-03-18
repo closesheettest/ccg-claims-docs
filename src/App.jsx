@@ -583,8 +583,8 @@ function LorLabel({ children }) {
     <div
       style={{
         display: "block",
-        fontSize: 17,
-        color: "#374151",
+        fontSize: 16,
+        color: "#4b5563",
         marginBottom: 8,
         fontWeight: 400,
       }}
@@ -598,10 +598,10 @@ function LorFieldBox({ children }) {
   return (
     <div
       style={{
-        minHeight: 46,
+        minHeight: 50,
         border: "1px solid #cbd5e1",
         borderRadius: 12,
-        padding: "10px 14px",
+        padding: "11px 14px",
         background: "#fff",
         fontSize: 15,
         lineHeight: 1.4,
@@ -733,8 +733,8 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
         style={{
           padding: "0 20px 22px",
           color: "#111827",
-          fontSize: 15,
-          lineHeight: 1.65,
+          fontSize: 18,
+          lineHeight: 1.72,
           fontFamily: "Arial, Helvetica, sans-serif",
         }}
       >
