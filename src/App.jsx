@@ -1556,12 +1556,7 @@ export default function App() {
                       value={data.representativeName}
                       onChange={(v) => update("representativeName", v)}
                     />
-                    <FormField
-                      label="Representative Email"
-                      type="email"
-                      value={data.representativeEmail}
-                      onChange={(v) => update("representativeEmail", v)}
-                    />
+                  
                     <FormField
                       label="PA Email"
                       type="email"
