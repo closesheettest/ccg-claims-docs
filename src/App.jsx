@@ -365,7 +365,7 @@ function InitialsPad({ title, value, onChange }) {
     const ctx = canvas.getContext("2d");
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.scale(ratio, ratio);
-    ctx.lineWidth = 1.8;
+    ctx.lineWidth = 1.6;
     ctx.lineCap = "round";
     ctx.strokeStyle = "#111827";
     ctx.clearRect(0, 0, rect.width, rect.height);
@@ -414,16 +414,16 @@ function InitialsPad({ title, value, onChange }) {
   };
 
   return (
-    <div style={{ marginTop: 8, marginBottom: 10 }}>
+    <div style={{ marginTop: 6, marginBottom: 8 }}>
       <div
         style={{
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          marginBottom: 6,
+          marginBottom: 4,
         }}
       >
-        <div style={{ fontSize: 12, fontWeight: 400, color: "#111827" }}>
+        <div style={{ fontSize: 11, fontWeight: 400, color: "#111827" }}>
           {title}
         </div>
         <button
@@ -433,7 +433,7 @@ function InitialsPad({ title, value, onChange }) {
             background: "transparent",
             border: "none",
             color: "#6b7280",
-            fontSize: 12,
+            fontSize: 11,
             cursor: "pointer",
             padding: 0,
           }}
@@ -442,42 +442,39 @@ function InitialsPad({ title, value, onChange }) {
         </button>
       </div>
 
-      <div style={{ maxWidth: 160 }}>
-        <canvas
-          ref={canvasRef}
-          style={{
-            width: 140,
-            height: 26,
-            display: "block",
-            background: "transparent",
-            touchAction: "none",
-            borderBottom: "1px solid #111827",
-          }}
-          onMouseDown={start}
-          onMouseMove={move}
-          onMouseUp={end}
-          onMouseLeave={end}
-          onTouchStart={start}
-          onTouchMove={move}
-          onTouchEnd={end}
-        />
-      </div>
+      <canvas
+        ref={canvasRef}
+        style={{
+          width: 130,
+          height: 22,
+          display: "block",
+          background: "transparent",
+          touchAction: "none",
+          borderBottom: "1px solid #111827",
+        }}
+        onMouseDown={start}
+        onMouseMove={move}
+        onMouseUp={end}
+        onMouseLeave={end}
+        onTouchStart={start}
+        onTouchMove={move}
+        onTouchEnd={end}
+      />
     </div>
   );
 }
 
 function InitialsImage({ value }) {
   return (
-    <div style={{ marginTop: 6, marginBottom: 12 }}>
-      <div style={{ fontSize: 12, fontWeight: 400, color: "#111827", marginBottom: 2 }}>
+    <div style={{ marginTop: 6, marginBottom: 10 }}>
+      <div style={{ fontSize: 11, fontWeight: 400, color: "#111827", marginBottom: 2 }}>
         Initials:
       </div>
       <div
         style={{
           width: "100%",
-          maxWidth: 1200,
           borderBottom: "1px solid #111827",
-          height: 22,
+          height: 18,
           position: "relative",
         }}
       >
@@ -489,7 +486,7 @@ function InitialsImage({ value }) {
               position: "absolute",
               left: 0,
               bottom: 1,
-              height: 18,
+              height: 15,
               objectFit: "contain",
             }}
           />
@@ -570,8 +567,8 @@ function DocFieldBox({ children }) {
         borderRadius: 12,
         padding: "8px 12px",
         background: "#fff",
-        fontSize: 13,
-        lineHeight: 1.35,
+        fontSize: 12,
+        lineHeight: 1.3,
         color: "#111827",
         boxSizing: "border-box",
       }}
@@ -584,7 +581,9 @@ function DocFieldBox({ children }) {
 function SignatureDisplay({ name, value, title }) {
   return (
     <div>
-      <div style={{ marginBottom: 8, fontSize: 13, fontWeight: 500 }}>{title}</div>
+      <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 500 }}>
+        {title}
+      </div>
       <div
         style={{
           display: "flex",
@@ -604,10 +603,12 @@ function SignatureDisplay({ name, value, title }) {
             style={{ width: "100%", height: "100%", objectFit: "contain" }}
           />
         ) : (
-          <span style={{ color: "#94a3b8", fontSize: 13 }}>Signature pending</span>
+          <span style={{ color: "#94a3b8", fontSize: 12 }}>
+            Signature pending
+          </span>
         )}
       </div>
-      <div style={{ marginTop: 8, fontSize: 13, color: "#374151" }}>{name}</div>
+      <div style={{ marginTop: 8, fontSize: 12, color: "#374151" }}>{name}</div>
     </div>
   );
 }
@@ -687,14 +688,16 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
         style={{
           padding: "0 20px 22px",
           color: "#111827",
-          fontSize: 12.5,
-          lineHeight: 1.55,
+          fontSize: 12,
+          lineHeight: 1.5,
           fontFamily: "Arial, Helvetica, sans-serif",
         }}
       >
         <div style={{ borderTop: "1px solid #4b5563", marginBottom: 12 }} />
-        <p style={{ margin: "0 0 10px", fontWeight: 500 }}>Dear Claims Manager:</p>
-        <p style={{ margin: "0 0 12px" }}>
+
+        <p style={{ margin: "0 0 8px", fontWeight: 500 }}>Dear Claims Manager:</p>
+
+        <p style={{ margin: "0 0 10px" }}>
           This correspondence will serve to inform you and the Insurance Company
           that your insured has formally retained our services to assist them in
           evaluating and presenting their above-referenced claim. We have enclosed
@@ -702,22 +705,24 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
           record in your claim file and properly provide us with a written
           acknowledgment of our involvement.
         </p>
-        <p style={{ margin: "0 0 12px" }}>
+
+        <p style={{ margin: "0 0 10px" }}>
           Additionally, we request that all further contact and communication
           involving this claim’s processing from the Insurance Company be directed
           exclusively through our offices. This also extends to your representative
           contractor/claims agents and/or any other claims agents you may be using
           in the processing of this claim.
         </p>
-        <p style={{ margin: "0 0 12px" }}>
+
+        <p style={{ margin: "0 0 10px" }}>
           Further, as the policy sets forth the duties, rights, and parameters of
-          coverage, it is critical that we have expedited access to this
-          information, we hereby request a true and complete certified copy of the
+          coverage, we hereby request a true and complete certified copy of the
           applicable policy contract including the declarations page, all policy
           endorsements, and the original policy application. Please expedite these
           documents to our attention.
         </p>
-        <p style={{ margin: "0 0 12px", fontStyle: "italic" }}>
+
+        <p style={{ margin: "0 0 10px", fontStyle: "italic" }}>
           Also, please note that Capital Claims Group Inc. should be named as an
           additional payee on all insurance drafts and/or payments, pursuant to the
           enclosed Notice of Loss/Notice of Representation signed by the Insured(s).
@@ -725,16 +730,18 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
           for replacement cost benefits as set forth in the policy and likewise
           invoke their rights to repair, rebuild or replace the damaged property.
         </p>
-        <p style={{ margin: "0 0 12px" }}>
+
+        <p style={{ margin: "0 0 10px" }}>
           Surely, you understand the Assured’s need to have this claim processed as
           quickly as possible, and as such, we will be undertaking all necessary
           steps to document and prepare their claim for submission. We look forward
           to working cooperatively with you to reach a fair and prompt resolution
-          to this claim. Please feel free to contact us at 954-874-3563 to discuss the
-          current status of this claim and to coordinate our efforts in the loss investigation
-          and valuation process.
+          to this claim. Please feel free to contact us at 954-874-3563 to discuss
+          the current status of this claim and to coordinate our efforts in the loss
+          investigation and valuation process.
         </p>
-        <p style={{ margin: "0 0 18px", fontStyle: "italic" }}>
+
+        <p style={{ margin: "0 0 14px", fontStyle: "italic" }}>
           The Assureds hereby reserve all of their rights under the policy and the
           laws of this State and nothing contained herein is intended to waive or
           prejudice said rights.
@@ -772,15 +779,13 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
             lineHeight: 1.3,
           }}
         >
-          <div style={{ fontWeight: 700 }}>1000 N Hiatus Rd Suite 120A</div>
+          <div style={{ fontWeight: 700 }}>3600 Red Rd suite Ste 601B</div>
           <div>
-            Pembroke Pines FL 33026 &nbsp; • &nbsp; office@capitalclaimgroup.com
-            &nbsp; • &nbsp; +1 (954) 874-3563 &nbsp; • &nbsp; www.ccgclaims.com
+            Miramar, FL 33025 • claims@capitalclaimgroup.com • +1 (954)
+            571-3035 • www.ccgclaims.com
           </div>
-          <div style={{ marginTop: 8, fontWeight: 600, color: "#6d28d9" }}>
-            License No: W903995 (FL) | License No: 2988852 (TX) | License No:
-            3002439126 (NC) | License No: 14109418 (SC) | License No: 805767 (CO) |
-            License No: 949473 (LA)
+          <div style={{ marginTop: 8, fontWeight: 700, color: "#6d28d9" }}>
+            License No: G240595
           </div>
         </div>
       </div>
@@ -877,8 +882,8 @@ function PublicAdjusterContract({
           style={{
             padding: "0 20px 18px",
             color: "#111827",
-            fontSize: 12.5,
-            lineHeight: 1.45,
+            fontSize: 12,
+            lineHeight: 1.42,
             fontFamily: "Arial, Helvetica, sans-serif",
           }}
         >
@@ -890,41 +895,51 @@ function PublicAdjusterContract({
               padding: "10px 16px",
               fontWeight: 700,
               marginBottom: 16,
-              fontSize: 12.5,
+              fontSize: 12,
             }}
           >
             PUBLIC ADJUSTER CONTRACT
           </div>
 
-          <p style={{ margin: "0 0 10px" }}>
+          <p style={{ margin: "0 0 8px" }}>
             <strong>1. SERVICE FEE:</strong> The insured(s) hereby retains Capital
             Claims Group to be its public adjuster and hereby appoints Capital Claims
             Group to be its independent appraiser to appraise, advise, negotiate,
             and/or settle the above-referenced claim. The insured(s) agrees to pay and
-            hereby assigns to Capital Claims Group <span style={{ display: "inline-block", minWidth: 48, borderBottom: "1px solid #111827", textAlign: "center" }}>10%</span> of all
-            payments made by the insurance company related to this claim. In the event
-            appraisal, mediation is demanded, or a lawsuit ensues regarding the
+            hereby assigns to Capital Claims Group{" "}
+            <span
+              style={{
+                display: "inline-block",
+                minWidth: 48,
+                borderBottom: "1px solid #111827",
+                textAlign: "center",
+              }}
+            >
+              10%
+            </span>{" "}
+            of all payments made by the insurance company related to this claim. In the
+            event appraisal, mediation is demanded, or a lawsuit ensues regarding the
             above-mentioned claim, there will be an additional charge of five percent.
             The total contractual percentage shall not exceed the maximum allowed by law.
           </p>
 
-          <p style={{ margin: "0 0 10px" }}>
+          <p style={{ margin: "0 0 8px" }}>
             <strong>2. ADDITIONAL PAYEE:</strong> The insured authorizes and requests
             the insurer and the insured’s mortgage carrier to have Capital Claims Group
             appear as an additional payee on all checks issued regarding the
             above-mentioned claim. The insured hereby grants Capital Claims Group a lien
-            on recovered proceeds received by the insurer to the extent of the fee due to
-            Capital Claims Group pursuant to this agreement.
+            on recovered proceeds received by the insurer to the extent of the fee due
+            to Capital Claims Group pursuant to this agreement.
           </p>
 
-          <p style={{ margin: "0 0 10px" }}>
+          <p style={{ margin: "0 0 8px" }}>
             <strong>3. THIRD-PARTY FEES:</strong> The insured understands it may be
             necessary to incur professional fees on the insured’s behalf to properly
             adjust the claim. These fees may include, but are not limited to, a General
             Contractor, Engineer, Claim Appraiser, Plumber, Roofer, and Environmental
-            Hygienist. The insured understands that no professional fees will be incurred
-            without the insured’s written or verbal authorization, and that the insured
-            may then be responsible for such fees.
+            Hygienist. The insured understands that no professional fees will be
+            incurred without the insured’s written or verbal authorization, and that
+            the insured may then be responsible for such fees.
           </p>
 
           <div
@@ -952,14 +967,21 @@ function PublicAdjusterContract({
 
       <Card style={{ borderRadius: 20 }}>
         <CardContent>
-          <div style={{ color: "#111827", fontSize: 12.5, lineHeight: 1.45 }}>
-            <p style={{ margin: "0 0 10px" }}>
+          <div
+            style={{
+              color: "#111827",
+              fontSize: 12,
+              lineHeight: 1.42,
+              fontFamily: "Arial, Helvetica, sans-serif",
+            }}
+          >
+            <p style={{ margin: "0 0 8px" }}>
               <strong>4. ENDORSEMENT:</strong> The insured’s endorsement on any
               insurance proceeds check will be deemed to be an agreement with the terms
               and conditions of any related settlement regarding the above-mentioned claim.
             </p>
 
-            <p style={{ margin: "0 0 10px" }}>
+            <p style={{ margin: "0 0 8px" }}>
               <strong>5. AFFIDAVIT:</strong> I,{" "}
               <span
                 style={{
@@ -972,28 +994,28 @@ function PublicAdjusterContract({
               >
                 {insuredNames || "Named insured"}
               </span>
-              , a named insured under the above-mentioned policy, hereby swear and attest
-              that I have the authority to enter into this contract and settle all claims
-              issued on behalf of all named insureds. Insured acknowledges, understands,
-              and agrees that under section 626.8796, Florida Statutes, an agreement with
-              a public adjuster must be signed by all named insureds.
+              , a named insured under the above-mentioned policy, hereby swear and
+              attest that I have the authority to enter into this contract and settle
+              all claims issued on behalf of all named insureds. Insured acknowledges,
+              understands, and agrees that under section 626.8796, Florida Statutes, an
+              agreement with a public adjuster must be signed by all named insureds.
             </p>
 
-            <p style={{ margin: "0 0 10px" }}>
-              <strong>6. LEGAL:</strong> Capital Claims Group is not a law firm and does
-              not offer legal advice, and there will be no attorney-client relationship
-              with the insured(s). The insured is hereby advised of the right to counsel
-              and may consult with an attorney regarding their claim independently of
-              Capital Claims Group.
+            <p style={{ margin: "0 0 8px" }}>
+              <strong>6. LEGAL:</strong> Capital Claims Group is not a law firm and
+              does not offer legal advice, and there will be no attorney-client
+              relationship with the insured(s). The insured is hereby advised of the
+              right to counsel and may consult with an attorney regarding their claim
+              independently of Capital Claims Group.
             </p>
 
-            <p style={{ margin: "0 0 10px" }}>
-              <strong>7. LETTER OF PROTECTION:</strong> The insured understands and agrees
-              that if it becomes necessary to retain an attorney, the insured authorizes
-              and agrees to a Letter of Protection for Capital Claims Group.
+            <p style={{ margin: "0 0 8px" }}>
+              <strong>7. LETTER OF PROTECTION:</strong> The insured understands and
+              agrees that if it becomes necessary to retain an attorney, the insured
+              authorizes and agrees to a Letter of Protection for Capital Claims Group.
             </p>
 
-            <p style={{ margin: "0 0 10px" }}>
+            <p style={{ margin: "0 0 8px" }}>
               <strong>8. REPRESENTATION:</strong> The insured hereby affirms that no
               other claim(s) have been filed in reference to the same peril and that no
               other legal representation is involved with the claim other than{" "}
@@ -1027,24 +1049,32 @@ function PublicAdjusterContract({
 
       <Card style={{ borderRadius: 20 }}>
         <CardContent>
-          <div style={{ color: "#111827", fontSize: 12.5, lineHeight: 1.45 }}>
-            <p style={{ margin: "0 0 10px" }}>
-              <strong>9. SEVERABILITY:</strong> Unenforceability or invalidity of one or
-              more clauses in this Agreement shall not affect any other clause.
+          <div
+            style={{
+              color: "#111827",
+              fontSize: 12,
+              lineHeight: 1.42,
+              fontFamily: "Arial, Helvetica, sans-serif",
+            }}
+          >
+            <p style={{ margin: "0 0 8px" }}>
+              <strong>9. SEVERABILITY:</strong> Unenforceability or invalidity of one
+              or more clauses in this Agreement shall not affect any other clause.
             </p>
 
-            <p style={{ margin: "0 0 10px" }}>
-              <strong>10. DISPUTE:</strong> In the event of litigation arising from this
-              agreement, the venue shall be in Miami-Dade County, Florida. The prevailing
-              party shall be entitled to recover its court costs, reasonable attorney fees,
-              including those incurred during any appeal proceedings, and interest on any
-              past due fees at the maximum rate permitted by applicable law.
+            <p style={{ margin: "0 0 8px" }}>
+              <strong>10. DISPUTE:</strong> In the event of litigation arising from
+              this agreement, the venue shall be in Miami-Dade County, Florida. The
+              prevailing party shall be entitled to recover its court costs,
+              reasonable attorney fees, including those incurred during any appeal
+              proceedings, and interest on any past due fees at the maximum rate
+              permitted by applicable law.
             </p>
 
-            <p style={{ margin: "0 0 10px" }}>
+            <p style={{ margin: "0 0 8px" }}>
               <strong>11. COMMERCIAL POLICY CANCELLATION:</strong> You, the insured(s),
-              may cancel this contract for any reason without penalty or obligation to you
-              within 10 days after the date of this contract.
+              may cancel this contract for any reason without penalty or obligation to
+              you within 10 days after the date of this contract.
             </p>
 
             <div
@@ -1063,35 +1093,43 @@ function PublicAdjusterContract({
 
       <Card style={{ borderRadius: 20 }}>
         <CardContent>
-          <div style={{ color: "#111827", fontSize: 12.5, lineHeight: 1.45 }}>
-            <p style={{ margin: "0 0 10px", fontWeight: 700 }}>
+          <div
+            style={{
+              color: "#111827",
+              fontSize: 12,
+              lineHeight: 1.42,
+              fontFamily: "Arial, Helvetica, sans-serif",
+            }}
+          >
+            <p style={{ margin: "0 0 8px", fontWeight: 700 }}>
               12. RESIDENTIAL POLICY CANCELLATION: You, the insured, may cancel this
-              contract for any reason without penalty or obligation to you within 10 days
-              after the date of this contract.
+              contract for any reason without penalty or obligation to you within 10
+              days after the date of this contract.
             </p>
 
-            <p style={{ margin: "0 0 10px", fontWeight: 700 }}>
+            <p style={{ margin: "0 0 8px", fontWeight: 700 }}>
               The notice of cancellation shall be provided to Capital Claims Group,
-              submitted in writing, and sent by certified mail, return receipt requested,
-              or another form of mailing that provides proof thereof, at the address
-              specified in the contract.
+              submitted in writing, and sent by certified mail, return receipt
+              requested, or another form of mailing that provides proof thereof, at the
+              address specified in the contract.
             </p>
 
-            <p style={{ margin: "0 0 10px", fontWeight: 700 }}>
+            <p style={{ margin: "0 0 8px", fontWeight: 700 }}>
               Pursuant to s. 817.234, Florida Statutes, any person who, with the intent
-              to injure, defraud, or deceive any insurer or insured, prepares, presents,
-              or causes to be presented a proof of loss or estimate of cost or repair of
-              damaged property in support of a claim under an insurance policy, knowing
-              that the proof of loss or estimate of claim or repairs contains any false,
-              incomplete, or misleading information concerning any fact or thing material
-              to the claim, commits a felony of the third degree, punishable as provided
-              in s. 775.082, s. 775.803, or s. 775.084, Florida Statutes.
+              to injure, defraud, or deceive any insurer or insured, prepares,
+              presents, or causes to be presented a proof of loss or estimate of cost
+              or repair of damaged property in support of a claim under an insurance
+              policy, knowing that the proof of loss or estimate of claim or repairs
+              contains any false, incomplete, or misleading information concerning any
+              fact or thing material to the claim, commits a felony of the third
+              degree, punishable as provided in s. 775.082, s. 775.803, or s. 775.084,
+              Florida Statutes.
             </p>
 
-            <p style={{ margin: "0 0 10px", fontWeight: 700 }}>
+            <p style={{ margin: "0 0 8px", fontWeight: 700 }}>
               Insured(s) have read, understand and voluntarily sign the foregoing
-              Agreement. A computer or faxed signature or copy of this document shall be
-              deemed to have the same effect as the original.
+              Agreement. A computer or faxed signature or copy of this document shall
+              be deemed to have the same effect as the original.
             </p>
 
             <div
@@ -1113,7 +1151,7 @@ function PublicAdjusterContract({
                 padding: "12px 16px",
                 fontWeight: 700,
                 marginTop: 16,
-                fontSize: 12.5,
+                fontSize: 12,
               }}
             >
               Insured Signature
@@ -1172,8 +1210,8 @@ function PublicAdjusterContract({
             >
               <div style={{ fontWeight: 700 }}>3600 Red Rd suite Ste 601B</div>
               <div>
-                Miramar, FL 33025 &nbsp; • &nbsp; claims@capitalclaimgroup.com
-                &nbsp; • &nbsp; +1 (954) 571-3035 &nbsp; • &nbsp; www.ccgclaims.com
+                Miramar, FL 33025 • claims@capitalclaimgroup.com • +1 (954)
+                571-3035 • www.ccgclaims.com
               </div>
               <div style={{ marginTop: 8, fontWeight: 700, color: "#6d28d9" }}>
                 License No: G240595
@@ -1442,7 +1480,9 @@ export default function App() {
                       <CheckboxField
                         label="Loss location is same as property address"
                         checked={data.lossLocationSameAsAddress}
-                        onChange={(checked) => update("lossLocationSameAsAddress", checked)}
+                        onChange={(checked) =>
+                          update("lossLocationSameAsAddress", checked)
+                        }
                       />
                     </div>
                     <div style={{ gridColumn: "1 / -1" }}>
