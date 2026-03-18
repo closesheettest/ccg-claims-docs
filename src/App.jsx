@@ -1016,8 +1016,8 @@ function PublicAdjusterContract({
           <div
             style={{
               color: "#111827",
-              fontSize: 12,
-              lineHeight: 1.42,
+              fontSize: 14,
+              lineHeight: 1.6,
               fontFamily: "Arial, Helvetica, sans-serif",
             }}
           >
@@ -1098,8 +1098,8 @@ function PublicAdjusterContract({
           <div
             style={{
               color: "#111827",
-              fontSize: 12,
-              lineHeight: 1.42,
+              fontSize: 14,
+              lineHeight: 1.6,
               fontFamily: "Arial, Helvetica, sans-serif",
             }}
           >
@@ -1142,8 +1142,8 @@ function PublicAdjusterContract({
           <div
             style={{
               color: "#111827",
-              fontSize: 12,
-              lineHeight: 1.42,
+              fontSize: 14,
+              lineHeight: 1.6,
               fontFamily: "Arial, Helvetica, sans-serif",
             }}
           >
