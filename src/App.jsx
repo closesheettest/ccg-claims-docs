@@ -547,7 +547,7 @@ function DocLabel({ children }) {
     <div
       style={{
         display: "block",
-        fontSize: 13,
+        fontSize: 11,
         color: "#374151",
         marginBottom: 6,
         fontWeight: 400,
@@ -558,15 +558,55 @@ function DocLabel({ children }) {
   );
 }
 
-function DocLabel({ children }) {
+function DocFieldBox({ children }) {
+  return (
+    <div
+      style={{
+        minHeight: 38,
+        border: "1px solid #cbd5e1",
+        borderRadius: 12,
+        padding: "8px 12px",
+        background: "#fff",
+        fontSize: 12,
+        lineHeight: 1.3,
+        color: "#111827",
+        boxSizing: "border-box",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function LorLabel({ children }) {
   return (
     <div
       style={{
         display: "block",
-        fontSize: 13,
+        fontSize: 15,
         color: "#374151",
-        marginBottom: 6,
+        marginBottom: 8,
         fontWeight: 400,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function LorFieldBox({ children }) {
+  return (
+    <div
+      style={{
+        minHeight: 46,
+        border: "1px solid #cbd5e1",
+        borderRadius: 12,
+        padding: "10px 14px",
+        background: "#fff",
+        fontSize: 15,
+        lineHeight: 1.4,
+        color: "#111827",
+        boxSizing: "border-box",
       }}
     >
       {children}
@@ -600,11 +640,11 @@ function SignatureDisplay({ name, value, title }) {
           />
         ) : (
           <span style={{ color: "#94a3b8", fontSize: 13 }}>
-  Signature pending
-</span>
+            Signature pending
+          </span>
         )}
       </div>
-      <div style={{ marginTop: 8, fontSize: 13, color: "#374151" }}>{name}</div>
+      <div style={{ marginTop: 8, fontSize: 14, color: "#374151" }}>{name}</div>
     </div>
   );
 }
@@ -632,50 +672,59 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
       {twoColGrid(
         <>
           <div>
-            <DocLabel>Date</DocLabel>
-            <DocFieldBox>{data.date}</DocFieldBox>
+            <LorLabel>Date</LorLabel>
+            <LorFieldBox>{data.date}</LorFieldBox>
           </div>
+
           <div>
-            <DocLabel>Insurance Company</DocLabel>
-            <DocFieldBox>{data.insuranceCompany}</DocFieldBox>
+            <LorLabel>Insurance Company</LorLabel>
+            <LorFieldBox>{data.insuranceCompany}</LorFieldBox>
           </div>
+
           <div>
-            <DocLabel>Address</DocLabel>
-            <DocFieldBox>
+            <LorLabel>Address</LorLabel>
+            <LorFieldBox>
               <div style={{ whiteSpace: "pre-line" }}>{fullAddress}</div>
-            </DocFieldBox>
+            </LorFieldBox>
           </div>
+
           <div>
-            <DocLabel>State</DocLabel>
-            <DocFieldBox>{data.state}</DocFieldBox>
+            <LorLabel>State</LorLabel>
+            <LorFieldBox>{data.state}</LorFieldBox>
           </div>
+
           <div>
-            <DocLabel>Claim #</DocLabel>
-            <DocFieldBox>{data.claimNumber}</DocFieldBox>
+            <LorLabel>Claim #</LorLabel>
+            <LorFieldBox>{data.claimNumber}</LorFieldBox>
           </div>
+
           <div>
-            <DocLabel>Client / Insured</DocLabel>
-            <DocFieldBox>
+            <LorLabel>Client / Insured</LorLabel>
+            <LorFieldBox>
               {[data.homeowner1, data.homeowner2].filter(Boolean).join(", ")}
-            </DocFieldBox>
+            </LorFieldBox>
           </div>
+
           <div>
-            <DocLabel>Loss Location</DocLabel>
-            <DocFieldBox>
+            <LorLabel>Loss Location</LorLabel>
+            <LorFieldBox>
               <div style={{ whiteSpace: "pre-line" }}>{displayedLossLocation}</div>
-            </DocFieldBox>
+            </LorFieldBox>
           </div>
+
           <div>
-            <DocLabel>Policy #</DocLabel>
-            <DocFieldBox>{data.policyNumber}</DocFieldBox>
+            <LorLabel>Policy #</LorLabel>
+            <LorFieldBox>{data.policyNumber}</LorFieldBox>
           </div>
+
           <div>
-            <DocLabel>Date of Loss</DocLabel>
-            <DocFieldBox>{data.dateOfLoss}</DocFieldBox>
+            <LorLabel>Date of Loss</LorLabel>
+            <LorFieldBox>{data.dateOfLoss}</LorFieldBox>
           </div>
+
           <div>
-            <DocLabel>Signer Email (recipient)</DocLabel>
-            <DocFieldBox>{data.signerEmail}</DocFieldBox>
+            <LorLabel>Signer Email (recipient)</LorLabel>
+            <LorFieldBox>{data.signerEmail}</LorFieldBox>
           </div>
         </>
       )}
@@ -684,8 +733,8 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
         style={{
           padding: "0 20px 22px",
           color: "#111827",
-          fontSize: 14,
-          lineHeight: 1.5,
+          fontSize: 15,
+          lineHeight: 1.65,
           fontFamily: "Arial, Helvetica, sans-serif",
         }}
       >
@@ -712,7 +761,8 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
 
         <p style={{ margin: "0 0 10px" }}>
           Further, as the policy sets forth the duties, rights, and parameters of
-          coverage, we hereby request a true and complete certified copy of the
+          coverage, it is critical that we have expedited access to this
+          information, we hereby request a true and complete certified copy of the
           applicable policy contract including the declarations page, all policy
           endorsements, and the original policy application. Please expedite these
           documents to our attention.
@@ -770,9 +820,9 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
             borderTop: "3px solid #7c3aed",
             marginTop: 20,
             paddingTop: 12,
-            fontSize: 11.5,
+            fontSize: 13.5,
             color: "#111827",
-            lineHeight: 1.3,
+            lineHeight: 1.35,
           }}
         >
           <div style={{ fontWeight: 700 }}>3600 Red Rd suite Ste 601B</div>
@@ -1199,7 +1249,7 @@ function PublicAdjusterContract({
                 borderTop: "3px solid #7c3aed",
                 marginTop: 20,
                 paddingTop: 12,
-                fontSize: 13,
+                fontSize: 11.5,
                 color: "#111827",
                 lineHeight: 1.25,
               }}
