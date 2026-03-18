@@ -926,7 +926,7 @@ function PublicAdjusterContract({
 
         <div
           style={{
-            padding: "0 20px 18px",
+            padding: "0 24px 18px",
             color: "#111827",
             fontSize: 12,
             lineHeight: 1.42,
