@@ -547,7 +547,7 @@ function DocLabel({ children }) {
     <div
       style={{
         display: "block",
-        fontSize: 11,
+        fontSize: 13,
         color: "#374151",
         marginBottom: 6,
         fontWeight: 400,
@@ -558,19 +558,15 @@ function DocLabel({ children }) {
   );
 }
 
-function DocFieldBox({ children }) {
+function DocLabel({ children }) {
   return (
     <div
       style={{
-        minHeight: 38,
-        border: "1px solid #cbd5e1",
-        borderRadius: 12,
-        padding: "8px 12px",
-        background: "#fff",
-        fontSize: 12,
-        lineHeight: 1.3,
-        color: "#111827",
-        boxSizing: "border-box",
+        display: "block",
+        fontSize: 13,
+        color: "#374151",
+        marginBottom: 6,
+        fontWeight: 400,
       }}
     >
       {children}
@@ -581,7 +577,7 @@ function DocFieldBox({ children }) {
 function SignatureDisplay({ name, value, title }) {
   return (
     <div>
-      <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 500 }}>
+      <div style={{ marginBottom: 8, fontSize: 14, fontWeight: 500 }}>
         {title}
       </div>
       <div
@@ -603,12 +599,12 @@ function SignatureDisplay({ name, value, title }) {
             style={{ width: "100%", height: "100%", objectFit: "contain" }}
           />
         ) : (
-          <span style={{ color: "#94a3b8", fontSize: 12 }}>
-            Signature pending
-          </span>
+          <span style={{ color: "#94a3b8", fontSize: 13 }}>
+  Signature pending
+</span>
         )}
       </div>
-      <div style={{ marginTop: 8, fontSize: 12, color: "#374151" }}>{name}</div>
+      <div style={{ marginTop: 8, fontSize: 13, color: "#374151" }}>{name}</div>
     </div>
   );
 }
@@ -688,7 +684,7 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
         style={{
           padding: "0 20px 22px",
           color: "#111827",
-          fontSize: 12,
+          fontSize: 14,
           lineHeight: 1.5,
           fontFamily: "Arial, Helvetica, sans-serif",
         }}
@@ -1203,7 +1199,7 @@ function PublicAdjusterContract({
                 borderTop: "3px solid #7c3aed",
                 marginTop: 20,
                 paddingTop: 12,
-                fontSize: 11.5,
+                fontSize: 13,
                 color: "#111827",
                 lineHeight: 1.25,
               }}
