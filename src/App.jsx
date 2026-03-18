@@ -731,7 +731,7 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
 
       <div
         style={{
-          padding: "0 20px 22px",
+          padding: "0 24px 22px",
           color: "#111827",
           fontSize: 17,
           lineHeight: 1.6,
