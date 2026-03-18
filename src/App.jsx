@@ -583,7 +583,7 @@ function LorLabel({ children }) {
     <div
       style={{
         display: "block",
-        fontSize: 15,
+        fontSize: 17,
         color: "#374151",
         marginBottom: 8,
         fontWeight: 400,
