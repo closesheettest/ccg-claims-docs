@@ -349,40 +349,156 @@ function SignaturePad({ title, value, onChange, height = 160 }) {
 }
 
 function InitialsPad({ title, value, onChange }) {
+  const canvasRef = useRef(null);
+  const drawingRef = useRef(false);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const ratio = Math.max(window.devicePixelRatio || 1, 1);
+
+    canvas.width = rect.width * ratio;
+    canvas.height = rect.height * ratio;
+
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.scale(ratio, ratio);
+    ctx.lineWidth = 1.8;
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "#111827";
+    ctx.clearRect(0, 0, rect.width, rect.height);
+
+    if (value) {
+      const img = new Image();
+      img.onload = () => ctx.drawImage(img, 0, 0, rect.width, rect.height);
+      img.src = value;
+    }
+  }, [value]);
+
+  const getPoint = (e) => {
+    const rect = canvasRef.current.getBoundingClientRect();
+    const p = e.touches ? e.touches[0] : e;
+    return { x: p.clientX - rect.left, y: p.clientY - rect.top };
+  };
+
+  const start = (e) => {
+    const ctx = canvasRef.current.getContext("2d");
+    const p = getPoint(e);
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    drawingRef.current = true;
+  };
+
+  const move = (e) => {
+    if (!drawingRef.current) return;
+    e.preventDefault();
+    const ctx = canvasRef.current.getContext("2d");
+    const p = getPoint(e);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+  };
+
+  const end = () => {
+    if (!drawingRef.current) return;
+    drawingRef.current = false;
+    onChange(canvasRef.current.toDataURL("image/png"));
+  };
+
+  const clear = () => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    onChange("");
+  };
+
   return (
-    <SignaturePad
-      title={title}
-      value={value}
-      onChange={onChange}
-      height={80}
-    />
+    <div style={{ marginTop: 8, marginBottom: 10 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 6,
+        }}
+      >
+        <div style={{ fontSize: 12, fontWeight: 400, color: "#111827" }}>
+          {title}
+        </div>
+        <button
+          type="button"
+          onClick={clear}
+          style={{
+            background: "transparent",
+            border: "none",
+            color: "#6b7280",
+            fontSize: 12,
+            cursor: "pointer",
+            padding: 0,
+          }}
+        >
+          Clear
+        </button>
+      </div>
+
+      <div style={{ maxWidth: 160 }}>
+        <canvas
+          ref={canvasRef}
+          style={{
+            width: 140,
+            height: 26,
+            display: "block",
+            background: "transparent",
+            touchAction: "none",
+            borderBottom: "1px solid #111827",
+          }}
+          onMouseDown={start}
+          onMouseMove={move}
+          onMouseUp={end}
+          onMouseLeave={end}
+          onTouchStart={start}
+          onTouchMove={move}
+          onTouchEnd={end}
+        />
+      </div>
+    </div>
   );
 }
 
 function InitialsImage({ value }) {
   return (
-    <div
-      style={{
-        marginTop: 8,
-        height: 64,
-        border: "1px solid #d1d5db",
-        borderRadius: 12,
-        background: "#f8fafc",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        overflow: "hidden",
-      }}
-    >
-      {value ? (
-        <img
-          src={value}
-          alt="Initials"
-          style={{ width: "100%", height: "100%", objectFit: "contain" }}
-        />
-      ) : (
-        <span>__</span>
-      )}
+    <div style={{ marginTop: 6, marginBottom: 12 }}>
+      <div style={{ fontSize: 12, fontWeight: 400, color: "#111827", marginBottom: 2 }}>
+        Initials:
+      </div>
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 1200,
+          borderBottom: "1px solid #111827",
+          height: 22,
+          position: "relative",
+        }}
+      >
+        {value ? (
+          <img
+            src={value}
+            alt="Initials"
+            style={{
+              position: "absolute",
+              left: 0,
+              bottom: 1,
+              height: 18,
+              objectFit: "contain",
+            }}
+          />
+        ) : (
+          <span style={{ position: "absolute", left: 0, bottom: -2, color: "#111827" }}>
+            __
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -404,11 +520,11 @@ function gradientHeader(title) {
         alignItems: "center",
         justifyContent: "space-between",
         background: "linear-gradient(90deg, #1f7a4d, #6b46c1)",
-        padding: "20px 24px",
+        padding: "18px 22px",
         color: "#fff",
       }}
     >
-      <div style={{ fontSize: 22, fontWeight: 700 }}>{title}</div>
+      <div style={{ fontSize: 24, fontWeight: 700 }}>{title}</div>
       <div style={{ fontSize: 18, fontWeight: 700 }}>CAPITAL CLAIMS GROUP</div>
     </div>
   );
@@ -420,8 +536,44 @@ function twoColGrid(children) {
       style={{
         display: "grid",
         gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-        gap: 16,
-        padding: 24,
+        gap: 14,
+        padding: 20,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function DocLabel({ children }) {
+  return (
+    <div
+      style={{
+        display: "block",
+        fontSize: 11,
+        color: "#374151",
+        marginBottom: 6,
+        fontWeight: 400,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function DocFieldBox({ children }) {
+  return (
+    <div
+      style={{
+        minHeight: 38,
+        border: "1px solid #cbd5e1",
+        borderRadius: 12,
+        padding: "8px 12px",
+        background: "#fff",
+        fontSize: 13,
+        lineHeight: 1.35,
+        color: "#111827",
+        boxSizing: "border-box",
       }}
     >
       {children}
@@ -432,19 +584,17 @@ function twoColGrid(children) {
 function SignatureDisplay({ name, value, title }) {
   return (
     <div>
-      <div style={{ marginBottom: 8, fontSize: 14, fontWeight: 500 }}>
-        {title}
-      </div>
+      <div style={{ marginBottom: 8, fontSize: 13, fontWeight: 500 }}>{title}</div>
       <div
         style={{
           display: "flex",
-          height: 160,
+          height: 150,
           alignItems: "center",
           justifyContent: "center",
           overflow: "hidden",
-          borderRadius: 16,
-          border: "1px dashed #cbd5e1",
-          background: "#f8fafc",
+          borderRadius: 8,
+          border: "1px dashed #9ca3af",
+          background: "#fff",
         }}
       >
         {value ? (
@@ -454,12 +604,10 @@ function SignatureDisplay({ name, value, title }) {
             style={{ width: "100%", height: "100%", objectFit: "contain" }}
           />
         ) : (
-          <span style={{ color: "#94a3b8", fontSize: 14 }}>
-            Signature pending
-          </span>
+          <span style={{ color: "#94a3b8", fontSize: 13 }}>Signature pending</span>
         )}
       </div>
-      <div style={{ marginTop: 8, fontSize: 14, color: "#475569" }}>{name}</div>
+      <div style={{ marginTop: 8, fontSize: 13, color: "#374151" }}>{name}</div>
     </div>
   );
 }
@@ -487,67 +635,66 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
       {twoColGrid(
         <>
           <div>
-            <Label>Date</Label>
-            <FieldBox>{data.date}</FieldBox>
+            <DocLabel>Date</DocLabel>
+            <DocFieldBox>{data.date}</DocFieldBox>
           </div>
           <div>
-            <Label>Insurance Company</Label>
-            <FieldBox>{data.insuranceCompany}</FieldBox>
+            <DocLabel>Insurance Company</DocLabel>
+            <DocFieldBox>{data.insuranceCompany}</DocFieldBox>
           </div>
           <div>
-            <Label>Address</Label>
-            <FieldBox>
+            <DocLabel>Address</DocLabel>
+            <DocFieldBox>
               <div style={{ whiteSpace: "pre-line" }}>{fullAddress}</div>
-            </FieldBox>
+            </DocFieldBox>
           </div>
           <div>
-            <Label>State</Label>
-            <FieldBox>{data.state}</FieldBox>
+            <DocLabel>State</DocLabel>
+            <DocFieldBox>{data.state}</DocFieldBox>
           </div>
           <div>
-            <Label>Claim #</Label>
-            <FieldBox>{data.claimNumber}</FieldBox>
+            <DocLabel>Claim #</DocLabel>
+            <DocFieldBox>{data.claimNumber}</DocFieldBox>
           </div>
           <div>
-            <Label>Client / Insured</Label>
-            <FieldBox>
+            <DocLabel>Client / Insured</DocLabel>
+            <DocFieldBox>
               {[data.homeowner1, data.homeowner2].filter(Boolean).join(", ")}
-            </FieldBox>
+            </DocFieldBox>
           </div>
           <div>
-            <Label>Loss Location</Label>
-            <FieldBox>
+            <DocLabel>Loss Location</DocLabel>
+            <DocFieldBox>
               <div style={{ whiteSpace: "pre-line" }}>{displayedLossLocation}</div>
-            </FieldBox>
+            </DocFieldBox>
           </div>
           <div>
-            <Label>Policy #</Label>
-            <FieldBox>{data.policyNumber}</FieldBox>
+            <DocLabel>Policy #</DocLabel>
+            <DocFieldBox>{data.policyNumber}</DocFieldBox>
           </div>
           <div>
-            <Label>Date of Loss</Label>
-            <FieldBox>{data.dateOfLoss}</FieldBox>
+            <DocLabel>Date of Loss</DocLabel>
+            <DocFieldBox>{data.dateOfLoss}</DocFieldBox>
           </div>
           <div>
-            <Label>Signer Email (recipient)</Label>
-            <FieldBox>{data.signerEmail}</FieldBox>
+            <DocLabel>Signer Email (recipient)</DocLabel>
+            <DocFieldBox>{data.signerEmail}</DocFieldBox>
           </div>
         </>
       )}
 
       <div
         style={{
-          padding: "0 24px 24px",
-          color: "#1f2937",
-          fontSize: 15,
-          lineHeight: 1.9,
+          padding: "0 20px 22px",
+          color: "#111827",
+          fontSize: 12.5,
+          lineHeight: 1.55,
+          fontFamily: "Arial, Helvetica, sans-serif",
         }}
       >
-        <Separator />
-        <p>
-          <strong>Dear Claims Manager:</strong>
-        </p>
-        <p>
+        <div style={{ borderTop: "1px solid #4b5563", marginBottom: 12 }} />
+        <p style={{ margin: "0 0 10px", fontWeight: 500 }}>Dear Claims Manager:</p>
+        <p style={{ margin: "0 0 12px" }}>
           This correspondence will serve to inform you and the Insurance Company
           that your insured has formally retained our services to assist them in
           evaluating and presenting their above-referenced claim. We have enclosed
@@ -555,14 +702,14 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
           record in your claim file and properly provide us with a written
           acknowledgment of our involvement.
         </p>
-        <p>
+        <p style={{ margin: "0 0 12px" }}>
           Additionally, we request that all further contact and communication
           involving this claim’s processing from the Insurance Company be directed
           exclusively through our offices. This also extends to your representative
           contractor/claims agents and/or any other claims agents you may be using
           in the processing of this claim.
         </p>
-        <p>
+        <p style={{ margin: "0 0 12px" }}>
           Further, as the policy sets forth the duties, rights, and parameters of
           coverage, it is critical that we have expedited access to this
           information, we hereby request a true and complete certified copy of the
@@ -570,7 +717,7 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
           endorsements, and the original policy application. Please expedite these
           documents to our attention.
         </p>
-        <p style={{ fontStyle: "italic" }}>
+        <p style={{ margin: "0 0 12px", fontStyle: "italic" }}>
           Also, please note that Capital Claims Group Inc. should be named as an
           additional payee on all insurance drafts and/or payments, pursuant to the
           enclosed Notice of Loss/Notice of Representation signed by the Insured(s).
@@ -578,14 +725,16 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
           for replacement cost benefits as set forth in the policy and likewise
           invoke their rights to repair, rebuild or replace the damaged property.
         </p>
-        <p>
+        <p style={{ margin: "0 0 12px" }}>
           Surely, you understand the Assured’s need to have this claim processed as
           quickly as possible, and as such, we will be undertaking all necessary
           steps to document and prepare their claim for submission. We look forward
           to working cooperatively with you to reach a fair and prompt resolution
-          to this claim.
+          to this claim. Please feel free to contact us at 954-874-3563 to discuss the
+          current status of this claim and to coordinate our efforts in the loss investigation
+          and valuation process.
         </p>
-        <p style={{ fontStyle: "italic" }}>
+        <p style={{ margin: "0 0 18px", fontStyle: "italic" }}>
           The Assureds hereby reserve all of their rights under the policy and the
           laws of this State and nothing contained herein is intended to waive or
           prejudice said rights.
@@ -595,22 +744,44 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
           style={{
             display: "grid",
             gridTemplateColumns: hasSecond ? "1fr 1fr" : "1fr",
-            gap: 24,
-            paddingTop: 16,
+            gap: 20,
+            paddingTop: 8,
           }}
         >
           <SignatureDisplay
-            title="Homeowner 1 Signature"
+            title="Insured Signature"
             name={data.homeowner1}
             value={sig1}
           />
           {hasSecond && (
             <SignatureDisplay
-              title="Homeowner 2 Signature"
+              title="Insured Signature"
               name={data.homeowner2}
               value={sig2}
             />
           )}
+        </div>
+
+        <div
+          style={{
+            borderTop: "3px solid #7c3aed",
+            marginTop: 20,
+            paddingTop: 12,
+            fontSize: 11.5,
+            color: "#111827",
+            lineHeight: 1.3,
+          }}
+        >
+          <div style={{ fontWeight: 700 }}>1000 N Hiatus Rd Suite 120A</div>
+          <div>
+            Pembroke Pines FL 33026 &nbsp; • &nbsp; office@capitalclaimgroup.com
+            &nbsp; • &nbsp; +1 (954) 874-3563 &nbsp; • &nbsp; www.ccgclaims.com
+          </div>
+          <div style={{ marginTop: 8, fontWeight: 600, color: "#6d28d9" }}>
+            License No: W903995 (FL) | License No: 2988852 (TX) | License No:
+            3002439126 (NC) | License No: 14109418 (SC) | License No: 805767 (CO) |
+            License No: 949473 (LA)
+          </div>
         </div>
       </div>
     </div>
@@ -625,12 +796,10 @@ function PublicAdjusterContract({
   onInitials2Change,
 }) {
   const hasSecond = Boolean(data.homeowner2?.trim());
-  const insuredNames = [data.homeowner1, data.homeowner2].filter(Boolean).join(
-    ", "
-  );
+  const insuredNames = [data.homeowner1, data.homeowner2].filter(Boolean).join(", ");
 
   return (
-    <div style={{ display: "grid", gap: 24 }}>
+    <div style={{ display: "grid", gap: 22 }}>
       <div
         id="printable-document"
         style={{
@@ -646,130 +815,133 @@ function PublicAdjusterContract({
         {twoColGrid(
           <>
             <div>
-              <Label>Insured Name(s)</Label>
-              <FieldBox>{insuredNames}</FieldBox>
+              <DocLabel>Insured Name(s)</DocLabel>
+              <DocFieldBox>{insuredNames}</DocFieldBox>
             </div>
             <div>
-              <Label>Loss Description</Label>
-              <FieldBox>{data.lossDescription}</FieldBox>
+              <DocLabel>Loss Description</DocLabel>
+              <DocFieldBox>{data.lossDescription}</DocFieldBox>
             </div>
             <div>
-              <Label>Claim Type</Label>
-              <FieldBox>{data.claimType}</FieldBox>
+              <DocLabel>Claim Type</DocLabel>
+              <DocFieldBox>{data.claimType}</DocFieldBox>
             </div>
             <div>
-              <Label>Situation</Label>
-              <FieldBox>{data.situation}</FieldBox>
+              <DocLabel>Situation</DocLabel>
+              <DocFieldBox>{data.situation}</DocFieldBox>
             </div>
             <div>
-              <Label>Phone</Label>
-              <FieldBox>{data.phone}</FieldBox>
+              <DocLabel>Phone</DocLabel>
+              <DocFieldBox>{data.phone}</DocFieldBox>
             </div>
             <div>
-              <Label>Insurer</Label>
-              <FieldBox>{data.insuranceCompany}</FieldBox>
+              <DocLabel>Insurer</DocLabel>
+              <DocFieldBox>{data.insuranceCompany}</DocFieldBox>
             </div>
             <div>
-              <Label>Date of Loss</Label>
-              <FieldBox>{data.dateOfLoss}</FieldBox>
+              <DocLabel>Date of Loss</DocLabel>
+              <DocFieldBox>{data.dateOfLoss}</DocFieldBox>
             </div>
             <div>
-              <Label>Policy #</Label>
-              <FieldBox>{data.policyNumber}</FieldBox>
+              <DocLabel>Policy #</DocLabel>
+              <DocFieldBox>{data.policyNumber}</DocFieldBox>
             </div>
             <div>
-              <Label>Claim #</Label>
-              <FieldBox>{data.claimNumber}</FieldBox>
+              <DocLabel>Claim #</DocLabel>
+              <DocFieldBox>{data.claimNumber}</DocFieldBox>
             </div>
             <div>
-              <Label>Street Address</Label>
-              <FieldBox>{data.address}</FieldBox>
+              <DocLabel>Street Address</DocLabel>
+              <DocFieldBox>{data.address}</DocFieldBox>
             </div>
             <div>
-              <Label>City</Label>
-              <FieldBox>{data.city}</FieldBox>
+              <DocLabel>City</DocLabel>
+              <DocFieldBox>{data.city}</DocFieldBox>
             </div>
             <div>
-              <Label>State</Label>
-              <FieldBox>{data.state}</FieldBox>
+              <DocLabel>State</DocLabel>
+              <DocFieldBox>{data.state}</DocFieldBox>
             </div>
             <div>
-              <Label>ZIP</Label>
-              <FieldBox>{data.zip}</FieldBox>
+              <DocLabel>ZIP</DocLabel>
+              <DocFieldBox>{data.zip}</DocFieldBox>
             </div>
             <div style={{ gridColumn: "1 / -1" }}>
-              <Label>Signer Email (recipient)</Label>
-              <FieldBox>{data.signerEmail}</FieldBox>
+              <DocLabel>Signer Email (recipient)</DocLabel>
+              <DocFieldBox>{data.signerEmail}</DocFieldBox>
             </div>
           </>
         )}
 
         <div
           style={{
-            padding: "0 24px 24px",
-            color: "#1f2937",
-            fontSize: 15,
-            lineHeight: 1.7,
+            padding: "0 20px 18px",
+            color: "#111827",
+            fontSize: 12.5,
+            lineHeight: 1.45,
+            fontFamily: "Arial, Helvetica, sans-serif",
           }}
         >
           <div
             style={{
-              borderRadius: 12,
+              borderRadius: 10,
               background: "#f3f4f6",
-              padding: "12px 16px",
+              border: "1px solid #e5e7eb",
+              padding: "10px 16px",
               fontWeight: 700,
-              marginBottom: 20,
+              marginBottom: 16,
+              fontSize: 12.5,
             }}
           >
             PUBLIC ADJUSTER CONTRACT
           </div>
 
-          <p>
+          <p style={{ margin: "0 0 10px" }}>
             <strong>1. SERVICE FEE:</strong> The insured(s) hereby retains Capital
             Claims Group to be its public adjuster and hereby appoints Capital Claims
             Group to be its independent appraiser to appraise, advise, negotiate,
             and/or settle the above-referenced claim. The insured(s) agrees to pay and
-            hereby assigns to Capital Claims Group 10% of all payments made by the
-            insurance company related to this claim. In the event appraisal, mediation
-            is demanded, or a lawsuit ensues regarding the above-mentioned claim, there
-            will be an additional charge of five percent. The total contractual
-            percentage shall not exceed the maximum allowed by law.
+            hereby assigns to Capital Claims Group <span style={{ display: "inline-block", minWidth: 48, borderBottom: "1px solid #111827", textAlign: "center" }}>10%</span> of all
+            payments made by the insurance company related to this claim. In the event
+            appraisal, mediation is demanded, or a lawsuit ensues regarding the
+            above-mentioned claim, there will be an additional charge of five percent.
+            The total contractual percentage shall not exceed the maximum allowed by law.
           </p>
 
-          <p>
+          <p style={{ margin: "0 0 10px" }}>
             <strong>2. ADDITIONAL PAYEE:</strong> The insured authorizes and requests
             the insurer and the insured’s mortgage carrier to have Capital Claims Group
             appear as an additional payee on all checks issued regarding the
-            above-mentioned claim. The insured hereby grants Capital Claims Group a
-            lien on recovered proceeds received by the insurer to the extent of the fee
-            due to Capital Claims Group pursuant to this agreement.
+            above-mentioned claim. The insured hereby grants Capital Claims Group a lien
+            on recovered proceeds received by the insurer to the extent of the fee due to
+            Capital Claims Group pursuant to this agreement.
           </p>
 
-          <p>
+          <p style={{ margin: "0 0 10px" }}>
             <strong>3. THIRD-PARTY FEES:</strong> The insured understands it may be
             necessary to incur professional fees on the insured’s behalf to properly
             adjust the claim. These fees may include, but are not limited to, a General
             Contractor, Engineer, Claim Appraiser, Plumber, Roofer, and Environmental
-            Hygienist. The insured understands that no professional fees will be
-            incurred without the insured’s written or verbal authorization, and that
-            the insured may then be responsible for such fees.
+            Hygienist. The insured understands that no professional fees will be incurred
+            without the insured’s written or verbal authorization, and that the insured
+            may then be responsible for such fees.
           </p>
 
           <div
             style={{
               display: "grid",
               gridTemplateColumns: hasSecond ? "1fr 1fr" : "1fr",
-              gap: 24,
+              gap: 20,
             }}
           >
             <InitialsPad
-              title="Initials – Homeowner 1"
+              title="Initials:"
               value={data.initials1}
               onChange={onInitials1Change}
             />
             {hasSecond && (
               <InitialsPad
-                title="Initials – Homeowner 2"
+                title="Initials:"
                 value={data.initials2}
                 onChange={onInitials2Change}
               />
@@ -778,50 +950,50 @@ function PublicAdjusterContract({
         </div>
       </div>
 
-      <Card>
+      <Card style={{ borderRadius: 20 }}>
         <CardContent>
-          <div style={{ color: "#1f2937", fontSize: 15, lineHeight: 1.8 }}>
-            <p>
+          <div style={{ color: "#111827", fontSize: 12.5, lineHeight: 1.45 }}>
+            <p style={{ margin: "0 0 10px" }}>
               <strong>4. ENDORSEMENT:</strong> The insured’s endorsement on any
               insurance proceeds check will be deemed to be an agreement with the terms
-              and conditions of any related settlement regarding the above-mentioned
-              claim.
+              and conditions of any related settlement regarding the above-mentioned claim.
             </p>
 
-            <p>
+            <p style={{ margin: "0 0 10px" }}>
               <strong>5. AFFIDAVIT:</strong> I,{" "}
               <span
                 style={{
                   display: "inline-block",
                   minWidth: 220,
-                  borderBottom: "1px solid #334155",
+                  borderBottom: "1px solid #111827",
                   padding: "0 4px",
+                  color: insuredNames ? "#111827" : "#6b7280",
                 }}
               >
                 {insuredNames || "Named insured"}
               </span>
-              , a named insured under the above-mentioned policy, hereby swear and
-              attest that I have the authority to enter into this contract and settle
-              all claims issued on behalf of all named insureds. Insured acknowledges,
-              understands, and agrees that under section 626.8796, Florida Statutes, an
-              agreement with a public adjuster must be signed by all named insureds.
+              , a named insured under the above-mentioned policy, hereby swear and attest
+              that I have the authority to enter into this contract and settle all claims
+              issued on behalf of all named insureds. Insured acknowledges, understands,
+              and agrees that under section 626.8796, Florida Statutes, an agreement with
+              a public adjuster must be signed by all named insureds.
             </p>
 
-            <p>
-              <strong>6. LEGAL:</strong> Capital Claims Group is not a law firm and
-              does not offer legal advice, and there will be no attorney-client
-              relationship with the insured(s). The insured is hereby advised of the
-              right to counsel and may consult with an attorney regarding their claim
-              independently of Capital Claims Group.
+            <p style={{ margin: "0 0 10px" }}>
+              <strong>6. LEGAL:</strong> Capital Claims Group is not a law firm and does
+              not offer legal advice, and there will be no attorney-client relationship
+              with the insured(s). The insured is hereby advised of the right to counsel
+              and may consult with an attorney regarding their claim independently of
+              Capital Claims Group.
             </p>
 
-            <p>
-              <strong>7. LETTER OF PROTECTION:</strong> The insured understands and
-              agrees that if it becomes necessary to retain an attorney, the insured
-              authorizes and agrees to a Letter of Protection for Capital Claims Group.
+            <p style={{ margin: "0 0 10px" }}>
+              <strong>7. LETTER OF PROTECTION:</strong> The insured understands and agrees
+              that if it becomes necessary to retain an attorney, the insured authorizes
+              and agrees to a Letter of Protection for Capital Claims Group.
             </p>
 
-            <p>
+            <p style={{ margin: "0 0 10px" }}>
               <strong>8. REPRESENTATION:</strong> The insured hereby affirms that no
               other claim(s) have been filed in reference to the same peril and that no
               other legal representation is involved with the claim other than{" "}
@@ -829,11 +1001,12 @@ function PublicAdjusterContract({
                 style={{
                   display: "inline-block",
                   minWidth: 220,
-                  borderBottom: "1px solid #334155",
+                  borderBottom: "1px solid #111827",
                   padding: "0 4px",
+                  color: data.representativeName ? "#111827" : "#6b7280",
                 }}
               >
-                {data.representativeName}
+                {data.representativeName || "Representation Name"}
               </span>
               .
             </p>
@@ -842,144 +1015,105 @@ function PublicAdjusterContract({
               style={{
                 display: "grid",
                 gridTemplateColumns: hasSecond ? "1fr 1fr" : "1fr",
-                gap: 24,
-                marginTop: 16,
+                gap: 20,
               }}
             >
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 500 }}>
-                  Initials – Homeowner 1
-                </div>
-                <InitialsImage value={data.initials1} />
-              </div>
-              {hasSecond && (
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 500 }}>
-                    Initials – Homeowner 2
-                  </div>
-                  <InitialsImage value={data.initials2} />
-                </div>
-              )}
+              <InitialsImage value={data.initials1} />
+              {hasSecond && <InitialsImage value={data.initials2} />}
             </div>
           </div>
         </CardContent>
       </Card>
 
-      <Card>
+      <Card style={{ borderRadius: 20 }}>
         <CardContent>
-          <div style={{ color: "#1f2937", fontSize: 15, lineHeight: 1.8 }}>
-            <p>
-              <strong>9. SEVERABILITY:</strong> Unenforceability or invalidity of one
-              or more clauses in this Agreement shall not affect any other clause.
+          <div style={{ color: "#111827", fontSize: 12.5, lineHeight: 1.45 }}>
+            <p style={{ margin: "0 0 10px" }}>
+              <strong>9. SEVERABILITY:</strong> Unenforceability or invalidity of one or
+              more clauses in this Agreement shall not affect any other clause.
             </p>
 
-            <p>
-              <strong>10. DISPUTE:</strong> In the event of litigation arising from
-              this agreement, the venue shall be in Miami-Dade County, Florida. The
-              prevailing party shall be entitled to recover its court costs,
-              reasonable attorney fees, including those incurred during any appeal
-              proceedings, and interest on any past due fees at the maximum rate
-              permitted by applicable law.
+            <p style={{ margin: "0 0 10px" }}>
+              <strong>10. DISPUTE:</strong> In the event of litigation arising from this
+              agreement, the venue shall be in Miami-Dade County, Florida. The prevailing
+              party shall be entitled to recover its court costs, reasonable attorney fees,
+              including those incurred during any appeal proceedings, and interest on any
+              past due fees at the maximum rate permitted by applicable law.
             </p>
 
-            <p>
+            <p style={{ margin: "0 0 10px" }}>
               <strong>11. COMMERCIAL POLICY CANCELLATION:</strong> You, the insured(s),
-              may cancel this contract for any reason without penalty or obligation to
-              you within 10 days after the date of this contract.
+              may cancel this contract for any reason without penalty or obligation to you
+              within 10 days after the date of this contract.
             </p>
 
             <div
               style={{
                 display: "grid",
                 gridTemplateColumns: hasSecond ? "1fr 1fr" : "1fr",
-                gap: 24,
-                marginTop: 16,
+                gap: 20,
               }}
             >
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 500 }}>
-                  Initials – Homeowner 1
-                </div>
-                <InitialsImage value={data.initials1} />
-              </div>
-              {hasSecond && (
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 500 }}>
-                    Initials – Homeowner 2
-                  </div>
-                  <InitialsImage value={data.initials2} />
-                </div>
-              )}
+              <InitialsImage value={data.initials1} />
+              {hasSecond && <InitialsImage value={data.initials2} />}
             </div>
           </div>
         </CardContent>
       </Card>
 
-      <Card>
+      <Card style={{ borderRadius: 20 }}>
         <CardContent>
-          <div style={{ color: "#1f2937", fontSize: 15, lineHeight: 1.8 }}>
-            <p>
-              <strong>12. RESIDENTIAL POLICY CANCELLATION:</strong> You, the insured,
-              may cancel this contract for any reason without penalty or obligation to
-              you within 10 days after the date of this contract.
+          <div style={{ color: "#111827", fontSize: 12.5, lineHeight: 1.45 }}>
+            <p style={{ margin: "0 0 10px", fontWeight: 700 }}>
+              12. RESIDENTIAL POLICY CANCELLATION: You, the insured, may cancel this
+              contract for any reason without penalty or obligation to you within 10 days
+              after the date of this contract.
             </p>
 
-            <p style={{ fontWeight: 600 }}>
+            <p style={{ margin: "0 0 10px", fontWeight: 700 }}>
               The notice of cancellation shall be provided to Capital Claims Group,
-              submitted in writing, and sent by certified mail, return receipt
-              requested, or another form of mailing that provides proof thereof, at the
-              address specified in the contract.
+              submitted in writing, and sent by certified mail, return receipt requested,
+              or another form of mailing that provides proof thereof, at the address
+              specified in the contract.
             </p>
 
-            <p style={{ fontWeight: 600 }}>
+            <p style={{ margin: "0 0 10px", fontWeight: 700 }}>
               Pursuant to s. 817.234, Florida Statutes, any person who, with the intent
-              to injure, defraud, or deceive any insurer or insured, prepares,
-              presents, or causes to be presented a proof of loss or estimate of cost
-              or repair of damaged property in support of a claim under an insurance
-              policy, knowing that the proof of loss or estimate of claim or repairs
-              contains any false, incomplete, or misleading information concerning any
-              fact or thing material to the claim, commits a felony of the third
-              degree, punishable as provided in s. 775.082, s. 775.803, or s. 775.084,
-              Florida Statutes.
+              to injure, defraud, or deceive any insurer or insured, prepares, presents,
+              or causes to be presented a proof of loss or estimate of cost or repair of
+              damaged property in support of a claim under an insurance policy, knowing
+              that the proof of loss or estimate of claim or repairs contains any false,
+              incomplete, or misleading information concerning any fact or thing material
+              to the claim, commits a felony of the third degree, punishable as provided
+              in s. 775.082, s. 775.803, or s. 775.084, Florida Statutes.
             </p>
 
-            <p style={{ fontWeight: 600 }}>
+            <p style={{ margin: "0 0 10px", fontWeight: 700 }}>
               Insured(s) have read, understand and voluntarily sign the foregoing
-              Agreement. A computer or faxed signature or copy of this document shall
-              be deemed to have the same effect as the original.
+              Agreement. A computer or faxed signature or copy of this document shall be
+              deemed to have the same effect as the original.
             </p>
 
             <div
               style={{
                 display: "grid",
                 gridTemplateColumns: hasSecond ? "1fr 1fr" : "1fr",
-                gap: 24,
-                marginTop: 16,
+                gap: 20,
               }}
             >
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 500 }}>
-                  Initials – Homeowner 1
-                </div>
-                <InitialsImage value={data.initials1} />
-              </div>
-              {hasSecond && (
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 500 }}>
-                    Initials – Homeowner 2
-                  </div>
-                  <InitialsImage value={data.initials2} />
-                </div>
-              )}
+              <InitialsImage value={data.initials1} />
+              {hasSecond && <InitialsImage value={data.initials2} />}
             </div>
 
             <div
               style={{
                 borderRadius: 12,
                 background: "#f3f4f6",
+                border: "1px solid #e5e7eb",
                 padding: "12px 16px",
                 fontWeight: 700,
-                marginTop: 24,
+                marginTop: 16,
+                fontSize: 12.5,
               }}
             >
               Insured Signature
@@ -988,18 +1122,19 @@ function PublicAdjusterContract({
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-                gap: 16,
-                marginTop: 16,
+                gridTemplateColumns: "1.2fr 0.8fr",
+                gap: 18,
+                marginTop: 14,
+                alignItems: "start",
               }}
             >
               <div>
-                <Label>Insured (Print)</Label>
-                <FieldBox>{insuredNames}</FieldBox>
+                <DocLabel>Insured (Print)</DocLabel>
+                <DocFieldBox>{insuredNames}</DocFieldBox>
               </div>
               <div>
-                <Label>Date</Label>
-                <FieldBox>{data.date}</FieldBox>
+                <DocLabel>Date</DocLabel>
+                <DocFieldBox>{data.date}</DocFieldBox>
               </div>
             </div>
 
@@ -1007,18 +1142,18 @@ function PublicAdjusterContract({
               style={{
                 display: "grid",
                 gridTemplateColumns: hasSecond ? "1fr 1fr" : "1fr",
-                gap: 24,
-                paddingTop: 16,
+                gap: 20,
+                paddingTop: 14,
               }}
             >
               <SignatureDisplay
-                title="Homeowner 1 Signature"
+                title="Insured Signature"
                 name={data.homeowner1}
                 value={sig1}
               />
               {hasSecond && (
                 <SignatureDisplay
-                  title="Homeowner 2 Signature"
+                  title="Insured Signature"
                   name={data.homeowner2}
                   value={sig2}
                 />
@@ -1028,18 +1163,19 @@ function PublicAdjusterContract({
             <div
               style={{
                 borderTop: "3px solid #7c3aed",
-                marginTop: 24,
-                paddingTop: 16,
-                fontSize: 14,
-                color: "#374151",
+                marginTop: 20,
+                paddingTop: 12,
+                fontSize: 11.5,
+                color: "#111827",
+                lineHeight: 1.25,
               }}
             >
               <div style={{ fontWeight: 700 }}>3600 Red Rd suite Ste 601B</div>
               <div>
-                Miramar, FL 33025 • claims@capitalclaimgroup.com • +1 (954)
-                571-3035 • www.ccgclaims.com
+                Miramar, FL 33025 &nbsp; • &nbsp; claims@capitalclaimgroup.com
+                &nbsp; • &nbsp; +1 (954) 571-3035 &nbsp; • &nbsp; www.ccgclaims.com
               </div>
-              <div style={{ marginTop: 8, fontWeight: 600, color: "#7c3aed" }}>
+              <div style={{ marginTop: 8, fontWeight: 700, color: "#6d28d9" }}>
                 License No: G240595
               </div>
             </div>
@@ -1061,31 +1197,31 @@ export default function App() {
 
   const saveClaimToSupabase = async () => {
     const { error } = await supabase.from("claims").insert([
-  {
-    date: data.date,
-    insurance_company: data.insuranceCompany,
-    policy_number: data.policyNumber,
-    claim_number: data.claimNumber,
-    representative_name: data.representativeName,
-    representative_email: data.representativeEmail,
-    homeowner1: data.homeowner1,
-    homeowner2: data.homeowner2,
-    phone: data.phone,
-    address: data.address,
-    city: data.city,
-    state: data.state,
-    zip: data.zip,
-    loss_location: data.lossLocation,
-    date_of_loss: data.dateOfLoss,
-    situation: data.situation,
-    homeowner_email: data.signerEmail,
-    pa_email: data.paEmail,
-    signature1: sig1,
-    signature2: sig2,
-    initials1: data.initials1,
-    initials2: data.initials2,
-  },
-]);
+      {
+        date: data.date,
+        insurance_company: data.insuranceCompany,
+        policy_number: data.policyNumber,
+        claim_number: data.claimNumber,
+        representative_name: data.representativeName,
+        representative_email: data.representativeEmail,
+        homeowner1: data.homeowner1,
+        homeowner2: data.homeowner2,
+        phone: data.phone,
+        address: data.address,
+        city: data.city,
+        state: data.state,
+        zip: data.zip,
+        loss_location: data.lossLocation,
+        date_of_loss: data.dateOfLoss,
+        situation: data.situation,
+        homeowner_email: data.signerEmail,
+        pa_email: data.paEmail,
+        signature1: sig1,
+        signature2: sig2,
+        initials1: data.initials1,
+        initials2: data.initials2,
+      },
+    ]);
 
     return error;
   };
@@ -1133,43 +1269,46 @@ export default function App() {
       alert("Error saving: " + error.message);
       return;
     }
+
     const emailResponse = await fetch("/.netlify/functions/send-email", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify({
-    to: [data.signerEmail, data.representativeEmail, data.paEmail].filter(Boolean),
-    subject:
-      activeDoc === "lor"
-        ? "Letter of Representation Submitted"
-        : "PA Agreement Submitted",
-    html: `
-      <h2>Claim Document Submitted</h2>
-      <p><strong>Document:</strong> ${
-        activeDoc === "lor" ? "Letter of Representation" : "PA Agreement"
-      }</p>
-      <p><strong>Insurance Company:</strong> ${data.insuranceCompany || ""}</p>
-      <p><strong>Policy Number:</strong> ${data.policyNumber || ""}</p>
-      <p><strong>Homeowner 1:</strong> ${data.homeowner1 || ""}</p>
-      <p><strong>Homeowner 2:</strong> ${data.homeowner2 || ""}</p>
-      <p><strong>Representative:</strong> ${data.representativeName || ""}</p>
-    `,
-  }),
-});
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        to: [data.signerEmail, data.representativeEmail, data.paEmail].filter(Boolean),
+        subject:
+          activeDoc === "lor"
+            ? "Letter of Representation Submitted"
+            : "PA Agreement Submitted",
+        html: `
+          <h2>Claim Document Submitted</h2>
+          <p><strong>Document:</strong> ${
+            activeDoc === "lor" ? "Letter of Representation" : "PA Agreement"
+          }</p>
+          <p><strong>Insurance Company:</strong> ${data.insuranceCompany || ""}</p>
+          <p><strong>Policy Number:</strong> ${data.policyNumber || ""}</p>
+          <p><strong>Homeowner 1:</strong> ${data.homeowner1 || ""}</p>
+          <p><strong>Homeowner 2:</strong> ${data.homeowner2 || ""}</p>
+          <p><strong>Representative:</strong> ${data.representativeName || ""}</p>
+        `,
+      }),
+    });
 
-const emailResult = await emailResponse.json();
+    const emailResult = await emailResponse.json();
 
-if (!emailResponse.ok) {
-  alert("Saved to database, but email failed: " + (emailResult.error || "Unknown error"));
-  return;
-}
+    if (!emailResponse.ok) {
+      alert("Saved to database, but email failed: " + (emailResult.error || "Unknown error"));
+      return;
+    }
 
     if (pendingSend) {
       alert(
         `Saved successfully! This would send the ${
           activeDoc === "lor" ? "Letter of Representation" : "PA Agreement"
-        } to ${data.signerEmail} for signature and notify ${data.representativeEmail || "the representative"} and ${data.paEmail}.`
+        } to ${data.signerEmail} for signature and notify ${
+          data.representativeEmail || "the representative"
+        } and ${data.paEmail}.`
       );
     } else {
       alert(
@@ -1303,9 +1442,7 @@ if (!emailResponse.ok) {
                       <CheckboxField
                         label="Loss location is same as property address"
                         checked={data.lossLocationSameAsAddress}
-                        onChange={(checked) =>
-                          update("lossLocationSameAsAddress", checked)
-                        }
+                        onChange={(checked) => update("lossLocationSameAsAddress", checked)}
                       />
                     </div>
                     <div style={{ gridColumn: "1 / -1" }}>
@@ -1349,22 +1486,6 @@ if (!emailResponse.ok) {
                 </Card>
               </div>
 
-<div
-  style={{
-    fontSize: 18,
-    color: "red",
-    fontWeight: "bold",
-    marginTop: 14,
-    textAlign: "center",
-  }}
->
-  First pick which function sign now or send for signing then click on the form you want
-</div>
-
-<div style={{ marginTop: 20 }}>
-  <Separator />
-</div>
-
               <div style={{ marginTop: 20 }}>
                 <div
                   style={{
@@ -1398,8 +1519,6 @@ if (!emailResponse.ok) {
                     <Send size={16} /> Send for Signing
                   </Button>
                 </div>
-
-                
               </div>
 
               <div style={{ marginTop: 20 }}>
@@ -1421,6 +1540,18 @@ if (!emailResponse.ok) {
                 <Button variant="outline" onClick={() => openDoc("pac")}>
                   <FileSignature size={16} /> PA Agreement
                 </Button>
+              </div>
+
+              <div
+                style={{
+                  fontSize: 18,
+                  color: "red",
+                  fontWeight: "bold",
+                  marginTop: 14,
+                  textAlign: "center",
+                }}
+              >
+                First pick which function sign now or send for signing then click on the form you want
               </div>
             </CardContent>
           </Card>
