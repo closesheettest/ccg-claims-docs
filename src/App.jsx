@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import html2pdf from "html2pdf.js";
 import {
   ArrowLeft,
   FileSignature,
@@ -1347,34 +1348,50 @@ export default function App() {
   const submitDoc = async () => {
     const error = await saveClaimToSupabase();
 
-    if (error) {
-      alert("Error saving: " + error.message);
-      return;
-    }
+if (error) {
+  alert("Error saving: " + error.message);
+  return;
+}
 
+const pdfBlob = await generatePDF(activeDoc);
+const pdfBase64 = await blobToBase64(pdfBlob);
+      
     const emailResponse = await fetch("/.netlify/functions/send-email", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        to: [data.signerEmail,  data.paEmail].filter(Boolean),
-        subject:
-          activeDoc === "lor"
-            ? "Letter of Representation Submitted"
-            : "PA Agreement Submitted",
-        html: `
-          <h2>Claim Document Submitted</h2>
-          <p><strong>Document:</strong> ${
-            activeDoc === "lor" ? "Letter of Representation" : "PA Agreement"
-          }</p>
-          <p><strong>Insurance Company:</strong> ${data.insuranceCompany || ""}</p>
-          <p><strong>Policy Number:</strong> ${data.policyNumber || ""}</p>
-          <p><strong>Homeowner 1:</strong> ${data.homeowner1 || ""}</p>
-          <p><strong>Homeowner 2:</strong> ${data.homeowner2 || ""}</p>
-          <p><strong>Representative:</strong> ${data.representativeName || ""}</p>
-        `,
-      }),
+  to: [data.signerEmail, data.paEmail].filter(Boolean),
+
+  subject:
+    activeDoc === "lor"
+      ? "Letter of Representation Submitted"
+      : "PA Agreement Submitted",
+
+  html: `
+    <h2>Claim Document Submitted</h2>
+    <p><strong>Document:</strong> ${
+      activeDoc === "lor" ? "Letter of Representation" : "PA Agreement"
+    }</p>
+    <p><strong>Insurance Company:</strong> ${data.insuranceCompany || ""}</p>
+    <p><strong>Policy Number:</strong> ${data.policyNumber || ""}</p>
+    <p><strong>Homeowner 1:</strong> ${data.homeowner1 || ""}</p>
+    <p><strong>Homeowner 2:</strong> ${data.homeowner2 || ""}</p>
+    <p><strong>Representative:</strong> ${data.representativeName || ""}</p>
+  `,
+
+  attachments: [
+    {
+      filename:
+        activeDoc === "lor"
+          ? "Letter-of-Representation.pdf"
+          : "Public-Adjuster-Agreement.pdf",
+      content: pdfBase64.split(",")[1],
+encoding: "base64",
+    },
+  ],
+}),
     });
 
     const emailResult = await emailResponse.json();
