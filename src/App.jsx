@@ -510,12 +510,12 @@ function gradientHeader(title) {
         alignItems: "center",
         justifyContent: "space-between",
         background: "linear-gradient(90deg, #1f7a4d, #6b46c1)",
-        padding: "18px 22px",
+        padding: "12px 16px",
         color: "#fff",
       }}
     >
-      <div style={{ fontSize: 24, fontWeight: 700 }}>{title}</div>
-      <div style={{ fontSize: 18, fontWeight: 700 }}>CAPITAL CLAIMS GROUP</div>
+      <div style={{ fontSize: 18, fontWeight: 700 }}>{title}</div>
+      <div style={{ fontSize: 15, fontWeight: 700 }}>CAPITAL CLAIMS GROUP</div>
     </div>
   );
 }
