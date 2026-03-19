@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import html2pdf from "html2pdf.js";
+import html2pdf from "html2pdf.js/dist/html2pdf";
 import {
   ArrowLeft,
   FileSignature,
@@ -847,12 +847,13 @@ function PublicAdjusterContract({
   onInitials2Change,
 }) {
   const hasSecond = Boolean(data.homeowner2?.trim());
-  const insuredNames = [data.homeowner1, data.homeowner2].filter(Boolean).join(", ");
+  const insuredNames = [data.homeowner1, data.homeowner2]
+    .filter(Boolean)
+    .join(", ");
 
   return (
-    <div style={{ display: "grid", gap: 22 }}>
+    <div id="printable-document" style={{ display: "grid", gap: 22 }}>
       <div
-        id="printable-document"
         style={{
           borderRadius: 24,
           overflow: "hidden",
@@ -869,54 +870,67 @@ function PublicAdjusterContract({
               <DocLabel>Insured Name(s)</DocLabel>
               <DocFieldBox>{insuredNames}</DocFieldBox>
             </div>
+
             <div>
               <DocLabel>Loss Description</DocLabel>
               <DocFieldBox>{data.lossDescription}</DocFieldBox>
             </div>
+
             <div>
               <DocLabel>Claim Type</DocLabel>
               <DocFieldBox>{data.claimType}</DocFieldBox>
             </div>
+
             <div>
               <DocLabel>Situation</DocLabel>
               <DocFieldBox>{data.situation}</DocFieldBox>
             </div>
+
             <div>
               <DocLabel>Phone</DocLabel>
               <DocFieldBox>{data.phone}</DocFieldBox>
             </div>
+
             <div>
               <DocLabel>Insurer</DocLabel>
               <DocFieldBox>{data.insuranceCompany}</DocFieldBox>
             </div>
+
             <div>
               <DocLabel>Date of Loss</DocLabel>
               <DocFieldBox>{data.dateOfLoss}</DocFieldBox>
             </div>
+
             <div>
               <DocLabel>Policy #</DocLabel>
               <DocFieldBox>{data.policyNumber}</DocFieldBox>
             </div>
+
             <div>
               <DocLabel>Claim #</DocLabel>
               <DocFieldBox>{data.claimNumber}</DocFieldBox>
             </div>
+
             <div>
               <DocLabel>Street Address</DocLabel>
               <DocFieldBox>{data.address}</DocFieldBox>
             </div>
+
             <div>
               <DocLabel>City</DocLabel>
               <DocFieldBox>{data.city}</DocFieldBox>
             </div>
+
             <div>
               <DocLabel>State</DocLabel>
               <DocFieldBox>{data.state}</DocFieldBox>
             </div>
+
             <div>
               <DocLabel>ZIP</DocLabel>
               <DocFieldBox>{data.zip}</DocFieldBox>
             </div>
+
             <div style={{ gridColumn: "1 / -1" }}>
               <DocLabel>Signer Email (recipient)</DocLabel>
               <DocFieldBox>{data.signerEmail}</DocFieldBox>
@@ -1713,13 +1727,13 @@ encoding: "base64",
       const element = document.getElementById("printable-document");
 
       const opt = {
-        margin: 0.5,
+        margin: 0.1,
         filename:
           activeDoc === "lor"
             ? "Letter-of-Representation.pdf"
             : "Public-Adjuster-Agreement.pdf",
         image: { type: "jpeg", quality: 1 },
-        html2canvas: { scale: 2 },
+        html2canvas: { scale: 2, useCORS: true },
         jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
       };
 
