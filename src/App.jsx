@@ -547,10 +547,11 @@ function DocLabel({ children }) {
     <div
       style={{
         display: "block",
-        fontSize: 11,
+        fontSize: 10,        // ⬅️ smaller
         color: "#374151",
-        marginBottom: 6,
+        marginBottom: 3,     // ⬅️ tighter spacing
         fontWeight: 400,
+        lineHeight: 1.1,     // ⬅️ tighter line height
       }}
     >
       {children}
@@ -562,13 +563,13 @@ function DocFieldBox({ children }) {
   return (
     <div
       style={{
-        minHeight: 38,
+        minHeight: 30,                 // ⬅️ smaller box
         border: "1px solid #cbd5e1",
-        borderRadius: 12,
-        padding: "8px 12px",
+        borderRadius: 10,
+        padding: "5px 8px",           // ⬅️ less padding
         background: "#fff",
-        fontSize: 12,
-        lineHeight: 1.3,
+        fontSize: 12,                 // ⬅️ smaller text
+        lineHeight: 1.2,
         color: "#111827",
         boxSizing: "border-box",
       }}
