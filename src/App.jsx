@@ -1702,11 +1702,33 @@ encoding: "base64",
                 )}
 
                 <div style={{ display: "flex", gap: 12, paddingTop: 8 }}>
-                  <Button onClick={submitDoc}>
-                    {pendingSend ? <Send size={16} /> : <Mail size={16} />}
-                    {pendingSend ? "Send for Signing" : "Submit & Email Copies"}
-                  </Button>
-                </div>
+  <Button onClick={submitDoc}>
+    {pendingSend ? <Send size={16} /> : <Mail size={16} />}
+    {pendingSend ? "Send for Signing" : "Submit & Email Copies"}
+  </Button>
+
+  <Button
+    variant="outline"
+    onClick={async () => {
+      const element = document.getElementById("printable-document");
+
+      const opt = {
+        margin: 0.5,
+        filename:
+          activeDoc === "lor"
+            ? "Letter-of-Representation.pdf"
+            : "Public-Adjuster-Agreement.pdf",
+        image: { type: "jpeg", quality: 1 },
+        html2canvas: { scale: 2 },
+        jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
+      };
+
+      await html2pdf().set(opt).from(element).save();
+    }}
+  >
+    Download PDF
+  </Button>
+</div>
               </CardContent>
             </Card>
           </>
