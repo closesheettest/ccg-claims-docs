@@ -450,10 +450,10 @@ function InitialsPad({ title, value, onChange }) {
 
 function InitialsImage({ value }) {
   return (
-    <div style={{ marginTop: 6, marginBottom: 10 }}>
+    <div style={{ marginTop: 6, marginBottom: 6 }}>
       <div
         style={{
-          fontSize: 11,
+          fontSize: 10,
           fontWeight: 400,
           color: "#111827",
           marginBottom: 2,
@@ -465,7 +465,7 @@ function InitialsImage({ value }) {
         style={{
           width: "100%",
           borderBottom: "1px solid #111827",
-          height: 18,
+          height: 16,
           position: "relative",
         }}
       >
@@ -477,7 +477,7 @@ function InitialsImage({ value }) {
               position: "absolute",
               left: 0,
               bottom: 1,
-              height: 15,
+              height: 13,
               objectFit: "contain",
             }}
           />
@@ -540,11 +540,11 @@ function DocLabel({ children }) {
     <div
       style={{
         display: "block",
-        fontSize: 10,
+        fontSize: 9,
         color: "#374151",
-        marginBottom: 3,
+        marginBottom: 2,
         fontWeight: 400,
-        lineHeight: 1.1,
+        lineHeight: 1,
       }}
     >
       {children}
@@ -556,13 +556,13 @@ function DocFieldBox({ children }) {
   return (
     <div
       style={{
-        minHeight: 30,
+        minHeight: 22,
         border: "1px solid #cbd5e1",
-        borderRadius: 10,
-        padding: "5px 8px",
+        borderRadius: 8,
+        padding: "3px 6px",
         background: "#fff",
-        fontSize: 12,
-        lineHeight: 1.2,
+        fontSize: 10.5,
+        lineHeight: 1.15,
         color: "#111827",
         boxSizing: "border-box",
       }}
@@ -833,39 +833,534 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
   );
 }
 
-function DocLabel({ children }) {
-  return (
-    <div
-      style={{
-        display: "block",
-        fontSize: 9,
-        color: "#374151",
-        marginBottom: 2,
-        fontWeight: 400,
-        lineHeight: 1,
-      }}
-    >
-      {children}
-    </div>
-  );
-}
+function PublicAdjusterContract({
+  data,
+  sig1,
+  sig2,
+  onInitials1Change,
+  onInitials2Change,
+}) {
+  const hasSecond = Boolean(data.homeowner2?.trim());
+  const insuredNames = [data.homeowner1, data.homeowner2]
+    .filter(Boolean)
+    .join(", ");
 
-function DocFieldBox({ children }) {
   return (
-    <div
-      style={{
-        minHeight: 22,
-        border: "1px solid #cbd5e1",
-        borderRadius: 8,
-        padding: "3px 6px",
-        background: "#fff",
-        fontSize: 10.5,
-        lineHeight: 1.15,
-        color: "#111827",
-        boxSizing: "border-box",
-      }}
-    >
-      {children}
+    <div id="printable-document" style={{ display: "grid", gap: 8 }}>
+      <div
+        style={{
+          borderRadius: 14,
+          overflow: "hidden",
+          border: "1px solid #e5e7eb",
+          background: "#fff",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+        }}
+      >
+        {gradientHeader("Public Adjuster Contract")}
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+            gap: 6,
+            padding: 10,
+          }}
+        >
+          <div>
+            <DocLabel>Insured Name(s)</DocLabel>
+            <DocFieldBox>{insuredNames}</DocFieldBox>
+          </div>
+
+          <div>
+            <DocLabel>Loss Description</DocLabel>
+            <DocFieldBox>{data.lossDescription}</DocFieldBox>
+          </div>
+
+          <div>
+            <DocLabel>Claim Type</DocLabel>
+            <DocFieldBox>{data.claimType}</DocFieldBox>
+          </div>
+
+          <div>
+            <DocLabel>Situation</DocLabel>
+            <DocFieldBox>{data.situation}</DocFieldBox>
+          </div>
+
+          <div>
+            <DocLabel>Phone</DocLabel>
+            <DocFieldBox>{data.phone}</DocFieldBox>
+          </div>
+
+          <div>
+            <DocLabel>Insurer</DocLabel>
+            <DocFieldBox>{data.insuranceCompany}</DocFieldBox>
+          </div>
+
+          <div>
+            <DocLabel>Date of Loss</DocLabel>
+            <DocFieldBox>{data.dateOfLoss}</DocFieldBox>
+          </div>
+
+          <div>
+            <DocLabel>Policy #</DocLabel>
+            <DocFieldBox>{data.policyNumber}</DocFieldBox>
+          </div>
+
+          <div>
+            <DocLabel>Claim #</DocLabel>
+            <DocFieldBox>{data.claimNumber}</DocFieldBox>
+          </div>
+
+          <div>
+            <DocLabel>Street Address</DocLabel>
+            <DocFieldBox>{data.address}</DocFieldBox>
+          </div>
+
+          <div>
+            <DocLabel>City</DocLabel>
+            <DocFieldBox>{data.city}</DocFieldBox>
+          </div>
+
+          <div>
+            <DocLabel>State</DocLabel>
+            <DocFieldBox>{data.state}</DocFieldBox>
+          </div>
+
+          <div>
+            <DocLabel>ZIP</DocLabel>
+            <DocFieldBox>{data.zip}</DocFieldBox>
+          </div>
+
+          <div style={{ gridColumn: "1 / -1" }}>
+            <DocLabel>Signer Email (recipient)</DocLabel>
+            <DocFieldBox>{data.signerEmail}</DocFieldBox>
+          </div>
+        </div>
+
+        <div
+          style={{
+            padding: "0 10px 10px",
+            color: "#111827",
+            fontSize: 10.5,
+            lineHeight: 1.22,
+            fontFamily: "Arial, Helvetica, sans-serif",
+          }}
+        >
+          <div
+            style={{
+              borderRadius: 8,
+              background: "#f3f4f6",
+              border: "1px solid #e5e7eb",
+              padding: "6px 10px",
+              fontWeight: 700,
+              marginBottom: 8,
+              fontSize: 10.5,
+            }}
+          >
+            PUBLIC ADJUSTER CONTRACT
+          </div>
+
+          <p style={{ margin: "0 0 4px" }}>
+            <strong>1. SERVICE FEE:</strong> The insured(s) hereby retains Capital
+            Claims Group to be its public adjuster and hereby appoints Capital Claims
+            Group to be its independent appraiser to appraise, advise, negotiate,
+            and/or settle the above-referenced claim. The insured(s) agrees to pay and
+            hereby assigns to Capital Claims Group{" "}
+            <span
+              style={{
+                display: "inline-block",
+                minWidth: 36,
+                borderBottom: "1px solid #111827",
+                textAlign: "center",
+              }}
+            >
+              10%
+            </span>{" "}
+            of all payments made by the insurance company related to this claim. In the
+            event appraisal, mediation is demanded, or a lawsuit ensues regarding the
+            above-mentioned claim, there will be an additional charge of five percent.
+            The total contractual percentage shall not exceed the maximum allowed by law.
+          </p>
+
+          <p style={{ margin: "0 0 4px" }}>
+            <strong>2. ADDITIONAL PAYEE:</strong> The insured authorizes and requests
+            the insurer and the insured’s mortgage carrier to have Capital Claims Group
+            appear as an additional payee on all checks issued regarding the
+            above-mentioned claim. The insured hereby grants Capital Claims Group a lien
+            on recovered proceeds received by the insurer to the extent of the fee due
+            to Capital Claims Group pursuant to this agreement.
+          </p>
+
+          <p style={{ margin: "0 0 4px" }}>
+            <strong>3. THIRD-PARTY FEES:</strong> The insured understands it may be
+            necessary to incur professional fees on the insured’s behalf to properly
+            adjust the claim. These fees may include, but are not limited to, a General
+            Contractor, Engineer, Claim Appraiser, Plumber, Roofer, and Environmental
+            Hygienist. The insured understands that no professional fees will be
+            incurred without the insured’s written or verbal authorization, and that
+            the insured may then be responsible for such fees.
+          </p>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: hasSecond ? "1fr 1fr" : "1fr",
+              gap: 8,
+              marginTop: 2,
+            }}
+          >
+            <InitialsImage value={data.initials1} />
+            {hasSecond && <InitialsImage value={data.initials2} />}
+          </div>
+        </div>
+      </div>
+
+      <Card style={{ borderRadius: 12 }}>
+        <CardContent>
+          <div
+            style={{
+              padding: 10,
+              color: "#111827",
+              fontSize: 10.5,
+              lineHeight: 1.22,
+              fontFamily: "Arial, Helvetica, sans-serif",
+            }}
+          >
+            <p style={{ margin: "0 0 4px" }}>
+              <strong>4. ENDORSEMENT:</strong> The insured’s endorsement on any
+              insurance proceeds check will be deemed to be an agreement with the terms
+              and conditions of any related settlement regarding the above-mentioned claim.
+            </p>
+
+            <p style={{ margin: "0 0 4px" }}>
+              <strong>5. AFFIDAVIT:</strong> I,{" "}
+              <span
+                style={{
+                  display: "inline-block",
+                  minWidth: 160,
+                  borderBottom: "1px solid #111827",
+                  padding: "0 4px",
+                  color: insuredNames ? "#111827" : "#6b7280",
+                }}
+              >
+                {insuredNames || "Named insured"}
+              </span>
+              , a named insured under the above-mentioned policy, hereby swear and
+              attest that I have the authority to enter into this contract and settle
+              all claims issued on behalf of all named insureds. Insured acknowledges,
+              understands, and agrees that under section 626.8796, Florida Statutes, an
+              agreement with a public adjuster must be signed by all named insureds.
+            </p>
+
+            <p style={{ margin: "0 0 4px" }}>
+              <strong>6. LEGAL:</strong> Capital Claims Group is not a law firm and
+              does not offer legal advice, and there will be no attorney-client
+              relationship with the insured(s). The insured is hereby advised of the
+              right to counsel and may consult with an attorney regarding their claim
+              independently of Capital Claims Group.
+            </p>
+
+            <p style={{ margin: "0 0 4px" }}>
+              <strong>7. LETTER OF PROTECTION:</strong> The insured understands and
+              agrees that if it becomes necessary to retain an attorney, the insured
+              authorizes and agrees to a Letter of Protection for Capital Claims Group.
+            </p>
+
+            <p style={{ margin: "0 0 4px" }}>
+              <strong>8. REPRESENTATION:</strong> The insured hereby affirms that no
+              other claim(s) have been filed in reference to the same peril and that no
+              other legal representation is involved with the claim other than{" "}
+              <span
+                style={{
+                  display: "inline-block",
+                  minWidth: 160,
+                  borderBottom: "1px solid #111827",
+                  padding: "0 4px",
+                  color: data.representativeName ? "#111827" : "#6b7280",
+                }}
+              >
+                {data.representativeName || "Representation Name"}
+              </span>
+              .
+            </p>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: hasSecond ? "1fr 1fr" : "1fr",
+                gap: 8,
+                marginTop: 2,
+              }}
+            >
+              <InitialsImage value={data.initials1} />
+              {hasSecond && <InitialsImage value={data.initials2} />}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card style={{ borderRadius: 12 }}>
+        <CardContent>
+          <div
+            style={{
+              padding: 10,
+              color: "#111827",
+              fontSize: 10.5,
+              lineHeight: 1.22,
+              fontFamily: "Arial, Helvetica, sans-serif",
+            }}
+          >
+            <p style={{ margin: "0 0 4px" }}>
+              <strong>9. SEVERABILITY:</strong> Unenforceability or invalidity of one
+              or more clauses in this Agreement shall not affect any other clause.
+            </p>
+
+            <p style={{ margin: "0 0 4px" }}>
+              <strong>10. DISPUTE:</strong> In the event of litigation arising from
+              this agreement, the venue shall be in Miami-Dade County, Florida. The
+              prevailing party shall be entitled to recover its court costs,
+              reasonable attorney fees, including those incurred during any appeal
+              proceedings, and interest on any past due fees at the maximum rate
+              permitted by applicable law.
+            </p>
+
+            <p style={{ margin: "0 0 4px" }}>
+              <strong>11. COMMERCIAL POLICY CANCELLATION:</strong> You, the insured(s),
+              may cancel this contract for any reason without penalty or obligation to
+              you within 10 days after the date of this contract.
+            </p>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: hasSecond ? "1fr 1fr" : "1fr",
+                gap: 8,
+                marginTop: 2,
+              }}
+            >
+              <InitialsImage value={data.initials1} />
+              {hasSecond && <InitialsImage value={data.initials2} />}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card style={{ borderRadius: 12 }}>
+        <CardContent>
+          <div
+            style={{
+              padding: 10,
+              color: "#111827",
+              fontSize: 10.5,
+              lineHeight: 1.22,
+              fontFamily: "Arial, Helvetica, sans-serif",
+            }}
+          >
+            <p style={{ margin: "0 0 4px", fontWeight: 700 }}>
+              12. RESIDENTIAL POLICY CANCELLATION: You, the insured, may cancel this
+              contract for any reason without penalty or obligation to you within 10
+              days after the date of this contract.
+            </p>
+
+            <p style={{ margin: "0 0 4px", fontWeight: 700 }}>
+              The notice of cancellation shall be provided to Capital Claims Group,
+              submitted in writing, and sent by certified mail, return receipt
+              requested, or another form of mailing that provides proof thereof, at the
+              address specified in the contract.
+            </p>
+
+            <p style={{ margin: "0 0 4px", fontWeight: 700 }}>
+              Pursuant to s. 817.234, Florida Statutes, any person who, with the intent
+              to injure, defraud, or deceive any insurer or insured, prepares,
+              presents, or causes to be presented a proof of loss or estimate of cost
+              or repair of damaged property in support of a claim under an insurance
+              policy, knowing that the proof of loss or estimate of claim or repairs
+              contains any false, incomplete, or misleading information concerning any
+              fact or thing material to the claim, commits a felony of the third
+              degree, punishable as provided in s. 775.082, s. 775.803, or s. 775.084,
+              Florida Statutes.
+            </p>
+
+            <p style={{ margin: "0 0 4px", fontWeight: 700 }}>
+              Insured(s) have read, understand and voluntarily sign the foregoing
+              Agreement. A computer or faxed signature or copy of this document shall
+              be deemed to have the same effect as the original.
+            </p>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: hasSecond ? "1fr 1fr" : "1fr",
+                gap: 8,
+                marginTop: 2,
+              }}
+            >
+              <InitialsPad
+                title="Initials"
+                value={data.initials1}
+                onChange={onInitials1Change}
+              />
+              {hasSecond && (
+                <InitialsPad
+                  title="Initials"
+                  value={data.initials2}
+                  onChange={onInitials2Change}
+                />
+              )}
+            </div>
+
+            <div
+              style={{
+                borderRadius: 8,
+                background: "#f3f4f6",
+                border: "1px solid #e5e7eb",
+                padding: "6px 10px",
+                fontWeight: 700,
+                marginTop: 8,
+                fontSize: 10.5,
+              }}
+            >
+              Insured Signature
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1.2fr 0.8fr",
+                gap: 8,
+                marginTop: 8,
+                alignItems: "start",
+              }}
+            >
+              <div>
+                <DocLabel>Insured (Print)</DocLabel>
+                <DocFieldBox>{insuredNames}</DocFieldBox>
+              </div>
+              <div>
+                <DocLabel>Date</DocLabel>
+                <DocFieldBox>{data.date}</DocFieldBox>
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: hasSecond ? "1fr 1fr" : "1fr",
+                gap: 8,
+                paddingTop: 8,
+              }}
+            >
+              <div>
+                <div
+                  style={{
+                    marginBottom: 3,
+                    fontSize: 11,
+                    fontWeight: 400,
+                  }}
+                >
+                  Insured Signature
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    height: 64,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    overflow: "hidden",
+                    borderRadius: 8,
+                    border: "1px dashed #cbd5e1",
+                    background: "#f8fafc",
+                  }}
+                >
+                  {sig1 ? (
+                    <img
+                      src={sig1}
+                      alt="Insured Signature 1"
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "contain",
+                      }}
+                    />
+                  ) : (
+                    <span style={{ color: "#94a3b8", fontSize: 11 }}>
+                      Signature pending
+                    </span>
+                  )}
+                </div>
+                <div style={{ marginTop: 3, fontSize: 10, color: "#374151" }}>
+                  {data.homeowner1}
+                </div>
+              </div>
+
+              {hasSecond && (
+                <div>
+                  <div
+                    style={{
+                      marginBottom: 3,
+                      fontSize: 11,
+                      fontWeight: 400,
+                    }}
+                  >
+                    Insured Signature
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      height: 64,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      overflow: "hidden",
+                      borderRadius: 8,
+                      border: "1px dashed #cbd5e1",
+                      background: "#f8fafc",
+                    }}
+                  >
+                    {sig2 ? (
+                      <img
+                        src={sig2}
+                        alt="Insured Signature 2"
+                        style={{
+                          width: "100%",
+                          height: "100%",
+                          objectFit: "contain",
+                        }}
+                      />
+                    ) : (
+                      <span style={{ color: "#94a3b8", fontSize: 11 }}>
+                        Signature pending
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ marginTop: 3, fontSize: 10, color: "#374151" }}>
+                    {data.homeowner2}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div
+              style={{
+                borderTop: "3px solid #7c3aed",
+                marginTop: 8,
+                paddingTop: 6,
+                fontSize: 9.5,
+                color: "#111827",
+                lineHeight: 1.1,
+              }}
+            >
+              <div style={{ fontWeight: 700 }}>3600 Red Rd suite Ste 601B</div>
+              <div>
+                Miramar, FL 33025 • claims@capitalclaimgroup.com • +1 (954)
+                571-3035 • www.ccgclaims.com
+              </div>
+              <div style={{ marginTop: 4, fontWeight: 700, color: "#6d28d9" }}>
+                License No: G240595
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -912,10 +1407,8 @@ export default function App() {
     setActiveDoc(doc);
     setSig1("");
     setSig2("");
-    if (doc !== "pac") {
-      update("initials1", "");
-      update("initials2", "");
-    }
+    update("initials1", "");
+    update("initials2", "");
     setPendingSend(signMode === "send");
     setView("sign");
   };
