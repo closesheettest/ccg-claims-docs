@@ -840,8 +840,6 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
   );
 }
 
-https://sites.google.com/shingleusa.com/repdashboard/home?pli=1&authuser=0
-
 export default function App() {
   const [view, setView] = useState("input");
   const [activeDoc, setActiveDoc] = useState("lor");
