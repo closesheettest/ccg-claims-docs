@@ -477,110 +477,6 @@ function formatAddress(data) {
     .join("\n");
 }
 
-function gradientHeader(title) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        background: "linear-gradient(90deg, #1f7a4d, #6b46c1)",
-        padding: "12px 16px",
-        color: "#fff",
-      }}
-    >
-      <div style={{ fontSize: 18, fontWeight: 700 }}>{title}</div>
-      <div style={{ fontSize: 15, fontWeight: 700 }}>CAPITAL CLAIMS GROUP</div>
-    </div>
-  );
-}
-
-function twoColGrid(children) {
-  return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-        gap: 14,
-        padding: 20,
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function LorLabel({ children }) {
-  return (
-    <div
-      style={{
-        display: "block",
-        fontSize: 16,
-        color: "#4b5563",
-        marginBottom: 8,
-        fontWeight: 400,
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function LorFieldBox({ children }) {
-  return (
-    <div
-      style={{
-        minHeight: 50,
-        border: "1px solid #cbd5e1",
-        borderRadius: 12,
-        padding: "11px 14px",
-        background: "#fff",
-        fontSize: 15,
-        lineHeight: 1.4,
-        color: "#111827",
-        boxSizing: "border-box",
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function SignatureDisplay({ name, value, title }) {
-  return (
-    <div>
-      <div style={{ marginBottom: 8, fontSize: 14, fontWeight: 500 }}>
-        {title}
-      </div>
-      <div
-        style={{
-          display: "flex",
-          height: 150,
-          alignItems: "center",
-          justifyContent: "center",
-          overflow: "hidden",
-          borderRadius: 8,
-          border: "1px dashed #9ca3af",
-          background: "#fff",
-        }}
-      >
-        {value ? (
-          <img
-            src={value}
-            alt={title}
-            style={{ width: "100%", height: "100%", objectFit: "contain" }}
-          />
-        ) : (
-          <span style={{ color: "#94a3b8", fontSize: 13 }}>
-            Signature pending
-          </span>
-        )}
-      </div>
-      <div style={{ marginTop: 8, fontSize: 14, color: "#374151" }}>{name}</div>
-    </div>
-  );
-}
-
 function LetterOfRepresentation({ data, sig1, sig2, isExportingPdf = false }) {
   const hasSecond = Boolean(data.homeowner2?.trim());
   const fullAddress = formatAddress(data);
@@ -588,60 +484,50 @@ function LetterOfRepresentation({ data, sig1, sig2, isExportingPdf = false }) {
     ? fullAddress
     : data.lossLocation;
 
-  const shellStyle = isExportingPdf
-    ? { background: "#fff" }
+  const containerStyle = isExportingPdf
+    ? {
+        width: "8.5in",
+        background: "#fff",
+        fontFamily: "Arial, Helvetica, sans-serif",
+        color: "#111827",
+      }
     : {
         background: "#fff",
         borderRadius: 24,
         border: "1px solid #e5e7eb",
         boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
         overflow: "hidden",
-      };
-
-  const pageStyle = isExportingPdf
-    ? {
-        width: "8.5in",
-        minHeight: "11in",
-        background: "#fff",
-        boxSizing: "border-box",
-        overflow: "hidden",
-        fontFamily: "Arial, Helvetica, sans-serif",
-        color: "#111827",
-        pageBreakAfter: "always",
-      }
-    : {
-        width: "100%",
-        background: "#fff",
-        boxSizing: "border-box",
-        overflow: "visible",
         fontFamily: "Arial, Helvetica, sans-serif",
         color: "#111827",
       };
 
-  const lastPageStyle = isExportingPdf
-    ? { ...pageStyle, pageBreakAfter: "auto" }
-    : pageStyle;
+  const pageStyle = (isLast = false) => ({
+    width: "100%",
+    minHeight: isExportingPdf ? "11in" : "auto",
+    background: "#fff",
+    boxSizing: "border-box",
+    overflow: "hidden",
+    pageBreakAfter: isExportingPdf ? (isLast ? "auto" : "always") : "auto",
+  });
 
-  const pageInnerStyle = {
-    padding: isExportingPdf ? "0 0.42in 0.12in" : "0 28px 20px",
+  const innerStyle = {
+    padding: isExportingPdf ? "0 0.42in 0.14in" : "0 28px 20px",
+    boxSizing: "border-box",
   };
 
   const HeaderImg = () => (
     <img
       src={PA_ASSETS.header}
-      alt="header"
-      style={{
-        width: "100%",
-        display: "block",
-      }}
+      alt="Capital Claims Group header"
+      style={{ width: "100%", display: "block" }}
     />
   );
 
   const FooterImg = () => (
     <img
       src={PA_ASSETS.footer}
-      alt="footer"
-      style={{ width: "100%", display: "block" }}
+      alt="Capital Claims Group footer"
+      style={{ width: "100%", display: "block", marginTop: 14 }}
     />
   );
 
@@ -671,18 +557,34 @@ function LetterOfRepresentation({ data, sig1, sig2, isExportingPdf = false }) {
     color: "#111827",
   };
 
-  const Footer = () => (
-    <div style={{ marginTop: 14 }}>
-      <FooterImg />
+  const footerBlock = (
+    <div
+      style={{
+        borderTop: "3px solid #7c3aed",
+        marginTop: 16,
+        paddingTop: 10,
+        fontSize: 12,
+        color: "#111827",
+        lineHeight: 1.35,
+      }}
+    >
+      <div style={{ fontWeight: 700 }}>3600 Red Rd suite Ste 601B</div>
+      <div>
+        Miramar, FL 33025 • claims@capitalclaimgroup.com • +1 (954) 571-3035 •
+        www.ccgclaims.com
+      </div>
+      <div style={{ marginTop: 6, fontWeight: 700, color: "#6d28d9" }}>
+        License No: G240595
+      </div>
     </div>
   );
 
   return (
-    <div id="printable-document" style={shellStyle}>
-      <div className="pdf-page" style={pageStyle}>
+    <div id="printable-document" style={containerStyle}>
+      <div className="pdf-page" style={pageStyle(false)}>
         <HeaderImg />
 
-        <div style={pageInnerStyle}>
+        <div style={innerStyle}>
           <div
             style={{
               display: "grid",
@@ -791,14 +693,14 @@ function LetterOfRepresentation({ data, sig1, sig2, isExportingPdf = false }) {
             </p>
           </div>
 
-          <Footer />
+          <FooterImg />
         </div>
       </div>
 
-      <div className="pdf-page" style={lastPageStyle}>
+      <div className="pdf-page" style={pageStyle(true)}>
         <HeaderImg />
 
-        <div style={pageInnerStyle}>
+        <div style={innerStyle}>
           <div style={{ ...bodyText, marginTop: 10 }}>
             <p style={{ margin: "0 0 10px" }}>
               Surely, you understand the Assured’s need to have this claim
@@ -895,7 +797,8 @@ function LetterOfRepresentation({ data, sig1, sig2, isExportingPdf = false }) {
               )}
             </div>
 
-            <Footer />
+            {footerBlock}
+            <FooterImg />
           </div>
         </div>
       </div>
@@ -914,39 +817,31 @@ function PublicAdjusterContract({
     .filter(Boolean)
     .join(", ");
 
-  const shellStyle = isExportingPdf
-    ? { background: "#fff" }
+  const containerStyle = isExportingPdf
+    ? {
+        width: "8.5in",
+        background: "#fff",
+        fontFamily: "Arial, Helvetica, sans-serif",
+        color: "#111827",
+      }
     : {
         background: "#fff",
         borderRadius: 24,
         border: "1px solid #e5e7eb",
         boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
         overflow: "hidden",
-      };
-
-  const pageStyle = isExportingPdf
-    ? {
-        width: "8.5in",
-        minHeight: "11in",
-        background: "#fff",
-        boxSizing: "border-box",
-        overflow: "hidden",
-        fontFamily: "Arial, Helvetica, sans-serif",
-        color: "#111827",
-        pageBreakAfter: "always",
-      }
-    : {
-        width: "100%",
-        background: "#fff",
-        boxSizing: "border-box",
-        overflow: "visible",
         fontFamily: "Arial, Helvetica, sans-serif",
         color: "#111827",
       };
 
-  const lastPageStyle = isExportingPdf
-    ? { ...pageStyle, pageBreakAfter: "auto" }
-    : pageStyle;
+  const pageStyle = (isLast = false) => ({
+    width: "100%",
+    minHeight: isExportingPdf ? "11in" : "auto",
+    background: "#fff",
+    boxSizing: "border-box",
+    overflow: "hidden",
+    pageBreakAfter: isExportingPdf ? (isLast ? "auto" : "always") : "auto",
+  });
 
   const pageInnerStyle = {
     padding: isExportingPdf ? "0 0.42in 0.12in" : "0 28px 20px",
@@ -1120,8 +1015,8 @@ function PublicAdjusterContract({
   );
 
   return (
-    <div id="printable-document" style={shellStyle}>
-      <div className="pdf-page" style={pageStyle}>
+    <div id="printable-document" style={containerStyle}>
+      <div className="pdf-page" style={pageStyle(false)}>
         <HeaderImg />
         <div style={pageInnerStyle}>
           {topGrid}
@@ -1176,7 +1071,7 @@ function PublicAdjusterContract({
         </div>
       </div>
 
-      <div className="pdf-page" style={pageStyle}>
+      <div className="pdf-page" style={pageStyle(false)}>
         <HeaderImg />
         <div style={pageInnerStyle}>
           <div style={bodyText}>
@@ -1266,7 +1161,7 @@ function PublicAdjusterContract({
         </div>
       </div>
 
-      <div className="pdf-page" style={pageStyle}>
+      <div className="pdf-page" style={pageStyle(false)}>
         <HeaderImg />
         <div style={pageInnerStyle}>
           <div style={bodyText}>
@@ -1324,7 +1219,7 @@ function PublicAdjusterContract({
         </div>
       </div>
 
-      <div className="pdf-page" style={lastPageStyle}>
+      <div className="pdf-page" style={pageStyle(true)}>
         <HeaderImg />
         <div style={pageInnerStyle}>
           <div style={bodyText}>
@@ -1516,29 +1411,60 @@ export default function App() {
     setView("sign");
   };
 
-  const generatePDF = async (docType) => {
+  const getPrintableFilename = () =>
+    activeDoc === "lor"
+      ? "Letter-of-Representation.pdf"
+      : "Public-Adjuster-Agreement.pdf";
+
+  const generatePDF = async () => {
     const element = document.getElementById("printable-document");
     if (!element) {
       throw new Error("Printable document not found.");
     }
 
     setIsExportingPdf(true);
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await new Promise((resolve) => setTimeout(resolve, 250));
 
     try {
       const opt = {
         margin: 0,
-        filename:
-          docType === "lor"
-            ? "Letter-of-Representation.pdf"
-            : "Public-Adjuster-Agreement.pdf",
+        filename: getPrintableFilename(),
         image: { type: "jpeg", quality: 1 },
-        html2canvas: { scale: 2, useCORS: true },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
         jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
-        pagebreak: { mode: ["css", "legacy"] },
+        pagebreak: { mode: ["css"] },
       };
 
       return await html2pdf().set(opt).from(element).outputPdf("blob");
+    } finally {
+      setIsExportingPdf(false);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  };
+
+  const savePDF = async () => {
+    const element = document.getElementById("printable-document");
+    if (!element) {
+      alert("Document not found.");
+      return;
+    }
+
+    setIsExportingPdf(true);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    try {
+      const opt = {
+        margin: 0,
+        filename: getPrintableFilename(),
+        image: { type: "jpeg", quality: 1 },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
+        jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
+        pagebreak: { mode: ["css"] },
+      };
+
+      await html2pdf().set(opt).from(element).save();
+    } catch (err) {
+      alert(err?.message || "Failed to download PDF.");
     } finally {
       setIsExportingPdf(false);
     }
@@ -1591,7 +1517,7 @@ export default function App() {
         return;
       }
 
-      const pdfBlob = await generatePDF(activeDoc);
+      const pdfBlob = await generatePDF();
       const pdfBase64 = await blobToBase64(pdfBlob);
 
       const emailResponse = await fetch("/.netlify/functions/send-email", {
@@ -1620,10 +1546,7 @@ export default function App() {
           `,
           attachments: [
             {
-              filename:
-                activeDoc === "lor"
-                  ? "Letter-of-Representation.pdf"
-                  : "Public-Adjuster-Agreement.pdf",
+              filename: getPrintableFilename(),
               content: String(pdfBase64).split(",")[1],
               encoding: "base64",
             },
@@ -2024,44 +1947,7 @@ export default function App() {
                     {pendingSend ? "Send for Signing" : "Submit & Email Copies"}
                   </Button>
 
-                  <Button
-                    variant="outline"
-                    onClick={async () => {
-                      try {
-                        const element =
-                          document.getElementById("printable-document");
-                        if (!element) {
-                          alert("Document not found.");
-                          return;
-                        }
-
-                        setIsExportingPdf(true);
-                        await new Promise((resolve) => setTimeout(resolve, 200));
-
-                        const opt = {
-                          margin: 0,
-                          filename:
-                            activeDoc === "lor"
-                              ? "Letter-of-Representation.pdf"
-                              : "Public-Adjuster-Agreement.pdf",
-                          image: { type: "jpeg", quality: 1 },
-                          html2canvas: { scale: 2, useCORS: true },
-                          jsPDF: {
-                            unit: "in",
-                            format: "letter",
-                            orientation: "portrait",
-                          },
-                          pagebreak: { mode: ["css", "legacy"] },
-                        };
-
-                        await html2pdf().set(opt).from(element).save();
-                      } catch (err) {
-                        alert(err?.message || "Failed to download PDF.");
-                      } finally {
-                        setIsExportingPdf(false);
-                      }
-                    }}
-                  >
+                  <Button variant="outline" onClick={savePDF}>
                     Download PDF
                   </Button>
                 </div>
