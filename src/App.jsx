@@ -647,11 +647,7 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
   );
 }
 
-function PublicAdjusterContract({
-  data,
-  sig1,
-  sig2,
-}) {
+function PublicAdjusterContract({ data, sig1, sig2 }) {
   const hasSecond = Boolean(data.homeowner2?.trim());
   const insuredNames = [data.homeowner1, data.homeowner2]
     .filter(Boolean)
@@ -671,80 +667,139 @@ function PublicAdjusterContract({
   };
 
   const contentStyle = {
-    padding: "0 0.52in",
+    padding: "0 0.48in",
     boxSizing: "border-box",
   };
 
   const bodyText = {
-    fontSize: 12,
-    lineHeight: 1.35,
+    fontSize: 13.5,
+    lineHeight: 1.48,
     color: "#111827",
+    fontWeight: 500,
   };
 
   const sectionHead = {
     color: "#199c2e",
     fontWeight: 700,
     textTransform: "uppercase",
+    fontSize: 13.5,
+  };
+
+  const labelStyle = {
+    fontWeight: 700,
+    fontSize: 13.5,
   };
 
   const pageNumber = {
-    fontSize: 10,
+    fontSize: 10.5,
     color: "#2f9e44",
     fontStyle: "italic",
     textAlign: "center",
-    marginTop: 6,
+    marginTop: 8,
     marginBottom: 6,
   };
 
-  const inlineFieldGrid = (
+  const HeaderImg = () => (
+    <img
+      src={PA_ASSETS.header}
+      alt="Capital Claims Group header"
+      style={{
+        width: "calc(100% + 18px)",
+        marginLeft: -9,
+        marginTop: -2,
+        display: "block",
+      }}
+    />
+  );
+
+  const FooterImg = () => (
+    <img
+      src={PA_ASSETS.footer}
+      alt="Capital Claims Group footer"
+      style={{
+        width: "calc(100% + 8px)",
+        marginLeft: -4,
+        display: "block",
+      }}
+    />
+  );
+
+  const TitleBarImg = () => (
+    <img
+      src={PA_ASSETS.titleBar}
+      alt="Public Adjuster Contract"
+      style={{
+        width: "100%",
+        display: "block",
+        margin: "12px 0 16px 0",
+      }}
+    />
+  );
+
+  const Footer = ({ page }) => (
+    <>
+      <div style={pageNumber}>Page {page} of 4</div>
+      <FooterImg />
+    </>
+  );
+
+  const topGrid = (
     <div
       style={{
-        ...bodyText,
         display: "grid",
         gridTemplateColumns: "1fr 1fr",
-        columnGap: 28,
-        rowGap: 8,
-        marginTop: 8,
+        columnGap: 48,
+        rowGap: 12,
+        marginTop: 10,
+        marginBottom: 4,
+        fontSize: 13.5,
+        lineHeight: 1.35,
       }}
     >
       <div>
-        <strong>Insured:</strong> {data.homeowner1}
-        {data.homeowner2 ? `, ${data.homeowner2}` : ""}
+        <span style={labelStyle}>Insured:</span>{" "}
+        {[data.homeowner1, data.homeowner2].filter(Boolean).join(", ")}
       </div>
       <div>
-        <strong>Loss Description:</strong> {data.lossDescription}
-      </div>
-
-      <div>
-        <strong>Phone:</strong> {data.phone}
-      </div>
-      <div>
-        <strong>Claim Type:</strong> {data.claimType}
+        <span style={labelStyle}>Loss Description:</span> {data.lossDescription}
       </div>
 
       <div>
-        <strong>Email:</strong> {data.signerEmail}
+        <span style={labelStyle}>Phone:</span> {data.phone}
       </div>
       <div>
-        <strong>Situation:</strong> {data.situation}
-      </div>
-
-      <div>
-        <strong>Insurer:</strong> {data.insuranceCompany}
-      </div>
-      <div>
-        <strong>Date of Loss:</strong> {data.dateOfLoss}
+        <span style={labelStyle}>Claim Type:</span> {data.claimType}
+        <div style={{ fontSize: 8.5, color: "#65a30d", marginLeft: 104 }}>
+          New Claim / Supplemental / Denied
+        </div>
       </div>
 
       <div>
-        <strong>Policy #:</strong> {data.policyNumber}
+        <span style={labelStyle}>Email:</span> {data.signerEmail}
       </div>
       <div>
-        <strong>Claim #:</strong> {data.claimNumber}
+        <span style={labelStyle}>Situation:</span> {data.situation}
+        <div style={{ fontSize: 8.5, color: "#65a30d", marginLeft: 86 }}>
+          Emergency / Non-Emergency
+        </div>
+      </div>
+
+      <div>
+        <span style={labelStyle}>Insurer:</span> {data.insuranceCompany}
+      </div>
+      <div>
+        <span style={labelStyle}>Date of Loss:</span> {data.dateOfLoss}
+      </div>
+
+      <div>
+        <span style={labelStyle}>Policy #:</span> {data.policyNumber}
+      </div>
+      <div>
+        <span style={labelStyle}>Claim #:</span> {data.claimNumber}
       </div>
 
       <div style={{ gridColumn: "1 / -1" }}>
-        <strong>Address:</strong>{" "}
+        <span style={labelStyle}>Address:</span>{" "}
         {[data.address, data.city, data.state, data.zip]
           .filter(Boolean)
           .join(", ")}
@@ -752,55 +807,30 @@ function PublicAdjusterContract({
     </div>
   );
 
-  const Footer = ({ page }) => (
-    <>
-      <div style={pageNumber}>Page {page} of 4</div>
-      <img
-        src={PA_ASSETS.footer}
-        alt="Capital Claims Group footer"
-        style={{
-          width: "100%",
-          height: "auto",
-          display: "block",
-          marginTop: "auto",
-        }}
-      />
-    </>
-  );
-
   return (
-    <div id="printable-document" style={{ background: "#f3f4f6", padding: 12 }}>
+    <div id="printable-document" style={{ background: "#f3f4f6", padding: 0 }}>
+      {/* PAGE 1 */}
       <div className="pdf-page" style={pageStyle}>
-        <img
-          src={PA_ASSETS.header}
-          alt="Capital Claims Group header"
-          style={{ width: "100%", display: "block" }}
-        />
+        <HeaderImg />
 
         <div style={contentStyle}>
-          {inlineFieldGrid}
-
-          <img
-            src={PA_ASSETS.titleBar}
-            alt="Public Adjuster Contract"
-            style={{
-              width: "100%",
-              display: "block",
-              margin: "10px 0 14px 0",
-            }}
-          />
+          {topGrid}
+          <TitleBarImg />
 
           <div style={bodyText}>
-            <p style={{ margin: "0 0 8px" }}>
+            <p style={{ margin: "0 0 10px" }}>
               1. <span style={sectionHead}>Service Fee:</span>
             </p>
-            <p style={{ margin: "0 0 8px" }}>
+            <p style={{ margin: "0 0 12px" }}>
               The insured(s) hereby retains Capital Claims Group to be its
               public adjuster and hereby appoints Capital Claims Group to be its
               independent appraiser to appraise, advise, negotiate, and/or
-              settle the above-referenced claim. The insured(s) agrees to pay
-              and hereby assigns to Capital Claims Group <strong>10%</strong> of
-              all payments made by the insurance company related to this claim.
+              settle the above-referenced claim.{" "}
+              <strong style={{ fontSize: 15 }}>
+                The insured(s) agrees to pay and hereby assigns to Capital
+                Claims Group ____10___% of all payments made by the insurance
+                company related to this claim.
+              </strong>{" "}
               In the event appraisal, mediation is demanded, or a lawsuit
               ensues regarding the above-mentioned claim, there will be an
               additional charge of five percent. The total contractual
@@ -810,7 +840,7 @@ function PublicAdjusterContract({
             <p style={{ margin: "0 0 8px" }}>
               2. <span style={sectionHead}>Additional Payee:</span>
             </p>
-            <p style={{ margin: "0 0 8px" }}>
+            <p style={{ margin: "0 0 12px" }}>
               The insured authorizes and requests the insurer and the insured’s
               mortgage carrier to have Capital Claims Group appear as an
               additional payee on all checks issued regarding the
@@ -838,18 +868,15 @@ function PublicAdjusterContract({
         <Footer page={1} />
       </div>
 
+      {/* PAGE 2 */}
       <div className="pdf-page" style={pageStyle}>
-        <img
-          src={PA_ASSETS.header}
-          alt="Capital Claims Group header"
-          style={{ width: "100%", display: "block" }}
-        />
+        <HeaderImg />
 
-        <div style={{ ...contentStyle, ...bodyText, paddingTop: 10 }}>
+        <div style={{ ...contentStyle, ...bodyText, paddingTop: 22 }}>
           <p style={{ margin: "0 0 8px" }}>
             4. <span style={sectionHead}>Endorsement:</span>
           </p>
-          <p style={{ margin: "0 0 10px" }}>
+          <p style={{ margin: "0 0 12px" }}>
             The insured’s endorsement on any insurance proceeds check will be
             deemed to be an agreement with the terms and conditions of any
             related settlement regarding the above-mentioned claim.
@@ -858,12 +885,12 @@ function PublicAdjusterContract({
           <p style={{ margin: "0 0 8px" }}>
             5. <span style={sectionHead}>Affidavit:</span>
           </p>
-          <p style={{ margin: "0 0 10px" }}>
+          <p style={{ margin: "0 0 12px" }}>
             I,{" "}
             <span
               style={{
                 display: "inline-block",
-                minWidth: 250,
+                minWidth: 260,
                 borderBottom: "1px solid #111827",
               }}
             >
@@ -880,7 +907,7 @@ function PublicAdjusterContract({
           <p style={{ margin: "0 0 8px" }}>
             6. <span style={sectionHead}>Legal:</span>
           </p>
-          <p style={{ margin: "0 0 10px" }}>
+          <p style={{ margin: "0 0 12px" }}>
             Capital Claims Group is not a law firm and does not offer legal
             advice, and there will be no attorney-client relationship with the
             insured(s). The insured is hereby advised of the right to counsel
@@ -891,7 +918,7 @@ function PublicAdjusterContract({
           <p style={{ margin: "0 0 8px" }}>
             7. <span style={sectionHead}>Letter of Protection:</span>
           </p>
-          <p style={{ margin: "0 0 10px" }}>
+          <p style={{ margin: "0 0 12px" }}>
             The insured understands and agrees that if it becomes necessary to
             retain an attorney, the insured authorizes and agrees to a Letter of
             Protection for Capital Claims Group.
@@ -900,7 +927,7 @@ function PublicAdjusterContract({
           <p style={{ margin: "0 0 8px" }}>
             8. <span style={sectionHead}>Representation:</span>
           </p>
-          <p style={{ margin: "0 0 10px" }}>
+          <p style={{ margin: "0 0 12px" }}>
             The insured hereby affirms that no other claim(s) have been filed in
             reference to the same peril and that no other legal representation
             is involved with the claim other than:
@@ -909,8 +936,8 @@ function PublicAdjusterContract({
           <div
             style={{
               borderBottom: "1px solid #111827",
-              width: 320,
-              marginBottom: 12,
+              width: 360,
+              marginBottom: 14,
               minHeight: 18,
             }}
           >
@@ -929,18 +956,15 @@ function PublicAdjusterContract({
         <Footer page={2} />
       </div>
 
+      {/* PAGE 3 */}
       <div className="pdf-page" style={pageStyle}>
-        <img
-          src={PA_ASSETS.header}
-          alt="Capital Claims Group header"
-          style={{ width: "100%", display: "block" }}
-        />
+        <HeaderImg />
 
-        <div style={{ ...contentStyle, ...bodyText, paddingTop: 10 }}>
+        <div style={{ ...contentStyle, ...bodyText, paddingTop: 22 }}>
           <p style={{ margin: "0 0 8px" }}>
             10. <span style={sectionHead}>Dispute:</span>
           </p>
-          <p style={{ margin: "0 0 12px" }}>
+          <p style={{ margin: "0 0 14px" }}>
             In the event of litigation arising from this agreement, the venue
             shall be in Miami-Dade County, Florida. The prevailing party shall
             be entitled to recover its court costs, reasonable attorney fees,
@@ -952,13 +976,13 @@ function PublicAdjusterContract({
           <p style={{ margin: "0 0 8px" }}>
             11. <span style={sectionHead}>Commercial Policy Cancellation:</span>
           </p>
-          <p style={{ margin: "0 0 14px" }}>
+          <p style={{ margin: "0 0 16px" }}>
             You, the insured(s), may cancel this contract for any reason without
             penalty or obligation to you within 10 days after the date of this
             contract.
           </p>
 
-          <p style={{ margin: "0 0 8px", fontSize: 18, fontWeight: 700 }}>
+          <p style={{ margin: "0 0 8px", fontSize: 17, fontWeight: 700 }}>
             12.{" "}
             <span style={{ color: "#199c2e" }}>
               Residential Policy Cancellation:
@@ -967,9 +991,9 @@ function PublicAdjusterContract({
 
           <p
             style={{
-              margin: "0 0 14px",
-              fontSize: 12,
-              lineHeight: 1.6,
+              margin: "0 0 16px",
+              fontSize: 14,
+              lineHeight: 1.65,
               fontWeight: 700,
             }}
           >
@@ -981,8 +1005,8 @@ function PublicAdjusterContract({
           <p
             style={{
               margin: 0,
-              fontSize: 12,
-              lineHeight: 1.6,
+              fontSize: 14,
+              lineHeight: 1.65,
               fontWeight: 700,
             }}
           >
@@ -1002,19 +1026,16 @@ function PublicAdjusterContract({
         <Footer page={3} />
       </div>
 
+      {/* PAGE 4 */}
       <div className="pdf-page" style={pageStyle}>
-        <img
-          src={PA_ASSETS.header}
-          alt="Capital Claims Group header"
-          style={{ width: "100%", display: "block" }}
-        />
+        <HeaderImg />
 
-        <div style={{ ...contentStyle, ...bodyText, paddingTop: 10 }}>
+        <div style={{ ...contentStyle, ...bodyText, paddingTop: 22 }}>
           <p
             style={{
               margin: "0 0 16px",
-              fontSize: 11.5,
-              lineHeight: 1.5,
+              fontSize: 14,
+              lineHeight: 1.65,
               fontWeight: 700,
             }}
           >
@@ -1026,9 +1047,9 @@ function PublicAdjusterContract({
 
           <p
             style={{
-              margin: "0 0 20px",
-              fontSize: 11.5,
-              lineHeight: 1.5,
+              margin: "0 0 22px",
+              fontSize: 14,
+              lineHeight: 1.65,
               fontWeight: 700,
             }}
           >
@@ -1043,20 +1064,20 @@ function PublicAdjusterContract({
             in s. 775.082, s. 775.803, or s. 775.084, Florida Statutes.
           </p>
 
-          <p style={{ margin: "0 0 10px", fontSize: 10.5 }}>
+          <p style={{ margin: "0 0 14px", fontSize: 12 }}>
             Insured(s) have read, understand and voluntarily sign the foregoing
             Agreement. A computer or faxed signature or copy of this document
             shall be deemed to have the same effect as the original.
           </p>
 
-          <div style={{ borderTop: "4px solid #199c2e", marginBottom: 14 }} />
+          <div style={{ borderTop: "4px solid #199c2e", marginBottom: 16 }} />
 
           <div
             style={{
               color: "#199c2e",
               fontWeight: 700,
-              fontSize: 14,
-              marginBottom: 12,
+              fontSize: 15,
+              marginBottom: 14,
             }}
           >
             CAPITAL CLAIMS GROUP
@@ -1066,7 +1087,7 @@ function PublicAdjusterContract({
             style={{
               display: "grid",
               gridTemplateColumns: hasSecond ? "1fr 1fr" : "1fr",
-              gap: 24,
+              gap: 28,
               alignItems: "start",
             }}
           >
@@ -1074,14 +1095,14 @@ function PublicAdjusterContract({
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "68px 1fr",
-                  rowGap: 8,
-                  columnGap: 8,
-                  fontSize: 11.5,
+                  gridTemplateColumns: "72px 1fr",
+                  rowGap: 9,
+                  columnGap: 10,
+                  fontSize: 12.5,
                 }}
               >
                 <div>By:</div>
-                <div style={{ background: "#d7c2f0", padding: "4px 8px" }}>
+                <div style={{ background: "#d7c2f0", padding: "5px 8px" }}>
                   {PA_FIXED.name}
                 </div>
 
@@ -1089,7 +1110,7 @@ function PublicAdjusterContract({
                 <div
                   style={{
                     background: "#d7c2f0",
-                    padding: "4px 8px",
+                    padding: "5px 8px",
                     fontWeight: 700,
                   }}
                 >
@@ -1097,11 +1118,11 @@ function PublicAdjusterContract({
                 </div>
 
                 <div>Signature:</div>
-                <div style={{ background: "#d7c2f0", padding: "4px 8px" }}>
+                <div style={{ background: "#d7c2f0", padding: "5px 8px" }}>
                   <img
                     src={PA_FIXED.signatureImage}
                     alt="Benito Paul signature"
-                    style={{ height: 22, objectFit: "contain" }}
+                    style={{ height: 24, objectFit: "contain" }}
                   />
                 </div>
 
@@ -1111,12 +1132,12 @@ function PublicAdjusterContract({
             </div>
 
             <div>
-              <div style={{ marginBottom: 10, fontSize: 11.5 }}>
+              <div style={{ marginBottom: 12, fontSize: 12.5 }}>
                 <div>Insured (Print): {data.homeowner1}</div>
                 <div
                   style={{
-                    marginTop: 8,
-                    minHeight: 34,
+                    marginTop: 10,
+                    minHeight: 36,
                     display: "flex",
                     alignItems: "center",
                   }}
@@ -1125,23 +1146,21 @@ function PublicAdjusterContract({
                     <img
                       src={sig1}
                       alt="Insured signature 1"
-                      style={{ height: 28, objectFit: "contain" }}
+                      style={{ height: 30, objectFit: "contain" }}
                     />
                   )}
                 </div>
-                <div style={{ fontSize: 10.5 }}>
-                  Signature of the policyholder
-                </div>
+                <div style={{ fontSize: 11 }}>Signature of the policyholder</div>
                 <div style={{ marginTop: 6 }}>Date: {data.date}</div>
               </div>
 
               {hasSecond && (
-                <div style={{ marginTop: 18, fontSize: 11.5 }}>
+                <div style={{ marginTop: 18, fontSize: 12.5 }}>
                   <div>Insured (Print): {data.homeowner2}</div>
                   <div
                     style={{
-                      marginTop: 8,
-                      minHeight: 34,
+                      marginTop: 10,
+                      minHeight: 36,
                       display: "flex",
                       alignItems: "center",
                     }}
@@ -1150,13 +1169,11 @@ function PublicAdjusterContract({
                       <img
                         src={sig2}
                         alt="Insured signature 2"
-                        style={{ height: 28, objectFit: "contain" }}
+                        style={{ height: 30, objectFit: "contain" }}
                       />
                     )}
                   </div>
-                  <div style={{ fontSize: 10.5 }}>
-                    Signature of the policyholder
-                  </div>
+                  <div style={{ fontSize: 11 }}>Signature of the policyholder</div>
                   <div style={{ marginTop: 6 }}>Date: {data.date}</div>
                 </div>
               )}
@@ -1217,29 +1234,26 @@ export default function App() {
   };
 
   const generatePDF = async (docType) => {
-    const element = document.getElementById("printable-document");
-    if (!element) {
-      throw new Error("Printable document not found.");
-    }
+  const element = document.getElementById("printable-document");
+  if (!element) throw new Error("Printable document not found.");
 
-    const opt = {
-      margin: 0,
-      filename:
-        docType === "lor"
-          ? "Letter-of-Representation.pdf"
-          : "Public-Adjuster-Agreement.pdf",
-      image: { type: "jpeg", quality: 1 },
-      html2canvas: { scale: 2, useCORS: true },
-      jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
-      pagebreak: {
-        mode: ["css", "legacy"],
-        after: ".pdf-page",
-      },
-    };
-
-    return html2pdf().set(opt).from(element).outputPdf("blob");
+  const opt = {
+    margin: 0,
+    filename:
+      docType === "lor"
+        ? "Letter-of-Representation.pdf"
+        : "Public-Adjuster-Agreement.pdf",
+    image: { type: "jpeg", quality: 1 },
+    html2canvas: { scale: 2, useCORS: true },
+    jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
+    pagebreak: {
+      mode: ["css", "legacy"],
+      before: ".pdf-page + .pdf-page",
+    },
   };
 
+  return html2pdf().set(opt).from(element).outputPdf("blob");
+};
   const blobToBase64 = (blob) =>
     new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -1691,18 +1705,14 @@ export default function App() {
                             activeDoc === "lor"
                               ? "Letter-of-Representation.pdf"
                               : "Public-Adjuster-Agreement.pdf",
-                          image: { type: "jpeg", quality: 1 },
-                          html2canvas: { scale: 2, useCORS: true },
-                          jsPDF: {
-                            unit: "in",
-                            format: "letter",
-                            orientation: "portrait",
-                          },
-                          pagebreak: {
-                            mode: ["css", "legacy"],
-                            after: ".pdf-page",
-                          },
-                        };
+                              image: { type: "jpeg", quality: 1 },
+                              html2canvas: { scale: 2, useCORS: true },
+                              jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
+                              pagebreak: {
+                                mode: ["css", "legacy"],
+                                before: ".pdf-page + .pdf-page",
+                            },
+                          };
 
                         await html2pdf().set(opt).from(element).save();
                       } catch (err) {
