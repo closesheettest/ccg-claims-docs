@@ -655,10 +655,10 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
 
   const pageStyle = {
     width: "8.5in",
-    height: "11in",
+    minHeight: "11in",
     background: "#fff",
     boxSizing: "border-box",
-    overflow: "hidden",
+    overflow: "visible",
     fontFamily: "Arial, Helvetica, sans-serif",
     color: "#111827",
     position: "relative",
@@ -672,8 +672,8 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
   };
 
   const bodyText = {
-    fontSize: 13.5,
-    lineHeight: 1.48,
+    fontSize: 14,
+    lineHeight: 1.55,
     color: "#111827",
     fontWeight: 500,
   };
@@ -682,12 +682,12 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
     color: "#199c2e",
     fontWeight: 700,
     textTransform: "uppercase",
-    fontSize: 13.5,
+    fontSize: 14,
   };
 
   const labelStyle = {
     fontWeight: 700,
-    fontSize: 13.5,
+    fontSize: 14,
   };
 
   const pageNumber = {
@@ -749,11 +749,11 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
         display: "grid",
         gridTemplateColumns: "1fr 1fr",
         columnGap: 48,
-        rowGap: 12,
-        marginTop: 10,
-        marginBottom: 4,
-        fontSize: 13.5,
-        lineHeight: 1.35,
+        rowGap: 14,
+        marginTop: 12,
+        marginBottom: 6,
+        fontSize: 14,
+        lineHeight: 1.4,
       }}
     >
       <div>
@@ -769,7 +769,7 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
       </div>
       <div>
         <span style={labelStyle}>Claim Type:</span> {data.claimType}
-        <div style={{ fontSize: 8.5, color: "#65a30d", marginLeft: 104 }}>
+        <div style={{ fontSize: 9, color: "#65a30d", marginLeft: 108 }}>
           New Claim / Supplemental / Denied
         </div>
       </div>
@@ -779,7 +779,7 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
       </div>
       <div>
         <span style={labelStyle}>Situation:</span> {data.situation}
-        <div style={{ fontSize: 8.5, color: "#65a30d", marginLeft: 86 }}>
+        <div style={{ fontSize: 9, color: "#65a30d", marginLeft: 90 }}>
           Emergency / Non-Emergency
         </div>
       </div>
@@ -1035,7 +1035,7 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
             style={{
               margin: "0 0 16px",
               fontSize: 14,
-              lineHeight: 1.65,
+              lineHeight: 1.6,
               fontWeight: 700,
             }}
           >
@@ -1049,7 +1049,7 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
             style={{
               margin: "0 0 22px",
               fontSize: 14,
-              lineHeight: 1.65,
+              lineHeight: 1.6,
               fontWeight: 700,
             }}
           >
@@ -1122,7 +1122,7 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
                   <img
                     src={PA_FIXED.signatureImage}
                     alt="Benito Paul signature"
-                    style={{ height: 24, objectFit: "contain" }}
+                    style={{ height: 26, objectFit: "contain" }}
                   />
                 </div>
 
@@ -1132,7 +1132,7 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
             </div>
 
             <div>
-              <div style={{ marginBottom: 12, fontSize: 12.5 }}>
+              <div style={{ marginBottom: 12, fontSize: 13 }}>
                 <div>Insured (Print): {data.homeowner1}</div>
                 <div
                   style={{
@@ -1146,7 +1146,7 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
                     <img
                       src={sig1}
                       alt="Insured signature 1"
-                      style={{ height: 30, objectFit: "contain" }}
+                      style={{ height: 32, objectFit: "contain" }}
                     />
                   )}
                 </div>
@@ -1155,7 +1155,7 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
               </div>
 
               {hasSecond && (
-                <div style={{ marginTop: 18, fontSize: 12.5 }}>
+                <div style={{ marginTop: 18, fontSize: 13 }}>
                   <div>Insured (Print): {data.homeowner2}</div>
                   <div
                     style={{
@@ -1169,7 +1169,7 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
                       <img
                         src={sig2}
                         alt="Insured signature 2"
-                        style={{ height: 30, objectFit: "contain" }}
+                        style={{ height: 32, objectFit: "contain" }}
                       />
                     )}
                   </div>
@@ -1186,7 +1186,6 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
     </div>
   );
 }
-
 export default function App() {
   const [view, setView] = useState("input");
   const [activeDoc, setActiveDoc] = useState("lor");
@@ -1235,7 +1234,9 @@ export default function App() {
 
   const generatePDF = async (docType) => {
   const element = document.getElementById("printable-document");
-  if (!element) throw new Error("Printable document not found.");
+  if (!element) {
+    throw new Error("Printable document not found.");
+  }
 
   const opt = {
     margin: 0,
@@ -1247,10 +1248,12 @@ export default function App() {
     html2canvas: { scale: 2, useCORS: true },
     jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
     pagebreak: {
-      mode: ["css", "legacy"],
-      before: ".pdf-page + .pdf-page",
+      mode: ["avoid-all", "css", "legacy"],
     },
   };
+
+  return html2pdf().set(opt).from(element).outputPdf("blob");
+};
 
   return html2pdf().set(opt).from(element).outputPdf("blob");
 };
