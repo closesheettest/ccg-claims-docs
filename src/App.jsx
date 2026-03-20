@@ -67,6 +67,8 @@ function Button({
     justifyContent: "center",
     gap: 8,
     opacity: disabled ? 0.6 : 1,
+    background: "#111827",
+    color: "#fff",
   };
 
   const styles =
@@ -76,12 +78,7 @@ function Button({
           background: "#fff",
           color: "#111827",
         }
-      : {
-          ...baseStyle,
-          background: "#111827",
-          color: "#fff",
-          border: "1px solid #111827",
-        };
+      : baseStyle;
 
   return (
     <button type={type} onClick={onClick} style={styles} disabled={disabled}>
@@ -757,8 +754,7 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
       }}
     >
       <div>
-        <span style={labelStyle}>Insured:</span>{" "}
-        {[data.homeowner1, data.homeowner2].filter(Boolean).join(", ")}
+        <span style={labelStyle}>Insured:</span> {insuredNames}
       </div>
       <div>
         <span style={labelStyle}>Loss Description:</span> {data.lossDescription}
@@ -808,8 +804,7 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
   );
 
   return (
-    <div id="printable-document" style={{ background: "#f3f4f6", padding: 0 }}>
-      {/* PAGE 1 */}
+    <div id="printable-document" style={{ background: "#fff", padding: 0 }}>
       <div className="pdf-page" style={pageStyle}>
         <HeaderImg />
 
@@ -868,7 +863,6 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
         <Footer page={1} />
       </div>
 
-      {/* PAGE 2 */}
       <div className="pdf-page" style={pageStyle}>
         <HeaderImg />
 
@@ -956,7 +950,6 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
         <Footer page={2} />
       </div>
 
-      {/* PAGE 3 */}
       <div className="pdf-page" style={pageStyle}>
         <HeaderImg />
 
@@ -1026,7 +1019,6 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
         <Footer page={3} />
       </div>
 
-      {/* PAGE 4 */}
       <div className="pdf-page" style={pageStyle}>
         <HeaderImg />
 
@@ -1186,6 +1178,7 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
     </div>
   );
 }
+
 export default function App() {
   const [view, setView] = useState("input");
   const [activeDoc, setActiveDoc] = useState("lor");
@@ -1233,30 +1226,28 @@ export default function App() {
   };
 
   const generatePDF = async (docType) => {
-  const element = document.getElementById("printable-document");
-  if (!element) {
-    throw new Error("Printable document not found.");
-  }
+    const element = document.getElementById("printable-document");
+    if (!element) {
+      throw new Error("Printable document not found.");
+    }
 
-  const opt = {
-    margin: 0,
-    filename:
-      docType === "lor"
-        ? "Letter-of-Representation.pdf"
-        : "Public-Adjuster-Agreement.pdf",
-    image: { type: "jpeg", quality: 1 },
-    html2canvas: { scale: 2, useCORS: true },
-    jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
-    pagebreak: {
-      mode: ["avoid-all", "css", "legacy"],
-    },
+    const opt = {
+      margin: 0,
+      filename:
+        docType === "lor"
+          ? "Letter-of-Representation.pdf"
+          : "Public-Adjuster-Agreement.pdf",
+      image: { type: "jpeg", quality: 1 },
+      html2canvas: { scale: 2, useCORS: true },
+      jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
+      pagebreak: {
+        mode: ["avoid-all", "css", "legacy"],
+      },
+    };
+
+    return html2pdf().set(opt).from(element).outputPdf("blob");
   };
 
-  return html2pdf().set(opt).from(element).outputPdf("blob");
-};
-
-  return html2pdf().set(opt).from(element).outputPdf("blob");
-};
   const blobToBase64 = (blob) =>
     new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -1708,14 +1699,17 @@ export default function App() {
                             activeDoc === "lor"
                               ? "Letter-of-Representation.pdf"
                               : "Public-Adjuster-Agreement.pdf",
-                              image: { type: "jpeg", quality: 1 },
-                              html2canvas: { scale: 2, useCORS: true },
-                              jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
-                              pagebreak: {
-                                mode: ["css", "legacy"],
-                                before: ".pdf-page + .pdf-page",
-                            },
-                          };
+                          image: { type: "jpeg", quality: 1 },
+                          html2canvas: { scale: 2, useCORS: true },
+                          jsPDF: {
+                            unit: "in",
+                            format: "letter",
+                            orientation: "portrait",
+                          },
+                          pagebreak: {
+                            mode: ["avoid-all", "css", "legacy"],
+                          },
+                        };
 
                         await html2pdf().set(opt).from(element).save();
                       } catch (err) {
@@ -1733,3 +1727,4 @@ export default function App() {
       </div>
     </div>
   );
+}
