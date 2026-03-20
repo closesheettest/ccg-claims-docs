@@ -623,20 +623,27 @@ function LetterOfRepresentation({ data, sig1, sig2, isExportingPdf = false }) {
     : pageStyle;
 
   const pageInnerStyle = {
-    padding: isExportingPdf ? "0.14in 0.18in 0.14in" : "14px 18px 18px",
+    padding: isExportingPdf ? "0 0.42in 0.12in" : "0 28px 20px",
   };
 
-  const headerStyle = {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    background: "linear-gradient(90deg, #1f7a4d, #6b46c1)",
-    color: "#fff",
-    padding: isExportingPdf ? "10px 14px" : "12px 16px",
-    fontWeight: 700,
-    fontSize: 12,
-    lineHeight: 1.2,
-  };
+  const HeaderImg = () => (
+    <img
+      src={PA_ASSETS.header}
+      alt="header"
+      style={{
+        width: "100%",
+        display: "block",
+      }}
+    />
+  );
+
+  const FooterImg = () => (
+    <img
+      src={PA_ASSETS.footer}
+      alt="footer"
+      style={{ width: "100%", display: "block" }}
+    />
+  );
 
   const labelStyle = {
     display: "block",
@@ -664,35 +671,16 @@ function LetterOfRepresentation({ data, sig1, sig2, isExportingPdf = false }) {
     color: "#111827",
   };
 
-  const footerBlock = (
-    <div
-      style={{
-        borderTop: "3px solid #7c3aed",
-        marginTop: 16,
-        paddingTop: 10,
-        fontSize: 12,
-        color: "#111827",
-        lineHeight: 1.35,
-      }}
-    >
-      <div style={{ fontWeight: 700 }}>3600 Red Rd suite Ste 601B</div>
-      <div>
-        Miramar, FL 33025 • claims@capitalclaimgroup.com • +1 (954) 571-3035 •
-        www.ccgclaims.com
-      </div>
-      <div style={{ marginTop: 6, fontWeight: 700, color: "#6d28d9" }}>
-        License No: G240595
-      </div>
+  const Footer = () => (
+    <div style={{ marginTop: 14 }}>
+      <FooterImg />
     </div>
   );
 
   return (
     <div id="printable-document" style={shellStyle}>
       <div className="pdf-page" style={pageStyle}>
-        <div style={headerStyle}>
-          <div>Letter of Representation</div>
-          <div>CAPITAL CLAIMS GROUP</div>
-        </div>
+        <HeaderImg />
 
         <div style={pageInnerStyle}>
           <div
@@ -700,6 +688,7 @@ function LetterOfRepresentation({ data, sig1, sig2, isExportingPdf = false }) {
               display: "grid",
               gridTemplateColumns: "1fr 1fr",
               gap: 12,
+              marginTop: 10,
               marginBottom: 18,
             }}
           >
@@ -801,12 +790,16 @@ function LetterOfRepresentation({ data, sig1, sig2, isExportingPdf = false }) {
               rebuild or replace the damaged property.
             </p>
           </div>
+
+          <Footer />
         </div>
       </div>
 
       <div className="pdf-page" style={lastPageStyle}>
+        <HeaderImg />
+
         <div style={pageInnerStyle}>
-          <div style={bodyText}>
+          <div style={{ ...bodyText, marginTop: 10 }}>
             <p style={{ margin: "0 0 10px" }}>
               Surely, you understand the Assured’s need to have this claim
               processed as quickly as possible, and as such, we will be
@@ -902,7 +895,7 @@ function LetterOfRepresentation({ data, sig1, sig2, isExportingPdf = false }) {
               )}
             </div>
 
-            {footerBlock}
+            <Footer />
           </div>
         </div>
       </div>
