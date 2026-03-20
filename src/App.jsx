@@ -581,189 +581,325 @@ function SignatureDisplay({ name, value, title }) {
   );
 }
 
-function LetterOfRepresentation({ data, sig1, sig2 }) {
+function LetterOfRepresentation({ data, sig1, sig2, isExportingPdf = false }) {
   const hasSecond = Boolean(data.homeowner2?.trim());
   const fullAddress = formatAddress(data);
   const displayedLossLocation = data.lossLocationSameAsAddress
     ? fullAddress
     : data.lossLocation;
 
-  return (
-    <div
-      id="printable-document"
-      style={{
-        borderRadius: 24,
-        overflow: "hidden",
-        border: "1px solid #e5e7eb",
+  const pageStyle = isExportingPdf
+    ? {
+        width: "8.5in",
         background: "#fff",
+        boxSizing: "border-box",
+        overflow: "hidden",
+        fontFamily: "Arial, Helvetica, sans-serif",
+        color: "#111827",
+        pageBreakAfter: "always",
+      }
+    : {
+        width: "100%",
+        background: "#fff",
+        boxSizing: "border-box",
+        overflow: "hidden",
+        fontFamily: "Arial, Helvetica, sans-serif",
+        color: "#111827",
+        borderRadius: 24,
+        border: "1px solid #e5e7eb",
         boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+        marginBottom: 16,
+      };
+
+  const pageInnerStyle = {
+    padding: isExportingPdf ? "0.14in 0.18in 0.14in" : "14px 18px 18px",
+  };
+
+  const headerStyle = {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    background: "linear-gradient(90deg, #1f7a4d, #6b46c1)",
+    color: "#fff",
+    padding: isExportingPdf ? "10px 14px" : "12px 16px",
+    fontWeight: 700,
+    fontSize: 12,
+    lineHeight: 1.2,
+  };
+
+  const labelStyle = {
+    display: "block",
+    fontSize: 12,
+    color: "#4b5563",
+    marginBottom: 6,
+    fontWeight: 400,
+  };
+
+  const fieldBoxStyle = {
+    minHeight: 46,
+    border: "1px solid #d1d5db",
+    borderRadius: 12,
+    padding: "10px 12px",
+    background: "#fff",
+    fontSize: 12,
+    lineHeight: 1.35,
+    color: "#111827",
+    boxSizing: "border-box",
+  };
+
+  const bodyText = {
+    fontSize: 12,
+    lineHeight: 1.55,
+    color: "#111827",
+  };
+
+  const footerBlock = (
+    <div
+      style={{
+        borderTop: "3px solid #7c3aed",
+        marginTop: 16,
+        paddingTop: 10,
+        fontSize: 12,
+        color: "#111827",
+        lineHeight: 1.35,
       }}
     >
-      {gradientHeader("Letter of Representation")}
+      <div style={{ fontWeight: 700 }}>3600 Red Rd suite Ste 601B</div>
+      <div>
+        Miramar, FL 33025 • claims@capitalclaimgroup.com • +1 (954) 571-3035 •
+        www.ccgclaims.com
+      </div>
+      <div style={{ marginTop: 6, fontWeight: 700, color: "#6d28d9" }}>
+        License No: G240595
+      </div>
+    </div>
+  );
 
-      {twoColGrid(
-        <>
-          <div>
-            <LorLabel>Date</LorLabel>
-            <LorFieldBox>{data.date}</LorFieldBox>
-          </div>
-
-          <div>
-            <LorLabel>Insurance Company</LorLabel>
-            <LorFieldBox>{data.insuranceCompany}</LorFieldBox>
-          </div>
-
-          <div>
-            <LorLabel>Address</LorLabel>
-            <LorFieldBox>
-              <div style={{ whiteSpace: "pre-line" }}>{fullAddress}</div>
-            </LorFieldBox>
-          </div>
-
-          <div>
-            <LorLabel>State</LorLabel>
-            <LorFieldBox>{data.state}</LorFieldBox>
-          </div>
-
-          <div>
-            <LorLabel>Claim #</LorLabel>
-            <LorFieldBox>{data.claimNumber}</LorFieldBox>
-          </div>
-
-          <div>
-            <LorLabel>Client / Insured</LorLabel>
-            <LorFieldBox>
-              {[data.homeowner1, data.homeowner2].filter(Boolean).join(", ")}
-            </LorFieldBox>
-          </div>
-
-          <div>
-            <LorLabel>Loss Location</LorLabel>
-            <LorFieldBox>
-              <div style={{ whiteSpace: "pre-line" }}>{displayedLossLocation}</div>
-            </LorFieldBox>
-          </div>
-
-          <div>
-            <LorLabel>Policy #</LorLabel>
-            <LorFieldBox>{data.policyNumber}</LorFieldBox>
-          </div>
-
-          <div>
-            <LorLabel>Date of Loss</LorLabel>
-            <LorFieldBox>{data.dateOfLoss}</LorFieldBox>
-          </div>
-
-          <div>
-            <LorLabel>Signer Email (recipient)</LorLabel>
-            <LorFieldBox>{data.signerEmail}</LorFieldBox>
-          </div>
-        </>
-      )}
-
-      <div
-        style={{
-          padding: "0 24px 22px",
-          color: "#111827",
-          fontSize: 17,
-          lineHeight: 1.6,
-          fontFamily: "Arial, Helvetica, sans-serif",
-        }}
-      >
-        <div style={{ borderTop: "1px solid #9ca3af", marginBottom: 12 }} />
-
-        <p style={{ margin: "0 0 8px", fontWeight: 400 }}>Dear Claims Manager:</p>
-
-        <p style={{ margin: "0 0 8px" }}>
-          This correspondence will serve to inform you and the Insurance Company
-          that your insured has formally retained our services to assist them in
-          evaluating and presenting their above-referenced claim. We have enclosed
-          a copy of our signed representation notice, which we request that you
-          record in your claim file and properly provide us with a written
-          acknowledgment of our involvement.
-        </p>
-
-        <p style={{ margin: "0 0 8px" }}>
-          Additionally, we request that all further contact and communication
-          involving this claim’s processing from the Insurance Company be directed
-          exclusively through our offices. This also extends to your representative
-          contractor/claims agents and/or any other claims agents you may be using
-          in the processing of this claim.
-        </p>
-
-        <p style={{ margin: "0 0 8px" }}>
-          Further, as the policy sets forth the duties, rights, and parameters of
-          coverage, it is critical that we have expedited access to this
-          information, we hereby request a true and complete certified copy of the
-          applicable policy contract including the declarations page, all policy
-          endorsements, and the original policy application. Please expedite these
-          documents to our attention.
-        </p>
-
-        <p style={{ margin: "0 0 8px", fontStyle: "italic" }}>
-          Also, please note that Capital Claims Group Inc. should be named as an
-          additional payee on all insurance drafts and/or payments, pursuant to the
-          enclosed Notice of Loss/Notice of Representation signed by the Insured(s).
-          The insured(s) hereby reserve all rights to make claims under the policy
-          for replacement cost benefits as set forth in the policy and likewise
-          invoke their rights to repair, rebuild or replace the damaged property.
-        </p>
-
-        <p style={{ margin: "0 0 8px" }}>
-          Surely, you understand the Assured’s need to have this claim processed as
-          quickly as possible, and as such, we will be undertaking all necessary
-          steps to document and prepare their claim for submission. We look forward
-          to working cooperatively with you to reach a fair and prompt resolution
-          to this claim. Please feel free to contact us at 954-874-3563 to discuss
-          the current status of this claim and to coordinate our efforts in the loss
-          investigation and valuation process.
-        </p>
-
-        <p style={{ margin: "0 0 14px", fontStyle: "italic" }}>
-          The Assureds hereby reserve all of their rights under the policy and the
-          laws of this State and nothing contained herein is intended to waive or
-          prejudice said rights.
-        </p>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: hasSecond ? "1fr 1fr" : "1fr",
-            gap: 20,
-            paddingTop: 8,
-          }}
-        >
-          <SignatureDisplay
-            title="Insured Signature"
-            name={data.homeowner1}
-            value={sig1}
-          />
-          {hasSecond && (
-            <SignatureDisplay
-              title="Insured Signature"
-              name={data.homeowner2}
-              value={sig2}
-            />
-          )}
+  return (
+    <div id="printable-document" style={{ background: "transparent" }}>
+      {/* PAGE 1 */}
+      <div className="pdf-page" style={pageStyle}>
+        <div style={headerStyle}>
+          <div>Letter of Representation</div>
+          <div>CAPITAL CLAIMS GROUP</div>
         </div>
 
-        <div
-          style={{
-            borderTop: "3px solid #7c3aed",
-            marginTop: 20,
-            paddingTop: 12,
-            fontSize: 13.5,
-            color: "#111827",
-            lineHeight: 1.35,
-          }}
-        >
-          <div style={{ fontWeight: 700 }}>3600 Red Rd suite Ste 601B</div>
-          <div>
-            Miramar, FL 33025 • claims@capitalclaimgroup.com • +1 (954)
-            571-3035 • www.ccgclaims.com
+        <div style={pageInnerStyle}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 12,
+              marginBottom: 18,
+            }}
+          >
+            <div>
+              <div style={labelStyle}>Date</div>
+              <div style={fieldBoxStyle}>{data.date}</div>
+            </div>
+
+            <div>
+              <div style={labelStyle}>Insurance Company</div>
+              <div style={fieldBoxStyle}>{data.insuranceCompany}</div>
+            </div>
+
+            <div>
+              <div style={labelStyle}>Address</div>
+              <div style={fieldBoxStyle}>
+                <div style={{ whiteSpace: "pre-line" }}>{fullAddress}</div>
+              </div>
+            </div>
+
+            <div>
+              <div style={labelStyle}>State</div>
+              <div style={fieldBoxStyle}>{data.state}</div>
+            </div>
+
+            <div>
+              <div style={labelStyle}>Claim #</div>
+              <div style={fieldBoxStyle}>{data.claimNumber}</div>
+            </div>
+
+            <div>
+              <div style={labelStyle}>Client / Insured</div>
+              <div style={fieldBoxStyle}>
+                {[data.homeowner1, data.homeowner2].filter(Boolean).join(", ")}
+              </div>
+            </div>
+
+            <div>
+              <div style={labelStyle}>Loss Location</div>
+              <div style={fieldBoxStyle}>
+                <div style={{ whiteSpace: "pre-line" }}>{displayedLossLocation}</div>
+              </div>
+            </div>
+
+            <div>
+              <div style={labelStyle}>Policy #</div>
+              <div style={fieldBoxStyle}>{data.policyNumber}</div>
+            </div>
+
+            <div>
+              <div style={labelStyle}>Date of Loss</div>
+              <div style={fieldBoxStyle}>{data.dateOfLoss}</div>
+            </div>
+
+            <div>
+              <div style={labelStyle}>Signer Email (recipient)</div>
+              <div style={fieldBoxStyle}>{data.signerEmail}</div>
+            </div>
           </div>
-          <div style={{ marginTop: 8, fontWeight: 700, color: "#6d28d9" }}>
-            License No: G240595
+
+          <div style={{ borderTop: "1px solid #d1d5db", marginBottom: 14 }} />
+
+          <div style={bodyText}>
+            <p style={{ margin: "0 0 10px" }}>Dear Claims Manager:</p>
+
+            <p style={{ margin: "0 0 10px" }}>
+              This correspondence will serve to inform you and the Insurance
+              Company that your insured has formally retained our services to
+              assist them in evaluating and presenting their above-referenced
+              claim. We have enclosed a copy of our signed representation notice,
+              which we request that you record in your claim file and properly
+              provide us with a written acknowledgment of our involvement.
+            </p>
+
+            <p style={{ margin: "0 0 10px" }}>
+              Additionally, we request that all further contact and communication
+              involving this claim’s processing from the Insurance Company be
+              directed exclusively through our offices. This also extends to your
+              representative contractor/claims agents and/or any other claims
+              agents you may be using in the processing of this claim.
+            </p>
+
+            <p style={{ margin: "0 0 10px" }}>
+              Further, as the policy sets forth the duties, rights, and parameters
+              of coverage, it is critical that we have expedited access to this
+              information, we hereby request a true and complete certified copy of
+              the applicable policy contract including the declarations page, all
+              policy endorsements, and the original policy application. Please
+              expedite these documents to our attention.
+            </p>
+
+            <p style={{ margin: 0, fontStyle: "italic" }}>
+              Also, please note that Capital Claims Group Inc. should be named as
+              an additional payee on all insurance drafts and/or payments,
+              pursuant to the enclosed Notice of Loss/Notice of Representation
+              signed by the Insured(s). The insured(s) hereby reserve all rights
+              to make claims under the policy for replacement cost benefits as set
+              forth in the policy and likewise invoke their rights to repair,
+              rebuild or replace the damaged property.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* PAGE 2 */}
+      <div
+        className="pdf-page"
+        style={{
+          ...pageStyle,
+          pageBreakAfter: "auto",
+        }}
+      >
+        <div style={pageInnerStyle}>
+          <div style={bodyText}>
+            <p style={{ margin: "0 0 10px" }}>
+              Surely, you understand the Assured’s need to have this claim
+              processed as quickly as possible, and as such, we will be
+              undertaking all necessary steps to document and prepare their claim
+              for submission. We look forward to working cooperatively with you to
+              reach a fair and prompt resolution to this claim. Please feel free
+              to contact us at 954-874-3563 to discuss the current status of this
+              claim and to coordinate our efforts in the loss investigation and
+              valuation process.
+            </p>
+
+            <p style={{ margin: "0 0 18px", fontStyle: "italic" }}>
+              The Assureds hereby reserve all of their rights under the policy and
+              the laws of this State and nothing contained herein is intended to
+              waive or prejudice said rights.
+            </p>
+
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 500,
+                marginBottom: 8,
+              }}
+            >
+              Insured Signature
+            </div>
+
+            <div
+              style={{
+                border: "1px dashed #cbd5e1",
+                borderRadius: 12,
+                minHeight: 138,
+                background: "#fff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                overflow: "hidden",
+                padding: 12,
+              }}
+            >
+              {sig1 || sig2 ? (
+                <div
+                  style={{
+                    width: "100%",
+                    display: "grid",
+                    gridTemplateColumns: hasSecond ? "1fr 1fr" : "1fr",
+                    gap: 18,
+                    alignItems: "center",
+                  }}
+                >
+                  <div style={{ textAlign: "center" }}>
+                    {sig1 ? (
+                      <img
+                        src={sig1}
+                        alt="Insured Signature 1"
+                        style={{
+                          maxWidth: "100%",
+                          maxHeight: 80,
+                          objectFit: "contain",
+                        }}
+                      />
+                    ) : (
+                      <span style={{ color: "#94a3b8", fontSize: 12 }}>
+                        Signature pending
+                      </span>
+                    )}
+                  </div>
+
+                  {hasSecond && (
+                    <div style={{ textAlign: "center" }}>
+                      {sig2 ? (
+                        <img
+                          src={sig2}
+                          alt="Insured Signature 2"
+                          style={{
+                            maxWidth: "100%",
+                            maxHeight: 80,
+                            objectFit: "contain",
+                          }}
+                        />
+                      ) : (
+                        <span style={{ color: "#94a3b8", fontSize: 12 }}>
+                          Signature pending
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <span style={{ color: "#94a3b8", fontSize: 12 }}>
+                  Signature pending
+                </span>
+              )}
+            </div>
+
+            {footerBlock}
           </div>
         </div>
       </div>
