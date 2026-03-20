@@ -341,6 +341,130 @@ function SignaturePad({ title, value, onChange, height = 160 }) {
   );
 }
 
+function InitialsPad({ title, value, onChange }) {
+  const canvasRef = useRef(null);
+  const drawingRef = useRef(false);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const ratio = Math.max(window.devicePixelRatio || 1, 1);
+
+    canvas.width = rect.width * ratio;
+    canvas.height = rect.height * ratio;
+
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.scale(ratio, ratio);
+    ctx.lineWidth = 1.6;
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "#111827";
+    ctx.clearRect(0, 0, rect.width, rect.height);
+
+    if (value) {
+      const img = new Image();
+      img.onload = () => ctx.drawImage(img, 0, 0, rect.width, rect.height);
+      img.src = value;
+    }
+  }, [value]);
+
+  const getPoint = (e) => {
+    const rect = canvasRef.current.getBoundingClientRect();
+    const p = e.touches ? e.touches[0] : e;
+    return { x: p.clientX - rect.left, y: p.clientY - rect.top };
+  };
+
+  const start = (e) => {
+    const ctx = canvasRef.current.getContext("2d");
+    const p = getPoint(e);
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    drawingRef.current = true;
+  };
+
+  const move = (e) => {
+    if (!drawingRef.current) return;
+    e.preventDefault();
+    const ctx = canvasRef.current.getContext("2d");
+    const p = getPoint(e);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+  };
+
+  const end = () => {
+    if (!drawingRef.current) return;
+    drawingRef.current = false;
+    onChange(canvasRef.current.toDataURL("image/png"));
+  };
+
+  const clear = () => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    const rect = canvas.getBoundingClientRect();
+    ctx.clearRect(0, 0, rect.width, rect.height);
+    onChange("");
+  };
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 6,
+        }}
+      >
+        <Label>{title}</Label>
+        <button
+          type="button"
+          onClick={clear}
+          style={{
+            background: "transparent",
+            border: "none",
+            color: "#6b7280",
+            fontSize: 12,
+            cursor: "pointer",
+            padding: 0,
+          }}
+        >
+          Clear
+        </button>
+      </div>
+
+      <div
+        style={{
+          border: "1px dashed #cbd5e1",
+          borderRadius: 12,
+          background: "#fff",
+          padding: 8,
+        }}
+      >
+        <canvas
+          ref={canvasRef}
+          style={{
+            width: "100%",
+            height: 42,
+            display: "block",
+            background: "#f8fafc",
+            touchAction: "none",
+            borderRadius: 8,
+          }}
+          onMouseDown={start}
+          onMouseMove={move}
+          onMouseUp={end}
+          onMouseLeave={end}
+          onTouchStart={start}
+          onTouchMove={move}
+          onTouchEnd={end}
+        />
+      </div>
+    </div>
+  );
+}
+
 function formatAddress(data) {
   return [
     data.address,
@@ -644,33 +768,53 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
   );
 }
 
-function PublicAdjusterContract({ data, sig1, sig2 }) {
+function PublicAdjusterContract({
+  data,
+  sig1,
+  sig2,
+  isExportingPdf = false,
+}) {
   const hasSecond = Boolean(data.homeowner2?.trim());
   const insuredNames = [data.homeowner1, data.homeowner2]
     .filter(Boolean)
     .join(", ");
 
-  const pageStyle = {
-    width: "8.5in",
-    minHeight: "11in",
-    background: "#fff",
-    boxSizing: "border-box",
-    overflow: "visible",
-    fontFamily: "Arial, Helvetica, sans-serif",
-    color: "#111827",
-    position: "relative",
-    display: "flex",
-    flexDirection: "column",
-  };
+  const pageStyle = isExportingPdf
+    ? {
+        width: "8.5in",
+        minHeight: "11in",
+        background: "#fff",
+        boxSizing: "border-box",
+        overflow: "hidden",
+        fontFamily: "Arial, Helvetica, sans-serif",
+        color: "#111827",
+        display: "flex",
+        flexDirection: "column",
+        pageBreakAfter: "always",
+      }
+    : {
+        width: "100%",
+        background: "#fff",
+        boxSizing: "border-box",
+        overflow: "hidden",
+        fontFamily: "Arial, Helvetica, sans-serif",
+        color: "#111827",
+        display: "flex",
+        flexDirection: "column",
+        borderRadius: 24,
+        border: "1px solid #e5e7eb",
+        boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+        marginBottom: 16,
+      };
 
   const contentStyle = {
-    padding: "0 0.48in",
+    padding: isExportingPdf ? "0 0.48in" : "0 28px 24px",
     boxSizing: "border-box",
   };
 
   const bodyText = {
-    fontSize: 14,
-    lineHeight: 1.55,
+    fontSize: isExportingPdf ? 14 : 15,
+    lineHeight: isExportingPdf ? 1.55 : 1.6,
     color: "#111827",
     fontWeight: 500,
   };
@@ -679,12 +823,12 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
     color: "#199c2e",
     fontWeight: 700,
     textTransform: "uppercase",
-    fontSize: 14,
+    fontSize: isExportingPdf ? 14 : 15,
   };
 
   const labelStyle = {
     fontWeight: 700,
-    fontSize: 14,
+    fontSize: isExportingPdf ? 14 : 15,
   };
 
   const pageNumber = {
@@ -701,9 +845,9 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
       src={PA_ASSETS.header}
       alt="Capital Claims Group header"
       style={{
-        width: "calc(100% + 18px)",
-        marginLeft: -9,
-        marginTop: -2,
+        width: isExportingPdf ? "calc(100% + 18px)" : "100%",
+        marginLeft: isExportingPdf ? -9 : 0,
+        marginTop: isExportingPdf ? -2 : 0,
         display: "block",
       }}
     />
@@ -714,8 +858,8 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
       src={PA_ASSETS.footer}
       alt="Capital Claims Group footer"
       style={{
-        width: "calc(100% + 8px)",
-        marginLeft: -4,
+        width: isExportingPdf ? "calc(100% + 8px)" : "100%",
+        marginLeft: isExportingPdf ? -4 : 0,
         display: "block",
       }}
     />
@@ -733,9 +877,55 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
     />
   );
 
+  const InitialsLine = ({ value }) => (
+    <div style={{ marginTop: 12 }}>
+      <div
+        style={{
+          fontSize: 11,
+          color: "#374151",
+          marginBottom: 2,
+        }}
+      >
+        Initials:
+      </div>
+      <div
+        style={{
+          height: 22,
+          borderBottom: "1px solid #111827",
+          display: "flex",
+          alignItems: "flex-end",
+        }}
+      >
+        {value ? (
+          <img
+            src={value}
+            alt="Initials"
+            style={{ maxHeight: 18, objectFit: "contain" }}
+          />
+        ) : (
+          <span style={{ fontSize: 14, lineHeight: 1 }}>__</span>
+        )}
+      </div>
+    </div>
+  );
+
+  const InitialsRow = () => (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: hasSecond ? "1fr 1fr" : "1fr",
+        gap: 18,
+        marginTop: 8,
+      }}
+    >
+      <InitialsLine value={data.initials1} />
+      {hasSecond && <InitialsLine value={data.initials2} />}
+    </div>
+  );
+
   const Footer = ({ page }) => (
     <>
-      <div style={pageNumber}>Page {page} of 4</div>
+      {isExportingPdf && <div style={pageNumber}>Page {page} of 4</div>}
       <FooterImg />
     </>
   );
@@ -749,7 +939,7 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
         rowGap: 14,
         marginTop: 12,
         marginBottom: 6,
-        fontSize: 14,
+        fontSize: isExportingPdf ? 14 : 15,
         lineHeight: 1.4,
       }}
     >
@@ -804,10 +994,12 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
   );
 
   return (
-    <div id="printable-document" style={{ background: "#fff", padding: 0 }}>
+    <div
+      id="printable-document"
+      style={{ background: isExportingPdf ? "#fff" : "transparent", padding: 0 }}
+    >
       <div className="pdf-page" style={pageStyle}>
         <HeaderImg />
-
         <div style={contentStyle}>
           {topGrid}
           <TitleBarImg />
@@ -821,7 +1013,7 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
               public adjuster and hereby appoints Capital Claims Group to be its
               independent appraiser to appraise, advise, negotiate, and/or
               settle the above-referenced claim.{" "}
-              <strong style={{ fontSize: 15 }}>
+              <strong style={{ fontSize: isExportingPdf ? 15 : 16 }}>
                 The insured(s) agrees to pay and hereby assigns to Capital
                 Claims Group ____10___% of all payments made by the insurance
                 company related to this claim.
@@ -857,16 +1049,16 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
               be incurred without the insured’s written or verbal authorization,
               and that the insured may then be responsible for such fees.
             </p>
+
+            <InitialsRow />
           </div>
         </div>
-
         <Footer page={1} />
       </div>
 
       <div className="pdf-page" style={pageStyle}>
         <HeaderImg />
-
-        <div style={{ ...contentStyle, ...bodyText, paddingTop: 22 }}>
+        <div style={{ ...contentStyle, ...bodyText, paddingTop: isExportingPdf ? 22 : 20 }}>
           <p style={{ margin: "0 0 8px" }}>
             4. <span style={sectionHead}>Endorsement:</span>
           </p>
@@ -945,15 +1137,15 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
             Unenforceability or invalidity of one or more clauses in this
             Agreement shall not affect any other clause.
           </p>
-        </div>
 
+          <InitialsRow />
+        </div>
         <Footer page={2} />
       </div>
 
       <div className="pdf-page" style={pageStyle}>
         <HeaderImg />
-
-        <div style={{ ...contentStyle, ...bodyText, paddingTop: 22 }}>
+        <div style={{ ...contentStyle, ...bodyText, paddingTop: isExportingPdf ? 22 : 20 }}>
           <p style={{ margin: "0 0 8px" }}>
             10. <span style={sectionHead}>Dispute:</span>
           </p>
@@ -975,7 +1167,7 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
             contract.
           </p>
 
-          <p style={{ margin: "0 0 8px", fontSize: 17, fontWeight: 700 }}>
+          <p style={{ margin: "0 0 8px", fontSize: isExportingPdf ? 17 : 18, fontWeight: 700 }}>
             12.{" "}
             <span style={{ color: "#199c2e" }}>
               Residential Policy Cancellation:
@@ -985,7 +1177,7 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
           <p
             style={{
               margin: "0 0 16px",
-              fontSize: 14,
+              fontSize: isExportingPdf ? 14 : 15,
               lineHeight: 1.65,
               fontWeight: 700,
             }}
@@ -998,7 +1190,7 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
           <p
             style={{
               margin: 0,
-              fontSize: 14,
+              fontSize: isExportingPdf ? 14 : 15,
               lineHeight: 1.65,
               fontWeight: 700,
             }}
@@ -1014,19 +1206,25 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
             execution of the contract, unless the failure to provide the
             estimate within 60 days is caused by factors beyond my control.
           </p>
-        </div>
 
+          <InitialsRow />
+        </div>
         <Footer page={3} />
       </div>
 
-      <div className="pdf-page" style={pageStyle}>
+      <div
+        className="pdf-page"
+        style={{
+          ...pageStyle,
+          pageBreakAfter: "auto",
+        }}
+      >
         <HeaderImg />
-
-        <div style={{ ...contentStyle, ...bodyText, paddingTop: 22 }}>
+        <div style={{ ...contentStyle, ...bodyText, paddingTop: isExportingPdf ? 22 : 20 }}>
           <p
             style={{
               margin: "0 0 16px",
-              fontSize: 14,
+              fontSize: isExportingPdf ? 14 : 15,
               lineHeight: 1.6,
               fontWeight: 700,
             }}
@@ -1040,7 +1238,7 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
           <p
             style={{
               margin: "0 0 22px",
-              fontSize: 14,
+              fontSize: isExportingPdf ? 14 : 15,
               lineHeight: 1.6,
               fontWeight: 700,
             }}
@@ -1062,7 +1260,9 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
             shall be deemed to have the same effect as the original.
           </p>
 
-          <div style={{ borderTop: "4px solid #199c2e", marginBottom: 16 }} />
+          <InitialsRow />
+
+          <div style={{ borderTop: "4px solid #199c2e", marginBottom: 16, marginTop: 18 }} />
 
           <div
             style={{
@@ -1172,7 +1372,6 @@ function PublicAdjusterContract({ data, sig1, sig2 }) {
             </div>
           </div>
         </div>
-
         <Footer page={4} />
       </div>
     </div>
@@ -1187,6 +1386,7 @@ export default function App() {
   const [sig1, setSig1] = useState("");
   const [sig2, setSig2] = useState("");
   const [pendingSend, setPendingSend] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
 
   const hasSecond = Boolean(data.homeowner2?.trim());
 
@@ -1231,21 +1431,25 @@ export default function App() {
       throw new Error("Printable document not found.");
     }
 
-    const opt = {
-      margin: 0,
-      filename:
-        docType === "lor"
-          ? "Letter-of-Representation.pdf"
-          : "Public-Adjuster-Agreement.pdf",
-      image: { type: "jpeg", quality: 1 },
-      html2canvas: { scale: 2, useCORS: true },
-      jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
-      pagebreak: {
-        mode: ["avoid-all", "css", "legacy"],
-      },
-    };
+    setIsExportingPdf(true);
+    await new Promise((resolve) => setTimeout(resolve, 150));
 
-    return html2pdf().set(opt).from(element).outputPdf("blob");
+    try {
+      const opt = {
+        margin: 0,
+        filename:
+          docType === "lor"
+            ? "Letter-of-Representation.pdf"
+            : "Public-Adjuster-Agreement.pdf",
+        image: { type: "jpeg", quality: 1 },
+        html2canvas: { scale: 2, useCORS: true },
+        jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
+      };
+
+      return await html2pdf().set(opt).from(element).outputPdf("blob");
+    } finally {
+      setIsExportingPdf(false);
+    }
   };
 
   const blobToBase64 = (blob) =>
@@ -1550,7 +1754,6 @@ export default function App() {
                       value={data.representativeName}
                       onChange={(v) => update("representativeName", v)}
                     />
-
                     <FormField
                       label="PA Email"
                       type="email"
@@ -1644,7 +1847,12 @@ export default function App() {
             {activeDoc === "lor" ? (
               <LetterOfRepresentation data={data} sig1={sig1} sig2={sig2} />
             ) : (
-              <PublicAdjusterContract data={data} sig1={sig1} sig2={sig2} />
+              <PublicAdjusterContract
+                data={data}
+                sig1={sig1}
+                sig2={sig2}
+                isExportingPdf={isExportingPdf}
+              />
             )}
 
             <Card>
@@ -1660,6 +1868,30 @@ export default function App() {
               </CardHeader>
 
               <CardContent>
+                {activeDoc === "pac" && !pendingSend && (
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: hasSecond ? "1fr 1fr" : "1fr",
+                      gap: 16,
+                      marginBottom: 8,
+                    }}
+                  >
+                    <InitialsPad
+                      title="Homeowner 1 Initials"
+                      value={data.initials1}
+                      onChange={(v) => update("initials1", v)}
+                    />
+                    {hasSecond && (
+                      <InitialsPad
+                        title="Homeowner 2 Initials"
+                        value={data.initials2}
+                        onChange={(v) => update("initials2", v)}
+                      />
+                    )}
+                  </div>
+                )}
+
                 {!pendingSend && (
                   <>
                     <SignaturePad
@@ -1693,6 +1925,9 @@ export default function App() {
                           return;
                         }
 
+                        setIsExportingPdf(true);
+                        await new Promise((resolve) => setTimeout(resolve, 150));
+
                         const opt = {
                           margin: 0,
                           filename:
@@ -1706,14 +1941,13 @@ export default function App() {
                             format: "letter",
                             orientation: "portrait",
                           },
-                          pagebreak: {
-                            mode: ["avoid-all", "css", "legacy"],
-                          },
                         };
 
                         await html2pdf().set(opt).from(element).save();
                       } catch (err) {
                         alert(err?.message || "Failed to download PDF.");
+                      } finally {
+                        setIsExportingPdf(false);
                       }
                     }}
                   >
