@@ -588,44 +588,52 @@ function LetterOfRepresentation({ data, sig1, sig2, isExportingPdf = false }) {
     ? fullAddress
     : data.lossLocation;
 
-  const pageStyle = isExportingPdf
+  const containerStyle = isExportingPdf
     ? {
         width: "8.5in",
         background: "#fff",
-        boxSizing: "border-box",
-        overflow: "hidden",
         fontFamily: "Arial, Helvetica, sans-serif",
         color: "#111827",
-        pageBreakAfter: "always",
       }
     : {
-        width: "100%",
         background: "#fff",
-        boxSizing: "border-box",
-        overflow: "hidden",
-        fontFamily: "Arial, Helvetica, sans-serif",
-        color: "#111827",
         borderRadius: 24,
         border: "1px solid #e5e7eb",
         boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
-        marginBottom: 16,
+        overflow: "hidden",
+        fontFamily: "Arial, Helvetica, sans-serif",
+        color: "#111827",
       };
 
-  const pageInnerStyle = {
-    padding: isExportingPdf ? "0.14in 0.18in 0.14in" : "14px 18px 18px",
+  const pageStyle = (isLast = false) => ({
+    width: "100%",
+    minHeight: isExportingPdf ? "11in" : "auto",
+    background: "#fff",
+    boxSizing: "border-box",
+    overflow: "hidden",
+    pageBreakAfter: isExportingPdf ? (isLast ? "auto" : "always") : "auto",
+  });
+
+  const innerStyle = {
+    padding: isExportingPdf ? "0 0.42in 0.14in" : "0 28px 20px",
+    boxSizing: "border-box",
   };
 
-  const headerStyle = {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    background: "linear-gradient(90deg, #1f7a4d, #6b46c1)",
-    color: "#fff",
-    padding: isExportingPdf ? "10px 14px" : "12px 16px",
-    fontWeight: 700,
-    fontSize: 12,
-    lineHeight: 1.2,
-  };
+  const HeaderImg = () => (
+    <img
+      src={PA_ASSETS.header}
+      alt="Capital Claims Group header"
+      style={{ width: "100%", display: "block" }}
+    />
+  );
+
+  const FooterImg = () => (
+    <img
+      src={PA_ASSETS.footer}
+      alt="Capital Claims Group footer"
+      style={{ width: "100%", display: "block", marginTop: 14 }}
+    />
+  );
 
   const labelStyle = {
     display: "block",
@@ -676,20 +684,17 @@ function LetterOfRepresentation({ data, sig1, sig2, isExportingPdf = false }) {
   );
 
   return (
-    <div id="printable-document" style={{ background: "transparent" }}>
-      {/* PAGE 1 */}
-      <div className="pdf-page" style={pageStyle}>
-        <div style={headerStyle}>
-          <div>Letter of Representation</div>
-          <div>CAPITAL CLAIMS GROUP</div>
-        </div>
+    <div id="printable-document" style={containerStyle}>
+      <div className="pdf-page" style={pageStyle(false)}>
+        <HeaderImg />
 
-        <div style={pageInnerStyle}>
+        <div style={innerStyle}>
           <div
             style={{
               display: "grid",
               gridTemplateColumns: "1fr 1fr",
               gap: 12,
+              marginTop: 10,
               marginBottom: 18,
             }}
           >
@@ -791,19 +796,16 @@ function LetterOfRepresentation({ data, sig1, sig2, isExportingPdf = false }) {
               rebuild or replace the damaged property.
             </p>
           </div>
+
+          <FooterImg />
         </div>
       </div>
 
-      {/* PAGE 2 */}
-      <div
-        className="pdf-page"
-        style={{
-          ...pageStyle,
-          pageBreakAfter: "auto",
-        }}
-      >
-        <div style={pageInnerStyle}>
-          <div style={bodyText}>
+      <div className="pdf-page" style={pageStyle(true)}>
+        <HeaderImg />
+
+        <div style={innerStyle}>
+          <div style={{ ...bodyText, marginTop: 10 }}>
             <p style={{ margin: "0 0 10px" }}>
               Surely, you understand the Assured’s need to have this claim
               processed as quickly as possible, and as such, we will be
@@ -900,13 +902,13 @@ function LetterOfRepresentation({ data, sig1, sig2, isExportingPdf = false }) {
             </div>
 
             {footerBlock}
+            <FooterImg />
           </div>
         </div>
       </div>
     </div>
   );
 }
-
 function PublicAdjusterContract({
   data,
   sig1,
@@ -1534,7 +1536,7 @@ export default function App() {
         image: { type: "jpeg", quality: 1 },
         html2canvas: { scale: 2, useCORS: true },
         jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
-        pagebreak: { mode: ["css", "legacy"] },
+        pagebreak: { mode: ["css"] },
       };
 
       return await html2pdf().set(opt).from(element).outputPdf("blob");
