@@ -833,7 +833,7 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
   );
 }
 
-ffunction PublicAdjusterContract({
+function PublicAdjusterContract({
   data,
   sig1,
   sig2,
