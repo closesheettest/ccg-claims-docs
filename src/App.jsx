@@ -589,9 +589,7 @@ function LetterOfRepresentation({ data, sig1, sig2, isExportingPdf = false }) {
     : data.lossLocation;
 
   const shellStyle = isExportingPdf
-    ? {
-        background: "#fff",
-      }
+    ? { background: "#fff" }
     : {
         background: "#fff",
         borderRadius: 24,
@@ -923,9 +921,20 @@ function PublicAdjusterContract({
     .filter(Boolean)
     .join(", ");
 
+  const shellStyle = isExportingPdf
+    ? { background: "#fff" }
+    : {
+        background: "#fff",
+        borderRadius: 24,
+        border: "1px solid #e5e7eb",
+        boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+        overflow: "hidden",
+      };
+
   const pageStyle = isExportingPdf
     ? {
         width: "8.5in",
+        minHeight: "11in",
         background: "#fff",
         boxSizing: "border-box",
         overflow: "hidden",
@@ -937,14 +946,14 @@ function PublicAdjusterContract({
         width: "100%",
         background: "#fff",
         boxSizing: "border-box",
-        overflow: "hidden",
+        overflow: "visible",
         fontFamily: "Arial, Helvetica, sans-serif",
         color: "#111827",
-        borderRadius: 24,
-        border: "1px solid #e5e7eb",
-        boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
-        marginBottom: 16,
       };
+
+  const lastPageStyle = isExportingPdf
+    ? { ...pageStyle, pageBreakAfter: "auto" }
+    : pageStyle;
 
   const pageInnerStyle = {
     padding: isExportingPdf ? "0 0.42in 0.12in" : "0 28px 20px",
@@ -1118,7 +1127,7 @@ function PublicAdjusterContract({
   );
 
   return (
-    <div id="printable-document" style={{ background: "transparent" }}>
+    <div id="printable-document" style={shellStyle}>
       <div className="pdf-page" style={pageStyle}>
         <HeaderImg />
         <div style={pageInnerStyle}>
@@ -1322,13 +1331,7 @@ function PublicAdjusterContract({
         </div>
       </div>
 
-      <div
-        className="pdf-page"
-        style={{
-          ...pageStyle,
-          pageBreakAfter: "auto",
-        }}
-      >
+      <div className="pdf-page" style={lastPageStyle}>
         <HeaderImg />
         <div style={pageInnerStyle}>
           <div style={bodyText}>
@@ -1684,6 +1687,22 @@ export default function App() {
           margin: 0;
           font-family: Arial, Helvetica, sans-serif;
         }
+
+        .pdf-page {
+          break-inside: avoid;
+        }
+
+        @media print {
+          .pdf-page {
+            page-break-after: always;
+            break-after: page;
+          }
+
+          .pdf-page:last-child {
+            page-break-after: auto;
+            break-after: auto;
+          }
+        }
       `}</style>
 
       <div
@@ -1937,20 +1956,20 @@ export default function App() {
             </div>
 
             {activeDoc === "lor" ? (
-  <LetterOfRepresentation
-    data={data}
-    sig1={sig1}
-    sig2={sig2}
-    isExportingPdf={isExportingPdf}
-  />
-) : (
-  <PublicAdjusterContract
-    data={data}
-    sig1={sig1}
-    sig2={sig2}
-    isExportingPdf={isExportingPdf}
-  />
-)}
+              <LetterOfRepresentation
+                data={data}
+                sig1={sig1}
+                sig2={sig2}
+                isExportingPdf={isExportingPdf}
+              />
+            ) : (
+              <PublicAdjusterContract
+                data={data}
+                sig1={sig1}
+                sig2={sig2}
+                isExportingPdf={isExportingPdf}
+              />
+            )}
 
             <Card>
               <CardHeader>
@@ -2016,7 +2035,8 @@ export default function App() {
                     variant="outline"
                     onClick={async () => {
                       try {
-                        const element = document.getElementById("printable-document");
+                        const element =
+                          document.getElementById("printable-document");
                         if (!element) {
                           alert("Document not found.");
                           return;
