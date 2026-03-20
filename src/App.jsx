@@ -16,6 +16,12 @@ const PA_FIXED = {
   signatureImage: "/benito-signature.png",
 };
 
+const PA_ASSETS = {
+  header: "/pa-header.png",
+  footer: "/pa-footer.png",
+  titleBar: "/pa-titlebar.png",
+};
+
 const initialData = {
   date: new Date().toISOString().split("T")[0],
   insuranceCompany: "",
@@ -338,173 +344,6 @@ function SignaturePad({ title, value, onChange, height = 160 }) {
   );
 }
 
-function InitialsPad({ title, value, onChange }) {
-  const canvasRef = useRef(null);
-  const drawingRef = useRef(false);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const ratio = Math.max(window.devicePixelRatio || 1, 1);
-
-    canvas.width = rect.width * ratio;
-    canvas.height = rect.height * ratio;
-
-    const ctx = canvas.getContext("2d");
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.scale(ratio, ratio);
-    ctx.lineWidth = 1.6;
-    ctx.lineCap = "round";
-    ctx.strokeStyle = "#111827";
-    ctx.clearRect(0, 0, rect.width, rect.height);
-
-    if (value) {
-      const img = new Image();
-      img.onload = () => ctx.drawImage(img, 0, 0, rect.width, rect.height);
-      img.src = value;
-    }
-  }, [value]);
-
-  const getPoint = (e) => {
-    const rect = canvasRef.current.getBoundingClientRect();
-    const p = e.touches ? e.touches[0] : e;
-    return { x: p.clientX - rect.left, y: p.clientY - rect.top };
-  };
-
-  const start = (e) => {
-    const ctx = canvasRef.current.getContext("2d");
-    const p = getPoint(e);
-    ctx.beginPath();
-    ctx.moveTo(p.x, p.y);
-    drawingRef.current = true;
-  };
-
-  const move = (e) => {
-    if (!drawingRef.current) return;
-    e.preventDefault();
-    const ctx = canvasRef.current.getContext("2d");
-    const p = getPoint(e);
-    ctx.lineTo(p.x, p.y);
-    ctx.stroke();
-  };
-
-  const end = () => {
-    if (!drawingRef.current) return;
-    drawingRef.current = false;
-    onChange(canvasRef.current.toDataURL("image/png"));
-  };
-
-  const clear = () => {
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext("2d");
-    const rect = canvas.getBoundingClientRect();
-    ctx.clearRect(0, 0, rect.width, rect.height);
-    onChange("");
-  };
-
-  return (
-    <div style={{ marginTop: 6, marginBottom: 8 }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: 4,
-        }}
-      >
-        <div style={{ fontSize: 11, fontWeight: 400, color: "#111827" }}>
-          {title}
-        </div>
-        <button
-          type="button"
-          onClick={clear}
-          style={{
-            background: "transparent",
-            border: "none",
-            color: "#6b7280",
-            fontSize: 11,
-            cursor: "pointer",
-            padding: 0,
-          }}
-        >
-          Clear
-        </button>
-      </div>
-
-      <canvas
-        ref={canvasRef}
-        style={{
-          width: 130,
-          height: 22,
-          display: "block",
-          background: "transparent",
-          touchAction: "none",
-          borderBottom: "1px solid #111827",
-        }}
-        onMouseDown={start}
-        onMouseMove={move}
-        onMouseUp={end}
-        onMouseLeave={end}
-        onTouchStart={start}
-        onTouchMove={move}
-        onTouchEnd={end}
-      />
-    </div>
-  );
-}
-
-function InitialsImage({ value }) {
-  return (
-    <div style={{ marginTop: 6, marginBottom: 6 }}>
-      <div
-        style={{
-          fontSize: 10,
-          fontWeight: 400,
-          color: "#111827",
-          marginBottom: 2,
-        }}
-      >
-        Initials:
-      </div>
-      <div
-        style={{
-          width: "100%",
-          borderBottom: "1px solid #111827",
-          height: 16,
-          position: "relative",
-        }}
-      >
-        {value ? (
-          <img
-            src={value}
-            alt="Initials"
-            style={{
-              position: "absolute",
-              left: 0,
-              bottom: 1,
-              height: 13,
-              objectFit: "contain",
-            }}
-          />
-        ) : (
-          <span
-            style={{
-              position: "absolute",
-              left: 0,
-              bottom: -2,
-              color: "#111827",
-            }}
-          >
-            __
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function formatAddress(data) {
   return [
     data.address,
@@ -540,43 +379,6 @@ function twoColGrid(children) {
         gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
         gap: 14,
         padding: 20,
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function DocLabel({ children }) {
-  return (
-    <div
-      style={{
-        display: "block",
-        fontSize: 10,
-        color: "#374151",
-        marginBottom: 2,
-        fontWeight: 400,
-        lineHeight: 1,
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function DocFieldBox({ children }) {
-  return (
-    <div
-      style={{
-        minHeight: 22,
-        border: "1px solid #cbd5e1",
-        borderRadius: 8,
-        padding: "3px 6px",
-        background: "#fff",
-        fontSize: 11,
-        lineHeight: 1.15,
-        color: "#111827",
-        boxSizing: "border-box",
       }}
     >
       {children}
@@ -714,9 +516,7 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
           <div>
             <LorLabel>Loss Location</LorLabel>
             <LorFieldBox>
-              <div style={{ whiteSpace: "pre-line" }}>
-                {displayedLossLocation}
-              </div>
+              <div style={{ whiteSpace: "pre-line" }}>{displayedLossLocation}</div>
             </LorFieldBox>
           </div>
 
@@ -748,61 +548,57 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
       >
         <div style={{ borderTop: "1px solid #9ca3af", marginBottom: 12 }} />
 
-        <p style={{ margin: "0 0 8px", fontWeight: 400 }}>
-          Dear Claims Manager:
-        </p>
+        <p style={{ margin: "0 0 8px", fontWeight: 400 }}>Dear Claims Manager:</p>
 
         <p style={{ margin: "0 0 8px" }}>
           This correspondence will serve to inform you and the Insurance Company
           that your insured has formally retained our services to assist them in
-          evaluating and presenting their above-referenced claim. We have
-          enclosed a copy of our signed representation notice, which we request
-          that you record in your claim file and properly provide us with a
-          written acknowledgment of our involvement.
+          evaluating and presenting their above-referenced claim. We have enclosed
+          a copy of our signed representation notice, which we request that you
+          record in your claim file and properly provide us with a written
+          acknowledgment of our involvement.
         </p>
 
         <p style={{ margin: "0 0 8px" }}>
           Additionally, we request that all further contact and communication
-          involving this claim’s processing from the Insurance Company be
-          directed exclusively through our offices. This also extends to your
-          representative contractor/claims agents and/or any other claims agents
-          you may be using in the processing of this claim.
+          involving this claim’s processing from the Insurance Company be directed
+          exclusively through our offices. This also extends to your representative
+          contractor/claims agents and/or any other claims agents you may be using
+          in the processing of this claim.
         </p>
 
         <p style={{ margin: "0 0 8px" }}>
-          Further, as the policy sets forth the duties, rights, and parameters
-          of coverage, it is critical that we have expedited access to this
-          information, we hereby request a true and complete certified copy of
-          the applicable policy contract including the declarations page, all
-          policy endorsements, and the original policy application. Please
-          expedite these documents to our attention.
+          Further, as the policy sets forth the duties, rights, and parameters of
+          coverage, it is critical that we have expedited access to this
+          information, we hereby request a true and complete certified copy of the
+          applicable policy contract including the declarations page, all policy
+          endorsements, and the original policy application. Please expedite these
+          documents to our attention.
         </p>
 
         <p style={{ margin: "0 0 8px", fontStyle: "italic" }}>
           Also, please note that Capital Claims Group Inc. should be named as an
-          additional payee on all insurance drafts and/or payments, pursuant to
-          the enclosed Notice of Loss/Notice of Representation signed by the
-          Insured(s). The insured(s) hereby reserve all rights to make claims
-          under the policy for replacement cost benefits as set forth in the
-          policy and likewise invoke their rights to repair, rebuild or replace
-          the damaged property.
+          additional payee on all insurance drafts and/or payments, pursuant to the
+          enclosed Notice of Loss/Notice of Representation signed by the Insured(s).
+          The insured(s) hereby reserve all rights to make claims under the policy
+          for replacement cost benefits as set forth in the policy and likewise
+          invoke their rights to repair, rebuild or replace the damaged property.
         </p>
 
         <p style={{ margin: "0 0 8px" }}>
-          Surely, you understand the Assured’s need to have this claim processed
-          as quickly as possible, and as such, we will be undertaking all
-          necessary steps to document and prepare their claim for submission. We
-          look forward to working cooperatively with you to reach a fair and
-          prompt resolution to this claim. Please feel free to contact us at
-          954-874-3563 to discuss the current status of this claim and to
-          coordinate our efforts in the loss investigation and valuation
-          process.
+          Surely, you understand the Assured’s need to have this claim processed as
+          quickly as possible, and as such, we will be undertaking all necessary
+          steps to document and prepare their claim for submission. We look forward
+          to working cooperatively with you to reach a fair and prompt resolution
+          to this claim. Please feel free to contact us at 954-874-3563 to discuss
+          the current status of this claim and to coordinate our efforts in the loss
+          investigation and valuation process.
         </p>
 
         <p style={{ margin: "0 0 14px", fontStyle: "italic" }}>
-          The Assureds hereby reserve all of their rights under the policy and
-          the laws of this State and nothing contained herein is intended to
-          waive or prejudice said rights.
+          The Assureds hereby reserve all of their rights under the policy and the
+          laws of this State and nothing contained herein is intended to waive or
+          prejudice said rights.
         </p>
 
         <div
@@ -855,8 +651,6 @@ function PublicAdjusterContract({
   data,
   sig1,
   sig2,
-  onInitials1Change,
-  onInitials2Change,
 }) {
   const hasSecond = Boolean(data.homeowner2?.trim());
   const insuredNames = [data.homeowner1, data.homeowner2]
@@ -976,7 +770,6 @@ function PublicAdjusterContract({
 
   return (
     <div id="printable-document" style={{ background: "#f3f4f6", padding: 12 }}>
-      {/* PAGE 1 */}
       <div className="pdf-page" style={pageStyle}>
         <img
           src={PA_ASSETS.header}
@@ -1045,7 +838,6 @@ function PublicAdjusterContract({
         <Footer page={1} />
       </div>
 
-      {/* PAGE 2 */}
       <div className="pdf-page" style={pageStyle}>
         <img
           src={PA_ASSETS.header}
@@ -1137,7 +929,6 @@ function PublicAdjusterContract({
         <Footer page={2} />
       </div>
 
-      {/* PAGE 3 */}
       <div className="pdf-page" style={pageStyle}>
         <img
           src={PA_ASSETS.header}
@@ -1159,8 +950,7 @@ function PublicAdjusterContract({
           </p>
 
           <p style={{ margin: "0 0 8px" }}>
-            11.{" "}
-            <span style={sectionHead}>Commercial Policy Cancellation:</span>
+            11. <span style={sectionHead}>Commercial Policy Cancellation:</span>
           </p>
           <p style={{ margin: "0 0 14px" }}>
             You, the insured(s), may cancel this contract for any reason without
@@ -1212,7 +1002,6 @@ function PublicAdjusterContract({
         <Footer page={3} />
       </div>
 
-      {/* PAGE 4 */}
       <div className="pdf-page" style={pageStyle}>
         <img
           src={PA_ASSETS.header}
@@ -1380,6 +1169,7 @@ function PublicAdjusterContract({
     </div>
   );
 }
+
 export default function App() {
   const [view, setView] = useState("input");
   const [activeDoc, setActiveDoc] = useState("lor");
@@ -1422,8 +1212,6 @@ export default function App() {
     setActiveDoc(doc);
     setSig1("");
     setSig2("");
-    update("initials1", "");
-    update("initials2", "");
     setPendingSend(signMode === "send");
     setView("sign");
   };
@@ -1435,7 +1223,7 @@ export default function App() {
     }
 
     const opt = {
-      margin: 0.1,
+      margin: 0,
       filename:
         docType === "lor"
           ? "Letter-of-Representation.pdf"
@@ -1443,6 +1231,10 @@ export default function App() {
       image: { type: "jpeg", quality: 1 },
       html2canvas: { scale: 2, useCORS: true },
       jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
+      pagebreak: {
+        mode: ["css", "legacy"],
+        after: ".pdf-page",
+      },
     };
 
     return html2pdf().set(opt).from(element).outputPdf("blob");
@@ -1615,8 +1407,7 @@ export default function App() {
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns:
-                        "repeat(auto-fit, minmax(280px, 1fr))",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
                       gap: 16,
                     }}
                   >
@@ -1671,8 +1462,7 @@ export default function App() {
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns:
-                        "repeat(auto-fit, minmax(280px, 1fr))",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
                       gap: 16,
                     }}
                   >
@@ -1743,8 +1533,7 @@ export default function App() {
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns:
-                        "repeat(auto-fit, minmax(280px, 1fr))",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
                       gap: 16,
                     }}
                   >
@@ -1779,8 +1568,7 @@ export default function App() {
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns:
-                      "repeat(auto-fit, minmax(220px, 1fr))",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
                     gap: 12,
                   }}
                 >
@@ -1808,8 +1596,7 @@ export default function App() {
                 style={{
                   marginTop: 20,
                   display: "grid",
-                  gridTemplateColumns:
-                    "repeat(auto-fit, minmax(220px, 1fr))",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
                   gap: 12,
                 }}
               >
@@ -1831,8 +1618,8 @@ export default function App() {
                   textAlign: "center",
                 }}
               >
-                First pick which function sign now or send for signing then
-                click on the form you want
+                First pick which function sign now or send for signing then click
+                on the form you want
               </div>
             </CardContent>
           </Card>
@@ -1849,13 +1636,7 @@ export default function App() {
             {activeDoc === "lor" ? (
               <LetterOfRepresentation data={data} sig1={sig1} sig2={sig2} />
             ) : (
-              <PublicAdjusterContract
-                data={data}
-                sig1={sig1}
-                sig2={sig2}
-                onInitials1Change={(v) => update("initials1", v)}
-                onInitials2Change={(v) => update("initials2", v)}
-              />
+              <PublicAdjusterContract data={data} sig1={sig1} sig2={sig2} />
             )}
 
             <Card>
@@ -1898,15 +1679,14 @@ export default function App() {
                     variant="outline"
                     onClick={async () => {
                       try {
-                        const element =
-                          document.getElementById("printable-document");
+                        const element = document.getElementById("printable-document");
                         if (!element) {
                           alert("Document not found.");
                           return;
                         }
 
                         const opt = {
-                          margin: 0.1,
+                          margin: 0,
                           filename:
                             activeDoc === "lor"
                               ? "Letter-of-Representation.pdf"
@@ -1917,6 +1697,10 @@ export default function App() {
                             unit: "in",
                             format: "letter",
                             orientation: "portrait",
+                          },
+                          pagebreak: {
+                            mode: ["css", "legacy"],
+                            after: ".pdf-page",
                           },
                         };
 
