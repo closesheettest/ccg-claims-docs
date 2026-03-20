@@ -778,65 +778,76 @@ function PublicAdjusterContract({
   isExportingPdf = false,
 }) {
   const hasSecond = Boolean(data.homeowner2?.trim());
+  const insuredNames = [data.homeowner1, data.homeowner2]
+    .filter(Boolean)
+    .join(", ");
 
-  const exportPageStyle = {
-    width: "8.5in",
-    minHeight: "10.35in",
-    background: "#fff",
-    boxSizing: "border-box",
-    overflow: "hidden",
-    fontFamily: "Arial, Helvetica, sans-serif",
-    color: "#111827",
-    display: "flex",
-    flexDirection: "column",
-    paddingBottom: "0.08in",
+  const pageStyle = isExportingPdf
+    ? {
+        width: "8.5in",
+        background: "#fff",
+        boxSizing: "border-box",
+        overflow: "hidden",
+        fontFamily: "Arial, Helvetica, sans-serif",
+        color: "#111827",
+        pageBreakAfter: "always",
+      }
+    : {
+        width: "100%",
+        background: "#fff",
+        boxSizing: "border-box",
+        overflow: "hidden",
+        fontFamily: "Arial, Helvetica, sans-serif",
+        color: "#111827",
+        borderRadius: 24,
+        border: "1px solid #e5e7eb",
+        boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+        marginBottom: 16,
+      };
+
+  const pageInnerStyle = {
+    padding: isExportingPdf ? "0 0.42in 0.12in" : "0 28px 20px",
   };
 
-  const previewPageStyle = {
-    width: "100%",
-    background: "#fff",
-    boxSizing: "border-box",
-    overflow: "hidden",
-    fontFamily: "Arial, Helvetica, sans-serif",
+  const bodyText = {
+    fontSize: 12,
+    lineHeight: 1.45,
     color: "#111827",
-    display: "flex",
-    flexDirection: "column",
-    borderRadius: 24,
-    border: "1px solid #e5e7eb",
-    boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
-    marginBottom: 16,
   };
 
-  const pageStyle = isExportingPdf ? exportPageStyle : previewPageStyle;
-
-  const contentStyle = {
-    padding: isExportingPdf ? "0 0.42in" : "0 28px 24px",
+  const sectionHead = {
+    color: "#199c2e",
+    fontWeight: 700,
+    textTransform: "uppercase",
   };
 
   const HeaderImg = () => (
     <img
-      src="/pa-header.png"
+      src={PA_ASSETS.header}
       alt="header"
       style={{
-        width: isExportingPdf ? "calc(100% + 24px)" : "100%",
-        marginLeft: isExportingPdf ? "-12px" : "0",
-        marginTop: isExportingPdf ? "-10px" : "0",
+        width: "100%",
         display: "block",
       }}
     />
   );
 
   const FooterImg = () => (
-    <img src="/pa-footer.png" alt="footer" style={{ width: "100%" }} />
+    <img
+      src={PA_ASSETS.footer}
+      alt="footer"
+      style={{ width: "100%", display: "block" }}
+    />
   );
 
   const TitleBarImg = () => (
     <img
-      src="/pa-titlebar.png"
+      src={PA_ASSETS.titleBar}
       alt="title"
       style={{
         width: "100%",
-        margin: isExportingPdf ? "8px 0 10px" : "10px 0",
+        display: "block",
+        margin: "10px 0 12px",
       }}
     />
   );
@@ -846,30 +857,62 @@ function PublicAdjusterContract({
       style={{
         display: "grid",
         gridTemplateColumns: hasSecond ? "1fr 1fr" : "1fr",
-        gap: 20,
+        gap: 18,
         marginTop: 10,
       }}
     >
-      <div style={{ borderBottom: "1px solid #000", height: 22 }}>
-        {data.initials1 && (
-          <img src={data.initials1} style={{ height: 18 }} />
-        )}
+      <div>
+        <div style={{ fontSize: 11, marginBottom: 2 }}>Initials:</div>
+        <div
+          style={{
+            borderBottom: "1px solid #000",
+            height: 20,
+            display: "flex",
+            alignItems: "flex-end",
+          }}
+        >
+          {data.initials1 ? (
+            <img src={data.initials1} alt="initials 1" style={{ height: 16 }} />
+          ) : (
+            <span style={{ fontSize: 14 }}>__</span>
+          )}
+        </div>
       </div>
 
       {hasSecond && (
-        <div style={{ borderBottom: "1px solid #000", height: 22 }}>
-          {data.initials2 && (
-            <img src={data.initials2} style={{ height: 18 }} />
-          )}
+        <div>
+          <div style={{ fontSize: 11, marginBottom: 2 }}>Initials:</div>
+          <div
+            style={{
+              borderBottom: "1px solid #000",
+              height: 20,
+              display: "flex",
+              alignItems: "flex-end",
+            }}
+          >
+            {data.initials2 ? (
+              <img src={data.initials2} alt="initials 2" style={{ height: 16 }} />
+            ) : (
+              <span style={{ fontSize: 14 }}>__</span>
+            )}
+          </div>
         </div>
       )}
     </div>
   );
 
   const Footer = ({ page }) => (
-    <div style={{ marginTop: "auto" }}>
+    <div style={{ marginTop: 14 }}>
       {isExportingPdf && (
-        <div style={{ textAlign: "center", fontSize: 10 }}>
+        <div
+          style={{
+            textAlign: "center",
+            fontSize: 10,
+            color: "#2f9e44",
+            fontStyle: "italic",
+            marginBottom: 4,
+          }}
+        >
           Page {page} of 4
         </div>
       )}
@@ -877,88 +920,412 @@ function PublicAdjusterContract({
     </div>
   );
 
-  return (
-    <div id="printable-document">
+  const topGrid = (
+    <div
+      style={{
+        ...bodyText,
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        columnGap: 36,
+        rowGap: 10,
+        marginTop: 10,
+        marginBottom: 4,
+      }}
+    >
+      <div>
+        <strong>Insured:</strong> {insuredNames}
+      </div>
+      <div>
+        <strong>Loss Description:</strong> {data.lossDescription}
+      </div>
 
-      {/* PAGE 1 */}
+      <div>
+        <strong>Phone:</strong> {data.phone}
+      </div>
+      <div>
+        <strong>Claim Type:</strong> {data.claimType}
+      </div>
+
+      <div>
+        <strong>Email:</strong> {data.signerEmail}
+      </div>
+      <div>
+        <strong>Situation:</strong> {data.situation}
+      </div>
+
+      <div>
+        <strong>Insurer:</strong> {data.insuranceCompany}
+      </div>
+      <div>
+        <strong>Date of Loss:</strong> {data.dateOfLoss}
+      </div>
+
+      <div>
+        <strong>Policy #:</strong> {data.policyNumber}
+      </div>
+      <div>
+        <strong>Claim #:</strong> {data.claimNumber}
+      </div>
+
+      <div style={{ gridColumn: "1 / -1" }}>
+        <strong>Address:</strong>{" "}
+        {[data.address, data.city, data.state, data.zip]
+          .filter(Boolean)
+          .join(", ")}
+      </div>
+    </div>
+  );
+
+  return (
+    <div id="printable-document" style={{ background: "transparent" }}>
       <div className="pdf-page" style={pageStyle}>
         <HeaderImg />
-
-        <div style={contentStyle}>
+        <div style={pageInnerStyle}>
+          {topGrid}
           <TitleBarImg />
 
-          <div style={{ fontSize: 14, lineHeight: 1.5 }}>
-            <p><b>1. SERVICE FEE</b></p>
-            <p>
-              The insured(s) agrees to pay Capital Claims Group 10% of all claim proceeds.
+          <div style={bodyText}>
+            <p style={{ margin: "0 0 6px" }}>
+              1. <span style={sectionHead}>Service Fee:</span>
+            </p>
+            <p style={{ margin: "0 0 10px" }}>
+              The insured(s) hereby retains Capital Claims Group to be its public
+              adjuster and hereby appoints Capital Claims Group to be its
+              independent appraiser to appraise, advise, negotiate, and/or settle
+              the above-referenced claim. The insured(s) agrees to pay and hereby
+              assigns to Capital Claims Group <strong>10%</strong> of all
+              payments made by the insurance company related to this claim. In the
+              event appraisal, mediation is demanded, or a lawsuit ensues
+              regarding the above-mentioned claim, there will be an additional
+              charge of five percent. The total contractual percentage shall not
+              exceed the maximum allowed by law.
+            </p>
+
+            <p style={{ margin: "0 0 6px" }}>
+              2. <span style={sectionHead}>Additional Payee:</span>
+            </p>
+            <p style={{ margin: "0 0 10px" }}>
+              The insured authorizes and requests the insurer and the insured’s
+              mortgage carrier to have Capital Claims Group appear as an
+              additional payee on all checks issued regarding the above-mentioned
+              claim. The insured hereby grants Capital Claims Group a lien on
+              recovered proceeds received by the insurer to the extent of the fee
+              due to Capital Claims Group pursuant to this agreement.
+            </p>
+
+            <p style={{ margin: "0 0 6px" }}>
+              3. <span style={sectionHead}>Third-Party Fees:</span>
+            </p>
+            <p style={{ margin: 0 }}>
+              The insured understands it may be necessary to incur professional
+              fees on the insured’s behalf to properly adjust the claim. These
+              fees may include, but are not limited to, a General Contractor,
+              Engineer, Claim Appraiser, Plumber, Roofer, and Environmental
+              Hygienist. The insured understands that no professional fees will be
+              incurred without the insured’s written or verbal authorization, and
+              that the insured may then be responsible for such fees.
             </p>
 
             <InitialsRow />
           </div>
-        </div>
 
-        <Footer page={1} />
+          <Footer page={1} />
+        </div>
       </div>
 
-      {/* PAGE 2 */}
       <div className="pdf-page" style={pageStyle}>
         <HeaderImg />
-
-        <div style={contentStyle}>
-          <div style={{ fontSize: 14, lineHeight: 1.5 }}>
-            <p><b>2. ADDITIONAL PAYEE</b></p>
-            <p>
-              Capital Claims Group shall be listed on all claim payments.
+        <div style={pageInnerStyle}>
+          <div style={bodyText}>
+            <p style={{ margin: "0 0 6px" }}>
+              4. <span style={sectionHead}>Endorsement:</span>
+            </p>
+            <p style={{ margin: "0 0 10px" }}>
+              The insured’s endorsement on any insurance proceeds check will be
+              deemed to be an agreement with the terms and conditions of any
+              related settlement regarding the above-mentioned claim.
             </p>
 
-            <InitialsRow />
-          </div>
-        </div>
+            <p style={{ margin: "0 0 6px" }}>
+              5. <span style={sectionHead}>Affidavit:</span>
+            </p>
+            <p style={{ margin: "0 0 10px" }}>
+              I,{" "}
+              <span
+                style={{
+                  display: "inline-block",
+                  minWidth: 250,
+                  borderBottom: "1px solid #111827",
+                }}
+              >
+                {insuredNames}
+              </span>
+              , a named insured under the above-mentioned policy, hereby swear and
+              attest that I have the authority to enter into this contract and
+              settle all claims issued on behalf of all named insureds. Insured
+              acknowledges, understands, and agrees that under section 626.8796,
+              Florida Statutes, an agreement with a public adjuster must be signed
+              by all named insureds.
+            </p>
 
-        <Footer page={2} />
-      </div>
+            <p style={{ margin: "0 0 6px" }}>
+              6. <span style={sectionHead}>Legal:</span>
+            </p>
+            <p style={{ margin: "0 0 10px" }}>
+              Capital Claims Group is not a law firm and does not offer legal
+              advice, and there will be no attorney-client relationship with the
+              insured(s). The insured is hereby advised of the right to counsel
+              and may consult with an attorney regarding their claim independently
+              of Capital Claims Group.
+            </p>
 
-      {/* PAGE 3 */}
-      <div className="pdf-page" style={pageStyle}>
-        <HeaderImg />
+            <p style={{ margin: "0 0 6px" }}>
+              7. <span style={sectionHead}>Letter of Protection:</span>
+            </p>
+            <p style={{ margin: "0 0 10px" }}>
+              The insured understands and agrees that if it becomes necessary to
+              retain an attorney, the insured authorizes and agrees to a Letter of
+              Protection for Capital Claims Group.
+            </p>
 
-        <div style={contentStyle}>
-          <div style={{ fontSize: 14, lineHeight: 1.5 }}>
-            <p><b>3. LEGAL TERMS</b></p>
-            <p>All disputes shall be handled in Florida.</p>
+            <p style={{ margin: "0 0 6px" }}>
+              8. <span style={sectionHead}>Representation:</span>
+            </p>
+            <p style={{ margin: "0 0 10px" }}>
+              The insured hereby affirms that no other claim(s) have been filed in
+              reference to the same peril and that no other legal representation
+              is involved with the claim other than:
+            </p>
 
-            <InitialsRow />
-          </div>
-        </div>
-
-        <Footer page={3} />
-      </div>
-
-      {/* PAGE 4 */}
-      <div className="pdf-page" style={pageStyle}>
-        <HeaderImg />
-
-        <div style={contentStyle}>
-          <div style={{ fontSize: 14, lineHeight: 1.5 }}>
-            <p><b>FINAL SIGNATURES</b></p>
-
-            <div style={{ marginTop: 20 }}>
-              <div>{data.homeowner1}</div>
-              {sig1 && <img src={sig1} style={{ height: 40 }} />}
+            <div
+              style={{
+                borderBottom: "1px solid #111827",
+                width: 320,
+                marginBottom: 12,
+                minHeight: 18,
+              }}
+            >
+              {data.representativeName}
             </div>
 
-            {hasSecond && (
-              <div style={{ marginTop: 20 }}>
-                <div>{data.homeowner2}</div>
-                {sig2 && <img src={sig2} style={{ height: 40 }} />}
-              </div>
-            )}
-          </div>
-        </div>
+            <p style={{ margin: "0 0 6px" }}>
+              9. <span style={sectionHead}>Severability:</span>
+            </p>
+            <p style={{ margin: 0 }}>
+              Unenforceability or invalidity of one or more clauses in this
+              Agreement shall not affect any other clause.
+            </p>
 
-        <Footer page={4} />
+            <InitialsRow />
+          </div>
+
+          <Footer page={2} />
+        </div>
       </div>
 
+      <div className="pdf-page" style={pageStyle}>
+        <HeaderImg />
+        <div style={pageInnerStyle}>
+          <div style={bodyText}>
+            <p style={{ margin: "0 0 6px" }}>
+              10. <span style={sectionHead}>Dispute:</span>
+            </p>
+            <p style={{ margin: "0 0 12px" }}>
+              In the event of litigation arising from this agreement, the venue
+              shall be in Miami-Dade County, Florida. The prevailing party shall
+              be entitled to recover its court costs, reasonable attorney fees,
+              including those incurred during any appeal proceedings, and interest
+              on any past due fees at the maximum rate permitted by applicable
+              law.
+            </p>
+
+            <p style={{ margin: "0 0 6px" }}>
+              11. <span style={sectionHead}>Commercial Policy Cancellation:</span>
+            </p>
+            <p style={{ margin: "0 0 12px" }}>
+              You, the insured(s), may cancel this contract for any reason without
+              penalty or obligation to you within 10 days after the date of this
+              contract.
+            </p>
+
+            <p style={{ margin: "0 0 6px", fontWeight: 700 }}>
+              12.{" "}
+              <span style={{ color: "#199c2e" }}>
+                Residential Policy Cancellation:
+              </span>
+            </p>
+
+            <p style={{ margin: "0 0 10px", fontWeight: 700 }}>
+              You, the insured, may cancel this contract for any reason without
+              penalty or obligation to you within 10 days after the date of this
+              contract.
+            </p>
+
+            <p style={{ margin: 0, fontWeight: 700 }}>
+              If this contract was entered into based on events that are the
+              subject of a declaration of a state of emergency by the Governor,
+              you may cancel this contract for any reason without penalty or
+              obligation to you within 30 days after the date of loss or 10 days
+              after the date on which the contract is executed, whichever is
+              longer. You may also cancel this contract without penalty or
+              obligation to you if I, as your public adjuster, fail to provide you
+              and your insurer a copy of a written estimate within 60 days of the
+              execution of the contract, unless the failure to provide the
+              estimate within 60 days is caused by factors beyond my control.
+            </p>
+
+            <InitialsRow />
+          </div>
+
+          <Footer page={3} />
+        </div>
+      </div>
+
+      <div
+        className="pdf-page"
+        style={{
+          ...pageStyle,
+          pageBreakAfter: "auto",
+        }}
+      >
+        <HeaderImg />
+        <div style={pageInnerStyle}>
+          <div style={bodyText}>
+            <p style={{ margin: "0 0 12px", fontWeight: 700 }}>
+              The notice of cancellation shall be provided to Capital Claims
+              Group, submitted in writing, and sent by certified mail, return
+              receipt requested, or another form of mailing that provides proof
+              thereof, at the address specified in the contract.
+            </p>
+
+            <p style={{ margin: "0 0 16px", fontWeight: 700 }}>
+              Pursuant to s. 817.234, Florida Statutes, any person who, with the
+              intent to injure, defraud, or deceive any insurer or insured,
+              prepares, presents, or causes to be presented a proof of loss or
+              estimate of cost or repair of damaged property in support of a claim
+              under an insurance policy, knowing that the proof of loss or
+              estimate of claim or repairs contains any false, incomplete, or
+              misleading information concerning any fact or thing material to the
+              claim, commits a felony of the third degree, punishable as provided
+              in s. 775.082, s. 775.803, or s. 775.084, Florida Statutes.
+            </p>
+
+            <p style={{ margin: "0 0 10px" }}>
+              Insured(s) have read, understand and voluntarily sign the foregoing
+              Agreement. A computer or faxed signature or copy of this document
+              shall be deemed to have the same effect as the original.
+            </p>
+
+            <InitialsRow />
+
+            <div
+              style={{
+                borderTop: "4px solid #199c2e",
+                marginTop: 18,
+                marginBottom: 14,
+              }}
+            />
+
+            <div
+              style={{
+                color: "#199c2e",
+                fontWeight: 700,
+                fontSize: 14,
+                marginBottom: 14,
+              }}
+            >
+              CAPITAL CLAIMS GROUP
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: hasSecond ? "1fr 1fr" : "1fr",
+                gap: 24,
+                alignItems: "start",
+              }}
+            >
+              <div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "70px 1fr",
+                    rowGap: 8,
+                    columnGap: 8,
+                    fontSize: 12,
+                  }}
+                >
+                  <div>By:</div>
+                  <div style={{ background: "#d7c2f0", padding: "4px 8px" }}>
+                    {PA_FIXED.name}
+                  </div>
+
+                  <div>License:</div>
+                  <div
+                    style={{
+                      background: "#d7c2f0",
+                      padding: "4px 8px",
+                      fontWeight: 700,
+                    }}
+                  >
+                    {PA_FIXED.license}
+                  </div>
+
+                  <div>Signature:</div>
+                  <div style={{ background: "#d7c2f0", padding: "4px 8px" }}>
+                    <img
+                      src={PA_FIXED.signatureImage}
+                      alt="Benito Paul signature"
+                      style={{ height: 22, objectFit: "contain" }}
+                    />
+                  </div>
+
+                  <div>Date:</div>
+                  <div>{data.date}</div>
+                </div>
+              </div>
+
+              <div>
+                <div style={{ marginBottom: 10, fontSize: 12 }}>
+                  <div>Insured (Print): {data.homeowner1}</div>
+                  <div style={{ marginTop: 8, minHeight: 36 }}>
+                    {sig1 && (
+                      <img
+                        src={sig1}
+                        alt="Insured signature 1"
+                        style={{ height: 30, objectFit: "contain" }}
+                      />
+                    )}
+                  </div>
+                  <div style={{ fontSize: 11 }}>Signature of the policyholder</div>
+                  <div style={{ marginTop: 8 }}>Date: {data.date}</div>
+                </div>
+
+                {hasSecond && (
+                  <div style={{ marginTop: 18, fontSize: 12 }}>
+                    <div>Insured (Print): {data.homeowner2}</div>
+                    <div style={{ marginTop: 8, minHeight: 36 }}>
+                      {sig2 && (
+                        <img
+                          src={sig2}
+                          alt="Insured signature 2"
+                          style={{ height: 30, objectFit: "contain" }}
+                        />
+                      )}
+                    </div>
+                    <div style={{ fontSize: 11 }}>
+                      Signature of the policyholder
+                    </div>
+                    <div style={{ marginTop: 8 }}>Date: {data.date}</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <Footer page={4} />
+        </div>
+      </div>
     </div>
   );
 }
@@ -1031,7 +1398,7 @@ export default function App() {
         image: { type: "jpeg", quality: 1 },
         html2canvas: { scale: 2, useCORS: true },
         jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
-        pagebreak: { mode: ["legacy"] },
+        pagebreak: { mode: ["css", "legacy"] },
       };
 
       return await html2pdf().set(opt).from(element).outputPdf("blob");
@@ -1140,13 +1507,17 @@ export default function App() {
       if (pendingSend) {
         alert(
           `Saved successfully! This would send the ${
-            activeDoc === "lor" ? "Letter of Representation" : "PA Agreement"
+            activeDoc === "lor"
+              ? "Letter of Representation"
+              : "PA Agreement"
           } to ${data.signerEmail} for signature and notify ${data.paEmail}.`
         );
       } else {
         alert(
           `Saved successfully! This would email signed copies of the ${
-            activeDoc === "lor" ? "Letter of Representation" : "PA Agreement"
+            activeDoc === "lor"
+              ? "Letter of Representation"
+              : "PA Agreement"
           } to ${data.signerEmail} and ${data.paEmail}.`
         );
       }
@@ -1521,7 +1892,7 @@ export default function App() {
                             format: "letter",
                             orientation: "portrait",
                           },
-                          pagebreak: { mode: ["legacy"] },
+                          pagebreak: { mode: ["css", "legacy"] },
                         };
 
                         await html2pdf().set(opt).from(element).save();
