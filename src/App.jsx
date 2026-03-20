@@ -864,9 +864,9 @@ function PublicAdjusterContract({
   const insuredInitials =
     (data.homeowner1 || "n").trim().charAt(0).toLowerCase() || "n";
 
-  const basePageStyle = {
+  const pageStyle = {
     width: "8.5in",
-    minHeight: "11in",
+    height: "11in",
     background: "#fff",
     position: "relative",
     padding: "0.55in 0.55in 0.72in 0.55in",
@@ -876,21 +876,9 @@ function PublicAdjusterContract({
     color: "#111827",
   };
 
-  const pageBreakStyle = {
-    ...basePageStyle,
-    breakAfter: "page",
-    pageBreakAfter: "always",
-  };
-
-  const lastPageStyle = {
-    ...basePageStyle,
-    breakAfter: "auto",
-    pageBreakAfter: "auto",
-  };
-
   const text12 = {
     fontSize: 12,
-    lineHeight: 1.38,
+    lineHeight: 1.35,
   };
 
   const sectionHead = {
@@ -1017,8 +1005,7 @@ function PublicAdjusterContract({
 
   return (
     <div id="printable-document" style={{ background: "#f3f4f6", padding: 12 }}>
-      {/* PAGE 1 */}
-      <div style={pageBreakStyle}>
+      <div className="pdf-page" style={pageStyle}>
         {header}
 
         <div style={{ marginTop: 88 }}>
@@ -1138,8 +1125,7 @@ function PublicAdjusterContract({
         {footer(1)}
       </div>
 
-      {/* PAGE 2 */}
-      <div style={pageBreakStyle}>
+      <div className="pdf-page" style={pageStyle}>
         {header}
 
         <div style={{ marginTop: 88, ...text12 }}>
@@ -1222,8 +1208,7 @@ function PublicAdjusterContract({
         {footer(2)}
       </div>
 
-      {/* PAGE 3 */}
-      <div style={pageBreakStyle}>
+      <div className="pdf-page" style={pageStyle}>
         {header}
 
         <div style={{ marginTop: 88, ...text12 }}>
@@ -1271,8 +1256,7 @@ function PublicAdjusterContract({
         {footer(3)}
       </div>
 
-      {/* PAGE 4 */}
-      <div style={lastPageStyle}>
+      <div className="pdf-page" style={pageStyle}>
         {header}
 
         <div style={{ marginTop: 88, ...text12 }}>
@@ -1401,7 +1385,6 @@ function PublicAdjusterContract({
     </div>
   );
 }
-
 export default function App() {
   const [view, setView] = useState("input");
   const [activeDoc, setActiveDoc] = useState("lor");
