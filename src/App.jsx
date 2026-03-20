@@ -588,9 +588,22 @@ function LetterOfRepresentation({ data, sig1, sig2, isExportingPdf = false }) {
     ? fullAddress
     : data.lossLocation;
 
+  const shellStyle = isExportingPdf
+    ? {
+        background: "#fff",
+      }
+    : {
+        background: "#fff",
+        borderRadius: 24,
+        border: "1px solid #e5e7eb",
+        boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+        overflow: "hidden",
+      };
+
   const pageStyle = isExportingPdf
     ? {
         width: "8.5in",
+        minHeight: "11in",
         background: "#fff",
         boxSizing: "border-box",
         overflow: "hidden",
@@ -602,14 +615,14 @@ function LetterOfRepresentation({ data, sig1, sig2, isExportingPdf = false }) {
         width: "100%",
         background: "#fff",
         boxSizing: "border-box",
-        overflow: "hidden",
+        overflow: "visible",
         fontFamily: "Arial, Helvetica, sans-serif",
         color: "#111827",
-        borderRadius: 24,
-        border: "1px solid #e5e7eb",
-        boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
-        marginBottom: 16,
       };
+
+  const lastPageStyle = isExportingPdf
+    ? { ...pageStyle, pageBreakAfter: "auto" }
+    : pageStyle;
 
   const pageInnerStyle = {
     padding: isExportingPdf ? "0.14in 0.18in 0.14in" : "14px 18px 18px",
@@ -676,8 +689,7 @@ function LetterOfRepresentation({ data, sig1, sig2, isExportingPdf = false }) {
   );
 
   return (
-    <div id="printable-document" style={{ background: "transparent" }}>
-      {/* PAGE 1 */}
+    <div id="printable-document" style={shellStyle}>
       <div className="pdf-page" style={pageStyle}>
         <div style={headerStyle}>
           <div>Letter of Representation</div>
@@ -794,14 +806,7 @@ function LetterOfRepresentation({ data, sig1, sig2, isExportingPdf = false }) {
         </div>
       </div>
 
-      {/* PAGE 2 */}
-      <div
-        className="pdf-page"
-        style={{
-          ...pageStyle,
-          pageBreakAfter: "auto",
-        }}
-      >
+      <div className="pdf-page" style={lastPageStyle}>
         <div style={pageInnerStyle}>
           <div style={bodyText}>
             <p style={{ margin: "0 0 10px" }}>
@@ -1932,15 +1937,20 @@ export default function App() {
             </div>
 
             {activeDoc === "lor" ? (
-              <LetterOfRepresentation data={data} sig1={sig1} sig2={sig2} />
-            ) : (
-              <PublicAdjusterContract
-                data={data}
-                sig1={sig1}
-                sig2={sig2}
-                isExportingPdf={isExportingPdf}
-              />
-            )}
+  <LetterOfRepresentation
+    data={data}
+    sig1={sig1}
+    sig2={sig2}
+    isExportingPdf={isExportingPdf}
+  />
+) : (
+  <PublicAdjusterContract
+    data={data}
+    sig1={sig1}
+    sig2={sig2}
+    isExportingPdf={isExportingPdf}
+  />
+)}
 
             <Card>
               <CardHeader>
