@@ -833,7 +833,7 @@ function LetterOfRepresentation({ data, sig1, sig2 }) {
   );
 }
 
-function PublicAdjusterContract({
+ffunction PublicAdjusterContract({
   data,
   sig1,
   sig2,
@@ -855,8 +855,8 @@ function PublicAdjusterContract({
 
   const bodyText = {
     color: "#111827",
-    fontSize: 10,
-    lineHeight: 1.18,
+    fontSize: 12,
+    lineHeight: 1.22,
     fontFamily: "Arial, Helvetica, sans-serif",
   };
 
@@ -961,13 +961,13 @@ function PublicAdjusterContract({
               padding: "5px 8px",
               fontWeight: 700,
               marginBottom: 6,
-              fontSize: 10,
+              fontSize: 12,
             }}
           >
             PUBLIC ADJUSTER CONTRACT
           </div>
 
-          <p style={{ margin: "0 0 3px" }}>
+          <p style={{ margin: "0 0 4px" }}>
             <strong>1. SERVICE FEE:</strong> The insured(s) hereby retains Capital
             Claims Group to be its public adjuster and hereby appoints Capital Claims
             Group to be its independent appraiser to appraise, advise, negotiate,
@@ -976,7 +976,7 @@ function PublicAdjusterContract({
             <span
               style={{
                 display: "inline-block",
-                minWidth: 32,
+                minWidth: 34,
                 borderBottom: "1px solid #111827",
                 textAlign: "center",
               }}
@@ -989,7 +989,7 @@ function PublicAdjusterContract({
             The total contractual percentage shall not exceed the maximum allowed by law.
           </p>
 
-          <p style={{ margin: "0 0 3px" }}>
+          <p style={{ margin: "0 0 4px" }}>
             <strong>2. ADDITIONAL PAYEE:</strong> The insured authorizes and requests
             the insurer and the insured’s mortgage carrier to have Capital Claims Group
             appear as an additional payee on all checks issued regarding the
@@ -998,7 +998,7 @@ function PublicAdjusterContract({
             to Capital Claims Group pursuant to this agreement.
           </p>
 
-          <p style={{ margin: "0 0 3px" }}>
+          <p style={{ margin: "0 0 4px" }}>
             <strong>3. THIRD-PARTY FEES:</strong> The insured understands it may be
             necessary to incur professional fees on the insured’s behalf to properly
             adjust the claim. These fees may include, but are not limited to, a General
@@ -1022,13 +1022,13 @@ function PublicAdjusterContract({
         </div>
 
         <div style={{ ...sectionStyle, ...bodyText }}>
-          <p style={{ margin: "0 0 3px" }}>
+          <p style={{ margin: "0 0 4px" }}>
             <strong>4. ENDORSEMENT:</strong> The insured’s endorsement on any
             insurance proceeds check will be deemed to be an agreement with the terms
             and conditions of any related settlement regarding the above-mentioned claim.
           </p>
 
-          <p style={{ margin: "0 0 3px" }}>
+          <p style={{ margin: "0 0 4px" }}>
             <strong>5. AFFIDAVIT:</strong> I,{" "}
             <span
               style={{
@@ -1048,7 +1048,7 @@ function PublicAdjusterContract({
             agreement with a public adjuster must be signed by all named insureds.
           </p>
 
-          <p style={{ margin: "0 0 3px" }}>
+          <p style={{ margin: "0 0 4px" }}>
             <strong>6. LEGAL:</strong> Capital Claims Group is not a law firm and
             does not offer legal advice, and there will be no attorney-client
             relationship with the insured(s). The insured is hereby advised of the
@@ -1056,13 +1056,13 @@ function PublicAdjusterContract({
             independently of Capital Claims Group.
           </p>
 
-          <p style={{ margin: "0 0 3px" }}>
+          <p style={{ margin: "0 0 4px" }}>
             <strong>7. LETTER OF PROTECTION:</strong> The insured understands and
             agrees that if it becomes necessary to retain an attorney, the insured
             authorizes and agrees to a Letter of Protection for Capital Claims Group.
           </p>
 
-          <p style={{ margin: "0 0 3px" }}>
+          <p style={{ margin: "0 0 4px" }}>
             <strong>8. REPRESENTATION:</strong> The insured hereby affirms that no
             other claim(s) have been filed in reference to the same peril and that no
             other legal representation is involved with the claim other than{" "}
@@ -1094,12 +1094,12 @@ function PublicAdjusterContract({
         </div>
 
         <div style={{ ...sectionStyle, ...bodyText }}>
-          <p style={{ margin: "0 0 3px" }}>
+          <p style={{ margin: "0 0 4px" }}>
             <strong>9. SEVERABILITY:</strong> Unenforceability or invalidity of one
             or more clauses in this Agreement shall not affect any other clause.
           </p>
 
-          <p style={{ margin: "0 0 3px" }}>
+          <p style={{ margin: "0 0 4px" }}>
             <strong>10. DISPUTE:</strong> In the event of litigation arising from
             this agreement, the venue shall be in Miami-Dade County, Florida. The
             prevailing party shall be entitled to recover its court costs,
@@ -1108,7 +1108,7 @@ function PublicAdjusterContract({
             permitted by applicable law.
           </p>
 
-          <p style={{ margin: "0 0 3px" }}>
+          <p style={{ margin: "0 0 4px" }}>
             <strong>11. COMMERCIAL POLICY CANCELLATION:</strong> You, the insured(s),
             may cancel this contract for any reason without penalty or obligation to
             you within 10 days after the date of this contract.
@@ -1128,20 +1128,20 @@ function PublicAdjusterContract({
         </div>
 
         <div style={{ ...sectionStyle, ...bodyText }}>
-          <p style={{ margin: "0 0 3px", fontWeight: 700 }}>
+          <p style={{ margin: "0 0 4px", fontWeight: 700 }}>
             12. RESIDENTIAL POLICY CANCELLATION: You, the insured, may cancel this
             contract for any reason without penalty or obligation to you within 10
             days after the date of this contract.
           </p>
 
-          <p style={{ margin: "0 0 3px", fontWeight: 700 }}>
+          <p style={{ margin: "0 0 4px", fontWeight: 700 }}>
             The notice of cancellation shall be provided to Capital Claims Group,
             submitted in writing, and sent by certified mail, return receipt
             requested, or another form of mailing that provides proof thereof, at the
             address specified in the contract.
           </p>
 
-          <p style={{ margin: "0 0 3px", fontWeight: 700 }}>
+          <p style={{ margin: "0 0 4px", fontWeight: 700 }}>
             Pursuant to s. 817.234, Florida Statutes, any person who, with the intent
             to injure, defraud, or deceive any insurer or insured, prepares,
             presents, or causes to be presented a proof of loss or estimate of cost
@@ -1153,7 +1153,7 @@ function PublicAdjusterContract({
             Florida Statutes.
           </p>
 
-          <p style={{ margin: "0 0 3px", fontWeight: 700 }}>
+          <p style={{ margin: "0 0 4px", fontWeight: 700 }}>
             Insured(s) have read, understand and voluntarily sign the foregoing
             Agreement. A computer or faxed signature or copy of this document shall
             be deemed to have the same effect as the original.
@@ -1190,7 +1190,7 @@ function PublicAdjusterContract({
               padding: "5px 8px",
               fontWeight: 700,
               marginTop: 6,
-              fontSize: 10,
+              fontSize: 12,
             }}
           >
             Insured Signature
@@ -1224,7 +1224,7 @@ function PublicAdjusterContract({
             }}
           >
             <div>
-              <div style={{ marginBottom: 2, fontSize: 10.5, fontWeight: 400 }}>
+              <div style={{ marginBottom: 2, fontSize: 12, fontWeight: 400 }}>
                 Insured Signature
               </div>
               <div
@@ -1250,19 +1250,19 @@ function PublicAdjusterContract({
                     }}
                   />
                 ) : (
-                  <span style={{ color: "#94a3b8", fontSize: 10 }}>
+                  <span style={{ color: "#94a3b8", fontSize: 11 }}>
                     Signature pending
                   </span>
                 )}
               </div>
-              <div style={{ marginTop: 2, fontSize: 9.5, color: "#374151" }}>
+              <div style={{ marginTop: 2, fontSize: 10.5, color: "#374151" }}>
                 {data.homeowner1}
               </div>
             </div>
 
             {hasSecond && (
               <div>
-                <div style={{ marginBottom: 2, fontSize: 10.5, fontWeight: 400 }}>
+                <div style={{ marginBottom: 2, fontSize: 12, fontWeight: 400 }}>
                   Insured Signature
                 </div>
                 <div
@@ -1288,12 +1288,12 @@ function PublicAdjusterContract({
                       }}
                     />
                   ) : (
-                    <span style={{ color: "#94a3b8", fontSize: 10 }}>
+                    <span style={{ color: "#94a3b8", fontSize: 11 }}>
                       Signature pending
                     </span>
                   )}
                 </div>
-                <div style={{ marginTop: 2, fontSize: 9.5, color: "#374151" }}>
+                <div style={{ marginTop: 2, fontSize: 10.5, color: "#374151" }}>
                   {data.homeowner2}
                 </div>
               </div>
@@ -1305,9 +1305,9 @@ function PublicAdjusterContract({
               borderTop: "3px solid #7c3aed",
               marginTop: 6,
               paddingTop: 4,
-              fontSize: 8.8,
+              fontSize: 10,
               color: "#111827",
-              lineHeight: 1.05,
+              lineHeight: 1.08,
             }}
           >
             <div style={{ fontWeight: 700 }}>3600 Red Rd suite Ste 601B</div>
