@@ -231,7 +231,14 @@ function CheckboxField({ label, checked, onChange }) {
   );
 }
 
-function SignaturePad({ title, value, onChange, height = 160 }) {
+function SignaturePad({
+  title,
+  value,
+  onChange,
+  height = 160,
+  required = false,
+  missing = false,
+}) {
   const canvasRef = useRef(null);
   const drawingRef = useRef(false);
 
@@ -307,7 +314,10 @@ function SignaturePad({ title, value, onChange, height = 160 }) {
           marginBottom: 8,
         }}
       >
-        <Label>{title}</Label>
+        <Label>
+          {title}
+          {required ? <span style={{ color: "#dc2626" }}> *</span> : null}
+        </Label>
         <Button variant="outline" onClick={clear}>
           <RotateCcw size={16} /> Clear
         </Button>
@@ -315,9 +325,9 @@ function SignaturePad({ title, value, onChange, height = 160 }) {
 
       <div
         style={{
-          border: "1px dashed #cbd5e1",
+          border: missing ? "2px dashed #dc2626" : "1px dashed #cbd5e1",
           borderRadius: 16,
-          background: "#fff",
+          background: missing ? "#fef2f2" : "#fff",
           padding: 8,
         }}
       >
@@ -340,11 +350,16 @@ function SignaturePad({ title, value, onChange, height = 160 }) {
           onTouchEnd={end}
         />
       </div>
+      {missing && (
+        <div style={{ color: "#dc2626", fontSize: 12, marginTop: 6 }}>
+          Required before submitting.
+        </div>
+      )}
     </div>
   );
 }
 
-function InitialsPad({ title, value, onChange }) {
+function InitialsPad({ title, value, onChange, required = false, missing = false }) {
   const canvasRef = useRef(null);
   const drawingRef = useRef(false);
 
@@ -420,7 +435,10 @@ function InitialsPad({ title, value, onChange }) {
           marginBottom: 6,
         }}
       >
-        <Label>{title}</Label>
+        <Label>
+          {title}
+          {required ? <span style={{ color: "#dc2626" }}> *</span> : null}
+        </Label>
         <button
           type="button"
           onClick={clear}
@@ -439,9 +457,9 @@ function InitialsPad({ title, value, onChange }) {
 
       <div
         style={{
-          border: "1px dashed #cbd5e1",
+          border: missing ? "2px dashed #dc2626" : "1px dashed #cbd5e1",
           borderRadius: 12,
-          background: "#fff",
+          background: missing ? "#fef2f2" : "#fff",
           padding: 8,
         }}
       >
@@ -464,6 +482,11 @@ function InitialsPad({ title, value, onChange }) {
           onTouchEnd={end}
         />
       </div>
+      {missing && (
+        <div style={{ color: "#dc2626", fontSize: 12, marginTop: 6 }}>
+          Required before submitting.
+        </div>
+      )}
     </div>
   );
 }
@@ -1489,6 +1512,26 @@ export default function App() {
   const getPrintableSelector = (docType) =>
     docType === "lor" ? "#lor-printable-document" : "#pac-printable-document";
 
+  const getMissingSigningFields = () => {
+    const missing = [];
+
+    if (!sig1) missing.push("Homeowner 1 signature");
+    if (hasSecond && !sig2) missing.push("Homeowner 2 signature");
+
+    if (activeDoc === "pac") {
+      if (!data.initials1) missing.push("Homeowner 1 initials");
+      if (hasSecond && !data.initials2) missing.push("Homeowner 2 initials");
+    }
+
+    return missing;
+  };
+
+  const missingSigningFields = !pendingSend ? getMissingSigningFields() : [];
+  const isSigningComplete =
+    !!sig1 &&
+    (!hasSecond || !!sig2) &&
+    (activeDoc !== "pac" || (!!data.initials1 && (!hasSecond || !!data.initials2)));
+
   const generatePDF = async (docType) => {
     setIsExportingPdf(true);
     await new Promise((resolve) => setTimeout(resolve, 250));
@@ -1549,7 +1592,6 @@ export default function App() {
       signature2: sig2,
       initials1: data.initials1,
       initials2: data.initials2,
-      
     };
 
     if (currentClaimId) {
@@ -1576,6 +1618,16 @@ export default function App() {
 
   const submitDoc = async () => {
     try {
+      if (!pendingSend) {
+        const missing = getMissingSigningFields();
+        if (missing.length > 0) {
+          alert(
+            "Please complete the required signing fields:\n\n" + missing.join("\n")
+          );
+          return;
+        }
+      }
+
       const { record, error } = await saveClaimToSupabase();
 
       if (error) {
@@ -1821,15 +1873,15 @@ export default function App() {
                       onChange={(v) => update("date", v)}
                     />
                     <div>
-  <FormField
-    label="Claim #"
-    value={data.claimNumber}
-    onChange={(v) => update("claimNumber", v)}
-  />
-  <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
-    Only fill this out if there is an active claim.
-  </div>
-</div>
+                      <FormField
+                        label="Claim #"
+                        value={data.claimNumber}
+                        onChange={(v) => update("claimNumber", v)}
+                      />
+                      <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
+                        Only fill this out if there is an active claim.
+                      </div>
+                    </div>
                     <div style={{ gridColumn: "1 / -1" }}>
                       <CheckboxField
                         label="Loss location is same as property address"
@@ -1992,6 +2044,23 @@ export default function App() {
               </CardHeader>
 
               <CardContent>
+                {!pendingSend && (
+                  <div
+                    style={{
+                      background: "#fef2f2",
+                      color: "#991b1b",
+                      border: "1px solid #fecaca",
+                      borderRadius: 12,
+                      padding: 12,
+                      marginBottom: 16,
+                      fontSize: 14,
+                      fontWeight: 600,
+                    }}
+                  >
+                    Please complete all required signatures{activeDoc === "pac" ? " and initials" : ""} before submitting.
+                  </div>
+                )}
+
                 {activeDoc === "pac" && !pendingSend && (
                   <div
                     style={{
@@ -2005,12 +2074,16 @@ export default function App() {
                       title="Homeowner 1 Initials"
                       value={data.initials1}
                       onChange={(v) => update("initials1", v)}
+                      required
+                      missing={!data.initials1}
                     />
                     {hasSecond && (
                       <InitialsPad
                         title="Homeowner 2 Initials"
                         value={data.initials2}
                         onChange={(v) => update("initials2", v)}
+                        required
+                        missing={!data.initials2}
                       />
                     )}
                   </div>
@@ -2022,19 +2095,39 @@ export default function App() {
                       title="Homeowner 1 Signature"
                       value={sig1}
                       onChange={setSig1}
+                      required
+                      missing={!sig1}
                     />
                     {hasSecond && (
                       <SignaturePad
                         title="Homeowner 2 Signature"
                         value={sig2}
                         onChange={setSig2}
+                        required
+                        missing={!sig2}
                       />
                     )}
                   </>
                 )}
 
+                {!pendingSend && missingSigningFields.length > 0 && (
+                  <div
+                    style={{
+                      marginTop: 8,
+                      marginBottom: 12,
+                      fontSize: 13,
+                      color: "#991b1b",
+                    }}
+                  >
+                    Missing: {missingSigningFields.join(", ")}
+                  </div>
+                )}
+
                 <div style={{ display: "flex", gap: 12, paddingTop: 8 }}>
-                  <Button onClick={submitDoc}>
+                  <Button
+                    onClick={submitDoc}
+                    disabled={!pendingSend && !isSigningComplete}
+                  >
                     {pendingSend ? <Send size={16} /> : <Mail size={16} />}
                     {pendingSend ? "Send for Signing" : "Submit & Email Copies"}
                   </Button>
