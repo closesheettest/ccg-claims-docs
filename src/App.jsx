@@ -1000,7 +1000,7 @@ function LetterOfRepresentation({
   };
 
   const bodyText = {
-    fontSize: 12,
+    fontSize: 14,
     lineHeight: 1.5,
     color: "#111827",
   };
@@ -1286,7 +1286,7 @@ function PublicAdjusterContract({
     .join(", ");
 
   const bodyText = {
-    fontSize: 12,
+    fontSize: 14,
     lineHeight: 1.43,
     color: "#111827",
     fontFamily: "Arial, Helvetica, sans-serif",
