@@ -705,49 +705,56 @@ function PdfPage({
   footer,
   breakAfter = false,
   isExportingPdf = false,
-  contentPadding = "0 0.42in",
-  contentStyle = {},
+  contentPadding = "0 0.5in",
 }) {
   const exportStyle = isExportingPdf
     ? {
+        position: "relative",
         width: "8.5in",
-        height: "11in",
+        minHeight: "11in",
         background: "#fff",
         boxSizing: "border-box",
-        overflow: "hidden",
         pageBreakAfter: breakAfter ? "always" : "auto",
-        display: "flex",
-        flexDirection: "column",
+        overflow: "hidden",
       }
     : {
+        position: "relative",
         background: "#fff",
         borderRadius: 24,
         border: "1px solid #e5e7eb",
         boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
         overflow: "hidden",
-        display: "flex",
-        flexDirection: "column",
         marginBottom: 16,
       };
 
   return (
     <div className="pdf-page" style={exportStyle}>
-      {header}
+      {header ? <div style={{ lineHeight: 0 }}>{header}</div> : null}
       <div
         style={{
-          flex: 1,
-          padding: contentPadding,
           boxSizing: "border-box",
-          ...contentStyle,
+          padding: contentPadding,
+          paddingBottom: footer ? "1.15in" : contentPadding.split(" ")[0] || "0.5in",
         }}
       >
         {children}
       </div>
-      {footer}
+      {footer ? (
+        <div
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: 0,
+            lineHeight: 0,
+          }}
+        >
+          {footer}
+        </div>
+      ) : null}
     </div>
   );
 }
-
 function AuditTrailPage({
   auditInfo,
   data,
@@ -1943,14 +1950,41 @@ export default function App() {
   const isSigningComplete = missingSigningFields.length === 0;
 
   const generatePDF = async (selector, filename) => {
-    setIsExportingPdf(true);
-    await new Promise((resolve) => setTimeout(resolve, 250));
+  setIsExportingPdf(true);
+  await new Promise((resolve) => setTimeout(resolve, 250));
 
-    const element = document.querySelector(selector);
-    if (!element) {
-      setIsExportingPdf(false);
-      throw new Error("Printable document not found.");
-    }
+  const element = document.querySelector(selector);
+  if (!element) {
+    setIsExportingPdf(false);
+    throw new Error("Printable document not found.");
+  }
+
+  try {
+    const opt = {
+      margin: 0,
+      filename,
+      image: { type: "jpeg", quality: 0.98 },
+      html2canvas: {
+        scale: 1.5,
+        useCORS: true,
+        scrollX: 0,
+        scrollY: 0,
+      },
+      jsPDF: {
+        unit: "in",
+        format: "letter",
+        orientation: "portrait",
+      },
+      pagebreak: {
+        mode: ["css"],
+      },
+    };
+
+    return await html2pdf().set(opt).from(element).outputPdf("blob");
+  } finally {
+    setIsExportingPdf(false);
+  }
+};
 
     try {
       const opt = {
