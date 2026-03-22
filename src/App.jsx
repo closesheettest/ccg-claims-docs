@@ -699,7 +699,13 @@ function TypedInitialsField({
   );
 }
 
-function AuditTrailPage({ auditInfo, data, docLabel, claimId }) {
+function AuditTrailPage({
+  auditInfo,
+  data,
+  docLabel,
+  claimId,
+  isExportingPdf = false,
+}) {
   if (!auditInfo?.signedAt) return null;
 
   return (
@@ -707,11 +713,11 @@ function AuditTrailPage({ auditInfo, data, docLabel, claimId }) {
       className="pdf-page"
       style={{
         width: "100%",
-        minHeight: "11in",
+        minHeight: isExportingPdf ? "11in" : "auto",
         background: "#fff",
         boxSizing: "border-box",
         overflow: "hidden",
-        pageBreakBefore: "always",
+        pageBreakBefore: isExportingPdf ? "always" : "auto",
         pageBreakAfter: "auto",
         fontFamily: "Arial, Helvetica, sans-serif",
         color: "#111827",
@@ -836,13 +842,13 @@ function LetterOfRepresentation({
         color: "#111827",
       };
 
-  const pageStyle = (isLast = false) => ({
+  const pageStyle = (breakAfter = false) => ({
     width: "100%",
     minHeight: isExportingPdf ? "11in" : "auto",
     background: "#fff",
     boxSizing: "border-box",
     overflow: "hidden",
-    pageBreakAfter: isExportingPdf && !isLast ? "always" : "auto",
+    pageBreakAfter: isExportingPdf && breakAfter ? "always" : "auto",
   });
 
   const innerStyle = {
@@ -916,7 +922,7 @@ function LetterOfRepresentation({
 
   return (
     <div id="lor-printable-document" style={containerStyle}>
-      <div className="pdf-page" style={pageStyle(false)}>
+      <div className="pdf-page" style={pageStyle(true)}>
         <HeaderImg />
 
         <div style={innerStyle}>
@@ -1032,7 +1038,7 @@ function LetterOfRepresentation({
         </div>
       </div>
 
-      <div className="pdf-page" style={pageStyle(true)}>
+      <div className="pdf-page" style={pageStyle(false)}>
         <HeaderImg />
 
         <div style={innerStyle}>
@@ -1143,6 +1149,7 @@ function LetterOfRepresentation({
         data={data}
         docLabel="Letter of Representation"
         claimId={claimId}
+        isExportingPdf={isExportingPdf}
       />
     </div>
   );
@@ -1161,28 +1168,25 @@ function PublicAdjusterContract({
     .filter(Boolean)
     .join(", ");
 
-  const pageStyle = isExportingPdf
-    ? {
-        width: "8.5in",
-        background: "#fff",
-        boxSizing: "border-box",
-        overflow: "hidden",
-        fontFamily: "Arial, Helvetica, sans-serif",
-        color: "#111827",
-        pageBreakAfter: "always",
-      }
-    : {
-        width: "100%",
-        background: "#fff",
-        boxSizing: "border-box",
-        overflow: "hidden",
-        fontFamily: "Arial, Helvetica, sans-serif",
-        color: "#111827",
-        borderRadius: 24,
-        border: "1px solid #e5e7eb",
-        boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
-        marginBottom: 16,
-      };
+  const pageStyle = (breakAfter = false) => ({
+    width: "100%",
+    background: "#fff",
+    boxSizing: "border-box",
+    overflow: "hidden",
+    fontFamily: "Arial, Helvetica, sans-serif",
+    color: "#111827",
+    ...(isExportingPdf
+      ? {
+          width: "8.5in",
+          pageBreakAfter: breakAfter ? "always" : "auto",
+        }
+      : {
+          borderRadius: 24,
+          border: "1px solid #e5e7eb",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+          marginBottom: 16,
+        }),
+  });
 
   const pageInnerStyle = {
     padding: isExportingPdf ? "0 0.42in 0.12in" : "0 28px 20px",
@@ -1204,10 +1208,7 @@ function PublicAdjusterContract({
     <img
       src={PA_ASSETS.header}
       alt="header"
-      style={{
-        width: "100%",
-        display: "block",
-      }}
+      style={{ width: "100%", display: "block" }}
     />
   );
 
@@ -1357,7 +1358,7 @@ function PublicAdjusterContract({
 
   return (
     <div id="pac-printable-document" style={{ background: "transparent" }}>
-      <div className="pdf-page" style={pageStyle}>
+      <div className="pdf-page" style={pageStyle(true)}>
         <HeaderImg />
         <div style={pageInnerStyle}>
           {topGrid}
@@ -1412,7 +1413,7 @@ function PublicAdjusterContract({
         </div>
       </div>
 
-      <div className="pdf-page" style={pageStyle}>
+      <div className="pdf-page" style={pageStyle(true)}>
         <HeaderImg />
         <div style={pageInnerStyle}>
           <div style={bodyText}>
@@ -1502,7 +1503,7 @@ function PublicAdjusterContract({
         </div>
       </div>
 
-      <div className="pdf-page" style={pageStyle}>
+      <div className="pdf-page" style={pageStyle(true)}>
         <HeaderImg />
         <div style={pageInnerStyle}>
           <div style={bodyText}>
@@ -1561,13 +1562,7 @@ function PublicAdjusterContract({
         </div>
       </div>
 
-      <div
-        className="pdf-page"
-        style={{
-          ...pageStyle,
-          pageBreakAfter: "auto",
-        }}
-      >
+      <div className="pdf-page" style={pageStyle(false)}>
         <HeaderImg />
         <div style={pageInnerStyle}>
           <div style={bodyText}>
@@ -1714,6 +1709,7 @@ function PublicAdjusterContract({
         data={data}
         docLabel="PA Agreement"
         claimId={claimId}
+        isExportingPdf={isExportingPdf}
       />
     </div>
   );
@@ -1842,8 +1838,8 @@ export default function App() {
           paEmail: claim.pa_email || prev.paEmail,
           initials1: claim.initials1 || "",
           initials2: claim.initials2 || "",
-          claimType: claim.claim_type || prev.claimType,
-          lossDescription: claim.loss_description || prev.lossDescription,
+          claimType: prev.claimType,
+          lossDescription: prev.lossDescription,
           lossLocationSameAsAddress:
             (claim.loss_location || "") ===
             [
@@ -2005,7 +2001,6 @@ export default function App() {
       signature2: effectiveSig2,
       initials1: effectiveInitials1,
       initials2: effectiveInitials2,
-      
       signed_at: audit?.signedAt || null,
       signed_ip: audit?.signedIp || null,
       signed_user_agent: audit?.signedUserAgent || null,
