@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import html2pdf from "html2pdf.js/dist/html2pdf";
 import {
   ArrowLeft,
@@ -6,6 +6,8 @@ import {
   Mail,
   RotateCcw,
   Send,
+  Type,
+  PenTool,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 
@@ -23,6 +25,27 @@ const PA_ASSETS = {
 };
 
 const VALID_DOCS = ["lor", "pac"];
+
+const SIGNATURE_FONT_OPTIONS = [
+  {
+    key: "style1",
+    label: "Style 1",
+    family: '"Great Vibes", cursive',
+    previewClass: "sig-font-1",
+  },
+  {
+    key: "style2",
+    label: "Style 2",
+    family: '"Pacifico", cursive',
+    previewClass: "sig-font-2",
+  },
+  {
+    key: "style3",
+    label: "Style 3",
+    family: '"Dancing Script", cursive',
+    previewClass: "sig-font-3",
+  },
+];
 
 const initialData = {
   date: new Date().toISOString().split("T")[0],
@@ -56,6 +79,8 @@ const initialAuditInfo = {
   signMethod: "",
   signedByEmail: "",
   signedByName: "",
+  signedCity: "",
+  signedRegion: "",
 };
 
 function documentLabel(doc) {
@@ -327,22 +352,24 @@ function SignaturePad({
 
   return (
     <div style={{ marginBottom: 16 }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: 8,
-        }}
-      >
-        <Label>
-          {title}
-          {required ? <span style={{ color: "#dc2626" }}> *</span> : null}
-        </Label>
-        <Button variant="outline" onClick={clear}>
-          <RotateCcw size={16} /> Clear
-        </Button>
-      </div>
+      {title ? (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 8,
+          }}
+        >
+          <Label>
+            {title}
+            {required ? <span style={{ color: "#dc2626" }}> *</span> : null}
+          </Label>
+          <Button variant="outline" onClick={clear}>
+            <RotateCcw size={16} /> Clear
+          </Button>
+        </div>
+      ) : null}
 
       <div
         style={{
@@ -372,11 +399,11 @@ function SignaturePad({
         />
       </div>
 
-      {missing && (
+      {missing ? (
         <div style={{ color: "#dc2626", fontSize: 12, marginTop: 6 }}>
           Required before submitting.
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -455,33 +482,35 @@ function InitialsPad({
 
   return (
     <div style={{ marginBottom: 12 }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 6,
-        }}
-      >
-        <Label>
-          {title}
-          {required ? <span style={{ color: "#dc2626" }}> *</span> : null}
-        </Label>
-        <button
-          type="button"
-          onClick={clear}
+      {title ? (
+        <div
           style={{
-            background: "transparent",
-            border: "none",
-            color: "#6b7280",
-            fontSize: 12,
-            cursor: "pointer",
-            padding: 0,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: 6,
           }}
         >
-          Clear
-        </button>
-      </div>
+          <Label>
+            {title}
+            {required ? <span style={{ color: "#dc2626" }}> *</span> : null}
+          </Label>
+          <button
+            type="button"
+            onClick={clear}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "#6b7280",
+              fontSize: 12,
+              cursor: "pointer",
+              padding: 0,
+            }}
+          >
+            Clear
+          </button>
+        </div>
+      ) : null}
 
       <div
         style={{
@@ -511,9 +540,200 @@ function InitialsPad({
         />
       </div>
 
-      {missing && (
+      {missing ? (
         <div style={{ color: "#dc2626", fontSize: 12, marginTop: 6 }}>
           Required before submitting.
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function SignatureInputBlock({
+  label,
+  mode,
+  onModeChange,
+  drawValue,
+  onDrawChange,
+  typedValue,
+  onTypedChange,
+  fontKey,
+  onFontChange,
+  previewValue,
+  required = false,
+  missing = false,
+  placeholder = "Type your full name",
+  isInitials = false,
+}) {
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 12,
+          marginBottom: 8,
+          flexWrap: "wrap",
+        }}
+      >
+        <Label>
+          {label}
+          {required ? <span style={{ color: "#dc2626" }}> *</span> : null}
+        </Label>
+
+        <button
+          type="button"
+          onClick={() => onModeChange(mode === "draw" ? "type" : "draw")}
+          style={{
+            background: "transparent",
+            border: "none",
+            color: "#1d4ed8",
+            fontWeight: 800,
+            fontSize: 14,
+            cursor: "pointer",
+            padding: 0,
+            textDecoration: "underline",
+          }}
+        >
+          {mode === "draw" ? "PREFER TO TYPE INSTEAD?" : "PREFER TO DRAW INSTEAD?"}
+        </button>
+      </div>
+
+      {mode === "draw" ? (
+        isInitials ? (
+          <InitialsPad
+            value={drawValue}
+            onChange={onDrawChange}
+            required={required}
+            missing={missing}
+          />
+        ) : (
+          <SignaturePad
+            value={drawValue}
+            onChange={onDrawChange}
+            required={required}
+            missing={missing}
+          />
+        )
+      ) : (
+        <div
+          style={{
+            border: missing ? "2px solid #dc2626" : "1px solid #d1d5db",
+            borderRadius: 16,
+            padding: 14,
+            background: missing ? "#fef2f2" : "#fff",
+          }}
+        >
+          <input
+            type="text"
+            value={typedValue}
+            placeholder={placeholder}
+            onChange={(e) => onTypedChange(e.target.value)}
+            style={{
+              width: "100%",
+              height: 44,
+              borderRadius: 12,
+              border: "1px solid #d1d5db",
+              padding: "0 12px",
+              fontSize: 14,
+              boxSizing: "border-box",
+              marginBottom: 12,
+            }}
+          />
+
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 8 }}>
+            Choose a style
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+              gap: 10,
+            }}
+          >
+            {SIGNATURE_FONT_OPTIONS.map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                onClick={() => onFontChange(option.key)}
+                className={option.previewClass}
+                style={{
+                  border:
+                    fontKey === option.key
+                      ? "2px solid #111827"
+                      : "1px solid #d1d5db",
+                  borderRadius: 12,
+                  background: "#fff",
+                  minHeight: isInitials ? 70 : 90,
+                  cursor: "pointer",
+                  padding: 10,
+                  display: "flex",
+                  flexDirection: "column",
+                  justifyContent: "center",
+                  gap: 6,
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: "#6b7280",
+                    fontFamily: "Arial, Helvetica, sans-serif",
+                  }}
+                >
+                  {option.label}
+                </div>
+                <div
+                  style={{
+                    fontSize: isInitials ? 30 : 34,
+                    color: "#111827",
+                    lineHeight: 1.1,
+                  }}
+                >
+                  {typedValue || (isInitials ? "NS" : "Neal Sample")}
+                </div>
+              </button>
+            ))}
+          </div>
+
+          <div
+            style={{
+              marginTop: 12,
+              border: "1px dashed #cbd5e1",
+              borderRadius: 12,
+              background: "#f8fafc",
+              minHeight: isInitials ? 70 : 110,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 12,
+              overflow: "hidden",
+            }}
+          >
+            {previewValue ? (
+              <img
+                src={previewValue}
+                alt={`${label} preview`}
+                style={{
+                  maxWidth: "100%",
+                  maxHeight: isInitials ? 42 : 80,
+                  objectFit: "contain",
+                }}
+              />
+            ) : (
+              <span style={{ color: "#94a3b8", fontSize: 13 }}>
+                Preview will appear here
+              </span>
+            )}
+          </div>
+
+          {missing ? (
+            <div style={{ color: "#dc2626", fontSize: 12, marginTop: 6 }}>
+              Required before submitting.
+            </div>
+          ) : null}
         </div>
       )}
     </div>
@@ -522,6 +742,10 @@ function InitialsPad({
 
 function AuditTrailPage({ auditInfo, data, docLabel, claimId, pageBreak = true }) {
   if (!auditInfo?.signedAt) return null;
+
+  const locationText =
+    [auditInfo.signedCity, auditInfo.signedRegion].filter(Boolean).join(", ") ||
+    "Not available";
 
   return (
     <div
@@ -567,6 +791,7 @@ function AuditTrailPage({ auditInfo, data, docLabel, claimId, pageBreak = true }
             ],
             ["Signed at", auditInfo.signedAt || "Not available"],
             ["IP address", auditInfo.signedIp || "Not available"],
+            ["City / State", locationText],
             ["Sign method", auditInfo.signMethod || "Not available"],
             [
               "Browser / device",
@@ -936,7 +1161,7 @@ function LetterOfRepresentation({
                     )}
                   </div>
 
-                  {hasSecond && (
+                  {hasSecond ? (
                     <div style={{ textAlign: "center" }}>
                       {sig2 ? (
                         <img
@@ -954,7 +1179,7 @@ function LetterOfRepresentation({
                         </span>
                       )}
                     </div>
-                  )}
+                  ) : null}
                 </div>
               ) : (
                 <span style={{ color: "#94a3b8", fontSize: 12 }}>
@@ -1090,7 +1315,7 @@ function PublicAdjusterContract({
         </div>
       </div>
 
-      {hasSecond && (
+      {hasSecond ? (
         <div>
           <div style={{ fontSize: 11, marginBottom: 2 }}>Initials:</div>
           <div
@@ -1108,13 +1333,13 @@ function PublicAdjusterContract({
             )}
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 
   const Footer = ({ page }) => (
     <div style={{ marginTop: 14 }}>
-      {isExportingPdf && (
+      {isExportingPdf ? (
         <div
           style={{
             textAlign: "center",
@@ -1126,7 +1351,7 @@ function PublicAdjusterContract({
         >
           Page {page} of 4
         </div>
-      )}
+      ) : null}
       <FooterImg />
     </div>
   );
@@ -1501,13 +1726,13 @@ function PublicAdjusterContract({
                 <div style={{ marginBottom: 10, fontSize: 12 }}>
                   <div>Insured (Print): {data.homeowner1}</div>
                   <div style={{ marginTop: 8, minHeight: 36 }}>
-                    {sig1 && (
+                    {sig1 ? (
                       <img
                         src={sig1}
                         alt="Insured signature 1"
                         style={{ height: 30, objectFit: "contain" }}
                       />
-                    )}
+                    ) : null}
                   </div>
                   <div style={{ fontSize: 11 }}>
                     Signature of the policyholder
@@ -1515,24 +1740,24 @@ function PublicAdjusterContract({
                   <div style={{ marginTop: 8 }}>Date: {data.date}</div>
                 </div>
 
-                {hasSecond && (
+                {hasSecond ? (
                   <div style={{ marginTop: 18, fontSize: 12 }}>
                     <div>Insured (Print): {data.homeowner2}</div>
                     <div style={{ marginTop: 8, minHeight: 36 }}>
-                      {sig2 && (
+                      {sig2 ? (
                         <img
                           src={sig2}
                           alt="Insured signature 2"
                           style={{ height: 30, objectFit: "contain" }}
                         />
-                      )}
+                      ) : null}
                     </div>
                     <div style={{ fontSize: 11 }}>
                       Signature of the policyholder
                     </div>
                     <div style={{ marginTop: 8 }}>Date: {data.date}</div>
                   </div>
-                )}
+                ) : null}
               </div>
             </div>
           </div>
@@ -1558,8 +1783,28 @@ export default function App() {
   const [selectedDocs, setSelectedDocs] = useState(["lor"]);
   const [signMode, setSignMode] = useState("now");
   const [data, setData] = useState(initialData);
+
   const [sig1, setSig1] = useState("");
   const [sig2, setSig2] = useState("");
+
+  const [sigMode1, setSigMode1] = useState("draw");
+  const [sigMode2, setSigMode2] = useState("draw");
+  const [typedSig1, setTypedSig1] = useState("");
+  const [typedSig2, setTypedSig2] = useState("");
+  const [sigFont1, setSigFont1] = useState("style1");
+  const [sigFont2, setSigFont2] = useState("style1");
+  const [typedSig1Preview, setTypedSig1Preview] = useState("");
+  const [typedSig2Preview, setTypedSig2Preview] = useState("");
+
+  const [initialsMode1, setInitialsMode1] = useState("draw");
+  const [initialsMode2, setInitialsMode2] = useState("draw");
+  const [typedInitials1, setTypedInitials1] = useState("");
+  const [typedInitials2, setTypedInitials2] = useState("");
+  const [initialsFont1, setInitialsFont1] = useState("style1");
+  const [initialsFont2, setInitialsFont2] = useState("style1");
+  const [typedInitials1Preview, setTypedInitials1Preview] = useState("");
+  const [typedInitials2Preview, setTypedInitials2Preview] = useState("");
+
   const [pendingSend, setPendingSend] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [currentClaimId, setCurrentClaimId] = useState(null);
@@ -1576,6 +1821,47 @@ export default function App() {
     .filter(Boolean)
     .join("\n");
 
+  const selectedDocLabels = selectedDocs.map(documentLabel);
+
+  const effectiveSig1 = sigMode1 === "type" ? typedSig1Preview : sig1;
+  const effectiveSig2 = sigMode2 === "type" ? typedSig2Preview : sig2;
+  const effectiveInitials1 =
+    initialsMode1 === "type" ? typedInitials1Preview : data.initials1;
+  const effectiveInitials2 =
+    initialsMode2 === "type" ? typedInitials2Preview : data.initials2;
+
+  const buildTextImage = async ({
+    text,
+    fontKey,
+    width,
+    height,
+    fontSize,
+  }) => {
+    const trimmed = String(text || "").trim();
+    if (!trimmed) return "";
+
+    const canvas = document.createElement("canvas");
+    const ratio = Math.max(window.devicePixelRatio || 1, 1);
+    canvas.width = width * ratio;
+    canvas.height = height * ratio;
+
+    const ctx = canvas.getContext("2d");
+    ctx.scale(ratio, ratio);
+    ctx.clearRect(0, 0, width, height);
+
+    const fontOption =
+      SIGNATURE_FONT_OPTIONS.find((item) => item.key === fontKey) ||
+      SIGNATURE_FONT_OPTIONS[0];
+
+    ctx.fillStyle = "#111827";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = `${fontSize}px ${fontOption.family}`;
+    ctx.fillText(trimmed, width / 2, height / 2);
+
+    return canvas.toDataURL("image/png");
+  };
+
   useEffect(() => {
     if (data.lossLocationSameAsAddress) {
       setData((prev) => ({
@@ -1591,6 +1877,108 @@ export default function App() {
     data.lossLocationSameAsAddress,
     propertyAddressText,
   ]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const run = async () => {
+      if (sigMode1 !== "type" || !typedSig1.trim()) {
+        setTypedSig1Preview("");
+        return;
+      }
+      const image = await buildTextImage({
+        text: typedSig1,
+        fontKey: sigFont1,
+        width: 520,
+        height: 140,
+        fontSize: 56,
+      });
+      if (!cancelled) setTypedSig1Preview(image);
+    };
+
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [sigMode1, typedSig1, sigFont1]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const run = async () => {
+      if (sigMode2 !== "type" || !typedSig2.trim()) {
+        setTypedSig2Preview("");
+        return;
+      }
+      const image = await buildTextImage({
+        text: typedSig2,
+        fontKey: sigFont2,
+        width: 520,
+        height: 140,
+        fontSize: 56,
+      });
+      if (!cancelled) setTypedSig2Preview(image);
+    };
+
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [sigMode2, typedSig2, sigFont2]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const run = async () => {
+      if (initialsMode1 !== "type" || !typedInitials1.trim()) {
+        setTypedInitials1Preview("");
+        return;
+      }
+      const image = await buildTextImage({
+        text: typedInitials1,
+        fontKey: initialsFont1,
+        width: 220,
+        height: 70,
+        fontSize: 34,
+      });
+      if (!cancelled) {
+        setTypedInitials1Preview(image);
+        setData((prev) => ({ ...prev, initials1: image }));
+      }
+    };
+
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [initialsMode1, typedInitials1, initialsFont1]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const run = async () => {
+      if (initialsMode2 !== "type" || !typedInitials2.trim()) {
+        setTypedInitials2Preview("");
+        return;
+      }
+      const image = await buildTextImage({
+        text: typedInitials2,
+        fontKey: initialsFont2,
+        width: 220,
+        height: 70,
+        fontSize: 34,
+      });
+      if (!cancelled) {
+        setTypedInitials2Preview(image);
+        setData((prev) => ({ ...prev, initials2: image }));
+      }
+    };
+
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [initialsMode2, typedInitials2, initialsFont2]);
 
   useEffect(() => {
     const loadFromSigningLink = async () => {
@@ -1631,8 +2019,24 @@ export default function App() {
         setSignMode("now");
         setPendingSend(false);
         setIsSigningFromLink(true);
+
         setSig1(claim.signature1 || "");
         setSig2(claim.signature2 || "");
+
+        setSigMode1("draw");
+        setSigMode2("draw");
+        setTypedSig1("");
+        setTypedSig2("");
+        setTypedSig1Preview("");
+        setTypedSig2Preview("");
+
+        setInitialsMode1("draw");
+        setInitialsMode2("draw");
+        setTypedInitials1("");
+        setTypedInitials2("");
+        setTypedInitials1Preview("");
+        setTypedInitials2Preview("");
+
         setAuditInfo({
           signedAt: claim.signed_at || "",
           signedIp: claim.signed_ip || "",
@@ -1642,6 +2046,8 @@ export default function App() {
           signedByName:
             claim.signed_by_name ||
             [claim.homeowner1, claim.homeowner2].filter(Boolean).join(", "),
+          signedCity: claim.signed_city || "",
+          signedRegion: claim.signed_region || "",
         });
 
         setData((prev) => ({
@@ -1717,8 +2123,23 @@ export default function App() {
     setIsSigningFromLink(false);
     setCurrentClaimId(null);
     setAuditInfo(initialAuditInfo);
+
     setSig1("");
     setSig2("");
+    setSigMode1("draw");
+    setSigMode2("draw");
+    setTypedSig1("");
+    setTypedSig2("");
+    setTypedSig1Preview("");
+    setTypedSig2Preview("");
+
+    setInitialsMode1("draw");
+    setInitialsMode2("draw");
+    setTypedInitials1("");
+    setTypedInitials2("");
+    setTypedInitials1Preview("");
+    setTypedInitials2Preview("");
+
     update("initials1", "");
     update("initials2", "");
     setView("sign");
@@ -1727,28 +2148,27 @@ export default function App() {
   const getPrintableSelector = (docType) =>
     docType === "lor" ? "#lor-printable-document" : "#pac-printable-document";
 
-  const selectedDocLabels = selectedDocs.map(documentLabel);
-
   const getMissingSigningFields = () => {
     const missing = [];
 
-    if (!sig1) missing.push("Homeowner 1 signature");
-    if (hasSecond && !sig2) missing.push("Homeowner 2 signature");
+    if (!effectiveSig1) missing.push("Homeowner 1 signature");
+    if (hasSecond && !effectiveSig2) missing.push("Homeowner 2 signature");
 
     if (selectedDocs.includes("pac")) {
-      if (!data.initials1) missing.push("Homeowner 1 initials");
-      if (hasSecond && !data.initials2) missing.push("Homeowner 2 initials");
+      if (!effectiveInitials1) missing.push("Homeowner 1 initials");
+      if (hasSecond && !effectiveInitials2) missing.push("Homeowner 2 initials");
     }
 
     return missing;
   };
 
   const missingSigningFields = !pendingSend ? getMissingSigningFields() : [];
+
   const isSigningComplete =
-    !!sig1 &&
-    (!hasSecond || !!sig2) &&
+    !!effectiveSig1 &&
+    (!hasSecond || !!effectiveSig2) &&
     (!selectedDocs.includes("pac") ||
-      (!!data.initials1 && (!hasSecond || !!data.initials2)));
+      (!!effectiveInitials1 && (!hasSecond || !!effectiveInitials2)));
 
   const parseJsonResponse = async (response, fallbackMessage) => {
     const rawText = await response.text();
@@ -1846,10 +2266,10 @@ export default function App() {
       situation: data.situation,
       homeowner_email: data.signerEmail,
       pa_email: data.paEmail,
-      signature1: sig1,
-      signature2: sig2,
-      initials1: data.initials1,
-      initials2: data.initials2,
+      signature1: effectiveSig1,
+      signature2: effectiveSig2,
+      initials1: effectiveInitials1,
+      initials2: effectiveInitials2,
       signed_at: audit?.signedAt || null,
       signed_ip: audit?.signedIp || null,
       signed_user_agent: audit?.signedUserAgent || null,
@@ -1920,34 +2340,35 @@ export default function App() {
         const signingLink = `${window.location.origin}/?sign=1&docs=${selectedDocs.join(",")}&claim=${record?.id}`;
 
         const emailResponse = await fetch("/.netlify/functions/send-email", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify({
-    to: [data.signerEmail].filter(Boolean),
-    subject:
-      selectedDocs.length > 1
-        ? "Please Sign: Claim Documents"
-        : `Please Sign: ${documentLabel(selectedDocs[0])}`,
-    html: `
-      <h2>Signature Requested</h2>
-      <p>Please click the link below to review and sign your document${selectedDocs.length > 1 ? "s" : ""}.</p>
-      <p><a href="${signingLink}">${signingLink}</a></p>
-      <p><strong>Forms included:</strong></p>
-      <ul>
-        ${selectedDocs.map((doc) => `<li>${documentLabel(doc)}</li>`).join("")}
-      </ul>
-      <p><strong>Insured:</strong> ${[
-        data.homeowner1,
-        data.homeowner2,
-      ]
-        .filter(Boolean)
-        .join(", ")}</p>
-      <p>An audit trail page with timestamp, IP address, and browser details will be attached after signing.</p>
-    `,
-  }),
-});
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            to: [data.signerEmail].filter(Boolean),
+            subject:
+              selectedDocs.length > 1
+                ? "Please Sign: Claim Documents"
+                : `Please Sign: ${documentLabel(selectedDocs[0])}`,
+            html: `
+              <h2>Signature Requested</h2>
+              <p>Please click the link below to review and sign your document${selectedDocs.length > 1 ? "s" : ""}.</p>
+              <p><a href="${signingLink}">${signingLink}</a></p>
+              <p><strong>Forms included:</strong></p>
+              <ul>
+                ${selectedDocs.map((doc) => `<li>${documentLabel(doc)}</li>`).join("")}
+              </ul>
+              <p><strong>Insured:</strong> ${[
+                data.homeowner1,
+                data.homeowner2,
+              ]
+                .filter(Boolean)
+                .join(", ")}</p>
+              <p><strong>Important:</strong> You may draw your signature or use the bold typed-signature option if you are on a computer without a touchscreen.</p>
+              <p>An audit trail page with timestamp, IP address, city/state, and browser details will be attached after signing.</p>
+            `,
+          }),
+        });
 
         await parseJsonResponse(emailResponse, "Signing email failed.");
 
@@ -1971,6 +2392,12 @@ export default function App() {
         signedByName:
           serverAudit.signedByName ||
           [data.homeowner1, data.homeowner2].filter(Boolean).join(", "),
+        signedCity: serverAudit.signedCity || serverAudit.city || "",
+        signedRegion:
+          serverAudit.signedRegion ||
+          serverAudit.region ||
+          serverAudit.state ||
+          "",
       };
 
       setAuditInfo(nextAuditInfo);
@@ -2009,6 +2436,7 @@ export default function App() {
               <p><strong>Representative:</strong> ${data.representativeName || ""}</p>
               <p><strong>Signed at:</strong> ${nextAuditInfo.signedAt || ""}</p>
               <p><strong>Signing IP:</strong> ${nextAuditInfo.signedIp || ""}</p>
+              <p><strong>City / State:</strong> ${[nextAuditInfo.signedCity, nextAuditInfo.signedRegion].filter(Boolean).join(", ") || ""}</p>
               <p><strong>Sign method:</strong> ${nextAuditInfo.signMethod || ""}</p>
             `,
             attachments: [attachment],
@@ -2062,9 +2490,23 @@ export default function App() {
       }}
     >
       <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Great+Vibes&family=Pacifico&family=Dancing+Script:wght@600&display=swap');
+
         body {
           margin: 0;
           font-family: Arial, Helvetica, sans-serif;
+        }
+
+        .sig-font-1 {
+          font-family: "Great Vibes", cursive;
+        }
+
+        .sig-font-2 {
+          font-family: "Pacifico", cursive;
+        }
+
+        .sig-font-3 {
+          font-family: "Dancing Script", cursive;
         }
       `}</style>
 
@@ -2076,7 +2518,7 @@ export default function App() {
           gap: 24,
         }}
       >
-        {view === "input" && (
+        {view === "input" ? (
           <Card>
             <CardHeader>
               <CardTitle>Claim Intake</CardTitle>
@@ -2335,9 +2777,9 @@ export default function App() {
               </div>
             </CardContent>
           </Card>
-        )}
+        ) : null}
 
-        {view === "sign" && (
+        {view === "sign" ? (
           <>
             <div>
               <Button
@@ -2386,7 +2828,7 @@ export default function App() {
                   ))}
                 </div>
 
-                {selectedDocs.length > 1 && (
+                {selectedDocs.length > 1 ? (
                   <div
                     style={{
                       marginTop: 10,
@@ -2397,31 +2839,35 @@ export default function App() {
                     Review both documents below. Your signatures and initials
                     will apply to all selected forms.
                   </div>
-                )}
+                ) : null}
               </CardContent>
             </Card>
 
-            {selectedDocs.includes("lor") && (
+            {selectedDocs.includes("lor") ? (
               <LetterOfRepresentation
                 data={data}
-                sig1={sig1}
-                sig2={sig2}
+                sig1={effectiveSig1}
+                sig2={effectiveSig2}
                 auditInfo={auditInfo}
                 claimId={currentClaimId}
                 isExportingPdf={isExportingPdf}
               />
-            )}
+            ) : null}
 
-            {selectedDocs.includes("pac") && (
+            {selectedDocs.includes("pac") ? (
               <PublicAdjusterContract
-                data={data}
-                sig1={sig1}
-                sig2={sig2}
+                data={{
+                  ...data,
+                  initials1: effectiveInitials1,
+                  initials2: effectiveInitials2,
+                }}
+                sig1={effectiveSig1}
+                sig2={effectiveSig2}
                 auditInfo={auditInfo}
                 claimId={currentClaimId}
                 isExportingPdf={isExportingPdf}
               />
-            )}
+            ) : null}
 
             <Card>
               <CardHeader>
@@ -2451,7 +2897,7 @@ export default function App() {
                   Forms included: {selectedDocLabels.join(" + ")}
                 </div>
 
-                {!pendingSend && (
+                {!pendingSend ? (
                   <div
                     style={{
                       background: "#fef2f2",
@@ -2468,58 +2914,85 @@ export default function App() {
                     {selectedDocs.includes("pac") ? " and initials" : ""} before
                     submitting.
                   </div>
-                )}
+                ) : null}
 
-                {selectedDocs.includes("pac") && !pendingSend && (
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: hasSecond ? "1fr 1fr" : "1fr",
-                      gap: 16,
-                      marginBottom: 8,
-                    }}
-                  >
-                    <InitialsPad
-                      title="Homeowner 1 Initials"
-                      value={data.initials1}
-                      onChange={(v) => update("initials1", v)}
-                      required
-                      missing={!data.initials1}
-                    />
-                    {hasSecond && (
-                      <InitialsPad
-                        title="Homeowner 2 Initials"
-                        value={data.initials2}
-                        onChange={(v) => update("initials2", v)}
-                        required
-                        missing={!data.initials2}
-                      />
-                    )}
-                  </div>
-                )}
+                {!pendingSend ? (
+                  <SignatureInputBlock
+                    label="Homeowner 1 Signature"
+                    mode={sigMode1}
+                    onModeChange={setSigMode1}
+                    drawValue={sig1}
+                    onDrawChange={setSig1}
+                    typedValue={typedSig1}
+                    onTypedChange={setTypedSig1}
+                    fontKey={sigFont1}
+                    onFontChange={setSigFont1}
+                    previewValue={typedSig1Preview}
+                    required
+                    missing={!effectiveSig1}
+                    placeholder="Type Homeowner 1 full name"
+                  />
+                ) : null}
 
-                {!pendingSend && (
+                {!pendingSend && hasSecond ? (
+                  <SignatureInputBlock
+                    label="Homeowner 2 Signature"
+                    mode={sigMode2}
+                    onModeChange={setSigMode2}
+                    drawValue={sig2}
+                    onDrawChange={setSig2}
+                    typedValue={typedSig2}
+                    onTypedChange={setTypedSig2}
+                    fontKey={sigFont2}
+                    onFontChange={setSigFont2}
+                    previewValue={typedSig2Preview}
+                    required
+                    missing={!effectiveSig2}
+                    placeholder="Type Homeowner 2 full name"
+                  />
+                ) : null}
+
+                {selectedDocs.includes("pac") && !pendingSend ? (
                   <>
-                    <SignaturePad
-                      title="Homeowner 1 Signature"
-                      value={sig1}
-                      onChange={setSig1}
+                    <SignatureInputBlock
+                      label="Homeowner 1 Initials"
+                      mode={initialsMode1}
+                      onModeChange={setInitialsMode1}
+                      drawValue={data.initials1}
+                      onDrawChange={(v) => update("initials1", v)}
+                      typedValue={typedInitials1}
+                      onTypedChange={setTypedInitials1}
+                      fontKey={initialsFont1}
+                      onFontChange={setInitialsFont1}
+                      previewValue={typedInitials1Preview}
                       required
-                      missing={!sig1}
+                      missing={!effectiveInitials1}
+                      placeholder="Type Homeowner 1 initials"
+                      isInitials
                     />
-                    {hasSecond && (
-                      <SignaturePad
-                        title="Homeowner 2 Signature"
-                        value={sig2}
-                        onChange={setSig2}
-                        required
-                        missing={!sig2}
-                      />
-                    )}
-                  </>
-                )}
 
-                {!pendingSend && missingSigningFields.length > 0 && (
+                    {hasSecond ? (
+                      <SignatureInputBlock
+                        label="Homeowner 2 Initials"
+                        mode={initialsMode2}
+                        onModeChange={setInitialsMode2}
+                        drawValue={data.initials2}
+                        onDrawChange={(v) => update("initials2", v)}
+                        typedValue={typedInitials2}
+                        onTypedChange={setTypedInitials2}
+                        fontKey={initialsFont2}
+                        onFontChange={setInitialsFont2}
+                        previewValue={typedInitials2Preview}
+                        required
+                        missing={!effectiveInitials2}
+                        placeholder="Type Homeowner 2 initials"
+                        isInitials
+                      />
+                    ) : null}
+                  </>
+                ) : null}
+
+                {!pendingSend && missingSigningFields.length > 0 ? (
                   <div
                     style={{
                       marginTop: 8,
@@ -2530,9 +3003,9 @@ export default function App() {
                   >
                     Missing: {missingSigningFields.join(", ")}
                   </div>
-                )}
+                ) : null}
 
-                {!pendingSend && auditInfo.signedAt && (
+                {!pendingSend && auditInfo.signedAt ? (
                   <div
                     style={{
                       marginTop: 8,
@@ -2542,11 +3015,18 @@ export default function App() {
                     }}
                   >
                     Audit trail will be appended to the final PDF with
-                    timestamp, IP, and browser details.
+                    timestamp, IP, city/state, and browser details.
                   </div>
-                )}
+                ) : null}
 
-                <div style={{ display: "flex", gap: 12, paddingTop: 8, flexWrap: "wrap" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 12,
+                    paddingTop: 8,
+                    flexWrap: "wrap",
+                  }}
+                >
                   <Button
                     onClick={submitDoc}
                     disabled={!pendingSend && !isSigningComplete}
@@ -2560,7 +3040,7 @@ export default function App() {
                     onClick={async () => {
                       try {
                         const docToDownload =
-                          selectedDocs.length === 1 ? selectedDocs[0] : activeDoc;
+                          selectedDocs.length === 1 ? selectedDocs[0] : "lor";
 
                         const element = document.querySelector(
                           getPrintableSelector(docToDownload)
@@ -2600,7 +3080,7 @@ export default function App() {
               </CardContent>
             </Card>
           </>
-        )}
+        ) : null}
       </div>
     </div>
   );
