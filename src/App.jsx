@@ -1920,36 +1920,34 @@ export default function App() {
         const signingLink = `${window.location.origin}/?sign=1&docs=${selectedDocs.join(",")}&claim=${record?.id}`;
 
         const emailResponse = await fetch("/.netlify/functions/send-email", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            to: [data.signerEmail, data.paEmail].filter(Boolean),
-            subject:
-              selectedDocs.length > 1
-                ? "Please Sign: Claim Documents"
-                : `Please Sign: ${documentLabel(selectedDocs[0])}`,
-            html: `
-              <h2>Signature Requested</h2>
-              <p>Please click the link below to review and sign your document${selectedDocs.length > 1 ? "s" : ""}.</p>
-              <p><a href="${signingLink}">${signingLink}</a></p>
-              <p><strong>Forms included:</strong></p>
-              <ul>
-                ${selectedDocs
-                  .map((doc) => `<li>${documentLabel(doc)}</li>`)
-                  .join("")}
-              </ul>
-              <p><strong>Insured:</strong> ${[
-                data.homeowner1,
-                data.homeowner2,
-              ]
-                .filter(Boolean)
-                .join(", ")}</p>
-              <p>An audit trail page with timestamp, IP address, and browser details will be attached after signing.</p>
-            `,
-          }),
-        });
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    to: [data.signerEmail].filter(Boolean),
+    subject:
+      selectedDocs.length > 1
+        ? "Please Sign: Claim Documents"
+        : `Please Sign: ${documentLabel(selectedDocs[0])}`,
+    html: `
+      <h2>Signature Requested</h2>
+      <p>Please click the link below to review and sign your document${selectedDocs.length > 1 ? "s" : ""}.</p>
+      <p><a href="${signingLink}">${signingLink}</a></p>
+      <p><strong>Forms included:</strong></p>
+      <ul>
+        ${selectedDocs.map((doc) => `<li>${documentLabel(doc)}</li>`).join("")}
+      </ul>
+      <p><strong>Insured:</strong> ${[
+        data.homeowner1,
+        data.homeowner2,
+      ]
+        .filter(Boolean)
+        .join(", ")}</p>
+      <p>An audit trail page with timestamp, IP address, and browser details will be attached after signing.</p>
+    `,
+  }),
+});
 
         await parseJsonResponse(emailResponse, "Signing email failed.");
 
