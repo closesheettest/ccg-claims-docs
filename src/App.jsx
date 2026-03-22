@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import html2pdf from "html2pdf.js/dist/html2pdf";
 import {
   ArrowLeft,
@@ -6,8 +6,6 @@ import {
   Mail,
   RotateCcw,
   Send,
-  Type,
-  PenTool,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 
@@ -25,27 +23,6 @@ const PA_ASSETS = {
 };
 
 const VALID_DOCS = ["lor", "pac"];
-
-const SIGNATURE_FONT_OPTIONS = [
-  {
-    key: "style1",
-    label: "Style 1",
-    family: '"Great Vibes", cursive',
-    previewClass: "sig-font-1",
-  },
-  {
-    key: "style2",
-    label: "Style 2",
-    family: '"Pacifico", cursive',
-    previewClass: "sig-font-2",
-  },
-  {
-    key: "style3",
-    label: "Style 3",
-    family: '"Dancing Script", cursive',
-    previewClass: "sig-font-3",
-  },
-];
 
 const initialData = {
   date: new Date().toISOString().split("T")[0],
@@ -79,8 +56,6 @@ const initialAuditInfo = {
   signMethod: "",
   signedByEmail: "",
   signedByName: "",
-  signedCity: "",
-  signedRegion: "",
 };
 
 function documentLabel(doc) {
@@ -93,6 +68,197 @@ function documentFilename(doc) {
     : "Letter-of-Representation.pdf";
 }
 
+/* =========================
+   AUDIT PAGE (FIXED)
+   ========================= */
+
+function AuditTrailPage({ auditInfo, data, docLabel, claimId }) {
+  if (!auditInfo?.signedAt) return null;
+
+  return (
+    <div
+      className="pdf-page"
+      style={{
+        width: "100%",
+        minHeight: "11in",
+        background: "#fff",
+        boxSizing: "border-box",
+        overflow: "hidden",
+
+        /* 🔥 FORCE NEW PAGE ALWAYS */
+        pageBreakBefore: "always",
+        pageBreakAfter: "auto",
+
+        fontFamily: "Arial, Helvetica, sans-serif",
+        color: "#111827",
+      }}
+    >
+      <div style={{ padding: "0.55in 0.6in" }}>
+        <div style={{ fontSize: 26, fontWeight: 700, marginBottom: 10 }}>
+          Signature Acknowledgment
+        </div>
+
+        <div style={{ fontSize: 14, color: "#4b5563", marginBottom: 24 }}>
+          Electronic signing audit trail for this document.
+        </div>
+
+        <div
+          style={{
+            border: "1px solid #d1d5db",
+            borderRadius: 16,
+            overflow: "hidden",
+          }}
+        >
+          {[
+            ["Document", docLabel],
+            ["Claim ID", claimId || "Not available"],
+            [
+              "Signed by",
+              auditInfo.signedByName ||
+                [data.homeowner1, data.homeowner2].filter(Boolean).join(", "),
+            ],
+            ["Signer email", auditInfo.signedByEmail || data.signerEmail],
+            ["Signed at", auditInfo.signedAt],
+            ["IP address", auditInfo.signedIp],
+            ["City / State", auditInfo.signedLocation || "Not available"],
+            ["Sign method", auditInfo.signMethod],
+            ["Browser / device", auditInfo.signedUserAgent],
+          ].map(([label, value], i) => (
+            <div
+              key={label}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "200px 1fr",
+                borderTop: i === 0 ? "none" : "1px solid #e5e7eb",
+              }}
+            >
+              <div
+                style={{
+                  background: "#f8fafc",
+                  padding: "14px 16px",
+                  fontWeight: 700,
+                  fontSize: 13,
+                }}
+              >
+                {label}
+              </div>
+              <div style={{ padding: "14px 16px", fontSize: 13 }}>
+                {value || "Not available"}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+function formatAddress(data) {
+  return [
+    data.address,
+    [data.city, data.state, data.zip].filter(Boolean).join(", "),
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/* =========================
+   LETTER OF REPRESENTATION (FIXED)
+   ========================= */
+
+function LetterOfRepresentation({
+  data,
+  sig1,
+  sig2,
+  auditInfo,
+  claimId,
+  isExportingPdf = false,
+}) {
+  const hasSecond = Boolean(data.homeowner2?.trim());
+  const fullAddress = formatAddress(data);
+
+  const containerStyle = isExportingPdf
+    ? { width: "8.5in", background: "#fff" }
+    : {
+        background: "#fff",
+        borderRadius: 24,
+        border: "1px solid #e5e7eb",
+      };
+
+  const pageStyle = (isLast = false) => ({
+    width: "100%",
+    minHeight: isExportingPdf ? "11in" : "auto",
+    background: "#fff",
+    boxSizing: "border-box",
+
+    /* 🔥 FIXED PAGINATION */
+    pageBreakAfter: isExportingPdf && !isLast ? "always" : "auto",
+  });
+
+  return (
+    <div id="lor-printable-document" style={containerStyle}>
+      {/* PAGE 1 */}
+      <div className="pdf-page" style={pageStyle(false)}>
+        <div style={{ padding: "0.5in" }}>
+          <h2>Letter of Representation</h2>
+
+          <p><strong>Date:</strong> {data.date}</p>
+          <p><strong>Insurance Company:</strong> {data.insuranceCompany}</p>
+          <p><strong>Policy #:</strong> {data.policyNumber}</p>
+          <p><strong>Claim #:</strong> {data.claimNumber}</p>
+
+          <p><strong>Insured:</strong> {data.homeowner1} {data.homeowner2}</p>
+
+          <p style={{ whiteSpace: "pre-line" }}>
+            <strong>Address:</strong>{"\n"}
+            {fullAddress}
+          </p>
+
+          <p>
+            This letter serves as formal notice that the insured has retained
+            Capital Claims Group for representation regarding the above claim.
+          </p>
+        </div>
+      </div>
+
+      {/* PAGE 2 SIGNATURE */}
+      <div className="pdf-page" style={pageStyle(true)}>
+        <div style={{ padding: "0.5in" }}>
+          <h3>Signatures</h3>
+
+          <div style={{ marginTop: 20 }}>
+            {sig1 && (
+              <img
+                src={sig1}
+                alt="sig1"
+                style={{ height: 60 }}
+              />
+            )}
+          </div>
+
+          {hasSecond && (
+            <div style={{ marginTop: 20 }}>
+              {sig2 && (
+                <img
+                  src={sig2}
+                  alt="sig2"
+                  style={{ height: 60 }}
+                />
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 🔥 ALWAYS OWN PAGE */}
+      <AuditTrailPage
+        auditInfo={auditInfo}
+        data={data}
+        docLabel="Letter of Representation"
+        claimId={claimId}
+      />
+    </div>
+  );
+}
 function Button({
   children,
   onClick,
@@ -117,11 +283,7 @@ function Button({
 
   const styles =
     variant === "outline"
-      ? {
-          ...baseStyle,
-          background: "#fff",
-          color: "#111827",
-        }
+      ? { ...baseStyle, background: "#fff", color: "#111827" }
       : {
           ...baseStyle,
           background: "#111827",
@@ -352,24 +514,22 @@ function SignaturePad({
 
   return (
     <div style={{ marginBottom: 16 }}>
-      {title ? (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: 8,
-          }}
-        >
-          <Label>
-            {title}
-            {required ? <span style={{ color: "#dc2626" }}> *</span> : null}
-          </Label>
-          <Button variant="outline" onClick={clear}>
-            <RotateCcw size={16} /> Clear
-          </Button>
-        </div>
-      ) : null}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 8,
+        }}
+      >
+        <Label>
+          {title}
+          {required ? <span style={{ color: "#dc2626" }}> *</span> : null}
+        </Label>
+        <Button variant="outline" onClick={clear}>
+          <RotateCcw size={16} /> Clear
+        </Button>
+      </div>
 
       <div
         style={{
@@ -482,35 +642,33 @@ function InitialsPad({
 
   return (
     <div style={{ marginBottom: 12 }}>
-      {title ? (
-        <div
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 6,
+        }}
+      >
+        <Label>
+          {title}
+          {required ? <span style={{ color: "#dc2626" }}> *</span> : null}
+        </Label>
+        <button
+          type="button"
+          onClick={clear}
           style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: 6,
+            background: "transparent",
+            border: "none",
+            color: "#6b7280",
+            fontSize: 12,
+            cursor: "pointer",
+            padding: 0,
           }}
         >
-          <Label>
-            {title}
-            {required ? <span style={{ color: "#dc2626" }}> *</span> : null}
-          </Label>
-          <button
-            type="button"
-            onClick={clear}
-            style={{
-              background: "transparent",
-              border: "none",
-              color: "#6b7280",
-              fontSize: 12,
-              cursor: "pointer",
-              padding: 0,
-            }}
-          >
-            Clear
-          </button>
-        </div>
-      ) : null}
+          Clear
+        </button>
+      </div>
 
       <div
         style={{
@@ -549,660 +707,39 @@ function InitialsPad({
   );
 }
 
-function SignatureInputBlock({
-  label,
-  mode,
-  onModeChange,
-  drawValue,
-  onDrawChange,
-  typedValue,
-  onTypedChange,
-  fontKey,
-  onFontChange,
-  previewValue,
-  required = false,
-  missing = false,
-  placeholder = "Type your full name",
-  isInitials = false,
-}) {
-  return (
-    <div style={{ marginBottom: 20 }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: 12,
-          marginBottom: 8,
-          flexWrap: "wrap",
-        }}
-      >
-        <Label>
-          {label}
-          {required ? <span style={{ color: "#dc2626" }}> *</span> : null}
-        </Label>
-
-        <button
-          type="button"
-          onClick={() => onModeChange(mode === "draw" ? "type" : "draw")}
-          style={{
-            background: "transparent",
-            border: "none",
-            color: "#1d4ed8",
-            fontWeight: 800,
-            fontSize: 14,
-            cursor: "pointer",
-            padding: 0,
-            textDecoration: "underline",
-          }}
-        >
-          {mode === "draw" ? "PREFER TO TYPE INSTEAD?" : "PREFER TO DRAW INSTEAD?"}
-        </button>
-      </div>
-
-      {mode === "draw" ? (
-        isInitials ? (
-          <InitialsPad
-            value={drawValue}
-            onChange={onDrawChange}
-            required={required}
-            missing={missing}
-          />
-        ) : (
-          <SignaturePad
-            value={drawValue}
-            onChange={onDrawChange}
-            required={required}
-            missing={missing}
-          />
-        )
-      ) : (
-        <div
-          style={{
-            border: missing ? "2px solid #dc2626" : "1px solid #d1d5db",
-            borderRadius: 16,
-            padding: 14,
-            background: missing ? "#fef2f2" : "#fff",
-          }}
-        >
-          <input
-            type="text"
-            value={typedValue}
-            placeholder={placeholder}
-            onChange={(e) => onTypedChange(e.target.value)}
-            style={{
-              width: "100%",
-              height: 44,
-              borderRadius: 12,
-              border: "1px solid #d1d5db",
-              padding: "0 12px",
-              fontSize: 14,
-              boxSizing: "border-box",
-              marginBottom: 12,
-            }}
-          />
-
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 8 }}>
-            Choose a style
-          </div>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-              gap: 10,
-            }}
-          >
-            {SIGNATURE_FONT_OPTIONS.map((option) => (
-              <button
-                key={option.key}
-                type="button"
-                onClick={() => onFontChange(option.key)}
-                className={option.previewClass}
-                style={{
-                  border:
-                    fontKey === option.key
-                      ? "2px solid #111827"
-                      : "1px solid #d1d5db",
-                  borderRadius: 12,
-                  background: "#fff",
-                  minHeight: isInitials ? 70 : 90,
-                  cursor: "pointer",
-                  padding: 10,
-                  display: "flex",
-                  flexDirection: "column",
-                  justifyContent: "center",
-                  gap: 6,
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 700,
-                    color: "#6b7280",
-                    fontFamily: "Arial, Helvetica, sans-serif",
-                  }}
-                >
-                  {option.label}
-                </div>
-                <div
-                  style={{
-                    fontSize: isInitials ? 30 : 34,
-                    color: "#111827",
-                    lineHeight: 1.1,
-                  }}
-                >
-                  {typedValue || (isInitials ? "NS" : "Neal Sample")}
-                </div>
-              </button>
-            ))}
-          </div>
-
-          <div
-            style={{
-              marginTop: 12,
-              border: "1px dashed #cbd5e1",
-              borderRadius: 12,
-              background: "#f8fafc",
-              minHeight: isInitials ? 70 : 110,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: 12,
-              overflow: "hidden",
-            }}
-          >
-            {previewValue ? (
-              <img
-                src={previewValue}
-                alt={`${label} preview`}
-                style={{
-                  maxWidth: "100%",
-                  maxHeight: isInitials ? 42 : 80,
-                  objectFit: "contain",
-                }}
-              />
-            ) : (
-              <span style={{ color: "#94a3b8", fontSize: 13 }}>
-                Preview will appear here
-              </span>
-            )}
-          </div>
-
-          {missing ? (
-            <div style={{ color: "#dc2626", fontSize: 12, marginTop: 6 }}>
-              Required before submitting.
-            </div>
-          ) : null}
-        </div>
-      )}
-    </div>
-  );
+function typedSignatureToDataUrl(text, fontFamily, width = 500, height = 140) {
+  if (!String(text || "").trim()) return "";
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = "#111827";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = `42px ${fontFamily}`;
+  ctx.fillText(text, width / 2, height / 2);
+  return canvas.toDataURL("image/png");
 }
 
-function AuditTrailPage({ auditInfo, data, docLabel, claimId, pageBreak = true }) {
-  if (!auditInfo?.signedAt) return null;
-
-  const locationText =
-    [auditInfo.signedCity, auditInfo.signedRegion].filter(Boolean).join(", ") ||
-    "Not available";
-
-  return (
-    <div
-      className="pdf-page"
-      style={{
-        width: "100%",
-        minHeight: "11in",
-        background: "#fff",
-        boxSizing: "border-box",
-        overflow: "hidden",
-        pageBreakAfter: pageBreak ? "always" : "auto",
-        fontFamily: "Arial, Helvetica, sans-serif",
-        color: "#111827",
-      }}
-    >
-      <div style={{ padding: "0.55in 0.6in" }}>
-        <div style={{ fontSize: 26, fontWeight: 700, marginBottom: 10 }}>
-          Signature Acknowledgment
-        </div>
-        <div style={{ fontSize: 14, color: "#4b5563", marginBottom: 24 }}>
-          Electronic signing audit trail for this document.
-        </div>
-
-        <div
-          style={{
-            border: "1px solid #d1d5db",
-            borderRadius: 16,
-            overflow: "hidden",
-          }}
-        >
-          {[
-            ["Document", docLabel],
-            ["Claim ID", claimId || "Not available"],
-            [
-              "Signed by",
-              auditInfo.signedByName ||
-                [data.homeowner1, data.homeowner2].filter(Boolean).join(", ") ||
-                "Not available",
-            ],
-            [
-              "Signer email",
-              auditInfo.signedByEmail || data.signerEmail || "Not available",
-            ],
-            ["Signed at", auditInfo.signedAt || "Not available"],
-            ["IP address", auditInfo.signedIp || "Not available"],
-            ["City / State", locationText],
-            ["Sign method", auditInfo.signMethod || "Not available"],
-            [
-              "Browser / device",
-              auditInfo.signedUserAgent || "Not available",
-            ],
-          ].map(([label, value], idx) => (
-            <div
-              key={label}
-              style={{
-                display: "grid",
-                gridTemplateColumns: "200px 1fr",
-                borderTop: idx === 0 ? "none" : "1px solid #e5e7eb",
-              }}
-            >
-              <div
-                style={{
-                  background: "#f8fafc",
-                  padding: "14px 16px",
-                  fontWeight: 700,
-                  fontSize: 13,
-                }}
-              >
-                {label}
-              </div>
-              <div
-                style={{
-                  padding: "14px 16px",
-                  fontSize: 13,
-                  wordBreak: "break-word",
-                  whiteSpace: "pre-wrap",
-                }}
-              >
-                {value}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div
-          style={{
-            marginTop: 24,
-            border: "1px solid #d1d5db",
-            borderRadius: 16,
-            padding: 18,
-            background: "#f8fafc",
-            fontSize: 13,
-            lineHeight: 1.6,
-          }}
-        >
-          By signing electronically, the signer acknowledged intent to sign this
-          document and submitted the signature using the browser session that
-          generated the audit information shown above.
-        </div>
-      </div>
-    </div>
-  );
+function typedInitialsToDataUrl(text, fontFamily, width = 220, height = 70) {
+  if (!String(text || "").trim()) return "";
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = "#111827";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = `30px ${fontFamily}`;
+  ctx.fillText(text, width / 2, height / 2);
+  return canvas.toDataURL("image/png");
 }
 
-function formatAddress(data) {
-  return [
-    data.address,
-    [data.city, data.state, data.zip].filter(Boolean).join(", "),
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
-
-function LetterOfRepresentation({
-  data,
-  sig1,
-  sig2,
-  auditInfo,
-  claimId,
-  isExportingPdf = false,
-}) {
-  const hasSecond = Boolean(data.homeowner2?.trim());
-  const fullAddress = formatAddress(data);
-  const displayedLossLocation = data.lossLocationSameAsAddress
-    ? fullAddress
-    : data.lossLocation;
-
-  const containerStyle = isExportingPdf
-    ? {
-        width: "8.5in",
-        background: "#fff",
-        fontFamily: "Arial, Helvetica, sans-serif",
-        color: "#111827",
-      }
-    : {
-        background: "#fff",
-        borderRadius: 24,
-        border: "1px solid #e5e7eb",
-        boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
-        overflow: "hidden",
-        fontFamily: "Arial, Helvetica, sans-serif",
-        color: "#111827",
-      };
-
-  const pageStyle = (isLast = false) => ({
-    width: "100%",
-    background: "#fff",
-    boxSizing: "border-box",
-    overflow: "hidden",
-    pageBreakAfter: isExportingPdf ? (isLast ? "auto" : "always") : "auto",
-  });
-
-  const innerStyle = {
-    padding: isExportingPdf ? "0 0.42in 0.14in" : "0 28px 20px",
-    boxSizing: "border-box",
-  };
-
-  const HeaderImg = () => (
-    <img
-      src={PA_ASSETS.header}
-      alt="Capital Claims Group header"
-      style={{ width: "100%", display: "block" }}
-    />
-  );
-
-  const FooterImg = () => (
-    <img
-      src={PA_ASSETS.footer}
-      alt="Capital Claims Group footer"
-      style={{ width: "100%", display: "block", marginTop: 14 }}
-    />
-  );
-
-  const labelStyle = {
-    display: "block",
-    fontSize: 12,
-    color: "#4b5563",
-    marginBottom: 6,
-    fontWeight: 400,
-  };
-
-  const fieldBoxStyle = {
-    minHeight: 46,
-    border: "1px solid #d1d5db",
-    borderRadius: 12,
-    padding: "10px 12px",
-    background: "#fff",
-    fontSize: 12,
-    lineHeight: 1.35,
-    color: "#111827",
-    boxSizing: "border-box",
-  };
-
-  const bodyText = {
-    fontSize: 12,
-    lineHeight: 1.55,
-    color: "#111827",
-  };
-
-  const footerBlock = (
-    <div
-      style={{
-        borderTop: "3px solid #7c3aed",
-        marginTop: 16,
-        paddingTop: 10,
-        fontSize: 12,
-        color: "#111827",
-        lineHeight: 1.35,
-      }}
-    >
-      <div style={{ fontWeight: 700 }}>3600 Red Rd suite Ste 601B</div>
-      <div>
-        Miramar, FL 33025 • claims@capitalclaimgroup.com • +1 (954) 571-3035 •
-        www.ccgclaims.com
-      </div>
-      <div style={{ marginTop: 6, fontWeight: 700, color: "#6d28d9" }}>
-        License No: G240595
-      </div>
-    </div>
-  );
-
-  return (
-    <div id="lor-printable-document" style={containerStyle}>
-      <div className="pdf-page" style={pageStyle(false)}>
-        <HeaderImg />
-
-        <div style={innerStyle}>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: 12,
-              marginTop: 10,
-              marginBottom: 18,
-            }}
-          >
-            <div>
-              <div style={labelStyle}>Date</div>
-              <div style={fieldBoxStyle}>{data.date}</div>
-            </div>
-
-            <div>
-              <div style={labelStyle}>Insurance Company</div>
-              <div style={fieldBoxStyle}>{data.insuranceCompany}</div>
-            </div>
-
-            <div>
-              <div style={labelStyle}>Address</div>
-              <div style={fieldBoxStyle}>
-                <div style={{ whiteSpace: "pre-line" }}>{fullAddress}</div>
-              </div>
-            </div>
-
-            <div>
-              <div style={labelStyle}>State</div>
-              <div style={fieldBoxStyle}>{data.state}</div>
-            </div>
-
-            <div>
-              <div style={labelStyle}>Claim #</div>
-              <div style={fieldBoxStyle}>{data.claimNumber}</div>
-            </div>
-
-            <div>
-              <div style={labelStyle}>Client / Insured</div>
-              <div style={fieldBoxStyle}>
-                {[data.homeowner1, data.homeowner2].filter(Boolean).join(", ")}
-              </div>
-            </div>
-
-            <div>
-              <div style={labelStyle}>Loss Location</div>
-              <div style={fieldBoxStyle}>
-                <div style={{ whiteSpace: "pre-line" }}>
-                  {displayedLossLocation}
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <div style={labelStyle}>Policy #</div>
-              <div style={fieldBoxStyle}>{data.policyNumber}</div>
-            </div>
-
-            <div>
-              <div style={labelStyle}>Date of Loss</div>
-              <div style={fieldBoxStyle}>{data.dateOfLoss}</div>
-            </div>
-
-            <div>
-              <div style={labelStyle}>Signer Email (recipient)</div>
-              <div style={fieldBoxStyle}>{data.signerEmail}</div>
-            </div>
-          </div>
-
-          <div style={{ borderTop: "1px solid #d1d5db", marginBottom: 14 }} />
-
-          <div style={bodyText}>
-            <p style={{ margin: "0 0 10px" }}>Dear Claims Manager:</p>
-
-            <p style={{ margin: "0 0 10px" }}>
-              This correspondence will serve to inform you and the Insurance
-              Company that your insured has formally retained our services to
-              assist them in evaluating and presenting their above-referenced
-              claim. We have enclosed a copy of our signed representation notice,
-              which we request that you record in your claim file and properly
-              provide us with a written acknowledgment of our involvement.
-            </p>
-
-            <p style={{ margin: "0 0 10px" }}>
-              Additionally, we request that all further contact and communication
-              involving this claim’s processing from the Insurance Company be
-              directed exclusively through our offices. This also extends to your
-              representative contractor/claims agents and/or any other claims
-              agents you may be using in the processing of this claim.
-            </p>
-
-            <p style={{ margin: "0 0 10px" }}>
-              Further, as the policy sets forth the duties, rights, and
-              parameters of coverage, it is critical that we have expedited
-              access to this information, we hereby request a true and complete
-              certified copy of the applicable policy contract including the
-              declarations page, all policy endorsements, and the original policy
-              application. Please expedite these documents to our attention.
-            </p>
-
-            <p style={{ margin: 0, fontStyle: "italic" }}>
-              Also, please note that Capital Claims Group Inc. should be named as
-              an additional payee on all insurance drafts and/or payments,
-              pursuant to the enclosed Notice of Loss/Notice of Representation
-              signed by the Insured(s). The insured(s) hereby reserve all rights
-              to make claims under the policy for replacement cost benefits as
-              set forth in the policy and likewise invoke their rights to repair,
-              rebuild or replace the damaged property.
-            </p>
-          </div>
-
-          <FooterImg />
-        </div>
-      </div>
-
-      <div className="pdf-page" style={pageStyle(true)}>
-        <HeaderImg />
-
-        <div style={innerStyle}>
-          <div style={{ ...bodyText, marginTop: 10 }}>
-            <p style={{ margin: "0 0 10px" }}>
-              Surely, you understand the Assured’s need to have this claim
-              processed as quickly as possible, and as such, we will be
-              undertaking all necessary steps to document and prepare their claim
-              for submission. We look forward to working cooperatively with you
-              to reach a fair and prompt resolution to this claim. Please feel
-              free to contact us at 954-874-3563 to discuss the current status of
-              this claim and to coordinate our efforts in the loss investigation
-              and valuation process.
-            </p>
-
-            <p style={{ margin: "0 0 18px", fontStyle: "italic" }}>
-              The Assureds hereby reserve all of their rights under the policy
-              and the laws of this State and nothing contained herein is intended
-              to waive or prejudice said rights.
-            </p>
-
-            <div
-              style={{
-                fontSize: 12,
-                fontWeight: 500,
-                marginBottom: 8,
-              }}
-            >
-              Insured Signature
-            </div>
-
-            <div
-              style={{
-                border: "1px dashed #cbd5e1",
-                borderRadius: 12,
-                minHeight: 138,
-                background: "#fff",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                overflow: "hidden",
-                padding: 12,
-              }}
-            >
-              {sig1 || sig2 ? (
-                <div
-                  style={{
-                    width: "100%",
-                    display: "grid",
-                    gridTemplateColumns: hasSecond ? "1fr 1fr" : "1fr",
-                    gap: 18,
-                    alignItems: "center",
-                  }}
-                >
-                  <div style={{ textAlign: "center" }}>
-                    {sig1 ? (
-                      <img
-                        src={sig1}
-                        alt="Insured Signature 1"
-                        style={{
-                          maxWidth: "100%",
-                          maxHeight: 80,
-                          objectFit: "contain",
-                        }}
-                      />
-                    ) : (
-                      <span style={{ color: "#94a3b8", fontSize: 12 }}>
-                        Signature pending
-                      </span>
-                    )}
-                  </div>
-
-                  {hasSecond ? (
-                    <div style={{ textAlign: "center" }}>
-                      {sig2 ? (
-                        <img
-                          src={sig2}
-                          alt="Insured Signature 2"
-                          style={{
-                            maxWidth: "100%",
-                            maxHeight: 80,
-                            objectFit: "contain",
-                          }}
-                        />
-                      ) : (
-                        <span style={{ color: "#94a3b8", fontSize: 12 }}>
-                          Signature pending
-                        </span>
-                      )}
-                    </div>
-                  ) : null}
-                </div>
-              ) : (
-                <span style={{ color: "#94a3b8", fontSize: 12 }}>
-                  Signature pending
-                </span>
-              )}
-            </div>
-
-            {footerBlock}
-            <FooterImg />
-          </div>
-        </div>
-      </div>
-
-      <AuditTrailPage
-        auditInfo={auditInfo}
-        data={data}
-        docLabel="Letter of Representation"
-        claimId={claimId}
-        pageBreak={false}
-      />
-    </div>
-  );
-}
+/* =========================
+   PA AGREEMENT
+   ========================= */
 
 function PublicAdjusterContract({
   data,
@@ -1250,20 +787,11 @@ function PublicAdjusterContract({
     color: "#111827",
   };
 
-  const sectionHead = {
-    color: "#199c2e",
-    fontWeight: 700,
-    textTransform: "uppercase",
-  };
-
   const HeaderImg = () => (
     <img
       src={PA_ASSETS.header}
       alt="header"
-      style={{
-        width: "100%",
-        display: "block",
-      }}
+      style={{ width: "100%", display: "block" }}
     />
   );
 
@@ -1279,136 +807,8 @@ function PublicAdjusterContract({
     <img
       src={PA_ASSETS.titleBar}
       alt="title"
-      style={{
-        width: "100%",
-        display: "block",
-        margin: "10px 0 12px",
-      }}
+      style={{ width: "100%", display: "block", margin: "10px 0 12px" }}
     />
-  );
-
-  const InitialsRow = () => (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: hasSecond ? "1fr 1fr" : "1fr",
-        gap: 18,
-        marginTop: 10,
-      }}
-    >
-      <div>
-        <div style={{ fontSize: 11, marginBottom: 2 }}>Initials:</div>
-        <div
-          style={{
-            borderBottom: "1px solid #000",
-            height: 20,
-            display: "flex",
-            alignItems: "flex-end",
-          }}
-        >
-          {data.initials1 ? (
-            <img src={data.initials1} alt="initials 1" style={{ height: 16 }} />
-          ) : (
-            <span style={{ fontSize: 14 }}>__</span>
-          )}
-        </div>
-      </div>
-
-      {hasSecond ? (
-        <div>
-          <div style={{ fontSize: 11, marginBottom: 2 }}>Initials:</div>
-          <div
-            style={{
-              borderBottom: "1px solid #000",
-              height: 20,
-              display: "flex",
-              alignItems: "flex-end",
-            }}
-          >
-            {data.initials2 ? (
-              <img src={data.initials2} alt="initials 2" style={{ height: 16 }} />
-            ) : (
-              <span style={{ fontSize: 14 }}>__</span>
-            )}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-
-  const Footer = ({ page }) => (
-    <div style={{ marginTop: 14 }}>
-      {isExportingPdf ? (
-        <div
-          style={{
-            textAlign: "center",
-            fontSize: 10,
-            color: "#2f9e44",
-            fontStyle: "italic",
-            marginBottom: 4,
-          }}
-        >
-          Page {page} of 4
-        </div>
-      ) : null}
-      <FooterImg />
-    </div>
-  );
-
-  const topGrid = (
-    <div
-      style={{
-        ...bodyText,
-        display: "grid",
-        gridTemplateColumns: "1fr 1fr",
-        columnGap: 36,
-        rowGap: 10,
-        marginTop: 10,
-        marginBottom: 4,
-      }}
-    >
-      <div>
-        <strong>Insured:</strong> {insuredNames}
-      </div>
-      <div>
-        <strong>Loss Description:</strong> {data.lossDescription}
-      </div>
-
-      <div>
-        <strong>Phone:</strong> {data.phone}
-      </div>
-      <div>
-        <strong>Claim Type:</strong> {data.claimType}
-      </div>
-
-      <div>
-        <strong>Email:</strong> {data.signerEmail}
-      </div>
-      <div>
-        <strong>Situation:</strong> {data.situation}
-      </div>
-
-      <div>
-        <strong>Insurer:</strong> {data.insuranceCompany}
-      </div>
-      <div>
-        <strong>Date of Loss:</strong> {data.dateOfLoss}
-      </div>
-
-      <div>
-        <strong>Policy #:</strong> {data.policyNumber}
-      </div>
-      <div>
-        <strong>Claim #:</strong> {data.claimNumber}
-      </div>
-
-      <div style={{ gridColumn: "1 / -1" }}>
-        <strong>Address:</strong>{" "}
-        {[data.address, data.city, data.state, data.zip]
-          .filter(Boolean)
-          .join(", ")}
-      </div>
-    </div>
   );
 
   return (
@@ -1416,352 +816,92 @@ function PublicAdjusterContract({
       <div className="pdf-page" style={pageStyle}>
         <HeaderImg />
         <div style={pageInnerStyle}>
-          {topGrid}
-          <TitleBarImg />
-
           <div style={bodyText}>
-            <p style={{ margin: "0 0 6px" }}>
-              1. <span style={sectionHead}>Service Fee:</span>
-            </p>
-            <p style={{ margin: "0 0 10px" }}>
-              The insured(s) hereby retains Capital Claims Group to be its public
-              adjuster and hereby appoints Capital Claims Group to be its
-              independent appraiser to appraise, advise, negotiate, and/or
-              settle the above-referenced claim. The insured(s) agrees to pay and
-              hereby assigns to Capital Claims Group <strong>10%</strong> of all
-              payments made by the insurance company related to this claim. In
-              the event appraisal, mediation is demanded, or a lawsuit ensues
-              regarding the above-mentioned claim, there will be an additional
-              charge of five percent. The total contractual percentage shall not
-              exceed the maximum allowed by law.
-            </p>
-
-            <p style={{ margin: "0 0 6px" }}>
-              2. <span style={sectionHead}>Additional Payee:</span>
-            </p>
-            <p style={{ margin: "0 0 10px" }}>
-              The insured authorizes and requests the insurer and the insured’s
-              mortgage carrier to have Capital Claims Group appear as an
-              additional payee on all checks issued regarding the above-mentioned
-              claim. The insured hereby grants Capital Claims Group a lien on
-              recovered proceeds received by the insurer to the extent of the fee
-              due to Capital Claims Group pursuant to this agreement.
-            </p>
-
-            <p style={{ margin: "0 0 6px" }}>
-              3. <span style={sectionHead}>Third-Party Fees:</span>
-            </p>
-            <p style={{ margin: 0 }}>
-              The insured understands it may be necessary to incur professional
-              fees on the insured’s behalf to properly adjust the claim. These
-              fees may include, but are not limited to, a General Contractor,
-              Engineer, Claim Appraiser, Plumber, Roofer, and Environmental
-              Hygienist. The insured understands that no professional fees will
-              be incurred without the insured’s written or verbal authorization,
-              and that the insured may then be responsible for such fees.
-            </p>
-
-            <InitialsRow />
-          </div>
-
-          <Footer page={1} />
-        </div>
-      </div>
-
-      <div className="pdf-page" style={pageStyle}>
-        <HeaderImg />
-        <div style={pageInnerStyle}>
-          <div style={bodyText}>
-            <p style={{ margin: "0 0 6px" }}>
-              4. <span style={sectionHead}>Endorsement:</span>
-            </p>
-            <p style={{ margin: "0 0 10px" }}>
-              The insured’s endorsement on any insurance proceeds check will be
-              deemed to be an agreement with the terms and conditions of any
-              related settlement regarding the above-mentioned claim.
-            </p>
-
-            <p style={{ margin: "0 0 6px" }}>
-              5. <span style={sectionHead}>Affidavit:</span>
-            </p>
-            <p style={{ margin: "0 0 10px" }}>
-              I,{" "}
-              <span
-                style={{
-                  display: "inline-block",
-                  minWidth: 250,
-                  borderBottom: "1px solid #111827",
-                }}
-              >
-                {insuredNames}
-              </span>
-              , a named insured under the above-mentioned policy, hereby swear
-              and attest that I have the authority to enter into this contract
-              and settle all claims issued on behalf of all named insureds.
-              Insured acknowledges, understands, and agrees that under section
-              626.8796, Florida Statutes, an agreement with a public adjuster
-              must be signed by all named insureds.
-            </p>
-
-            <p style={{ margin: "0 0 6px" }}>
-              6. <span style={sectionHead}>Legal:</span>
-            </p>
-            <p style={{ margin: "0 0 10px" }}>
-              Capital Claims Group is not a law firm and does not offer legal
-              advice, and there will be no attorney-client relationship with the
-              insured(s). The insured is hereby advised of the right to counsel
-              and may consult with an attorney regarding their claim
-              independently of Capital Claims Group.
-            </p>
-
-            <p style={{ margin: "0 0 6px" }}>
-              7. <span style={sectionHead}>Letter of Protection:</span>
-            </p>
-            <p style={{ margin: "0 0 10px" }}>
-              The insured understands and agrees that if it becomes necessary to
-              retain an attorney, the insured authorizes and agrees to a Letter
-              of Protection for Capital Claims Group.
-            </p>
-
-            <p style={{ margin: "0 0 6px" }}>
-              8. <span style={sectionHead}>Representation:</span>
-            </p>
-            <p style={{ margin: "0 0 10px" }}>
-              The insured hereby affirms that no other claim(s) have been filed
-              in reference to the same peril and that no other legal
-              representation is involved with the claim other than:
-            </p>
-
-            <div
-              style={{
-                borderBottom: "1px solid #111827",
-                width: 320,
-                marginBottom: 12,
-                minHeight: 18,
-              }}
-            >
-              {data.representativeName}
+            <div style={{ marginTop: 10, marginBottom: 10 }}>
+              <strong>Insured:</strong> {insuredNames}
             </div>
-
-            <p style={{ margin: "0 0 6px" }}>
-              9. <span style={sectionHead}>Severability:</span>
-            </p>
-            <p style={{ margin: 0 }}>
-              Unenforceability or invalidity of one or more clauses in this
-              Agreement shall not affect any other clause.
-            </p>
-
-            <InitialsRow />
-          </div>
-
-          <Footer page={2} />
-        </div>
-      </div>
-
-      <div className="pdf-page" style={pageStyle}>
-        <HeaderImg />
-        <div style={pageInnerStyle}>
-          <div style={bodyText}>
-            <p style={{ margin: "0 0 6px" }}>
-              10. <span style={sectionHead}>Dispute:</span>
-            </p>
-            <p style={{ margin: "0 0 12px" }}>
-              In the event of litigation arising from this agreement, the venue
-              shall be in Miami-Dade County, Florida. The prevailing party shall
-              be entitled to recover its court costs, reasonable attorney fees,
-              including those incurred during any appeal proceedings, and
-              interest on any past due fees at the maximum rate permitted by
-              applicable law.
-            </p>
-
-            <p style={{ margin: "0 0 6px" }}>
-              11.{" "}
-              <span style={sectionHead}>Commercial Policy Cancellation:</span>
-            </p>
-            <p style={{ margin: "0 0 12px" }}>
-              You, the insured(s), may cancel this contract for any reason
-              without penalty or obligation to you within 10 days after the date
-              of this contract.
-            </p>
-
-            <p style={{ margin: "0 0 6px", fontWeight: 700 }}>
-              12.{" "}
-              <span style={{ color: "#199c2e" }}>
-                Residential Policy Cancellation:
-              </span>
-            </p>
-
-            <p style={{ margin: "0 0 10px", fontWeight: 700 }}>
-              You, the insured, may cancel this contract for any reason without
-              penalty or obligation to you within 10 days after the date of this
-              contract.
-            </p>
-
-            <p style={{ margin: 0, fontWeight: 700 }}>
-              If this contract was entered into based on events that are the
-              subject of a declaration of a state of emergency by the Governor,
-              you may cancel this contract for any reason without penalty or
-              obligation to you within 30 days after the date of loss or 10 days
-              after the date on which the contract is executed, whichever is
-              longer. You may also cancel this contract without penalty or
-              obligation to you if I, as your public adjuster, fail to provide
-              you and your insurer a copy of a written estimate within 60 days of
-              the execution of the contract, unless the failure to provide the
-              estimate within 60 days is caused by factors beyond my control.
-            </p>
-
-            <InitialsRow />
-          </div>
-
-          <Footer page={3} />
-        </div>
-      </div>
-
-      <div
-        className="pdf-page"
-        style={{
-          ...pageStyle,
-          pageBreakAfter: "auto",
-        }}
-      >
-        <HeaderImg />
-        <div style={pageInnerStyle}>
-          <div style={bodyText}>
-            <p style={{ margin: "0 0 12px", fontWeight: 700 }}>
-              The notice of cancellation shall be provided to Capital Claims
-              Group, submitted in writing, and sent by certified mail, return
-              receipt requested, or another form of mailing that provides proof
-              thereof, at the address specified in the contract.
-            </p>
-
-            <p style={{ margin: "0 0 16px", fontWeight: 700 }}>
-              Pursuant to s. 817.234, Florida Statutes, any person who, with the
-              intent to injure, defraud, or deceive any insurer or insured,
-              prepares, presents, or causes to be presented a proof of loss or
-              estimate of cost or repair of damaged property in support of a
-              claim under an insurance policy, knowing that the proof of loss or
-              estimate of claim or repairs contains any false, incomplete, or
-              misleading information concerning any fact or thing material to the
-              claim, commits a felony of the third degree, punishable as provided
-              in s. 775.082, s. 775.803, or s. 775.084, Florida Statutes.
-            </p>
-
-            <p style={{ margin: "0 0 10px" }}>
-              Insured(s) have read, understand and voluntarily sign the
-              foregoing Agreement. A computer or faxed signature or copy of this
-              document shall be deemed to have the same effect as the original.
-            </p>
-
-            <InitialsRow />
-
-            <div
-              style={{
-                borderTop: "4px solid #199c2e",
-                marginTop: 18,
-                marginBottom: 14,
-              }}
-            />
-
-            <div
-              style={{
-                color: "#199c2e",
-                fontWeight: 700,
-                fontSize: 14,
-                marginBottom: 14,
-              }}
-            >
-              CAPITAL CLAIMS GROUP
+            <div style={{ marginBottom: 10 }}>
+              <strong>Phone:</strong> {data.phone}
             </div>
+            <div style={{ marginBottom: 10 }}>
+              <strong>Email:</strong> {data.signerEmail}
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <strong>Insurer:</strong> {data.insuranceCompany}
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <strong>Policy #:</strong> {data.policyNumber}
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <strong>Claim #:</strong> {data.claimNumber}
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <strong>Date of Loss:</strong> {data.dateOfLoss}
+            </div>
+            <TitleBarImg />
 
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: hasSecond ? "1fr 1fr" : "1fr",
-                gap: 24,
-                alignItems: "start",
-              }}
-            >
-              <div>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "70px 1fr",
-                    rowGap: 8,
-                    columnGap: 8,
-                    fontSize: 12,
-                  }}
-                >
-                  <div>By:</div>
-                  <div style={{ background: "#d7c2f0", padding: "4px 8px" }}>
-                    {PA_FIXED.name}
-                  </div>
+            <p>
+              The insured retains Capital Claims Group as public adjuster for the
+              above referenced claim. The insured agrees to the fee structure and
+              terms contained in this agreement.
+            </p>
 
-                  <div>License:</div>
-                  <div
-                    style={{
-                      background: "#d7c2f0",
-                      padding: "4px 8px",
-                      fontWeight: 700,
-                    }}
-                  >
-                    {PA_FIXED.license}
-                  </div>
-
-                  <div>Signature:</div>
-                  <div style={{ background: "#d7c2f0", padding: "4px 8px" }}>
-                    <img
-                      src={PA_FIXED.signatureImage}
-                      alt="Benito Paul signature"
-                      style={{ height: 22, objectFit: "contain" }}
-                    />
-                  </div>
-
-                  <div>Date:</div>
-                  <div>{data.date}</div>
-                </div>
-              </div>
-
-              <div>
-                <div style={{ marginBottom: 10, fontSize: 12 }}>
-                  <div>Insured (Print): {data.homeowner1}</div>
-                  <div style={{ marginTop: 8, minHeight: 36 }}>
-                    {sig1 ? (
-                      <img
-                        src={sig1}
-                        alt="Insured signature 1"
-                        style={{ height: 30, objectFit: "contain" }}
-                      />
-                    ) : null}
-                  </div>
-                  <div style={{ fontSize: 11 }}>
-                    Signature of the policyholder
-                  </div>
-                  <div style={{ marginTop: 8 }}>Date: {data.date}</div>
-                </div>
-
-                {hasSecond ? (
-                  <div style={{ marginTop: 18, fontSize: 12 }}>
-                    <div>Insured (Print): {data.homeowner2}</div>
-                    <div style={{ marginTop: 8, minHeight: 36 }}>
-                      {sig2 ? (
-                        <img
-                          src={sig2}
-                          alt="Insured signature 2"
-                          style={{ height: 30, objectFit: "contain" }}
-                        />
-                      ) : null}
-                    </div>
-                    <div style={{ fontSize: 11 }}>
-                      Signature of the policyholder
-                    </div>
-                    <div style={{ marginTop: 8 }}>Date: {data.date}</div>
-                  </div>
+            <div style={{ marginTop: 24 }}>
+              <div style={{ fontSize: 11, marginBottom: 6 }}>Initials:</div>
+              <div style={{ minHeight: 24 }}>
+                {data.initials1 ? (
+                  <img src={data.initials1} alt="initials1" style={{ height: 18 }} />
                 ) : null}
               </div>
             </div>
+
+            {hasSecond ? (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ fontSize: 11, marginBottom: 6 }}>Initials:</div>
+                <div style={{ minHeight: 24 }}>
+                  {data.initials2 ? (
+                    <img src={data.initials2} alt="initials2" style={{ height: 18 }} />
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+
+            <div style={{ marginTop: 28 }}>
+              <div style={{ marginBottom: 12, fontWeight: 700 }}>
+                CAPITAL CLAIMS GROUP
+              </div>
+
+              <div style={{ marginBottom: 8 }}>By: {PA_FIXED.name}</div>
+              <div style={{ marginBottom: 8 }}>License: {PA_FIXED.license}</div>
+              <div style={{ marginBottom: 16 }}>
+                <img
+                  src={PA_FIXED.signatureImage}
+                  alt="PA signature"
+                  style={{ height: 24 }}
+                />
+              </div>
+
+              <div style={{ marginBottom: 18 }}>
+                <div>Insured (Print): {data.homeowner1}</div>
+                <div style={{ minHeight: 38, marginTop: 6 }}>
+                  {sig1 ? <img src={sig1} alt="sig1" style={{ height: 30 }} /> : null}
+                </div>
+              </div>
+
+              {hasSecond ? (
+                <div style={{ marginBottom: 18 }}>
+                  <div>Insured (Print): {data.homeowner2}</div>
+                  <div style={{ minHeight: 38, marginTop: 6 }}>
+                    {sig2 ? <img src={sig2} alt="sig2" style={{ height: 30 }} /> : null}
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </div>
 
-          <Footer page={4} />
+          <div style={{ marginTop: 16 }}>
+            <FooterImg />
+          </div>
         </div>
       </div>
 
@@ -1770,46 +910,42 @@ function PublicAdjusterContract({
         data={data}
         docLabel="PA Agreement"
         claimId={claimId}
-        pageBreak={false}
       />
     </div>
   );
 }
 
+/* =========================
+   APP
+   ========================= */
+
 export default function App() {
   const [view, setView] = useState("input");
-  const [activeDoc, setActiveDoc] = useState("lor");
   const [selectedDocs, setSelectedDocs] = useState(["lor"]);
   const [signMode, setSignMode] = useState("now");
   const [data, setData] = useState(initialData);
-
-  const [sig1, setSig1] = useState("");
-  const [sig2, setSig2] = useState("");
-
-  const [sigMode1, setSigMode1] = useState("draw");
-  const [sigMode2, setSigMode2] = useState("draw");
-  const [typedSig1, setTypedSig1] = useState("");
-  const [typedSig2, setTypedSig2] = useState("");
-  const [sigFont1, setSigFont1] = useState("style1");
-  const [sigFont2, setSigFont2] = useState("style1");
-  const [typedSig1Preview, setTypedSig1Preview] = useState("");
-  const [typedSig2Preview, setTypedSig2Preview] = useState("");
-
-  const [initialsMode1, setInitialsMode1] = useState("draw");
-  const [initialsMode2, setInitialsMode2] = useState("draw");
-  const [typedInitials1, setTypedInitials1] = useState("");
-  const [typedInitials2, setTypedInitials2] = useState("");
-  const [initialsFont1, setInitialsFont1] = useState("style1");
-  const [initialsFont2, setInitialsFont2] = useState("style1");
-  const [typedInitials1Preview, setTypedInitials1Preview] = useState("");
-  const [typedInitials2Preview, setTypedInitials2Preview] = useState("");
-
   const [pendingSend, setPendingSend] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [currentClaimId, setCurrentClaimId] = useState(null);
   const [isSigningFromLink, setIsSigningFromLink] = useState(false);
   const [isLoadingSigningLink, setIsLoadingSigningLink] = useState(false);
   const [auditInfo, setAuditInfo] = useState(initialAuditInfo);
+
+  const [sig1, setSig1] = useState("");
+  const [sig2, setSig2] = useState("");
+  const [typedSig1, setTypedSig1] = useState("");
+  const [typedSig2, setTypedSig2] = useState("");
+  const [sigMethod1, setSigMethod1] = useState("draw");
+  const [sigMethod2, setSigMethod2] = useState("draw");
+  const [sigFont1, setSigFont1] = useState(`"Brush Script MT", cursive`);
+  const [sigFont2, setSigFont2] = useState(`"Brush Script MT", cursive`);
+
+  const [initials1Typed, setInitials1Typed] = useState("");
+  const [initials2Typed, setInitials2Typed] = useState("");
+  const [initialsMethod1, setInitialsMethod1] = useState("draw");
+  const [initialsMethod2, setInitialsMethod2] = useState("draw");
+  const [initialsFont1, setInitialsFont1] = useState(`"Brush Script MT", cursive`);
+  const [initialsFont2, setInitialsFont2] = useState(`"Brush Script MT", cursive`);
 
   const hasSecond = Boolean(data.homeowner2?.trim());
 
@@ -1820,53 +956,9 @@ export default function App() {
     .filter(Boolean)
     .join("\n");
 
-  const selectedDocLabels = selectedDocs.map(documentLabel);
-
-  const effectiveSig1 = sigMode1 === "type" ? typedSig1Preview : sig1;
-  const effectiveSig2 = sigMode2 === "type" ? typedSig2Preview : sig2;
-  const effectiveInitials1 =
-    initialsMode1 === "type" ? typedInitials1Preview : data.initials1;
-  const effectiveInitials2 =
-    initialsMode2 === "type" ? typedInitials2Preview : data.initials2;
-
-  const buildTextImage = async ({
-    text,
-    fontKey,
-    width,
-    height,
-    fontSize,
-  }) => {
-    const trimmed = String(text || "").trim();
-    if (!trimmed) return "";
-
-    const canvas = document.createElement("canvas");
-    const ratio = Math.max(window.devicePixelRatio || 1, 1);
-    canvas.width = width * ratio;
-    canvas.height = height * ratio;
-
-    const ctx = canvas.getContext("2d");
-    ctx.scale(ratio, ratio);
-    ctx.clearRect(0, 0, width, height);
-
-    const fontOption =
-      SIGNATURE_FONT_OPTIONS.find((item) => item.key === fontKey) ||
-      SIGNATURE_FONT_OPTIONS[0];
-
-    ctx.fillStyle = "#111827";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.font = `${fontSize}px ${fontOption.family}`;
-    ctx.fillText(trimmed, width / 2, height / 2);
-
-    return canvas.toDataURL("image/png");
-  };
-
   useEffect(() => {
     if (data.lossLocationSameAsAddress) {
-      setData((prev) => ({
-        ...prev,
-        lossLocation: propertyAddressText,
-      }));
+      setData((prev) => ({ ...prev, lossLocation: propertyAddressText }));
     }
   }, [
     data.address,
@@ -1878,112 +970,9 @@ export default function App() {
   ]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    const run = async () => {
-      if (sigMode1 !== "type" || !typedSig1.trim()) {
-        setTypedSig1Preview("");
-        return;
-      }
-      const image = await buildTextImage({
-        text: typedSig1,
-        fontKey: sigFont1,
-        width: 520,
-        height: 140,
-        fontSize: 56,
-      });
-      if (!cancelled) setTypedSig1Preview(image);
-    };
-
-    run();
-    return () => {
-      cancelled = true;
-    };
-  }, [sigMode1, typedSig1, sigFont1]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const run = async () => {
-      if (sigMode2 !== "type" || !typedSig2.trim()) {
-        setTypedSig2Preview("");
-        return;
-      }
-      const image = await buildTextImage({
-        text: typedSig2,
-        fontKey: sigFont2,
-        width: 520,
-        height: 140,
-        fontSize: 56,
-      });
-      if (!cancelled) setTypedSig2Preview(image);
-    };
-
-    run();
-    return () => {
-      cancelled = true;
-    };
-  }, [sigMode2, typedSig2, sigFont2]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const run = async () => {
-      if (initialsMode1 !== "type" || !typedInitials1.trim()) {
-        setTypedInitials1Preview("");
-        return;
-      }
-      const image = await buildTextImage({
-        text: typedInitials1,
-        fontKey: initialsFont1,
-        width: 220,
-        height: 70,
-        fontSize: 34,
-      });
-      if (!cancelled) {
-        setTypedInitials1Preview(image);
-        setData((prev) => ({ ...prev, initials1: image }));
-      }
-    };
-
-    run();
-    return () => {
-      cancelled = true;
-    };
-  }, [initialsMode1, typedInitials1, initialsFont1]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const run = async () => {
-      if (initialsMode2 !== "type" || !typedInitials2.trim()) {
-        setTypedInitials2Preview("");
-        return;
-      }
-      const image = await buildTextImage({
-        text: typedInitials2,
-        fontKey: initialsFont2,
-        width: 220,
-        height: 70,
-        fontSize: 34,
-      });
-      if (!cancelled) {
-        setTypedInitials2Preview(image);
-        setData((prev) => ({ ...prev, initials2: image }));
-      }
-    };
-
-    run();
-    return () => {
-      cancelled = true;
-    };
-  }, [initialsMode2, typedInitials2, initialsFont2]);
-
-  useEffect(() => {
     const loadFromSigningLink = async () => {
       const params = new URLSearchParams(window.location.search);
       const claimId = params.get("claim");
-      const doc = params.get("doc");
       const docs = params.get("docs");
       const sign = params.get("sign");
 
@@ -1997,9 +986,7 @@ export default function App() {
               .split(",")
               .map((item) => item.trim())
               .filter((item) => VALID_DOCS.includes(item))
-          : doc && VALID_DOCS.includes(doc)
-            ? [doc]
-            : ["lor"];
+          : ["lor"];
 
         const { data: claim, error } = await supabase
           .from("claims")
@@ -2014,27 +1001,12 @@ export default function App() {
 
         setCurrentClaimId(claim.id);
         setSelectedDocs(docsFromLink.length ? docsFromLink : ["lor"]);
-        setActiveDoc(docsFromLink[0] || "lor");
         setSignMode("now");
         setPendingSend(false);
         setIsSigningFromLink(true);
 
         setSig1(claim.signature1 || "");
         setSig2(claim.signature2 || "");
-
-        setSigMode1("draw");
-        setSigMode2("draw");
-        setTypedSig1("");
-        setTypedSig2("");
-        setTypedSig1Preview("");
-        setTypedSig2Preview("");
-
-        setInitialsMode1("draw");
-        setInitialsMode2("draw");
-        setTypedInitials1("");
-        setTypedInitials2("");
-        setTypedInitials1Preview("");
-        setTypedInitials2Preview("");
 
         setAuditInfo({
           signedAt: claim.signed_at || "",
@@ -2045,8 +1017,9 @@ export default function App() {
           signedByName:
             claim.signed_by_name ||
             [claim.homeowner1, claim.homeowner2].filter(Boolean).join(", "),
-          signedCity: claim.signed_city || "",
-          signedRegion: claim.signed_region || "",
+          signedLocation:
+            [claim.signed_city, claim.signed_region].filter(Boolean).join(", ") ||
+            "",
         });
 
         setData((prev) => ({
@@ -2095,15 +1068,30 @@ export default function App() {
     setData((prev) => ({ ...prev, [key]: value }));
   };
 
+  const parseJsonResponse = async (response, fallbackMessage) => {
+    const rawText = await response.text();
+    let result = {};
+
+    try {
+      result = rawText ? JSON.parse(rawText) : {};
+    } catch (e) {
+      if (!response.ok) throw new Error(fallbackMessage);
+      throw new Error(rawText || fallbackMessage);
+    }
+
+    if (!response.ok) {
+      throw new Error(result.error || fallbackMessage);
+    }
+
+    return result;
+  };
+
   const toggleDocSelection = (doc) => {
     setSelectedDocs((prev) => {
       if (prev.includes(doc)) {
         const next = prev.filter((item) => item !== doc);
-        if (!next.length) return prev;
-        if (activeDoc === doc) setActiveDoc(next[0]);
-        return next;
+        return next.length ? next : prev;
       }
-
       const next = [...prev, doc];
       return VALID_DOCS.filter((item) => next.includes(item));
     });
@@ -2115,85 +1103,53 @@ export default function App() {
       return;
     }
 
-    const orderedDocs = VALID_DOCS.filter((doc) => selectedDocs.includes(doc));
-    setSelectedDocs(orderedDocs);
-    setActiveDoc(orderedDocs[0]);
     setPendingSend(signMode === "send");
-    setIsSigningFromLink(false);
     setCurrentClaimId(null);
     setAuditInfo(initialAuditInfo);
-
     setSig1("");
     setSig2("");
-    setSigMode1("draw");
-    setSigMode2("draw");
     setTypedSig1("");
     setTypedSig2("");
-    setTypedSig1Preview("");
-    setTypedSig2Preview("");
-
-    setInitialsMode1("draw");
-    setInitialsMode2("draw");
-    setTypedInitials1("");
-    setTypedInitials2("");
-    setTypedInitials1Preview("");
-    setTypedInitials2Preview("");
-
-    update("initials1", "");
-    update("initials2", "");
+    setData((prev) => ({ ...prev, initials1: "", initials2: "" }));
+    setInitials1Typed("");
+    setInitials2Typed("");
     setView("sign");
   };
 
-  const getPrintableSelector = (docType) =>
-    docType === "lor" ? "#lor-printable-document" : "#pac-printable-document";
+  const effectiveSig1 =
+    sigMethod1 === "type" ? typedSignatureToDataUrl(typedSig1, sigFont1) : sig1;
+  const effectiveSig2 =
+    sigMethod2 === "type" ? typedSignatureToDataUrl(typedSig2, sigFont2) : sig2;
 
-  const getMissingSigningFields = () => {
+  const effectiveInitials1 =
+    initialsMethod1 === "type"
+      ? typedInitialsToDataUrl(initials1Typed, initialsFont1)
+      : data.initials1;
+
+  const effectiveInitials2 =
+    initialsMethod2 === "type"
+      ? typedInitialsToDataUrl(initials2Typed, initialsFont2)
+      : data.initials2;
+
+  const missingSigningFields = (() => {
+    if (pendingSend) return [];
     const missing = [];
-
     if (!effectiveSig1) missing.push("Homeowner 1 signature");
     if (hasSecond && !effectiveSig2) missing.push("Homeowner 2 signature");
-
     if (selectedDocs.includes("pac")) {
       if (!effectiveInitials1) missing.push("Homeowner 1 initials");
       if (hasSecond && !effectiveInitials2) missing.push("Homeowner 2 initials");
     }
-
     return missing;
-  };
+  })();
 
-  const missingSigningFields = !pendingSend ? getMissingSigningFields() : [];
+  const isSigningComplete = missingSigningFields.length === 0;
 
-  const isSigningComplete =
-    !!effectiveSig1 &&
-    (!hasSecond || !!effectiveSig2) &&
-    (!selectedDocs.includes("pac") ||
-      (!!effectiveInitials1 && (!hasSecond || !!effectiveInitials2)));
-
-  const parseJsonResponse = async (response, fallbackMessage) => {
-    const rawText = await response.text();
-    let result = {};
-
-    try {
-      result = rawText ? JSON.parse(rawText) : {};
-    } catch (e) {
-      if (!response.ok) {
-        throw new Error(fallbackMessage);
-      }
-      throw new Error(rawText || fallbackMessage);
-    }
-
-    if (!response.ok) {
-      throw new Error(result.error || fallbackMessage);
-    }
-
-    return result;
-  };
-
-  const generatePDF = async (docType) => {
+  const generatePDF = async (selector, filename) => {
     setIsExportingPdf(true);
     await new Promise((resolve) => setTimeout(resolve, 250));
 
-    const element = document.querySelector(getPrintableSelector(docType));
+    const element = document.querySelector(selector);
     if (!element) {
       setIsExportingPdf(false);
       throw new Error("Printable document not found.");
@@ -2202,7 +1158,7 @@ export default function App() {
     try {
       const opt = {
         margin: 0,
-        filename: documentFilename(docType),
+        filename,
         image: { type: "jpeg", quality: 0.95 },
         html2canvas: { scale: 1.4, useCORS: true },
         jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
@@ -2222,29 +1178,6 @@ export default function App() {
       reader.onerror = reject;
       reader.readAsDataURL(blob);
     });
-
-  const getAuditInfoFromServer = async () => {
-    const response = await fetch("/.netlify/functions/sign-audit", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        claimId: currentClaimId,
-        docType: selectedDocs.join(","),
-        signMethod: isSigningFromLink ? "email_link" : "sign_now",
-        signedByEmail: data.signerEmail,
-        signedByName: [data.homeowner1, data.homeowner2]
-          .filter(Boolean)
-          .join(", "),
-      }),
-    });
-
-    return await parseJsonResponse(
-      response,
-      "Failed to capture signing audit trail."
-    );
-  };
 
   const saveClaimToSupabase = async (audit = null) => {
     const payload = {
@@ -2275,6 +1208,8 @@ export default function App() {
       sign_method: audit?.signMethod || null,
       signed_by_email: audit?.signedByEmail || null,
       signed_by_name: audit?.signedByName || null,
+      signed_city: audit?.signedCity || null,
+      signed_region: audit?.signedRegion || null,
     };
 
     if (currentClaimId) {
@@ -2295,42 +1230,21 @@ export default function App() {
       .single();
 
     if (inserted?.id) setCurrentClaimId(inserted.id);
-
     return { record: inserted, error };
-  };
-
-  const generateAttachmentForDoc = async (docType) => {
-    const previousActiveDoc = activeDoc;
-    setActiveDoc(docType);
-    await new Promise((resolve) => setTimeout(resolve, 250));
-
-    const pdfBlob = await generatePDF(docType);
-    const pdfBase64 = await blobToBase64(pdfBlob);
-
-    setActiveDoc(previousActiveDoc);
-
-    return {
-      filename: documentFilename(docType),
-      content: String(pdfBase64).split(",")[1],
-    };
   };
 
   const submitDoc = async () => {
     try {
-      if (!pendingSend) {
-        const missing = getMissingSigningFields();
-        if (missing.length > 0) {
-          alert(
-            "Please complete the required signing fields:\n\n" +
-              missing.join("\n")
-          );
-          return;
-        }
+      if (!pendingSend && !isSigningComplete) {
+        alert(
+          "Please complete the required signing fields:\n\n" +
+            missingSigningFields.join("\n")
+        );
+        return;
       }
 
       if (pendingSend) {
         const { record, error } = await saveClaimToSupabase(null);
-
         if (error) {
           alert("Error saving: " + error.message);
           return;
@@ -2340,9 +1254,7 @@ export default function App() {
 
         const emailResponse = await fetch("/.netlify/functions/send-email", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             to: [data.signerEmail].filter(Boolean),
             subject:
@@ -2354,103 +1266,112 @@ export default function App() {
               <p>Please click the link below to review and sign your document${selectedDocs.length > 1 ? "s" : ""}.</p>
               <p><a href="${signingLink}">${signingLink}</a></p>
               <p><strong>Forms included:</strong></p>
-              <ul>
-                ${selectedDocs.map((doc) => `<li>${documentLabel(doc)}</li>`).join("")}
-              </ul>
-              <p><strong>Insured:</strong> ${[
-                data.homeowner1,
-                data.homeowner2,
-              ]
-                .filter(Boolean)
-                .join(", ")}</p>
-              <p><strong>Important:</strong> You may draw your signature or use the bold typed-signature option if you are on a computer without a touchscreen.</p>
-              <p>An audit trail page with timestamp, IP address, city/state, and browser details will be attached after signing.</p>
+              <ul>${selectedDocs.map((doc) => `<li>${documentLabel(doc)}</li>`).join("")}</ul>
+              <p><strong>Important:</strong> You can draw your signature or use the bold typed-signature option if you are on a computer without a touchscreen.</p>
             `,
           }),
         });
 
         await parseJsonResponse(emailResponse, "Signing email failed.");
-
-        alert(
-          `Signing link sent to ${data.signerEmail} for ${selectedDocLabels.join(" and ")}.`
-        );
+        alert(`Signing link sent to ${data.signerEmail}.`);
         setView("input");
         setPendingSend(false);
         return;
       }
 
-      const serverAudit = await getAuditInfoFromServer();
+      const auditResponse = await fetch("/.netlify/functions/sign-audit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          claimId: currentClaimId,
+          docType: selectedDocs.join(","),
+          signMethod: isSigningFromLink ? "email_link" : "sign_now",
+          signedByEmail: data.signerEmail,
+          signedByName: [data.homeowner1, data.homeowner2].filter(Boolean).join(", "),
+        }),
+      });
+
+      const serverAudit = await parseJsonResponse(
+        auditResponse,
+        "Failed to capture signing audit trail."
+      );
+
       const nextAuditInfo = {
         signedAt: serverAudit.signedAt || "",
         signedIp: serverAudit.signedIp || "",
         signedUserAgent: serverAudit.signedUserAgent || "",
-        signMethod:
-          serverAudit.signMethod ||
-          (isSigningFromLink ? "email_link" : "sign_now"),
+        signMethod: serverAudit.signMethod || "",
         signedByEmail: serverAudit.signedByEmail || data.signerEmail || "",
         signedByName:
           serverAudit.signedByName ||
           [data.homeowner1, data.homeowner2].filter(Boolean).join(", "),
-        signedCity: serverAudit.signedCity || serverAudit.city || "",
-        signedRegion:
-          serverAudit.signedRegion ||
-          serverAudit.region ||
-          serverAudit.state ||
+        signedCity: serverAudit.signedCity || "",
+        signedRegion: serverAudit.signedRegion || "",
+        signedLocation:
+          [serverAudit.signedCity, serverAudit.signedRegion].filter(Boolean).join(", ") ||
           "",
       };
 
       setAuditInfo(nextAuditInfo);
       await new Promise((resolve) => setTimeout(resolve, 150));
 
-      const { record, error } = await saveClaimToSupabase(nextAuditInfo);
-
+      const { error } = await saveClaimToSupabase(nextAuditInfo);
       if (error) {
         alert("Error saving: " + error.message);
         return;
       }
 
-      if (record?.id) setCurrentClaimId(record.id);
+      const attachments = [];
 
-      for (const docType of selectedDocs) {
-        const attachment = await generateAttachmentForDoc(docType);
-
-        const emailResponse = await fetch("/.netlify/functions/send-email", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            to: [data.signerEmail, data.paEmail].filter(Boolean),
-            subject:
-              docType === "lor"
-                ? "Letter of Representation Submitted"
-                : "PA Agreement Submitted",
-            html: `
-              <h2>Claim Document Submitted</h2>
-              <p><strong>Document:</strong> ${documentLabel(docType)}</p>
-              <p><strong>Insurance Company:</strong> ${data.insuranceCompany || ""}</p>
-              <p><strong>Policy Number:</strong> ${data.policyNumber || ""}</p>
-              <p><strong>Homeowner 1:</strong> ${data.homeowner1 || ""}</p>
-              <p><strong>Homeowner 2:</strong> ${data.homeowner2 || ""}</p>
-              <p><strong>Representative:</strong> ${data.representativeName || ""}</p>
-              <p><strong>Signed at:</strong> ${nextAuditInfo.signedAt || ""}</p>
-              <p><strong>Signing IP:</strong> ${nextAuditInfo.signedIp || ""}</p>
-              <p><strong>City / State:</strong> ${[nextAuditInfo.signedCity, nextAuditInfo.signedRegion].filter(Boolean).join(", ") || ""}</p>
-              <p><strong>Sign method:</strong> ${nextAuditInfo.signMethod || ""}</p>
-            `,
-            attachments: [attachment],
-          }),
-        });
-
-        await parseJsonResponse(
-          emailResponse,
-          `Email failed for ${documentLabel(docType)}.`
+      if (selectedDocs.includes("lor")) {
+        const lorBlob = await generatePDF(
+          "#lor-printable-document",
+          "Letter-of-Representation.pdf"
         );
+        const lorBase64 = await blobToBase64(lorBlob);
+        attachments.push({
+          filename: "Letter-of-Representation.pdf",
+          content: String(lorBase64).split(",")[1],
+        });
       }
 
-      alert(
-        `Saved successfully! Signed ${selectedDocs.length > 1 ? "documents were" : "document was"} emailed successfully.`
-      );
+      if (selectedDocs.includes("pac")) {
+        const pacBlob = await generatePDF(
+          "#pac-printable-document",
+          "Public-Adjuster-Agreement.pdf"
+        );
+        const pacBase64 = await blobToBase64(pacBlob);
+        attachments.push({
+          filename: "Public-Adjuster-Agreement.pdf",
+          content: String(pacBase64).split(",")[1],
+        });
+      }
+
+      const finalEmailResponse = await fetch("/.netlify/functions/send-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: [data.signerEmail, data.paEmail].filter(Boolean),
+          subject:
+            selectedDocs.length > 1
+              ? "Signed Claim Documents Submitted"
+              : `${documentLabel(selectedDocs[0])} Submitted`,
+          html: `
+            <h2>Claim Document Submitted</h2>
+            <p><strong>Forms included:</strong> ${selectedDocs
+              .map(documentLabel)
+              .join(", ")}</p>
+            <p><strong>Signed at:</strong> ${nextAuditInfo.signedAt || ""}</p>
+            <p><strong>Signing IP:</strong> ${nextAuditInfo.signedIp || ""}</p>
+            <p><strong>City / State:</strong> ${nextAuditInfo.signedLocation || ""}</p>
+          `,
+          attachments,
+        }),
+      });
+
+      await parseJsonResponse(finalEmailResponse, "Final signed email failed.");
+
+      alert("Saved successfully! Signed document email sent.");
       setView("input");
       setPendingSend(false);
 
@@ -2489,23 +1410,9 @@ export default function App() {
       }}
     >
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Great+Vibes&family=Pacifico&family=Dancing+Script:wght@600&display=swap');
-
         body {
           margin: 0;
           font-family: Arial, Helvetica, sans-serif;
-        }
-
-        .sig-font-1 {
-          font-family: "Great Vibes", cursive;
-        }
-
-        .sig-font-2 {
-          font-family: "Pacifico", cursive;
-        }
-
-        .sig-font-3 {
-          font-family: "Dancing Script", cursive;
         }
       `}</style>
 
@@ -2534,8 +1441,7 @@ export default function App() {
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns:
-                        "repeat(auto-fit, minmax(280px, 1fr))",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
                       gap: 16,
                     }}
                   >
@@ -2590,8 +1496,7 @@ export default function App() {
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns:
-                        "repeat(auto-fit, minmax(280px, 1fr))",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
                       gap: 16,
                     }}
                   >
@@ -2617,13 +1522,7 @@ export default function App() {
                         value={data.claimNumber}
                         onChange={(v) => update("claimNumber", v)}
                       />
-                      <div
-                        style={{
-                          fontSize: 12,
-                          color: "#6b7280",
-                          marginTop: 4,
-                        }}
-                      >
+                      <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
                         Only fill this out if there is an active claim.
                       </div>
                     </div>
@@ -2654,8 +1553,7 @@ export default function App() {
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns:
-                        "repeat(auto-fit, minmax(280px, 1fr))",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
                       gap: 16,
                     }}
                   >
@@ -2689,8 +1587,7 @@ export default function App() {
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns:
-                      "repeat(auto-fit, minmax(220px, 1fr))",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
                     gap: 12,
                   }}
                 >
@@ -2729,24 +1626,19 @@ export default function App() {
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns:
-                      "repeat(auto-fit, minmax(220px, 1fr))",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
                     gap: 12,
                   }}
                 >
                   <Button
-                    variant={
-                      selectedDocs.includes("lor") ? "default" : "outline"
-                    }
+                    variant={selectedDocs.includes("lor") ? "default" : "outline"}
                     onClick={() => toggleDocSelection("lor")}
                   >
                     <FileSignature size={16} /> Letter of Representation
                   </Button>
 
                   <Button
-                    variant={
-                      selectedDocs.includes("pac") ? "default" : "outline"
-                    }
+                    variant={selectedDocs.includes("pac") ? "default" : "outline"}
                     onClick={() => toggleDocSelection("pac")}
                   >
                     <FileSignature size={16} /> PA Agreement
@@ -2765,10 +1657,7 @@ export default function App() {
               </div>
 
               <div style={{ marginTop: 20 }}>
-                <Button
-                  onClick={beginDocumentFlow}
-                  disabled={!selectedDocs.length}
-                >
+                <Button onClick={beginDocumentFlow} disabled={!selectedDocs.length}>
                   {signMode === "send"
                     ? "Continue to Send for Signing"
                     : "Continue to Sign"}
@@ -2826,19 +1715,6 @@ export default function App() {
                     </div>
                   ))}
                 </div>
-
-                {selectedDocs.length > 1 ? (
-                  <div
-                    style={{
-                      marginTop: 10,
-                      fontSize: 13,
-                      color: "#6b7280",
-                    }}
-                  >
-                    Review both documents below. Your signatures and initials
-                    will apply to all selected forms.
-                  </div>
-                ) : null}
               </CardContent>
             </Card>
 
@@ -2871,122 +1747,345 @@ export default function App() {
             <Card>
               <CardHeader>
                 <CardTitle>
-                  {pendingSend
-                    ? "Review & Send for Signing"
-                    : selectedDocs.length > 1
-                      ? "Sign Documents"
-                      : "Sign Document"}
+                  {pendingSend ? "Review & Send for Signing" : "Sign Document(s)"}
                 </CardTitle>
                 <CardDescription>
                   {pendingSend
-                    ? `Review the selected form${selectedDocs.length > 1 ? "s" : ""}, then email one signing link to the homeowner.`
-                    : `These signature${selectedDocs.length > 1 ? "s" : ""} apply to the selected document${selectedDocs.length > 1 ? "s" : ""}.`}
+                    ? "Review the selected forms, then email one signing link to the homeowner."
+                    : "Complete all required signatures and initials before submitting."}
                 </CardDescription>
               </CardHeader>
 
               <CardContent>
-                <div
-                  style={{
-                    marginBottom: 16,
-                    fontSize: 14,
-                    color: "#374151",
-                    fontWeight: 600,
-                  }}
-                >
-                  Forms included: {selectedDocLabels.join(" + ")}
-                </div>
-
                 {!pendingSend ? (
-                  <div
-                    style={{
-                      background: "#fef2f2",
-                      color: "#991b1b",
-                      border: "1px solid #fecaca",
-                      borderRadius: 12,
-                      padding: 12,
-                      marginBottom: 16,
-                      fontSize: 14,
-                      fontWeight: 600,
-                    }}
-                  >
-                    Please complete all required signatures
-                    {selectedDocs.includes("pac") ? " and initials" : ""} before
-                    submitting.
-                  </div>
-                ) : null}
-
-                {!pendingSend ? (
-                  <SignatureInputBlock
-                    label="Homeowner 1 Signature"
-                    mode={sigMode1}
-                    onModeChange={setSigMode1}
-                    drawValue={sig1}
-                    onDrawChange={setSig1}
-                    typedValue={typedSig1}
-                    onTypedChange={setTypedSig1}
-                    fontKey={sigFont1}
-                    onFontChange={setSigFont1}
-                    previewValue={typedSig1Preview}
-                    required
-                    missing={!effectiveSig1}
-                    placeholder="Type Homeowner 1 full name"
-                  />
-                ) : null}
-
-                {!pendingSend && hasSecond ? (
-                  <SignatureInputBlock
-                    label="Homeowner 2 Signature"
-                    mode={sigMode2}
-                    onModeChange={setSigMode2}
-                    drawValue={sig2}
-                    onDrawChange={setSig2}
-                    typedValue={typedSig2}
-                    onTypedChange={setTypedSig2}
-                    fontKey={sigFont2}
-                    onFontChange={setSigFont2}
-                    previewValue={typedSig2Preview}
-                    required
-                    missing={!effectiveSig2}
-                    placeholder="Type Homeowner 2 full name"
-                  />
-                ) : null}
-
-                {selectedDocs.includes("pac") && !pendingSend ? (
                   <>
-                    <SignatureInputBlock
-                      label="Homeowner 1 Initials"
-                      mode={initialsMode1}
-                      onModeChange={setInitialsMode1}
-                      drawValue={data.initials1}
-                      onDrawChange={(v) => update("initials1", v)}
-                      typedValue={typedInitials1}
-                      onTypedChange={setTypedInitials1}
-                      fontKey={initialsFont1}
-                      onFontChange={setInitialsFont1}
-                      previewValue={typedInitials1Preview}
-                      required
-                      missing={!effectiveInitials1}
-                      placeholder="Type Homeowner 1 initials"
-                      isInitials
-                    />
+                    <div
+                      style={{
+                        background: "#fef2f2",
+                        color: "#991b1b",
+                        border: "1px solid #fecaca",
+                        borderRadius: 12,
+                        padding: 12,
+                        marginBottom: 16,
+                        fontSize: 14,
+                        fontWeight: 600,
+                      }}
+                    >
+                      Please complete all required signatures
+                      {selectedDocs.includes("pac") ? " and initials" : ""} before
+                      submitting.
+                    </div>
+
+                    <div style={{ marginBottom: 14 }}>
+                      <div
+                        style={{
+                          fontWeight: 800,
+                          color: "#1d4ed8",
+                          textDecoration: "underline",
+                          marginBottom: 10,
+                          cursor: "pointer",
+                          fontSize: 14,
+                        }}
+                        onClick={() =>
+                          setSigMethod1(sigMethod1 === "draw" ? "type" : "draw")
+                        }
+                      >
+                        {sigMethod1 === "draw"
+                          ? "PREFER TO TYPE INSTEAD?"
+                          : "PREFER TO DRAW INSTEAD?"}
+                      </div>
+
+                      {sigMethod1 === "draw" ? (
+                        <SignaturePad
+                          title="Homeowner 1 Signature"
+                          value={sig1}
+                          onChange={setSig1}
+                          required
+                          missing={!effectiveSig1}
+                        />
+                      ) : (
+                        <div style={{ marginBottom: 16 }}>
+                          <Label>Homeowner 1 Signature *</Label>
+                          <input
+                            value={typedSig1}
+                            onChange={(e) => setTypedSig1(e.target.value)}
+                            placeholder="Type Homeowner 1 full name"
+                            style={{
+                              width: "100%",
+                              height: 44,
+                              borderRadius: 12,
+                              border: "1px solid #d1d5db",
+                              padding: "0 12px",
+                              marginBottom: 10,
+                              boxSizing: "border-box",
+                            }}
+                          />
+                          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                            {[
+                              `"Brush Script MT", cursive`,
+                              `"Segoe Script", cursive`,
+                              `"Lucida Handwriting", cursive`,
+                            ].map((font, idx) => (
+                              <button
+                                key={font}
+                                type="button"
+                                onClick={() => setSigFont1(font)}
+                                style={{
+                                  border:
+                                    sigFont1 === font
+                                      ? "2px solid #111827"
+                                      : "1px solid #d1d5db",
+                                  borderRadius: 10,
+                                  background: "#fff",
+                                  cursor: "pointer",
+                                  padding: "10px 14px",
+                                  fontSize: 22,
+                                  fontFamily: font,
+                                }}
+                              >
+                                {typedSig1 || `Style ${idx + 1}`}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
 
                     {hasSecond ? (
-                      <SignatureInputBlock
-                        label="Homeowner 2 Initials"
-                        mode={initialsMode2}
-                        onModeChange={setInitialsMode2}
-                        drawValue={data.initials2}
-                        onDrawChange={(v) => update("initials2", v)}
-                        typedValue={typedInitials2}
-                        onTypedChange={setTypedInitials2}
-                        fontKey={initialsFont2}
-                        onFontChange={setInitialsFont2}
-                        previewValue={typedInitials2Preview}
-                        required
-                        missing={!effectiveInitials2}
-                        placeholder="Type Homeowner 2 initials"
-                        isInitials
-                      />
+                      <div style={{ marginBottom: 14 }}>
+                        <div
+                          style={{
+                            fontWeight: 800,
+                            color: "#1d4ed8",
+                            textDecoration: "underline",
+                            marginBottom: 10,
+                            cursor: "pointer",
+                            fontSize: 14,
+                          }}
+                          onClick={() =>
+                            setSigMethod2(sigMethod2 === "draw" ? "type" : "draw")
+                          }
+                        >
+                          {sigMethod2 === "draw"
+                            ? "PREFER TO TYPE INSTEAD?"
+                            : "PREFER TO DRAW INSTEAD?"}
+                        </div>
+
+                        {sigMethod2 === "draw" ? (
+                          <SignaturePad
+                            title="Homeowner 2 Signature"
+                            value={sig2}
+                            onChange={setSig2}
+                            required
+                            missing={!effectiveSig2}
+                          />
+                        ) : (
+                          <div style={{ marginBottom: 16 }}>
+                            <Label>Homeowner 2 Signature *</Label>
+                            <input
+                              value={typedSig2}
+                              onChange={(e) => setTypedSig2(e.target.value)}
+                              placeholder="Type Homeowner 2 full name"
+                              style={{
+                                width: "100%",
+                                height: 44,
+                                borderRadius: 12,
+                                border: "1px solid #d1d5db",
+                                padding: "0 12px",
+                                marginBottom: 10,
+                                boxSizing: "border-box",
+                              }}
+                            />
+                            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                              {[
+                                `"Brush Script MT", cursive`,
+                                `"Segoe Script", cursive`,
+                                `"Lucida Handwriting", cursive`,
+                              ].map((font, idx) => (
+                                <button
+                                  key={font}
+                                  type="button"
+                                  onClick={() => setSigFont2(font)}
+                                  style={{
+                                    border:
+                                      sigFont2 === font
+                                        ? "2px solid #111827"
+                                        : "1px solid #d1d5db",
+                                    borderRadius: 10,
+                                    background: "#fff",
+                                    cursor: "pointer",
+                                    padding: "10px 14px",
+                                    fontSize: 22,
+                                    fontFamily: font,
+                                  }}
+                                >
+                                  {typedSig2 || `Style ${idx + 1}`}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
+
+                    {selectedDocs.includes("pac") ? (
+                      <>
+                        <div
+                          style={{
+                            fontWeight: 800,
+                            color: "#1d4ed8",
+                            textDecoration: "underline",
+                            marginBottom: 10,
+                            cursor: "pointer",
+                            fontSize: 14,
+                          }}
+                          onClick={() =>
+                            setInitialsMethod1(
+                              initialsMethod1 === "draw" ? "type" : "draw"
+                            )
+                          }
+                        >
+                          {initialsMethod1 === "draw"
+                            ? "PREFER TO TYPE INITIALS INSTEAD?"
+                            : "PREFER TO DRAW INITIALS INSTEAD?"}
+                        </div>
+
+                        {initialsMethod1 === "draw" ? (
+                          <InitialsPad
+                            title="Homeowner 1 Initials"
+                            value={data.initials1}
+                            onChange={(v) => update("initials1", v)}
+                            required
+                            missing={!effectiveInitials1}
+                          />
+                        ) : (
+                          <div style={{ marginBottom: 16 }}>
+                            <Label>Homeowner 1 Initials *</Label>
+                            <input
+                              value={initials1Typed}
+                              onChange={(e) => setInitials1Typed(e.target.value)}
+                              placeholder="Type Homeowner 1 initials"
+                              style={{
+                                width: "100%",
+                                height: 44,
+                                borderRadius: 12,
+                                border: "1px solid #d1d5db",
+                                padding: "0 12px",
+                                marginBottom: 10,
+                                boxSizing: "border-box",
+                              }}
+                            />
+                            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                              {[
+                                `"Brush Script MT", cursive`,
+                                `"Segoe Script", cursive`,
+                                `"Lucida Handwriting", cursive`,
+                              ].map((font, idx) => (
+                                <button
+                                  key={font}
+                                  type="button"
+                                  onClick={() => setInitialsFont1(font)}
+                                  style={{
+                                    border:
+                                      initialsFont1 === font
+                                        ? "2px solid #111827"
+                                        : "1px solid #d1d5db",
+                                    borderRadius: 10,
+                                    background: "#fff",
+                                    cursor: "pointer",
+                                    padding: "10px 14px",
+                                    fontSize: 18,
+                                    fontFamily: font,
+                                  }}
+                                >
+                                  {initials1Typed || `Style ${idx + 1}`}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {hasSecond ? (
+                          <>
+                            <div
+                              style={{
+                                fontWeight: 800,
+                                color: "#1d4ed8",
+                                textDecoration: "underline",
+                                marginBottom: 10,
+                                cursor: "pointer",
+                                fontSize: 14,
+                              }}
+                              onClick={() =>
+                                setInitialsMethod2(
+                                  initialsMethod2 === "draw" ? "type" : "draw"
+                                )
+                              }
+                            >
+                              {initialsMethod2 === "draw"
+                                ? "PREFER TO TYPE INITIALS INSTEAD?"
+                                : "PREFER TO DRAW INITIALS INSTEAD?"}
+                            </div>
+
+                            {initialsMethod2 === "draw" ? (
+                              <InitialsPad
+                                title="Homeowner 2 Initials"
+                                value={data.initials2}
+                                onChange={(v) => update("initials2", v)}
+                                required
+                                missing={!effectiveInitials2}
+                              />
+                            ) : (
+                              <div style={{ marginBottom: 16 }}>
+                                <Label>Homeowner 2 Initials *</Label>
+                                <input
+                                  value={initials2Typed}
+                                  onChange={(e) => setInitials2Typed(e.target.value)}
+                                  placeholder="Type Homeowner 2 initials"
+                                  style={{
+                                    width: "100%",
+                                    height: 44,
+                                    borderRadius: 12,
+                                    border: "1px solid #d1d5db",
+                                    padding: "0 12px",
+                                    marginBottom: 10,
+                                    boxSizing: "border-box",
+                                  }}
+                                />
+                                <div
+                                  style={{ display: "flex", gap: 10, flexWrap: "wrap" }}
+                                >
+                                  {[
+                                    `"Brush Script MT", cursive`,
+                                    `"Segoe Script", cursive`,
+                                    `"Lucida Handwriting", cursive`,
+                                  ].map((font, idx) => (
+                                    <button
+                                      key={font}
+                                      type="button"
+                                      onClick={() => setInitialsFont2(font)}
+                                      style={{
+                                        border:
+                                          initialsFont2 === font
+                                            ? "2px solid #111827"
+                                            : "1px solid #d1d5db",
+                                        borderRadius: 10,
+                                        background: "#fff",
+                                        cursor: "pointer",
+                                        padding: "10px 14px",
+                                        fontSize: 18,
+                                        fontFamily: font,
+                                      }}
+                                    >
+                                      {initials2Typed || `Style ${idx + 1}`}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        ) : null}
+                      </>
                     ) : null}
                   </>
                 ) : null}
@@ -3004,28 +2103,7 @@ export default function App() {
                   </div>
                 ) : null}
 
-                {!pendingSend && auditInfo.signedAt ? (
-                  <div
-                    style={{
-                      marginTop: 8,
-                      marginBottom: 12,
-                      fontSize: 13,
-                      color: "#166534",
-                    }}
-                  >
-                    Audit trail will be appended to the final PDF with
-                    timestamp, IP, city/state, and browser details.
-                  </div>
-                ) : null}
-
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 12,
-                    paddingTop: 8,
-                    flexWrap: "wrap",
-                  }}
-                >
+                <div style={{ display: "flex", gap: 12, paddingTop: 8, flexWrap: "wrap" }}>
                   <Button
                     onClick={submitDoc}
                     disabled={!pendingSend && !isSigningComplete}
@@ -3038,12 +2116,14 @@ export default function App() {
                     variant="outline"
                     onClick={async () => {
                       try {
-                        const docToDownload =
-                          selectedDocs.length === 1 ? selectedDocs[0] : "lor";
+                        const selector = selectedDocs.includes("lor")
+                          ? "#lor-printable-document"
+                          : "#pac-printable-document";
+                        const filename = selectedDocs.includes("lor")
+                          ? "Letter-of-Representation.pdf"
+                          : "Public-Adjuster-Agreement.pdf";
 
-                        const element = document.querySelector(
-                          getPrintableSelector(docToDownload)
-                        );
+                        const element = document.querySelector(selector);
                         if (!element) {
                           alert("Document not found.");
                           return;
@@ -3052,20 +2132,21 @@ export default function App() {
                         setIsExportingPdf(true);
                         await new Promise((resolve) => setTimeout(resolve, 200));
 
-                        const opt = {
-                          margin: 0,
-                          filename: documentFilename(docToDownload),
-                          image: { type: "jpeg", quality: 0.95 },
-                          html2canvas: { scale: 1.4, useCORS: true },
-                          jsPDF: {
-                            unit: "in",
-                            format: "letter",
-                            orientation: "portrait",
-                          },
-                          pagebreak: { mode: ["css", "legacy"] },
-                        };
-
-                        await html2pdf().set(opt).from(element).save();
+                        await html2pdf()
+                          .set({
+                            margin: 0,
+                            filename,
+                            image: { type: "jpeg", quality: 0.95 },
+                            html2canvas: { scale: 1.4, useCORS: true },
+                            jsPDF: {
+                              unit: "in",
+                              format: "letter",
+                              orientation: "portrait",
+                            },
+                            pagebreak: { mode: ["css", "legacy"] },
+                          })
+                          .from(element)
+                          .save();
                       } catch (err) {
                         alert(err?.message || "Failed to download PDF.");
                       } finally {
