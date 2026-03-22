@@ -22,6 +22,8 @@ const PA_ASSETS = {
   titleBar: "/pa-titlebar.png",
 };
 
+const VALID_DOCS = ["lor", "pac"];
+
 const initialData = {
   date: new Date().toISOString().split("T")[0],
   insuranceCompany: "",
@@ -55,8 +57,6 @@ const initialAuditInfo = {
   signedByEmail: "",
   signedByName: "",
 };
-
-const VALID_DOCS = ["lor", "pac"];
 
 function documentLabel(doc) {
   return doc === "pac" ? "PA Agreement" : "Letter of Representation";
@@ -371,6 +371,7 @@ function SignaturePad({
           onTouchEnd={end}
         />
       </div>
+
       {missing && (
         <div style={{ color: "#dc2626", fontSize: 12, marginTop: 6 }}>
           Required before submitting.
@@ -509,6 +510,7 @@ function InitialsPad({
           onTouchEnd={end}
         />
       </div>
+
       {missing && (
         <div style={{ color: "#dc2626", fontSize: 12, marginTop: 6 }}>
           Required before submitting.
@@ -518,7 +520,7 @@ function InitialsPad({
   );
 }
 
-function AuditTrailPage({ auditInfo, data, docLabel, claimId }) {
+function AuditTrailPage({ auditInfo, data, docLabel, claimId, pageBreak = true }) {
   if (!auditInfo?.signedAt) return null;
 
   return (
@@ -530,7 +532,7 @@ function AuditTrailPage({ auditInfo, data, docLabel, claimId }) {
         background: "#fff",
         boxSizing: "border-box",
         overflow: "hidden",
-        pageBreakAfter: "auto",
+        pageBreakAfter: pageBreak ? "always" : "auto",
         fontFamily: "Arial, Helvetica, sans-serif",
         color: "#111827",
       }}
@@ -972,6 +974,7 @@ function LetterOfRepresentation({
         data={data}
         docLabel="Letter of Representation"
         claimId={claimId}
+        pageBreak={false}
       />
     </div>
   );
@@ -1543,6 +1546,7 @@ function PublicAdjusterContract({
         data={data}
         docLabel="PA Agreement"
         claimId={claimId}
+        pageBreak={false}
       />
     </div>
   );
@@ -1552,7 +1556,6 @@ export default function App() {
   const [view, setView] = useState("input");
   const [activeDoc, setActiveDoc] = useState("lor");
   const [selectedDocs, setSelectedDocs] = useState(["lor"]);
-  const [reviewedDocs, setReviewedDocs] = useState([]);
   const [signMode, setSignMode] = useState("now");
   const [data, setData] = useState(initialData);
   const [sig1, setSig1] = useState("");
@@ -1623,8 +1626,7 @@ export default function App() {
         }
 
         setCurrentClaimId(claim.id);
-        setSelectedDocs(docsFromLink);
-        setReviewedDocs([]);
+        setSelectedDocs(docsFromLink.length ? docsFromLink : ["lor"]);
         setActiveDoc(docsFromLink[0] || "lor");
         setSignMode("now");
         setPendingSend(false);
@@ -1692,15 +1694,13 @@ export default function App() {
     setSelectedDocs((prev) => {
       if (prev.includes(doc)) {
         const next = prev.filter((item) => item !== doc);
-        if (activeDoc === doc && next.length > 0) {
-          setActiveDoc(next[0]);
-        }
+        if (!next.length) return prev;
+        if (activeDoc === doc) setActiveDoc(next[0]);
         return next;
       }
 
       const next = [...prev, doc];
-      if (!prev.length) setActiveDoc(doc);
-      return next;
+      return VALID_DOCS.filter((item) => next.includes(item));
     });
   };
 
@@ -1712,7 +1712,6 @@ export default function App() {
 
     const orderedDocs = VALID_DOCS.filter((doc) => selectedDocs.includes(doc));
     setSelectedDocs(orderedDocs);
-    setReviewedDocs([]);
     setActiveDoc(orderedDocs[0]);
     setPendingSend(signMode === "send");
     setIsSigningFromLink(false);
@@ -1723,11 +1722,6 @@ export default function App() {
     update("initials1", "");
     update("initials2", "");
     setView("sign");
-  };
-
-  const openReviewDoc = (doc) => {
-    setActiveDoc(doc);
-    setReviewedDocs((prev) => (prev.includes(doc) ? prev : [...prev, doc]));
   };
 
   const getPrintableSelector = (docType) =>
@@ -1756,10 +1750,6 @@ export default function App() {
     (!selectedDocs.includes("pac") ||
       (!!data.initials1 && (!hasSecond || !!data.initials2)));
 
-  const allSelectedDocsReviewed = selectedDocs.every((doc) =>
-    reviewedDocs.includes(doc)
-  );
-
   const parseJsonResponse = async (response, fallbackMessage) => {
     const rawText = await response.text();
     let result = {};
@@ -1767,11 +1757,14 @@ export default function App() {
     try {
       result = rawText ? JSON.parse(rawText) : {};
     } catch (e) {
+      if (!response.ok) {
+        throw new Error(fallbackMessage);
+      }
       throw new Error(rawText || fallbackMessage);
     }
 
     if (!response.ok) {
-      throw new Error(result.error || rawText || fallbackMessage);
+      throw new Error(result.error || fallbackMessage);
     }
 
     return result;
@@ -1791,8 +1784,8 @@ export default function App() {
       const opt = {
         margin: 0,
         filename: documentFilename(docType),
-        image: { type: "jpeg", quality: 1 },
-        html2canvas: { scale: 2, useCORS: true },
+        image: { type: "jpeg", quality: 0.95 },
+        html2canvas: { scale: 1.4, useCORS: true },
         jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
         pagebreak: { mode: ["css"] },
       };
@@ -1888,10 +1881,14 @@ export default function App() {
   };
 
   const generateAttachmentForDoc = async (docType) => {
+    const previousActiveDoc = activeDoc;
     setActiveDoc(docType);
     await new Promise((resolve) => setTimeout(resolve, 250));
+
     const pdfBlob = await generatePDF(docType);
     const pdfBase64 = await blobToBase64(pdfBlob);
+
+    setActiveDoc(previousActiveDoc);
 
     return {
       filename: documentFilename(docType),
@@ -1903,17 +1900,11 @@ export default function App() {
     try {
       if (!pendingSend) {
         const missing = getMissingSigningFields();
-
         if (missing.length > 0) {
           alert(
             "Please complete the required signing fields:\n\n" +
               missing.join("\n")
           );
-          return;
-        }
-
-        if (selectedDocs.length > 1 && !allSelectedDocsReviewed) {
-          alert("Please review both forms before submitting.");
           return;
         }
       }
@@ -1945,7 +1936,9 @@ export default function App() {
               <p><a href="${signingLink}">${signingLink}</a></p>
               <p><strong>Forms included:</strong></p>
               <ul>
-                ${selectedDocs.map((doc) => `<li>${documentLabel(doc)}</li>`).join("")}
+                ${selectedDocs
+                  .map((doc) => `<li>${documentLabel(doc)}</li>`)
+                  .join("")}
               </ul>
               <p><strong>Insured:</strong> ${[
                 data.homeowner1,
@@ -1983,7 +1976,7 @@ export default function App() {
       };
 
       setAuditInfo(nextAuditInfo);
-      await new Promise((resolve) => setTimeout(resolve, 120));
+      await new Promise((resolve) => setTimeout(resolve, 150));
 
       const { record, error } = await saveClaimToSupabase(nextAuditInfo);
 
@@ -1994,51 +1987,44 @@ export default function App() {
 
       if (record?.id) setCurrentClaimId(record.id);
 
-      const originalActiveDoc = activeDoc;
-      const attachments = [];
-
       for (const docType of selectedDocs) {
         const attachment = await generateAttachmentForDoc(docType);
-        attachments.push(attachment);
-      }
 
-      setActiveDoc(originalActiveDoc);
-
-      const emailResponse = await fetch("/.netlify/functions/send-email", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          to: [data.signerEmail, data.paEmail].filter(Boolean),
-          subject:
-            selectedDocs.length > 1
-              ? "Signed Claim Documents Submitted"
-              : selectedDocs[0] === "lor"
+        const emailResponse = await fetch("/.netlify/functions/send-email", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            to: [data.signerEmail, data.paEmail].filter(Boolean),
+            subject:
+              docType === "lor"
                 ? "Letter of Representation Submitted"
                 : "PA Agreement Submitted",
-          html: `
-            <h2>Claim Document${selectedDocs.length > 1 ? "s" : ""} Submitted</h2>
-            <p><strong>Forms included:</strong></p>
-            <ul>
-              ${selectedDocs.map((doc) => `<li>${documentLabel(doc)}</li>`).join("")}
-            </ul>
-            <p><strong>Insurance Company:</strong> ${data.insuranceCompany || ""}</p>
-            <p><strong>Policy Number:</strong> ${data.policyNumber || ""}</p>
-            <p><strong>Homeowner 1:</strong> ${data.homeowner1 || ""}</p>
-            <p><strong>Homeowner 2:</strong> ${data.homeowner2 || ""}</p>
-            <p><strong>Representative:</strong> ${data.representativeName || ""}</p>
-            <p><strong>Signed at:</strong> ${nextAuditInfo.signedAt || ""}</p>
-            <p><strong>Signing IP:</strong> ${nextAuditInfo.signedIp || ""}</p>
-          `,
-          attachments,
-        }),
-      });
+            html: `
+              <h2>Claim Document Submitted</h2>
+              <p><strong>Document:</strong> ${documentLabel(docType)}</p>
+              <p><strong>Insurance Company:</strong> ${data.insuranceCompany || ""}</p>
+              <p><strong>Policy Number:</strong> ${data.policyNumber || ""}</p>
+              <p><strong>Homeowner 1:</strong> ${data.homeowner1 || ""}</p>
+              <p><strong>Homeowner 2:</strong> ${data.homeowner2 || ""}</p>
+              <p><strong>Representative:</strong> ${data.representativeName || ""}</p>
+              <p><strong>Signed at:</strong> ${nextAuditInfo.signedAt || ""}</p>
+              <p><strong>Signing IP:</strong> ${nextAuditInfo.signedIp || ""}</p>
+              <p><strong>Sign method:</strong> ${nextAuditInfo.signMethod || ""}</p>
+            `,
+            attachments: [attachment],
+          }),
+        });
 
-      await parseJsonResponse(emailResponse, "Email failed.");
+        await parseJsonResponse(
+          emailResponse,
+          `Email failed for ${documentLabel(docType)}.`
+        );
+      }
 
       alert(
-        `Saved successfully! Email sent with signed PDF${selectedDocs.length > 1 ? "s" : ""} and audit trail.`
+        `Saved successfully! Signed ${selectedDocs.length > 1 ? "documents were" : "document was"} emailed successfully.`
       );
       setView("input");
       setPendingSend(false);
@@ -2202,6 +2188,7 @@ export default function App() {
                         Only fill this out if there is an active claim.
                       </div>
                     </div>
+
                     <div style={{ gridColumn: "1 / -1" }}>
                       <CheckboxField
                         label="Loss location is same as property address"
@@ -2211,6 +2198,7 @@ export default function App() {
                         }
                       />
                     </div>
+
                     <div style={{ gridColumn: "1 / -1" }}>
                       <FormField
                         label="Loss Location"
@@ -2368,61 +2356,54 @@ export default function App() {
               </Button>
             </div>
 
-            {selectedDocs.length > 1 && (
-              <Card>
-                <CardContent>
-                  <div style={{ marginBottom: 12, fontSize: 15, fontWeight: 700 }}>
-                    Review each form before submitting
-                  </div>
+            <Card>
+              <CardContent>
+                <div
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 700,
+                    color: "#111827",
+                    marginBottom: 10,
+                  }}
+                >
+                  Forms included in this signing session
+                </div>
 
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                  {selectedDocs.map((doc) => (
+                    <div
+                      key={doc}
+                      style={{
+                        padding: "8px 12px",
+                        borderRadius: 999,
+                        background: "#eef2ff",
+                        border: "1px solid #c7d2fe",
+                        fontSize: 13,
+                        fontWeight: 600,
+                        color: "#3730a3",
+                      }}
+                    >
+                      {documentLabel(doc)}
+                    </div>
+                  ))}
+                </div>
+
+                {selectedDocs.length > 1 && (
                   <div
                     style={{
-                      display: "grid",
-                      gridTemplateColumns:
-                        "repeat(auto-fit, minmax(260px, 1fr))",
-                      gap: 12,
+                      marginTop: 10,
+                      fontSize: 13,
+                      color: "#6b7280",
                     }}
                   >
-                    {selectedDocs.map((doc) => {
-                      const reviewed = reviewedDocs.includes(doc);
-
-                      return (
-                        <div
-                          key={doc}
-                          style={{
-                            border: "1px solid #d1d5db",
-                            borderRadius: 14,
-                            padding: 14,
-                            background: "#fff",
-                          }}
-                        >
-                          <div style={{ fontWeight: 700, marginBottom: 8 }}>
-                            {documentLabel(doc)}
-                          </div>
-                          <div
-                            style={{
-                              fontSize: 13,
-                              marginBottom: 10,
-                              color: reviewed ? "#166534" : "#92400e",
-                            }}
-                          >
-                            {reviewed ? "Reviewed" : "Not reviewed yet"}
-                          </div>
-                          <Button
-                            variant={activeDoc === doc ? "default" : "outline"}
-                            onClick={() => openReviewDoc(doc)}
-                          >
-                            Review {documentLabel(doc)}
-                          </Button>
-                        </div>
-                      );
-                    })}
+                    Review both documents below. Your signatures and initials
+                    will apply to all selected forms.
                   </div>
-                </CardContent>
-              </Card>
-            )}
+                )}
+              </CardContent>
+            </Card>
 
-            {activeDoc === "lor" ? (
+            {selectedDocs.includes("lor") && (
               <LetterOfRepresentation
                 data={data}
                 sig1={sig1}
@@ -2431,7 +2412,9 @@ export default function App() {
                 claimId={currentClaimId}
                 isExportingPdf={isExportingPdf}
               />
-            ) : (
+            )}
+
+            {selectedDocs.includes("pac") && (
               <PublicAdjusterContract
                 data={data}
                 sig1={sig1}
@@ -2551,22 +2534,6 @@ export default function App() {
                   </div>
                 )}
 
-                {!pendingSend &&
-                  selectedDocs.length > 1 &&
-                  !allSelectedDocsReviewed && (
-                    <div
-                      style={{
-                        marginTop: 8,
-                        marginBottom: 12,
-                        fontSize: 13,
-                        color: "#991b1b",
-                        fontWeight: 600,
-                      }}
-                    >
-                      Please review both forms before submitting.
-                    </div>
-                  )}
-
                 {!pendingSend && auditInfo.signedAt && (
                   <div
                     style={{
@@ -2581,14 +2548,10 @@ export default function App() {
                   </div>
                 )}
 
-                <div style={{ display: "flex", gap: 12, paddingTop: 8 }}>
+                <div style={{ display: "flex", gap: 12, paddingTop: 8, flexWrap: "wrap" }}>
                   <Button
                     onClick={submitDoc}
-                    disabled={
-                      !pendingSend &&
-                      (!isSigningComplete ||
-                        (selectedDocs.length > 1 && !allSelectedDocsReviewed))
-                    }
+                    disabled={!pendingSend && !isSigningComplete}
                   >
                     {pendingSend ? <Send size={16} /> : <Mail size={16} />}
                     {pendingSend ? "Send for Signing" : "Submit & Email Copies"}
@@ -2598,8 +2561,11 @@ export default function App() {
                     variant="outline"
                     onClick={async () => {
                       try {
+                        const docToDownload =
+                          selectedDocs.length === 1 ? selectedDocs[0] : activeDoc;
+
                         const element = document.querySelector(
-                          getPrintableSelector(activeDoc)
+                          getPrintableSelector(docToDownload)
                         );
                         if (!element) {
                           alert("Document not found.");
@@ -2611,9 +2577,9 @@ export default function App() {
 
                         const opt = {
                           margin: 0,
-                          filename: documentFilename(activeDoc),
-                          image: { type: "jpeg", quality: 1 },
-                          html2canvas: { scale: 2, useCORS: true },
+                          filename: documentFilename(docToDownload),
+                          image: { type: "jpeg", quality: 0.95 },
+                          html2canvas: { scale: 1.4, useCORS: true },
                           jsPDF: {
                             unit: "in",
                             format: "letter",
@@ -2630,7 +2596,7 @@ export default function App() {
                       }
                     }}
                   >
-                    Download Current PDF
+                    Download PDF
                   </Button>
                 </div>
               </CardContent>
