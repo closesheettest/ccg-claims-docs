@@ -1,131 +1,63 @@
-function AuditTrailPage({
-  auditInfo,
-  data,
-  docLabel,
-  claimId,
-  isExportingPdf = false,
-}) {
-  if (!auditInfo?.signedAt) return null;
+exports.handler = async (event) => {
+  if (event.httpMethod !== "POST") {
+    return {
+      statusCode: 405,
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ error: "Method not allowed" }),
+    };
+  }
 
-  const rows = [
-    ["Document", docLabel],
-    ["Claim ID", claimId || "Not available"],
-    [
-      "Signed by",
-      auditInfo.signedByName ||
-        [data.homeowner1, data.homeowner2].filter(Boolean).join(", "),
-    ],
-    ["Signer email", auditInfo.signedByEmail || data.signerEmail],
-    ["Signed at", auditInfo.signedAt],
-    ["IP address", auditInfo.signedIp],
-    ...(auditInfo.signedCity || auditInfo.signedRegion
-      ? [[
-          "City / State",
-          [auditInfo.signedCity, auditInfo.signedRegion]
-            .filter(Boolean)
-            .join(", "),
-        ]]
-      : []),
-    ["Sign method", auditInfo.signMethod],
-    ["Browser / device", auditInfo.signedUserAgent],
-  ];
+  try {
+    const body = event.body ? JSON.parse(event.body) : {};
 
-  return (
-    <div
-      className="pdf-page"
-      style={
-        isExportingPdf
-          ? {
-              width: "8.5in",
-              height: "11in",
-              background: "#fff",
-              boxSizing: "border-box",
-              overflow: "hidden",
-              fontFamily: "Arial, Helvetica, sans-serif",
-              color: "#111827",
-            }
-          : {
-              background: "#fff",
-              borderRadius: 24,
-              border: "1px solid #e5e7eb",
-              boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
-              overflow: "hidden",
-              marginBottom: 16,
-              fontFamily: "Arial, Helvetica, sans-serif",
-              color: "#111827",
-            }
-      }
-    >
-      <div
-        style={{
-          padding: "0.55in 0.6in",
-          boxSizing: "border-box",
-        }}
-      >
-        <div style={{ fontSize: 26, fontWeight: 700, marginBottom: 10 }}>
-          Signature Acknowledgment
-        </div>
+    const {
+      signMethod = "",
+      signedByEmail = "",
+      signedByName = "",
+    } = body;
 
-        <div style={{ fontSize: 14, color: "#4b5563", marginBottom: 24 }}>
-          Electronic signing audit trail for this document.
-        </div>
+    const headers = event.headers || {};
 
-        <div
-          style={{
-            border: "1px solid #d1d5db",
-            borderRadius: 16,
-            overflow: "hidden",
-          }}
-        >
-          {rows.map(([label, value], i) => (
-            <div
-              key={label}
-              style={{
-                display: "grid",
-                gridTemplateColumns: "200px 1fr",
-                borderTop: i === 0 ? "none" : "1px solid #e5e7eb",
-              }}
-            >
-              <div
-                style={{
-                  background: "#f8fafc",
-                  padding: "14px 16px",
-                  fontWeight: 700,
-                  fontSize: 13,
-                }}
-              >
-                {label}
-              </div>
-              <div
-                style={{
-                  padding: "14px 16px",
-                  fontSize: 13,
-                  wordBreak: "break-word",
-                  whiteSpace: "pre-wrap",
-                }}
-              >
-                {value || "Not available"}
-              </div>
-            </div>
-          ))}
-        </div>
+    const rawIp =
+      headers["x-nf-client-connection-ip"] ||
+      headers["client-ip"] ||
+      headers["x-forwarded-for"] ||
+      headers["x-real-ip"] ||
+      "";
 
-        <div
-          style={{
-            marginTop: 24,
-            border: "1px solid #d1d5db",
-            borderRadius: 16,
-            padding: 18,
-            background: "#f8fafc",
-            fontSize: 13,
-            lineHeight: 1.6,
-          }}
-        >
-          By signing electronically, the signer acknowledged intent to sign this
-          document and submitted the signature using the browser session that
-          generated the audit information shown above.
-        </div>
-      </div>
-    </div>
-  );
-}
+    const signedIp = String(rawIp).split(",")[0].trim();
+    const signedUserAgent = headers["user-agent"] || "";
+    const signedAt = new Date().toISOString();
+
+    return {
+      statusCode: 200,
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        signedAt,
+        signedIp,
+        signedUserAgent,
+        signMethod,
+        signedByEmail,
+        signedByName,
+        signedCity: "",
+        signedRegion: "",
+      }),
+    };
+  } catch (error) {
+    console.error("sign-audit error:", error);
+
+    return {
+      statusCode: 500,
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        error: "Failed to capture signing audit trail.",
+      }),
+    };
+  }
+};
