@@ -808,6 +808,29 @@ function AuditTrailPage({
 }) {
   if (!auditInfo?.signedAt) return null;
 
+  const rows = [
+    ["Document", docLabel],
+    ["Claim ID", claimId || "Not available"],
+    [
+      "Signed by",
+      auditInfo.signedByName ||
+        [data.homeowner1, data.homeowner2].filter(Boolean).join(", "),
+    ],
+    ["Signer email", auditInfo.signedByEmail || data.signerEmail],
+    ["Signed at", auditInfo.signedAt],
+    ["IP address", auditInfo.signedIp],
+    ...(auditInfo.signedCity || auditInfo.signedRegion
+      ? [[
+          "City / State",
+          [auditInfo.signedCity, auditInfo.signedRegion]
+            .filter(Boolean)
+            .join(", "),
+        ]]
+      : []),
+    ["Sign method", auditInfo.signMethod],
+    ["Browser / device", auditInfo.signedUserAgent],
+  ];
+
   return (
     <div
       className="pdf-page"
@@ -855,26 +878,7 @@ function AuditTrailPage({
             overflow: "hidden",
           }}
         >
-          {[
-            ["Document", docLabel],
-            ["Claim ID", claimId || "Not available"],
-            [
-              "Signed by",
-              auditInfo.signedByName ||
-                [data.homeowner1, data.homeowner2].filter(Boolean).join(", "),
-            ],
-            ["Signer email", auditInfo.signedByEmail || data.signerEmail],
-            ["Signed at", auditInfo.signedAt],
-            ["IP address", auditInfo.signedIp],
-            [
-              "City / State",
-              [auditInfo.signedCity, auditInfo.signedRegion]
-                .filter(Boolean)
-                .join(", ") || "Not available",
-            ],
-            ["Sign method", auditInfo.signMethod],
-            ["Browser / device", auditInfo.signedUserAgent],
-          ].map(([label, value], i) => (
+          {rows.map(([label, value], i) => (
             <div
               key={label}
               style={{
@@ -957,6 +961,24 @@ function LetterOfRepresentation({
     />
   );
 
+  const LorTitleBar = () => (
+    <div
+      style={{
+        margin: "10px 0 12px",
+        background: "#199c2e",
+        color: "#fff",
+        textAlign: "center",
+        fontWeight: 700,
+        fontSize: 20,
+        letterSpacing: 0.5,
+        padding: "10px 16px",
+        textTransform: "uppercase",
+      }}
+    >
+      Letter of Representation
+    </div>
+  );
+
   const labelStyle = {
     display: "block",
     fontSize: 12,
@@ -1020,6 +1042,8 @@ function LetterOfRepresentation({
         footer={<FooterImg />}
         contentPadding="0 0.42in 0.12in"
       >
+        <LorTitleBar />
+
         <div
           style={{
             display: "grid",
@@ -1884,8 +1908,8 @@ export default function App() {
           signedByName:
             claim.signed_by_name ||
             [claim.homeowner1, claim.homeowner2].filter(Boolean).join(", "),
-          signedCity: "",
-          signedRegion: "",
+          signedCity: claim.signed_city || "",
+          signedRegion: claim.signed_region || "",
         });
 
         setData((prev) => ({
@@ -2089,6 +2113,8 @@ export default function App() {
       sign_method: audit?.signMethod || null,
       signed_by_email: audit?.signedByEmail || null,
       signed_by_name: audit?.signedByName || null,
+      signed_city: audit?.signedCity || null,
+      signed_region: audit?.signedRegion || null,
     };
 
     if (currentClaimId) {
@@ -2245,12 +2271,16 @@ export default function App() {
               .join(", ")}</p>
             <p><strong>Signed at:</strong> ${nextAuditInfo.signedAt || ""}</p>
             <p><strong>Signing IP:</strong> ${nextAuditInfo.signedIp || ""}</p>
-            <p><strong>City / State:</strong> ${[
-              nextAuditInfo.signedCity,
-              nextAuditInfo.signedRegion,
-            ]
-              .filter(Boolean)
-              .join(", ") || "Not available"}</p>
+            ${
+              nextAuditInfo.signedCity || nextAuditInfo.signedRegion
+                ? `<p><strong>City / State:</strong> ${[
+                    nextAuditInfo.signedCity,
+                    nextAuditInfo.signedRegion,
+                  ]
+                    .filter(Boolean)
+                    .join(", ")}</p>`
+                : ""
+            }
           `,
           attachments,
         }),
