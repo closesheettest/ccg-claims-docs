@@ -56,6 +56,18 @@ const initialAuditInfo = {
   signedByName: "",
 };
 
+const VALID_DOCS = ["lor", "pac"];
+
+function documentLabel(doc) {
+  return doc === "pac" ? "PA Agreement" : "Letter of Representation";
+}
+
+function documentFilename(doc) {
+  return doc === "pac"
+    ? "Public-Adjuster-Agreement.pdf"
+    : "Letter-of-Representation.pdf";
+}
+
 function Button({
   children,
   onClick,
@@ -1336,7 +1348,8 @@ function PublicAdjusterContract({
             </p>
 
             <p style={{ margin: "0 0 6px" }}>
-              11. <span style={sectionHead}>Commercial Policy Cancellation:</span>
+              11.{" "}
+              <span style={sectionHead}>Commercial Policy Cancellation:</span>
             </p>
             <p style={{ margin: "0 0 12px" }}>
               You, the insured(s), may cancel this contract for any reason
@@ -1538,6 +1551,7 @@ function PublicAdjusterContract({
 export default function App() {
   const [view, setView] = useState("input");
   const [activeDoc, setActiveDoc] = useState("lor");
+  const [selectedDocs, setSelectedDocs] = useState(["lor"]);
   const [signMode, setSignMode] = useState("now");
   const [data, setData] = useState(initialData);
   const [sig1, setSig1] = useState("");
@@ -1579,13 +1593,23 @@ export default function App() {
       const params = new URLSearchParams(window.location.search);
       const claimId = params.get("claim");
       const doc = params.get("doc");
+      const docs = params.get("docs");
       const sign = params.get("sign");
 
-      if (!claimId || !doc || sign !== "1") return;
+      if (!claimId || sign !== "1") return;
 
       setIsLoadingSigningLink(true);
 
       try {
+        const docsFromLink = docs
+          ? docs
+              .split(",")
+              .map((item) => item.trim())
+              .filter((item) => VALID_DOCS.includes(item))
+          : doc && VALID_DOCS.includes(doc)
+            ? [doc]
+            : ["lor"];
+
         const { data: claim, error } = await supabase
           .from("claims")
           .select("*")
@@ -1598,7 +1622,8 @@ export default function App() {
         }
 
         setCurrentClaimId(claim.id);
-        setActiveDoc(doc === "pac" ? "pac" : "lor");
+        setSelectedDocs(docsFromLink);
+        setActiveDoc(docsFromLink[0] || "lor");
         setSignMode("now");
         setPendingSend(false);
         setIsSigningFromLink(true);
@@ -1661,21 +1686,46 @@ export default function App() {
     setData((prev) => ({ ...prev, [key]: value }));
   };
 
-  const openDoc = (doc) => {
-    setActiveDoc(doc);
-    setSig1("");
-    setSig2("");
-    update("initials1", "");
-    update("initials2", "");
+  const toggleDocSelection = (doc) => {
+    setSelectedDocs((prev) => {
+      if (prev.includes(doc)) {
+        const next = prev.filter((item) => item !== doc);
+        if (activeDoc === doc && next.length > 0) {
+          setActiveDoc(next[0]);
+        }
+        return next;
+      }
+
+      const next = [...prev, doc];
+      if (!prev.length) setActiveDoc(doc);
+      return next;
+    });
+  };
+
+  const beginDocumentFlow = () => {
+    if (!selectedDocs.length) {
+      alert("Please select at least one form.");
+      return;
+    }
+
+    const orderedDocs = VALID_DOCS.filter((doc) => selectedDocs.includes(doc));
+    setSelectedDocs(orderedDocs);
+    setActiveDoc(orderedDocs[0]);
     setPendingSend(signMode === "send");
     setIsSigningFromLink(false);
     setCurrentClaimId(null);
     setAuditInfo(initialAuditInfo);
+    setSig1("");
+    setSig2("");
+    update("initials1", "");
+    update("initials2", "");
     setView("sign");
   };
 
   const getPrintableSelector = (docType) =>
     docType === "lor" ? "#lor-printable-document" : "#pac-printable-document";
+
+  const selectedDocLabels = selectedDocs.map(documentLabel);
 
   const getMissingSigningFields = () => {
     const missing = [];
@@ -1683,7 +1733,7 @@ export default function App() {
     if (!sig1) missing.push("Homeowner 1 signature");
     if (hasSecond && !sig2) missing.push("Homeowner 2 signature");
 
-    if (activeDoc === "pac") {
+    if (selectedDocs.includes("pac")) {
       if (!data.initials1) missing.push("Homeowner 1 initials");
       if (hasSecond && !data.initials2) missing.push("Homeowner 2 initials");
     }
@@ -1692,11 +1742,10 @@ export default function App() {
   };
 
   const missingSigningFields = !pendingSend ? getMissingSigningFields() : [];
-
   const isSigningComplete =
     !!sig1 &&
     (!hasSecond || !!sig2) &&
-    (activeDoc !== "pac" ||
+    (!selectedDocs.includes("pac") ||
       (!!data.initials1 && (!hasSecond || !!data.initials2)));
 
   const generatePDF = async (docType) => {
@@ -1712,10 +1761,7 @@ export default function App() {
     try {
       const opt = {
         margin: 0,
-        filename:
-          docType === "lor"
-            ? "Letter-of-Representation.pdf"
-            : "Public-Adjuster-Agreement.pdf",
+        filename: documentFilename(docType),
         image: { type: "jpeg", quality: 1 },
         html2canvas: { scale: 2, useCORS: true },
         jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
@@ -1744,7 +1790,7 @@ export default function App() {
       },
       body: JSON.stringify({
         claimId: currentClaimId,
-        docType: activeDoc,
+        docType: selectedDocs.join(","),
         signMethod: isSigningFromLink ? "email_link" : "sign_now",
         signedByEmail: data.signerEmail,
         signedByName: [data.homeowner1, data.homeowner2]
@@ -1822,6 +1868,18 @@ export default function App() {
     return { record: inserted, error };
   };
 
+  const generateAttachmentForDoc = async (docType) => {
+    setActiveDoc(docType);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const pdfBlob = await generatePDF(docType);
+    const pdfBase64 = await blobToBase64(pdfBlob);
+
+    return {
+      filename: documentFilename(docType),
+      content: String(pdfBase64).split(",")[1],
+    };
+  };
+
   const submitDoc = async () => {
     try {
       if (!pendingSend) {
@@ -1843,7 +1901,7 @@ export default function App() {
           return;
         }
 
-        const signingLink = `${window.location.origin}/?sign=1&doc=${activeDoc}&claim=${record?.id}`;
+        const signingLink = `${window.location.origin}/?sign=1&docs=${selectedDocs.join(",")}&claim=${record?.id}`;
 
         const emailResponse = await fetch("/.netlify/functions/send-email", {
           method: "POST",
@@ -1853,18 +1911,17 @@ export default function App() {
           body: JSON.stringify({
             to: [data.signerEmail, data.paEmail].filter(Boolean),
             subject:
-              activeDoc === "lor"
-                ? "Please Sign: Letter of Representation"
-                : "Please Sign: PA Agreement",
+              selectedDocs.length > 1
+                ? "Please Sign: Claim Documents"
+                : `Please Sign: ${documentLabel(selectedDocs[0])}`,
             html: `
               <h2>Signature Requested</h2>
-              <p>Please click the link below to review and sign your document.</p>
+              <p>Please click the link below to review and sign your document${selectedDocs.length > 1 ? "s" : ""}.</p>
               <p><a href="${signingLink}">${signingLink}</a></p>
-              <p><strong>Document:</strong> ${
-                activeDoc === "lor"
-                  ? "Letter of Representation"
-                  : "PA Agreement"
-              }</p>
+              <p><strong>Forms included:</strong></p>
+              <ul>
+                ${selectedDocs.map((doc) => `<li>${documentLabel(doc)}</li>`).join("")}
+              </ul>
               <p><strong>Insured:</strong> ${[
                 data.homeowner1,
                 data.homeowner2,
@@ -1886,7 +1943,9 @@ export default function App() {
           return;
         }
 
-        alert(`Signing link sent to ${data.signerEmail}.`);
+        alert(
+          `Signing link sent to ${data.signerEmail} for ${selectedDocLabels.join(" and ")}.`
+        );
         setView("input");
         setPendingSend(false);
         return;
@@ -1918,8 +1977,15 @@ export default function App() {
 
       if (record?.id) setCurrentClaimId(record.id);
 
-      const pdfBlob = await generatePDF(activeDoc);
-      const pdfBase64 = await blobToBase64(pdfBlob);
+      const originalActiveDoc = activeDoc;
+      const attachments = [];
+
+      for (const docType of selectedDocs) {
+        const attachment = await generateAttachmentForDoc(docType);
+        attachments.push(attachment);
+      }
+
+      setActiveDoc(originalActiveDoc);
 
       const emailResponse = await fetch("/.netlify/functions/send-email", {
         method: "POST",
@@ -1929,37 +1995,26 @@ export default function App() {
         body: JSON.stringify({
           to: [data.signerEmail, data.paEmail].filter(Boolean),
           subject:
-            activeDoc === "lor"
-              ? "Letter of Representation Submitted"
-              : "PA Agreement Submitted",
+            selectedDocs.length > 1
+              ? "Signed Claim Documents Submitted"
+              : selectedDocs[0] === "lor"
+                ? "Letter of Representation Submitted"
+                : "PA Agreement Submitted",
           html: `
-            <h2>Claim Document Submitted</h2>
-            <p><strong>Document:</strong> ${
-              activeDoc === "lor"
-                ? "Letter of Representation"
-                : "PA Agreement"
-            }</p>
-            <p><strong>Insurance Company:</strong> ${
-              data.insuranceCompany || ""
-            }</p>
+            <h2>Claim Document${selectedDocs.length > 1 ? "s" : ""} Submitted</h2>
+            <p><strong>Forms included:</strong></p>
+            <ul>
+              ${selectedDocs.map((doc) => `<li>${documentLabel(doc)}</li>`).join("")}
+            </ul>
+            <p><strong>Insurance Company:</strong> ${data.insuranceCompany || ""}</p>
             <p><strong>Policy Number:</strong> ${data.policyNumber || ""}</p>
             <p><strong>Homeowner 1:</strong> ${data.homeowner1 || ""}</p>
             <p><strong>Homeowner 2:</strong> ${data.homeowner2 || ""}</p>
-            <p><strong>Representative:</strong> ${
-              data.representativeName || ""
-            }</p>
+            <p><strong>Representative:</strong> ${data.representativeName || ""}</p>
             <p><strong>Signed at:</strong> ${nextAuditInfo.signedAt || ""}</p>
             <p><strong>Signing IP:</strong> ${nextAuditInfo.signedIp || ""}</p>
           `,
-          attachments: [
-            {
-              filename:
-                activeDoc === "lor"
-                  ? "Letter-of-Representation.pdf"
-                  : "Public-Adjuster-Agreement.pdf",
-              content: String(pdfBase64).split(",")[1],
-            },
-          ],
+          attachments,
         }),
       });
 
@@ -1973,7 +2028,9 @@ export default function App() {
         return;
       }
 
-      alert("Saved successfully! Email sent with signed PDF and audit trail.");
+      alert(
+        `Saved successfully! Email sent with signed PDF${selectedDocs.length > 1 ? "s" : ""} and audit trail.`
+      );
       setView("input");
       setPendingSend(false);
 
@@ -2032,7 +2089,7 @@ export default function App() {
               <CardTitle>Claim Intake</CardTitle>
               <CardDescription>
                 Enter the information once, choose sign now or send for signing,
-                then choose the document.
+                choose which forms to include, then continue.
               </CardDescription>
             </CardHeader>
 
@@ -2221,35 +2278,65 @@ export default function App() {
                 <Separator />
               </div>
 
-              <div
-                style={{
-                  marginTop: 20,
-                  display: "grid",
-                  gridTemplateColumns:
-                    "repeat(auto-fit, minmax(220px, 1fr))",
-                  gap: 12,
-                }}
-              >
-                <Button onClick={() => openDoc("lor")}>
-                  <FileSignature size={16} /> Letter of Representation
-                </Button>
+              <div style={{ marginTop: 20 }}>
+                <div
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: "#374151",
+                    marginBottom: 12,
+                  }}
+                >
+                  Choose form{selectedDocs.length !== 1 ? "s" : ""}
+                </div>
 
-                <Button variant="outline" onClick={() => openDoc("pac")}>
-                  <FileSignature size={16} /> PA Agreement
-                </Button>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns:
+                      "repeat(auto-fit, minmax(220px, 1fr))",
+                    gap: 12,
+                  }}
+                >
+                  <Button
+                    variant={
+                      selectedDocs.includes("lor") ? "default" : "outline"
+                    }
+                    onClick={() => toggleDocSelection("lor")}
+                  >
+                    <FileSignature size={16} /> Letter of Representation
+                  </Button>
+
+                  <Button
+                    variant={
+                      selectedDocs.includes("pac") ? "default" : "outline"
+                    }
+                    onClick={() => toggleDocSelection("pac")}
+                  >
+                    <FileSignature size={16} /> PA Agreement
+                  </Button>
+                </div>
+
+                <div
+                  style={{
+                    fontSize: 13,
+                    color: "#6b7280",
+                    marginTop: 10,
+                  }}
+                >
+                  You can send one form or both in a single signing email.
+                </div>
               </div>
 
-              <div
-                style={{
-                  fontSize: 18,
-                  color: "red",
-                  fontWeight: "bold",
-                  marginTop: 14,
-                  textAlign: "center",
-                }}
-              >
-                First pick which function sign now or send for signing then
-                click on the form you want
+              <div style={{ marginTop: 20 }}>
+                <Button
+                  onClick={beginDocumentFlow}
+                  disabled={!selectedDocs.length}
+                >
+                  {signMode === "send"
+                    ? "Continue to Send for Signing"
+                    : "Continue to Sign"}
+                </Button>
               </div>
             </CardContent>
           </Card>
@@ -2271,6 +2358,30 @@ export default function App() {
                 <ArrowLeft size={16} /> Back
               </Button>
             </div>
+
+            {selectedDocs.length > 1 && (
+              <Card>
+                <CardContent>
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: 10,
+                    }}
+                  >
+                    {selectedDocs.map((doc) => (
+                      <Button
+                        key={doc}
+                        variant={activeDoc === doc ? "default" : "outline"}
+                        onClick={() => setActiveDoc(doc)}
+                      >
+                        {documentLabel(doc)}
+                      </Button>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {activeDoc === "lor" ? (
               <LetterOfRepresentation
@@ -2295,16 +2406,31 @@ export default function App() {
             <Card>
               <CardHeader>
                 <CardTitle>
-                  {pendingSend ? "Review & Send for Signing" : "Sign Document"}
+                  {pendingSend
+                    ? "Review & Send for Signing"
+                    : selectedDocs.length > 1
+                      ? "Sign Documents"
+                      : "Sign Document"}
                 </CardTitle>
                 <CardDescription>
                   {pendingSend
-                    ? "Review the form, then email a signing link to the homeowner."
-                    : "These signatures apply to the selected document."}
+                    ? `Review the selected form${selectedDocs.length > 1 ? "s" : ""}, then email one signing link to the homeowner.`
+                    : `These signature${selectedDocs.length > 1 ? "s" : ""} apply to the selected document${selectedDocs.length > 1 ? "s" : ""}.`}
                 </CardDescription>
               </CardHeader>
 
               <CardContent>
+                <div
+                  style={{
+                    marginBottom: 16,
+                    fontSize: 14,
+                    color: "#374151",
+                    fontWeight: 600,
+                  }}
+                >
+                  Forms included: {selectedDocLabels.join(" + ")}
+                </div>
+
                 {!pendingSend && (
                   <div
                     style={{
@@ -2319,12 +2445,12 @@ export default function App() {
                     }}
                   >
                     Please complete all required signatures
-                    {activeDoc === "pac" ? " and initials" : ""} before
+                    {selectedDocs.includes("pac") ? " and initials" : ""} before
                     submitting.
                   </div>
                 )}
 
-                {activeDoc === "pac" && !pendingSend && (
+                {selectedDocs.includes("pac") && !pendingSend && (
                   <div
                     style={{
                       display: "grid",
@@ -2395,8 +2521,8 @@ export default function App() {
                       color: "#166534",
                     }}
                   >
-                    Audit trail will be appended to the final PDF with timestamp,
-                    IP, and browser details.
+                    Audit trail will be appended to the final PDF with
+                    timestamp, IP, and browser details.
                   </div>
                 )}
 
@@ -2426,10 +2552,7 @@ export default function App() {
 
                         const opt = {
                           margin: 0,
-                          filename:
-                            activeDoc === "lor"
-                              ? "Letter-of-Representation.pdf"
-                              : "Public-Adjuster-Agreement.pdf",
+                          filename: documentFilename(activeDoc),
                           image: { type: "jpeg", quality: 1 },
                           html2canvas: { scale: 2, useCORS: true },
                           jsPDF: {
@@ -2448,7 +2571,7 @@ export default function App() {
                       }
                     }}
                   >
-                    Download PDF
+                    Download Current PDF
                   </Button>
                 </div>
               </CardContent>
