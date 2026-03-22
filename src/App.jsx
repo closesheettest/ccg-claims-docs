@@ -1706,28 +1706,35 @@ export default function App() {
     });
 
   const getAuditInfoFromServer = async () => {
-    const response = await fetch("/.netlify/functions/sign-audit", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        claimId: currentClaimId,
-        docType: activeDoc,
-        signMethod: isSigningFromLink ? "email_link" : "sign_now",
-        signedByEmail: data.signerEmail,
-        signedByName: [data.homeowner1, data.homeowner2].filter(Boolean).join(", "),
-      }),
-    });
+  const response = await fetch("/.netlify/functions/sign-audit", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      claimId: currentClaimId,
+      docType: activeDoc,
+      signMethod: isSigningFromLink ? "email_link" : "sign_now",
+      signedByEmail: data.signerEmail,
+      signedByName: [data.homeowner1, data.homeowner2].filter(Boolean).join(", "),
+    }),
+  });
 
-    const result = await response.json();
+  const rawText = await response.text();
+  let result = {};
 
-    if (!response.ok) {
-      throw new Error(result.error || "Failed to capture signing audit trail.");
-    }
+  try {
+    result = rawText ? JSON.parse(rawText) : {};
+  } catch (e) {
+    throw new Error("sign-audit returned invalid JSON: " + rawText);
+  }
 
-    return result;
-  };
+  if (!response.ok) {
+    throw new Error(result.error || "Failed to capture signing audit trail.");
+  }
+
+  return result;
+};
 
   const saveClaimToSupabase = async (audit = null) => {
     const payload = {
