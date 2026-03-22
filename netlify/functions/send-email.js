@@ -18,6 +18,17 @@ exports.handler = async (event) => {
       };
     }
 
+    console.log("ATTACHMENTS RECEIVED:", attachments?.length || 0);
+    console.log(
+      "FIRST ATTACHMENT:",
+      attachments?.[0]
+        ? {
+            filename: attachments[0].filename,
+            contentLength: attachments[0].content?.length || 0,
+          }
+        : null
+    );
+
     const resend = new Resend(process.env.RESEND_API_KEY);
 
     const result = await resend.emails.send({

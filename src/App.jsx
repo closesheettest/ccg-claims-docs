@@ -1594,7 +1594,14 @@ export default function App() {
 
       const pdfBlob = await generatePDF(activeDoc);
       const pdfBase64 = await blobToBase64(pdfBlob);
-
+console.log("PDF BASE64 LENGTH:", pdfBase64?.length || 0);
+console.log("ATTACHMENT PAYLOAD:", {
+  filename:
+    activeDoc === "lor"
+      ? "Letter-of-Representation.pdf"
+      : "Public-Adjuster-Agreement.pdf",
+  contentLength: String(pdfBase64).split(",")[1]?.length || 0,
+});
       const emailResponse = await fetch("/.netlify/functions/send-email", {
         method: "POST",
         headers: {
