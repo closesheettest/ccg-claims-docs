@@ -1,126 +1,131 @@
-exports.handler = async (event) => {
-  if (event.httpMethod !== "POST") {
-    return {
-      statusCode: 405,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ error: "Method not allowed" }),
-    };
-  }
+function AuditTrailPage({
+  auditInfo,
+  data,
+  docLabel,
+  claimId,
+  isExportingPdf = false,
+}) {
+  if (!auditInfo?.signedAt) return null;
 
-  try {
-    const body = event.body ? JSON.parse(event.body) : {};
-    const {
-      signMethod = "",
-      signedByEmail = "",
-      signedByName = "",
-    } = body;
+  const rows = [
+    ["Document", docLabel],
+    ["Claim ID", claimId || "Not available"],
+    [
+      "Signed by",
+      auditInfo.signedByName ||
+        [data.homeowner1, data.homeowner2].filter(Boolean).join(", "),
+    ],
+    ["Signer email", auditInfo.signedByEmail || data.signerEmail],
+    ["Signed at", auditInfo.signedAt],
+    ["IP address", auditInfo.signedIp],
+    ...(auditInfo.signedCity || auditInfo.signedRegion
+      ? [[
+          "City / State",
+          [auditInfo.signedCity, auditInfo.signedRegion]
+            .filter(Boolean)
+            .join(", "),
+        ]]
+      : []),
+    ["Sign method", auditInfo.signMethod],
+    ["Browser / device", auditInfo.signedUserAgent],
+  ];
 
-    const headers = event.headers || {};
-
-    const rawIp =
-      headers["x-nf-client-connection-ip"] ||
-      headers["client-ip"] ||
-      headers["x-forwarded-for"] ||
-      headers["x-real-ip"] ||
-      "";
-
-    const signedIp = String(rawIp).split(",")[0].trim();
-    const signedUserAgent = headers["user-agent"] || "";
-    const signedAt = new Date().toISOString();
-
-    let signedCity = "";
-    let signedRegion = "";
-
-    const isLocalIp =
-      !signedIp ||
-      signedIp === "::1" ||
-      signedIp === "127.0.0.1" ||
-      signedIp.startsWith("192.168.") ||
-      signedIp.startsWith("10.") ||
-      signedIp.startsWith("172.16.") ||
-      signedIp.startsWith("172.17.") ||
-      signedIp.startsWith("172.18.") ||
-      signedIp.startsWith("172.19.") ||
-      signedIp.startsWith("172.20.") ||
-      signedIp.startsWith("172.21.") ||
-      signedIp.startsWith("172.22.") ||
-      signedIp.startsWith("172.23.") ||
-      signedIp.startsWith("172.24.") ||
-      signedIp.startsWith("172.25.") ||
-      signedIp.startsWith("172.26.") ||
-      signedIp.startsWith("172.27.") ||
-      signedIp.startsWith("172.28.") ||
-      signedIp.startsWith("172.29.") ||
-      signedIp.startsWith("172.30.") ||
-      signedIp.startsWith("172.31.") ||
-      signedIp.startsWith("100.64.");
-
-    async function lookupWithIpapi(ip) {
-      const res = await fetch(`https://ipapi.co/${encodeURIComponent(ip)}/json/`, {
-        headers: { Accept: "application/json" },
-      });
-
-      if (!res.ok) return { city: "", region: "" };
-
-      const geo = await res.json();
-      return {
-        city: geo?.city || "",
-        region: geo?.region || "",
-      };
-    }
-
-    async function lookupWithIpwho(ip) {
-      const res = await fetch(`https://ipwho.is/${encodeURIComponent(ip)}`, {
-        headers: { Accept: "application/json" },
-      });
-
-      if (!res.ok) return { city: "", region: "" };
-
-      const geo = await res.json();
-      return {
-        city: geo?.city || "",
-        region: geo?.region || "",
-      };
-    }
-
-    if (!isLocalIp) {
-      try {
-        let geo = await lookupWithIpapi(signedIp);
-
-        if (!geo.city && !geo.region) {
-          geo = await lookupWithIpwho(signedIp);
-        }
-
-        signedCity = geo.city || "";
-        signedRegion = geo.region || "";
-      } catch (geoError) {
-        console.log("Geolocation lookup failed:", geoError?.message || geoError);
+  return (
+    <div
+      className="pdf-page"
+      style={
+        isExportingPdf
+          ? {
+              width: "8.5in",
+              height: "11in",
+              background: "#fff",
+              boxSizing: "border-box",
+              overflow: "hidden",
+              fontFamily: "Arial, Helvetica, sans-serif",
+              color: "#111827",
+            }
+          : {
+              background: "#fff",
+              borderRadius: 24,
+              border: "1px solid #e5e7eb",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+              overflow: "hidden",
+              marginBottom: 16,
+              fontFamily: "Arial, Helvetica, sans-serif",
+              color: "#111827",
+            }
       }
-    }
+    >
+      <div
+        style={{
+          padding: "0.55in 0.6in",
+          boxSizing: "border-box",
+        }}
+      >
+        <div style={{ fontSize: 26, fontWeight: 700, marginBottom: 10 }}>
+          Signature Acknowledgment
+        </div>
 
-    return {
-      statusCode: 200,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        signedAt,
-        signedIp,
-        signedUserAgent,
-        signMethod,
-        signedByEmail,
-        signedByName,
-        signedCity,
-        signedRegion,
-      }),
-    };
-  } catch (error) {
-    console.error("sign-audit error:", error);
+        <div style={{ fontSize: 14, color: "#4b5563", marginBottom: 24 }}>
+          Electronic signing audit trail for this document.
+        </div>
 
-    return {
-      statusCode: 500,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        error: "Failed to capture signing audit trail.",
-      }),
-    };
-  }
-};
+        <div
+          style={{
+            border: "1px solid #d1d5db",
+            borderRadius: 16,
+            overflow: "hidden",
+          }}
+        >
+          {rows.map(([label, value], i) => (
+            <div
+              key={label}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "200px 1fr",
+                borderTop: i === 0 ? "none" : "1px solid #e5e7eb",
+              }}
+            >
+              <div
+                style={{
+                  background: "#f8fafc",
+                  padding: "14px 16px",
+                  fontWeight: 700,
+                  fontSize: 13,
+                }}
+              >
+                {label}
+              </div>
+              <div
+                style={{
+                  padding: "14px 16px",
+                  fontSize: 13,
+                  wordBreak: "break-word",
+                  whiteSpace: "pre-wrap",
+                }}
+              >
+                {value || "Not available"}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div
+          style={{
+            marginTop: 24,
+            border: "1px solid #d1d5db",
+            borderRadius: 16,
+            padding: 18,
+            background: "#f8fafc",
+            fontSize: 13,
+            lineHeight: 1.6,
+          }}
+        >
+          By signing electronically, the signer acknowledged intent to sign this
+          document and submitted the signature using the browser session that
+          generated the audit information shown above.
+        </div>
+      </div>
+    </div>
+  );
+}
