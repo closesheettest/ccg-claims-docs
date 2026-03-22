@@ -1821,11 +1821,16 @@ export default function App() {
                       value={data.date}
                       onChange={(v) => update("date", v)}
                     />
-                    <FormField
-                      label="Claim #"
-                      value={data.claimNumber}
-                      onChange={(v) => update("claimNumber", v)}
-                    />
+                    <div>
+  <FormField
+    label="Claim #"
+    value={data.claimNumber}
+    onChange={(v) => update("claimNumber", v)}
+  />
+  <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
+    Only fill this out if there is an active claim.
+  </div>
+</div>
                     <div style={{ gridColumn: "1 / -1" }}>
                       <CheckboxField
                         label="Loss location is same as property address"
