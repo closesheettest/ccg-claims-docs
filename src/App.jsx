@@ -707,15 +707,15 @@ function PdfPage({
   isExportingPdf = false,
   contentPadding = "0 0.5in",
 }) {
-  const exportStyle = isExportingPdf
+  const pageStyle = isExportingPdf
     ? {
         position: "relative",
         width: "8.5in",
-        minHeight: "11in",
+        height: "11in",
         background: "#fff",
         boxSizing: "border-box",
-        pageBreakAfter: breakAfter ? "always" : "auto",
         overflow: "hidden",
+        pageBreakAfter: breakAfter ? "always" : "auto",
       }
     : {
         position: "relative",
@@ -728,16 +728,14 @@ function PdfPage({
       };
 
   return (
-    <div className="pdf-page" style={exportStyle}>
+    <div className="pdf-page" style={pageStyle}>
       {header ? <div style={{ lineHeight: 0 }}>{header}</div> : null}
 
       <div
         style={{
           boxSizing: "border-box",
           padding: contentPadding,
-          paddingBottom: footer
-            ? "1.15in"
-            : contentPadding.split(" ")[0] || "0.5in",
+          paddingBottom: footer ? "1.05in" : "0.5in",
         }}
       >
         {children}
@@ -776,11 +774,11 @@ function AuditTrailPage({
         isExportingPdf
           ? {
               width: "8.5in",
-              minHeight: "11in",
+              height: "11in",
               background: "#fff",
               boxSizing: "border-box",
-              pageBreakBefore: "always",
               overflow: "hidden",
+              pageBreakBefore: "always",
             }
           : {
               background: "#fff",
@@ -788,6 +786,7 @@ function AuditTrailPage({
               border: "1px solid #e5e7eb",
               boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
               overflow: "hidden",
+              marginBottom: 16,
             }
       }
     >
@@ -796,6 +795,7 @@ function AuditTrailPage({
           padding: "0.55in 0.6in",
           fontFamily: "Arial, Helvetica, sans-serif",
           color: "#111827",
+          boxSizing: "border-box",
         }}
       >
         <div style={{ fontSize: 26, fontWeight: 700, marginBottom: 10 }}>
@@ -1312,7 +1312,7 @@ function PublicAdjusterContract({
   );
 
   const Footer = ({ page }) => (
-    <div style={{ marginTop: 12 }}>
+    <div>
       {isExportingPdf ? (
         <div
           style={{
@@ -1321,6 +1321,7 @@ function PublicAdjusterContract({
             color: "#2f9e44",
             fontStyle: "italic",
             marginBottom: 4,
+            lineHeight: 1.2,
           }}
         >
           Page {page} of 4
