@@ -368,7 +368,13 @@ function SignaturePad({
   );
 }
 
-function InitialsPad({ title, value, onChange, required = false, missing = false }) {
+function InitialsPad({
+  title,
+  value,
+  onChange,
+  required = false,
+  missing = false,
+}) {
   const canvasRef = useRef(null);
   const drawingRef = useRef(false);
 
@@ -535,12 +541,23 @@ function AuditTrailPage({ auditInfo, data, docLabel, claimId }) {
           {[
             ["Document", docLabel],
             ["Claim ID", claimId || "Not available"],
-            ["Signed by", auditInfo.signedByName || [data.homeowner1, data.homeowner2].filter(Boolean).join(", ") || "Not available"],
-            ["Signer email", auditInfo.signedByEmail || data.signerEmail || "Not available"],
+            [
+              "Signed by",
+              auditInfo.signedByName ||
+                [data.homeowner1, data.homeowner2].filter(Boolean).join(", ") ||
+                "Not available",
+            ],
+            [
+              "Signer email",
+              auditInfo.signedByEmail || data.signerEmail || "Not available",
+            ],
             ["Signed at", auditInfo.signedAt || "Not available"],
             ["IP address", auditInfo.signedIp || "Not available"],
             ["Sign method", auditInfo.signMethod || "Not available"],
-            ["Browser / device", auditInfo.signedUserAgent || "Not available"],
+            [
+              "Browser / device",
+              auditInfo.signedUserAgent || "Not available",
+            ],
           ].map(([label, value], idx) => (
             <div
               key={label}
@@ -764,7 +781,9 @@ function LetterOfRepresentation({
             <div>
               <div style={labelStyle}>Loss Location</div>
               <div style={fieldBoxStyle}>
-                <div style={{ whiteSpace: "pre-line" }}>{displayedLossLocation}</div>
+                <div style={{ whiteSpace: "pre-line" }}>
+                  {displayedLossLocation}
+                </div>
               </div>
             </div>
 
@@ -807,12 +826,12 @@ function LetterOfRepresentation({
             </p>
 
             <p style={{ margin: "0 0 10px" }}>
-              Further, as the policy sets forth the duties, rights, and parameters
-              of coverage, it is critical that we have expedited access to this
-              information, we hereby request a true and complete certified copy of
-              the applicable policy contract including the declarations page, all
-              policy endorsements, and the original policy application. Please
-              expedite these documents to our attention.
+              Further, as the policy sets forth the duties, rights, and
+              parameters of coverage, it is critical that we have expedited
+              access to this information, we hereby request a true and complete
+              certified copy of the applicable policy contract including the
+              declarations page, all policy endorsements, and the original policy
+              application. Please expedite these documents to our attention.
             </p>
 
             <p style={{ margin: 0, fontStyle: "italic" }}>
@@ -820,8 +839,8 @@ function LetterOfRepresentation({
               an additional payee on all insurance drafts and/or payments,
               pursuant to the enclosed Notice of Loss/Notice of Representation
               signed by the Insured(s). The insured(s) hereby reserve all rights
-              to make claims under the policy for replacement cost benefits as set
-              forth in the policy and likewise invoke their rights to repair,
+              to make claims under the policy for replacement cost benefits as
+              set forth in the policy and likewise invoke their rights to repair,
               rebuild or replace the damaged property.
             </p>
           </div>
@@ -839,17 +858,17 @@ function LetterOfRepresentation({
               Surely, you understand the Assured’s need to have this claim
               processed as quickly as possible, and as such, we will be
               undertaking all necessary steps to document and prepare their claim
-              for submission. We look forward to working cooperatively with you to
-              reach a fair and prompt resolution to this claim. Please feel free
-              to contact us at 954-874-3563 to discuss the current status of this
-              claim and to coordinate our efforts in the loss investigation and
-              valuation process.
+              for submission. We look forward to working cooperatively with you
+              to reach a fair and prompt resolution to this claim. Please feel
+              free to contact us at 954-874-3563 to discuss the current status of
+              this claim and to coordinate our efforts in the loss investigation
+              and valuation process.
             </p>
 
             <p style={{ margin: "0 0 18px", fontStyle: "italic" }}>
-              The Assureds hereby reserve all of their rights under the policy and
-              the laws of this State and nothing contained herein is intended to
-              waive or prejudice said rights.
+              The Assureds hereby reserve all of their rights under the policy
+              and the laws of this State and nothing contained herein is intended
+              to waive or prejudice said rights.
             </p>
 
             <div
@@ -1131,7 +1150,8 @@ function PublicAdjusterContract({
       </div>
 
       <div>
-        <strong>Insurer:</strong> {data.insuranceCompany}</div>
+        <strong>Insurer:</strong> {data.insuranceCompany}
+      </div>
       <div>
         <strong>Date of Loss:</strong> {data.dateOfLoss}
       </div>
@@ -1167,11 +1187,11 @@ function PublicAdjusterContract({
             <p style={{ margin: "0 0 10px" }}>
               The insured(s) hereby retains Capital Claims Group to be its public
               adjuster and hereby appoints Capital Claims Group to be its
-              independent appraiser to appraise, advise, negotiate, and/or settle
-              the above-referenced claim. The insured(s) agrees to pay and hereby
-              assigns to Capital Claims Group <strong>10%</strong> of all
-              payments made by the insurance company related to this claim. In the
-              event appraisal, mediation is demanded, or a lawsuit ensues
+              independent appraiser to appraise, advise, negotiate, and/or
+              settle the above-referenced claim. The insured(s) agrees to pay and
+              hereby assigns to Capital Claims Group <strong>10%</strong> of all
+              payments made by the insurance company related to this claim. In
+              the event appraisal, mediation is demanded, or a lawsuit ensues
               regarding the above-mentioned claim, there will be an additional
               charge of five percent. The total contractual percentage shall not
               exceed the maximum allowed by law.
@@ -1197,9 +1217,9 @@ function PublicAdjusterContract({
               fees on the insured’s behalf to properly adjust the claim. These
               fees may include, but are not limited to, a General Contractor,
               Engineer, Claim Appraiser, Plumber, Roofer, and Environmental
-              Hygienist. The insured understands that no professional fees will be
-              incurred without the insured’s written or verbal authorization, and
-              that the insured may then be responsible for such fees.
+              Hygienist. The insured understands that no professional fees will
+              be incurred without the insured’s written or verbal authorization,
+              and that the insured may then be responsible for such fees.
             </p>
 
             <InitialsRow />
@@ -1236,12 +1256,12 @@ function PublicAdjusterContract({
               >
                 {insuredNames}
               </span>
-              , a named insured under the above-mentioned policy, hereby swear and
-              attest that I have the authority to enter into this contract and
-              settle all claims issued on behalf of all named insureds. Insured
-              acknowledges, understands, and agrees that under section 626.8796,
-              Florida Statutes, an agreement with a public adjuster must be signed
-              by all named insureds.
+              , a named insured under the above-mentioned policy, hereby swear
+              and attest that I have the authority to enter into this contract
+              and settle all claims issued on behalf of all named insureds.
+              Insured acknowledges, understands, and agrees that under section
+              626.8796, Florida Statutes, an agreement with a public adjuster
+              must be signed by all named insureds.
             </p>
 
             <p style={{ margin: "0 0 6px" }}>
@@ -1251,8 +1271,8 @@ function PublicAdjusterContract({
               Capital Claims Group is not a law firm and does not offer legal
               advice, and there will be no attorney-client relationship with the
               insured(s). The insured is hereby advised of the right to counsel
-              and may consult with an attorney regarding their claim independently
-              of Capital Claims Group.
+              and may consult with an attorney regarding their claim
+              independently of Capital Claims Group.
             </p>
 
             <p style={{ margin: "0 0 6px" }}>
@@ -1260,17 +1280,17 @@ function PublicAdjusterContract({
             </p>
             <p style={{ margin: "0 0 10px" }}>
               The insured understands and agrees that if it becomes necessary to
-              retain an attorney, the insured authorizes and agrees to a Letter of
-              Protection for Capital Claims Group.
+              retain an attorney, the insured authorizes and agrees to a Letter
+              of Protection for Capital Claims Group.
             </p>
 
             <p style={{ margin: "0 0 6px" }}>
               8. <span style={sectionHead}>Representation:</span>
             </p>
             <p style={{ margin: "0 0 10px" }}>
-              The insured hereby affirms that no other claim(s) have been filed in
-              reference to the same peril and that no other legal representation
-              is involved with the claim other than:
+              The insured hereby affirms that no other claim(s) have been filed
+              in reference to the same peril and that no other legal
+              representation is involved with the claim other than:
             </p>
 
             <div
@@ -1310,18 +1330,18 @@ function PublicAdjusterContract({
               In the event of litigation arising from this agreement, the venue
               shall be in Miami-Dade County, Florida. The prevailing party shall
               be entitled to recover its court costs, reasonable attorney fees,
-              including those incurred during any appeal proceedings, and interest
-              on any past due fees at the maximum rate permitted by applicable
-              law.
+              including those incurred during any appeal proceedings, and
+              interest on any past due fees at the maximum rate permitted by
+              applicable law.
             </p>
 
             <p style={{ margin: "0 0 6px" }}>
               11. <span style={sectionHead}>Commercial Policy Cancellation:</span>
             </p>
             <p style={{ margin: "0 0 12px" }}>
-              You, the insured(s), may cancel this contract for any reason without
-              penalty or obligation to you within 10 days after the date of this
-              contract.
+              You, the insured(s), may cancel this contract for any reason
+              without penalty or obligation to you within 10 days after the date
+              of this contract.
             </p>
 
             <p style={{ margin: "0 0 6px", fontWeight: 700 }}>
@@ -1344,9 +1364,9 @@ function PublicAdjusterContract({
               obligation to you within 30 days after the date of loss or 10 days
               after the date on which the contract is executed, whichever is
               longer. You may also cancel this contract without penalty or
-              obligation to you if I, as your public adjuster, fail to provide you
-              and your insurer a copy of a written estimate within 60 days of the
-              execution of the contract, unless the failure to provide the
+              obligation to you if I, as your public adjuster, fail to provide
+              you and your insurer a copy of a written estimate within 60 days of
+              the execution of the contract, unless the failure to provide the
               estimate within 60 days is caused by factors beyond my control.
             </p>
 
@@ -1378,8 +1398,8 @@ function PublicAdjusterContract({
               Pursuant to s. 817.234, Florida Statutes, any person who, with the
               intent to injure, defraud, or deceive any insurer or insured,
               prepares, presents, or causes to be presented a proof of loss or
-              estimate of cost or repair of damaged property in support of a claim
-              under an insurance policy, knowing that the proof of loss or
+              estimate of cost or repair of damaged property in support of a
+              claim under an insurance policy, knowing that the proof of loss or
               estimate of claim or repairs contains any false, incomplete, or
               misleading information concerning any fact or thing material to the
               claim, commits a felony of the third degree, punishable as provided
@@ -1387,9 +1407,9 @@ function PublicAdjusterContract({
             </p>
 
             <p style={{ margin: "0 0 10px" }}>
-              Insured(s) have read, understand and voluntarily sign the foregoing
-              Agreement. A computer or faxed signature or copy of this document
-              shall be deemed to have the same effect as the original.
+              Insured(s) have read, understand and voluntarily sign the
+              foregoing Agreement. A computer or faxed signature or copy of this
+              document shall be deemed to have the same effect as the original.
             </p>
 
             <InitialsRow />
@@ -1473,7 +1493,9 @@ function PublicAdjusterContract({
                       />
                     )}
                   </div>
-                  <div style={{ fontSize: 11 }}>Signature of the policyholder</div>
+                  <div style={{ fontSize: 11 }}>
+                    Signature of the policyholder
+                  </div>
                   <div style={{ marginTop: 8 }}>Date: {data.date}</div>
                 </div>
 
@@ -1588,8 +1610,11 @@ export default function App() {
           signedUserAgent: claim.signed_user_agent || "",
           signMethod: claim.sign_method || "",
           signedByEmail: claim.signed_by_email || claim.homeowner_email || "",
-          signedByName: claim.signed_by_name || [claim.homeowner1, claim.homeowner2].filter(Boolean).join(", "),
+          signedByName:
+            claim.signed_by_name ||
+            [claim.homeowner1, claim.homeowner2].filter(Boolean).join(", "),
         });
+
         setData((prev) => ({
           ...prev,
           date: claim.date || prev.date,
@@ -1615,10 +1640,14 @@ export default function App() {
           lossDescription: prev.lossDescription,
           lossLocationSameAsAddress:
             (claim.loss_location || "") ===
-            [claim.address, [claim.city, claim.state, claim.zip].filter(Boolean).join(", ")]
+            [
+              claim.address,
+              [claim.city, claim.state, claim.zip].filter(Boolean).join(", "),
+            ]
               .filter(Boolean)
               .join("\n"),
         }));
+
         setView("sign");
       } finally {
         setIsLoadingSigningLink(false);
@@ -1663,10 +1692,12 @@ export default function App() {
   };
 
   const missingSigningFields = !pendingSend ? getMissingSigningFields() : [];
+
   const isSigningComplete =
     !!sig1 &&
     (!hasSecond || !!sig2) &&
-    (activeDoc !== "pac" || (!!data.initials1 && (!hasSecond || !!data.initials2)));
+    (activeDoc !== "pac" ||
+      (!!data.initials1 && (!hasSecond || !!data.initials2)));
 
   const generatePDF = async (docType) => {
     setIsExportingPdf(true);
@@ -1706,35 +1737,37 @@ export default function App() {
     });
 
   const getAuditInfoFromServer = async () => {
-  const response = await fetch("/.netlify/functions/sign-audit", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      claimId: currentClaimId,
-      docType: activeDoc,
-      signMethod: isSigningFromLink ? "email_link" : "sign_now",
-      signedByEmail: data.signerEmail,
-      signedByName: [data.homeowner1, data.homeowner2].filter(Boolean).join(", "),
-    }),
-  });
+    const response = await fetch("/.netlify/functions/sign-audit", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        claimId: currentClaimId,
+        docType: activeDoc,
+        signMethod: isSigningFromLink ? "email_link" : "sign_now",
+        signedByEmail: data.signerEmail,
+        signedByName: [data.homeowner1, data.homeowner2]
+          .filter(Boolean)
+          .join(", "),
+      }),
+    });
 
-  const rawText = await response.text();
-  let result = {};
+    const rawText = await response.text();
+    let result = {};
 
-  try {
-    result = rawText ? JSON.parse(rawText) : {};
-  } catch (e) {
-    throw new Error("sign-audit returned invalid JSON: " + rawText);
-  }
+    try {
+      result = rawText ? JSON.parse(rawText) : {};
+    } catch (e) {
+      throw new Error("sign-audit returned invalid JSON: " + rawText);
+    }
 
-  if (!response.ok) {
-    throw new Error(result.error || "Failed to capture signing audit trail.");
-  }
+    if (!response.ok) {
+      throw new Error(result.error || "Failed to capture signing audit trail.");
+    }
 
-  return result;
-};
+    return result;
+  };
 
   const saveClaimToSupabase = async (audit = null) => {
     const payload = {
@@ -1795,7 +1828,8 @@ export default function App() {
         const missing = getMissingSigningFields();
         if (missing.length > 0) {
           alert(
-            "Please complete the required signing fields:\n\n" + missing.join("\n")
+            "Please complete the required signing fields:\n\n" +
+              missing.join("\n")
           );
           return;
         }
@@ -1827,9 +1861,14 @@ export default function App() {
               <p>Please click the link below to review and sign your document.</p>
               <p><a href="${signingLink}">${signingLink}</a></p>
               <p><strong>Document:</strong> ${
-                activeDoc === "lor" ? "Letter of Representation" : "PA Agreement"
+                activeDoc === "lor"
+                  ? "Letter of Representation"
+                  : "PA Agreement"
               }</p>
-              <p><strong>Insured:</strong> ${[data.homeowner1, data.homeowner2]
+              <p><strong>Insured:</strong> ${[
+                data.homeowner1,
+                data.homeowner2,
+              ]
                 .filter(Boolean)
                 .join(", ")}</p>
               <p>An audit trail page with timestamp, IP address, and browser details will be attached after signing.</p>
@@ -1858,7 +1897,9 @@ export default function App() {
         signedAt: serverAudit.signedAt || "",
         signedIp: serverAudit.signedIp || "",
         signedUserAgent: serverAudit.signedUserAgent || "",
-        signMethod: serverAudit.signMethod || (isSigningFromLink ? "email_link" : "sign_now"),
+        signMethod:
+          serverAudit.signMethod ||
+          (isSigningFromLink ? "email_link" : "sign_now"),
         signedByEmail: serverAudit.signedByEmail || data.signerEmail || "",
         signedByName:
           serverAudit.signedByName ||
@@ -1898,11 +1939,15 @@ export default function App() {
                 ? "Letter of Representation"
                 : "PA Agreement"
             }</p>
-            <p><strong>Insurance Company:</strong> ${data.insuranceCompany || ""}</p>
+            <p><strong>Insurance Company:</strong> ${
+              data.insuranceCompany || ""
+            }</p>
             <p><strong>Policy Number:</strong> ${data.policyNumber || ""}</p>
             <p><strong>Homeowner 1:</strong> ${data.homeowner1 || ""}</p>
             <p><strong>Homeowner 2:</strong> ${data.homeowner2 || ""}</p>
-            <p><strong>Representative:</strong> ${data.representativeName || ""}</p>
+            <p><strong>Representative:</strong> ${
+              data.representativeName || ""
+            }</p>
             <p><strong>Signed at:</strong> ${nextAuditInfo.signedAt || ""}</p>
             <p><strong>Signing IP:</strong> ${nextAuditInfo.signedIp || ""}</p>
           `,
@@ -1998,7 +2043,8 @@ export default function App() {
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+                      gridTemplateColumns:
+                        "repeat(auto-fit, minmax(280px, 1fr))",
                       gap: 16,
                     }}
                   >
@@ -2053,15 +2099,26 @@ export default function App() {
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+                      gridTemplateColumns:
+                        "repeat(auto-fit, minmax(280px, 1fr))",
                       gap: 16,
                     }}
                   >
                     <FormField
-                      label="Date"
+                      label="Today's Date"
                       type="date"
                       value={data.date}
                       onChange={(v) => update("date", v)}
+                    />
+                    <FormField
+                      label="Insurance Company"
+                      value={data.insuranceCompany}
+                      onChange={(v) => update("insuranceCompany", v)}
+                    />
+                    <FormField
+                      label="Policy #"
+                      value={data.policyNumber}
+                      onChange={(v) => update("policyNumber", v)}
                     />
                     <div>
                       <FormField
@@ -2069,7 +2126,13 @@ export default function App() {
                         value={data.claimNumber}
                         onChange={(v) => update("claimNumber", v)}
                       />
-                      <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          color: "#6b7280",
+                          marginTop: 4,
+                        }}
+                      >
                         Only fill this out if there is an active claim.
                       </div>
                     </div>
@@ -2098,7 +2161,8 @@ export default function App() {
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+                      gridTemplateColumns:
+                        "repeat(auto-fit, minmax(280px, 1fr))",
                       gap: 16,
                     }}
                   >
@@ -2132,7 +2196,8 @@ export default function App() {
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                    gridTemplateColumns:
+                      "repeat(auto-fit, minmax(220px, 1fr))",
                     gap: 12,
                   }}
                 >
@@ -2160,7 +2225,8 @@ export default function App() {
                 style={{
                   marginTop: 20,
                   display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gridTemplateColumns:
+                    "repeat(auto-fit, minmax(220px, 1fr))",
                   gap: 12,
                 }}
               >
@@ -2182,8 +2248,8 @@ export default function App() {
                   textAlign: "center",
                 }}
               >
-                First pick which function sign now or send for signing then click
-                on the form you want
+                First pick which function sign now or send for signing then
+                click on the form you want
               </div>
             </CardContent>
           </Card>
@@ -2252,7 +2318,9 @@ export default function App() {
                       fontWeight: 600,
                     }}
                   >
-                    Please complete all required signatures{activeDoc === "pac" ? " and initials" : ""} before submitting.
+                    Please complete all required signatures
+                    {activeDoc === "pac" ? " and initials" : ""} before
+                    submitting.
                   </div>
                 )}
 
