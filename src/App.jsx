@@ -1552,6 +1552,7 @@ export default function App() {
   const [view, setView] = useState("input");
   const [activeDoc, setActiveDoc] = useState("lor");
   const [selectedDocs, setSelectedDocs] = useState(["lor"]);
+  const [reviewedDocs, setReviewedDocs] = useState([]);
   const [signMode, setSignMode] = useState("now");
   const [data, setData] = useState(initialData);
   const [sig1, setSig1] = useState("");
@@ -1623,6 +1624,7 @@ export default function App() {
 
         setCurrentClaimId(claim.id);
         setSelectedDocs(docsFromLink);
+        setReviewedDocs([]);
         setActiveDoc(docsFromLink[0] || "lor");
         setSignMode("now");
         setPendingSend(false);
@@ -1710,6 +1712,7 @@ export default function App() {
 
     const orderedDocs = VALID_DOCS.filter((doc) => selectedDocs.includes(doc));
     setSelectedDocs(orderedDocs);
+    setReviewedDocs([]);
     setActiveDoc(orderedDocs[0]);
     setPendingSend(signMode === "send");
     setIsSigningFromLink(false);
@@ -1720,6 +1723,11 @@ export default function App() {
     update("initials1", "");
     update("initials2", "");
     setView("sign");
+  };
+
+  const openReviewDoc = (doc) => {
+    setActiveDoc(doc);
+    setReviewedDocs((prev) => (prev.includes(doc) ? prev : [...prev, doc]));
   };
 
   const getPrintableSelector = (docType) =>
@@ -1747,6 +1755,27 @@ export default function App() {
     (!hasSecond || !!sig2) &&
     (!selectedDocs.includes("pac") ||
       (!!data.initials1 && (!hasSecond || !!data.initials2)));
+
+  const allSelectedDocsReviewed = selectedDocs.every((doc) =>
+    reviewedDocs.includes(doc)
+  );
+
+  const parseJsonResponse = async (response, fallbackMessage) => {
+    const rawText = await response.text();
+    let result = {};
+
+    try {
+      result = rawText ? JSON.parse(rawText) : {};
+    } catch (e) {
+      throw new Error(rawText || fallbackMessage);
+    }
+
+    if (!response.ok) {
+      throw new Error(result.error || rawText || fallbackMessage);
+    }
+
+    return result;
+  };
 
   const generatePDF = async (docType) => {
     setIsExportingPdf(true);
@@ -1799,20 +1828,10 @@ export default function App() {
       }),
     });
 
-    const rawText = await response.text();
-    let result = {};
-
-    try {
-      result = rawText ? JSON.parse(rawText) : {};
-    } catch (e) {
-      throw new Error("sign-audit returned invalid JSON: " + rawText);
-    }
-
-    if (!response.ok) {
-      throw new Error(result.error || "Failed to capture signing audit trail.");
-    }
-
-    return result;
+    return await parseJsonResponse(
+      response,
+      "Failed to capture signing audit trail."
+    );
   };
 
   const saveClaimToSupabase = async (audit = null) => {
@@ -1884,11 +1903,17 @@ export default function App() {
     try {
       if (!pendingSend) {
         const missing = getMissingSigningFields();
+
         if (missing.length > 0) {
           alert(
             "Please complete the required signing fields:\n\n" +
               missing.join("\n")
           );
+          return;
+        }
+
+        if (selectedDocs.length > 1 && !allSelectedDocsReviewed) {
+          alert("Please review both forms before submitting.");
           return;
         }
       }
@@ -1933,15 +1958,7 @@ export default function App() {
           }),
         });
 
-        const emailResult = await emailResponse.json();
-
-        if (!emailResponse.ok) {
-          alert(
-            "Saved to database, but signing email failed: " +
-              (emailResult.error || "Unknown error")
-          );
-          return;
-        }
+        await parseJsonResponse(emailResponse, "Signing email failed.");
 
         alert(
           `Signing link sent to ${data.signerEmail} for ${selectedDocLabels.join(" and ")}.`
@@ -2018,15 +2035,7 @@ export default function App() {
         }),
       });
 
-      const emailResult = await emailResponse.json();
-
-      if (!emailResponse.ok) {
-        alert(
-          "Saved to database, but email failed: " +
-            (emailResult.error || "Unknown error")
-        );
-        return;
-      }
+      await parseJsonResponse(emailResponse, "Email failed.");
 
       alert(
         `Saved successfully! Email sent with signed PDF${selectedDocs.length > 1 ? "s" : ""} and audit trail.`
@@ -2362,22 +2371,52 @@ export default function App() {
             {selectedDocs.length > 1 && (
               <Card>
                 <CardContent>
+                  <div style={{ marginBottom: 12, fontSize: 15, fontWeight: 700 }}>
+                    Review each form before submitting
+                  </div>
+
                   <div
                     style={{
-                      display: "flex",
-                      flexWrap: "wrap",
-                      gap: 10,
+                      display: "grid",
+                      gridTemplateColumns:
+                        "repeat(auto-fit, minmax(260px, 1fr))",
+                      gap: 12,
                     }}
                   >
-                    {selectedDocs.map((doc) => (
-                      <Button
-                        key={doc}
-                        variant={activeDoc === doc ? "default" : "outline"}
-                        onClick={() => setActiveDoc(doc)}
-                      >
-                        {documentLabel(doc)}
-                      </Button>
-                    ))}
+                    {selectedDocs.map((doc) => {
+                      const reviewed = reviewedDocs.includes(doc);
+
+                      return (
+                        <div
+                          key={doc}
+                          style={{
+                            border: "1px solid #d1d5db",
+                            borderRadius: 14,
+                            padding: 14,
+                            background: "#fff",
+                          }}
+                        >
+                          <div style={{ fontWeight: 700, marginBottom: 8 }}>
+                            {documentLabel(doc)}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: 13,
+                              marginBottom: 10,
+                              color: reviewed ? "#166534" : "#92400e",
+                            }}
+                          >
+                            {reviewed ? "Reviewed" : "Not reviewed yet"}
+                          </div>
+                          <Button
+                            variant={activeDoc === doc ? "default" : "outline"}
+                            onClick={() => openReviewDoc(doc)}
+                          >
+                            Review {documentLabel(doc)}
+                          </Button>
+                        </div>
+                      );
+                    })}
                   </div>
                 </CardContent>
               </Card>
@@ -2512,6 +2551,22 @@ export default function App() {
                   </div>
                 )}
 
+                {!pendingSend &&
+                  selectedDocs.length > 1 &&
+                  !allSelectedDocsReviewed && (
+                    <div
+                      style={{
+                        marginTop: 8,
+                        marginBottom: 12,
+                        fontSize: 13,
+                        color: "#991b1b",
+                        fontWeight: 600,
+                      }}
+                    >
+                      Please review both forms before submitting.
+                    </div>
+                  )}
+
                 {!pendingSend && auditInfo.signedAt && (
                   <div
                     style={{
@@ -2529,7 +2584,11 @@ export default function App() {
                 <div style={{ display: "flex", gap: 12, paddingTop: 8 }}>
                   <Button
                     onClick={submitDoc}
-                    disabled={!pendingSend && !isSigningComplete}
+                    disabled={
+                      !pendingSend &&
+                      (!isSigningComplete ||
+                        (selectedDocs.length > 1 && !allSelectedDocsReviewed))
+                    }
                   >
                     {pendingSend ? <Send size={16} /> : <Mail size={16} />}
                     {pendingSend ? "Send for Signing" : "Submit & Email Copies"}
