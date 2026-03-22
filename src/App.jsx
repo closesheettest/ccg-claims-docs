@@ -1534,9 +1534,10 @@ function PublicAdjusterContract({
                 display: "inline-block",
                 minWidth: 250,
                 borderBottom: "1px solid #111827",
+                fontWeight: 600,
               }}
             >
-              {insuredNames}
+              {insuredNames || "____________________________"}
             </span>
             , a named insured under the above-mentioned policy, hereby swear and
             attest that I have the authority to enter into this contract and
@@ -1581,9 +1582,10 @@ function PublicAdjusterContract({
               width: 320,
               marginBottom: 12,
               minHeight: 18,
+              fontWeight: 600,
             }}
           >
-            {data.representativeName}
+            Capital Claims Group
           </div>
 
           <p style={{ margin: "0 0 6px" }}>
