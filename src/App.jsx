@@ -30,6 +30,11 @@ const SIGNATURE_FONTS = [
   `"Lucida Handwriting", cursive`,
 ];
 
+const PDF_LAYOUT = {
+  headerHeight: "1.28in",
+  footerHeight: "0.82in",
+};
+
 const initialData = {
   date: new Date().toISOString().split("T")[0],
   insuranceCompany: "",
@@ -705,55 +710,93 @@ function PdfPage({
   footer,
   breakAfter = false,
   isExportingPdf = false,
-  contentPadding = "0 0.5in",
+  contentPadding = "0 0.42in 0.12in",
+  headerHeight = PDF_LAYOUT.headerHeight,
+  footerHeight = PDF_LAYOUT.footerHeight,
 }) {
-  const pageStyle = isExportingPdf
-    ? {
-        position: "relative",
-        width: "8.5in",
-        height: "11in",
-        background: "#fff",
-        boxSizing: "border-box",
-        overflow: "hidden",
-        pageBreakAfter: breakAfter ? "always" : "auto",
-      }
-    : {
-        position: "relative",
+  if (isExportingPdf) {
+    return (
+      <div
+        className="pdf-page"
+        style={{
+          position: "relative",
+          width: "8.5in",
+          height: "11in",
+          background: "#fff",
+          boxSizing: "border-box",
+          overflow: "hidden",
+          pageBreakAfter: breakAfter ? "always" : "auto",
+          fontFamily: "Arial, Helvetica, sans-serif",
+          color: "#111827",
+        }}
+      >
+        {header ? (
+          <div
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              height: headerHeight,
+              lineHeight: 0,
+              overflow: "hidden",
+            }}
+          >
+            {header}
+          </div>
+        ) : null}
+
+        {footer ? (
+          <div
+            style={{
+              position: "absolute",
+              left: 0,
+              right: 0,
+              bottom: 0,
+              height: footerHeight,
+              lineHeight: 0,
+              overflow: "hidden",
+            }}
+          >
+            {footer}
+          </div>
+        ) : null}
+
+        <div
+          style={{
+            position: "absolute",
+            top: header ? headerHeight : 0,
+            left: 0,
+            right: 0,
+            bottom: footer ? footerHeight : 0,
+            boxSizing: "border-box",
+            padding: contentPadding,
+            overflow: "hidden",
+          }}
+        >
+          {children}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="pdf-page"
+      style={{
         background: "#fff",
         borderRadius: 24,
         border: "1px solid #e5e7eb",
         boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
         overflow: "hidden",
         marginBottom: 16,
-      };
-
-  return (
-    <div className="pdf-page" style={pageStyle}>
+        fontFamily: "Arial, Helvetica, sans-serif",
+        color: "#111827",
+      }}
+    >
       {header ? <div style={{ lineHeight: 0 }}>{header}</div> : null}
-
-      <div
-        style={{
-          boxSizing: "border-box",
-          padding: contentPadding,
-          paddingBottom: footer ? "1.05in" : "0.5in",
-        }}
-      >
-        {children}
-      </div>
-
-      {footer ? (
-        <div
-          style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            bottom: 0,
-            lineHeight: 0,
-          }}
-        >
-          {footer}
-        </div>
-      ) : null}
+      <div style={{ padding: contentPadding }}>{children}</div>
+      {footer ? <div style={{ lineHeight: 0 }}>{footer}</div> : null}
     </div>
   );
 }
@@ -779,6 +822,8 @@ function AuditTrailPage({
               boxSizing: "border-box",
               overflow: "hidden",
               pageBreakBefore: "always",
+              fontFamily: "Arial, Helvetica, sans-serif",
+              color: "#111827",
             }
           : {
               background: "#fff",
@@ -787,14 +832,14 @@ function AuditTrailPage({
               boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
               overflow: "hidden",
               marginBottom: 16,
+              fontFamily: "Arial, Helvetica, sans-serif",
+              color: "#111827",
             }
       }
     >
       <div
         style={{
           padding: "0.55in 0.6in",
-          fontFamily: "Arial, Helvetica, sans-serif",
-          color: "#111827",
           boxSizing: "border-box",
         }}
       >
@@ -2173,11 +2218,11 @@ export default function App() {
       if (selectedDocs.includes("lor")) {
         const lorBlob = await generatePDF(
           "#lor-printable-document",
-          "Letter-of-Representation.pdf"
+          documentFilename("lor")
         );
         const lorBase64 = await blobToBase64(lorBlob);
         attachments.push({
-          filename: "Letter-of-Representation.pdf",
+          filename: documentFilename("lor"),
           content: String(lorBase64).split(",")[1],
         });
       }
@@ -2185,11 +2230,11 @@ export default function App() {
       if (selectedDocs.includes("pac")) {
         const pacBlob = await generatePDF(
           "#pac-printable-document",
-          "Public-Adjuster-Agreement.pdf"
+          documentFilename("pac")
         );
         const pacBase64 = await blobToBase64(pacBlob);
         attachments.push({
-          filename: "Public-Adjuster-Agreement.pdf",
+          filename: documentFilename("pac"),
           content: String(pacBase64).split(",")[1],
         });
       }
@@ -2863,8 +2908,8 @@ export default function App() {
                           ? "#lor-printable-document"
                           : "#pac-printable-document";
                         const filename = selectedDocs.includes("lor")
-                          ? "Letter-of-Representation.pdf"
-                          : "Public-Adjuster-Agreement.pdf";
+                          ? documentFilename("lor")
+                          : documentFilename("pac");
 
                         const element = document.querySelector(selector);
                         if (!element) {
