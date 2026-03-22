@@ -47,6 +47,15 @@ const initialData = {
   initials2: "",
 };
 
+const initialAuditInfo = {
+  signedAt: "",
+  signedIp: "",
+  signedUserAgent: "",
+  signMethod: "",
+  signedByEmail: "",
+  signedByName: "",
+};
+
 function Button({
   children,
   onClick,
@@ -491,6 +500,100 @@ function InitialsPad({ title, value, onChange, required = false, missing = false
   );
 }
 
+function AuditTrailPage({ auditInfo, data, docLabel, claimId }) {
+  if (!auditInfo?.signedAt) return null;
+
+  return (
+    <div
+      className="pdf-page"
+      style={{
+        width: "100%",
+        minHeight: "11in",
+        background: "#fff",
+        boxSizing: "border-box",
+        overflow: "hidden",
+        pageBreakAfter: "auto",
+        fontFamily: "Arial, Helvetica, sans-serif",
+        color: "#111827",
+      }}
+    >
+      <div style={{ padding: "0.55in 0.6in" }}>
+        <div style={{ fontSize: 26, fontWeight: 700, marginBottom: 10 }}>
+          Signature Acknowledgment
+        </div>
+        <div style={{ fontSize: 14, color: "#4b5563", marginBottom: 24 }}>
+          Electronic signing audit trail for this document.
+        </div>
+
+        <div
+          style={{
+            border: "1px solid #d1d5db",
+            borderRadius: 16,
+            overflow: "hidden",
+          }}
+        >
+          {[
+            ["Document", docLabel],
+            ["Claim ID", claimId || "Not available"],
+            ["Signed by", auditInfo.signedByName || [data.homeowner1, data.homeowner2].filter(Boolean).join(", ") || "Not available"],
+            ["Signer email", auditInfo.signedByEmail || data.signerEmail || "Not available"],
+            ["Signed at", auditInfo.signedAt || "Not available"],
+            ["IP address", auditInfo.signedIp || "Not available"],
+            ["Sign method", auditInfo.signMethod || "Not available"],
+            ["Browser / device", auditInfo.signedUserAgent || "Not available"],
+          ].map(([label, value], idx) => (
+            <div
+              key={label}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "200px 1fr",
+                borderTop: idx === 0 ? "none" : "1px solid #e5e7eb",
+              }}
+            >
+              <div
+                style={{
+                  background: "#f8fafc",
+                  padding: "14px 16px",
+                  fontWeight: 700,
+                  fontSize: 13,
+                }}
+              >
+                {label}
+              </div>
+              <div
+                style={{
+                  padding: "14px 16px",
+                  fontSize: 13,
+                  wordBreak: "break-word",
+                  whiteSpace: "pre-wrap",
+                }}
+              >
+                {value}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div
+          style={{
+            marginTop: 24,
+            border: "1px solid #d1d5db",
+            borderRadius: 16,
+            padding: 18,
+            background: "#f8fafc",
+            fontSize: 13,
+            lineHeight: 1.6,
+          }}
+        >
+          By signing electronically, the signer acknowledged intent to sign this
+          document and submitted the signature using the browser session that
+          generated the audit information shown above.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function formatAddress(data) {
   return [
     data.address,
@@ -500,7 +603,14 @@ function formatAddress(data) {
     .join("\n");
 }
 
-function LetterOfRepresentation({ data, sig1, sig2, isExportingPdf = false }) {
+function LetterOfRepresentation({
+  data,
+  sig1,
+  sig2,
+  auditInfo,
+  claimId,
+  isExportingPdf = false,
+}) {
   const hasSecond = Boolean(data.homeowner2?.trim());
   const fullAddress = formatAddress(data);
   const displayedLossLocation = data.lossLocationSameAsAddress
@@ -825,6 +935,13 @@ function LetterOfRepresentation({ data, sig1, sig2, isExportingPdf = false }) {
           </div>
         </div>
       </div>
+
+      <AuditTrailPage
+        auditInfo={auditInfo}
+        data={data}
+        docLabel="Letter of Representation"
+        claimId={claimId}
+      />
     </div>
   );
 }
@@ -833,6 +950,8 @@ function PublicAdjusterContract({
   data,
   sig1,
   sig2,
+  auditInfo,
+  claimId,
   isExportingPdf = false,
 }) {
   const hasSecond = Boolean(data.homeowner2?.trim());
@@ -1012,10 +1131,10 @@ function PublicAdjusterContract({
       </div>
 
       <div>
-        <strong>Insurer:</strong> {data.insuranceCompany}
-      </div>
+        <strong>Insurer:</strong> {data.insuranceCompany}</div>
       <div>
-        <strong>Date of Loss:</strong> {data.dateOfLoss}</div>
+        <strong>Date of Loss:</strong> {data.dateOfLoss}
+      </div>
 
       <div>
         <strong>Policy #:</strong> {data.policyNumber}
@@ -1383,6 +1502,13 @@ function PublicAdjusterContract({
           <Footer page={4} />
         </div>
       </div>
+
+      <AuditTrailPage
+        auditInfo={auditInfo}
+        data={data}
+        docLabel="PA Agreement"
+        claimId={claimId}
+      />
     </div>
   );
 }
@@ -1399,6 +1525,7 @@ export default function App() {
   const [currentClaimId, setCurrentClaimId] = useState(null);
   const [isSigningFromLink, setIsSigningFromLink] = useState(false);
   const [isLoadingSigningLink, setIsLoadingSigningLink] = useState(false);
+  const [auditInfo, setAuditInfo] = useState(initialAuditInfo);
 
   const hasSecond = Boolean(data.homeowner2?.trim());
 
@@ -1455,6 +1582,14 @@ export default function App() {
         setIsSigningFromLink(true);
         setSig1(claim.signature1 || "");
         setSig2(claim.signature2 || "");
+        setAuditInfo({
+          signedAt: claim.signed_at || "",
+          signedIp: claim.signed_ip || "",
+          signedUserAgent: claim.signed_user_agent || "",
+          signMethod: claim.sign_method || "",
+          signedByEmail: claim.signed_by_email || claim.homeowner_email || "",
+          signedByName: claim.signed_by_name || [claim.homeowner1, claim.homeowner2].filter(Boolean).join(", "),
+        });
         setData((prev) => ({
           ...prev,
           date: claim.date || prev.date,
@@ -1506,6 +1641,7 @@ export default function App() {
     setPendingSend(signMode === "send");
     setIsSigningFromLink(false);
     setCurrentClaimId(null);
+    setAuditInfo(initialAuditInfo);
     setView("sign");
   };
 
@@ -1569,7 +1705,31 @@ export default function App() {
       reader.readAsDataURL(blob);
     });
 
-  const saveClaimToSupabase = async () => {
+  const getAuditInfoFromServer = async () => {
+    const response = await fetch("/.netlify/functions/sign-audit", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        claimId: currentClaimId,
+        docType: activeDoc,
+        signMethod: isSigningFromLink ? "email_link" : "sign_now",
+        signedByEmail: data.signerEmail,
+        signedByName: [data.homeowner1, data.homeowner2].filter(Boolean).join(", "),
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || "Failed to capture signing audit trail.");
+    }
+
+    return result;
+  };
+
+  const saveClaimToSupabase = async (audit = null) => {
     const payload = {
       date: data.date,
       insurance_company: data.insuranceCompany,
@@ -1592,6 +1752,12 @@ export default function App() {
       signature2: sig2,
       initials1: data.initials1,
       initials2: data.initials2,
+      signed_at: audit?.signedAt || null,
+      signed_ip: audit?.signedIp || null,
+      signed_user_agent: audit?.signedUserAgent || null,
+      sign_method: audit?.signMethod || null,
+      signed_by_email: audit?.signedByEmail || null,
+      signed_by_name: audit?.signedByName || null,
     };
 
     if (currentClaimId) {
@@ -1628,14 +1794,14 @@ export default function App() {
         }
       }
 
-      const { record, error } = await saveClaimToSupabase();
-
-      if (error) {
-        alert("Error saving: " + error.message);
-        return;
-      }
-
       if (pendingSend) {
+        const { record, error } = await saveClaimToSupabase(null);
+
+        if (error) {
+          alert("Error saving: " + error.message);
+          return;
+        }
+
         const signingLink = `${window.location.origin}/?sign=1&doc=${activeDoc}&claim=${record?.id}`;
 
         const emailResponse = await fetch("/.netlify/functions/send-email", {
@@ -1659,6 +1825,7 @@ export default function App() {
               <p><strong>Insured:</strong> ${[data.homeowner1, data.homeowner2]
                 .filter(Boolean)
                 .join(", ")}</p>
+              <p>An audit trail page with timestamp, IP address, and browser details will be attached after signing.</p>
             `,
           }),
         });
@@ -1679,17 +1846,32 @@ export default function App() {
         return;
       }
 
+      const serverAudit = await getAuditInfoFromServer();
+      const nextAuditInfo = {
+        signedAt: serverAudit.signedAt || "",
+        signedIp: serverAudit.signedIp || "",
+        signedUserAgent: serverAudit.signedUserAgent || "",
+        signMethod: serverAudit.signMethod || (isSigningFromLink ? "email_link" : "sign_now"),
+        signedByEmail: serverAudit.signedByEmail || data.signerEmail || "",
+        signedByName:
+          serverAudit.signedByName ||
+          [data.homeowner1, data.homeowner2].filter(Boolean).join(", "),
+      };
+
+      setAuditInfo(nextAuditInfo);
+      await new Promise((resolve) => setTimeout(resolve, 120));
+
+      const { record, error } = await saveClaimToSupabase(nextAuditInfo);
+
+      if (error) {
+        alert("Error saving: " + error.message);
+        return;
+      }
+
+      if (record?.id) setCurrentClaimId(record.id);
+
       const pdfBlob = await generatePDF(activeDoc);
       const pdfBase64 = await blobToBase64(pdfBlob);
-
-      console.log("PDF BASE64 LENGTH:", pdfBase64?.length || 0);
-      console.log("ATTACHMENT PAYLOAD:", {
-        filename:
-          activeDoc === "lor"
-            ? "Letter-of-Representation.pdf"
-            : "Public-Adjuster-Agreement.pdf",
-        contentLength: String(pdfBase64).split(",")[1]?.length || 0,
-      });
 
       const emailResponse = await fetch("/.netlify/functions/send-email", {
         method: "POST",
@@ -1714,6 +1896,8 @@ export default function App() {
             <p><strong>Homeowner 1:</strong> ${data.homeowner1 || ""}</p>
             <p><strong>Homeowner 2:</strong> ${data.homeowner2 || ""}</p>
             <p><strong>Representative:</strong> ${data.representativeName || ""}</p>
+            <p><strong>Signed at:</strong> ${nextAuditInfo.signedAt || ""}</p>
+            <p><strong>Signing IP:</strong> ${nextAuditInfo.signedIp || ""}</p>
           `,
           attachments: [
             {
@@ -1737,7 +1921,7 @@ export default function App() {
         return;
       }
 
-      alert("Saved successfully! Email sent.");
+      alert("Saved successfully! Email sent with signed PDF and audit trail.");
       setView("input");
       setPendingSend(false);
 
@@ -2020,6 +2204,8 @@ export default function App() {
                 data={data}
                 sig1={sig1}
                 sig2={sig2}
+                auditInfo={auditInfo}
+                claimId={currentClaimId}
                 isExportingPdf={isExportingPdf}
               />
             ) : (
@@ -2027,6 +2213,8 @@ export default function App() {
                 data={data}
                 sig1={sig1}
                 sig2={sig2}
+                auditInfo={auditInfo}
+                claimId={currentClaimId}
                 isExportingPdf={isExportingPdf}
               />
             )}
@@ -2120,6 +2308,20 @@ export default function App() {
                     }}
                   >
                     Missing: {missingSigningFields.join(", ")}
+                  </div>
+                )}
+
+                {!pendingSend && auditInfo.signedAt && (
+                  <div
+                    style={{
+                      marginTop: 8,
+                      marginBottom: 12,
+                      fontSize: 13,
+                      color: "#166534",
+                    }}
+                  >
+                    Audit trail will be appended to the final PDF with timestamp,
+                    IP, and browser details.
                   </div>
                 )}
 
