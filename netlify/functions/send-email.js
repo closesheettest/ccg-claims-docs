@@ -1,83 +1,44 @@
-import { Resend } from "resend";
+const { Resend } = require("resend");
 
-export async function handler(event) {
+exports.handler = async (event) => {
+  if (event.httpMethod !== "POST") {
+    return {
+      statusCode: 405,
+      body: JSON.stringify({ error: "Method not allowed" }),
+    };
+  }
+
   try {
-    console.log("FUNCTION HIT");
-
-    if (event.httpMethod !== "POST") {
-      return {
-        statusCode: 405,
-        body: JSON.stringify({ error: "Method not allowed" }),
-      };
-    }
+    const { to, subject, html } = JSON.parse(event.body || "{}");
 
     const resend = new Resend(process.env.RESEND_API_KEY);
 
-    const body = JSON.parse(event.body || "{}");
-    const { to, subject, html } = body;
-
-    console.log("Sending email to:", to);
-    console.log("Subject:", subject);
-
-    if (!process.env.RESEND_API_KEY) {
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ error: "Missing RESEND_API_KEY" }),
-      };
-    }
-
-    if (!process.env.FROM_EMAIL) {
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ error: "Missing FROM_EMAIL" }),
-      };
-    }
-
-    if (!to || !Array.isArray(to) || to.length === 0) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: "Missing recipient list" }),
-      };
-    }
-
-    if (!subject) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: "Missing subject" }),
-      };
-    }
-
-    if (!html) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: "Missing html body" }),
-      };
-    }
-
-    const data = await resend.emails.send({
-      from: process.env.FROM_EMAIL,
-      to,
+    const result = await resend.emails.send({
+      from: process.env.EMAIL_FROM || "Inspection For You <noreply@inspectionforyou.com>",
+      to: Array.isArray(to) ? to : [to],
       subject,
       html,
     });
 
-    console.log("Email result:", data);
+    console.log("RESEND RESULT:", result);
+
+    if (result.error) {
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: result.error.message }),
+      };
+    }
 
     return {
       statusCode: 200,
-      body: JSON.stringify({
-        success: true,
-        data,
-      }),
+      body: JSON.stringify({ success: true }),
     };
-  } catch (error) {
-    console.error("SEND EMAIL FUNCTION ERROR:", error);
+  } catch (err) {
+    console.error("FUNCTION ERROR:", err);
 
     return {
       statusCode: 500,
-      body: JSON.stringify({
-        error: error.message || "Unknown server error",
-      }),
+      body: JSON.stringify({ error: err.message }),
     };
   }
-}
+};
