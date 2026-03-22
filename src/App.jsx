@@ -708,7 +708,6 @@ function PdfPage({
   children,
   header,
   footer,
-  breakAfter = false,
   isExportingPdf = false,
   contentPadding = "0 0.42in 0.12in",
   headerHeight = PDF_LAYOUT.headerHeight,
@@ -725,7 +724,6 @@ function PdfPage({
           background: "#fff",
           boxSizing: "border-box",
           overflow: "hidden",
-          pageBreakAfter: breakAfter ? "always" : "auto",
           fontFamily: "Arial, Helvetica, sans-serif",
           color: "#111827",
         }}
@@ -821,7 +819,6 @@ function AuditTrailPage({
               background: "#fff",
               boxSizing: "border-box",
               overflow: "hidden",
-              pageBreakBefore: "always",
               fontFamily: "Arial, Helvetica, sans-serif",
               color: "#111827",
             }
@@ -1019,7 +1016,6 @@ function LetterOfRepresentation({
     >
       <PdfPage
         isExportingPdf={isExportingPdf}
-        breakAfter={true}
         header={<HeaderImg />}
         footer={<FooterImg />}
         contentPadding="0 0.42in 0.12in"
@@ -1137,7 +1133,6 @@ function LetterOfRepresentation({
 
       <PdfPage
         isExportingPdf={isExportingPdf}
-        breakAfter={false}
         header={<HeaderImg />}
         footer={<FooterImg />}
         contentPadding="0 0.42in 0.12in"
@@ -1436,7 +1431,6 @@ function PublicAdjusterContract({
     <div id="pac-printable-document" style={{ background: "transparent" }}>
       <PdfPage
         isExportingPdf={isExportingPdf}
-        breakAfter={true}
         header={<HeaderImg />}
         contentPadding="0 0.42in 0.12in"
         footer={<Footer page={1} />}
@@ -1492,7 +1486,6 @@ function PublicAdjusterContract({
 
       <PdfPage
         isExportingPdf={isExportingPdf}
-        breakAfter={true}
         header={<HeaderImg />}
         contentPadding="0 0.42in 0.12in"
         footer={<Footer page={2} />}
@@ -1583,7 +1576,6 @@ function PublicAdjusterContract({
 
       <PdfPage
         isExportingPdf={isExportingPdf}
-        breakAfter={true}
         header={<HeaderImg />}
         contentPadding="0 0.42in 0.12in"
         footer={<Footer page={3} />}
@@ -1643,7 +1635,6 @@ function PublicAdjusterContract({
 
       <PdfPage
         isExportingPdf={isExportingPdf}
-        breakAfter={false}
         header={<HeaderImg />}
         contentPadding="0 0.42in 0.12in"
         footer={<Footer page={4} />}
@@ -1949,7 +1940,7 @@ export default function App() {
 
     try {
       result = rawText ? JSON.parse(rawText) : {};
-    } catch (e) {
+    } catch {
       if (!response.ok) throw new Error(fallbackMessage);
       throw new Error(rawText || fallbackMessage);
     }
@@ -2017,8 +2008,9 @@ export default function App() {
     if (hasSecond && !effectiveSig2) missing.push("Homeowner 2 signature");
     if (selectedDocs.includes("pac")) {
       if (!effectiveInitials1) missing.push("Homeowner 1 initials");
-      if (hasSecond && !effectiveInitials2)
+      if (hasSecond && !effectiveInitials2) {
         missing.push("Homeowner 2 initials");
+      }
     }
     return missing;
   })();
@@ -2051,9 +2043,7 @@ export default function App() {
           format: "letter",
           orientation: "portrait",
         },
-        pagebreak: {
-          mode: ["css"],
-        },
+        pagebreak: { mode: ["css"] },
       };
 
       return await html2pdf().set(opt).from(element).outputPdf("blob");
