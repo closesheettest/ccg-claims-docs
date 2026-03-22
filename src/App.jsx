@@ -2005,8 +2005,7 @@ export default function App() {
       signature2: effectiveSig2,
       initials1: effectiveInitials1,
       initials2: effectiveInitials2,
-      claim_type: data.claimType,
-      loss_description: data.lossDescription,
+      
       signed_at: audit?.signedAt || null,
       signed_ip: audit?.signedIp || null,
       signed_user_agent: audit?.signedUserAgent || null,
