@@ -1453,8 +1453,8 @@ export default function App() {
           paEmail: claim.pa_email || prev.paEmail,
           initials1: claim.initials1 || "",
           initials2: claim.initials2 || "",
-          claimType: claim.claim_type || prev.claimType,
-          lossDescription: claim.loss_description || prev.lossDescription,
+          claimType: prev.claimType,
+          lossDescription: prev.lossDescription,
           lossLocationSameAsAddress:
             (claim.loss_location || "") ===
             [claim.address, [claim.city, claim.state, claim.zip].filter(Boolean).join(", ")]
@@ -1549,8 +1549,7 @@ export default function App() {
       signature2: sig2,
       initials1: data.initials1,
       initials2: data.initials2,
-      claim_type: data.claimType,
-      loss_description: data.lossDescription,
+      
     };
 
     if (currentClaimId) {
