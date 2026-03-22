@@ -9,36 +9,57 @@ exports.handler = async (event) => {
   }
 
   try {
-    const { to, subject, html } = JSON.parse(event.body || "{}");
+    const { to, subject, html, attachments } = JSON.parse(event.body || "{}");
+
+    if (!to || !subject || !html) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: "Missing to, subject, or html" }),
+      };
+    }
 
     const resend = new Resend(process.env.RESEND_API_KEY);
 
     const result = await resend.emails.send({
-      from: process.env.EMAIL_FROM || "Inspection For You <noreply@inspectionforyou.com>",
+      from:
+        process.env.EMAIL_FROM ||
+        "Inspection For You <noreply@inspectionforyou.com>",
       to: Array.isArray(to) ? to : [to],
       subject,
       html,
+      attachments: (attachments || []).map((file) => ({
+        filename: file.filename,
+        content: file.content,
+      })),
     });
 
-    console.log("RESEND RESULT:", result);
+    console.log("RESEND RESULT:", JSON.stringify(result, null, 2));
 
     if (result.error) {
       return {
         statusCode: 500,
-        body: JSON.stringify({ error: result.error.message }),
+        body: JSON.stringify({
+          error: result.error.message || "Resend send failed",
+          details: result.error,
+        }),
       };
     }
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ success: true }),
+      body: JSON.stringify({
+        success: true,
+        id: result.data?.id || null,
+      }),
     };
-  } catch (err) {
-    console.error("FUNCTION ERROR:", err);
+  } catch (error) {
+    console.error("FUNCTION ERROR:", error);
 
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: err.message }),
+      body: JSON.stringify({
+        error: error?.message || "Failed to send email",
+      }),
     };
   }
 };
