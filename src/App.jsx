@@ -477,110 +477,6 @@ function formatAddress(data) {
     .join("\n");
 }
 
-function gradientHeader(title) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        background: "linear-gradient(90deg, #1f7a4d, #6b46c1)",
-        padding: "12px 16px",
-        color: "#fff",
-      }}
-    >
-      <div style={{ fontSize: 18, fontWeight: 700 }}>{title}</div>
-      <div style={{ fontSize: 15, fontWeight: 700 }}>CAPITAL CLAIMS GROUP</div>
-    </div>
-  );
-}
-
-function twoColGrid(children) {
-  return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-        gap: 14,
-        padding: 20,
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function LorLabel({ children }) {
-  return (
-    <div
-      style={{
-        display: "block",
-        fontSize: 16,
-        color: "#4b5563",
-        marginBottom: 8,
-        fontWeight: 400,
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function LorFieldBox({ children }) {
-  return (
-    <div
-      style={{
-        minHeight: 50,
-        border: "1px solid #cbd5e1",
-        borderRadius: 12,
-        padding: "11px 14px",
-        background: "#fff",
-        fontSize: 15,
-        lineHeight: 1.4,
-        color: "#111827",
-        boxSizing: "border-box",
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function SignatureDisplay({ name, value, title }) {
-  return (
-    <div>
-      <div style={{ marginBottom: 8, fontSize: 14, fontWeight: 500 }}>
-        {title}
-      </div>
-      <div
-        style={{
-          display: "flex",
-          height: 150,
-          alignItems: "center",
-          justifyContent: "center",
-          overflow: "hidden",
-          borderRadius: 8,
-          border: "1px dashed #9ca3af",
-          background: "#fff",
-        }}
-      >
-        {value ? (
-          <img
-            src={value}
-            alt={title}
-            style={{ width: "100%", height: "100%", objectFit: "contain" }}
-          />
-        ) : (
-          <span style={{ color: "#94a3b8", fontSize: 13 }}>
-            Signature pending
-          </span>
-        )}
-      </div>
-      <div style={{ marginTop: 8, fontSize: 14, color: "#374151" }}>{name}</div>
-    </div>
-  );
-}
-
 function LetterOfRepresentation({ data, sig1, sig2, isExportingPdf = false }) {
   const hasSecond = Boolean(data.homeowner2?.trim());
   const fullAddress = formatAddress(data);
@@ -684,7 +580,7 @@ function LetterOfRepresentation({ data, sig1, sig2, isExportingPdf = false }) {
   );
 
   return (
-    <div id="printable-document" style={containerStyle}>
+    <div id="lor-printable-document" style={containerStyle}>
       <div className="pdf-page" style={pageStyle(false)}>
         <HeaderImg />
 
@@ -909,6 +805,7 @@ function LetterOfRepresentation({ data, sig1, sig2, isExportingPdf = false }) {
     </div>
   );
 }
+
 function PublicAdjusterContract({
   data,
   sig1,
@@ -1095,8 +992,7 @@ function PublicAdjusterContract({
         <strong>Insurer:</strong> {data.insuranceCompany}
       </div>
       <div>
-        <strong>Date of Loss:</strong> {data.dateOfLoss}
-      </div>
+        <strong>Date of Loss:</strong> {data.dateOfLoss}</div>
 
       <div>
         <strong>Policy #:</strong> {data.policyNumber}
@@ -1115,7 +1011,7 @@ function PublicAdjusterContract({
   );
 
   return (
-    <div id="printable-document" style={{ background: "transparent" }}>
+    <div id="pac-printable-document" style={{ background: "transparent" }}>
       <div className="pdf-page" style={pageStyle}>
         <HeaderImg />
         <div style={pageInnerStyle}>
@@ -1477,6 +1373,9 @@ export default function App() {
   const [sig2, setSig2] = useState("");
   const [pendingSend, setPendingSend] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [currentClaimId, setCurrentClaimId] = useState(null);
+  const [isSigningFromLink, setIsSigningFromLink] = useState(false);
+  const [isLoadingSigningLink, setIsLoadingSigningLink] = useState(false);
 
   const hasSecond = Boolean(data.homeowner2?.trim());
 
@@ -1503,6 +1402,74 @@ export default function App() {
     propertyAddressText,
   ]);
 
+  useEffect(() => {
+    const loadFromSigningLink = async () => {
+      const params = new URLSearchParams(window.location.search);
+      const claimId = params.get("claim");
+      const doc = params.get("doc");
+      const sign = params.get("sign");
+
+      if (!claimId || !doc || sign !== "1") return;
+
+      setIsLoadingSigningLink(true);
+
+      try {
+        const { data: claim, error } = await supabase
+          .from("claims")
+          .select("*")
+          .eq("id", claimId)
+          .single();
+
+        if (error || !claim) {
+          alert("Unable to load signing request.");
+          return;
+        }
+
+        setCurrentClaimId(claim.id);
+        setActiveDoc(doc === "pac" ? "pac" : "lor");
+        setSignMode("now");
+        setPendingSend(false);
+        setIsSigningFromLink(true);
+        setSig1(claim.signature1 || "");
+        setSig2(claim.signature2 || "");
+        setData((prev) => ({
+          ...prev,
+          date: claim.date || prev.date,
+          insuranceCompany: claim.insurance_company || "",
+          policyNumber: claim.policy_number || "",
+          claimNumber: claim.claim_number || "",
+          representativeName: claim.representative_name || "",
+          homeowner1: claim.homeowner1 || "",
+          homeowner2: claim.homeowner2 || "",
+          phone: claim.phone || "",
+          address: claim.address || "",
+          city: claim.city || "",
+          state: claim.state || "",
+          zip: claim.zip || "",
+          lossLocation: claim.loss_location || "",
+          dateOfLoss: claim.date_of_loss || "",
+          situation: claim.situation || "",
+          signerEmail: claim.homeowner_email || "",
+          paEmail: claim.pa_email || prev.paEmail,
+          initials1: claim.initials1 || "",
+          initials2: claim.initials2 || "",
+          claimType: claim.claim_type || prev.claimType,
+          lossDescription: claim.loss_description || prev.lossDescription,
+          lossLocationSameAsAddress:
+            (claim.loss_location || "") ===
+            [claim.address, [claim.city, claim.state, claim.zip].filter(Boolean).join(", ")]
+              .filter(Boolean)
+              .join("\n"),
+        }));
+        setView("sign");
+      } finally {
+        setIsLoadingSigningLink(false);
+      }
+    };
+
+    loadFromSigningLink();
+  }, []);
+
   const update = (key, value) => {
     setData((prev) => ({ ...prev, [key]: value }));
   };
@@ -1514,17 +1481,23 @@ export default function App() {
     update("initials1", "");
     update("initials2", "");
     setPendingSend(signMode === "send");
+    setIsSigningFromLink(false);
+    setCurrentClaimId(null);
     setView("sign");
   };
 
+  const getPrintableSelector = (docType) =>
+    docType === "lor" ? "#lor-printable-document" : "#pac-printable-document";
+
   const generatePDF = async (docType) => {
-    const element = document.getElementById("printable-document");
+    setIsExportingPdf(true);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    const element = document.querySelector(getPrintableSelector(docType));
     if (!element) {
+      setIsExportingPdf(false);
       throw new Error("Printable document not found.");
     }
-
-    setIsExportingPdf(true);
-    await new Promise((resolve) => setTimeout(resolve, 200));
 
     try {
       const opt = {
@@ -1554,54 +1527,119 @@ export default function App() {
     });
 
   const saveClaimToSupabase = async () => {
-    const { error } = await supabase.from("claims").insert([
-      {
-        date: data.date,
-        insurance_company: data.insuranceCompany,
-        policy_number: data.policyNumber,
-        claim_number: data.claimNumber,
-        representative_name: data.representativeName,
-        homeowner1: data.homeowner1,
-        homeowner2: data.homeowner2,
-        phone: data.phone,
-        address: data.address,
-        city: data.city,
-        state: data.state,
-        zip: data.zip,
-        loss_location: data.lossLocation,
-        date_of_loss: data.dateOfLoss,
-        situation: data.situation,
-        homeowner_email: data.signerEmail,
-        pa_email: data.paEmail,
-        signature1: sig1,
-        signature2: sig2,
-        initials1: data.initials1,
-        initials2: data.initials2,
-      },
-    ]);
+    const payload = {
+      date: data.date,
+      insurance_company: data.insuranceCompany,
+      policy_number: data.policyNumber,
+      claim_number: data.claimNumber,
+      representative_name: data.representativeName,
+      homeowner1: data.homeowner1,
+      homeowner2: data.homeowner2,
+      phone: data.phone,
+      address: data.address,
+      city: data.city,
+      state: data.state,
+      zip: data.zip,
+      loss_location: data.lossLocation,
+      date_of_loss: data.dateOfLoss,
+      situation: data.situation,
+      homeowner_email: data.signerEmail,
+      pa_email: data.paEmail,
+      signature1: sig1,
+      signature2: sig2,
+      initials1: data.initials1,
+      initials2: data.initials2,
+      claim_type: data.claimType,
+      loss_description: data.lossDescription,
+    };
 
-    return error;
+    if (currentClaimId) {
+      const { data: updated, error } = await supabase
+        .from("claims")
+        .update(payload)
+        .eq("id", currentClaimId)
+        .select()
+        .single();
+
+      return { record: updated, error };
+    }
+
+    const { data: inserted, error } = await supabase
+      .from("claims")
+      .insert([payload])
+      .select()
+      .single();
+
+    if (inserted?.id) setCurrentClaimId(inserted.id);
+
+    return { record: inserted, error };
   };
 
   const submitDoc = async () => {
     try {
-      const error = await saveClaimToSupabase();
+      const { record, error } = await saveClaimToSupabase();
 
       if (error) {
         alert("Error saving: " + error.message);
         return;
       }
 
+      if (pendingSend) {
+        const signingLink = `${window.location.origin}/?sign=1&doc=${activeDoc}&claim=${record?.id}`;
+
+        const emailResponse = await fetch("/.netlify/functions/send-email", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            to: [data.signerEmail, data.paEmail].filter(Boolean),
+            subject:
+              activeDoc === "lor"
+                ? "Please Sign: Letter of Representation"
+                : "Please Sign: PA Agreement",
+            html: `
+              <h2>Signature Requested</h2>
+              <p>Please click the link below to review and sign your document.</p>
+              <p><a href="${signingLink}">${signingLink}</a></p>
+              <p><strong>Document:</strong> ${
+                activeDoc === "lor" ? "Letter of Representation" : "PA Agreement"
+              }</p>
+              <p><strong>Insured:</strong> ${[data.homeowner1, data.homeowner2]
+                .filter(Boolean)
+                .join(", ")}</p>
+            `,
+          }),
+        });
+
+        const emailResult = await emailResponse.json();
+
+        if (!emailResponse.ok) {
+          alert(
+            "Saved to database, but signing email failed: " +
+              (emailResult.error || "Unknown error")
+          );
+          return;
+        }
+
+        alert(`Signing link sent to ${data.signerEmail}.`);
+        setView("input");
+        setPendingSend(false);
+        return;
+      }
+
       const pdfBlob = await generatePDF(activeDoc);
       const pdfBase64 = await blobToBase64(pdfBlob);
-console.log("PDF BASE64 LENGTH:", pdfBase64?.length || 0);
-console.log("ATTACHMENT PAYLOAD:", {
-  filename:
-    activeDoc === "lor"
-      ? "Letter-of-Representation.pdf"
-      : "Public-Adjuster-Agreement.pdf",
-  contentLength: String(pdfBase64).split(",")[1]?.length || 0,
-});
+
+      console.log("PDF BASE64 LENGTH:", pdfBase64?.length || 0);
+      console.log("ATTACHMENT PAYLOAD:", {
+        filename:
+          activeDoc === "lor"
+            ? "Letter-of-Representation.pdf"
+            : "Public-Adjuster-Agreement.pdf",
+        contentLength: String(pdfBase64).split(",")[1]?.length || 0,
+      });
+
       const emailResponse = await fetch("/.netlify/functions/send-email", {
         method: "POST",
         headers: {
@@ -1633,7 +1671,6 @@ console.log("ATTACHMENT PAYLOAD:", {
                   ? "Letter-of-Representation.pdf"
                   : "Public-Adjuster-Agreement.pdf",
               content: String(pdfBase64).split(",")[1],
-              encoding: "base64",
             },
           ],
         }),
@@ -1649,30 +1686,34 @@ console.log("ATTACHMENT PAYLOAD:", {
         return;
       }
 
-      if (pendingSend) {
-        alert(
-          `Saved successfully! This would send the ${
-            activeDoc === "lor"
-              ? "Letter of Representation"
-              : "PA Agreement"
-          } to ${data.signerEmail} for signature and notify ${data.paEmail}.`
-        );
-      } else {
-        alert(
-          `Saved successfully! This would email signed copies of the ${
-            activeDoc === "lor"
-              ? "Letter of Representation"
-              : "PA Agreement"
-          } to ${data.signerEmail} and ${data.paEmail}.`
-        );
-      }
-
+      alert("Saved successfully! Email sent.");
       setView("input");
       setPendingSend(false);
+
+      if (isSigningFromLink) {
+        window.history.replaceState({}, "", window.location.pathname);
+      }
     } catch (err) {
       alert(err?.message || "Something went wrong.");
     }
   };
+
+  if (isLoadingSigningLink) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "#f1f5f9",
+          fontFamily: "Arial, Helvetica, sans-serif",
+        }}
+      >
+        Loading signing request...
+      </div>
+    );
+  }
 
   return (
     <div
@@ -1766,7 +1807,7 @@ console.log("ATTACHMENT PAYLOAD:", {
                 </Card>
 
                 <Card style={{ padding: 20, background: "#f8fafc" }}>
-                  <SectionTitle>Insurance Info</SectionTitle>
+                  <SectionTitle>Claim Admin</SectionTitle>
                   <div
                     style={{
                       display: "grid",
@@ -1781,40 +1822,9 @@ console.log("ATTACHMENT PAYLOAD:", {
                       onChange={(v) => update("date", v)}
                     />
                     <FormField
-                      label="Insurance Company"
-                      value={data.insuranceCompany}
-                      onChange={(v) => update("insuranceCompany", v)}
-                    />
-                    <FormField
-                      label="Policy #"
-                      value={data.policyNumber}
-                      onChange={(v) => update("policyNumber", v)}
-                    />
-                    <FormField
                       label="Claim #"
                       value={data.claimNumber}
                       onChange={(v) => update("claimNumber", v)}
-                    />
-                    <FormField
-                      label="Date of Loss"
-                      type="date"
-                      value={data.dateOfLoss}
-                      onChange={(v) => update("dateOfLoss", v)}
-                    />
-                    <FormField
-                      label="Claim Type"
-                      value={data.claimType}
-                      onChange={(v) => update("claimType", v)}
-                    />
-                    <FormField
-                      label="Loss Description"
-                      value={data.lossDescription}
-                      onChange={(v) => update("lossDescription", v)}
-                    />
-                    <FormField
-                      label="Situation"
-                      value={data.situation}
-                      onChange={(v) => update("situation", v)}
                     />
                     <div style={{ gridColumn: "1 / -1" }}>
                       <CheckboxField
@@ -1935,13 +1945,27 @@ console.log("ATTACHMENT PAYLOAD:", {
         {view === "sign" && (
           <>
             <div>
-              <Button variant="outline" onClick={() => setView("input")}>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setView("input");
+                  if (isSigningFromLink) {
+                    window.history.replaceState({}, "", window.location.pathname);
+                    setIsSigningFromLink(false);
+                  }
+                }}
+              >
                 <ArrowLeft size={16} /> Back
               </Button>
             </div>
 
             {activeDoc === "lor" ? (
-              <LetterOfRepresentation data={data} sig1={sig1} sig2={sig2} />
+              <LetterOfRepresentation
+                data={data}
+                sig1={sig1}
+                sig2={sig2}
+                isExportingPdf={isExportingPdf}
+              />
             ) : (
               <PublicAdjusterContract
                 data={data}
@@ -1958,7 +1982,7 @@ console.log("ATTACHMENT PAYLOAD:", {
                 </CardTitle>
                 <CardDescription>
                   {pendingSend
-                    ? "Review the form, then send it to the homeowner for signature."
+                    ? "Review the form, then email a signing link to the homeowner."
                     : "These signatures apply to the selected document."}
                 </CardDescription>
               </CardHeader>
@@ -2015,7 +2039,9 @@ console.log("ATTACHMENT PAYLOAD:", {
                     variant="outline"
                     onClick={async () => {
                       try {
-                        const element = document.getElementById("printable-document");
+                        const element = document.querySelector(
+                          getPrintableSelector(activeDoc)
+                        );
                         if (!element) {
                           alert("Document not found.");
                           return;
