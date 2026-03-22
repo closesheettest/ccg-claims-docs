@@ -892,7 +892,6 @@ function LetterOfRepresentation({
 
   const pageStyle = (isLast = false) => ({
     width: "100%",
-    minHeight: isExportingPdf ? "11in" : "auto",
     background: "#fff",
     boxSizing: "border-box",
     overflow: "hidden",
