@@ -36,13 +36,16 @@ const PDF_LAYOUT = {
 };
 
 const REVIEW_INTRO_TEXT =
-  "Letter of Representation and Public Adjuster forms are below for preview. After signing all documents are emailed to you for your records.";
+  "There are Two Documents to Authorize to move forward.";
 
 const LOR_REVIEW_TEXT =
-  "This document allows the State Licensed Public Adjuster to let the insurance company know ONLY to talk with him during the claim. This protects the homeowner from having to deal with them at all. Experience matters when dealing with insurance companies.";
+  'First is the “Letter of Representation” which simply tells your insurance company that you’ve hired a Public Adjuster.';
 
 const PAC_REVIEW_TEXT =
-  "This is the agreement between you and the Public Adjuster. The Public Adjuster here is telling you that he gets NOTHING if he is not successful. So basically everything to gain, nothing to lose. His fee is 10% out of the claim. US Shingle and Metal and Capital Claims came to an understanding that they would do the roof for what the Public Adjuster is successful in getting, less their fee. Keep in mind the Public Adjuster knows what he needs to do.";
+  'The second is the “Public Adjuster Agreement” which is the agreement between you and the Public Adjuster.';
+
+const REVIEW_HELP_TEXT =
+  "You can preview each first, then click agreed for both.";
 
 const initialData = {
   date: new Date().toISOString().split("T")[0],
@@ -137,13 +140,13 @@ function Button({
   disabled = false,
 }) {
   const baseStyle = {
-    height: 44,
-    padding: "0 16px",
+    height: 48,
+    padding: "0 18px",
     borderRadius: 14,
     border: "1px solid #d1d5db",
     cursor: disabled ? "not-allowed" : "pointer",
-    fontSize: 14,
-    fontWeight: 600,
+    fontSize: 15,
+    fontWeight: 700,
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
@@ -1976,12 +1979,6 @@ export default function App() {
 
   useEffect(() => {
     if (view === "review" && reviewReady) {
-      setView("sign");
-    }
-  }, [view, reviewReady]);
-
-  useEffect(() => {
-    if (view === "sign" && reviewReady) {
       const timer = setTimeout(() => {
         const el = document.getElementById("signature-section");
         if (el) {
@@ -2378,6 +2375,315 @@ export default function App() {
     );
   }
 
+  const renderSigningFields = (showSendMode = false) => (
+    <Card>
+      <CardHeader>
+        <CardTitle>
+          {showSendMode ? "Review & Send for Signing" : "Signature and Initials"}
+        </CardTitle>
+        <CardDescription>
+          {showSendMode
+            ? "Review the selected forms, then email one signing link to the homeowner."
+            : "Complete all required signatures and initials below."}
+        </CardDescription>
+      </CardHeader>
+
+      <CardContent>
+        {!showSendMode ? (
+          <>
+            {!reviewReady && isSigningFromLink ? (
+              <div
+                style={{
+                  background: "#eff6ff",
+                  color: "#1d4ed8",
+                  border: "1px solid #bfdbfe",
+                  borderRadius: 12,
+                  padding: 12,
+                  marginBottom: 16,
+                  fontSize: 14,
+                  fontWeight: 600,
+                }}
+              >
+                Please click agreed for all required documents above before signing.
+              </div>
+            ) : null}
+
+            <div
+              style={{
+                background: "#fef2f2",
+                color: "#991b1b",
+                border: "1px solid #fecaca",
+                borderRadius: 12,
+                padding: 12,
+                marginBottom: 16,
+                fontSize: 14,
+                fontWeight: 600,
+              }}
+            >
+              Please complete all required signatures
+              {selectedDocs.includes("pac") ? " and initials" : ""} before
+              submitting.
+            </div>
+
+            <div
+              style={{
+                fontWeight: 800,
+                color: "#1d4ed8",
+                textDecoration: "underline",
+                marginBottom: 10,
+                cursor: "pointer",
+                fontSize: 14,
+              }}
+              onClick={() =>
+                setSigMethod1(sigMethod1 === "draw" ? "type" : "draw")
+              }
+            >
+              {sigMethod1 === "draw"
+                ? "PREFER TO TYPE INSTEAD?"
+                : "PREFER TO DRAW INSTEAD?"}
+            </div>
+
+            {sigMethod1 === "draw" ? (
+              <SignaturePad
+                title="Homeowner 1 Signature"
+                value={sig1}
+                onChange={setSig1}
+                required
+                missing={!effectiveSig1}
+              />
+            ) : (
+              <TypedSignatureField
+                title="Homeowner 1 Signature"
+                value={typedSig1}
+                onChange={setTypedSig1}
+                fontValue={sigFont1}
+                onFontChange={setSigFont1}
+                required
+                missing={!effectiveSig1}
+                placeholder="Type Homeowner 1 full name"
+              />
+            )}
+
+            {hasSecond ? (
+              <>
+                <div
+                  style={{
+                    fontWeight: 800,
+                    color: "#1d4ed8",
+                    textDecoration: "underline",
+                    marginBottom: 10,
+                    cursor: "pointer",
+                    fontSize: 14,
+                  }}
+                  onClick={() =>
+                    setSigMethod2(sigMethod2 === "draw" ? "type" : "draw")
+                  }
+                >
+                  {sigMethod2 === "draw"
+                    ? "PREFER TO TYPE INSTEAD?"
+                    : "PREFER TO DRAW INSTEAD?"}
+                </div>
+
+                {sigMethod2 === "draw" ? (
+                  <SignaturePad
+                    title="Homeowner 2 Signature"
+                    value={sig2}
+                    onChange={setSig2}
+                    required
+                    missing={!effectiveSig2}
+                  />
+                ) : (
+                  <TypedSignatureField
+                    title="Homeowner 2 Signature"
+                    value={typedSig2}
+                    onChange={setTypedSig2}
+                    fontValue={sigFont2}
+                    onFontChange={setSigFont2}
+                    required
+                    missing={!effectiveSig2}
+                    placeholder="Type Homeowner 2 full name"
+                  />
+                )}
+              </>
+            ) : null}
+
+            {selectedDocs.includes("pac") ? (
+              <>
+                <div
+                  style={{
+                    fontWeight: 800,
+                    color: "#1d4ed8",
+                    textDecoration: "underline",
+                    marginBottom: 10,
+                    cursor: "pointer",
+                    fontSize: 14,
+                  }}
+                  onClick={() =>
+                    setInitialsMethod1(
+                      initialsMethod1 === "draw" ? "type" : "draw"
+                    )
+                  }
+                >
+                  {initialsMethod1 === "draw"
+                    ? "PREFER TO TYPE INITIALS INSTEAD?"
+                    : "PREFER TO DRAW INITIALS INSTEAD?"}
+                </div>
+
+                {initialsMethod1 === "draw" ? (
+                  <InitialsPad
+                    title="Homeowner 1 Initials"
+                    value={data.initials1}
+                    onChange={(v) => update("initials1", v)}
+                    required
+                    missing={!effectiveInitials1}
+                  />
+                ) : (
+                  <TypedInitialsField
+                    title="Homeowner 1 Initials"
+                    value={initials1Typed}
+                    onChange={setInitials1Typed}
+                    fontValue={initialsFont1}
+                    onFontChange={setInitialsFont1}
+                    required
+                    missing={!effectiveInitials1}
+                    placeholder="Type Homeowner 1 initials"
+                  />
+                )}
+
+                {hasSecond ? (
+                  <>
+                    <div
+                      style={{
+                        fontWeight: 800,
+                        color: "#1d4ed8",
+                        textDecoration: "underline",
+                        marginBottom: 10,
+                        cursor: "pointer",
+                        fontSize: 14,
+                      }}
+                      onClick={() =>
+                        setInitialsMethod2(
+                          initialsMethod2 === "draw" ? "type" : "draw"
+                        )
+                      }
+                    >
+                      {initialsMethod2 === "draw"
+                        ? "PREFER TO TYPE INITIALS INSTEAD?"
+                        : "PREFER TO DRAW INITIALS INSTEAD?"}
+                    </div>
+
+                    {initialsMethod2 === "draw" ? (
+                      <InitialsPad
+                        title="Homeowner 2 Initials"
+                        value={data.initials2}
+                        onChange={(v) => update("initials2", v)}
+                        required
+                        missing={!effectiveInitials2}
+                      />
+                    ) : (
+                      <TypedInitialsField
+                        title="Homeowner 2 Initials"
+                        value={initials2Typed}
+                        onChange={setInitials2Typed}
+                        fontValue={initialsFont2}
+                        onFontChange={setInitialsFont2}
+                        required
+                        missing={!effectiveInitials2}
+                        placeholder="Type Homeowner 2 initials"
+                      />
+                    )}
+                  </>
+                ) : null}
+              </>
+            ) : null}
+          </>
+        ) : null}
+
+        {!showSendMode && missingSigningFields.length > 0 ? (
+          <div
+            style={{
+              marginTop: 8,
+              marginBottom: 12,
+              fontSize: 13,
+              color: "#991b1b",
+            }}
+          >
+            Missing: {missingSigningFields.join(", ")}
+          </div>
+        ) : null}
+
+        <div
+          style={{
+            display: "flex",
+            gap: 12,
+            paddingTop: 8,
+            flexWrap: "wrap",
+          }}
+        >
+          <Button
+            onClick={submitDoc}
+            disabled={
+              showSendMode ? false : !reviewReady || !isSigningComplete
+            }
+          >
+            {showSendMode ? <Send size={16} /> : <Mail size={16} />}
+            {showSendMode ? "Send for Signing" : "Submit & Email Copies"}
+          </Button>
+
+          <Button
+            variant="outline"
+            onClick={async () => {
+              try {
+                const selector = selectedDocs.includes("lor")
+                  ? "#lor-printable-document"
+                  : "#pac-printable-document";
+                const filename = selectedDocs.includes("lor")
+                  ? documentFilename("lor")
+                  : documentFilename("pac");
+
+                const element = document.querySelector(selector);
+                if (!element) {
+                  alert("Document not found.");
+                  return;
+                }
+
+                setIsExportingPdf(true);
+                await new Promise((resolve) => setTimeout(resolve, 200));
+
+                await html2pdf()
+                  .set({
+                    margin: 0,
+                    filename,
+                    image: { type: "jpeg", quality: 0.98 },
+                    html2canvas: {
+                      scale: 1.5,
+                      useCORS: true,
+                      scrollX: 0,
+                      scrollY: 0,
+                    },
+                    jsPDF: {
+                      unit: "in",
+                      format: "letter",
+                      orientation: "portrait",
+                    },
+                    pagebreak: { mode: ["css"] },
+                  })
+                  .from(element)
+                  .save();
+              } catch (err) {
+                alert(err?.message || "Failed to download PDF.");
+              } finally {
+                setIsExportingPdf(false);
+              }
+            }}
+          >
+            Download PDF
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+
   return (
     <div
       style={{
@@ -2662,8 +2968,7 @@ export default function App() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  if (isSigningFromLink) return;
-                  setView("input");
+                  if (!isSigningFromLink) setView("input");
                 }}
               >
                 <ArrowLeft size={16} /> Back
@@ -2671,63 +2976,114 @@ export default function App() {
             </div>
 
             <Card>
-              <CardHeader>
-                <CardTitle>Review Before Signing</CardTitle>
-                <CardDescription>{REVIEW_INTRO_TEXT}</CardDescription>
-              </CardHeader>
-
               <CardContent>
+                <div
+                  style={{
+                    fontSize: 40,
+                    fontWeight: 800,
+                    color: "#111827",
+                    lineHeight: 1.15,
+                    marginBottom: 18,
+                  }}
+                >
+                  Review Before Signing
+                </div>
+
+                <div
+                  style={{
+                    fontSize: 28,
+                    fontWeight: 700,
+                    color: "#111827",
+                    lineHeight: 1.35,
+                    marginBottom: 24,
+                  }}
+                >
+                  {REVIEW_INTRO_TEXT}
+                </div>
+
                 {selectedDocs.includes("lor") ? (
-                  <div style={{ marginBottom: 32 }}>
-                    <SectionTitle>Letter of Representation:</SectionTitle>
+                  <div
+                    style={{
+                      marginBottom: 28,
+                      padding: 24,
+                      border: "1px solid #e5e7eb",
+                      borderRadius: 20,
+                      background: "#f8fafc",
+                    }}
+                  >
                     <div
                       style={{
-                        fontSize: 15,
-                        lineHeight: 1.7,
+                        fontSize: 28,
+                        fontWeight: 800,
                         color: "#111827",
                         marginBottom: 14,
+                      }}
+                    >
+                      Letter of Representation
+                    </div>
+
+                    <div
+                      style={{
+                        fontSize: 23,
+                        lineHeight: 1.6,
+                        color: "#111827",
+                        marginBottom: 18,
                       }}
                     >
                       {LOR_REVIEW_TEXT}
                     </div>
 
-                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
                       <Button variant="outline" onClick={() => previewDocument("lor")}>
                         Preview Letter of Representation
                       </Button>
 
                       <Button onClick={() => setLorAgreed(true)}>
-                        {lorAgreed
-                          ? "Agreed"
-                          : "Click here if you agree with signing this document"}
+                        {lorAgreed ? "Agreed" : "Click Agreed"}
                       </Button>
                     </div>
                   </div>
                 ) : null}
 
                 {selectedDocs.includes("pac") ? (
-                  <div style={{ marginBottom: 32 }}>
-                    <SectionTitle>Public Adjuster Agreement:</SectionTitle>
+                  <div
+                    style={{
+                      marginBottom: 28,
+                      padding: 24,
+                      border: "1px solid #e5e7eb",
+                      borderRadius: 20,
+                      background: "#f8fafc",
+                    }}
+                  >
                     <div
                       style={{
-                        fontSize: 15,
-                        lineHeight: 1.7,
+                        fontSize: 28,
+                        fontWeight: 800,
                         color: "#111827",
                         marginBottom: 14,
+                      }}
+                    >
+                      Public Adjuster Agreement
+                    </div>
+
+                    <div
+                      style={{
+                        fontSize: 23,
+                        lineHeight: 1.6,
+                        color: "#111827",
+                        marginBottom: 18,
                       }}
                     >
                       {PAC_REVIEW_TEXT}
                     </div>
 
-                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
                       <Button variant="outline" onClick={() => previewDocument("pac")}>
                         Preview PA Agreement
                       </Button>
 
                       <Button onClick={() => setPacAgreed(true)}>
-                        {pacAgreed
-                          ? "Agreed"
-                          : "Click here to sign this document"}
+                        {pacAgreed ? "Agreed" : "Click Agreed"}
                       </Button>
                     </div>
                   </div>
@@ -2735,15 +3091,21 @@ export default function App() {
 
                 <div
                   style={{
-                    fontSize: 13,
-                    color: "#6b7280",
-                    marginTop: 8,
+                    fontSize: 22,
+                    fontWeight: 600,
+                    color: "#4b5563",
+                    lineHeight: 1.5,
+                    marginBottom: 10,
                   }}
                 >
-                  After both required agreements are accepted, you will automatically be taken to the signature and initials section.
+                  {REVIEW_HELP_TEXT}
                 </div>
               </CardContent>
             </Card>
+
+            <div id="signature-section" style={{ scrollMarginTop: 20 }}>
+              {renderSigningFields(false)}
+            </div>
 
             <div
               style={{
@@ -2789,16 +3151,63 @@ export default function App() {
               <Button
                 variant="outline"
                 onClick={() => {
+                  setView("input");
                   if (isSigningFromLink) {
-                    setView("review");
-                  } else {
-                    setView("input");
+                    window.history.replaceState({}, "", window.location.pathname);
+                    setIsSigningFromLink(false);
                   }
                 }}
               >
                 <ArrowLeft size={16} /> Back
               </Button>
             </div>
+
+            <Card>
+              <CardContent>
+                <div
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 700,
+                    color: "#111827",
+                    marginBottom: 10,
+                  }}
+                >
+                  Forms included in this signing session
+                </div>
+
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                  {selectedDocs.map((doc) => (
+                    <div
+                      key={doc}
+                      style={{
+                        padding: "8px 12px",
+                        borderRadius: 999,
+                        background: "#eef2ff",
+                        border: "1px solid #c7d2fe",
+                        fontSize: 13,
+                        fontWeight: 600,
+                        color: "#3730a3",
+                      }}
+                    >
+                      {documentLabel(doc)}
+                    </div>
+                  ))}
+                </div>
+
+                {selectedDocs.length > 1 ? (
+                  <div
+                    style={{
+                      marginTop: 10,
+                      fontSize: 13,
+                      color: "#6b7280",
+                    }}
+                  >
+                    Review both documents below. Your signatures and initials
+                    will apply to all selected forms.
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
 
             {selectedDocs.includes("lor") ? (
               <LetterOfRepresentation
@@ -2827,293 +3236,7 @@ export default function App() {
             ) : null}
 
             <div id="signature-section" style={{ scrollMarginTop: 20 }}>
-              <Card>
-                <CardHeader>
-                  <CardTitle>
-                    {pendingSend ? "Review & Send for Signing" : "Sign Document(s)"}
-                  </CardTitle>
-                  <CardDescription>
-                    {pendingSend
-                      ? "Review the selected forms, then email one signing link to the homeowner."
-                      : "Complete all required signatures and initials before submitting."}
-                  </CardDescription>
-                </CardHeader>
-
-                <CardContent>
-                  {!pendingSend ? (
-                    <>
-                      <div
-                        style={{
-                          background: "#fef2f2",
-                          color: "#991b1b",
-                          border: "1px solid #fecaca",
-                          borderRadius: 12,
-                          padding: 12,
-                          marginBottom: 16,
-                          fontSize: 14,
-                          fontWeight: 600,
-                        }}
-                      >
-                        Please complete all required signatures
-                        {selectedDocs.includes("pac") ? " and initials" : ""}{" "}
-                        before submitting.
-                      </div>
-
-                      <div
-                        style={{
-                          fontWeight: 800,
-                          color: "#1d4ed8",
-                          textDecoration: "underline",
-                          marginBottom: 10,
-                          cursor: "pointer",
-                          fontSize: 14,
-                        }}
-                        onClick={() =>
-                          setSigMethod1(sigMethod1 === "draw" ? "type" : "draw")
-                        }
-                      >
-                        {sigMethod1 === "draw"
-                          ? "PREFER TO TYPE INSTEAD?"
-                          : "PREFER TO DRAW INSTEAD?"}
-                      </div>
-
-                      {sigMethod1 === "draw" ? (
-                        <SignaturePad
-                          title="Homeowner 1 Signature"
-                          value={sig1}
-                          onChange={setSig1}
-                          required
-                          missing={!effectiveSig1}
-                        />
-                      ) : (
-                        <TypedSignatureField
-                          title="Homeowner 1 Signature"
-                          value={typedSig1}
-                          onChange={setTypedSig1}
-                          fontValue={sigFont1}
-                          onFontChange={setSigFont1}
-                          required
-                          missing={!effectiveSig1}
-                          placeholder="Type Homeowner 1 full name"
-                        />
-                      )}
-
-                      {hasSecond ? (
-                        <>
-                          <div
-                            style={{
-                              fontWeight: 800,
-                              color: "#1d4ed8",
-                              textDecoration: "underline",
-                              marginBottom: 10,
-                              cursor: "pointer",
-                              fontSize: 14,
-                            }}
-                            onClick={() =>
-                              setSigMethod2(sigMethod2 === "draw" ? "type" : "draw")
-                            }
-                          >
-                            {sigMethod2 === "draw"
-                              ? "PREFER TO TYPE INSTEAD?"
-                              : "PREFER TO DRAW INSTEAD?"}
-                          </div>
-
-                          {sigMethod2 === "draw" ? (
-                            <SignaturePad
-                              title="Homeowner 2 Signature"
-                              value={sig2}
-                              onChange={setSig2}
-                              required
-                              missing={!effectiveSig2}
-                            />
-                          ) : (
-                            <TypedSignatureField
-                              title="Homeowner 2 Signature"
-                              value={typedSig2}
-                              onChange={setTypedSig2}
-                              fontValue={sigFont2}
-                              onFontChange={setSigFont2}
-                              required
-                              missing={!effectiveSig2}
-                              placeholder="Type Homeowner 2 full name"
-                            />
-                          )}
-                        </>
-                      ) : null}
-
-                      {selectedDocs.includes("pac") ? (
-                        <>
-                          <div
-                            style={{
-                              fontWeight: 800,
-                              color: "#1d4ed8",
-                              textDecoration: "underline",
-                              marginBottom: 10,
-                              cursor: "pointer",
-                              fontSize: 14,
-                            }}
-                            onClick={() =>
-                              setInitialsMethod1(
-                                initialsMethod1 === "draw" ? "type" : "draw"
-                              )
-                            }
-                          >
-                            {initialsMethod1 === "draw"
-                              ? "PREFER TO TYPE INITIALS INSTEAD?"
-                              : "PREFER TO DRAW INITIALS INSTEAD?"}
-                          </div>
-
-                          {initialsMethod1 === "draw" ? (
-                            <InitialsPad
-                              title="Homeowner 1 Initials"
-                              value={data.initials1}
-                              onChange={(v) => update("initials1", v)}
-                              required
-                              missing={!effectiveInitials1}
-                            />
-                          ) : (
-                            <TypedInitialsField
-                              title="Homeowner 1 Initials"
-                              value={initials1Typed}
-                              onChange={setInitials1Typed}
-                              fontValue={initialsFont1}
-                              onFontChange={setInitialsFont1}
-                              required
-                              missing={!effectiveInitials1}
-                              placeholder="Type Homeowner 1 initials"
-                            />
-                          )}
-
-                          {hasSecond ? (
-                            <>
-                              <div
-                                style={{
-                                  fontWeight: 800,
-                                  color: "#1d4ed8",
-                                  textDecoration: "underline",
-                                  marginBottom: 10,
-                                  cursor: "pointer",
-                                  fontSize: 14,
-                                }}
-                                onClick={() =>
-                                  setInitialsMethod2(
-                                    initialsMethod2 === "draw" ? "type" : "draw"
-                                  )
-                                }
-                              >
-                                {initialsMethod2 === "draw"
-                                  ? "PREFER TO TYPE INITIALS INSTEAD?"
-                                  : "PREFER TO DRAW INITIALS INSTEAD?"}
-                              </div>
-
-                              {initialsMethod2 === "draw" ? (
-                                <InitialsPad
-                                  title="Homeowner 2 Initials"
-                                  value={data.initials2}
-                                  onChange={(v) => update("initials2", v)}
-                                  required
-                                  missing={!effectiveInitials2}
-                                />
-                              ) : (
-                                <TypedInitialsField
-                                  title="Homeowner 2 Initials"
-                                  value={initials2Typed}
-                                  onChange={setInitials2Typed}
-                                  fontValue={initialsFont2}
-                                  onFontChange={setInitialsFont2}
-                                  required
-                                  missing={!effectiveInitials2}
-                                  placeholder="Type Homeowner 2 initials"
-                                />
-                              )}
-                            </>
-                          ) : null}
-                        </>
-                      ) : null}
-                    </>
-                  ) : null}
-
-                  {!pendingSend && missingSigningFields.length > 0 ? (
-                    <div
-                      style={{
-                        marginTop: 8,
-                        marginBottom: 12,
-                        fontSize: 13,
-                        color: "#991b1b",
-                      }}
-                    >
-                      Missing: {missingSigningFields.join(", ")}
-                    </div>
-                  ) : null}
-
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: 12,
-                      paddingTop: 8,
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    <Button
-                      onClick={submitDoc}
-                      disabled={!pendingSend && !isSigningComplete}
-                    >
-                      {pendingSend ? <Send size={16} /> : <Mail size={16} />}
-                      {pendingSend ? "Send for Signing" : "Submit & Email Copies"}
-                    </Button>
-
-                    <Button
-                      variant="outline"
-                      onClick={async () => {
-                        try {
-                          const selector = selectedDocs.includes("lor")
-                            ? "#lor-printable-document"
-                            : "#pac-printable-document";
-                          const filename = selectedDocs.includes("lor")
-                            ? documentFilename("lor")
-                            : documentFilename("pac");
-
-                          const element = document.querySelector(selector);
-                          if (!element) {
-                            alert("Document not found.");
-                            return;
-                          }
-
-                          setIsExportingPdf(true);
-                          await new Promise((resolve) => setTimeout(resolve, 200));
-
-                          await html2pdf()
-                            .set({
-                              margin: 0,
-                              filename,
-                              image: { type: "jpeg", quality: 0.98 },
-                              html2canvas: {
-                                scale: 1.5,
-                                useCORS: true,
-                                scrollX: 0,
-                                scrollY: 0,
-                              },
-                              jsPDF: {
-                                unit: "in",
-                                format: "letter",
-                                orientation: "portrait",
-                              },
-                              pagebreak: { mode: ["css"] },
-                            })
-                            .from(element)
-                            .save();
-                        } catch (err) {
-                          alert(err?.message || "Failed to download PDF.");
-                        } finally {
-                          setIsExportingPdf(false);
-                        }
-                      }}
-                    >
-                      Download PDF
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
+              {renderSigningFields(pendingSend)}
             </div>
           </>
         ) : null}
