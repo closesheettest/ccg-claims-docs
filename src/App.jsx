@@ -35,6 +35,15 @@ const PDF_LAYOUT = {
   footerHeight: "0.82in",
 };
 
+const REVIEW_INTRO_TEXT =
+  "Letter of Representation and Public Adjuster forms are below for preview. After signing all documents are emailed to you for your records.";
+
+const LOR_REVIEW_TEXT =
+  "This document allows the State Licensed Public Adjuster to let the insurance company know ONLY to talk with him during the claim. This protects the homeowner from having to deal with them at all. Experience matters when dealing with insurance companies.";
+
+const PAC_REVIEW_TEXT =
+  "This is the agreement between you and the Public Adjuster. The Public Adjuster here is telling you that he gets NOTHING if he is not successful. So basically everything to gain, nothing to lose. His fee is 10% out of the claim. US Shingle and Metal and Capital Claims came to an understanding that they would do the roof for what the Public Adjuster is successful in getting, less their fee. Keep in mind the Public Adjuster knows what he needs to do.";
+
 const initialData = {
   date: new Date().toISOString().split("T")[0],
   insuranceCompany: "",
@@ -1840,12 +1849,6 @@ export default function App() {
   const [initialsFont1, setInitialsFont1] = useState(SIGNATURE_FONTS[0]);
   const [initialsFont2, setInitialsFont2] = useState(SIGNATURE_FONTS[0]);
 
-  const [lorReviewText, setLorReviewText] = useState(
-    "This document allows the State Licensed Public Adjuster to notify the insurance company that all claim-related communication should go through him only. This protects the homeowner from having to deal directly with the insurance company during the claim process. Experience matters when dealing with insurance companies."
-  );
-  const [pacReviewText, setPacReviewText] = useState(
-    "This agreement explains the relationship between the homeowner and the public adjuster, including the services being provided and the terms of representation for the insurance claim."
-  );
   const [lorAgreed, setLorAgreed] = useState(false);
   const [pacAgreed, setPacAgreed] = useState(false);
 
@@ -1881,8 +1884,6 @@ export default function App() {
       const claimId = params.get("claim");
       const docs = params.get("docs");
       const sign = params.get("sign");
-      const lorTextFromLink = params.get("lorText");
-      const pacTextFromLink = params.get("pacText");
 
       if (!claimId || sign !== "1") return;
 
@@ -1914,9 +1915,6 @@ export default function App() {
         setIsSigningFromLink(true);
         setLorAgreed(false);
         setPacAgreed(false);
-
-        if (lorTextFromLink) setLorReviewText(lorTextFromLink);
-        if (pacTextFromLink) setPacReviewText(pacTextFromLink);
 
         setSig1(claim.signature1 || "");
         setSig2(claim.signature2 || "");
@@ -2050,7 +2048,7 @@ export default function App() {
     setInitials2Typed("");
     setLorAgreed(false);
     setPacAgreed(false);
-    setView("review");
+    setView("sign");
   };
 
   const effectiveSig1 =
@@ -2116,6 +2114,20 @@ export default function App() {
       return await html2pdf().set(opt).from(element).outputPdf("blob");
     } finally {
       setIsExportingPdf(false);
+    }
+  };
+
+  const previewDocument = async (doc) => {
+    try {
+      const selector =
+        doc === "lor" ? "#lor-printable-document" : "#pac-printable-document";
+      const filename = documentFilename(doc);
+      const blob = await generatePDF(selector, filename);
+      const blobUrl = URL.createObjectURL(blob);
+      window.open(blobUrl, "_blank", "noopener,noreferrer");
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+    } catch (err) {
+      alert(err?.message || "Failed to open preview.");
     }
   };
 
@@ -2202,8 +2214,6 @@ export default function App() {
           sign: "1",
           docs: selectedDocs.join(","),
           claim: String(record?.id || ""),
-          lorText: lorReviewText,
-          pacText: pacReviewText,
         });
 
         const signingLink = `${window.location.origin}/?${params.toString()}`;
@@ -2635,52 +2645,6 @@ export default function App() {
                 </div>
               </div>
 
-              <Card style={{ padding: 20, background: "#f8fafc", marginTop: 20 }}>
-                <SectionTitle>Review Page Text</SectionTitle>
-
-                {selectedDocs.includes("lor") ? (
-                  <div style={{ marginBottom: 16 }}>
-                    <Label>Letter of Representation Explanation</Label>
-                    <textarea
-                      value={lorReviewText}
-                      onChange={(e) => setLorReviewText(e.target.value)}
-                      style={{
-                        width: "100%",
-                        minHeight: 120,
-                        borderRadius: 14,
-                        border: "1px solid #d1d5db",
-                        padding: 12,
-                        fontSize: 14,
-                        boxSizing: "border-box",
-                        fontFamily: "Arial, Helvetica, sans-serif",
-                        resize: "vertical",
-                      }}
-                    />
-                  </div>
-                ) : null}
-
-                {selectedDocs.includes("pac") ? (
-                  <div>
-                    <Label>PA Agreement Explanation</Label>
-                    <textarea
-                      value={pacReviewText}
-                      onChange={(e) => setPacReviewText(e.target.value)}
-                      style={{
-                        width: "100%",
-                        minHeight: 120,
-                        borderRadius: 14,
-                        border: "1px solid #d1d5db",
-                        padding: 12,
-                        fontSize: 14,
-                        boxSizing: "border-box",
-                        fontFamily: "Arial, Helvetica, sans-serif",
-                        resize: "vertical",
-                      }}
-                    />
-                  </div>
-                ) : null}
-              </Card>
-
               <div style={{ marginTop: 20 }}>
                 <Button onClick={beginDocumentFlow} disabled={!selectedDocs.length}>
                   {signMode === "send"
@@ -2698,11 +2662,8 @@ export default function App() {
               <Button
                 variant="outline"
                 onClick={() => {
+                  if (isSigningFromLink) return;
                   setView("input");
-                  if (isSigningFromLink) {
-                    window.history.replaceState({}, "", window.location.pathname);
-                    setIsSigningFromLink(false);
-                  }
                 }}
               >
                 <ArrowLeft size={16} /> Back
@@ -2712,15 +2673,13 @@ export default function App() {
             <Card>
               <CardHeader>
                 <CardTitle>Review Before Signing</CardTitle>
-                <CardDescription>
-                  Please review the documents below before continuing to signatures and initials.
-                </CardDescription>
+                <CardDescription>{REVIEW_INTRO_TEXT}</CardDescription>
               </CardHeader>
 
               <CardContent>
                 {selectedDocs.includes("lor") ? (
                   <div style={{ marginBottom: 32 }}>
-                    <SectionTitle>Letter of Representation</SectionTitle>
+                    <SectionTitle>Letter of Representation:</SectionTitle>
                     <div
                       style={{
                         fontSize: 15,
@@ -2729,24 +2688,18 @@ export default function App() {
                         marginBottom: 14,
                       }}
                     >
-                      {lorReviewText}
+                      {LOR_REVIEW_TEXT}
                     </div>
 
                     <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          const el = document.getElementById("lor-printable-document");
-                          if (el) {
-                            el.scrollIntoView({ behavior: "smooth", block: "start" });
-                          }
-                        }}
-                      >
+                      <Button variant="outline" onClick={() => previewDocument("lor")}>
                         Preview Letter of Representation
                       </Button>
 
                       <Button onClick={() => setLorAgreed(true)}>
-                        {lorAgreed ? "Agreed" : "Click here if you agree"}
+                        {lorAgreed
+                          ? "Agreed"
+                          : "Click here if you agree with signing this document"}
                       </Button>
                     </div>
                   </div>
@@ -2754,7 +2707,7 @@ export default function App() {
 
                 {selectedDocs.includes("pac") ? (
                   <div style={{ marginBottom: 32 }}>
-                    <SectionTitle>Public Adjuster Agreement</SectionTitle>
+                    <SectionTitle>Public Adjuster Agreement:</SectionTitle>
                     <div
                       style={{
                         fontSize: 15,
@@ -2763,24 +2716,18 @@ export default function App() {
                         marginBottom: 14,
                       }}
                     >
-                      {pacReviewText}
+                      {PAC_REVIEW_TEXT}
                     </div>
 
                     <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          const el = document.getElementById("pac-printable-document");
-                          if (el) {
-                            el.scrollIntoView({ behavior: "smooth", block: "start" });
-                          }
-                        }}
-                      >
+                      <Button variant="outline" onClick={() => previewDocument("pac")}>
                         Preview PA Agreement
                       </Button>
 
                       <Button onClick={() => setPacAgreed(true)}>
-                        {pacAgreed ? "Agreed" : "Click here if you agree"}
+                        {pacAgreed
+                          ? "Agreed"
+                          : "Click here to sign this document"}
                       </Button>
                     </div>
                   </div>
@@ -2793,36 +2740,46 @@ export default function App() {
                     marginTop: 8,
                   }}
                 >
-                  After you agree to all required documents, you will automatically be taken to the signature section below.
+                  After both required agreements are accepted, you will automatically be taken to the signature and initials section.
                 </div>
               </CardContent>
             </Card>
 
-            {selectedDocs.includes("lor") ? (
-              <LetterOfRepresentation
-                data={data}
-                sig1={effectiveSig1}
-                sig2={effectiveSig2}
-                auditInfo={auditInfo}
-                claimId={currentClaimId}
-                isExportingPdf={isExportingPdf}
-              />
-            ) : null}
+            <div
+              style={{
+                position: "absolute",
+                left: "-20000px",
+                top: 0,
+                width: 1100,
+                pointerEvents: "none",
+              }}
+            >
+              {selectedDocs.includes("lor") ? (
+                <LetterOfRepresentation
+                  data={data}
+                  sig1={effectiveSig1}
+                  sig2={effectiveSig2}
+                  auditInfo={auditInfo}
+                  claimId={currentClaimId}
+                  isExportingPdf={isExportingPdf}
+                />
+              ) : null}
 
-            {selectedDocs.includes("pac") ? (
-              <PublicAdjusterContract
-                data={{
-                  ...data,
-                  initials1: effectiveInitials1,
-                  initials2: effectiveInitials2,
-                }}
-                sig1={effectiveSig1}
-                sig2={effectiveSig2}
-                auditInfo={auditInfo}
-                claimId={currentClaimId}
-                isExportingPdf={isExportingPdf}
-              />
-            ) : null}
+              {selectedDocs.includes("pac") ? (
+                <PublicAdjusterContract
+                  data={{
+                    ...data,
+                    initials1: effectiveInitials1,
+                    initials2: effectiveInitials2,
+                  }}
+                  sig1={effectiveSig1}
+                  sig2={effectiveSig2}
+                  auditInfo={auditInfo}
+                  claimId={currentClaimId}
+                  isExportingPdf={isExportingPdf}
+                />
+              ) : null}
+            </div>
           </>
         ) : null}
 
@@ -2832,59 +2789,16 @@ export default function App() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  setView("review");
+                  if (isSigningFromLink) {
+                    setView("review");
+                  } else {
+                    setView("input");
+                  }
                 }}
               >
                 <ArrowLeft size={16} /> Back
               </Button>
             </div>
-
-            <Card>
-              <CardContent>
-                <div
-                  style={{
-                    fontSize: 14,
-                    fontWeight: 700,
-                    color: "#111827",
-                    marginBottom: 10,
-                  }}
-                >
-                  Forms included in this signing session
-                </div>
-
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-                  {selectedDocs.map((doc) => (
-                    <div
-                      key={doc}
-                      style={{
-                        padding: "8px 12px",
-                        borderRadius: 999,
-                        background: "#eef2ff",
-                        border: "1px solid #c7d2fe",
-                        fontSize: 13,
-                        fontWeight: 600,
-                        color: "#3730a3",
-                      }}
-                    >
-                      {documentLabel(doc)}
-                    </div>
-                  ))}
-                </div>
-
-                {selectedDocs.length > 1 ? (
-                  <div
-                    style={{
-                      marginTop: 10,
-                      fontSize: 13,
-                      color: "#6b7280",
-                    }}
-                  >
-                    Review both documents below. Your signatures and initials
-                    will apply to all selected forms.
-                  </div>
-                ) : null}
-              </CardContent>
-            </Card>
 
             {selectedDocs.includes("lor") ? (
               <LetterOfRepresentation
