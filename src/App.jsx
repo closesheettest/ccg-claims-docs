@@ -1840,6 +1840,15 @@ export default function App() {
   const [initialsFont1, setInitialsFont1] = useState(SIGNATURE_FONTS[0]);
   const [initialsFont2, setInitialsFont2] = useState(SIGNATURE_FONTS[0]);
 
+  const [lorReviewText, setLorReviewText] = useState(
+    "This document allows the State Licensed Public Adjuster to notify the insurance company that all claim-related communication should go through him only. This protects the homeowner from having to deal directly with the insurance company during the claim process. Experience matters when dealing with insurance companies."
+  );
+  const [pacReviewText, setPacReviewText] = useState(
+    "This agreement explains the relationship between the homeowner and the public adjuster, including the services being provided and the terms of representation for the insurance claim."
+  );
+  const [lorAgreed, setLorAgreed] = useState(false);
+  const [pacAgreed, setPacAgreed] = useState(false);
+
   const hasSecond = Boolean(data.homeowner2?.trim());
 
   const propertyAddressText = [
@@ -1848,6 +1857,10 @@ export default function App() {
   ]
     .filter(Boolean)
     .join("\n");
+
+  const reviewReady =
+    (!selectedDocs.includes("lor") || lorAgreed) &&
+    (!selectedDocs.includes("pac") || pacAgreed);
 
   useEffect(() => {
     if (data.lossLocationSameAsAddress) {
@@ -1868,6 +1881,8 @@ export default function App() {
       const claimId = params.get("claim");
       const docs = params.get("docs");
       const sign = params.get("sign");
+      const lorTextFromLink = params.get("lorText");
+      const pacTextFromLink = params.get("pacText");
 
       if (!claimId || sign !== "1") return;
 
@@ -1897,6 +1912,11 @@ export default function App() {
         setSignMode("now");
         setPendingSend(false);
         setIsSigningFromLink(true);
+        setLorAgreed(false);
+        setPacAgreed(false);
+
+        if (lorTextFromLink) setLorReviewText(lorTextFromLink);
+        if (pacTextFromLink) setPacReviewText(pacTextFromLink);
 
         setSig1(claim.signature1 || "");
         setSig2(claim.signature2 || "");
@@ -1947,7 +1967,7 @@ export default function App() {
               .join("\n"),
         }));
 
-        setView("sign");
+        setView("review");
       } finally {
         setIsLoadingSigningLink(false);
       }
@@ -1955,6 +1975,25 @@ export default function App() {
 
     loadFromSigningLink();
   }, []);
+
+  useEffect(() => {
+    if (view === "review" && reviewReady) {
+      setView("sign");
+    }
+  }, [view, reviewReady]);
+
+  useEffect(() => {
+    if (view === "sign" && reviewReady) {
+      const timer = setTimeout(() => {
+        const el = document.getElementById("signature-section");
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }, 200);
+
+      return () => clearTimeout(timer);
+    }
+  }, [view, reviewReady]);
 
   const update = (key, value) => {
     setData((prev) => ({ ...prev, [key]: value }));
@@ -2009,7 +2048,9 @@ export default function App() {
     setData((prev) => ({ ...prev, initials1: "", initials2: "" }));
     setInitials1Typed("");
     setInitials2Typed("");
-    setView("sign");
+    setLorAgreed(false);
+    setPacAgreed(false);
+    setView("review");
   };
 
   const effectiveSig1 =
@@ -2157,7 +2198,15 @@ export default function App() {
           return;
         }
 
-        const signingLink = `${window.location.origin}/?sign=1&docs=${selectedDocs.join(",")}&claim=${record?.id}`;
+        const params = new URLSearchParams({
+          sign: "1",
+          docs: selectedDocs.join(","),
+          claim: String(record?.id || ""),
+          lorText: lorReviewText,
+          pacText: pacReviewText,
+        });
+
+        const signingLink = `${window.location.origin}/?${params.toString()}`;
 
         const emailResponse = await fetch("/.netlify/functions/send-email", {
           method: "POST",
@@ -2586,6 +2635,52 @@ export default function App() {
                 </div>
               </div>
 
+              <Card style={{ padding: 20, background: "#f8fafc", marginTop: 20 }}>
+                <SectionTitle>Review Page Text</SectionTitle>
+
+                {selectedDocs.includes("lor") ? (
+                  <div style={{ marginBottom: 16 }}>
+                    <Label>Letter of Representation Explanation</Label>
+                    <textarea
+                      value={lorReviewText}
+                      onChange={(e) => setLorReviewText(e.target.value)}
+                      style={{
+                        width: "100%",
+                        minHeight: 120,
+                        borderRadius: 14,
+                        border: "1px solid #d1d5db",
+                        padding: 12,
+                        fontSize: 14,
+                        boxSizing: "border-box",
+                        fontFamily: "Arial, Helvetica, sans-serif",
+                        resize: "vertical",
+                      }}
+                    />
+                  </div>
+                ) : null}
+
+                {selectedDocs.includes("pac") ? (
+                  <div>
+                    <Label>PA Agreement Explanation</Label>
+                    <textarea
+                      value={pacReviewText}
+                      onChange={(e) => setPacReviewText(e.target.value)}
+                      style={{
+                        width: "100%",
+                        minHeight: 120,
+                        borderRadius: 14,
+                        border: "1px solid #d1d5db",
+                        padding: 12,
+                        fontSize: 14,
+                        boxSizing: "border-box",
+                        fontFamily: "Arial, Helvetica, sans-serif",
+                        resize: "vertical",
+                      }}
+                    />
+                  </div>
+                ) : null}
+              </Card>
+
               <div style={{ marginTop: 20 }}>
                 <Button onClick={beginDocumentFlow} disabled={!selectedDocs.length}>
                   {signMode === "send"
@@ -2597,7 +2692,7 @@ export default function App() {
           </Card>
         ) : null}
 
-        {view === "sign" ? (
+        {view === "review" ? (
           <>
             <div>
               <Button
@@ -2608,6 +2703,136 @@ export default function App() {
                     window.history.replaceState({}, "", window.location.pathname);
                     setIsSigningFromLink(false);
                   }
+                }}
+              >
+                <ArrowLeft size={16} /> Back
+              </Button>
+            </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Review Before Signing</CardTitle>
+                <CardDescription>
+                  Please review the documents below before continuing to signatures and initials.
+                </CardDescription>
+              </CardHeader>
+
+              <CardContent>
+                {selectedDocs.includes("lor") ? (
+                  <div style={{ marginBottom: 32 }}>
+                    <SectionTitle>Letter of Representation</SectionTitle>
+                    <div
+                      style={{
+                        fontSize: 15,
+                        lineHeight: 1.7,
+                        color: "#111827",
+                        marginBottom: 14,
+                      }}
+                    >
+                      {lorReviewText}
+                    </div>
+
+                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          const el = document.getElementById("lor-printable-document");
+                          if (el) {
+                            el.scrollIntoView({ behavior: "smooth", block: "start" });
+                          }
+                        }}
+                      >
+                        Preview Letter of Representation
+                      </Button>
+
+                      <Button onClick={() => setLorAgreed(true)}>
+                        {lorAgreed ? "Agreed" : "Click here if you agree"}
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+
+                {selectedDocs.includes("pac") ? (
+                  <div style={{ marginBottom: 32 }}>
+                    <SectionTitle>Public Adjuster Agreement</SectionTitle>
+                    <div
+                      style={{
+                        fontSize: 15,
+                        lineHeight: 1.7,
+                        color: "#111827",
+                        marginBottom: 14,
+                      }}
+                    >
+                      {pacReviewText}
+                    </div>
+
+                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          const el = document.getElementById("pac-printable-document");
+                          if (el) {
+                            el.scrollIntoView({ behavior: "smooth", block: "start" });
+                          }
+                        }}
+                      >
+                        Preview PA Agreement
+                      </Button>
+
+                      <Button onClick={() => setPacAgreed(true)}>
+                        {pacAgreed ? "Agreed" : "Click here if you agree"}
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div
+                  style={{
+                    fontSize: 13,
+                    color: "#6b7280",
+                    marginTop: 8,
+                  }}
+                >
+                  After you agree to all required documents, you will automatically be taken to the signature section below.
+                </div>
+              </CardContent>
+            </Card>
+
+            {selectedDocs.includes("lor") ? (
+              <LetterOfRepresentation
+                data={data}
+                sig1={effectiveSig1}
+                sig2={effectiveSig2}
+                auditInfo={auditInfo}
+                claimId={currentClaimId}
+                isExportingPdf={isExportingPdf}
+              />
+            ) : null}
+
+            {selectedDocs.includes("pac") ? (
+              <PublicAdjusterContract
+                data={{
+                  ...data,
+                  initials1: effectiveInitials1,
+                  initials2: effectiveInitials2,
+                }}
+                sig1={effectiveSig1}
+                sig2={effectiveSig2}
+                auditInfo={auditInfo}
+                claimId={currentClaimId}
+                isExportingPdf={isExportingPdf}
+              />
+            ) : null}
+          </>
+        ) : null}
+
+        {view === "sign" ? (
+          <>
+            <div>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setView("review");
                 }}
               >
                 <ArrowLeft size={16} /> Back
@@ -2687,293 +2912,295 @@ export default function App() {
               />
             ) : null}
 
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  {pendingSend ? "Review & Send for Signing" : "Sign Document(s)"}
-                </CardTitle>
-                <CardDescription>
-                  {pendingSend
-                    ? "Review the selected forms, then email one signing link to the homeowner."
-                    : "Complete all required signatures and initials before submitting."}
-                </CardDescription>
-              </CardHeader>
+            <div id="signature-section" style={{ scrollMarginTop: 20 }}>
+              <Card>
+                <CardHeader>
+                  <CardTitle>
+                    {pendingSend ? "Review & Send for Signing" : "Sign Document(s)"}
+                  </CardTitle>
+                  <CardDescription>
+                    {pendingSend
+                      ? "Review the selected forms, then email one signing link to the homeowner."
+                      : "Complete all required signatures and initials before submitting."}
+                  </CardDescription>
+                </CardHeader>
 
-              <CardContent>
-                {!pendingSend ? (
-                  <>
+                <CardContent>
+                  {!pendingSend ? (
+                    <>
+                      <div
+                        style={{
+                          background: "#fef2f2",
+                          color: "#991b1b",
+                          border: "1px solid #fecaca",
+                          borderRadius: 12,
+                          padding: 12,
+                          marginBottom: 16,
+                          fontSize: 14,
+                          fontWeight: 600,
+                        }}
+                      >
+                        Please complete all required signatures
+                        {selectedDocs.includes("pac") ? " and initials" : ""}{" "}
+                        before submitting.
+                      </div>
+
+                      <div
+                        style={{
+                          fontWeight: 800,
+                          color: "#1d4ed8",
+                          textDecoration: "underline",
+                          marginBottom: 10,
+                          cursor: "pointer",
+                          fontSize: 14,
+                        }}
+                        onClick={() =>
+                          setSigMethod1(sigMethod1 === "draw" ? "type" : "draw")
+                        }
+                      >
+                        {sigMethod1 === "draw"
+                          ? "PREFER TO TYPE INSTEAD?"
+                          : "PREFER TO DRAW INSTEAD?"}
+                      </div>
+
+                      {sigMethod1 === "draw" ? (
+                        <SignaturePad
+                          title="Homeowner 1 Signature"
+                          value={sig1}
+                          onChange={setSig1}
+                          required
+                          missing={!effectiveSig1}
+                        />
+                      ) : (
+                        <TypedSignatureField
+                          title="Homeowner 1 Signature"
+                          value={typedSig1}
+                          onChange={setTypedSig1}
+                          fontValue={sigFont1}
+                          onFontChange={setSigFont1}
+                          required
+                          missing={!effectiveSig1}
+                          placeholder="Type Homeowner 1 full name"
+                        />
+                      )}
+
+                      {hasSecond ? (
+                        <>
+                          <div
+                            style={{
+                              fontWeight: 800,
+                              color: "#1d4ed8",
+                              textDecoration: "underline",
+                              marginBottom: 10,
+                              cursor: "pointer",
+                              fontSize: 14,
+                            }}
+                            onClick={() =>
+                              setSigMethod2(sigMethod2 === "draw" ? "type" : "draw")
+                            }
+                          >
+                            {sigMethod2 === "draw"
+                              ? "PREFER TO TYPE INSTEAD?"
+                              : "PREFER TO DRAW INSTEAD?"}
+                          </div>
+
+                          {sigMethod2 === "draw" ? (
+                            <SignaturePad
+                              title="Homeowner 2 Signature"
+                              value={sig2}
+                              onChange={setSig2}
+                              required
+                              missing={!effectiveSig2}
+                            />
+                          ) : (
+                            <TypedSignatureField
+                              title="Homeowner 2 Signature"
+                              value={typedSig2}
+                              onChange={setTypedSig2}
+                              fontValue={sigFont2}
+                              onFontChange={setSigFont2}
+                              required
+                              missing={!effectiveSig2}
+                              placeholder="Type Homeowner 2 full name"
+                            />
+                          )}
+                        </>
+                      ) : null}
+
+                      {selectedDocs.includes("pac") ? (
+                        <>
+                          <div
+                            style={{
+                              fontWeight: 800,
+                              color: "#1d4ed8",
+                              textDecoration: "underline",
+                              marginBottom: 10,
+                              cursor: "pointer",
+                              fontSize: 14,
+                            }}
+                            onClick={() =>
+                              setInitialsMethod1(
+                                initialsMethod1 === "draw" ? "type" : "draw"
+                              )
+                            }
+                          >
+                            {initialsMethod1 === "draw"
+                              ? "PREFER TO TYPE INITIALS INSTEAD?"
+                              : "PREFER TO DRAW INITIALS INSTEAD?"}
+                          </div>
+
+                          {initialsMethod1 === "draw" ? (
+                            <InitialsPad
+                              title="Homeowner 1 Initials"
+                              value={data.initials1}
+                              onChange={(v) => update("initials1", v)}
+                              required
+                              missing={!effectiveInitials1}
+                            />
+                          ) : (
+                            <TypedInitialsField
+                              title="Homeowner 1 Initials"
+                              value={initials1Typed}
+                              onChange={setInitials1Typed}
+                              fontValue={initialsFont1}
+                              onFontChange={setInitialsFont1}
+                              required
+                              missing={!effectiveInitials1}
+                              placeholder="Type Homeowner 1 initials"
+                            />
+                          )}
+
+                          {hasSecond ? (
+                            <>
+                              <div
+                                style={{
+                                  fontWeight: 800,
+                                  color: "#1d4ed8",
+                                  textDecoration: "underline",
+                                  marginBottom: 10,
+                                  cursor: "pointer",
+                                  fontSize: 14,
+                                }}
+                                onClick={() =>
+                                  setInitialsMethod2(
+                                    initialsMethod2 === "draw" ? "type" : "draw"
+                                  )
+                                }
+                              >
+                                {initialsMethod2 === "draw"
+                                  ? "PREFER TO TYPE INITIALS INSTEAD?"
+                                  : "PREFER TO DRAW INITIALS INSTEAD?"}
+                              </div>
+
+                              {initialsMethod2 === "draw" ? (
+                                <InitialsPad
+                                  title="Homeowner 2 Initials"
+                                  value={data.initials2}
+                                  onChange={(v) => update("initials2", v)}
+                                  required
+                                  missing={!effectiveInitials2}
+                                />
+                              ) : (
+                                <TypedInitialsField
+                                  title="Homeowner 2 Initials"
+                                  value={initials2Typed}
+                                  onChange={setInitials2Typed}
+                                  fontValue={initialsFont2}
+                                  onFontChange={setInitialsFont2}
+                                  required
+                                  missing={!effectiveInitials2}
+                                  placeholder="Type Homeowner 2 initials"
+                                />
+                              )}
+                            </>
+                          ) : null}
+                        </>
+                      ) : null}
+                    </>
+                  ) : null}
+
+                  {!pendingSend && missingSigningFields.length > 0 ? (
                     <div
                       style={{
-                        background: "#fef2f2",
+                        marginTop: 8,
+                        marginBottom: 12,
+                        fontSize: 13,
                         color: "#991b1b",
-                        border: "1px solid #fecaca",
-                        borderRadius: 12,
-                        padding: 12,
-                        marginBottom: 16,
-                        fontSize: 14,
-                        fontWeight: 600,
                       }}
                     >
-                      Please complete all required signatures
-                      {selectedDocs.includes("pac") ? " and initials" : ""}{" "}
-                      before submitting.
+                      Missing: {missingSigningFields.join(", ")}
                     </div>
+                  ) : null}
 
-                    <div
-                      style={{
-                        fontWeight: 800,
-                        color: "#1d4ed8",
-                        textDecoration: "underline",
-                        marginBottom: 10,
-                        cursor: "pointer",
-                        fontSize: 14,
-                      }}
-                      onClick={() =>
-                        setSigMethod1(sigMethod1 === "draw" ? "type" : "draw")
-                      }
-                    >
-                      {sigMethod1 === "draw"
-                        ? "PREFER TO TYPE INSTEAD?"
-                        : "PREFER TO DRAW INSTEAD?"}
-                    </div>
-
-                    {sigMethod1 === "draw" ? (
-                      <SignaturePad
-                        title="Homeowner 1 Signature"
-                        value={sig1}
-                        onChange={setSig1}
-                        required
-                        missing={!effectiveSig1}
-                      />
-                    ) : (
-                      <TypedSignatureField
-                        title="Homeowner 1 Signature"
-                        value={typedSig1}
-                        onChange={setTypedSig1}
-                        fontValue={sigFont1}
-                        onFontChange={setSigFont1}
-                        required
-                        missing={!effectiveSig1}
-                        placeholder="Type Homeowner 1 full name"
-                      />
-                    )}
-
-                    {hasSecond ? (
-                      <>
-                        <div
-                          style={{
-                            fontWeight: 800,
-                            color: "#1d4ed8",
-                            textDecoration: "underline",
-                            marginBottom: 10,
-                            cursor: "pointer",
-                            fontSize: 14,
-                          }}
-                          onClick={() =>
-                            setSigMethod2(sigMethod2 === "draw" ? "type" : "draw")
-                          }
-                        >
-                          {sigMethod2 === "draw"
-                            ? "PREFER TO TYPE INSTEAD?"
-                            : "PREFER TO DRAW INSTEAD?"}
-                        </div>
-
-                        {sigMethod2 === "draw" ? (
-                          <SignaturePad
-                            title="Homeowner 2 Signature"
-                            value={sig2}
-                            onChange={setSig2}
-                            required
-                            missing={!effectiveSig2}
-                          />
-                        ) : (
-                          <TypedSignatureField
-                            title="Homeowner 2 Signature"
-                            value={typedSig2}
-                            onChange={setTypedSig2}
-                            fontValue={sigFont2}
-                            onFontChange={setSigFont2}
-                            required
-                            missing={!effectiveSig2}
-                            placeholder="Type Homeowner 2 full name"
-                          />
-                        )}
-                      </>
-                    ) : null}
-
-                    {selectedDocs.includes("pac") ? (
-                      <>
-                        <div
-                          style={{
-                            fontWeight: 800,
-                            color: "#1d4ed8",
-                            textDecoration: "underline",
-                            marginBottom: 10,
-                            cursor: "pointer",
-                            fontSize: 14,
-                          }}
-                          onClick={() =>
-                            setInitialsMethod1(
-                              initialsMethod1 === "draw" ? "type" : "draw"
-                            )
-                          }
-                        >
-                          {initialsMethod1 === "draw"
-                            ? "PREFER TO TYPE INITIALS INSTEAD?"
-                            : "PREFER TO DRAW INITIALS INSTEAD?"}
-                        </div>
-
-                        {initialsMethod1 === "draw" ? (
-                          <InitialsPad
-                            title="Homeowner 1 Initials"
-                            value={data.initials1}
-                            onChange={(v) => update("initials1", v)}
-                            required
-                            missing={!effectiveInitials1}
-                          />
-                        ) : (
-                          <TypedInitialsField
-                            title="Homeowner 1 Initials"
-                            value={initials1Typed}
-                            onChange={setInitials1Typed}
-                            fontValue={initialsFont1}
-                            onFontChange={setInitialsFont1}
-                            required
-                            missing={!effectiveInitials1}
-                            placeholder="Type Homeowner 1 initials"
-                          />
-                        )}
-
-                        {hasSecond ? (
-                          <>
-                            <div
-                              style={{
-                                fontWeight: 800,
-                                color: "#1d4ed8",
-                                textDecoration: "underline",
-                                marginBottom: 10,
-                                cursor: "pointer",
-                                fontSize: 14,
-                              }}
-                              onClick={() =>
-                                setInitialsMethod2(
-                                  initialsMethod2 === "draw" ? "type" : "draw"
-                                )
-                              }
-                            >
-                              {initialsMethod2 === "draw"
-                                ? "PREFER TO TYPE INITIALS INSTEAD?"
-                                : "PREFER TO DRAW INITIALS INSTEAD?"}
-                            </div>
-
-                            {initialsMethod2 === "draw" ? (
-                              <InitialsPad
-                                title="Homeowner 2 Initials"
-                                value={data.initials2}
-                                onChange={(v) => update("initials2", v)}
-                                required
-                                missing={!effectiveInitials2}
-                              />
-                            ) : (
-                              <TypedInitialsField
-                                title="Homeowner 2 Initials"
-                                value={initials2Typed}
-                                onChange={setInitials2Typed}
-                                fontValue={initialsFont2}
-                                onFontChange={setInitialsFont2}
-                                required
-                                missing={!effectiveInitials2}
-                                placeholder="Type Homeowner 2 initials"
-                              />
-                            )}
-                          </>
-                        ) : null}
-                      </>
-                    ) : null}
-                  </>
-                ) : null}
-
-                {!pendingSend && missingSigningFields.length > 0 ? (
                   <div
                     style={{
-                      marginTop: 8,
-                      marginBottom: 12,
-                      fontSize: 13,
-                      color: "#991b1b",
+                      display: "flex",
+                      gap: 12,
+                      paddingTop: 8,
+                      flexWrap: "wrap",
                     }}
                   >
-                    Missing: {missingSigningFields.join(", ")}
-                  </div>
-                ) : null}
+                    <Button
+                      onClick={submitDoc}
+                      disabled={!pendingSend && !isSigningComplete}
+                    >
+                      {pendingSend ? <Send size={16} /> : <Mail size={16} />}
+                      {pendingSend ? "Send for Signing" : "Submit & Email Copies"}
+                    </Button>
 
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 12,
-                    paddingTop: 8,
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <Button
-                    onClick={submitDoc}
-                    disabled={!pendingSend && !isSigningComplete}
-                  >
-                    {pendingSend ? <Send size={16} /> : <Mail size={16} />}
-                    {pendingSend ? "Send for Signing" : "Submit & Email Copies"}
-                  </Button>
+                    <Button
+                      variant="outline"
+                      onClick={async () => {
+                        try {
+                          const selector = selectedDocs.includes("lor")
+                            ? "#lor-printable-document"
+                            : "#pac-printable-document";
+                          const filename = selectedDocs.includes("lor")
+                            ? documentFilename("lor")
+                            : documentFilename("pac");
 
-                  <Button
-                    variant="outline"
-                    onClick={async () => {
-                      try {
-                        const selector = selectedDocs.includes("lor")
-                          ? "#lor-printable-document"
-                          : "#pac-printable-document";
-                        const filename = selectedDocs.includes("lor")
-                          ? documentFilename("lor")
-                          : documentFilename("pac");
+                          const element = document.querySelector(selector);
+                          if (!element) {
+                            alert("Document not found.");
+                            return;
+                          }
 
-                        const element = document.querySelector(selector);
-                        if (!element) {
-                          alert("Document not found.");
-                          return;
+                          setIsExportingPdf(true);
+                          await new Promise((resolve) => setTimeout(resolve, 200));
+
+                          await html2pdf()
+                            .set({
+                              margin: 0,
+                              filename,
+                              image: { type: "jpeg", quality: 0.98 },
+                              html2canvas: {
+                                scale: 1.5,
+                                useCORS: true,
+                                scrollX: 0,
+                                scrollY: 0,
+                              },
+                              jsPDF: {
+                                unit: "in",
+                                format: "letter",
+                                orientation: "portrait",
+                              },
+                              pagebreak: { mode: ["css"] },
+                            })
+                            .from(element)
+                            .save();
+                        } catch (err) {
+                          alert(err?.message || "Failed to download PDF.");
+                        } finally {
+                          setIsExportingPdf(false);
                         }
-
-                        setIsExportingPdf(true);
-                        await new Promise((resolve) => setTimeout(resolve, 200));
-
-                        await html2pdf()
-                          .set({
-                            margin: 0,
-                            filename,
-                            image: { type: "jpeg", quality: 0.98 },
-                            html2canvas: {
-                              scale: 1.5,
-                              useCORS: true,
-                              scrollX: 0,
-                              scrollY: 0,
-                            },
-                            jsPDF: {
-                              unit: "in",
-                              format: "letter",
-                              orientation: "portrait",
-                            },
-                            pagebreak: { mode: ["css"] },
-                          })
-                          .from(element)
-                          .save();
-                      } catch (err) {
-                        alert(err?.message || "Failed to download PDF.");
-                      } finally {
-                        setIsExportingPdf(false);
-                      }
-                    }}
-                  >
-                    Download PDF
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+                      }}
+                    >
+                      Download PDF
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           </>
         ) : null}
       </div>
