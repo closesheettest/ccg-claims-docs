@@ -3978,6 +3978,7 @@ export default function App() {
         ) : null}
         {/* ── THANK YOU VIEW ── */}
         {view === "thankyou" ? (
+          <>
           <div style={{ maxWidth: 640, margin: "0 auto", padding: "32px 16px" }}>
 
             {/* Hero celebration banner */}
@@ -4355,6 +4356,7 @@ export default function App() {
               </div>
             </div>
           </div>
+          </>
         ) : null}
 
         {/* ── MANAGER VIEW ── */}
