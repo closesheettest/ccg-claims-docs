@@ -2350,6 +2350,9 @@ export default function App() {
     setSubmitAttempted(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
     setView("review");
+  };
+
+  const effectiveSig1 =
     sigMethod1 === "type" ? typedSignatureToDataUrl(typedSig1, sigFont1) : sig1;
   const effectiveSig2 =
     sigMethod2 === "type" ? typedSignatureToDataUrl(typedSig2, sigFont2) : sig2;
