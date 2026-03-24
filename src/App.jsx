@@ -73,6 +73,7 @@ const initialData = {
   zip: "",
   phone: "",
   situation: "",
+  claimStage: "pre_inspection", // "pre_inspection" | "post_inspection"
   dateOfLoss: "",
   claimNumber: "",
   claimType: "Wind/Hail",
@@ -2068,6 +2069,16 @@ export default function App() {
       "🎉 You receive your settlement and we handle all the paperwork. Sit back and let us do the work!",
     ]),
     thankYouClosing: "We're so glad you chose Capital Claims Group. You made the right call. Talk soon! 💚",
+    preInspHeadline: "Inspection Booked — We're On It! 🏠",
+    preInspOpening: "You're all signed up! Your free roof inspection is next. Here's what to expect:",
+    preInspSteps: JSON.stringify([
+      "📅 Your rep will schedule your free roof inspection — usually within 1–3 business days.",
+      "🏠 One of our trained inspectors will visit the property and document any damage thoroughly.",
+      "📊 We review the inspection report and advise you on whether to file a claim.",
+      "✅ If damage is found, we'll have you sign the PA paperwork and get to work immediately.",
+      "💚 No damage found? No problem — the inspection is completely free, no strings attached.",
+    ]),
+    preInspClosing: "We'll be in touch soon to schedule your inspection. Thank you for trusting Capital Claims Group! 💚",
     managerPin: "1234",
   };
 
@@ -2091,6 +2102,7 @@ export default function App() {
   const [managerPin, setManagerPinRaw] = useState(() => loadSetting("managerPin"));
   const [managerPinEntry, setManagerPinEntry] = useState("");
   const [managerUnlocked, setManagerUnlocked] = useState(false);
+  const [managerTYTab, setManagerTYTab] = useState("post_inspection");
 
   // Wrappers that save to localStorage on every change
   const setReviewHeadline = (v) => { setReviewHeadlineRaw(v); saveSetting("reviewHeadline", v); };
@@ -2102,6 +2114,24 @@ export default function App() {
   const setThankYouSteps   = (v) => { setThankYouStepsRaw(v);   saveSetting("thankYouSteps", JSON.stringify(v)); };
   const setThankYouClosing = (v) => { setThankYouClosingRaw(v); saveSetting("thankYouClosing", v); };
   const setManagerPin     = (v) => { setManagerPinRaw(v);     saveSetting("managerPin", v); };
+
+  // Pre-inspection flow state
+  const [preInspHeadline, setPreInspHeadlineRaw] = useState(() => loadSetting("preInspHeadline"));
+  const [preInspOpening,  setPreInspOpeningRaw]  = useState(() => loadSetting("preInspOpening"));
+  const [preInspSteps,    setPreInspStepsRaw]    = useState(() => {
+    try { return JSON.parse(loadSetting("preInspSteps")); } catch { return JSON.parse(DEFAULTS.preInspSteps); }
+  });
+  const [preInspClosing,  setPreInspClosingRaw]  = useState(() => loadSetting("preInspClosing"));
+  const setPreInspHeadline = (v) => { setPreInspHeadlineRaw(v); saveSetting("preInspHeadline", v); };
+  const setPreInspOpening  = (v) => { setPreInspOpeningRaw(v);  saveSetting("preInspOpening", v); };
+  const setPreInspSteps    = (v) => { setPreInspStepsRaw(v);    saveSetting("preInspSteps", JSON.stringify(v)); };
+  const setPreInspClosing  = (v) => { setPreInspClosingRaw(v);  saveSetting("preInspClosing", v); };
+
+  // Derived: which thank you content to show based on claimStage
+  const activeTYHeadline = data.claimStage === "pre_inspection" ? preInspHeadline : thankYouHeadline;
+  const activeTYOpening  = data.claimStage === "pre_inspection" ? preInspOpening  : thankYouOpening;
+  const activeTYSteps    = data.claimStage === "pre_inspection" ? preInspSteps    : thankYouSteps;
+  const activeTYClosing  = data.claimStage === "pre_inspection" ? preInspClosing  : thankYouClosing;
 
   const [sig1, setSig1] = useState("");
   const [sig2, setSig2] = useState("");
@@ -3346,6 +3376,62 @@ export default function App() {
                     />
                   </div>
                 </Card>
+
+                {/* Claim Stage selector */}
+                <Card style={{ padding: 20, background: "#f8fafc" }}>
+                  <SectionTitle>Claim Stage</SectionTitle>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    <button
+                      type="button"
+                      onClick={() => update("claimStage", "pre_inspection")}
+                      style={{
+                        padding: "16px 12px",
+                        borderRadius: 16,
+                        border: data.claimStage === "pre_inspection" ? "3px solid #199c2e" : "2px solid #e5e7eb",
+                        background: data.claimStage === "pre_inspection" ? "#f0fdf4" : "#fff",
+                        cursor: "pointer",
+                        textAlign: "center",
+                        transition: "all 0.2s",
+                      }}
+                    >
+                      <div style={{ fontSize: 28, marginBottom: 6 }}>🏠</div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>
+                        Roof Needs Inspection
+                      </div>
+                      <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>
+                        Signing before the inspection — next step is scheduling
+                      </div>
+                      {data.claimStage === "pre_inspection" ? (
+                        <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#199c2e", fontFamily: "'Nunito', sans-serif" }}>✓ Selected</div>
+                      ) : null}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => update("claimStage", "post_inspection")}
+                      style={{
+                        padding: "16px 12px",
+                        borderRadius: 16,
+                        border: data.claimStage === "post_inspection" ? "3px solid #199c2e" : "2px solid #e5e7eb",
+                        background: data.claimStage === "post_inspection" ? "#f0fdf4" : "#fff",
+                        cursor: "pointer",
+                        textAlign: "center",
+                        transition: "all 0.2s",
+                      }}
+                    >
+                      <div style={{ fontSize: 28, marginBottom: 6 }}>✅</div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>
+                        Roof Was Inspected
+                      </div>
+                      <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>
+                        Damage confirmed — filing the claim now
+                      </div>
+                      {data.claimStage === "post_inspection" ? (
+                        <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#199c2e", fontFamily: "'Nunito', sans-serif" }}>✓ Selected</div>
+                      ) : null}
+                    </button>
+                  </div>
+                </Card>
               </div>
 
               <div style={{ marginTop: 20 }}>
@@ -4004,7 +4090,7 @@ export default function App() {
                 marginBottom: 16,
                 letterSpacing: "0.01em",
               }}>
-                {thankYouHeadline}
+                {activeTYHeadline}
               </div>
               <div style={{
                 fontSize: 18,
@@ -4015,7 +4101,7 @@ export default function App() {
                 maxWidth: 480,
                 margin: "0 auto",
               }}>
-                {thankYouOpening}
+                {activeTYOpening}
               </div>
             </div>
 
@@ -4043,7 +4129,7 @@ export default function App() {
               </div>
 
               <div style={{ display: "grid", gap: 14 }}>
-                {thankYouSteps.map((step, i) => (
+                {activeTYSteps.map((step, i) => (
                   <div
                     key={i}
                     style={{
@@ -4103,7 +4189,7 @@ export default function App() {
                 fontWeight: 700,
                 lineHeight: 1.6,
               }}>
-                {thankYouClosing}
+                {activeTYClosing}
               </div>
             </div>
 
@@ -4340,6 +4426,10 @@ export default function App() {
                               setThankYouOpening(DEFAULTS.thankYouOpening);
                               try { setThankYouSteps(JSON.parse(DEFAULTS.thankYouSteps)); } catch {}
                               setThankYouClosing(DEFAULTS.thankYouClosing);
+                              setPreInspHeadline(DEFAULTS.preInspHeadline);
+                              setPreInspOpening(DEFAULTS.preInspOpening);
+                              try { setPreInspSteps(JSON.parse(DEFAULTS.preInspSteps)); } catch {}
+                              setPreInspClosing(DEFAULTS.preInspClosing);
                             }
                           }}
                           style={{
@@ -4442,9 +4532,35 @@ export default function App() {
                     </div>
                   </Card>
 
-                  {/* Thank you page text */}
+                  {/* Thank you page text — tabbed */}
                   <Card style={{ padding: 20, background: "#f8fafc" }}>
-                    <SectionTitle>Thank You Page</SectionTitle>
+                    <SectionTitle>Thank You Pages</SectionTitle>
+                    <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+                      {[
+                        { key: "post_inspection", label: "✅ Roof Inspected Flow", emoji: "✅" },
+                        { key: "pre_inspection",  label: "🏠 Pre-Inspection Flow", emoji: "🏠" },
+                      ].map(tab => (
+                        <button
+                          key={tab.key}
+                          type="button"
+                          onClick={() => setManagerTYTab(tab.key)}
+                          style={{
+                            padding: "8px 16px",
+                            borderRadius: 12,
+                            border: managerTYTab === tab.key ? "2px solid #199c2e" : "1px solid #d1d5db",
+                            background: managerTYTab === tab.key ? "#f0fdf4" : "#fff",
+                            color: managerTYTab === tab.key ? "#166534" : "#374151",
+                            fontFamily: "'Nunito', sans-serif",
+                            fontWeight: 700,
+                            fontSize: 13,
+                            cursor: "pointer",
+                          }}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                    </div>
+                    {managerTYTab === "post_inspection" ? (
                     <div style={{ display: "grid", gap: 20 }}>
 
                       {/* Headline */}
@@ -4573,6 +4689,62 @@ export default function App() {
                         <div style={{ marginTop: 10, padding: "10px 14px", background: "#fffbeb", borderRadius: 10, textAlign: "center", fontSize: 13, color: "#92400e", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>{thankYouClosing}</div>
                       </div>
                     </div>
+                    ) : (
+                    /* ── Pre-Inspection Flow Editor ── */
+                    <div style={{ display: "grid", gap: 20 }}>
+                      <div>
+                        <Label>Headline</Label>
+                        <input type="text" value={preInspHeadline} onChange={(e) => setPreInspHeadline(e.target.value)}
+                          style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                      </div>
+                      <div>
+                        <Label>Opening statement (shown in the green hero banner)</Label>
+                        <textarea value={preInspOpening} onChange={(e) => setPreInspOpening(e.target.value)} rows={3}
+                          style={{ width: "100%", borderRadius: 12, border: "1px solid #d1d5db", padding: "10px 12px", fontSize: 14, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }} />
+                      </div>
+                      <div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                          <Label>What to expect next (numbered steps)</Label>
+                          <button type="button" onClick={() => setPreInspSteps([...preInspSteps, "✅ New step — click to edit"])}
+                            style={{ padding: "6px 14px", borderRadius: 10, border: "1.5px solid #199c2e", background: "#fff", color: "#199c2e", fontFamily: "'Oswald', sans-serif", fontWeight: 600, fontSize: 13, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                            + Add Step
+                          </button>
+                        </div>
+                        <div style={{ display: "grid", gap: 10 }}>
+                          {preInspSteps.map((step, i) => (
+                            <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                              <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#199c2e", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13, fontFamily: "'Oswald', sans-serif", flexShrink: 0, marginTop: 8 }}>{i + 1}</div>
+                              <textarea value={step} onChange={(e) => { const n=[...preInspSteps]; n[i]=e.target.value; setPreInspSteps(n); }} rows={2}
+                                style={{ flex: 1, borderRadius: 12, border: "1px solid #d1d5db", padding: "8px 12px", fontSize: 14, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }} />
+                              <button type="button" onClick={() => setPreInspSteps(preInspSteps.filter((_,idx)=>idx!==i))}
+                                style={{ background: "transparent", border: "none", color: "#ef4444", fontSize: 18, cursor: "pointer", padding: "4px 6px", marginTop: 6, flexShrink: 0 }}>✕</button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <Label>Closing statement</Label>
+                        <textarea value={preInspClosing} onChange={(e) => setPreInspClosing(e.target.value)} rows={2}
+                          style={{ width: "100%", borderRadius: 12, border: "1px solid #d1d5db", padding: "10px 12px", fontSize: 14, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }} />
+                      </div>
+                      {/* Preview */}
+                      <div style={{ marginTop: 4, borderTop: "1px solid #e5e7eb", paddingTop: 16 }}>
+                        <div style={{ fontSize: 12, color: "#9ca3af", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 12 }}>Live Preview</div>
+                        <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 16, padding: "20px 18px" }}>
+                          <div style={{ fontSize: 28, marginBottom: 8, textAlign: "center" }}>🎉</div>
+                          <div style={{ fontSize: 20, fontWeight: 700, color: "#15803d", fontFamily: "'Oswald', sans-serif", marginBottom: 6, textAlign: "center" }}>{preInspHeadline}</div>
+                          <div style={{ fontSize: 13, color: "#166534", fontFamily: "'Nunito', sans-serif", marginBottom: 14, textAlign: "center", lineHeight: 1.5 }}>{preInspOpening}</div>
+                          {preInspSteps.map((step, i) => (
+                            <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 8, padding: "8px 12px", background: "#fff", borderRadius: 10, border: "1px solid #bbf7d0" }}>
+                              <div style={{ width: 22, height: 22, borderRadius: "50%", background: "#199c2e", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
+                              <div style={{ fontSize: 13, color: "#166534", fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.4 }}>{step}</div>
+                            </div>
+                          ))}
+                          <div style={{ marginTop: 10, padding: "10px 14px", background: "#fffbeb", borderRadius: 10, textAlign: "center", fontSize: 13, color: "#92400e", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>{preInspClosing}</div>
+                        </div>
+                      </div>
+                    </div>
+                    )}
                   </Card>
 
                   <div>
@@ -4670,7 +4842,7 @@ export default function App() {
             <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 10 }}>
               📋 What Happens Next
             </div>
-            {thankYouSteps.map((step, i) => (
+            {activeTYSteps.map((step, i) => (
               <div key={i} style={{
                 display: "flex",
                 alignItems: "flex-start",
