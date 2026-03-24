@@ -4622,7 +4622,7 @@ export default function App() {
           </div>
 
           {/* Contact info box */}
-          <div style={{ padding: "0.35in 0.6in 0.3in" }}>
+          <div style={{ padding: "0.2in 0.5in 0.2in" }}>
             <div style={{
               background: "#f0fdf4",
               border: "2px solid #199c2e",
@@ -4633,7 +4633,7 @@ export default function App() {
               <div style={{ fontSize: 16, fontWeight: 700, color: "#166534", marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>
                 Your Point of Contact
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, fontSize: 13 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, fontSize: 12 }}>
                 <div><strong>Company:</strong> Capital Claims Group</div>
                 <div><strong>License:</strong> G240595</div>
                 <div><strong>Phone:</strong> +1 (954) 571-3035</div>
@@ -4654,7 +4654,7 @@ export default function App() {
               <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>
                 Your Claim Details
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 13 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5, fontSize: 12 }}>
                 <div><strong>Name:</strong> {[data.homeowner1, data.homeowner2].filter(Boolean).join(" & ")}</div>
                 <div><strong>Date:</strong> {data.date}</div>
                 <div><strong>Address:</strong> {[data.address, data.city, data.state, data.zip].filter(Boolean).join(", ")}</div>
@@ -4667,27 +4667,27 @@ export default function App() {
             </div>
 
             {/* What to expect */}
-            <div style={{ fontSize: 18, fontWeight: 700, color: "#111827", marginBottom: 14 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 10 }}>
               📋 What Happens Next
             </div>
             {thankYouSteps.map((step, i) => (
               <div key={i} style={{
                 display: "flex",
                 alignItems: "flex-start",
-                gap: 12,
-                marginBottom: 10,
-                padding: "10px 14px",
+                gap: 10,
+                marginBottom: 6,
+                padding: "7px 10px",
                 background: "#f0fdf4",
-                borderRadius: 10,
+                borderRadius: 8,
                 border: "1px solid #bbf7d0",
               }}>
                 <div style={{
-                  width: 24, height: 24, borderRadius: "50%",
+                  width: 20, height: 20, borderRadius: "50%",
                   background: "#199c2e", color: "#fff",
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  fontWeight: 700, fontSize: 12, flexShrink: 0,
+                  fontWeight: 700, fontSize: 11, flexShrink: 0,
                 }}>{i + 1}</div>
-                <div style={{ fontSize: 13, color: "#166534", lineHeight: 1.5 }}>{step}</div>
+                <div style={{ fontSize: 12, color: "#166534", lineHeight: 1.45 }}>{step}</div>
               </div>
             ))}
 
