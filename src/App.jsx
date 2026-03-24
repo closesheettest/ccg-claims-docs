@@ -2581,6 +2581,21 @@ export default function App() {
         });
       }
 
+      // Always attach the welcome package PDF
+      try {
+        const welcomeBlob = await generatePDF(
+          "#ty-summary-printable",
+          "CCG-Welcome-Package.pdf"
+        );
+        const welcomeBase64 = await blobToBase64(welcomeBlob);
+        attachments.push({
+          filename: "CCG-Welcome-Package.pdf",
+          content: String(welcomeBase64).split(",")[1],
+        });
+      } catch (e) {
+        console.warn("Welcome package PDF failed, skipping:", e);
+      }
+
       const finalEmailResponse = await fetch("/.netlify/functions/send-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2591,22 +2606,35 @@ export default function App() {
               ? "Signed Claim Documents Submitted"
               : `${documentLabel(selectedDocs[0])} Submitted`,
           html: `
-            <h2>Claim Document Submitted</h2>
-            <p><strong>Forms included:</strong> ${selectedDocs
-              .map(documentLabel)
-              .join(", ")}</p>
-            <p><strong>Signed at:</strong> ${nextAuditInfo.signedAt || ""}</p>
-            <p><strong>Signing IP:</strong> ${nextAuditInfo.signedIp || ""}</p>
-            ${
-              nextAuditInfo.signedCity || nextAuditInfo.signedRegion
-                ? `<p><strong>City / State:</strong> ${[
-                    nextAuditInfo.signedCity,
-                    nextAuditInfo.signedRegion,
-                  ]
-                    .filter(Boolean)
-                    .join(", ")}</p>`
-                : ""
-            }
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <div style="background: #199c2e; padding: 28px 32px; border-radius: 12px 12px 0 0;">
+                <h1 style="color: #fff; margin: 0; font-size: 24px;">🎉 You're All Set!</h1>
+              </div>
+              <div style="background: #f9fafb; padding: 28px 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb; border-top: none;">
+                <p style="font-size: 16px; color: #111827; margin-top: 0;">
+                  Hi ${[data.homeowner1, data.homeowner2].filter(Boolean).join(" & ")},
+                </p>
+                <p style="font-size: 15px; color: #374151; line-height: 1.6;">
+                  Your documents are signed and we're officially on the case. 
+                  <strong>We've attached everything to this email</strong> for your records:
+                </p>
+                <ul style="font-size: 15px; color: #374151; line-height: 1.8;">
+                  ${selectedDocs.map(d => `<li><strong>${documentLabel(d)}</strong> — your signed copy</li>`).join("")}
+                  <li><strong>CCG Welcome Package</strong> — what to expect next &amp; our contact info</li>
+                </ul>
+                <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 18px 20px; margin: 20px 0;">
+                  <p style="margin: 0 0 8px; font-weight: 700; color: #166534;">📞 Need to reach us?</p>
+                  <p style="margin: 0; color: #166534; font-size: 14px; line-height: 1.7;">
+                    Phone: +1 (954) 571-3035<br/>
+                    Email: claims@capitalclaimgroup.com<br/>
+                    Website: www.ccgclaims.com
+                  </p>
+                </div>
+                <p style="font-size: 14px; color: #6b7280; margin-bottom: 0;">
+                  <em>Signed at: ${nextAuditInfo.signedAt || ""}</em>
+                </p>
+              </div>
+            </div>
           `,
           attachments,
         }),
@@ -4077,6 +4105,110 @@ export default function App() {
               </div>
             </div>
 
+            {/* Email + download notice */}
+            <div style={{
+              background: "#fff",
+              border: "1px solid #e5e7eb",
+              borderRadius: 20,
+              padding: "22px 26px",
+              marginBottom: 28,
+              boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+            }}>
+              <div style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 16,
+                marginBottom: 16,
+              }}>
+                <span style={{ fontSize: 36, flexShrink: 0 }}>📧</span>
+                <div>
+                  <div style={{
+                    fontSize: 19,
+                    fontWeight: 700,
+                    color: "#111827",
+                    fontFamily: "'Oswald', sans-serif",
+                    marginBottom: 6,
+                    letterSpacing: "0.02em",
+                  }}>
+                    Check Your Email!
+                  </div>
+                  <div style={{
+                    fontSize: 15,
+                    color: "#374151",
+                    fontFamily: "'Nunito', sans-serif",
+                    fontWeight: 600,
+                    lineHeight: 1.65,
+                  }}>
+                    We just sent everything to <strong>{data.signerEmail}</strong> — your signed documents
+                    plus a <strong>Welcome Package PDF</strong> with our contact info and your next steps.
+                    Keep it saved so you always know how to reach us!
+                  </div>
+                </div>
+              </div>
+
+              <div style={{
+                background: "#f0fdf4",
+                borderRadius: 14,
+                padding: "12px 16px",
+                fontSize: 13,
+                color: "#166534",
+                fontFamily: "'Nunito', sans-serif",
+                fontWeight: 600,
+                lineHeight: 1.6,
+              }}>
+                📎 Attached: {selectedDocs.map(d => documentLabel(d)).join(", ")} + CCG Welcome Package
+              </div>
+
+              <div style={{ marginTop: 14, textAlign: "center" }}>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setIsExportingPdf(true);
+                    await new Promise(r => setTimeout(r, 200));
+                    try {
+                      const el = document.getElementById("ty-summary-printable");
+                      await html2pdf().set({
+                        margin: 0,
+                        filename: "CCG-Welcome-Package.pdf",
+                        image: { type: "jpeg", quality: 0.98 },
+                        html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0 },
+                        jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
+                        pagebreak: { mode: ["css"] },
+                      }).from(el).save();
+                    } catch(err) {
+                      alert(err?.message || "Failed to download.");
+                    } finally {
+                      setIsExportingPdf(false);
+                    }
+                  }}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "10px 22px",
+                    borderRadius: 12,
+                    border: "1.5px solid #d1d5db",
+                    background: "#fff",
+                    color: "#374151",
+                    fontFamily: "'Nunito', sans-serif",
+                    fontWeight: 700,
+                    fontSize: 14,
+                    cursor: "pointer",
+                  }}
+                >
+                  📄 Download Welcome Package Now
+                </button>
+                <div style={{
+                  marginTop: 6,
+                  fontSize: 12,
+                  color: "#9ca3af",
+                  fontFamily: "'Nunito', sans-serif",
+                }}>
+                  Can't find the email? Download it right here.
+                </div>
+              </div>
+            </div>
+
             {/* CCG logo */}
             <div style={{ textAlign: "center" }}>
               <img
@@ -4084,6 +4216,143 @@ export default function App() {
                 alt="Capital Claims Group"
                 style={{ maxWidth: 260, opacity: 0.85 }}
               />
+            </div>
+          </div>
+
+          {/* ── Hidden printable welcome PDF ── */}
+          <div
+            id="ty-summary-printable"
+            style={{
+              position: "absolute",
+              left: "-20000px",
+              top: 0,
+              width: "8.5in",
+              fontFamily: "Arial, Helvetica, sans-serif",
+              background: "#fff",
+            }}
+          >
+            {/* Page 1 */}
+            <div style={{
+              width: "8.5in",
+              minHeight: "11in",
+              boxSizing: "border-box",
+              padding: "0",
+              background: "#fff",
+              position: "relative",
+            }}>
+              {/* Green header */}
+              <div style={{
+                background: "#199c2e",
+                padding: "0.5in 0.6in 0.4in",
+                color: "#fff",
+              }}>
+                <img src="/pa-header.png" alt="Capital Claims Group" style={{ height: 60, marginBottom: 20, filter: "brightness(0) invert(1)" }} />
+                <div style={{ fontSize: 32, fontWeight: 700, marginBottom: 8, lineHeight: 1.1 }}>
+                  Welcome to Capital Claims Group!
+                </div>
+                <div style={{ fontSize: 16, opacity: 0.9, lineHeight: 1.5 }}>
+                  {thankYouOpening}
+                </div>
+              </div>
+
+              {/* Contact info box */}
+              <div style={{ padding: "0.35in 0.6in 0.3in" }}>
+                <div style={{
+                  background: "#f0fdf4",
+                  border: "2px solid #199c2e",
+                  borderRadius: 12,
+                  padding: "20px 24px",
+                  marginBottom: 24,
+                }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#166534", marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>
+                    Your Point of Contact
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, fontSize: 13 }}>
+                    <div><strong>Company:</strong> Capital Claims Group</div>
+                    <div><strong>License:</strong> G240595</div>
+                    <div><strong>Phone:</strong> +1 (954) 571-3035</div>
+                    <div><strong>Email:</strong> claims@capitalclaimgroup.com</div>
+                    <div><strong>Website:</strong> www.ccgclaims.com</div>
+                    <div><strong>Address:</strong> 3600 Red Rd Ste 601B, Miramar, FL 33025</div>
+                  </div>
+                </div>
+
+                {/* Claim details */}
+                <div style={{
+                  background: "#f8fafc",
+                  border: "1px solid #e5e7eb",
+                  borderRadius: 12,
+                  padding: "18px 24px",
+                  marginBottom: 24,
+                }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>
+                    Your Claim Details
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 13 }}>
+                    <div><strong>Name:</strong> {[data.homeowner1, data.homeowner2].filter(Boolean).join(" & ")}</div>
+                    <div><strong>Date:</strong> {data.date}</div>
+                    <div><strong>Address:</strong> {[data.address, data.city, data.state, data.zip].filter(Boolean).join(", ")}</div>
+                    <div><strong>Phone:</strong> {data.phone}</div>
+                    <div><strong>Insurance Co.:</strong> {data.insuranceCompany}</div>
+                    <div><strong>Policy #:</strong> {data.policyNumber}</div>
+                    {data.claimNumber ? <div><strong>Claim #:</strong> {data.claimNumber}</div> : null}
+                    {data.dateOfLoss ? <div><strong>Date of Loss:</strong> {data.dateOfLoss}</div> : null}
+                  </div>
+                </div>
+
+                {/* What to expect */}
+                <div style={{ fontSize: 18, fontWeight: 700, color: "#111827", marginBottom: 14 }}>
+                  📋 What Happens Next
+                </div>
+                {thankYouSteps.map((step, i) => (
+                  <div key={i} style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 12,
+                    marginBottom: 10,
+                    padding: "10px 14px",
+                    background: "#f0fdf4",
+                    borderRadius: 10,
+                    border: "1px solid #bbf7d0",
+                  }}>
+                    <div style={{
+                      width: 24, height: 24, borderRadius: "50%",
+                      background: "#199c2e", color: "#fff",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontWeight: 700, fontSize: 12, flexShrink: 0,
+                    }}>{i + 1}</div>
+                    <div style={{ fontSize: 13, color: "#166534", lineHeight: 1.5 }}>{step}</div>
+                  </div>
+                ))}
+
+                {/* Closing */}
+                <div style={{
+                  marginTop: 20,
+                  background: "#fffbeb",
+                  border: "1px solid #fde68a",
+                  borderRadius: 12,
+                  padding: "16px 20px",
+                  fontSize: 14,
+                  color: "#92400e",
+                  fontWeight: 600,
+                  textAlign: "center",
+                  lineHeight: 1.6,
+                }}>
+                  {thankYouClosing}
+                </div>
+
+                {/* Footer */}
+                <div style={{
+                  marginTop: 28,
+                  borderTop: "2px solid #199c2e",
+                  paddingTop: 14,
+                  fontSize: 11,
+                  color: "#6b7280",
+                  textAlign: "center",
+                }}>
+                  Capital Claims Group Inc. • License No: G240595 • claims@capitalclaimgroup.com • +1 (954) 571-3035 • www.ccgclaims.com
+                </div>
+              </div>
             </div>
           </div>
         ) : null}
