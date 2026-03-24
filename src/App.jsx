@@ -1694,14 +1694,17 @@ function PublicAdjusterContract({
           <p style={{ margin: "0 0 6px" }}>
             1. <span style={sectionHead}>Service Fee:</span>
           </p>
-          <p style={{ margin: "0 0 10px" }}>
+          <p style={{ margin: "0 0 6px" }}>
             The insured(s) hereby retains Capital Claims Group to be its public
             adjuster and hereby appoints Capital Claims Group to be its
             independent appraiser to appraise, advise, negotiate, and/or settle
-            the above-referenced claim. The insured(s) agrees to pay and hereby
-            assigns to Capital Claims Group <strong>10%</strong> of all payments
-            made by the insurance company related to this claim. In the event
-            appraisal, mediation is demanded, or a lawsuit ensues regarding the
+            the above-referenced claim.
+          </p>
+          <p style={{ margin: "0 0 6px", fontWeight: 700, fontSize: 18, lineHeight: 1.4 }}>
+            The insured(s) agrees to pay and hereby assigns to Capital Claims Group <strong>10%</strong> of all payments made by the insurance company related to this claim.
+          </p>
+          <p style={{ margin: "0 0 10px" }}>
+            In the event appraisal, mediation is demanded, or a lawsuit ensues regarding the
             above-mentioned claim, there will be an additional charge of five
             percent. The total contractual percentage shall not exceed the
             maximum allowed by law.
@@ -1857,20 +1860,20 @@ function PublicAdjusterContract({
             contract.
           </p>
 
-          <p style={{ margin: "0 0 6px", fontWeight: 700 }}>
+          <p style={{ margin: "0 0 6px", fontWeight: 700, fontSize: 18, lineHeight: 1.4 }}>
             12.{" "}
             <span style={{ color: "#199c2e" }}>
               Residential Policy Cancellation:
             </span>
           </p>
 
-          <p style={{ margin: "0 0 10px", fontWeight: 700 }}>
+          <p style={{ margin: "0 0 10px", fontWeight: 700, fontSize: 18, lineHeight: 1.5 }}>
             You, the insured, may cancel this contract for any reason without
             penalty or obligation to you within 10 days after the date of this
             contract.
           </p>
 
-          <p style={{ margin: 0, fontWeight: 700 }}>
+          <p style={{ margin: 0, fontWeight: 700, fontSize: 18, lineHeight: 1.5 }}>
             If this contract was entered into based on events that are the
             subject of a declaration of a state of emergency by the Governor,
             you may cancel this contract for any reason without penalty or
@@ -2345,10 +2348,8 @@ export default function App() {
     setLorAgreed(false);
     setPacAgreed(false);
     setSubmitAttempted(false);
-    setView("sign");
-  };
-
-  const effectiveSig1 =
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    setView("review");
     sigMethod1 === "type" ? typedSignatureToDataUrl(typedSig1, sigFont1) : sig1;
   const effectiveSig2 =
     sigMethod2 === "type" ? typedSignatureToDataUrl(typedSig2, sigFont2) : sig2;
@@ -4019,7 +4020,7 @@ export default function App() {
             </div>
 
             <div id="signature-section" style={{ scrollMarginTop: 20 }}>
-              {renderSigningFields(false)}
+              {renderSigningFields(pendingSend)}
             </div>
 
             <div
