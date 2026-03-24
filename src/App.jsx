@@ -2874,31 +2874,46 @@ export default function App() {
 
               {selectedDocs.includes("pac") ? (
                 <>
+                  {/* ── Initials intro banner ── */}
                   <div style={{
                     marginTop: 28,
-                    marginBottom: 16,
-                    paddingTop: 20,
-                    borderTop: "2px dashed #e5e7eb",
+                    marginBottom: 20,
+                    borderRadius: 20,
+                    background: "linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)",
+                    border: "2px solid #86efac",
+                    padding: "20px 24px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 18,
                   }}>
                     <div style={{
-                      fontSize: 13,
-                      fontWeight: 700,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.08em",
-                      color: "#9ca3af",
-                      fontFamily: "'Oswald', sans-serif",
-                      marginBottom: 6,
+                      fontSize: 48,
+                      lineHeight: 1,
+                      flexShrink: 0,
                     }}>
-                      Almost done — just initials!
+                      🎉
                     </div>
-                    <div style={{
-                      fontSize: 16,
-                      color: "#374151",
-                      fontFamily: "'Nunito', sans-serif",
-                      fontWeight: 600,
-                      lineHeight: 1.5,
-                    }}>
-                      Just your initials in the small box below — same idea, draw or type! 😊
+                    <div>
+                      <div style={{
+                        fontSize: 22,
+                        fontWeight: 800,
+                        color: "#15803d",
+                        fontFamily: "'Oswald', sans-serif",
+                        letterSpacing: "0.02em",
+                        marginBottom: 4,
+                        lineHeight: 1.1,
+                      }}>
+                        Almost There — Just Initials!
+                      </div>
+                      <div style={{
+                        fontSize: 16,
+                        color: "#166534",
+                        fontFamily: "'Nunito', sans-serif",
+                        fontWeight: 600,
+                        lineHeight: 1.55,
+                      }}>
+                        One tiny step left — just pop your initials in the box below. Same as before, draw or type! 😊
+                      </div>
                     </div>
                   </div>
 
