@@ -959,6 +959,9 @@ function AuditTrailPage({
           generated the audit information shown above.
         </div>
       </div>
+    </div>
+  );
+}
 
 
 function LetterOfRepresentation({
