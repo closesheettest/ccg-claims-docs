@@ -959,9 +959,6 @@ function AuditTrailPage({
           generated the audit information shown above.
         </div>
       </div>
-    </div>
-  );
-}
 
 
 function LetterOfRepresentation({
@@ -1384,7 +1381,7 @@ function PublicAdjusterContract({
     >
       {/* PA Initials — Benito Paul "PB" in Brush Script */}
       <div style={{ minWidth: 80 }}>
-        <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 2 }}>PA Initials:</div>
+        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 2 }}>PA Initials:</div>
         <div
           style={{
             borderBottom: "1px solid #199c2e",
@@ -1409,7 +1406,7 @@ function PublicAdjusterContract({
 
       {/* Homeowner 1 initials */}
       <div style={{ minWidth: 80 }}>
-        <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 2 }}>
+        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 2 }}>
           {data.homeowner1 ? `${data.homeowner1} Initials:` : "Homeowner Initials:"}
         </div>
         <div
@@ -1432,7 +1429,7 @@ function PublicAdjusterContract({
       {/* Homeowner 2 initials — only if second homeowner */}
       {hasSecond ? (
         <div style={{ minWidth: 80 }}>
-          <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 2 }}>
+          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 2 }}>
             {data.homeowner2 ? `${data.homeowner2} Initials:` : "Homeowner 2 Initials:"}
           </div>
           <div
@@ -1461,7 +1458,7 @@ function PublicAdjusterContract({
         <div
           style={{
             textAlign: "center",
-            fontSize: 10,
+            fontSize: 12,
             color: "#2f9e44",
             fontStyle: "italic",
             marginBottom: 4,
@@ -1852,7 +1849,7 @@ function PublicAdjusterContract({
                     />
                   ) : null}
                 </div>
-                <div style={{ fontSize: 11 }}>
+                <div style={{ fontSize: 12 }}>
                   Signature of the policyholder
                 </div>
                 <div style={{ marginTop: 8 }}>Date: {data.date}</div>
@@ -1870,7 +1867,7 @@ function PublicAdjusterContract({
                       />
                     ) : null}
                   </div>
-                  <div style={{ fontSize: 11 }}>
+                  <div style={{ fontSize: 12 }}>
                     Signature of the policyholder
                   </div>
                   <div style={{ marginTop: 8 }}>Date: {data.date}</div>
@@ -1899,6 +1896,7 @@ export default function App() {
   const [data, setData] = useState(initialData);
   const [pendingSend, setPendingSend] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [currentClaimId, setCurrentClaimId] = useState(null);
   const [isSigningFromLink, setIsSigningFromLink] = useState(false);
   const [isLoadingSigningLink, setIsLoadingSigningLink] = useState(false);
@@ -2304,6 +2302,7 @@ export default function App() {
       if (!pendingSend && !isSigningComplete) {
         return;
       }
+      setIsSubmitting(true);
 
       if (pendingSend) {
         const { record, error } = await saveClaimToSupabase(null);
@@ -2345,6 +2344,7 @@ export default function App() {
         });
 
         await parseJsonResponse(emailResponse, "Signing email failed.");
+        setIsSubmitting(false);
         alert(`Signing link sent to ${data.signerEmail}.`);
         setView("input");
         setPendingSend(false);
@@ -2451,6 +2451,7 @@ export default function App() {
 
       await parseJsonResponse(finalEmailResponse, "Final signed email failed.");
 
+      setIsSubmitting(false);
       setPendingSend(false);
 
       if (isSigningFromLink) {
@@ -2461,7 +2462,8 @@ export default function App() {
         setView("input");
       }
     } catch (err) {
-      alert(err?.message || "Something went wrong.");
+      setIsSubmitting(false);
+      alert(err?.message || "Something went wrong. Please try again.");
     }
   };
 
@@ -2834,7 +2836,7 @@ export default function App() {
           <Button
             onClick={submitDoc}
             disabled={
-              showSendMode ? false : !reviewReady || !isSigningComplete
+              isSubmitting || (showSendMode ? false : !reviewReady || !isSigningComplete)
             }
           >
             {showSendMode ? <Send size={16} /> : <Mail size={16} />}
@@ -4067,6 +4069,88 @@ export default function App() {
         ) : null}
 
       </div>
+
+      {/* ── Submitting overlay ── */}
+      {isSubmitting ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.55)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            backdropFilter: "blur(3px)",
+          }}
+        >
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: 28,
+              padding: "44px 40px",
+              textAlign: "center",
+              maxWidth: 380,
+              width: "90%",
+              boxShadow: "0 24px 60px rgba(0,0,0,0.25)",
+            }}
+          >
+            {/* Animated spinner */}
+            <div style={{ marginBottom: 24 }}>
+              <div style={{
+                width: 64,
+                height: 64,
+                borderRadius: "50%",
+                border: "5px solid #d1fae5",
+                borderTop: "5px solid #199c2e",
+                margin: "0 auto",
+                animation: "ccg-spin 0.9s linear infinite",
+              }} />
+            </div>
+            <div style={{
+              fontSize: 26,
+              fontWeight: 700,
+              color: "#111827",
+              fontFamily: "'Oswald', sans-serif",
+              marginBottom: 12,
+              lineHeight: 1.2,
+            }}>
+              Submitting Your Documents
+            </div>
+            <div style={{
+              fontSize: 17,
+              color: "#4b5563",
+              fontFamily: "'Nunito', sans-serif",
+              fontWeight: 600,
+              lineHeight: 1.6,
+              marginBottom: 20,
+            }}>
+              Please wait — we're saving your signature and sending your copies by email. This takes just a moment. ✉️
+            </div>
+            <div style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "10px 20px",
+              background: "#f0fdf4",
+              borderRadius: 999,
+              fontSize: 14,
+              fontWeight: 700,
+              color: "#166534",
+              fontFamily: "'Nunito', sans-serif",
+            }}>
+              <span>⚠️</span> Please don't close this window
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <style>{`
+        @keyframes ccg-spin {
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
+
     </div>
   );
 }
