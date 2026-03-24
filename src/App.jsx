@@ -20,7 +20,7 @@ if (typeof document !== "undefined" && !document.getElementById("oswald-font")) 
 
 const PA_FIXED = {
   name: "Benito Paul",
-  initials: "BP",
+  initials: "PB",
   license: "P199496",
   signatureImage: "/benito-signature.png",
 };
@@ -1381,7 +1381,7 @@ function PublicAdjusterContract({
         flexWrap: "wrap",
       }}
     >
-      {/* PA Initials — Benito Paul "BP" in Brush Script */}
+      {/* PA Initials — Benito Paul "PB" in Brush Script */}
       <div style={{ minWidth: 80 }}>
         <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 2 }}>PA Initials:</div>
         <div
@@ -1401,7 +1401,7 @@ function PublicAdjusterContract({
               lineHeight: 1,
             }}
           >
-            BP
+            PB
           </span>
         </div>
       </div>
@@ -1904,10 +1904,10 @@ export default function App() {
   const [auditInfo, setAuditInfo] = useState(initialAuditInfo);
 
   // Manager-editable content
-  const [reviewHeadline, setReviewHeadline] = useState("Two quick documents stand between you and getting your claim moving.");
-  const [reviewLorText, setReviewLorText] = useState(LOR_REVIEW_TEXT);
-  const [reviewPacText, setReviewPacText] = useState(PAC_REVIEW_TEXT);
-  const [reviewHelpText, setReviewHelpText] = useState("Preview each document first if you'd like, then click 'Click to Authorize' for both before signing.");
+  const [reviewHeadline, setReviewHeadline] = useState("We're fighting for you — just two quick steps and we can get your claim moving. It's fast, easy, and completely secure.");
+  const [reviewLorText, setReviewLorText] = useState("This simply lets your insurance company know that Capital Claims Group is in your corner, handling all the back-and-forth on your behalf. You won't have to deal with them directly at all.");
+  const [reviewPacText, setReviewPacText] = useState("This is our working agreement — it outlines how we get paid (only when you get paid) and confirms that we're fully committed to maximizing your claim. No upfront costs, ever.");
+  const [reviewHelpText, setReviewHelpText] = useState("You can tap 'Preview' to read any document first. When you're ready, hit 'Looks Good!' on each one and scroll down to sign.");
   const [thankYouHeadline, setThankYouHeadline] = useState("You're All Set!");
   const [thankYouBody, setThankYouBody] = useState("Thank you for authorizing your documents. Your public adjuster will be in touch shortly to get your claim moving. You can close this window.");
   const [managerPin, setManagerPin] = useState("1234");
@@ -3135,145 +3135,352 @@ export default function App() {
               </div>
             ) : null}
 
-            <Card>
-              <CardContent>
-                <div
-                  style={{
-                    fontSize: 42,
-                    fontWeight: 700,
-                    color: "#111827",
-                    lineHeight: 1.1,
-                    marginBottom: 6,
-                    fontFamily: "'Oswald', sans-serif",
-                    letterSpacing: "0.01em",
-                  }}
-                >
-                  Review Before Authorizing
-                </div>
-                <div style={{ width: 60, height: 4, background: "#199c2e", borderRadius: 2, marginBottom: 20 }} />
+            {/* ── Hero welcome banner ── */}
+            <div
+              style={{
+                background: "linear-gradient(135deg, #199c2e 0%, #14752200 100%), #199c2e",
+                borderRadius: 24,
+                padding: "36px 32px 32px",
+                color: "#fff",
+                position: "relative",
+                overflow: "hidden",
+              }}
+            >
+              {/* decorative circle */}
+              <div style={{ position: "absolute", top: -40, right: -40, width: 180, height: 180, background: "rgba(255,255,255,0.07)", borderRadius: "50%" }} />
+              <div style={{ position: "absolute", bottom: -20, right: 60, width: 100, height: 100, background: "rgba(255,255,255,0.05)", borderRadius: "50%" }} />
 
-                <div
-                  style={{
-                    fontSize: 20,
-                    fontWeight: 400,
-                    color: "#4b5563",
-                    lineHeight: 1.5,
-                    marginBottom: 28,
-                  }}
-                >
-                  {reviewHeadline}
-                </div>
+              <div style={{ fontSize: 44, marginBottom: 10 }}>👋</div>
+              <div
+                style={{
+                  fontSize: 36,
+                  fontWeight: 700,
+                  fontFamily: "'Oswald', sans-serif",
+                  lineHeight: 1.15,
+                  marginBottom: 14,
+                  letterSpacing: "0.01em",
+                }}
+              >
+                You're Almost Done!
+              </div>
+              <div
+                style={{
+                  fontSize: 19,
+                  lineHeight: 1.65,
+                  opacity: 0.92,
+                  maxWidth: 560,
+                }}
+              >
+                {reviewHeadline}
+              </div>
+            </div>
 
-                {selectedDocs.includes("lor") ? (
-                  <div
-                    style={{
-                      marginBottom: 28,
-                      padding: 24,
-                      border: "1px solid #d1fae5",
-                      borderLeft: "4px solid #199c2e",
-                      borderRadius: 20,
-                      background: "#f0fdf4",
-                    }}
-                  >
+            {/* ── Step indicator ── */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 0,
+                padding: "0 4px",
+              }}
+            >
+              {[
+                { n: "1", label: "Review Docs" },
+                { n: "2", label: "Authorize" },
+                { n: "3", label: "Sign & Done!" },
+              ].map((step, i) => (
+                <React.Fragment key={step.n}>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
                     <div
                       style={{
-                        fontSize: 22,
+                        width: 36,
+                        height: 36,
+                        borderRadius: "50%",
+                        background: i === 0 ? "#199c2e" : i === 1 ? (reviewReady ? "#199c2e" : "#e5e7eb") : (reviewReady ? "#199c2e" : "#e5e7eb"),
+                        color: i === 0 ? "#fff" : (reviewReady ? "#fff" : "#9ca3af"),
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
                         fontWeight: 700,
-                        color: "#199c2e",
-                        marginBottom: 8,
+                        fontSize: 15,
                         fontFamily: "'Oswald', sans-serif",
-                        letterSpacing: "0.04em",
+                        transition: "background 0.4s",
+                      }}
+                    >
+                      {step.n}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", whiteSpace: "nowrap" }}>
+                      {step.label}
+                    </div>
+                  </div>
+                  {i < 2 ? (
+                    <div style={{ flex: 1, height: 3, background: reviewReady && i === 0 ? "#199c2e" : "#e5e7eb", margin: "0 4px", marginBottom: 20, transition: "background 0.4s" }} />
+                  ) : null}
+                </React.Fragment>
+              ))}
+            </div>
+
+            {/* ── Document cards ── */}
+            <div style={{ display: "grid", gap: 20 }}>
+
+              {selectedDocs.includes("lor") ? (
+                <div
+                  style={{
+                    borderRadius: 24,
+                    border: lorAgreed ? "2px solid #199c2e" : "2px solid #e5e7eb",
+                    background: lorAgreed ? "#f0fdf4" : "#fff",
+                    padding: "28px 28px 24px",
+                    transition: "border-color 0.3s, background 0.3s",
+                    boxShadow: lorAgreed ? "0 0 0 4px rgba(25,156,46,0.08)" : "0 1px 3px rgba(0,0,0,0.06)",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 16 }}>
+                    <div
+                      style={{
+                        width: 52,
+                        height: 52,
+                        borderRadius: 16,
+                        background: lorAgreed ? "#199c2e" : "#f3f4f6",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 24,
+                        flexShrink: 0,
+                        transition: "background 0.3s",
+                      }}
+                    >
+                      {lorAgreed ? "✅" : "📄"}
+                    </div>
+                    <div>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: "#199c2e",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.08em",
+                          fontFamily: "'Oswald', sans-serif",
+                          marginBottom: 4,
+                        }}
+                      >
+                        Document 1 of {selectedDocs.length}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 26,
+                          fontWeight: 700,
+                          color: "#111827",
+                          fontFamily: "'Oswald', sans-serif",
+                          lineHeight: 1.15,
+                        }}
+                      >
+                        Letter of Representation
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      fontSize: 17,
+                      lineHeight: 1.7,
+                      color: "#374151",
+                      marginBottom: 24,
+                      paddingLeft: 68,
+                    }}
+                  >
+                    {reviewLorText}
+                  </div>
+
+                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap", paddingLeft: 68 }}>
+                    <button
+                      type="button"
+                      onClick={() => previewDocument("lor")}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        padding: "10px 18px",
+                        borderRadius: 12,
+                        border: "1.5px solid #d1d5db",
+                        background: "#fff",
+                        color: "#374151",
+                        fontFamily: "'Oswald', sans-serif",
+                        fontWeight: 600,
+                        fontSize: 14,
+                        letterSpacing: "0.03em",
+                        cursor: "pointer",
                         textTransform: "uppercase",
                       }}
                     >
-                      ① Letter of Representation
-                    </div>
+                      👁 Preview
+                    </button>
 
-                    <div
+                    <button
+                      type="button"
+                      onClick={() => setLorAgreed(true)}
                       style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 8,
+                        padding: "10px 24px",
+                        borderRadius: 12,
+                        border: "none",
+                        background: lorAgreed ? "#15803d" : "#199c2e",
+                        color: "#fff",
+                        fontFamily: "'Oswald', sans-serif",
+                        fontWeight: 700,
                         fontSize: 16,
-                        lineHeight: 1.65,
-                        color: "#374151",
-                        marginBottom: 20,
+                        letterSpacing: "0.04em",
+                        cursor: lorAgreed ? "default" : "pointer",
+                        textTransform: "uppercase",
+                        transition: "background 0.3s",
+                        boxShadow: lorAgreed ? "none" : "0 4px 14px rgba(25,156,46,0.35)",
                       }}
                     >
-                      {reviewLorText}
-                    </div>
-
-                    <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-                      <Button variant="outline" onClick={() => previewDocument("lor")}>
-                        Preview Letter of Representation
-                      </Button>
-
-                      <Button onClick={() => setLorAgreed(true)} style={lorAgreed ? {background:"#15803d", border:"1px solid #15803d"} : {}}>
-                        {lorAgreed ? "✓ Authorized" : "Click to Authorize"}
-                      </Button>
-                    </div>
+                      {lorAgreed ? "✓ Looks Good!" : "👍 Looks Good!"}
+                    </button>
                   </div>
-                ) : null}
+                </div>
+              ) : null}
 
-                {selectedDocs.includes("pac") ? (
-                  <div
-                    style={{
-                      marginBottom: 28,
-                      padding: 24,
-                      border: "1px solid #d1fae5",
-                      borderLeft: "4px solid #199c2e",
-                      borderRadius: 20,
-                      background: "#f0fdf4",
-                    }}
-                  >
+              {selectedDocs.includes("pac") ? (
+                <div
+                  style={{
+                    borderRadius: 24,
+                    border: pacAgreed ? "2px solid #199c2e" : "2px solid #e5e7eb",
+                    background: pacAgreed ? "#f0fdf4" : "#fff",
+                    padding: "28px 28px 24px",
+                    transition: "border-color 0.3s, background 0.3s",
+                    boxShadow: pacAgreed ? "0 0 0 4px rgba(25,156,46,0.08)" : "0 1px 3px rgba(0,0,0,0.06)",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 16 }}>
                     <div
                       style={{
-                        fontSize: 22,
-                        fontWeight: 700,
-                        color: "#199c2e",
-                        marginBottom: 8,
+                        width: 52,
+                        height: 52,
+                        borderRadius: 16,
+                        background: pacAgreed ? "#199c2e" : "#f3f4f6",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 24,
+                        flexShrink: 0,
+                        transition: "background 0.3s",
+                      }}
+                    >
+                      {pacAgreed ? "✅" : "📋"}
+                    </div>
+                    <div>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: "#199c2e",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.08em",
+                          fontFamily: "'Oswald', sans-serif",
+                          marginBottom: 4,
+                        }}
+                      >
+                        Document {selectedDocs.includes("lor") ? "2" : "1"} of {selectedDocs.length}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 26,
+                          fontWeight: 700,
+                          color: "#111827",
+                          fontFamily: "'Oswald', sans-serif",
+                          lineHeight: 1.15,
+                        }}
+                      >
+                        Public Adjuster Authorization
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      fontSize: 17,
+                      lineHeight: 1.7,
+                      color: "#374151",
+                      marginBottom: 24,
+                      paddingLeft: 68,
+                    }}
+                  >
+                    {reviewPacText}
+                  </div>
+
+                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap", paddingLeft: 68 }}>
+                    <button
+                      type="button"
+                      onClick={() => previewDocument("pac")}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        padding: "10px 18px",
+                        borderRadius: 12,
+                        border: "1.5px solid #d1d5db",
+                        background: "#fff",
+                        color: "#374151",
                         fontFamily: "'Oswald', sans-serif",
-                        letterSpacing: "0.04em",
+                        fontWeight: 600,
+                        fontSize: 14,
+                        letterSpacing: "0.03em",
+                        cursor: "pointer",
                         textTransform: "uppercase",
                       }}
                     >
-                      ② Public Adjuster Authorization
-                    </div>
+                      👁 Preview
+                    </button>
 
-                    <div
+                    <button
+                      type="button"
+                      onClick={() => setPacAgreed(true)}
                       style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 8,
+                        padding: "10px 24px",
+                        borderRadius: 12,
+                        border: "none",
+                        background: pacAgreed ? "#15803d" : "#199c2e",
+                        color: "#fff",
+                        fontFamily: "'Oswald', sans-serif",
+                        fontWeight: 700,
                         fontSize: 16,
-                        lineHeight: 1.65,
-                        color: "#374151",
-                        marginBottom: 20,
+                        letterSpacing: "0.04em",
+                        cursor: pacAgreed ? "default" : "pointer",
+                        textTransform: "uppercase",
+                        transition: "background 0.3s",
+                        boxShadow: pacAgreed ? "none" : "0 4px 14px rgba(25,156,46,0.35)",
                       }}
                     >
-                      {reviewPacText}
-                    </div>
-
-                    <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-                      <Button variant="outline" onClick={() => previewDocument("pac")}>
-                        Preview PA Authorization
-                      </Button>
-
-                      <Button onClick={() => setPacAgreed(true)} style={pacAgreed ? {background:"#15803d", border:"1px solid #15803d"} : {}}>
-                        {pacAgreed ? "✓ Authorized" : "Click to Authorize"}
-                      </Button>
-                    </div>
+                      {pacAgreed ? "✓ Looks Good!" : "👍 Looks Good!"}
+                    </button>
                   </div>
-                ) : null}
-
-                <div
-                  style={{
-                    fontSize: 15,
-                    fontWeight: 500,
-                    color: "#6b7280",
-                    lineHeight: 1.6,
-                    marginBottom: 10,
-                    fontStyle: "italic",
-                  }}
-                >
-                  {reviewHelpText}
                 </div>
-              </CardContent>
-            </Card>
+              ) : null}
+            </div>
+
+            {/* ── Help text ── */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "14px 20px",
+                background: "#fffbeb",
+                border: "1px solid #fde68a",
+                borderRadius: 14,
+                fontSize: 15,
+                color: "#92400e",
+              }}
+            >
+              <span style={{ fontSize: 20 }}>💡</span>
+              <span>{reviewHelpText}</span>
+            </div>
 
             <div id="signature-section" style={{ scrollMarginTop: 20 }}>
               {renderSigningFields(false)}
