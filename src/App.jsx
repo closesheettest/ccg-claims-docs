@@ -4589,19 +4589,15 @@ export default function App() {
       </div>
 
       {/* ── Always-rendered hidden welcome PDF (needed for email attachment at submit time) ── */}
-      <div
-        id="ty-summary-printable"
-        style={{
-          position: "fixed",
-          left: "-20000px",
-          top: 0,
-          width: "8.5in",
-          fontFamily: "Arial, Helvetica, sans-serif",
-          background: "#fff",
-          pointerEvents: "none",
-          zIndex: -1,
-        }}
-      >
+      <div style={{ position: "absolute", left: "-20000px", top: 0, width: 0, height: 0, overflow: "hidden", pointerEvents: "none" }}>
+        <div
+          id="ty-summary-printable"
+          style={{
+            width: "8.5in",
+            fontFamily: "Arial, Helvetica, sans-serif",
+            background: "#fff",
+          }}
+        >
         <div style={{
           width: "8.5in",
           minHeight: "11in",
@@ -4723,6 +4719,7 @@ export default function App() {
               Capital Claims Group Inc. • License No: G240595 • claims@capitalclaimgroup.com • +1 (954) 571-3035 • www.ccgclaims.com
             </div>
           </div>
+        </div>
         </div>
       </div>
 
