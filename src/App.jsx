@@ -2583,15 +2583,15 @@ export default function App() {
               {/* ── HOW TO SIGN — two big friendly option cards ── */}
               <div style={{ marginBottom: 24 }}>
                 <div style={{
-                  fontSize: 13,
+                  fontSize: 16,
                   fontWeight: 700,
                   textTransform: "uppercase",
-                  letterSpacing: "0.08em",
-                  color: "#9ca3af",
+                  letterSpacing: "0.06em",
+                  color: "#111827",
                   fontFamily: "'Oswald', sans-serif",
                   marginBottom: 12,
                 }}>
-                  Choose how to sign:
+                  ✏️ Choose How to Sign:
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                   {/* Option A: Draw */}
@@ -2616,7 +2616,7 @@ export default function App() {
                       fontFamily: "'Nunito', sans-serif",
                       marginBottom: 4,
                     }}>
-                      Draw It
+                      Draw Your Signature
                     </div>
                     <div style={{
                       fontSize: 13,
@@ -2653,7 +2653,7 @@ export default function App() {
                       fontFamily: "'Nunito', sans-serif",
                       marginBottom: 4,
                     }}>
-                      Type It
+                      Type Your Signature
                     </div>
                     <div style={{
                       fontSize: 13,
@@ -2984,11 +2984,42 @@ export default function App() {
                       value={data.homeowner2}
                       onChange={(v) => update("homeowner2", v)}
                     />
-                    <FormField
-                      label="Phone"
-                      value={data.phone}
-                      onChange={(v) => update("phone", v)}
-                    />
+                    <div>
+                      <label style={{
+                        display: "block",
+                        fontSize: 14,
+                        color: "#374151",
+                        marginBottom: 8,
+                        fontWeight: 600,
+                        fontFamily: "'Nunito', sans-serif",
+                      }}>Phone</label>
+                      <input
+                        type="tel"
+                        value={data.phone}
+                        placeholder="(813) 656-4161"
+                        onChange={(e) => {
+                          const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
+                          let formatted = digits;
+                          if (digits.length >= 7) {
+                            formatted = `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
+                          } else if (digits.length >= 4) {
+                            formatted = `(${digits.slice(0,3)}) ${digits.slice(3)}`;
+                          } else if (digits.length >= 1) {
+                            formatted = `(${digits}`;
+                          }
+                          update("phone", formatted);
+                        }}
+                        style={{
+                          width: "100%",
+                          height: 44,
+                          borderRadius: 14,
+                          border: "1px solid #d1d5db",
+                          padding: "0 12px",
+                          fontSize: 14,
+                          boxSizing: "border-box",
+                        }}
+                      />
+                    </div>
                     <FormField
                       label="Homeowner Email"
                       type="email"
