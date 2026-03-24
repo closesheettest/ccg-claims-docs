@@ -962,6 +962,7 @@ function AuditTrailPage({
   );
 }
 
+
 function LetterOfRepresentation({
   data,
   sig1,
@@ -1902,6 +1903,17 @@ export default function App() {
   const [isLoadingSigningLink, setIsLoadingSigningLink] = useState(false);
   const [auditInfo, setAuditInfo] = useState(initialAuditInfo);
 
+  // Manager-editable content
+  const [reviewHeadline, setReviewHeadline] = useState("Two quick documents stand between you and getting your claim moving.");
+  const [reviewLorText, setReviewLorText] = useState(LOR_REVIEW_TEXT);
+  const [reviewPacText, setReviewPacText] = useState(PAC_REVIEW_TEXT);
+  const [reviewHelpText, setReviewHelpText] = useState("Preview each document first if you'd like, then click 'Click to Authorize' for both before signing.");
+  const [thankYouHeadline, setThankYouHeadline] = useState("You're All Set!");
+  const [thankYouBody, setThankYouBody] = useState("Thank you for authorizing your documents. Your public adjuster will be in touch shortly to get your claim moving. You can close this window.");
+  const [managerPin, setManagerPin] = useState("1234");
+  const [managerPinEntry, setManagerPinEntry] = useState("");
+  const [managerUnlocked, setManagerUnlocked] = useState(false);
+
   const [sig1, setSig1] = useState("");
   const [sig2, setSig2] = useState("");
   const [typedSig1, setTypedSig1] = useState("");
@@ -2412,12 +2424,14 @@ export default function App() {
 
       await parseJsonResponse(finalEmailResponse, "Final signed email failed.");
 
-      alert("Saved successfully! Signed document email sent.");
-      setView("input");
       setPendingSend(false);
 
       if (isSigningFromLink) {
         window.history.replaceState({}, "", window.location.pathname);
+        setView("thankyou");
+      } else {
+        alert("Saved successfully! Signed document email sent.");
+        setView("input");
       }
     } catch (err) {
       alert(err?.message || "Something went wrong.");
@@ -2470,43 +2484,62 @@ export default function App() {
                   fontWeight: 600,
                 }}
               >
-                Please click agreed for all required documents above before signing.
+                Please click "Click to Authorize" for all documents above before signing.
               </div>
             ) : null}
 
+
+
+            {/* ── Signature method instruction banner ── */}
             <div
               style={{
-                background: "#fef2f2",
-                color: "#991b1b",
-                border: "1px solid #fecaca",
+                background: "#f0fdf4",
+                border: "1px solid #bbf7d0",
+                borderLeft: "4px solid #199c2e",
                 borderRadius: 12,
-                padding: 12,
-                marginBottom: 16,
-                fontSize: 14,
-                fontWeight: 600,
+                padding: "14px 16px",
+                marginBottom: 20,
               }}
             >
-              Please complete all required signatures
-              {selectedDocs.includes("pac") ? " and initials" : ""} before
-              submitting.
+              <div style={{ fontWeight: 700, fontSize: 15, color: "#166534", marginBottom: 6, fontFamily: "'Oswald', sans-serif", letterSpacing: "0.03em" }}>
+                HOW TO SIGN
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 10, fontSize: 14, color: "#374151" }}>
+                  <span style={{ fontSize: 18, lineHeight: 1 }}>✍️</span>
+                  <span><strong>Touch / Mouse:</strong> Draw your signature directly in the box below using your finger (phone/tablet) or mouse (computer).</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 10, fontSize: 14, color: "#374151" }}>
+                  <span style={{ fontSize: 18, lineHeight: 1 }}>⌨️</span>
+                  <span><strong>No touchscreen?</strong> Click the <em>"Switch to Typed Signature"</em> button below, type your name, and choose a signature style.</span>
+                </div>
+              </div>
             </div>
 
-            <div
-              style={{
-                fontWeight: 800,
-                color: "#1d4ed8",
-                textDecoration: "underline",
-                marginBottom: 10,
-                cursor: "pointer",
-                fontSize: 14,
-              }}
-              onClick={() =>
-                setSigMethod1(sigMethod1 === "draw" ? "type" : "draw")
-              }
-            >
-              {sigMethod1 === "draw"
-                ? "PREFER TO TYPE INSTEAD?"
-                : "PREFER TO DRAW INSTEAD?"}
+            {/* Sig method toggle button */}
+            <div style={{ marginBottom: 12 }}>
+              <button
+                type="button"
+                onClick={() => setSigMethod1(sigMethod1 === "draw" ? "type" : "draw")}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "8px 16px",
+                  borderRadius: 10,
+                  border: "1.5px solid #199c2e",
+                  background: "#fff",
+                  color: "#199c2e",
+                  fontFamily: "'Oswald', sans-serif",
+                  fontWeight: 600,
+                  fontSize: 13,
+                  letterSpacing: "0.04em",
+                  textTransform: "uppercase",
+                  cursor: "pointer",
+                }}
+              >
+                {sigMethod1 === "draw" ? "⌨️ Switch to Typed Signature" : "✍️ Switch to Draw Signature"}
+              </button>
             </div>
 
             {sigMethod1 === "draw" ? (
@@ -2526,28 +2559,35 @@ export default function App() {
                 onFontChange={setSigFont1}
                 required
                 missing={!effectiveSig1}
-                placeholder="Type Homeowner 1 full name"
+                placeholder="Type your full name"
               />
             )}
 
             {hasSecond ? (
               <>
-                <div
-                  style={{
-                    fontWeight: 800,
-                    color: "#1d4ed8",
-                    textDecoration: "underline",
-                    marginBottom: 10,
-                    cursor: "pointer",
-                    fontSize: 14,
-                  }}
-                  onClick={() =>
-                    setSigMethod2(sigMethod2 === "draw" ? "type" : "draw")
-                  }
-                >
-                  {sigMethod2 === "draw"
-                    ? "PREFER TO TYPE INSTEAD?"
-                    : "PREFER TO DRAW INSTEAD?"}
+                <div style={{ marginBottom: 12, marginTop: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => setSigMethod2(sigMethod2 === "draw" ? "type" : "draw")}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "8px 16px",
+                      borderRadius: 10,
+                      border: "1.5px solid #199c2e",
+                      background: "#fff",
+                      color: "#199c2e",
+                      fontFamily: "'Oswald', sans-serif",
+                      fontWeight: 600,
+                      fontSize: 13,
+                      letterSpacing: "0.04em",
+                      textTransform: "uppercase",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {sigMethod2 === "draw" ? "⌨️ Switch to Typed Signature" : "✍️ Switch to Draw Signature"}
+                  </button>
                 </div>
 
                 {sigMethod2 === "draw" ? (
@@ -2567,7 +2607,7 @@ export default function App() {
                     onFontChange={setSigFont2}
                     required
                     missing={!effectiveSig2}
-                    placeholder="Type Homeowner 2 full name"
+                    placeholder="Type your full name"
                   />
                 )}
               </>
@@ -2577,22 +2617,42 @@ export default function App() {
               <>
                 <div
                   style={{
-                    fontWeight: 800,
-                    color: "#1d4ed8",
-                    textDecoration: "underline",
-                    marginBottom: 10,
-                    cursor: "pointer",
-                    fontSize: 14,
+                    background: "#f8fafc",
+                    border: "1px solid #e5e7eb",
+                    borderLeft: "4px solid #199c2e",
+                    borderRadius: 10,
+                    padding: "10px 14px",
+                    marginBottom: 14,
+                    marginTop: 8,
+                    fontSize: 13,
+                    color: "#374151",
                   }}
-                  onClick={() =>
-                    setInitialsMethod1(
-                      initialsMethod1 === "draw" ? "type" : "draw"
-                    )
-                  }
                 >
-                  {initialsMethod1 === "draw"
-                    ? "PREFER TO TYPE INITIALS INSTEAD?"
-                    : "PREFER TO DRAW INITIALS INSTEAD?"}
+                  <strong>Initials:</strong> Draw your initials in the box below, or click the button to type them instead.
+                </div>
+                <div style={{ marginBottom: 12, marginTop: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => setInitialsMethod1(initialsMethod1 === "draw" ? "type" : "draw")}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "8px 16px",
+                      borderRadius: 10,
+                      border: "1.5px solid #199c2e",
+                      background: "#fff",
+                      color: "#199c2e",
+                      fontFamily: "'Oswald', sans-serif",
+                      fontWeight: 600,
+                      fontSize: 13,
+                      letterSpacing: "0.04em",
+                      textTransform: "uppercase",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {initialsMethod1 === "draw" ? "⌨️ Switch to Typed Initials" : "✍️ Switch to Draw Initials"}
+                  </button>
                 </div>
 
                 {initialsMethod1 === "draw" ? (
@@ -2618,24 +2678,29 @@ export default function App() {
 
                 {hasSecond ? (
                   <>
-                    <div
-                      style={{
-                        fontWeight: 800,
-                        color: "#1d4ed8",
-                        textDecoration: "underline",
-                        marginBottom: 10,
-                        cursor: "pointer",
-                        fontSize: 14,
-                      }}
-                      onClick={() =>
-                        setInitialsMethod2(
-                          initialsMethod2 === "draw" ? "type" : "draw"
-                        )
-                      }
-                    >
-                      {initialsMethod2 === "draw"
-                        ? "PREFER TO TYPE INITIALS INSTEAD?"
-                        : "PREFER TO DRAW INITIALS INSTEAD?"}
+                    <div style={{ marginBottom: 12, marginTop: 8 }}>
+                      <button
+                        type="button"
+                        onClick={() => setInitialsMethod2(initialsMethod2 === "draw" ? "type" : "draw")}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 8,
+                          padding: "8px 16px",
+                          borderRadius: 10,
+                          border: "1.5px solid #199c2e",
+                          background: "#fff",
+                          color: "#199c2e",
+                          fontFamily: "'Oswald', sans-serif",
+                          fontWeight: 600,
+                          fontSize: 13,
+                          letterSpacing: "0.04em",
+                          textTransform: "uppercase",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {initialsMethod2 === "draw" ? "⌨️ Switch to Typed Initials" : "✍️ Switch to Draw Initials"}
+                      </button>
                     </div>
 
                     {initialsMethod2 === "draw" ? (
@@ -2674,7 +2739,7 @@ export default function App() {
               color: "#991b1b",
             }}
           >
-            Missing: {missingSigningFields.join(", ")}
+            Still needed: {missingSigningFields.join(", ")}
           </div>
         ) : null}
 
@@ -2781,11 +2846,36 @@ export default function App() {
         {view === "input" ? (
           <Card>
             <CardHeader>
-              <CardTitle>Claim Intake</CardTitle>
-              <CardDescription>
-                Enter the information once, choose sign now or send for signing,
-                choose which forms to include, then continue.
-              </CardDescription>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div>
+                  <CardTitle>Claim Intake</CardTitle>
+                  <CardDescription>
+                    Enter the information once, choose sign now or send for signing,
+                    choose which forms to include, then continue.
+                  </CardDescription>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setView("manager")}
+                  style={{
+                    background: "transparent",
+                    border: "1px solid #d1d5db",
+                    borderRadius: 10,
+                    padding: "6px 14px",
+                    fontSize: 12,
+                    fontFamily: "'Oswald', sans-serif",
+                    fontWeight: 600,
+                    letterSpacing: "0.04em",
+                    color: "#6b7280",
+                    cursor: "pointer",
+                    textTransform: "uppercase",
+                    flexShrink: 0,
+                    marginTop: 4,
+                  }}
+                >
+                  ⚙️ Manager
+                </button>
+              </div>
             </CardHeader>
 
             <CardContent>
@@ -3034,16 +3124,16 @@ export default function App() {
 
         {view === "review" ? (
           <>
-            <div>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  if (!isSigningFromLink) setView("input");
-                }}
-              >
-                <ArrowLeft size={16} /> Back
-              </Button>
-            </div>
+            {!isSigningFromLink ? (
+              <div>
+                <Button
+                  variant="outline"
+                  onClick={() => setView("input")}
+                >
+                  <ArrowLeft size={16} /> Back
+                </Button>
+              </div>
+            ) : null}
 
             <Card>
               <CardContent>
@@ -3071,7 +3161,7 @@ export default function App() {
                     marginBottom: 28,
                   }}
                 >
-                  {REVIEW_INTRO_TEXT}
+                  {reviewHeadline}
                 </div>
 
                 {selectedDocs.includes("lor") ? (
@@ -3107,7 +3197,7 @@ export default function App() {
                         marginBottom: 20,
                       }}
                     >
-                      {LOR_REVIEW_TEXT}
+                      {reviewLorText}
                     </div>
 
                     <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
@@ -3155,7 +3245,7 @@ export default function App() {
                         marginBottom: 20,
                       }}
                     >
-                      {PAC_REVIEW_TEXT}
+                      {reviewPacText}
                     </div>
 
                     <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
@@ -3180,7 +3270,7 @@ export default function App() {
                     fontStyle: "italic",
                   }}
                 >
-                  {REVIEW_HELP_TEXT}
+                  {reviewHelpText}
                 </div>
               </CardContent>
             </Card>
@@ -3229,20 +3319,16 @@ export default function App() {
 
         {view === "sign" ? (
           <>
-            <div>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setView("input");
-                  if (isSigningFromLink) {
-                    window.history.replaceState({}, "", window.location.pathname);
-                    setIsSigningFromLink(false);
-                  }
-                }}
-              >
-                <ArrowLeft size={16} /> Back
-              </Button>
-            </div>
+            {!isSigningFromLink ? (
+              <div>
+                <Button
+                  variant="outline"
+                  onClick={() => setView("input")}
+                >
+                  <ArrowLeft size={16} /> Back
+                </Button>
+              </div>
+            ) : null}
 
             <Card>
               <CardContent>
@@ -3322,6 +3408,303 @@ export default function App() {
             </div>
           </>
         ) : null}
+        {/* ── THANK YOU VIEW ── */}
+        {view === "thankyou" ? (
+          <div
+            style={{
+              minHeight: "70vh",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <div style={{ textAlign: "center", maxWidth: 540, padding: "0 16px" }}>
+              <div style={{ fontSize: 64, marginBottom: 16 }}>🎉</div>
+              <div
+                style={{
+                  fontSize: 38,
+                  fontWeight: 700,
+                  color: "#111827",
+                  fontFamily: "'Oswald', sans-serif",
+                  marginBottom: 12,
+                  lineHeight: 1.1,
+                }}
+              >
+                {thankYouHeadline}
+              </div>
+              <div style={{ width: 60, height: 4, background: "#199c2e", borderRadius: 2, margin: "0 auto 20px" }} />
+              <div
+                style={{
+                  fontSize: 17,
+                  color: "#4b5563",
+                  lineHeight: 1.7,
+                  marginBottom: 32,
+                }}
+              >
+                {thankYouBody}
+              </div>
+              <img
+                src="/pa-header.png"
+                alt="Capital Claims Group"
+                style={{ maxWidth: 280, opacity: 0.85 }}
+              />
+            </div>
+          </div>
+        ) : null}
+
+        {/* ── MANAGER VIEW ── */}
+        {view === "manager" ? (
+          <Card>
+            <CardHeader>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <CardTitle>Manager Settings</CardTitle>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setManagerUnlocked(false);
+                    setManagerPinEntry("");
+                    setView("input");
+                  }}
+                  style={{
+                    background: "transparent",
+                    border: "1px solid #d1d5db",
+                    borderRadius: 10,
+                    padding: "6px 14px",
+                    fontSize: 12,
+                    fontFamily: "'Oswald', sans-serif",
+                    fontWeight: 600,
+                    letterSpacing: "0.04em",
+                    color: "#6b7280",
+                    cursor: "pointer",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  ← Back
+                </button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {!managerUnlocked ? (
+                <div style={{ maxWidth: 320 }}>
+                  <Label>Enter Manager PIN</Label>
+                  <input
+                    type="password"
+                    value={managerPinEntry}
+                    onChange={(e) => setManagerPinEntry(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        if (managerPinEntry === managerPin) {
+                          setManagerUnlocked(true);
+                          setManagerPinEntry("");
+                        } else {
+                          alert("Incorrect PIN.");
+                          setManagerPinEntry("");
+                        }
+                      }
+                    }}
+                    placeholder="Enter PIN and press Enter"
+                    style={{
+                      width: "100%",
+                      height: 44,
+                      borderRadius: 14,
+                      border: "1px solid #d1d5db",
+                      padding: "0 12px",
+                      fontSize: 14,
+                      boxSizing: "border-box",
+                      marginBottom: 12,
+                    }}
+                  />
+                  <Button
+                    onClick={() => {
+                      if (managerPinEntry === managerPin) {
+                        setManagerUnlocked(true);
+                        setManagerPinEntry("");
+                      } else {
+                        alert("Incorrect PIN.");
+                        setManagerPinEntry("");
+                      }
+                    }}
+                  >
+                    Unlock
+                  </Button>
+                  <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 10 }}>
+                    Default PIN: 1234 — change it below once unlocked.
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: "grid", gap: 28 }}>
+                  {/* PIN change */}
+                  <Card style={{ padding: 20, background: "#f8fafc" }}>
+                    <SectionTitle>Security</SectionTitle>
+                    <div style={{ maxWidth: 300 }}>
+                      <Label>Change Manager PIN</Label>
+                      <input
+                        type="password"
+                        value={managerPin}
+                        onChange={(e) => setManagerPin(e.target.value)}
+                        placeholder="New PIN"
+                        style={{
+                          width: "100%",
+                          height: 44,
+                          borderRadius: 14,
+                          border: "1px solid #d1d5db",
+                          padding: "0 12px",
+                          fontSize: 14,
+                          boxSizing: "border-box",
+                        }}
+                      />
+                    </div>
+                  </Card>
+
+                  {/* Review page text */}
+                  <Card style={{ padding: 20, background: "#f8fafc" }}>
+                    <SectionTitle>Review Page Text</SectionTitle>
+                    <div style={{ display: "grid", gap: 16 }}>
+                      <div>
+                        <Label>Headline (shown above the document cards)</Label>
+                        <textarea
+                          value={reviewHeadline}
+                          onChange={(e) => setReviewHeadline(e.target.value)}
+                          rows={2}
+                          style={{
+                            width: "100%",
+                            borderRadius: 12,
+                            border: "1px solid #d1d5db",
+                            padding: "10px 12px",
+                            fontSize: 14,
+                            boxSizing: "border-box",
+                            resize: "vertical",
+                            fontFamily: "inherit",
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <Label>Letter of Representation description</Label>
+                        <textarea
+                          value={reviewLorText}
+                          onChange={(e) => setReviewLorText(e.target.value)}
+                          rows={3}
+                          style={{
+                            width: "100%",
+                            borderRadius: 12,
+                            border: "1px solid #d1d5db",
+                            padding: "10px 12px",
+                            fontSize: 14,
+                            boxSizing: "border-box",
+                            resize: "vertical",
+                            fontFamily: "inherit",
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <Label>PA Authorization description</Label>
+                        <textarea
+                          value={reviewPacText}
+                          onChange={(e) => setReviewPacText(e.target.value)}
+                          rows={3}
+                          style={{
+                            width: "100%",
+                            borderRadius: 12,
+                            border: "1px solid #d1d5db",
+                            padding: "10px 12px",
+                            fontSize: 14,
+                            boxSizing: "border-box",
+                            resize: "vertical",
+                            fontFamily: "inherit",
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <Label>Help text (shown below the document cards)</Label>
+                        <textarea
+                          value={reviewHelpText}
+                          onChange={(e) => setReviewHelpText(e.target.value)}
+                          rows={2}
+                          style={{
+                            width: "100%",
+                            borderRadius: 12,
+                            border: "1px solid #d1d5db",
+                            padding: "10px 12px",
+                            fontSize: 14,
+                            boxSizing: "border-box",
+                            resize: "vertical",
+                            fontFamily: "inherit",
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </Card>
+
+                  {/* Thank you page text */}
+                  <Card style={{ padding: 20, background: "#f8fafc" }}>
+                    <SectionTitle>Thank You Page Text</SectionTitle>
+                    <div style={{ display: "grid", gap: 16 }}>
+                      <div>
+                        <Label>Headline</Label>
+                        <input
+                          type="text"
+                          value={thankYouHeadline}
+                          onChange={(e) => setThankYouHeadline(e.target.value)}
+                          style={{
+                            width: "100%",
+                            height: 44,
+                            borderRadius: 14,
+                            border: "1px solid #d1d5db",
+                            padding: "0 12px",
+                            fontSize: 14,
+                            boxSizing: "border-box",
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <Label>Body message</Label>
+                        <textarea
+                          value={thankYouBody}
+                          onChange={(e) => setThankYouBody(e.target.value)}
+                          rows={4}
+                          style={{
+                            width: "100%",
+                            borderRadius: 12,
+                            border: "1px solid #d1d5db",
+                            padding: "10px 12px",
+                            fontSize: 14,
+                            boxSizing: "border-box",
+                            resize: "vertical",
+                            fontFamily: "inherit",
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Live preview */}
+                    <div style={{ marginTop: 20, borderTop: "1px solid #e5e7eb", paddingTop: 16 }}>
+                      <div style={{ fontSize: 12, color: "#9ca3af", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 12 }}>
+                        Preview
+                      </div>
+                      <div style={{ background: "#fff", borderRadius: 16, padding: "24px 20px", textAlign: "center", border: "1px solid #e5e7eb" }}>
+                        <div style={{ fontSize: 36, marginBottom: 10 }}>🎉</div>
+                        <div style={{ fontSize: 24, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 8 }}>
+                          {thankYouHeadline}
+                        </div>
+                        <div style={{ width: 40, height: 3, background: "#199c2e", borderRadius: 2, margin: "0 auto 12px" }} />
+                        <div style={{ fontSize: 14, color: "#4b5563", lineHeight: 1.7 }}>
+                          {thankYouBody}
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+
+                  <div>
+                    <Button onClick={() => { setManagerUnlocked(false); setView("input"); }}>
+                      Save & Close
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        ) : null}
+
       </div>
     </div>
   );
