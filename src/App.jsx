@@ -2647,6 +2647,7 @@ export default function App() {
 
       if (isSigningFromLink) {
         window.history.replaceState({}, "", window.location.pathname);
+        window.scrollTo({ top: 0, behavior: "smooth" });
         setView("thankyou");
       } else {
         setView("input");
@@ -4220,142 +4221,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* ── Hidden printable welcome PDF ── */}
-          <div
-            id="ty-summary-printable"
-            style={{
-              position: "absolute",
-              left: "-20000px",
-              top: 0,
-              width: "8.5in",
-              fontFamily: "Arial, Helvetica, sans-serif",
-              background: "#fff",
-            }}
-          >
-            {/* Page 1 */}
-            <div style={{
-              width: "8.5in",
-              minHeight: "11in",
-              boxSizing: "border-box",
-              padding: "0",
-              background: "#fff",
-              position: "relative",
-            }}>
-              {/* Green header */}
-              <div style={{
-                background: "#199c2e",
-                padding: "0.5in 0.6in 0.4in",
-                color: "#fff",
-              }}>
-                <img src="/pa-header.png" alt="Capital Claims Group" style={{ height: 60, marginBottom: 20, filter: "brightness(0) invert(1)" }} />
-                <div style={{ fontSize: 32, fontWeight: 700, marginBottom: 8, lineHeight: 1.1 }}>
-                  Welcome to Capital Claims Group!
-                </div>
-                <div style={{ fontSize: 16, opacity: 0.9, lineHeight: 1.5 }}>
-                  {thankYouOpening}
-                </div>
-              </div>
-
-              {/* Contact info box */}
-              <div style={{ padding: "0.35in 0.6in 0.3in" }}>
-                <div style={{
-                  background: "#f0fdf4",
-                  border: "2px solid #199c2e",
-                  borderRadius: 12,
-                  padding: "20px 24px",
-                  marginBottom: 24,
-                }}>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: "#166534", marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>
-                    Your Point of Contact
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, fontSize: 13 }}>
-                    <div><strong>Company:</strong> Capital Claims Group</div>
-                    <div><strong>License:</strong> G240595</div>
-                    <div><strong>Phone:</strong> +1 (954) 571-3035</div>
-                    <div><strong>Email:</strong> claims@capitalclaimgroup.com</div>
-                    <div><strong>Website:</strong> www.ccgclaims.com</div>
-                    <div><strong>Address:</strong> 3600 Red Rd Ste 601B, Miramar, FL 33025</div>
-                  </div>
-                </div>
-
-                {/* Claim details */}
-                <div style={{
-                  background: "#f8fafc",
-                  border: "1px solid #e5e7eb",
-                  borderRadius: 12,
-                  padding: "18px 24px",
-                  marginBottom: 24,
-                }}>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>
-                    Your Claim Details
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 13 }}>
-                    <div><strong>Name:</strong> {[data.homeowner1, data.homeowner2].filter(Boolean).join(" & ")}</div>
-                    <div><strong>Date:</strong> {data.date}</div>
-                    <div><strong>Address:</strong> {[data.address, data.city, data.state, data.zip].filter(Boolean).join(", ")}</div>
-                    <div><strong>Phone:</strong> {data.phone}</div>
-                    <div><strong>Insurance Co.:</strong> {data.insuranceCompany}</div>
-                    <div><strong>Policy #:</strong> {data.policyNumber}</div>
-                    {data.claimNumber ? <div><strong>Claim #:</strong> {data.claimNumber}</div> : null}
-                    {data.dateOfLoss ? <div><strong>Date of Loss:</strong> {data.dateOfLoss}</div> : null}
-                  </div>
-                </div>
-
-                {/* What to expect */}
-                <div style={{ fontSize: 18, fontWeight: 700, color: "#111827", marginBottom: 14 }}>
-                  📋 What Happens Next
-                </div>
-                {thankYouSteps.map((step, i) => (
-                  <div key={i} style={{
-                    display: "flex",
-                    alignItems: "flex-start",
-                    gap: 12,
-                    marginBottom: 10,
-                    padding: "10px 14px",
-                    background: "#f0fdf4",
-                    borderRadius: 10,
-                    border: "1px solid #bbf7d0",
-                  }}>
-                    <div style={{
-                      width: 24, height: 24, borderRadius: "50%",
-                      background: "#199c2e", color: "#fff",
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      fontWeight: 700, fontSize: 12, flexShrink: 0,
-                    }}>{i + 1}</div>
-                    <div style={{ fontSize: 13, color: "#166534", lineHeight: 1.5 }}>{step}</div>
-                  </div>
-                ))}
-
-                {/* Closing */}
-                <div style={{
-                  marginTop: 20,
-                  background: "#fffbeb",
-                  border: "1px solid #fde68a",
-                  borderRadius: 12,
-                  padding: "16px 20px",
-                  fontSize: 14,
-                  color: "#92400e",
-                  fontWeight: 600,
-                  textAlign: "center",
-                  lineHeight: 1.6,
-                }}>
-                  {thankYouClosing}
-                </div>
-
-                {/* Footer */}
-                <div style={{
-                  marginTop: 28,
-                  borderTop: "2px solid #199c2e",
-                  paddingTop: 14,
-                  fontSize: 11,
-                  color: "#6b7280",
-                  textAlign: "center",
-                }}>
-                  Capital Claims Group Inc. • License No: G240595 • claims@capitalclaimgroup.com • +1 (954) 571-3035 • www.ccgclaims.com
-                </div>
-              </div>
-            </div>
-          </div>
           </>
         ) : null}
 
@@ -4721,6 +4586,144 @@ export default function App() {
           </Card>
         ) : null}
 
+      </div>
+
+      {/* ── Always-rendered hidden welcome PDF (needed for email attachment at submit time) ── */}
+      <div
+        id="ty-summary-printable"
+        style={{
+          position: "fixed",
+          left: "-20000px",
+          top: 0,
+          width: "8.5in",
+          fontFamily: "Arial, Helvetica, sans-serif",
+          background: "#fff",
+          pointerEvents: "none",
+          zIndex: -1,
+        }}
+      >
+        <div style={{
+          width: "8.5in",
+          minHeight: "11in",
+          boxSizing: "border-box",
+          padding: "0",
+          background: "#fff",
+          position: "relative",
+        }}>
+          {/* Green header */}
+          <div style={{
+            background: "#199c2e",
+            padding: "0.5in 0.6in 0.4in",
+            color: "#fff",
+          }}>
+            <img src="/pa-header.png" alt="Capital Claims Group" style={{ height: 60, marginBottom: 20, filter: "brightness(0) invert(1)" }} />
+            <div style={{ fontSize: 32, fontWeight: 700, marginBottom: 8, lineHeight: 1.1 }}>
+              Welcome to Capital Claims Group!
+            </div>
+            <div style={{ fontSize: 16, opacity: 0.9, lineHeight: 1.5 }}>
+              {thankYouOpening}
+            </div>
+          </div>
+
+          {/* Contact info box */}
+          <div style={{ padding: "0.35in 0.6in 0.3in" }}>
+            <div style={{
+              background: "#f0fdf4",
+              border: "2px solid #199c2e",
+              borderRadius: 12,
+              padding: "20px 24px",
+              marginBottom: 24,
+            }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#166534", marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>
+                Your Point of Contact
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, fontSize: 13 }}>
+                <div><strong>Company:</strong> Capital Claims Group</div>
+                <div><strong>License:</strong> G240595</div>
+                <div><strong>Phone:</strong> +1 (954) 571-3035</div>
+                <div><strong>Email:</strong> claims@capitalclaimgroup.com</div>
+                <div><strong>Website:</strong> www.ccgclaims.com</div>
+                <div><strong>Address:</strong> 3600 Red Rd Ste 601B, Miramar, FL 33025</div>
+              </div>
+            </div>
+
+            {/* Claim details */}
+            <div style={{
+              background: "#f8fafc",
+              border: "1px solid #e5e7eb",
+              borderRadius: 12,
+              padding: "18px 24px",
+              marginBottom: 24,
+            }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>
+                Your Claim Details
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 13 }}>
+                <div><strong>Name:</strong> {[data.homeowner1, data.homeowner2].filter(Boolean).join(" & ")}</div>
+                <div><strong>Date:</strong> {data.date}</div>
+                <div><strong>Address:</strong> {[data.address, data.city, data.state, data.zip].filter(Boolean).join(", ")}</div>
+                <div><strong>Phone:</strong> {data.phone}</div>
+                <div><strong>Insurance Co.:</strong> {data.insuranceCompany}</div>
+                <div><strong>Policy #:</strong> {data.policyNumber}</div>
+                {data.claimNumber ? <div><strong>Claim #:</strong> {data.claimNumber}</div> : null}
+                {data.dateOfLoss ? <div><strong>Date of Loss:</strong> {data.dateOfLoss}</div> : null}
+              </div>
+            </div>
+
+            {/* What to expect */}
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#111827", marginBottom: 14 }}>
+              📋 What Happens Next
+            </div>
+            {thankYouSteps.map((step, i) => (
+              <div key={i} style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 12,
+                marginBottom: 10,
+                padding: "10px 14px",
+                background: "#f0fdf4",
+                borderRadius: 10,
+                border: "1px solid #bbf7d0",
+              }}>
+                <div style={{
+                  width: 24, height: 24, borderRadius: "50%",
+                  background: "#199c2e", color: "#fff",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontWeight: 700, fontSize: 12, flexShrink: 0,
+                }}>{i + 1}</div>
+                <div style={{ fontSize: 13, color: "#166534", lineHeight: 1.5 }}>{step}</div>
+              </div>
+            ))}
+
+            {/* Closing */}
+            <div style={{
+              marginTop: 20,
+              background: "#fffbeb",
+              border: "1px solid #fde68a",
+              borderRadius: 12,
+              padding: "16px 20px",
+              fontSize: 14,
+              color: "#92400e",
+              fontWeight: 600,
+              textAlign: "center",
+              lineHeight: 1.6,
+            }}>
+              {thankYouClosing}
+            </div>
+
+            {/* Footer */}
+            <div style={{
+              marginTop: 28,
+              borderTop: "2px solid #199c2e",
+              paddingTop: 14,
+              fontSize: 11,
+              color: "#6b7280",
+              textAlign: "center",
+            }}>
+              Capital Claims Group Inc. • License No: G240595 • claims@capitalclaimgroup.com • +1 (954) 571-3035 • www.ccgclaims.com
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* ── Submitting overlay ── */}
