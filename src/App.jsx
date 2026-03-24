@@ -2495,7 +2495,6 @@ export default function App() {
 
         await parseJsonResponse(emailResponse, "Signing email failed.");
         setIsSubmitting(false);
-        alert(`Signing link sent to ${data.signerEmail}.`);
         setView("input");
         setPendingSend(false);
         return;
@@ -2608,7 +2607,6 @@ export default function App() {
         window.history.replaceState({}, "", window.location.pathname);
         setView("thankyou");
       } else {
-        alert("Saved successfully! Signed document email sent.");
         setView("input");
       }
     } catch (err) {
@@ -3607,25 +3605,42 @@ export default function App() {
                       style={{
                         display: "inline-flex",
                         alignItems: "center",
-                        gap: 8,
-                        padding: "10px 24px",
-                        borderRadius: 12,
-                        border: "none",
-                        background: lorAgreed ? "#15803d" : "#199c2e",
-                        color: "#fff",
+                        gap: 10,
+                        padding: lorAgreed ? "12px 28px" : "14px 32px",
+                        borderRadius: 16,
+                        border: lorAgreed ? "2px solid #15803d" : "3px solid #15803d",
+                        background: lorAgreed ? "#f0fdf4" : "#199c2e",
+                        color: lorAgreed ? "#15803d" : "#fff",
                         fontFamily: "'Oswald', sans-serif",
                         fontWeight: 700,
-                        fontSize: 16,
+                        fontSize: lorAgreed ? 16 : 18,
                         letterSpacing: "0.04em",
                         cursor: lorAgreed ? "default" : "pointer",
                         textTransform: "uppercase",
-                        transition: "background 0.3s",
-                        boxShadow: lorAgreed ? "none" : "0 4px 14px rgba(25,156,46,0.35)",
+                        transition: "all 0.3s",
+                        boxShadow: lorAgreed ? "none" : "0 6px 20px rgba(25,156,46,0.45)",
+                        animation: lorAgreed ? "none" : "ccg-pulse 2s ease-in-out infinite",
                       }}
                     >
-                      {lorAgreed ? "✓ Looks Good!" : "👍 Looks Good!"}
+                      {lorAgreed ? "✅ Authorized!" : "👍 Tap Here — Looks Good!"}
                     </button>
                   </div>
+                  {!lorAgreed ? (
+                    <div style={{
+                      marginTop: 10,
+                      paddingLeft: 68,
+                      fontSize: 13,
+                      fontFamily: "'Nunito', sans-serif",
+                      fontWeight: 700,
+                      color: "#199c2e",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      animation: "ccg-bounce 1.2s ease-in-out infinite",
+                    }}>
+                      ☝️ Please tap the green button above to continue
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
 
@@ -3729,25 +3744,41 @@ export default function App() {
                       style={{
                         display: "inline-flex",
                         alignItems: "center",
-                        gap: 8,
-                        padding: "10px 24px",
-                        borderRadius: 12,
-                        border: "none",
-                        background: pacAgreed ? "#15803d" : "#199c2e",
-                        color: "#fff",
+                        gap: 10,
+                        padding: pacAgreed ? "12px 28px" : "14px 32px",
+                        borderRadius: 16,
+                        border: pacAgreed ? "2px solid #15803d" : "3px solid #15803d",
+                        background: pacAgreed ? "#f0fdf4" : "#199c2e",
+                        color: pacAgreed ? "#15803d" : "#fff",
                         fontFamily: "'Oswald', sans-serif",
                         fontWeight: 700,
-                        fontSize: 16,
+                        fontSize: pacAgreed ? 16 : 18,
                         letterSpacing: "0.04em",
                         cursor: pacAgreed ? "default" : "pointer",
                         textTransform: "uppercase",
-                        transition: "background 0.3s",
-                        boxShadow: pacAgreed ? "none" : "0 4px 14px rgba(25,156,46,0.35)",
+                        transition: "all 0.3s",
+                        boxShadow: pacAgreed ? "none" : "0 6px 20px rgba(25,156,46,0.45)",
+                        animation: pacAgreed ? "none" : "ccg-pulse 2s ease-in-out infinite",
                       }}
                     >
-                      {pacAgreed ? "✓ Looks Good!" : "👍 Looks Good!"}
+                      {pacAgreed ? "✅ Authorized!" : "👍 Tap Here — Looks Good!"}
                     </button>
                   </div>
+                  {!pacAgreed ? (
+                    <div style={{
+                      marginTop: 10,
+                      paddingLeft: 68,
+                      fontSize: 13,
+                      fontFamily: "'Nunito', sans-serif",
+                      fontWeight: 700,
+                      color: "#199c2e",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                    }}>
+                      ☝️ Please tap the green button above to continue
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -4313,6 +4344,14 @@ export default function App() {
       <style>{`
         @keyframes ccg-spin {
           to { transform: rotate(360deg); }
+        }
+        @keyframes ccg-pulse {
+          0%, 100% { transform: scale(1); box-shadow: 0 6px 20px rgba(25,156,46,0.45); }
+          50% { transform: scale(1.04); box-shadow: 0 8px 28px rgba(25,156,46,0.65); }
+        }
+        @keyframes ccg-bounce {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-3px); }
         }
       `}</style>
 
