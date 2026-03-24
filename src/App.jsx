@@ -2058,8 +2058,16 @@ export default function App() {
     reviewLorText: "This simply lets your insurance company know that Capital Claims Group is in your corner, handling all the back-and-forth on your behalf. You won't have to deal with them directly at all.",
     reviewPacText: "This is our working agreement — it outlines how we get paid (only when you get paid) and confirms that we're fully committed to maximizing your claim. No upfront costs, ever.",
     reviewHelpText: "You can tap 'Preview' to read any document first. When you're ready, hit 'Looks Good!' on each one and scroll down to sign.",
-    thankYouHeadline: "You're All Set!",
-    thankYouBody: "Thank you for authorizing your documents. Your public adjuster will be in touch shortly to get your claim moving. You can close this window.",
+    thankYouHeadline: "You're All Set — Let's Get Your Money! 🚀",
+    thankYouOpening: "You did it! Your documents are signed and we're officially on the case. Here's exactly what happens next:",
+    thankYouSteps: JSON.stringify([
+      "📞 Your public adjuster will call you within 24 hours to introduce themselves and answer any questions.",
+      "🏠 We'll schedule a property inspection to document every bit of damage — the insurance company won't miss a thing.",
+      "📋 We build your full claim package and submit it to the insurance company on your behalf.",
+      "💰 We negotiate hard to maximize your settlement — you don't pay us unless you get paid.",
+      "🎉 You receive your settlement and we handle all the paperwork. Sit back and let us do the work!",
+    ]),
+    thankYouClosing: "We're so glad you chose Capital Claims Group. You made the right call. Talk soon! 💚",
     managerPin: "1234",
   };
 
@@ -2075,7 +2083,11 @@ export default function App() {
   const [reviewPacText, setReviewPacTextRaw] = useState(() => loadSetting("reviewPacText"));
   const [reviewHelpText, setReviewHelpTextRaw] = useState(() => loadSetting("reviewHelpText"));
   const [thankYouHeadline, setThankYouHeadlineRaw] = useState(() => loadSetting("thankYouHeadline"));
-  const [thankYouBody, setThankYouBodyRaw] = useState(() => loadSetting("thankYouBody"));
+  const [thankYouOpening, setThankYouOpeningRaw] = useState(() => loadSetting("thankYouOpening"));
+  const [thankYouSteps, setThankYouStepsRaw] = useState(() => {
+    try { return JSON.parse(loadSetting("thankYouSteps")); } catch { return JSON.parse(DEFAULTS.thankYouSteps); }
+  });
+  const [thankYouClosing, setThankYouClosingRaw] = useState(() => loadSetting("thankYouClosing"));
   const [managerPin, setManagerPinRaw] = useState(() => loadSetting("managerPin"));
   const [managerPinEntry, setManagerPinEntry] = useState("");
   const [managerUnlocked, setManagerUnlocked] = useState(false);
@@ -2086,7 +2098,9 @@ export default function App() {
   const setReviewPacText  = (v) => { setReviewPacTextRaw(v);  saveSetting("reviewPacText", v); };
   const setReviewHelpText = (v) => { setReviewHelpTextRaw(v); saveSetting("reviewHelpText", v); };
   const setThankYouHeadline = (v) => { setThankYouHeadlineRaw(v); saveSetting("thankYouHeadline", v); };
-  const setThankYouBody   = (v) => { setThankYouBodyRaw(v);   saveSetting("thankYouBody", v); };
+  const setThankYouOpening = (v) => { setThankYouOpeningRaw(v); saveSetting("thankYouOpening", v); };
+  const setThankYouSteps   = (v) => { setThankYouStepsRaw(v);   saveSetting("thankYouSteps", JSON.stringify(v)); };
+  const setThankYouClosing = (v) => { setThankYouClosingRaw(v); saveSetting("thankYouClosing", v); };
   const setManagerPin     = (v) => { setManagerPinRaw(v);     saveSetting("managerPin", v); };
 
   const [sig1, setSig1] = useState("");
@@ -3936,43 +3950,139 @@ export default function App() {
         ) : null}
         {/* ── THANK YOU VIEW ── */}
         {view === "thankyou" ? (
-          <div
-            style={{
-              minHeight: "70vh",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <div style={{ textAlign: "center", maxWidth: 540, padding: "0 16px" }}>
-              <div style={{ fontSize: 64, marginBottom: 16 }}>🎉</div>
-              <div
-                style={{
-                  fontSize: 38,
-                  fontWeight: 700,
-                  color: "#111827",
-                  fontFamily: "'Oswald', sans-serif",
-                  marginBottom: 12,
-                  lineHeight: 1.1,
-                }}
-              >
+          <div style={{ maxWidth: 640, margin: "0 auto", padding: "32px 16px" }}>
+
+            {/* Hero celebration banner */}
+            <div style={{
+              background: "linear-gradient(135deg, #199c2e 0%, #15803d 100%)",
+              borderRadius: 28,
+              padding: "40px 36px 36px",
+              textAlign: "center",
+              marginBottom: 28,
+              position: "relative",
+              overflow: "hidden",
+            }}>
+              <div style={{ position: "absolute", top: -30, right: -30, width: 140, height: 140, background: "rgba(255,255,255,0.06)", borderRadius: "50%" }} />
+              <div style={{ position: "absolute", bottom: -20, left: 20, width: 90, height: 90, background: "rgba(255,255,255,0.05)", borderRadius: "50%" }} />
+              <div style={{ fontSize: 72, marginBottom: 16, lineHeight: 1 }}>🎉</div>
+              <div style={{
+                fontSize: 36,
+                fontWeight: 700,
+                color: "#fff",
+                fontFamily: "'Oswald', sans-serif",
+                lineHeight: 1.1,
+                marginBottom: 16,
+                letterSpacing: "0.01em",
+              }}>
                 {thankYouHeadline}
               </div>
-              <div style={{ width: 60, height: 4, background: "#199c2e", borderRadius: 2, margin: "0 auto 20px" }} />
-              <div
-                style={{
-                  fontSize: 17,
-                  color: "#4b5563",
-                  lineHeight: 1.7,
-                  marginBottom: 32,
-                }}
-              >
-                {thankYouBody}
+              <div style={{
+                fontSize: 18,
+                color: "rgba(255,255,255,0.92)",
+                fontFamily: "'Nunito', sans-serif",
+                fontWeight: 600,
+                lineHeight: 1.65,
+                maxWidth: 480,
+                margin: "0 auto",
+              }}>
+                {thankYouOpening}
               </div>
+            </div>
+
+            {/* What happens next steps */}
+            <div style={{
+              background: "#fff",
+              borderRadius: 24,
+              border: "1px solid #e5e7eb",
+              padding: "28px 28px 24px",
+              marginBottom: 24,
+              boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+            }}>
+              <div style={{
+                fontSize: 20,
+                fontWeight: 700,
+                color: "#111827",
+                fontFamily: "'Oswald', sans-serif",
+                letterSpacing: "0.03em",
+                marginBottom: 20,
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+              }}>
+                <span style={{ fontSize: 24 }}>📋</span> What Happens Next
+              </div>
+
+              <div style={{ display: "grid", gap: 14 }}>
+                {thankYouSteps.map((step, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: 14,
+                      padding: "14px 16px",
+                      background: "#f0fdf4",
+                      borderRadius: 16,
+                      border: "1px solid #bbf7d0",
+                    }}
+                  >
+                    <div style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: "50%",
+                      background: "#199c2e",
+                      color: "#fff",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontWeight: 700,
+                      fontSize: 13,
+                      fontFamily: "'Oswald', sans-serif",
+                      flexShrink: 0,
+                      marginTop: 1,
+                    }}>
+                      {i + 1}
+                    </div>
+                    <div style={{
+                      fontSize: 16,
+                      color: "#166534",
+                      fontFamily: "'Nunito', sans-serif",
+                      fontWeight: 600,
+                      lineHeight: 1.55,
+                    }}>
+                      {step}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Closing statement */}
+            <div style={{
+              background: "#fffbeb",
+              border: "1px solid #fde68a",
+              borderRadius: 20,
+              padding: "20px 24px",
+              textAlign: "center",
+              marginBottom: 32,
+            }}>
+              <div style={{
+                fontSize: 17,
+                color: "#92400e",
+                fontFamily: "'Nunito', sans-serif",
+                fontWeight: 700,
+                lineHeight: 1.6,
+              }}>
+                {thankYouClosing}
+              </div>
+            </div>
+
+            {/* CCG logo */}
+            <div style={{ textAlign: "center" }}>
               <img
                 src="/pa-header.png"
                 alt="Capital Claims Group"
-                style={{ maxWidth: 280, opacity: 0.85 }}
+                style={{ maxWidth: 260, opacity: 0.85 }}
               />
             </div>
           </div>
@@ -4091,7 +4201,9 @@ export default function App() {
                               setReviewPacText(DEFAULTS.reviewPacText);
                               setReviewHelpText(DEFAULTS.reviewHelpText);
                               setThankYouHeadline(DEFAULTS.thankYouHeadline);
-                              setThankYouBody(DEFAULTS.thankYouBody);
+                              setThankYouOpening(DEFAULTS.thankYouOpening);
+                              try { setThankYouSteps(JSON.parse(DEFAULTS.thankYouSteps)); } catch {}
+                              setThankYouClosing(DEFAULTS.thankYouClosing);
                             }
                           }}
                           style={{
@@ -4196,59 +4308,133 @@ export default function App() {
 
                   {/* Thank you page text */}
                   <Card style={{ padding: 20, background: "#f8fafc" }}>
-                    <SectionTitle>Thank You Page Text</SectionTitle>
-                    <div style={{ display: "grid", gap: 16 }}>
+                    <SectionTitle>Thank You Page</SectionTitle>
+                    <div style={{ display: "grid", gap: 20 }}>
+
+                      {/* Headline */}
                       <div>
                         <Label>Headline</Label>
                         <input
                           type="text"
                           value={thankYouHeadline}
                           onChange={(e) => setThankYouHeadline(e.target.value)}
-                          style={{
-                            width: "100%",
-                            height: 44,
-                            borderRadius: 14,
-                            border: "1px solid #d1d5db",
-                            padding: "0 12px",
-                            fontSize: 14,
-                            boxSizing: "border-box",
-                          }}
+                          style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }}
                         />
                       </div>
+
+                      {/* Opening statement */}
                       <div>
-                        <Label>Body message</Label>
+                        <Label>Opening statement (shown in the green hero banner)</Label>
                         <textarea
-                          value={thankYouBody}
-                          onChange={(e) => setThankYouBody(e.target.value)}
-                          rows={4}
-                          style={{
-                            width: "100%",
-                            borderRadius: 12,
-                            border: "1px solid #d1d5db",
-                            padding: "10px 12px",
-                            fontSize: 14,
-                            boxSizing: "border-box",
-                            resize: "vertical",
-                            fontFamily: "inherit",
-                          }}
+                          value={thankYouOpening}
+                          onChange={(e) => setThankYouOpening(e.target.value)}
+                          rows={3}
+                          style={{ width: "100%", borderRadius: 12, border: "1px solid #d1d5db", padding: "10px 12px", fontSize: 14, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }}
+                        />
+                      </div>
+
+                      {/* Steps */}
+                      <div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                          <Label>What to expect next (numbered steps)</Label>
+                          <button
+                            type="button"
+                            onClick={() => setThankYouSteps([...thankYouSteps, "✅ New step — click to edit"])}
+                            style={{
+                              padding: "6px 14px",
+                              borderRadius: 10,
+                              border: "1.5px solid #199c2e",
+                              background: "#fff",
+                              color: "#199c2e",
+                              fontFamily: "'Oswald', sans-serif",
+                              fontWeight: 600,
+                              fontSize: 13,
+                              cursor: "pointer",
+                              letterSpacing: "0.04em",
+                              textTransform: "uppercase",
+                            }}
+                          >
+                            + Add Step
+                          </button>
+                        </div>
+                        <div style={{ display: "grid", gap: 10 }}>
+                          {thankYouSteps.map((step, i) => (
+                            <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                              <div style={{
+                                width: 28, height: 28, borderRadius: "50%", background: "#199c2e",
+                                color: "#fff", display: "flex", alignItems: "center", justifyContent: "center",
+                                fontWeight: 700, fontSize: 13, fontFamily: "'Oswald', sans-serif",
+                                flexShrink: 0, marginTop: 8,
+                              }}>
+                                {i + 1}
+                              </div>
+                              <textarea
+                                value={step}
+                                onChange={(e) => {
+                                  const next = [...thankYouSteps];
+                                  next[i] = e.target.value;
+                                  setThankYouSteps(next);
+                                }}
+                                rows={2}
+                                style={{
+                                  flex: 1,
+                                  borderRadius: 12,
+                                  border: "1px solid #d1d5db",
+                                  padding: "8px 12px",
+                                  fontSize: 14,
+                                  boxSizing: "border-box",
+                                  resize: "vertical",
+                                  fontFamily: "inherit",
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setThankYouSteps(thankYouSteps.filter((_, idx) => idx !== i))}
+                                style={{
+                                  background: "transparent",
+                                  border: "none",
+                                  color: "#ef4444",
+                                  fontSize: 18,
+                                  cursor: "pointer",
+                                  padding: "4px 6px",
+                                  marginTop: 6,
+                                  flexShrink: 0,
+                                }}
+                                title="Remove step"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Closing statement */}
+                      <div>
+                        <Label>Closing statement (shown in amber box at bottom)</Label>
+                        <textarea
+                          value={thankYouClosing}
+                          onChange={(e) => setThankYouClosing(e.target.value)}
+                          rows={2}
+                          style={{ width: "100%", borderRadius: 12, border: "1px solid #d1d5db", padding: "10px 12px", fontSize: 14, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }}
                         />
                       </div>
                     </div>
 
                     {/* Live preview */}
-                    <div style={{ marginTop: 20, borderTop: "1px solid #e5e7eb", paddingTop: 16 }}>
-                      <div style={{ fontSize: 12, color: "#9ca3af", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 12 }}>
-                        Preview
-                      </div>
-                      <div style={{ background: "#fff", borderRadius: 16, padding: "24px 20px", textAlign: "center", border: "1px solid #e5e7eb" }}>
-                        <div style={{ fontSize: 36, marginBottom: 10 }}>🎉</div>
-                        <div style={{ fontSize: 24, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 8 }}>
-                          {thankYouHeadline}
-                        </div>
-                        <div style={{ width: 40, height: 3, background: "#199c2e", borderRadius: 2, margin: "0 auto 12px" }} />
-                        <div style={{ fontSize: 14, color: "#4b5563", lineHeight: 1.7 }}>
-                          {thankYouBody}
-                        </div>
+                    <div style={{ marginTop: 24, borderTop: "1px solid #e5e7eb", paddingTop: 16 }}>
+                      <div style={{ fontSize: 12, color: "#9ca3af", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 12 }}>Live Preview</div>
+                      <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 16, padding: "20px 18px" }}>
+                        <div style={{ fontSize: 28, marginBottom: 8, textAlign: "center" }}>🎉</div>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: "#15803d", fontFamily: "'Oswald', sans-serif", marginBottom: 6, textAlign: "center" }}>{thankYouHeadline}</div>
+                        <div style={{ fontSize: 13, color: "#166534", fontFamily: "'Nunito', sans-serif", marginBottom: 14, textAlign: "center", lineHeight: 1.5 }}>{thankYouOpening}</div>
+                        {thankYouSteps.map((step, i) => (
+                          <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 8, padding: "8px 12px", background: "#fff", borderRadius: 10, border: "1px solid #bbf7d0" }}>
+                            <div style={{ width: 22, height: 22, borderRadius: "50%", background: "#199c2e", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
+                            <div style={{ fontSize: 13, color: "#166534", fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.4 }}>{step}</div>
+                          </div>
+                        ))}
+                        <div style={{ marginTop: 10, padding: "10px 14px", background: "#fffbeb", borderRadius: 10, textAlign: "center", fontSize: 13, color: "#92400e", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>{thankYouClosing}</div>
                       </div>
                     </div>
                   </Card>
