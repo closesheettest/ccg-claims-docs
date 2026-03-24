@@ -9,6 +9,15 @@ import {
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 
+// Inject Oswald font
+if (typeof document !== "undefined" && !document.getElementById("oswald-font")) {
+  const link = document.createElement("link");
+  link.id = "oswald-font";
+  link.rel = "stylesheet";
+  link.href = "https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&display=swap";
+  document.head.appendChild(link);
+}
+
 const PA_FIXED = {
   name: "Benito Paul",
   initials: "BP",
@@ -36,16 +45,16 @@ const PDF_LAYOUT = {
 };
 
 const REVIEW_INTRO_TEXT =
-  "There are Two Documents to Authorize to move forward.";
+  "Two quick documents stand between you and getting your claim moving.";
 
 const LOR_REVIEW_TEXT =
   'First is the “Letter of Representation” which simply tells your insurance company that you’ve hired a Public Adjuster.';
 
 const PAC_REVIEW_TEXT =
-  'The second is the “Public Adjuster Agreement” which is the agreement between you and the Public Adjuster.';
+  'The second is the “Public Adjuster Authorization” which is the authorization between you and the Public Adjuster.';
 
 const REVIEW_HELP_TEXT =
-  "You can preview each first, then click agreed for both.";
+  "Preview each document first if you'd like, then click 'Click to Authorize' for both before signing.";
 
 const initialData = {
   date: new Date().toISOString().split("T")[0],
@@ -84,12 +93,12 @@ const initialAuditInfo = {
 };
 
 function documentLabel(doc) {
-  return doc === "pac" ? "PA Agreement" : "Letter of Representation";
+  return doc === "pac" ? "PA Authorization" : "Letter of Representation";
 }
 
 function documentFilename(doc) {
   return doc === "pac"
-    ? "Public-Adjuster-Agreement.pdf"
+    ? "Public-Adjuster-Authorization.pdf"
     : "Letter-of-Representation.pdf";
 }
 
@@ -138,6 +147,7 @@ function Button({
   type = "button",
   variant = "default",
   disabled = false,
+  style: overrideStyle = {},
 }) {
   const baseStyle = {
     height: 48,
@@ -146,12 +156,16 @@ function Button({
     border: "1px solid #d1d5db",
     cursor: disabled ? "not-allowed" : "pointer",
     fontSize: 15,
-    fontWeight: 700,
+    fontWeight: 600,
+    fontFamily: "'Oswald', sans-serif",
+    letterSpacing: "0.04em",
+    textTransform: "uppercase",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
     opacity: disabled ? 0.6 : 1,
+    transition: "background 0.2s, border-color 0.2s",
   };
 
   const styles =
@@ -160,12 +174,14 @@ function Button({
           ...baseStyle,
           background: "#fff",
           color: "#111827",
+          ...overrideStyle,
         }
       : {
           ...baseStyle,
-          background: "#111827",
+          background: "#199c2e",
           color: "#fff",
-          border: "1px solid #111827",
+          border: "1px solid #199c2e",
+          ...overrideStyle,
         };
 
   return (
@@ -197,7 +213,7 @@ function CardHeader({ children }) {
 
 function CardTitle({ children }) {
   return (
-    <div style={{ fontSize: 30, fontWeight: 700, color: "#111827" }}>
+    <div style={{ fontSize: 30, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.02em" }}>
       {children}
     </div>
   );
@@ -239,6 +255,9 @@ function SectionTitle({ children }) {
         fontWeight: 700,
         color: "#111827",
         marginBottom: 14,
+        fontFamily: "'Oswald', sans-serif",
+        letterSpacing: "0.04em",
+        textTransform: "uppercase",
       }}
     >
       {children}
@@ -982,9 +1001,10 @@ function LetterOfRepresentation({
         textAlign: "center",
         fontWeight: 700,
         fontSize: 20,
-        letterSpacing: 0.5,
-        padding: "10px 16px",
+        letterSpacing: 1,
+        padding: "11px 16px",
         textTransform: "uppercase",
+        fontFamily: "'Oswald', Arial, sans-serif",
       }}
     >
       Letter of Representation
@@ -1154,16 +1174,6 @@ function LetterOfRepresentation({
             page, all policy endorsements, and the original policy application.
             Please expedite these documents to our attention.
           </p>
-
-          <p style={{ margin: 0, fontStyle: "italic" }}>
-            Also, please note that Capital Claims Group Inc. should be named as
-            an additional payee on all insurance drafts and/or payments,
-            pursuant to the enclosed Notice of Loss/Notice of Representation
-            signed by the Insured(s). The insured(s) hereby reserve all rights
-            to make claims under the policy for replacement cost benefits as set
-            forth in the policy and likewise invoke their rights to repair,
-            rebuild or replace the damaged property.
-          </p>
         </div>
       </PdfPage>
 
@@ -1174,6 +1184,16 @@ function LetterOfRepresentation({
         contentPadding="0 0.42in 0.12in"
       >
         <div style={{ ...bodyText, marginTop: 10 }}>
+          <p style={{ margin: "0 0 14px", fontStyle: "italic" }}>
+            Also, please note that Capital Claims Group Inc. should be named as
+            an additional payee on all insurance drafts and/or payments,
+            pursuant to the enclosed Notice of Loss/Notice of Representation
+            signed by the Insured(s). The insured(s) hereby reserve all rights
+            to make claims under the policy for replacement cost benefits as set
+            forth in the policy and likewise invoke their rights to repair,
+            rebuild or replace the damaged property.
+          </p>
+
           <p style={{ margin: "0 0 10px" }}>
             Surely, you understand the Assured’s need to have this claim
             processed as quickly as possible, and as such, we will be
@@ -1327,59 +1347,105 @@ function PublicAdjusterContract({
   );
 
   const TitleBarImg = () => (
-    <img
-      src={PA_ASSETS.titleBar}
-      alt="title"
+    <div
       style={{
         width: "100%",
         display: "block",
         margin: "10px 0 12px",
+        background: "#199c2e",
+        color: "#fff",
+        textAlign: "center",
+        fontWeight: 700,
+        fontSize: 20,
+        letterSpacing: 1,
+        padding: "11px 16px",
+        textTransform: "uppercase",
+        fontFamily: "'Oswald', Arial, sans-serif",
+        boxSizing: "border-box",
       }}
-    />
+    >
+      Public Adjuster Authorization
+    </div>
   );
 
   const InitialsRow = () => (
     <div
       style={{
-        display: "grid",
-        gridTemplateColumns: hasSecond ? "1fr 1fr" : "1fr",
-        gap: 18,
-        marginTop: 10,
+        display: "flex",
+        alignItems: "flex-end",
+        gap: 24,
+        marginTop: 12,
+        paddingTop: 8,
+        borderTop: "1px solid #e5e7eb",
+        flexWrap: "wrap",
       }}
     >
-      <div>
-        <div style={{ fontSize: 11, marginBottom: 2 }}>Initials:</div>
+      {/* PA Initials — Benito Paul "BP" in Brush Script */}
+      <div style={{ minWidth: 80 }}>
+        <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 2 }}>PA Initials:</div>
+        <div
+          style={{
+            borderBottom: "1px solid #199c2e",
+            height: 26,
+            display: "flex",
+            alignItems: "flex-end",
+            paddingBottom: 2,
+          }}
+        >
+          <span
+            style={{
+              fontFamily: '"Brush Script MT", cursive',
+              fontSize: 20,
+              color: "#111827",
+              lineHeight: 1,
+            }}
+          >
+            BP
+          </span>
+        </div>
+      </div>
+
+      {/* Homeowner 1 initials */}
+      <div style={{ minWidth: 80 }}>
+        <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 2 }}>
+          {data.homeowner1 ? `${data.homeowner1} Initials:` : "Homeowner Initials:"}
+        </div>
         <div
           style={{
             borderBottom: "1px solid #000",
-            height: 20,
+            height: 26,
             display: "flex",
             alignItems: "flex-end",
+            paddingBottom: 2,
           }}
         >
           {data.initials1 ? (
-            <img src={data.initials1} alt="initials 1" style={{ height: 16 }} />
+            <img src={data.initials1} alt="initials 1" style={{ height: 20 }} />
           ) : (
-            <span style={{ fontSize: 14 }}>__</span>
+            <span style={{ fontSize: 13, color: "#9ca3af" }}>__</span>
           )}
         </div>
       </div>
 
+      {/* Homeowner 2 initials — only if second homeowner */}
       {hasSecond ? (
-        <div>
-          <div style={{ fontSize: 11, marginBottom: 2 }}>Initials:</div>
+        <div style={{ minWidth: 80 }}>
+          <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 2 }}>
+            {data.homeowner2 ? `${data.homeowner2} Initials:` : "Homeowner 2 Initials:"}
+          </div>
           <div
             style={{
               borderBottom: "1px solid #000",
-              height: 20,
+              height: 26,
               display: "flex",
               alignItems: "flex-end",
+              paddingBottom: 2,
             }}
           >
             {data.initials2 ? (
-              <img src={data.initials2} alt="initials 2" style={{ height: 16 }} />
+              <img src={data.initials2} alt="initials 2" style={{ height: 20 }} />
             ) : (
-              <span style={{ fontSize: 14 }}>__</span>
+              <span style={{ fontSize: 13, color: "#9ca3af" }}>__</span>
             )}
           </div>
         </div>
@@ -1816,7 +1882,7 @@ function PublicAdjusterContract({
       <AuditTrailPage
         auditInfo={auditInfo}
         data={data}
-        docLabel="PA Agreement"
+        docLabel="PA Authorization"
         claimId={claimId}
         isExportingPdf={isExportingPdf}
       />
@@ -2367,7 +2433,7 @@ export default function App() {
           alignItems: "center",
           justifyContent: "center",
           background: "#f1f5f9",
-          fontFamily: "Arial, Helvetica, sans-serif",
+          fontFamily: "'Oswald', Arial, Helvetica, sans-serif",
         }}
       >
         Loading signing request...
@@ -2379,12 +2445,12 @@ export default function App() {
     <Card>
       <CardHeader>
         <CardTitle>
-          {showSendMode ? "Review & Send for Signing" : "Signature and Initials"}
+          {showSendMode ? "Review & Send for Signing" : "Sign to Authorize"}
         </CardTitle>
         <CardDescription>
           {showSendMode
             ? "Review the selected forms, then email one signing link to the homeowner."
-            : "Complete all required signatures and initials below."}
+            : "You're almost done — add your signature and initials below to authorize."}
         </CardDescription>
       </CardHeader>
 
@@ -2694,9 +2760,13 @@ export default function App() {
       }}
     >
       <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&display=swap');
         body {
           margin: 0;
-          font-family: Arial, Helvetica, sans-serif;
+          font-family: 'Oswald', Arial, Helvetica, sans-serif;
+        }
+        input, textarea, select, button {
+          font-family: 'Oswald', Arial, Helvetica, sans-serif;
         }
       `}</style>
 
@@ -2936,7 +3006,7 @@ export default function App() {
                     variant={selectedDocs.includes("pac") ? "default" : "outline"}
                     onClick={() => toggleDocSelection("pac")}
                   >
-                    <FileSignature size={16} /> PA Agreement
+                    <FileSignature size={16} /> PA Authorization
                   </Button>
                 </div>
 
@@ -2979,23 +3049,26 @@ export default function App() {
               <CardContent>
                 <div
                   style={{
-                    fontSize: 40,
-                    fontWeight: 800,
+                    fontSize: 42,
+                    fontWeight: 700,
                     color: "#111827",
-                    lineHeight: 1.15,
-                    marginBottom: 18,
+                    lineHeight: 1.1,
+                    marginBottom: 6,
+                    fontFamily: "'Oswald', sans-serif",
+                    letterSpacing: "0.01em",
                   }}
                 >
-                  Review Before Signing
+                  Review Before Authorizing
                 </div>
+                <div style={{ width: 60, height: 4, background: "#199c2e", borderRadius: 2, marginBottom: 20 }} />
 
                 <div
                   style={{
-                    fontSize: 28,
-                    fontWeight: 700,
-                    color: "#111827",
-                    lineHeight: 1.35,
-                    marginBottom: 24,
+                    fontSize: 20,
+                    fontWeight: 400,
+                    color: "#4b5563",
+                    lineHeight: 1.5,
+                    marginBottom: 28,
                   }}
                 >
                   {REVIEW_INTRO_TEXT}
@@ -3006,28 +3079,32 @@ export default function App() {
                     style={{
                       marginBottom: 28,
                       padding: 24,
-                      border: "1px solid #e5e7eb",
+                      border: "1px solid #d1fae5",
+                      borderLeft: "4px solid #199c2e",
                       borderRadius: 20,
-                      background: "#f8fafc",
+                      background: "#f0fdf4",
                     }}
                   >
                     <div
                       style={{
-                        fontSize: 28,
-                        fontWeight: 800,
-                        color: "#111827",
-                        marginBottom: 14,
+                        fontSize: 22,
+                        fontWeight: 700,
+                        color: "#199c2e",
+                        marginBottom: 8,
+                        fontFamily: "'Oswald', sans-serif",
+                        letterSpacing: "0.04em",
+                        textTransform: "uppercase",
                       }}
                     >
-                      Letter of Representation
+                      ① Letter of Representation
                     </div>
 
                     <div
                       style={{
-                        fontSize: 23,
-                        lineHeight: 1.6,
-                        color: "#111827",
-                        marginBottom: 18,
+                        fontSize: 16,
+                        lineHeight: 1.65,
+                        color: "#374151",
+                        marginBottom: 20,
                       }}
                     >
                       {LOR_REVIEW_TEXT}
@@ -3038,8 +3115,8 @@ export default function App() {
                         Preview Letter of Representation
                       </Button>
 
-                      <Button onClick={() => setLorAgreed(true)}>
-                        {lorAgreed ? "Agreed" : "Click Agreed"}
+                      <Button onClick={() => setLorAgreed(true)} style={lorAgreed ? {background:"#15803d", border:"1px solid #15803d"} : {}}>
+                        {lorAgreed ? "✓ Authorized" : "Click to Authorize"}
                       </Button>
                     </div>
                   </div>
@@ -3050,28 +3127,32 @@ export default function App() {
                     style={{
                       marginBottom: 28,
                       padding: 24,
-                      border: "1px solid #e5e7eb",
+                      border: "1px solid #d1fae5",
+                      borderLeft: "4px solid #199c2e",
                       borderRadius: 20,
-                      background: "#f8fafc",
+                      background: "#f0fdf4",
                     }}
                   >
                     <div
                       style={{
-                        fontSize: 28,
-                        fontWeight: 800,
-                        color: "#111827",
-                        marginBottom: 14,
+                        fontSize: 22,
+                        fontWeight: 700,
+                        color: "#199c2e",
+                        marginBottom: 8,
+                        fontFamily: "'Oswald', sans-serif",
+                        letterSpacing: "0.04em",
+                        textTransform: "uppercase",
                       }}
                     >
-                      Public Adjuster Agreement
+                      ② Public Adjuster Authorization
                     </div>
 
                     <div
                       style={{
-                        fontSize: 23,
-                        lineHeight: 1.6,
-                        color: "#111827",
-                        marginBottom: 18,
+                        fontSize: 16,
+                        lineHeight: 1.65,
+                        color: "#374151",
+                        marginBottom: 20,
                       }}
                     >
                       {PAC_REVIEW_TEXT}
@@ -3079,11 +3160,11 @@ export default function App() {
 
                     <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
                       <Button variant="outline" onClick={() => previewDocument("pac")}>
-                        Preview PA Agreement
+                        Preview PA Authorization
                       </Button>
 
-                      <Button onClick={() => setPacAgreed(true)}>
-                        {pacAgreed ? "Agreed" : "Click Agreed"}
+                      <Button onClick={() => setPacAgreed(true)} style={pacAgreed ? {background:"#15803d", border:"1px solid #15803d"} : {}}>
+                        {pacAgreed ? "✓ Authorized" : "Click to Authorize"}
                       </Button>
                     </div>
                   </div>
@@ -3091,11 +3172,12 @@ export default function App() {
 
                 <div
                   style={{
-                    fontSize: 22,
-                    fontWeight: 600,
-                    color: "#4b5563",
-                    lineHeight: 1.5,
+                    fontSize: 15,
+                    fontWeight: 500,
+                    color: "#6b7280",
+                    lineHeight: 1.6,
                     marginBottom: 10,
+                    fontStyle: "italic",
                   }}
                 >
                   {REVIEW_HELP_TEXT}
