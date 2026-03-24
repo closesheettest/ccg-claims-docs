@@ -14,7 +14,7 @@ if (typeof document !== "undefined" && !document.getElementById("oswald-font")) 
   const link = document.createElement("link");
   link.id = "oswald-font";
   link.rel = "stylesheet";
-  link.href = "https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&display=swap";
+  link.href = "https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Nunito:wght@400;500;600;700&display=swap";
   document.head.appendChild(link);
 }
 
@@ -221,7 +221,7 @@ function CardTitle({ children }) {
 
 function CardDescription({ children }) {
   return (
-    <div style={{ fontSize: 14, color: "#6b7280", marginTop: 8 }}>
+    <div style={{ fontSize: 16, color: "#6b7280", marginTop: 8, fontFamily: "'Nunito', sans-serif", fontWeight: 500, lineHeight: 1.5 }}>
       {children}
     </div>
   );
@@ -239,7 +239,8 @@ function Label({ children }) {
         fontSize: 14,
         color: "#374151",
         marginBottom: 8,
-        fontWeight: 500,
+        fontWeight: 600,
+        fontFamily: "'Nunito', sans-serif",
       }}
     >
       {children}
@@ -1903,16 +1904,42 @@ export default function App() {
   const [isLoadingSigningLink, setIsLoadingSigningLink] = useState(false);
   const [auditInfo, setAuditInfo] = useState(initialAuditInfo);
 
-  // Manager-editable content
-  const [reviewHeadline, setReviewHeadline] = useState("We're fighting for you — just two quick steps and we can get your claim moving. It's fast, easy, and completely secure.");
-  const [reviewLorText, setReviewLorText] = useState("This simply lets your insurance company know that Capital Claims Group is in your corner, handling all the back-and-forth on your behalf. You won't have to deal with them directly at all.");
-  const [reviewPacText, setReviewPacText] = useState("This is our working agreement — it outlines how we get paid (only when you get paid) and confirms that we're fully committed to maximizing your claim. No upfront costs, ever.");
-  const [reviewHelpText, setReviewHelpText] = useState("You can tap 'Preview' to read any document first. When you're ready, hit 'Looks Good!' on each one and scroll down to sign.");
-  const [thankYouHeadline, setThankYouHeadline] = useState("You're All Set!");
-  const [thankYouBody, setThankYouBody] = useState("Thank you for authorizing your documents. Your public adjuster will be in touch shortly to get your claim moving. You can close this window.");
-  const [managerPin, setManagerPin] = useState("1234");
+  // Manager-editable content — persisted to localStorage
+  const DEFAULTS = {
+    reviewHeadline: "We're fighting for you — just two quick steps and we can get your claim moving. It's fast, easy, and completely secure.",
+    reviewLorText: "This simply lets your insurance company know that Capital Claims Group is in your corner, handling all the back-and-forth on your behalf. You won't have to deal with them directly at all.",
+    reviewPacText: "This is our working agreement — it outlines how we get paid (only when you get paid) and confirms that we're fully committed to maximizing your claim. No upfront costs, ever.",
+    reviewHelpText: "You can tap 'Preview' to read any document first. When you're ready, hit 'Looks Good!' on each one and scroll down to sign.",
+    thankYouHeadline: "You're All Set!",
+    thankYouBody: "Thank you for authorizing your documents. Your public adjuster will be in touch shortly to get your claim moving. You can close this window.",
+    managerPin: "1234",
+  };
+
+  const loadSetting = (key) => {
+    try { return localStorage.getItem("ccg_mgr_" + key) || DEFAULTS[key]; } catch { return DEFAULTS[key]; }
+  };
+  const saveSetting = (key, value) => {
+    try { localStorage.setItem("ccg_mgr_" + key, value); } catch {}
+  };
+
+  const [reviewHeadline, setReviewHeadlineRaw] = useState(() => loadSetting("reviewHeadline"));
+  const [reviewLorText, setReviewLorTextRaw] = useState(() => loadSetting("reviewLorText"));
+  const [reviewPacText, setReviewPacTextRaw] = useState(() => loadSetting("reviewPacText"));
+  const [reviewHelpText, setReviewHelpTextRaw] = useState(() => loadSetting("reviewHelpText"));
+  const [thankYouHeadline, setThankYouHeadlineRaw] = useState(() => loadSetting("thankYouHeadline"));
+  const [thankYouBody, setThankYouBodyRaw] = useState(() => loadSetting("thankYouBody"));
+  const [managerPin, setManagerPinRaw] = useState(() => loadSetting("managerPin"));
   const [managerPinEntry, setManagerPinEntry] = useState("");
   const [managerUnlocked, setManagerUnlocked] = useState(false);
+
+  // Wrappers that save to localStorage on every change
+  const setReviewHeadline = (v) => { setReviewHeadlineRaw(v); saveSetting("reviewHeadline", v); };
+  const setReviewLorText  = (v) => { setReviewLorTextRaw(v);  saveSetting("reviewLorText", v); };
+  const setReviewPacText  = (v) => { setReviewPacTextRaw(v);  saveSetting("reviewPacText", v); };
+  const setReviewHelpText = (v) => { setReviewHelpTextRaw(v); saveSetting("reviewHelpText", v); };
+  const setThankYouHeadline = (v) => { setThankYouHeadlineRaw(v); saveSetting("thankYouHeadline", v); };
+  const setThankYouBody   = (v) => { setThankYouBodyRaw(v);   saveSetting("thankYouBody", v); };
+  const setManagerPin     = (v) => { setManagerPinRaw(v);     saveSetting("managerPin", v); };
 
   const [sig1, setSig1] = useState("");
   const [sig2, setSig2] = useState("");
@@ -1932,6 +1959,7 @@ export default function App() {
 
   const [lorAgreed, setLorAgreed] = useState(false);
   const [pacAgreed, setPacAgreed] = useState(false);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
 
   const hasSecond = Boolean(data.homeowner2?.trim());
 
@@ -1996,6 +2024,7 @@ export default function App() {
         setIsSigningFromLink(true);
         setLorAgreed(false);
         setPacAgreed(false);
+        setSubmitAttempted(false);
 
         setSig1(claim.signature1 || "");
         setSig2(claim.signature2 || "");
@@ -2123,6 +2152,7 @@ export default function App() {
     setInitials2Typed("");
     setLorAgreed(false);
     setPacAgreed(false);
+    setSubmitAttempted(false);
     setView("sign");
   };
 
@@ -2270,11 +2300,8 @@ export default function App() {
 
   const submitDoc = async () => {
     try {
+      setSubmitAttempted(true);
       if (!pendingSend && !isSigningComplete) {
-        alert(
-          "Please complete the required signing fields:\n\n" +
-            missingSigningFields.join("\n")
-        );
         return;
       }
 
@@ -2471,20 +2498,21 @@ export default function App() {
       <CardContent>
         {!showSendMode ? (
           <>
-            {!reviewReady && isSigningFromLink ? (
+            {!reviewReady && submitAttempted ? (
               <div
                 style={{
                   background: "#eff6ff",
                   color: "#1d4ed8",
                   border: "1px solid #bfdbfe",
                   borderRadius: 12,
-                  padding: 12,
+                  padding: 14,
                   marginBottom: 16,
-                  fontSize: 14,
+                  fontSize: 15,
                   fontWeight: 600,
+                  fontFamily: "'Nunito', sans-serif",
                 }}
               >
-                Please click "Click to Authorize" for all documents above before signing.
+                👆 Scroll up and tap "Looks Good!" on each document first, then come back to sign.
               </div>
             ) : null}
 
@@ -2548,7 +2576,7 @@ export default function App() {
                 value={sig1}
                 onChange={setSig1}
                 required
-                missing={!effectiveSig1}
+                missing={submitAttempted && !effectiveSig1}
               />
             ) : (
               <TypedSignatureField
@@ -2558,7 +2586,7 @@ export default function App() {
                 fontValue={sigFont1}
                 onFontChange={setSigFont1}
                 required
-                missing={!effectiveSig1}
+                missing={submitAttempted && !effectiveSig1}
                 placeholder="Type your full name"
               />
             )}
@@ -2596,7 +2624,7 @@ export default function App() {
                     value={sig2}
                     onChange={setSig2}
                     required
-                    missing={!effectiveSig2}
+                    missing={submitAttempted && !effectiveSig2}
                   />
                 ) : (
                   <TypedSignatureField
@@ -2606,7 +2634,7 @@ export default function App() {
                     fontValue={sigFont2}
                     onFontChange={setSigFont2}
                     required
-                    missing={!effectiveSig2}
+                    missing={submitAttempted && !effectiveSig2}
                     placeholder="Type your full name"
                   />
                 )}
@@ -2661,7 +2689,7 @@ export default function App() {
                     value={data.initials1}
                     onChange={(v) => update("initials1", v)}
                     required
-                    missing={!effectiveInitials1}
+                    missing={submitAttempted && !effectiveInitials1}
                   />
                 ) : (
                   <TypedInitialsField
@@ -2671,7 +2699,7 @@ export default function App() {
                     fontValue={initialsFont1}
                     onFontChange={setInitialsFont1}
                     required
-                    missing={!effectiveInitials1}
+                    missing={submitAttempted && !effectiveInitials1}
                     placeholder="Type Homeowner 1 initials"
                   />
                 )}
@@ -2709,7 +2737,7 @@ export default function App() {
                         value={data.initials2}
                         onChange={(v) => update("initials2", v)}
                         required
-                        missing={!effectiveInitials2}
+                        missing={submitAttempted && !effectiveInitials2}
                       />
                     ) : (
                       <TypedInitialsField
@@ -2719,7 +2747,7 @@ export default function App() {
                         fontValue={initialsFont2}
                         onFontChange={setInitialsFont2}
                         required
-                        missing={!effectiveInitials2}
+                        missing={submitAttempted && !effectiveInitials2}
                         placeholder="Type Homeowner 2 initials"
                       />
                     )}
@@ -2730,16 +2758,18 @@ export default function App() {
           </>
         ) : null}
 
-        {!showSendMode && missingSigningFields.length > 0 ? (
+        {!showSendMode && submitAttempted && missingSigningFields.length > 0 ? (
           <div
             style={{
               marginTop: 8,
               marginBottom: 12,
-              fontSize: 13,
+              fontSize: 14,
               color: "#991b1b",
+              fontFamily: "'Nunito', sans-serif",
+              fontWeight: 600,
             }}
           >
-            Still needed: {missingSigningFields.join(", ")}
+            Almost there! Still needed: {missingSigningFields.join(", ")}
           </div>
         ) : null}
 
@@ -2825,12 +2855,15 @@ export default function App() {
       }}
     >
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Nunito:wght@400;500;600;700&display=swap');
         body {
           margin: 0;
-          font-family: 'Oswald', Arial, Helvetica, sans-serif;
+          font-family: 'Nunito', Arial, Helvetica, sans-serif;
         }
-        input, textarea, select, button {
+        input, textarea, select {
+          font-family: 'Nunito', Arial, Helvetica, sans-serif;
+        }
+        button {
           font-family: 'Oswald', Arial, Helvetica, sans-serif;
         }
       `}</style>
@@ -3165,10 +3198,12 @@ export default function App() {
               </div>
               <div
                 style={{
-                  fontSize: 19,
-                  lineHeight: 1.65,
-                  opacity: 0.92,
-                  maxWidth: 560,
+                  fontSize: 21,
+                  lineHeight: 1.7,
+                  opacity: 0.95,
+                  maxWidth: 580,
+                  fontFamily: "'Nunito', sans-serif",
+                  fontWeight: 600,
                 }}
               >
                 {reviewHeadline}
@@ -3281,11 +3316,13 @@ export default function App() {
 
                   <div
                     style={{
-                      fontSize: 17,
-                      lineHeight: 1.7,
+                      fontSize: 19,
+                      lineHeight: 1.75,
                       color: "#374151",
                       marginBottom: 24,
                       paddingLeft: 68,
+                      fontFamily: "'Nunito', sans-serif",
+                      fontWeight: 500,
                     }}
                   >
                     {reviewLorText}
@@ -3401,11 +3438,13 @@ export default function App() {
 
                   <div
                     style={{
-                      fontSize: 17,
-                      lineHeight: 1.7,
+                      fontSize: 19,
+                      lineHeight: 1.75,
                       color: "#374151",
                       marginBottom: 24,
                       paddingLeft: 68,
+                      fontFamily: "'Nunito', sans-serif",
+                      fontWeight: 500,
                     }}
                   >
                     {reviewPacText}
@@ -3479,7 +3518,7 @@ export default function App() {
               }}
             >
               <span style={{ fontSize: 20 }}>💡</span>
-              <span>{reviewHelpText}</span>
+              <span style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 600, fontSize: 16 }}>{reviewHelpText}</span>
             </div>
 
             <div id="signature-section" style={{ scrollMarginTop: 20 }}>
@@ -3743,23 +3782,56 @@ export default function App() {
                   {/* PIN change */}
                   <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Security</SectionTitle>
-                    <div style={{ maxWidth: 300 }}>
-                      <Label>Change Manager PIN</Label>
-                      <input
-                        type="password"
-                        value={managerPin}
-                        onChange={(e) => setManagerPin(e.target.value)}
-                        placeholder="New PIN"
-                        style={{
-                          width: "100%",
-                          height: 44,
-                          borderRadius: 14,
-                          border: "1px solid #d1d5db",
-                          padding: "0 12px",
-                          fontSize: 14,
-                          boxSizing: "border-box",
-                        }}
-                      />
+                    <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "flex-end" }}>
+                      <div style={{ maxWidth: 300, flex: 1 }}>
+                        <Label>Change Manager PIN</Label>
+                        <input
+                          type="password"
+                          value={managerPin}
+                          onChange={(e) => setManagerPin(e.target.value)}
+                          placeholder="New PIN"
+                          style={{
+                            width: "100%",
+                            height: 44,
+                            borderRadius: 14,
+                            border: "1px solid #d1d5db",
+                            padding: "0 12px",
+                            fontSize: 14,
+                            boxSizing: "border-box",
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (window.confirm("Reset all text to factory defaults?")) {
+                              setReviewHeadline(DEFAULTS.reviewHeadline);
+                              setReviewLorText(DEFAULTS.reviewLorText);
+                              setReviewPacText(DEFAULTS.reviewPacText);
+                              setReviewHelpText(DEFAULTS.reviewHelpText);
+                              setThankYouHeadline(DEFAULTS.thankYouHeadline);
+                              setThankYouBody(DEFAULTS.thankYouBody);
+                            }
+                          }}
+                          style={{
+                            padding: "10px 18px",
+                            borderRadius: 12,
+                            border: "1px solid #fca5a5",
+                            background: "#fff",
+                            color: "#dc2626",
+                            fontFamily: "'Oswald', sans-serif",
+                            fontWeight: 600,
+                            fontSize: 13,
+                            letterSpacing: "0.04em",
+                            textTransform: "uppercase",
+                            cursor: "pointer",
+                            height: 44,
+                          }}
+                        >
+                          ↺ Reset All Text to Defaults
+                        </button>
+                      </div>
                     </div>
                   </Card>
 
