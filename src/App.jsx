@@ -4673,7 +4673,6 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Live preview */}
                     <div style={{ marginTop: 24, borderTop: "1px solid #e5e7eb", paddingTop: 16 }}>
                       <div style={{ fontSize: 12, color: "#9ca3af", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 12 }}>Live Preview</div>
                       <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 16, padding: "20px 18px" }}>
@@ -4726,7 +4725,6 @@ export default function App() {
                         <textarea value={preInspClosing} onChange={(e) => setPreInspClosing(e.target.value)} rows={2}
                           style={{ width: "100%", borderRadius: 12, border: "1px solid #d1d5db", padding: "10px 12px", fontSize: 14, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }} />
                       </div>
-                      {/* Preview */}
                       <div style={{ marginTop: 4, borderTop: "1px solid #e5e7eb", paddingTop: 16 }}>
                         <div style={{ fontSize: 12, color: "#9ca3af", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 12 }}>Live Preview</div>
                         <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 16, padding: "20px 18px" }}>
