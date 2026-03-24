@@ -2630,11 +2630,8 @@ export default function App() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          to: [data.signerEmail, data.paEmail].filter(Boolean),
-          subject:
-            selectedDocs.length > 1
-              ? "Signed Claim Documents Submitted"
-              : `${documentLabel(selectedDocs[0])} Submitted`,
+          to: [data.signerEmail].filter(Boolean),
+          subject: "Your Signed Documents — Capital Claims Group",
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
               <div style="background: #199c2e; padding: 28px 32px; border-radius: 12px 12px 0 0;">
@@ -2645,7 +2642,7 @@ export default function App() {
                   Hi ${[data.homeowner1, data.homeowner2].filter(Boolean).join(" & ")},
                 </p>
                 <p style="font-size: 15px; color: #374151; line-height: 1.6;">
-                  Your documents are signed and we're officially on the case. 
+                  Your documents are signed and we're officially on the case.
                   <strong>We've attached everything to this email</strong> for your records:
                 </p>
                 <ul style="font-size: 15px; color: #374151; line-height: 1.8;">
@@ -2670,7 +2667,98 @@ export default function App() {
         }),
       });
 
-      await parseJsonResponse(finalEmailResponse, "Final signed email failed.");
+      await parseJsonResponse(finalEmailResponse, "Homeowner email failed.");
+
+      // ── PA notification email — different content based on claim stage ──
+      const isPostInspection = data.claimStage === "post_inspection";
+      const homeownerName = [data.homeowner1, data.homeowner2].filter(Boolean).join(" & ") || "Homeowner";
+      const homeownerAddress = [data.address, data.city, data.state, data.zip].filter(Boolean).join(", ");
+
+      const paSubject = isPostInspection
+        ? `✅ Signed PA Docs — ${homeownerName} (Damage Confirmed)`
+        : `📋 Signed PA Docs — ${homeownerName} (Inspection Pending)`;
+
+      const paHtml = isPostInspection ? `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background: #1e40af; padding: 24px 32px; border-radius: 12px 12px 0 0;">
+            <h1 style="color: #fff; margin: 0; font-size: 22px;">✅ Damage Confirmed — Docs Signed</h1>
+          </div>
+          <div style="background: #f9fafb; padding: 28px 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb; border-top: none;">
+            <p style="font-size: 15px; color: #374151; line-height: 1.6; margin-top: 0;">
+              You inspected this property and confirmed damage. The homeowner has now signed all required documents and is ready to move forward with the claim.
+            </p>
+
+            <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 18px 20px; margin: 20px 0;">
+              <p style="margin: 0 0 10px; font-weight: 700; color: #1e40af; font-size: 15px;">👤 Homeowner Details</p>
+              <table style="font-size: 14px; color: #374151; width: 100%; border-collapse: collapse;">
+                <tr><td style="padding: 4px 0; font-weight: 600; width: 140px;">Name:</td><td>${homeownerName}</td></tr>
+                <tr><td style="padding: 4px 0; font-weight: 600;">Address:</td><td>${homeownerAddress}</td></tr>
+                <tr><td style="padding: 4px 0; font-weight: 600;">Phone:</td><td>${data.phone || "—"}</td></tr>
+                <tr><td style="padding: 4px 0; font-weight: 600;">Email:</td><td>${data.signerEmail || "—"}</td></tr>
+                <tr><td style="padding: 4px 0; font-weight: 600;">Insurance Co.:</td><td>${data.insuranceCompany || "—"}</td></tr>
+                <tr><td style="padding: 4px 0; font-weight: 600;">Policy #:</td><td>${data.policyNumber || "—"}</td></tr>
+                ${data.claimNumber ? `<tr><td style="padding: 4px 0; font-weight: 600;">Claim #:</td><td>${data.claimNumber}</td></tr>` : ""}
+                ${data.dateOfLoss ? `<tr><td style="padding: 4px 0; font-weight: 600;">Date of Loss:</td><td>${data.dateOfLoss}</td></tr>` : ""}
+              </table>
+            </div>
+
+            <p style="font-size: 14px; color: #374151; line-height: 1.6;">
+              The signed documents are attached. You're good to proceed with filing the claim.
+            </p>
+            <p style="font-size: 13px; color: #6b7280; margin-bottom: 0;">
+              <em>Signed at: ${nextAuditInfo.signedAt || ""} &nbsp;|&nbsp; IP: ${nextAuditInfo.signedIp || ""}</em>
+            </p>
+          </div>
+        </div>
+      ` : `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background: #d97706; padding: 24px 32px; border-radius: 12px 12px 0 0;">
+            <h1 style="color: #fff; margin: 0; font-size: 22px;">📋 Signed Docs — Inspection Needed</h1>
+          </div>
+          <div style="background: #f9fafb; padding: 28px 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb; border-top: none;">
+            <p style="font-size: 15px; color: #374151; line-height: 1.6; margin-top: 0;">
+              The homeowner has signed the paperwork. <strong>The roof has not been inspected yet</strong> — the inspection should be scheduled within the week. Please watch for this job in <strong>Job Nimbus</strong> and assign the inspection accordingly.
+            </p>
+
+            <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 14px 18px; margin: 16px 0;">
+              <p style="margin: 0; font-weight: 700; color: #92400e; font-size: 14px;">⚠️ Action Required: Schedule roof inspection within the week</p>
+            </div>
+
+            <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; padding: 18px 20px; margin: 16px 0;">
+              <p style="margin: 0 0 10px; font-weight: 700; color: #111827; font-size: 15px;">👤 Homeowner Details</p>
+              <table style="font-size: 14px; color: #374151; width: 100%; border-collapse: collapse;">
+                <tr><td style="padding: 4px 0; font-weight: 600; width: 140px;">Name:</td><td>${homeownerName}</td></tr>
+                <tr><td style="padding: 4px 0; font-weight: 600;">Address:</td><td>${homeownerAddress}</td></tr>
+                <tr><td style="padding: 4px 0; font-weight: 600;">Phone:</td><td>${data.phone || "—"}</td></tr>
+                <tr><td style="padding: 4px 0; font-weight: 600;">Email:</td><td>${data.signerEmail || "—"}</td></tr>
+                <tr><td style="padding: 4px 0; font-weight: 600;">Insurance Co.:</td><td>${data.insuranceCompany || "—"}</td></tr>
+                <tr><td style="padding: 4px 0; font-weight: 600;">Policy #:</td><td>${data.policyNumber || "—"}</td></tr>
+              </table>
+            </div>
+
+            <p style="font-size: 14px; color: #374151; line-height: 1.6;">
+              Signed documents are attached for your records. Once the inspection confirms damage, proceed with the PA claim process.
+            </p>
+            <p style="font-size: 13px; color: #6b7280; margin-bottom: 0;">
+              <em>Signed at: ${nextAuditInfo.signedAt || ""} &nbsp;|&nbsp; IP: ${nextAuditInfo.signedIp || ""}</em>
+            </p>
+          </div>
+        </div>
+      `;
+
+      if (data.paEmail) {
+        const paEmailResponse = await fetch("/.netlify/functions/send-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            to: [data.paEmail],
+            subject: paSubject,
+            html: paHtml,
+            attachments,
+          }),
+        });
+        await parseJsonResponse(paEmailResponse, "PA notification email failed.");
+      }
 
       setIsSubmitting(false);
       setPendingSend(false);
