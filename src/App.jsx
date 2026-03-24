@@ -2483,20 +2483,6 @@ export default function App() {
   }
 
   // Reusable inline style for the friendly toggle pill button
-  const toggleBtnStyle = {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 8,
-    padding: "10px 20px",
-    borderRadius: 999,
-    border: "2px solid #199c2e",
-    background: "#fff",
-    color: "#199c2e",
-    fontFamily: "'Nunito', sans-serif",
-    fontWeight: 700,
-    fontSize: 15,
-    cursor: "pointer",
-  };
 
   const sigSectionLabel = (emoji, title, subtitle) => (
     <div style={{ marginBottom: 12, marginTop: 20 }}>
@@ -2907,6 +2893,7 @@ export default function App() {
         </div>
       </CardContent>
     </Card>
+    </div>
   );
 
   return (
