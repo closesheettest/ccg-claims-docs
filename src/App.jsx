@@ -409,56 +409,153 @@ function SignaturePad({
     onChange("");
   };
 
-  return (
-    <div style={{ marginBottom: 16 }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: 8,
-        }}
-      >
-        <Label>
-          {title}
-          {required ? <span style={{ color: "#dc2626" }}> *</span> : null}
-        </Label>
-        <Button variant="outline" onClick={clear}>
-          <RotateCcw size={16} /> Clear
-        </Button>
-      </div>
+  const isEmpty = !value;
 
-      <div
-        style={{
-          border: missing ? "2px dashed #dc2626" : "1px dashed #cbd5e1",
-          borderRadius: 16,
-          background: missing ? "#fef2f2" : "#fff",
-          padding: 8,
-        }}
-      >
-        <canvas
-          ref={canvasRef}
-          style={{
-            width: "100%",
-            height,
-            borderRadius: 12,
-            background: "#f8fafc",
-            touchAction: "none",
-            display: "block",
-          }}
-          onMouseDown={start}
-          onMouseMove={move}
-          onMouseUp={end}
-          onMouseLeave={end}
-          onTouchStart={start}
-          onTouchMove={move}
-          onTouchEnd={end}
-        />
+  return (
+    <div style={{ marginBottom: 20 }}>
+      {/* Outer card */}
+      <div style={{
+        borderRadius: 20,
+        border: missing
+          ? "2.5px solid #ef4444"
+          : isEmpty
+            ? "2.5px dashed #199c2e"
+            : "2.5px solid #199c2e",
+        background: missing ? "#fef2f2" : "#f0fdf4",
+        overflow: "hidden",
+        boxShadow: missing
+          ? "0 0 0 4px rgba(239,68,68,0.08)"
+          : isEmpty
+            ? "0 0 0 4px rgba(25,156,46,0.08)"
+            : "0 0 0 4px rgba(25,156,46,0.12)",
+        transition: "box-shadow 0.2s, border-color 0.2s",
+      }}>
+        {/* Hint bar at top */}
+        {isEmpty ? (
+          <div style={{
+            background: "#199c2e",
+            padding: "8px 16px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}>
+            <span style={{
+              color: "#fff",
+              fontSize: 13,
+              fontFamily: "'Nunito', sans-serif",
+              fontWeight: 700,
+            }}>
+              ✍️ Sign in the box below
+            </span>
+            <span style={{
+              color: "rgba(255,255,255,0.8)",
+              fontSize: 12,
+              fontFamily: "'Nunito', sans-serif",
+            }}>
+              Use finger or mouse
+            </span>
+          </div>
+        ) : (
+          <div style={{
+            background: "#15803d",
+            padding: "8px 16px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}>
+            <span style={{
+              color: "#fff",
+              fontSize: 13,
+              fontFamily: "'Nunito', sans-serif",
+              fontWeight: 700,
+            }}>
+              ✅ Signature captured!
+            </span>
+            <button
+              type="button"
+              onClick={clear}
+              style={{
+                background: "rgba(255,255,255,0.2)",
+                border: "none",
+                borderRadius: 8,
+                color: "#fff",
+                fontSize: 12,
+                fontFamily: "'Nunito', sans-serif",
+                fontWeight: 700,
+                padding: "4px 10px",
+                cursor: "pointer",
+              }}
+            >
+              ↺ Redo
+            </button>
+          </div>
+        )}
+
+        {/* Canvas area */}
+        <div style={{ position: "relative", background: "#fff" }}>
+          {isEmpty ? (
+            <div style={{
+              position: "absolute",
+              inset: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              pointerEvents: "none",
+              userSelect: "none",
+            }}>
+              <span style={{
+                fontSize: 15,
+                color: "#d1d5db",
+                fontFamily: "'Nunito', sans-serif",
+                fontStyle: "italic",
+                fontWeight: 600,
+              }}>
+                Your signature here...
+              </span>
+            </div>
+          ) : null}
+          <canvas
+            ref={canvasRef}
+            style={{
+              width: "100%",
+              height,
+              display: "block",
+              touchAction: "none",
+              cursor: "crosshair",
+            }}
+            onMouseDown={start}
+            onMouseMove={move}
+            onMouseUp={end}
+            onMouseLeave={end}
+            onTouchStart={start}
+            onTouchMove={move}
+            onTouchEnd={end}
+          />
+          {/* Signature line */}
+          <div style={{
+            position: "absolute",
+            bottom: 24,
+            left: "10%",
+            right: "10%",
+            height: 1,
+            background: "#e5e7eb",
+            pointerEvents: "none",
+          }} />
+        </div>
       </div>
 
       {missing ? (
-        <div style={{ color: "#dc2626", fontSize: 12, marginTop: 6 }}>
-          Required before submitting.
+        <div style={{
+          color: "#ef4444",
+          fontSize: 13,
+          marginTop: 8,
+          fontFamily: "'Nunito', sans-serif",
+          fontWeight: 700,
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+        }}>
+          ⚠️ Please add your signature above
         </div>
       ) : null}
     </div>
@@ -537,67 +634,117 @@ function InitialsPad({
     onChange("");
   };
 
-  return (
-    <div style={{ marginBottom: 12 }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 6,
-        }}
-      >
-        <Label>
-          {title}
-          {required ? <span style={{ color: "#dc2626" }}> *</span> : null}
-        </Label>
-        <button
-          type="button"
-          onClick={clear}
-          style={{
-            background: "transparent",
-            border: "none",
-            color: "#6b7280",
-            fontSize: 12,
-            cursor: "pointer",
-            padding: 0,
-          }}
-        >
-          Clear
-        </button>
-      </div>
+  const isEmpty = !value;
 
-      <div
-        style={{
-          border: missing ? "2px dashed #dc2626" : "1px dashed #cbd5e1",
-          borderRadius: 12,
-          background: missing ? "#fef2f2" : "#fff",
-          padding: 8,
-        }}
-      >
-        <canvas
-          ref={canvasRef}
-          style={{
-            width: "100%",
-            height: 42,
-            display: "block",
-            background: "#f8fafc",
-            touchAction: "none",
-            borderRadius: 8,
-          }}
-          onMouseDown={start}
-          onMouseMove={move}
-          onMouseUp={end}
-          onMouseLeave={end}
-          onTouchStart={start}
-          onTouchMove={move}
-          onTouchEnd={end}
-        />
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{
+        borderRadius: 16,
+        border: missing
+          ? "2.5px solid #ef4444"
+          : isEmpty
+            ? "2.5px dashed #199c2e"
+            : "2.5px solid #199c2e",
+        background: missing ? "#fef2f2" : "#fff",
+        overflow: "hidden",
+        boxShadow: missing
+          ? "0 0 0 3px rgba(239,68,68,0.08)"
+          : isEmpty
+            ? "0 0 0 3px rgba(25,156,46,0.08)"
+            : "0 0 0 3px rgba(25,156,46,0.12)",
+        transition: "box-shadow 0.2s, border-color 0.2s",
+      }}>
+        {/* Top label bar */}
+        <div style={{
+          background: isEmpty ? "#f0fdf4" : "#15803d",
+          padding: "6px 14px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          borderBottom: isEmpty ? "1px solid #bbf7d0" : "none",
+        }}>
+          <span style={{
+            fontSize: 12,
+            fontFamily: "'Nunito', sans-serif",
+            fontWeight: 700,
+            color: isEmpty ? "#166534" : "#fff",
+          }}>
+            {isEmpty ? "✏️ Initials here" : "✅ Initials captured!"}
+          </span>
+          {!isEmpty ? (
+            <button
+              type="button"
+              onClick={clear}
+              style={{
+                background: "rgba(255,255,255,0.2)",
+                border: "none",
+                borderRadius: 6,
+                color: "#fff",
+                fontSize: 11,
+                fontFamily: "'Nunito', sans-serif",
+                fontWeight: 700,
+                padding: "2px 8px",
+                cursor: "pointer",
+              }}
+            >
+              ↺ Redo
+            </button>
+          ) : null}
+        </div>
+
+        {/* Canvas */}
+        <div style={{ position: "relative", background: "#fff" }}>
+          {isEmpty ? (
+            <div style={{
+              position: "absolute",
+              inset: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              pointerEvents: "none",
+              userSelect: "none",
+            }}>
+              <span style={{
+                fontSize: 13,
+                color: "#d1d5db",
+                fontFamily: "'Nunito', sans-serif",
+                fontStyle: "italic",
+                fontWeight: 600,
+              }}>e.g. JD</span>
+            </div>
+          ) : null}
+          <canvas
+            ref={canvasRef}
+            style={{
+              width: "100%",
+              height: 52,
+              display: "block",
+              touchAction: "none",
+              cursor: "crosshair",
+            }}
+            onMouseDown={start}
+            onMouseMove={move}
+            onMouseUp={end}
+            onMouseLeave={end}
+            onTouchStart={start}
+            onTouchMove={move}
+            onTouchEnd={end}
+          />
+        </div>
       </div>
 
       {missing ? (
-        <div style={{ color: "#dc2626", fontSize: 12, marginTop: 6 }}>
-          Required before submitting.
+        <div style={{
+          color: "#ef4444",
+          fontSize: 13,
+          marginTop: 6,
+          fontFamily: "'Nunito', sans-serif",
+          fontWeight: 700,
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+        }}>
+          ⚠️ Please add your initials above
         </div>
       ) : null}
     </div>
