@@ -4690,7 +4690,6 @@ export default function App() {
                       </div>
                     </div>
                     ) : (
-                    /* ── Pre-Inspection Flow Editor ── */
                     <div style={{ display: "grid", gap: 20 }}>
                       <div>
                         <Label>Headline</Label>
@@ -4772,7 +4771,6 @@ export default function App() {
         >
         <div style={{
           width: "8.5in",
-          minHeight: "11in",
           boxSizing: "border-box",
           padding: "0",
           background: "#fff",
