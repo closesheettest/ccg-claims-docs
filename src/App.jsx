@@ -4561,6 +4561,7 @@ export default function App() {
                       ))}
                     </div>
                     {managerTYTab === "post_inspection" ? (
+                    <>
                     <div style={{ display: "grid", gap: 20 }}>
 
                       {/* Headline */}
@@ -4688,6 +4689,7 @@ export default function App() {
                         <div style={{ marginTop: 10, padding: "10px 14px", background: "#fffbeb", borderRadius: 10, textAlign: "center", fontSize: 13, color: "#92400e", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>{thankYouClosing}</div>
                       </div>
                     </div>
+                    </>
                     ) : (
                     <div style={{ display: "grid", gap: 20 }}>
                       <div>
