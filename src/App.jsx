@@ -1700,7 +1700,7 @@ function PublicAdjusterContract({
             independent appraiser to appraise, advise, negotiate, and/or settle
             the above-referenced claim.
           </p>
-          <p style={{ margin: "0 0 6px", fontWeight: 700 }}>
+          <p style={{ margin: "0 0 6px", fontWeight: 700, fontSize: 18, lineHeight: 1.5 }}>
             The insured(s) agrees to pay and hereby assigns to Capital Claims Group <strong>10%</strong> of all payments made by the insurance company related to this claim.
           </p>
           <p style={{ margin: "0 0 10px" }}>
@@ -1827,17 +1827,6 @@ function PublicAdjusterContract({
             Agreement shall not affect any other clause.
           </p>
 
-          <InitialsRow />
-        </div>
-      </PdfPage>
-
-      <PdfPage
-        isExportingPdf={isExportingPdf}
-        header={<HeaderImg />}
-        contentPadding="0 0.42in 0.12in"
-        footer={<Footer page={3} />}
-      >
-        <div style={bodyText}>
           <p style={{ margin: "0 0 6px" }}>
             10. <span style={sectionHead}>Dispute:</span>
           </p>
@@ -1860,6 +1849,17 @@ function PublicAdjusterContract({
             contract.
           </p>
 
+          <InitialsRow />
+        </div>
+      </PdfPage>
+
+      <PdfPage
+        isExportingPdf={isExportingPdf}
+        header={<HeaderImg />}
+        contentPadding="0 0.42in 0.12in"
+        footer={<Footer page={3} />}
+      >
+        <div style={bodyText}>
           <p style={{ margin: "0 0 6px", fontWeight: 700, fontSize: 18, lineHeight: 1.4 }}>
             12.{" "}
             <span style={{ color: "#199c2e" }}>
