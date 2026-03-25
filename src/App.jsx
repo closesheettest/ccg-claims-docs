@@ -1700,7 +1700,7 @@ function PublicAdjusterContract({
             independent appraiser to appraise, advise, negotiate, and/or settle
             the above-referenced claim.
           </p>
-          <p style={{ margin: "0 0 6px", fontWeight: 700, fontSize: 18, lineHeight: 1.4 }}>
+          <p style={{ margin: "0 0 6px", fontWeight: 700 }}>
             The insured(s) agrees to pay and hereby assigns to Capital Claims Group <strong>10%</strong> of all payments made by the insurance company related to this claim.
           </p>
           <p style={{ margin: "0 0 10px" }}>
@@ -1873,7 +1873,7 @@ function PublicAdjusterContract({
             contract.
           </p>
 
-          <p style={{ margin: 0, fontWeight: 700, fontSize: 18, lineHeight: 1.5 }}>
+          <p style={{ margin: "0 0 10px", fontWeight: 700, fontSize: 18, lineHeight: 1.5 }}>
             If this contract was entered into based on events that are the
             subject of a declaration of a state of emergency by the Governor,
             you may cancel this contract for any reason without penalty or
@@ -1884,6 +1884,31 @@ function PublicAdjusterContract({
             and your insurer a copy of a written estimate within 60 days of the
             execution of the contract, unless the failure to provide the
             estimate within 60 days is caused by factors beyond my control.
+          </p>
+
+          <p style={{ margin: "0 0 10px", fontWeight: 700, fontSize: 18, lineHeight: 1.5 }}>
+            The notice of cancellation shall be provided to Capital Claims
+            Group, submitted in writing, and sent by certified mail, return
+            receipt requested, or another form of mailing that provides proof
+            thereof, at the address specified in the contract.
+          </p>
+
+          <p style={{ margin: "0 0 10px", fontWeight: 700, fontSize: 18, lineHeight: 1.5 }}>
+            Pursuant to s. 817.234, Florida Statutes, any person who, with the
+            intent to injure, defraud, or deceive any insurer or insured,
+            prepares, presents, or causes to be presented a proof of loss or
+            estimate of cost or repair of damaged property in support of a claim
+            under an insurance policy, knowing that the proof of loss or
+            estimate of claim or repairs contains any false, incomplete, or
+            misleading information concerning any fact or thing material to the
+            claim, commits a felony of the third degree, punishable as provided
+            in s. 775.082, s. 775.803, or s. 775.084, Florida Statutes.
+          </p>
+
+          <p style={{ margin: "0 0 10px", fontWeight: 700, fontSize: 18, lineHeight: 1.5 }}>
+            Insured(s) have read, understand and voluntarily sign the foregoing
+            Agreement. A computer or faxed signature or copy of this document
+            shall be deemed to have the same effect as the original.
           </p>
 
           <InitialsRow />
@@ -1897,32 +1922,6 @@ function PublicAdjusterContract({
         footer={<Footer page={4} />}
       >
         <div style={bodyText}>
-          <p style={{ margin: "0 0 12px", fontWeight: 700 }}>
-            The notice of cancellation shall be provided to Capital Claims
-            Group, submitted in writing, and sent by certified mail, return
-            receipt requested, or another form of mailing that provides proof
-            thereof, at the address specified in the contract.
-          </p>
-
-          <p style={{ margin: "0 0 16px", fontWeight: 700 }}>
-            Pursuant to s. 817.234, Florida Statutes, any person who, with the
-            intent to injure, defraud, or deceive any insurer or insured,
-            prepares, presents, or causes to be presented a proof of loss or
-            estimate of cost or repair of damaged property in support of a claim
-            under an insurance policy, knowing that the proof of loss or
-            estimate of claim or repairs contains any false, incomplete, or
-            misleading information concerning any fact or thing material to the
-            claim, commits a felony of the third degree, punishable as provided
-            in s. 775.082, s. 775.803, or s. 775.084, Florida Statutes.
-          </p>
-
-          <p style={{ margin: "0 0 10px" }}>
-            Insured(s) have read, understand and voluntarily sign the foregoing
-            Agreement. A computer or faxed signature or copy of this document
-            shall be deemed to have the same effect as the original.
-          </p>
-
-          <InitialsRow />
 
           <div
             style={{
