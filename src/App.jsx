@@ -1514,7 +1514,7 @@ function PublicAdjusterContract({
         boxSizing: "border-box",
       }}
     >
-      Public Adjuster Authorization
+      Public Adjuster Contract
     </div>
   );
 
@@ -3816,7 +3816,7 @@ export default function App() {
                         textTransform: "uppercase",
                       }}
                     >
-                      👁 Preview
+                      👁 Preview Document
                     </button>
 
                     <button
@@ -3955,7 +3955,7 @@ export default function App() {
                         textTransform: "uppercase",
                       }}
                     >
-                      👁 Preview
+                      👁 Preview Document
                     </button>
 
                     <button
