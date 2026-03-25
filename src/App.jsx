@@ -9,9 +9,18 @@ import {
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 
+// Inject Oswald font
+if (typeof document !== "undefined" && !document.getElementById("oswald-font")) {
+  const link = document.createElement("link");
+  link.id = "oswald-font";
+  link.rel = "stylesheet";
+  link.href = "https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Nunito:wght@400;500;600;700&display=swap";
+  document.head.appendChild(link);
+}
+
 const PA_FIXED = {
   name: "Benito Paul",
-  initials: "BP",
+  initials: "PB",
   license: "P199496",
   signatureImage: "/benito-signature.png",
 };
@@ -35,6 +44,18 @@ const PDF_LAYOUT = {
   footerHeight: "0.82in",
 };
 
+const REVIEW_INTRO_TEXT =
+  "Two quick documents stand between you and getting your claim moving.";
+
+const LOR_REVIEW_TEXT =
+  'First is the “Letter of Representation” which simply tells your insurance company that you’ve hired a Public Adjuster.';
+
+const PAC_REVIEW_TEXT =
+  'The second is the “Public Adjuster Authorization” which is the authorization between you and the Public Adjuster.';
+
+const REVIEW_HELP_TEXT =
+  "Preview each document first if you'd like, then click 'Click to Authorize' for both before signing.";
+
 const initialData = {
   date: new Date().toISOString().split("T")[0],
   insuranceCompany: "",
@@ -52,6 +73,7 @@ const initialData = {
   zip: "",
   phone: "",
   situation: "",
+  claimStage: "pre_inspection", // "pre_inspection" | "post_inspection"
   dateOfLoss: "",
   claimNumber: "",
   claimType: "Wind/Hail",
@@ -72,12 +94,12 @@ const initialAuditInfo = {
 };
 
 function documentLabel(doc) {
-  return doc === "pac" ? "PA Agreement" : "Letter of Representation";
+  return doc === "pac" ? "PA Authorization" : "Letter of Representation";
 }
 
 function documentFilename(doc) {
   return doc === "pac"
-    ? "Public-Adjuster-Agreement.pdf"
+    ? "Public-Adjuster-Authorization.pdf"
     : "Letter-of-Representation.pdf";
 }
 
@@ -126,20 +148,25 @@ function Button({
   type = "button",
   variant = "default",
   disabled = false,
+  style: overrideStyle = {},
 }) {
   const baseStyle = {
-    height: 44,
-    padding: "0 16px",
+    height: 48,
+    padding: "0 18px",
     borderRadius: 14,
     border: "1px solid #d1d5db",
     cursor: disabled ? "not-allowed" : "pointer",
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: 600,
+    fontFamily: "'Oswald', sans-serif",
+    letterSpacing: "0.04em",
+    textTransform: "uppercase",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
     opacity: disabled ? 0.6 : 1,
+    transition: "background 0.2s, border-color 0.2s",
   };
 
   const styles =
@@ -148,12 +175,14 @@ function Button({
           ...baseStyle,
           background: "#fff",
           color: "#111827",
+          ...overrideStyle,
         }
       : {
           ...baseStyle,
-          background: "#111827",
+          background: "#199c2e",
           color: "#fff",
-          border: "1px solid #111827",
+          border: "1px solid #199c2e",
+          ...overrideStyle,
         };
 
   return (
@@ -185,7 +214,7 @@ function CardHeader({ children }) {
 
 function CardTitle({ children }) {
   return (
-    <div style={{ fontSize: 30, fontWeight: 700, color: "#111827" }}>
+    <div style={{ fontSize: 30, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.02em" }}>
       {children}
     </div>
   );
@@ -193,7 +222,7 @@ function CardTitle({ children }) {
 
 function CardDescription({ children }) {
   return (
-    <div style={{ fontSize: 14, color: "#6b7280", marginTop: 8 }}>
+    <div style={{ fontSize: 16, color: "#6b7280", marginTop: 8, fontFamily: "'Nunito', sans-serif", fontWeight: 500, lineHeight: 1.5 }}>
       {children}
     </div>
   );
@@ -211,7 +240,8 @@ function Label({ children }) {
         fontSize: 14,
         color: "#374151",
         marginBottom: 8,
-        fontWeight: 500,
+        fontWeight: 600,
+        fontFamily: "'Nunito', sans-serif",
       }}
     >
       {children}
@@ -227,6 +257,9 @@ function SectionTitle({ children }) {
         fontWeight: 700,
         color: "#111827",
         marginBottom: 14,
+        fontFamily: "'Oswald', sans-serif",
+        letterSpacing: "0.04em",
+        textTransform: "uppercase",
       }}
     >
       {children}
@@ -377,56 +410,153 @@ function SignaturePad({
     onChange("");
   };
 
-  return (
-    <div style={{ marginBottom: 16 }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: 8,
-        }}
-      >
-        <Label>
-          {title}
-          {required ? <span style={{ color: "#dc2626" }}> *</span> : null}
-        </Label>
-        <Button variant="outline" onClick={clear}>
-          <RotateCcw size={16} /> Clear
-        </Button>
-      </div>
+  const isEmpty = !value;
 
-      <div
-        style={{
-          border: missing ? "2px dashed #dc2626" : "1px dashed #cbd5e1",
-          borderRadius: 16,
-          background: missing ? "#fef2f2" : "#fff",
-          padding: 8,
-        }}
-      >
-        <canvas
-          ref={canvasRef}
-          style={{
-            width: "100%",
-            height,
-            borderRadius: 12,
-            background: "#f8fafc",
-            touchAction: "none",
-            display: "block",
-          }}
-          onMouseDown={start}
-          onMouseMove={move}
-          onMouseUp={end}
-          onMouseLeave={end}
-          onTouchStart={start}
-          onTouchMove={move}
-          onTouchEnd={end}
-        />
+  return (
+    <div style={{ marginBottom: 20 }}>
+      {/* Outer card */}
+      <div style={{
+        borderRadius: 20,
+        border: missing
+          ? "2.5px solid #ef4444"
+          : isEmpty
+            ? "2.5px dashed #199c2e"
+            : "2.5px solid #199c2e",
+        background: missing ? "#fef2f2" : "#f0fdf4",
+        overflow: "hidden",
+        boxShadow: missing
+          ? "0 0 0 4px rgba(239,68,68,0.08)"
+          : isEmpty
+            ? "0 0 0 4px rgba(25,156,46,0.08)"
+            : "0 0 0 4px rgba(25,156,46,0.12)",
+        transition: "box-shadow 0.2s, border-color 0.2s",
+      }}>
+        {/* Hint bar at top */}
+        {isEmpty ? (
+          <div style={{
+            background: "#199c2e",
+            padding: "8px 16px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}>
+            <span style={{
+              color: "#fff",
+              fontSize: 13,
+              fontFamily: "'Nunito', sans-serif",
+              fontWeight: 700,
+            }}>
+              ✍️ Sign in the box below
+            </span>
+            <span style={{
+              color: "rgba(255,255,255,0.8)",
+              fontSize: 12,
+              fontFamily: "'Nunito', sans-serif",
+            }}>
+              Use finger or mouse
+            </span>
+          </div>
+        ) : (
+          <div style={{
+            background: "#15803d",
+            padding: "8px 16px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}>
+            <span style={{
+              color: "#fff",
+              fontSize: 13,
+              fontFamily: "'Nunito', sans-serif",
+              fontWeight: 700,
+            }}>
+              ✅ Signature captured!
+            </span>
+            <button
+              type="button"
+              onClick={clear}
+              style={{
+                background: "rgba(255,255,255,0.2)",
+                border: "none",
+                borderRadius: 8,
+                color: "#fff",
+                fontSize: 12,
+                fontFamily: "'Nunito', sans-serif",
+                fontWeight: 700,
+                padding: "4px 10px",
+                cursor: "pointer",
+              }}
+            >
+              ↺ Redo
+            </button>
+          </div>
+        )}
+
+        {/* Canvas area */}
+        <div style={{ position: "relative", background: "#fff" }}>
+          {isEmpty ? (
+            <div style={{
+              position: "absolute",
+              inset: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              pointerEvents: "none",
+              userSelect: "none",
+            }}>
+              <span style={{
+                fontSize: 15,
+                color: "#d1d5db",
+                fontFamily: "'Nunito', sans-serif",
+                fontStyle: "italic",
+                fontWeight: 600,
+              }}>
+                Your signature here...
+              </span>
+            </div>
+          ) : null}
+          <canvas
+            ref={canvasRef}
+            style={{
+              width: "100%",
+              height,
+              display: "block",
+              touchAction: "none",
+              cursor: "crosshair",
+            }}
+            onMouseDown={start}
+            onMouseMove={move}
+            onMouseUp={end}
+            onMouseLeave={end}
+            onTouchStart={start}
+            onTouchMove={move}
+            onTouchEnd={end}
+          />
+          {/* Signature line */}
+          <div style={{
+            position: "absolute",
+            bottom: 24,
+            left: "10%",
+            right: "10%",
+            height: 1,
+            background: "#e5e7eb",
+            pointerEvents: "none",
+          }} />
+        </div>
       </div>
 
       {missing ? (
-        <div style={{ color: "#dc2626", fontSize: 12, marginTop: 6 }}>
-          Required before submitting.
+        <div style={{
+          color: "#ef4444",
+          fontSize: 13,
+          marginTop: 8,
+          fontFamily: "'Nunito', sans-serif",
+          fontWeight: 700,
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+        }}>
+          ⚠️ Please add your signature above
         </div>
       ) : null}
     </div>
@@ -505,67 +635,117 @@ function InitialsPad({
     onChange("");
   };
 
-  return (
-    <div style={{ marginBottom: 12 }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 6,
-        }}
-      >
-        <Label>
-          {title}
-          {required ? <span style={{ color: "#dc2626" }}> *</span> : null}
-        </Label>
-        <button
-          type="button"
-          onClick={clear}
-          style={{
-            background: "transparent",
-            border: "none",
-            color: "#6b7280",
-            fontSize: 12,
-            cursor: "pointer",
-            padding: 0,
-          }}
-        >
-          Clear
-        </button>
-      </div>
+  const isEmpty = !value;
 
-      <div
-        style={{
-          border: missing ? "2px dashed #dc2626" : "1px dashed #cbd5e1",
-          borderRadius: 12,
-          background: missing ? "#fef2f2" : "#fff",
-          padding: 8,
-        }}
-      >
-        <canvas
-          ref={canvasRef}
-          style={{
-            width: "100%",
-            height: 42,
-            display: "block",
-            background: "#f8fafc",
-            touchAction: "none",
-            borderRadius: 8,
-          }}
-          onMouseDown={start}
-          onMouseMove={move}
-          onMouseUp={end}
-          onMouseLeave={end}
-          onTouchStart={start}
-          onTouchMove={move}
-          onTouchEnd={end}
-        />
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{
+        borderRadius: 16,
+        border: missing
+          ? "2.5px solid #ef4444"
+          : isEmpty
+            ? "2.5px dashed #199c2e"
+            : "2.5px solid #199c2e",
+        background: missing ? "#fef2f2" : "#fff",
+        overflow: "hidden",
+        boxShadow: missing
+          ? "0 0 0 3px rgba(239,68,68,0.08)"
+          : isEmpty
+            ? "0 0 0 3px rgba(25,156,46,0.08)"
+            : "0 0 0 3px rgba(25,156,46,0.12)",
+        transition: "box-shadow 0.2s, border-color 0.2s",
+      }}>
+        {/* Top label bar */}
+        <div style={{
+          background: isEmpty ? "#f0fdf4" : "#15803d",
+          padding: "6px 14px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          borderBottom: isEmpty ? "1px solid #bbf7d0" : "none",
+        }}>
+          <span style={{
+            fontSize: 12,
+            fontFamily: "'Nunito', sans-serif",
+            fontWeight: 700,
+            color: isEmpty ? "#166534" : "#fff",
+          }}>
+            {isEmpty ? "✏️ Initials here" : "✅ Initials captured!"}
+          </span>
+          {!isEmpty ? (
+            <button
+              type="button"
+              onClick={clear}
+              style={{
+                background: "rgba(255,255,255,0.2)",
+                border: "none",
+                borderRadius: 6,
+                color: "#fff",
+                fontSize: 11,
+                fontFamily: "'Nunito', sans-serif",
+                fontWeight: 700,
+                padding: "2px 8px",
+                cursor: "pointer",
+              }}
+            >
+              ↺ Redo
+            </button>
+          ) : null}
+        </div>
+
+        {/* Canvas */}
+        <div style={{ position: "relative", background: "#fff" }}>
+          {isEmpty ? (
+            <div style={{
+              position: "absolute",
+              inset: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              pointerEvents: "none",
+              userSelect: "none",
+            }}>
+              <span style={{
+                fontSize: 13,
+                color: "#d1d5db",
+                fontFamily: "'Nunito', sans-serif",
+                fontStyle: "italic",
+                fontWeight: 600,
+              }}>e.g. JD</span>
+            </div>
+          ) : null}
+          <canvas
+            ref={canvasRef}
+            style={{
+              width: "100%",
+              height: 52,
+              display: "block",
+              touchAction: "none",
+              cursor: "crosshair",
+            }}
+            onMouseDown={start}
+            onMouseMove={move}
+            onMouseUp={end}
+            onMouseLeave={end}
+            onTouchStart={start}
+            onTouchMove={move}
+            onTouchEnd={end}
+          />
+        </div>
       </div>
 
       {missing ? (
-        <div style={{ color: "#dc2626", fontSize: 12, marginTop: 6 }}>
-          Required before submitting.
+        <div style={{
+          color: "#ef4444",
+          fontSize: 13,
+          marginTop: 6,
+          fontFamily: "'Nunito', sans-serif",
+          fontWeight: 700,
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+        }}>
+          ⚠️ Please add your initials above
         </div>
       ) : null}
     </div>
@@ -931,6 +1111,7 @@ function AuditTrailPage({
   );
 }
 
+
 function LetterOfRepresentation({
   data,
   sig1,
@@ -970,9 +1151,10 @@ function LetterOfRepresentation({
         textAlign: "center",
         fontWeight: 700,
         fontSize: 20,
-        letterSpacing: 0.5,
-        padding: "10px 16px",
+        letterSpacing: 1,
+        padding: "11px 16px",
         textTransform: "uppercase",
+        fontFamily: "'Oswald', Arial, sans-serif",
       }}
     >
       Letter of Representation
@@ -1142,16 +1324,6 @@ function LetterOfRepresentation({
             page, all policy endorsements, and the original policy application.
             Please expedite these documents to our attention.
           </p>
-
-          <p style={{ margin: 0, fontStyle: "italic" }}>
-            Also, please note that Capital Claims Group Inc. should be named as
-            an additional payee on all insurance drafts and/or payments,
-            pursuant to the enclosed Notice of Loss/Notice of Representation
-            signed by the Insured(s). The insured(s) hereby reserve all rights
-            to make claims under the policy for replacement cost benefits as set
-            forth in the policy and likewise invoke their rights to repair,
-            rebuild or replace the damaged property.
-          </p>
         </div>
       </PdfPage>
 
@@ -1162,6 +1334,16 @@ function LetterOfRepresentation({
         contentPadding="0 0.42in 0.12in"
       >
         <div style={{ ...bodyText, marginTop: 10 }}>
+          <p style={{ margin: "0 0 14px", fontStyle: "italic" }}>
+            Also, please note that Capital Claims Group Inc. should be named as
+            an additional payee on all insurance drafts and/or payments,
+            pursuant to the enclosed Notice of Loss/Notice of Representation
+            signed by the Insured(s). The insured(s) hereby reserve all rights
+            to make claims under the policy for replacement cost benefits as set
+            forth in the policy and likewise invoke their rights to repair,
+            rebuild or replace the damaged property.
+          </p>
+
           <p style={{ margin: "0 0 10px" }}>
             Surely, you understand the Assured’s need to have this claim
             processed as quickly as possible, and as such, we will be
@@ -1315,59 +1497,105 @@ function PublicAdjusterContract({
   );
 
   const TitleBarImg = () => (
-    <img
-      src={PA_ASSETS.titleBar}
-      alt="title"
+    <div
       style={{
         width: "100%",
         display: "block",
         margin: "10px 0 12px",
+        background: "#199c2e",
+        color: "#fff",
+        textAlign: "center",
+        fontWeight: 700,
+        fontSize: 20,
+        letterSpacing: 1,
+        padding: "11px 16px",
+        textTransform: "uppercase",
+        fontFamily: "'Oswald', Arial, sans-serif",
+        boxSizing: "border-box",
       }}
-    />
+    >
+      Public Adjuster Authorization
+    </div>
   );
 
   const InitialsRow = () => (
     <div
       style={{
-        display: "grid",
-        gridTemplateColumns: hasSecond ? "1fr 1fr" : "1fr",
-        gap: 18,
-        marginTop: 10,
+        display: "flex",
+        alignItems: "flex-end",
+        gap: 24,
+        marginTop: 12,
+        paddingTop: 8,
+        borderTop: "1px solid #e5e7eb",
+        flexWrap: "wrap",
       }}
     >
-      <div>
-        <div style={{ fontSize: 11, marginBottom: 2 }}>Initials:</div>
+      {/* PA Initials — Benito Paul "PB" in Brush Script */}
+      <div style={{ minWidth: 80 }}>
+        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 2 }}>PA Initials:</div>
+        <div
+          style={{
+            borderBottom: "1px solid #199c2e",
+            height: 26,
+            display: "flex",
+            alignItems: "flex-end",
+            paddingBottom: 2,
+          }}
+        >
+          <span
+            style={{
+              fontFamily: '"Brush Script MT", cursive',
+              fontSize: 20,
+              color: "#111827",
+              lineHeight: 1,
+            }}
+          >
+            PB
+          </span>
+        </div>
+      </div>
+
+      {/* Homeowner 1 initials */}
+      <div style={{ minWidth: 80 }}>
+        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 2 }}>
+          {data.homeowner1 ? `${data.homeowner1} Initials:` : "Homeowner Initials:"}
+        </div>
         <div
           style={{
             borderBottom: "1px solid #000",
-            height: 20,
+            height: 26,
             display: "flex",
             alignItems: "flex-end",
+            paddingBottom: 2,
           }}
         >
           {data.initials1 ? (
-            <img src={data.initials1} alt="initials 1" style={{ height: 16 }} />
+            <img src={data.initials1} alt="initials 1" style={{ height: 20 }} />
           ) : (
-            <span style={{ fontSize: 14 }}>__</span>
+            <span style={{ fontSize: 13, color: "#9ca3af" }}>__</span>
           )}
         </div>
       </div>
 
+      {/* Homeowner 2 initials — only if second homeowner */}
       {hasSecond ? (
-        <div>
-          <div style={{ fontSize: 11, marginBottom: 2 }}>Initials:</div>
+        <div style={{ minWidth: 80 }}>
+          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 2 }}>
+            {data.homeowner2 ? `${data.homeowner2} Initials:` : "Homeowner 2 Initials:"}
+          </div>
           <div
             style={{
               borderBottom: "1px solid #000",
-              height: 20,
+              height: 26,
               display: "flex",
               alignItems: "flex-end",
+              paddingBottom: 2,
             }}
           >
             {data.initials2 ? (
-              <img src={data.initials2} alt="initials 2" style={{ height: 16 }} />
+              <img src={data.initials2} alt="initials 2" style={{ height: 20 }} />
             ) : (
-              <span style={{ fontSize: 14 }}>__</span>
+              <span style={{ fontSize: 13, color: "#9ca3af" }}>__</span>
             )}
           </div>
         </div>
@@ -1381,7 +1609,7 @@ function PublicAdjusterContract({
         <div
           style={{
             textAlign: "center",
-            fontSize: 10,
+            fontSize: 12,
             color: "#2f9e44",
             fontStyle: "italic",
             marginBottom: 4,
@@ -1466,14 +1694,17 @@ function PublicAdjusterContract({
           <p style={{ margin: "0 0 6px" }}>
             1. <span style={sectionHead}>Service Fee:</span>
           </p>
-          <p style={{ margin: "0 0 10px" }}>
+          <p style={{ margin: "0 0 6px" }}>
             The insured(s) hereby retains Capital Claims Group to be its public
             adjuster and hereby appoints Capital Claims Group to be its
             independent appraiser to appraise, advise, negotiate, and/or settle
-            the above-referenced claim. The insured(s) agrees to pay and hereby
-            assigns to Capital Claims Group <strong>10%</strong> of all payments
-            made by the insurance company related to this claim. In the event
-            appraisal, mediation is demanded, or a lawsuit ensues regarding the
+            the above-referenced claim.
+          </p>
+          <p style={{ margin: "0 0 6px", fontWeight: 700, fontSize: 18, lineHeight: 1.4 }}>
+            The insured(s) agrees to pay and hereby assigns to Capital Claims Group <strong>10%</strong> of all payments made by the insurance company related to this claim.
+          </p>
+          <p style={{ margin: "0 0 10px" }}>
+            In the event appraisal, mediation is demanded, or a lawsuit ensues regarding the
             above-mentioned claim, there will be an additional charge of five
             percent. The total contractual percentage shall not exceed the
             maximum allowed by law.
@@ -1629,20 +1860,20 @@ function PublicAdjusterContract({
             contract.
           </p>
 
-          <p style={{ margin: "0 0 6px", fontWeight: 700 }}>
+          <p style={{ margin: "0 0 6px", fontWeight: 700, fontSize: 18, lineHeight: 1.4 }}>
             12.{" "}
             <span style={{ color: "#199c2e" }}>
               Residential Policy Cancellation:
             </span>
           </p>
 
-          <p style={{ margin: "0 0 10px", fontWeight: 700 }}>
+          <p style={{ margin: "0 0 10px", fontWeight: 700, fontSize: 18, lineHeight: 1.5 }}>
             You, the insured, may cancel this contract for any reason without
             penalty or obligation to you within 10 days after the date of this
             contract.
           </p>
 
-          <p style={{ margin: 0, fontWeight: 700 }}>
+          <p style={{ margin: 0, fontWeight: 700, fontSize: 18, lineHeight: 1.5 }}>
             If this contract was entered into based on events that are the
             subject of a declaration of a state of emergency by the Governor,
             you may cancel this contract for any reason without penalty or
@@ -1772,7 +2003,7 @@ function PublicAdjusterContract({
                     />
                   ) : null}
                 </div>
-                <div style={{ fontSize: 11 }}>
+                <div style={{ fontSize: 12 }}>
                   Signature of the policyholder
                 </div>
                 <div style={{ marginTop: 8 }}>Date: {data.date}</div>
@@ -1790,7 +2021,7 @@ function PublicAdjusterContract({
                       />
                     ) : null}
                   </div>
-                  <div style={{ fontSize: 11 }}>
+                  <div style={{ fontSize: 12 }}>
                     Signature of the policyholder
                   </div>
                   <div style={{ marginTop: 8 }}>Date: {data.date}</div>
@@ -1804,7 +2035,7 @@ function PublicAdjusterContract({
       <AuditTrailPage
         auditInfo={auditInfo}
         data={data}
-        docLabel="PA Agreement"
+        docLabel="PA Authorization"
         claimId={claimId}
         isExportingPdf={isExportingPdf}
       />
@@ -1819,10 +2050,91 @@ export default function App() {
   const [data, setData] = useState(initialData);
   const [pendingSend, setPendingSend] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [currentClaimId, setCurrentClaimId] = useState(null);
   const [isSigningFromLink, setIsSigningFromLink] = useState(false);
   const [isLoadingSigningLink, setIsLoadingSigningLink] = useState(false);
   const [auditInfo, setAuditInfo] = useState(initialAuditInfo);
+
+  // Manager-editable content — persisted to localStorage
+  const DEFAULTS = {
+    reviewHeadline: "We're fighting for you — just two quick steps and we can get your claim moving. It's fast, easy, and completely secure.",
+    reviewLorText: "This simply lets your insurance company know that Capital Claims Group is in your corner, handling all the back-and-forth on your behalf. You won't have to deal with them directly at all.",
+    reviewPacText: "This is our working agreement — it outlines how we get paid (only when you get paid) and confirms that we're fully committed to maximizing your claim. No upfront costs, ever.",
+    reviewHelpText: "You can tap 'Preview' to read any document first. When you're ready, hit 'Looks Good!' on each one and scroll down to sign.",
+    thankYouHeadline: "You're All Set — Let's Get Your Money! 🚀",
+    thankYouOpening: "You did it! Your documents are signed and we're officially on the case. Here's exactly what happens next:",
+    thankYouSteps: JSON.stringify([
+      "📞 Your public adjuster will call you within 24 hours to introduce themselves and answer any questions.",
+      "🏠 We'll schedule a property inspection to document every bit of damage — the insurance company won't miss a thing.",
+      "📋 We build your full claim package and submit it to the insurance company on your behalf.",
+      "💰 We negotiate hard to maximize your settlement — you don't pay us unless you get paid.",
+      "🎉 You receive your settlement and we handle all the paperwork. Sit back and let us do the work!",
+    ]),
+    thankYouClosing: "We're so glad you chose Capital Claims Group. You made the right call. Talk soon! 💚",
+    preInspHeadline: "Inspection Booked — We're On It! 🏠",
+    preInspOpening: "You're all signed up! Your free roof inspection is next. Here's what to expect:",
+    preInspSteps: JSON.stringify([
+      "📅 Your rep will schedule your free roof inspection — usually within 1–3 business days.",
+      "🏠 One of our trained inspectors will visit the property and document any damage thoroughly.",
+      "📊 We review the inspection report and advise you on whether to file a claim.",
+      "✅ If damage is found, we'll have you sign the PA paperwork and get to work immediately.",
+      "💚 No damage found? No problem — the inspection is completely free, no strings attached.",
+    ]),
+    preInspClosing: "We'll be in touch soon to schedule your inspection. Thank you for trusting Capital Claims Group! 💚",
+    managerPin: "1234",
+  };
+
+  const loadSetting = (key) => {
+    try { return localStorage.getItem("ccg_mgr_" + key) || DEFAULTS[key]; } catch { return DEFAULTS[key]; }
+  };
+  const saveSetting = (key, value) => {
+    try { localStorage.setItem("ccg_mgr_" + key, value); } catch {}
+  };
+
+  const [reviewHeadline, setReviewHeadlineRaw] = useState(() => loadSetting("reviewHeadline"));
+  const [reviewLorText, setReviewLorTextRaw] = useState(() => loadSetting("reviewLorText"));
+  const [reviewPacText, setReviewPacTextRaw] = useState(() => loadSetting("reviewPacText"));
+  const [reviewHelpText, setReviewHelpTextRaw] = useState(() => loadSetting("reviewHelpText"));
+  const [thankYouHeadline, setThankYouHeadlineRaw] = useState(() => loadSetting("thankYouHeadline"));
+  const [thankYouOpening, setThankYouOpeningRaw] = useState(() => loadSetting("thankYouOpening"));
+  const [thankYouSteps, setThankYouStepsRaw] = useState(() => {
+    try { return JSON.parse(loadSetting("thankYouSteps")); } catch { return JSON.parse(DEFAULTS.thankYouSteps); }
+  });
+  const [thankYouClosing, setThankYouClosingRaw] = useState(() => loadSetting("thankYouClosing"));
+  const [managerPin, setManagerPinRaw] = useState(() => loadSetting("managerPin"));
+  const [managerPinEntry, setManagerPinEntry] = useState("");
+  const [managerUnlocked, setManagerUnlocked] = useState(false);
+  const [managerTYTab, setManagerTYTab] = useState("post_inspection");
+
+  // Wrappers that save to localStorage on every change
+  const setReviewHeadline = (v) => { setReviewHeadlineRaw(v); saveSetting("reviewHeadline", v); };
+  const setReviewLorText  = (v) => { setReviewLorTextRaw(v);  saveSetting("reviewLorText", v); };
+  const setReviewPacText  = (v) => { setReviewPacTextRaw(v);  saveSetting("reviewPacText", v); };
+  const setReviewHelpText = (v) => { setReviewHelpTextRaw(v); saveSetting("reviewHelpText", v); };
+  const setThankYouHeadline = (v) => { setThankYouHeadlineRaw(v); saveSetting("thankYouHeadline", v); };
+  const setThankYouOpening = (v) => { setThankYouOpeningRaw(v); saveSetting("thankYouOpening", v); };
+  const setThankYouSteps   = (v) => { setThankYouStepsRaw(v);   saveSetting("thankYouSteps", JSON.stringify(v)); };
+  const setThankYouClosing = (v) => { setThankYouClosingRaw(v); saveSetting("thankYouClosing", v); };
+  const setManagerPin     = (v) => { setManagerPinRaw(v);     saveSetting("managerPin", v); };
+
+  // Pre-inspection flow state
+  const [preInspHeadline, setPreInspHeadlineRaw] = useState(() => loadSetting("preInspHeadline"));
+  const [preInspOpening,  setPreInspOpeningRaw]  = useState(() => loadSetting("preInspOpening"));
+  const [preInspSteps,    setPreInspStepsRaw]    = useState(() => {
+    try { return JSON.parse(loadSetting("preInspSteps")); } catch { return JSON.parse(DEFAULTS.preInspSteps); }
+  });
+  const [preInspClosing,  setPreInspClosingRaw]  = useState(() => loadSetting("preInspClosing"));
+  const setPreInspHeadline = (v) => { setPreInspHeadlineRaw(v); saveSetting("preInspHeadline", v); };
+  const setPreInspOpening  = (v) => { setPreInspOpeningRaw(v);  saveSetting("preInspOpening", v); };
+  const setPreInspSteps    = (v) => { setPreInspStepsRaw(v);    saveSetting("preInspSteps", JSON.stringify(v)); };
+  const setPreInspClosing  = (v) => { setPreInspClosingRaw(v);  saveSetting("preInspClosing", v); };
+
+  // Derived: which thank you content to show based on claimStage
+  const activeTYHeadline = data.claimStage === "pre_inspection" ? preInspHeadline : thankYouHeadline;
+  const activeTYOpening  = data.claimStage === "pre_inspection" ? preInspOpening  : thankYouOpening;
+  const activeTYSteps    = data.claimStage === "pre_inspection" ? preInspSteps    : thankYouSteps;
+  const activeTYClosing  = data.claimStage === "pre_inspection" ? preInspClosing  : thankYouClosing;
 
   const [sig1, setSig1] = useState("");
   const [sig2, setSig2] = useState("");
@@ -1840,6 +2152,10 @@ export default function App() {
   const [initialsFont1, setInitialsFont1] = useState(SIGNATURE_FONTS[0]);
   const [initialsFont2, setInitialsFont2] = useState(SIGNATURE_FONTS[0]);
 
+  const [lorAgreed, setLorAgreed] = useState(false);
+  const [pacAgreed, setPacAgreed] = useState(false);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+
   const hasSecond = Boolean(data.homeowner2?.trim());
 
   const propertyAddressText = [
@@ -1848,6 +2164,10 @@ export default function App() {
   ]
     .filter(Boolean)
     .join("\n");
+
+  const reviewReady =
+    (!selectedDocs.includes("lor") || lorAgreed) &&
+    (!selectedDocs.includes("pac") || pacAgreed);
 
   useEffect(() => {
     if (data.lossLocationSameAsAddress) {
@@ -1897,6 +2217,9 @@ export default function App() {
         setSignMode("now");
         setPendingSend(false);
         setIsSigningFromLink(true);
+        setLorAgreed(false);
+        setPacAgreed(false);
+        setSubmitAttempted(false);
 
         setSig1(claim.signature1 || "");
         setSig2(claim.signature2 || "");
@@ -1947,7 +2270,7 @@ export default function App() {
               .join("\n"),
         }));
 
-        setView("sign");
+        setView("review");
       } finally {
         setIsLoadingSigningLink(false);
       }
@@ -1955,6 +2278,19 @@ export default function App() {
 
     loadFromSigningLink();
   }, []);
+
+  useEffect(() => {
+    if (view === "review" && reviewReady) {
+      const timer = setTimeout(() => {
+        const el = document.getElementById("signature-section");
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }, 200);
+
+      return () => clearTimeout(timer);
+    }
+  }, [view, reviewReady]);
 
   const update = (key, value) => {
     setData((prev) => ({ ...prev, [key]: value }));
@@ -2009,7 +2345,11 @@ export default function App() {
     setData((prev) => ({ ...prev, initials1: "", initials2: "" }));
     setInitials1Typed("");
     setInitials2Typed("");
-    setView("sign");
+    setLorAgreed(false);
+    setPacAgreed(false);
+    setSubmitAttempted(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    setView("review");
   };
 
   const effectiveSig1 =
@@ -2078,6 +2418,20 @@ export default function App() {
     }
   };
 
+  const previewDocument = async (doc) => {
+    try {
+      const selector =
+        doc === "lor" ? "#lor-printable-document" : "#pac-printable-document";
+      const filename = documentFilename(doc);
+      const blob = await generatePDF(selector, filename);
+      const blobUrl = URL.createObjectURL(blob);
+      window.open(blobUrl, "_blank", "noopener,noreferrer");
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+    } catch (err) {
+      alert(err?.message || "Failed to open preview.");
+    }
+  };
+
   const blobToBase64 = (blob) =>
     new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -2142,13 +2496,11 @@ export default function App() {
 
   const submitDoc = async () => {
     try {
+      setSubmitAttempted(true);
       if (!pendingSend && !isSigningComplete) {
-        alert(
-          "Please complete the required signing fields:\n\n" +
-            missingSigningFields.join("\n")
-        );
         return;
       }
+      setIsSubmitting(true);
 
       if (pendingSend) {
         const { record, error } = await saveClaimToSupabase(null);
@@ -2157,7 +2509,13 @@ export default function App() {
           return;
         }
 
-        const signingLink = `${window.location.origin}/?sign=1&docs=${selectedDocs.join(",")}&claim=${record?.id}`;
+        const params = new URLSearchParams({
+          sign: "1",
+          docs: selectedDocs.join(","),
+          claim: String(record?.id || ""),
+        });
+
+        const signingLink = `${window.location.origin}/?${params.toString()}`;
 
         const emailResponse = await fetch("/.netlify/functions/send-email", {
           method: "POST",
@@ -2184,7 +2542,7 @@ export default function App() {
         });
 
         await parseJsonResponse(emailResponse, "Signing email failed.");
-        alert(`Signing link sent to ${data.signerEmail}.`);
+        setIsSubmitting(false);
         setView("input");
         setPendingSend(false);
         return;
@@ -2257,48 +2615,168 @@ export default function App() {
         });
       }
 
+      // Always attach the welcome package PDF
+      try {
+        const welcomeBlob = await generatePDF(
+          "#ty-summary-printable",
+          "CCG-Welcome-Package.pdf"
+        );
+        const welcomeBase64 = await blobToBase64(welcomeBlob);
+        attachments.push({
+          filename: "CCG-Welcome-Package.pdf",
+          content: String(welcomeBase64).split(",")[1],
+        });
+      } catch (e) {
+        console.warn("Welcome package PDF failed, skipping:", e);
+      }
+
       const finalEmailResponse = await fetch("/.netlify/functions/send-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          to: [data.signerEmail, data.paEmail].filter(Boolean),
-          subject:
-            selectedDocs.length > 1
-              ? "Signed Claim Documents Submitted"
-              : `${documentLabel(selectedDocs[0])} Submitted`,
+          to: [data.signerEmail].filter(Boolean),
+          subject: "Your Signed Documents — Capital Claims Group",
           html: `
-            <h2>Claim Document Submitted</h2>
-            <p><strong>Forms included:</strong> ${selectedDocs
-              .map(documentLabel)
-              .join(", ")}</p>
-            <p><strong>Signed at:</strong> ${nextAuditInfo.signedAt || ""}</p>
-            <p><strong>Signing IP:</strong> ${nextAuditInfo.signedIp || ""}</p>
-            ${
-              nextAuditInfo.signedCity || nextAuditInfo.signedRegion
-                ? `<p><strong>City / State:</strong> ${[
-                    nextAuditInfo.signedCity,
-                    nextAuditInfo.signedRegion,
-                  ]
-                    .filter(Boolean)
-                    .join(", ")}</p>`
-                : ""
-            }
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <div style="background: #199c2e; padding: 28px 32px; border-radius: 12px 12px 0 0;">
+                <h1 style="color: #fff; margin: 0; font-size: 24px;">🎉 You're All Set!</h1>
+              </div>
+              <div style="background: #f9fafb; padding: 28px 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb; border-top: none;">
+                <p style="font-size: 16px; color: #111827; margin-top: 0;">
+                  Hi ${[data.homeowner1, data.homeowner2].filter(Boolean).join(" & ")},
+                </p>
+                <p style="font-size: 15px; color: #374151; line-height: 1.6;">
+                  Your documents are signed and we're officially on the case.
+                  <strong>We've attached everything to this email</strong> for your records:
+                </p>
+                <ul style="font-size: 15px; color: #374151; line-height: 1.8;">
+                  ${selectedDocs.map(d => `<li><strong>${documentLabel(d)}</strong> — your signed copy</li>`).join("")}
+                  <li><strong>CCG Welcome Package</strong> — what to expect next &amp; our contact info</li>
+                </ul>
+                <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 18px 20px; margin: 20px 0;">
+                  <p style="margin: 0 0 8px; font-weight: 700; color: #166534;">📞 Need to reach us?</p>
+                  <p style="margin: 0; color: #166534; font-size: 14px; line-height: 1.7;">
+                    Phone: +1 (954) 571-3035<br/>
+                    Email: claims@capitalclaimgroup.com<br/>
+                    Website: www.ccgclaims.com
+                  </p>
+                </div>
+                <p style="font-size: 14px; color: #6b7280; margin-bottom: 0;">
+                  <em>Signed at: ${nextAuditInfo.signedAt || ""}</em>
+                </p>
+              </div>
+            </div>
           `,
           attachments,
         }),
       });
 
-      await parseJsonResponse(finalEmailResponse, "Final signed email failed.");
+      await parseJsonResponse(finalEmailResponse, "Homeowner email failed.");
 
-      alert("Saved successfully! Signed document email sent.");
-      setView("input");
+      // ── PA notification email — different content based on claim stage ──
+      const isPostInspection = data.claimStage === "post_inspection";
+      const homeownerName = [data.homeowner1, data.homeowner2].filter(Boolean).join(" & ") || "Homeowner";
+      const homeownerAddress = [data.address, data.city, data.state, data.zip].filter(Boolean).join(", ");
+
+      const paSubject = isPostInspection
+        ? `✅ Signed PA Docs — ${homeownerName} (Damage Confirmed)`
+        : `📋 Signed PA Docs — ${homeownerName} (Inspection Pending)`;
+
+      const paHtml = isPostInspection ? `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background: #1e40af; padding: 24px 32px; border-radius: 12px 12px 0 0;">
+            <h1 style="color: #fff; margin: 0; font-size: 22px;">✅ Damage Confirmed — Docs Signed</h1>
+          </div>
+          <div style="background: #f9fafb; padding: 28px 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb; border-top: none;">
+            <p style="font-size: 15px; color: #374151; line-height: 1.6; margin-top: 0;">
+              You inspected this property and confirmed damage. The homeowner has now signed all required documents and is ready to move forward with the claim.
+            </p>
+
+            <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 18px 20px; margin: 20px 0;">
+              <p style="margin: 0 0 10px; font-weight: 700; color: #1e40af; font-size: 15px;">👤 Homeowner Details</p>
+              <table style="font-size: 14px; color: #374151; width: 100%; border-collapse: collapse;">
+                <tr><td style="padding: 4px 0; font-weight: 600; width: 140px;">Name:</td><td>${homeownerName}</td></tr>
+                <tr><td style="padding: 4px 0; font-weight: 600;">Address:</td><td>${homeownerAddress}</td></tr>
+                <tr><td style="padding: 4px 0; font-weight: 600;">Phone:</td><td>${data.phone || "—"}</td></tr>
+                <tr><td style="padding: 4px 0; font-weight: 600;">Email:</td><td>${data.signerEmail || "—"}</td></tr>
+                <tr><td style="padding: 4px 0; font-weight: 600;">Insurance Co.:</td><td>${data.insuranceCompany || "—"}</td></tr>
+                <tr><td style="padding: 4px 0; font-weight: 600;">Policy #:</td><td>${data.policyNumber || "—"}</td></tr>
+                ${data.claimNumber ? `<tr><td style="padding: 4px 0; font-weight: 600;">Claim #:</td><td>${data.claimNumber}</td></tr>` : ""}
+                ${data.dateOfLoss ? `<tr><td style="padding: 4px 0; font-weight: 600;">Date of Loss:</td><td>${data.dateOfLoss}</td></tr>` : ""}
+              </table>
+            </div>
+
+            <p style="font-size: 14px; color: #374151; line-height: 1.6;">
+              The signed documents are attached. You're good to proceed with filing the claim.
+            </p>
+            <p style="font-size: 13px; color: #6b7280; margin-bottom: 0;">
+              <em>Signed at: ${nextAuditInfo.signedAt || ""} &nbsp;|&nbsp; IP: ${nextAuditInfo.signedIp || ""}</em>
+            </p>
+          </div>
+        </div>
+      ` : `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background: #d97706; padding: 24px 32px; border-radius: 12px 12px 0 0;">
+            <h1 style="color: #fff; margin: 0; font-size: 22px;">📋 Signed Docs — Inspection Needed</h1>
+          </div>
+          <div style="background: #f9fafb; padding: 28px 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb; border-top: none;">
+            <p style="font-size: 15px; color: #374151; line-height: 1.6; margin-top: 0;">
+              The homeowner has signed the paperwork. <strong>The roof has not been inspected yet</strong> — the inspection should be scheduled within the week. Please watch for this job in <strong>Job Nimbus</strong> and assign the inspection accordingly.
+            </p>
+
+            <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 14px 18px; margin: 16px 0;">
+              <p style="margin: 0; font-weight: 700; color: #92400e; font-size: 14px;">⚠️ Action Required: Schedule roof inspection within the week</p>
+            </div>
+
+            <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; padding: 18px 20px; margin: 16px 0;">
+              <p style="margin: 0 0 10px; font-weight: 700; color: #111827; font-size: 15px;">👤 Homeowner Details</p>
+              <table style="font-size: 14px; color: #374151; width: 100%; border-collapse: collapse;">
+                <tr><td style="padding: 4px 0; font-weight: 600; width: 140px;">Name:</td><td>${homeownerName}</td></tr>
+                <tr><td style="padding: 4px 0; font-weight: 600;">Address:</td><td>${homeownerAddress}</td></tr>
+                <tr><td style="padding: 4px 0; font-weight: 600;">Phone:</td><td>${data.phone || "—"}</td></tr>
+                <tr><td style="padding: 4px 0; font-weight: 600;">Email:</td><td>${data.signerEmail || "—"}</td></tr>
+                <tr><td style="padding: 4px 0; font-weight: 600;">Insurance Co.:</td><td>${data.insuranceCompany || "—"}</td></tr>
+                <tr><td style="padding: 4px 0; font-weight: 600;">Policy #:</td><td>${data.policyNumber || "—"}</td></tr>
+              </table>
+            </div>
+
+            <p style="font-size: 14px; color: #374151; line-height: 1.6;">
+              Signed documents are attached for your records. Once the inspection confirms damage, proceed with the PA claim process.
+            </p>
+            <p style="font-size: 13px; color: #6b7280; margin-bottom: 0;">
+              <em>Signed at: ${nextAuditInfo.signedAt || ""} &nbsp;|&nbsp; IP: ${nextAuditInfo.signedIp || ""}</em>
+            </p>
+          </div>
+        </div>
+      `;
+
+      if (data.paEmail) {
+        const paEmailResponse = await fetch("/.netlify/functions/send-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            to: [data.paEmail],
+            subject: paSubject,
+            html: paHtml,
+            attachments,
+          }),
+        });
+        await parseJsonResponse(paEmailResponse, "PA notification email failed.");
+      }
+
+      setIsSubmitting(false);
       setPendingSend(false);
 
       if (isSigningFromLink) {
         window.history.replaceState({}, "", window.location.pathname);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        setView("thankyou");
+      } else {
+        setView("input");
       }
     } catch (err) {
-      alert(err?.message || "Something went wrong.");
+      setIsSubmitting(false);
+      alert(err?.message || "Something went wrong. Please try again.");
     }
   };
 
@@ -2311,13 +2789,442 @@ export default function App() {
           alignItems: "center",
           justifyContent: "center",
           background: "#f1f5f9",
-          fontFamily: "Arial, Helvetica, sans-serif",
+          fontFamily: "'Oswald', Arial, Helvetica, sans-serif",
         }}
       >
         Loading signing request...
       </div>
     );
   }
+
+  // Reusable inline style for the friendly toggle pill button
+
+  const sigSectionLabel = (emoji, title, subtitle) => (
+    <div style={{ marginBottom: 12, marginTop: 20 }}>
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        marginBottom: 4,
+      }}>
+        <span style={{ fontSize: 28 }}>{emoji}</span>
+        <span style={{
+          fontSize: 20,
+          fontWeight: 700,
+          color: "#111827",
+          fontFamily: "'Nunito', sans-serif",
+        }}>{title}</span>
+      </div>
+      {subtitle ? (
+        <div style={{
+          fontSize: 15,
+          color: "#6b7280",
+          fontFamily: "'Nunito', sans-serif",
+          lineHeight: 1.5,
+          paddingLeft: 38,
+        }}>
+          {subtitle}
+        </div>
+      ) : null}
+    </div>
+  );
+
+  const renderSigningFields = (showSendMode = false) => (
+    <div>
+      {/* ── Header strip ── */}
+      {!showSendMode ? (
+        <div
+          style={{
+            background: "linear-gradient(135deg, #199c2e, #15803d)",
+            borderRadius: "24px 24px 0 0",
+            padding: "28px 28px 24px",
+            color: "#fff",
+          }}
+        >
+          <div style={{ fontSize: 32, marginBottom: 6 }}>✍️</div>
+          <div style={{
+            fontSize: 30,
+            fontWeight: 700,
+            fontFamily: "'Oswald', sans-serif",
+            marginBottom: 8,
+            lineHeight: 1.1,
+          }}>
+            One Last Step — Sign Here!
+          </div>
+          <div style={{
+            fontSize: 17,
+            fontFamily: "'Nunito', sans-serif",
+            fontWeight: 600,
+            opacity: 0.92,
+            lineHeight: 1.6,
+            maxWidth: 520,
+          }}>
+            Use your finger, mouse, or just type your name below. It only takes 30 seconds. 🎉
+          </div>
+        </div>
+      ) : null}
+
+      <Card style={{ borderRadius: showSendMode ? 24 : "0 0 24px 24px", borderTop: showSendMode ? undefined : "none" }}>
+        {showSendMode ? (
+          <CardHeader>
+            <CardTitle>Review & Send for Signing</CardTitle>
+            <CardDescription>Review the selected forms, then email one signing link to the homeowner.</CardDescription>
+          </CardHeader>
+        ) : null}
+
+        <CardContent>
+          {!showSendMode ? (
+            <>
+              {!reviewReady && submitAttempted ? (
+                <div style={{
+                  background: "#fef9c3",
+                  color: "#713f12",
+                  border: "1px solid #fde68a",
+                  borderRadius: 14,
+                  padding: "14px 18px",
+                  marginBottom: 20,
+                  fontSize: 16,
+                  fontWeight: 700,
+                  fontFamily: "'Nunito', sans-serif",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                }}>
+                  <span style={{ fontSize: 22 }}>👆</span>
+                  Scroll up and tap "Looks Good!" on each document first!
+                </div>
+              ) : null}
+
+              {/* ── HOW TO SIGN — two big friendly option cards ── */}
+              <div style={{ marginBottom: 24 }}>
+                <div style={{
+                  fontSize: 16,
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                  color: "#111827",
+                  fontFamily: "'Oswald', sans-serif",
+                  marginBottom: 12,
+                }}>
+                  ✏️ Choose How to Sign:
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  {/* Option A: Draw */}
+                  <button
+                    type="button"
+                    onClick={() => { setSigMethod1("draw"); setSigMethod2("draw"); }}
+                    style={{
+                      padding: "18px 14px",
+                      borderRadius: 18,
+                      border: sigMethod1 === "draw" ? "3px solid #199c2e" : "2px solid #e5e7eb",
+                      background: sigMethod1 === "draw" ? "#f0fdf4" : "#fff",
+                      cursor: "pointer",
+                      textAlign: "center",
+                      transition: "all 0.2s",
+                    }}
+                  >
+                    <div style={{ fontSize: 36, marginBottom: 8 }}>👆</div>
+                    <div style={{
+                      fontSize: 16,
+                      fontWeight: 700,
+                      color: "#111827",
+                      fontFamily: "'Nunito', sans-serif",
+                      marginBottom: 4,
+                    }}>
+                      Draw Your Signature
+                    </div>
+                    <div style={{
+                      fontSize: 13,
+                      color: "#6b7280",
+                      fontFamily: "'Nunito', sans-serif",
+                      lineHeight: 1.4,
+                    }}>
+                      Use your finger or mouse in the box
+                    </div>
+                    {sigMethod1 === "draw" ? (
+                      <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#199c2e", fontFamily: "'Nunito', sans-serif" }}>✓ Selected</div>
+                    ) : null}
+                  </button>
+
+                  {/* Option B: Type */}
+                  <button
+                    type="button"
+                    onClick={() => { setSigMethod1("type"); setSigMethod2("type"); setInitialsMethod1("type"); setInitialsMethod2("type"); }}
+                    style={{
+                      padding: "18px 14px",
+                      borderRadius: 18,
+                      border: sigMethod1 === "type" ? "3px solid #199c2e" : "2px solid #e5e7eb",
+                      background: sigMethod1 === "type" ? "#f0fdf4" : "#fff",
+                      cursor: "pointer",
+                      textAlign: "center",
+                      transition: "all 0.2s",
+                    }}
+                  >
+                    <div style={{ fontSize: 36, marginBottom: 8 }}>⌨️</div>
+                    <div style={{
+                      fontSize: 16,
+                      fontWeight: 700,
+                      color: "#111827",
+                      fontFamily: "'Nunito', sans-serif",
+                      marginBottom: 4,
+                    }}>
+                      Type Your Signature
+                    </div>
+                    <div style={{
+                      fontSize: 13,
+                      color: "#6b7280",
+                      fontFamily: "'Nunito', sans-serif",
+                      lineHeight: 1.4,
+                    }}>
+                      Type your name &amp; pick a style
+                    </div>
+                    {sigMethod1 === "type" ? (
+                      <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#199c2e", fontFamily: "'Nunito', sans-serif" }}>✓ Selected</div>
+                    ) : null}
+                  </button>
+                </div>
+              </div>
+
+              {/* ── Signature field ── */}
+              {sigSectionLabel("🖊️", data.homeowner1 ? `${data.homeowner1}'s Signature` : "Your Signature", null)}
+
+              {sigMethod1 === "draw" ? (
+                <SignaturePad
+                  title=""
+                  value={sig1}
+                  onChange={setSig1}
+                  required
+                  missing={submitAttempted && !effectiveSig1}
+                />
+              ) : (
+                <TypedSignatureField
+                  title=""
+                  value={typedSig1}
+                  onChange={setTypedSig1}
+                  fontValue={sigFont1}
+                  onFontChange={setSigFont1}
+                  required
+                  missing={submitAttempted && !effectiveSig1}
+                  placeholder="Type your full legal name"
+                />
+              )}
+
+              {hasSecond ? (
+                <>
+                  {sigSectionLabel("🖊️", data.homeowner2 ? `${data.homeowner2}'s Signature` : "Co-Owner Signature", null)}
+                  {sigMethod2 === "draw" ? (
+                    <SignaturePad
+                      title=""
+                      value={sig2}
+                      onChange={setSig2}
+                      required
+                      missing={submitAttempted && !effectiveSig2}
+                    />
+                  ) : (
+                    <TypedSignatureField
+                      title=""
+                      value={typedSig2}
+                      onChange={setTypedSig2}
+                      fontValue={sigFont2}
+                      onFontChange={setSigFont2}
+                      required
+                      missing={submitAttempted && !effectiveSig2}
+                      placeholder="Type co-owner's full legal name"
+                    />
+                  )}
+                </>
+              ) : null}
+
+              {selectedDocs.includes("pac") ? (
+                <>
+                  {/* ── Initials intro banner ── */}
+                  <div style={{
+                    marginTop: 28,
+                    marginBottom: 20,
+                    borderRadius: 20,
+                    background: "linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)",
+                    border: "2px solid #86efac",
+                    padding: "20px 24px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 18,
+                  }}>
+                    <div style={{
+                      fontSize: 48,
+                      lineHeight: 1,
+                      flexShrink: 0,
+                    }}>
+                      🎉
+                    </div>
+                    <div>
+                      <div style={{
+                        fontSize: 22,
+                        fontWeight: 800,
+                        color: "#15803d",
+                        fontFamily: "'Oswald', sans-serif",
+                        letterSpacing: "0.02em",
+                        marginBottom: 4,
+                        lineHeight: 1.1,
+                      }}>
+                        Almost There — Just Initials!
+                      </div>
+                      <div style={{
+                        fontSize: 16,
+                        color: "#166534",
+                        fontFamily: "'Nunito', sans-serif",
+                        fontWeight: 600,
+                        lineHeight: 1.55,
+                      }}>
+                        One tiny step left — just pop your initials in the box below. Same as before, draw or type! 😊
+                      </div>
+                    </div>
+                  </div>
+
+                  {sigSectionLabel("✏️", data.homeowner1 ? `${data.homeowner1}'s Initials` : "Your Initials", null)}
+
+                  {initialsMethod1 === "draw" ? (
+                    <InitialsPad
+                      title=""
+                      value={data.initials1}
+                      onChange={(v) => update("initials1", v)}
+                      required
+                      missing={submitAttempted && !effectiveInitials1}
+                    />
+                  ) : (
+                    <TypedInitialsField
+                      title=""
+                      value={initials1Typed}
+                      onChange={setInitials1Typed}
+                      fontValue={initialsFont1}
+                      onFontChange={setInitialsFont1}
+                      required
+                      missing={submitAttempted && !effectiveInitials1}
+                      placeholder="Your initials (e.g. JD)"
+                    />
+                  )}
+
+                  {hasSecond ? (
+                    <>
+                      {sigSectionLabel("✏️", data.homeowner2 ? `${data.homeowner2}'s Initials` : "Co-Owner Initials", null)}
+                      {initialsMethod2 === "draw" ? (
+                        <InitialsPad
+                          title=""
+                          value={data.initials2}
+                          onChange={(v) => update("initials2", v)}
+                          required
+                          missing={submitAttempted && !effectiveInitials2}
+                        />
+                      ) : (
+                        <TypedInitialsField
+                          title=""
+                          value={initials2Typed}
+                          onChange={setInitials2Typed}
+                          fontValue={initialsFont2}
+                          onFontChange={setInitialsFont2}
+                          required
+                          missing={submitAttempted && !effectiveInitials2}
+                          placeholder="Co-owner initials (e.g. JD)"
+                        />
+                      )}
+                    </>
+                  ) : null}
+                </>
+              ) : null}
+            </>
+          ) : null}
+
+          {!showSendMode && submitAttempted && missingSigningFields.length > 0 ? (
+            <div style={{
+              marginTop: 16,
+              marginBottom: 12,
+              padding: "14px 18px",
+              background: "#fef2f2",
+              borderRadius: 14,
+              fontSize: 15,
+              color: "#991b1b",
+              fontFamily: "'Nunito', sans-serif",
+              fontWeight: 700,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}>
+              <span style={{ fontSize: 20 }}>⚠️</span>
+              Almost there! Still needed: {missingSigningFields.join(", ")}
+            </div>
+          ) : null}
+
+        <div
+          style={{
+            display: "flex",
+            gap: 12,
+            paddingTop: 8,
+            flexWrap: "wrap",
+          }}
+        >
+          <Button
+            onClick={submitDoc}
+            disabled={
+              isSubmitting || (showSendMode ? false : !reviewReady || !isSigningComplete)
+            }
+          >
+            {showSendMode ? <Send size={16} /> : <Mail size={16} />}
+            {showSendMode ? "Send for Signing" : "Submit & Email Copies"}
+          </Button>
+
+          <Button
+            variant="outline"
+            onClick={async () => {
+              try {
+                const selector = selectedDocs.includes("lor")
+                  ? "#lor-printable-document"
+                  : "#pac-printable-document";
+                const filename = selectedDocs.includes("lor")
+                  ? documentFilename("lor")
+                  : documentFilename("pac");
+
+                const element = document.querySelector(selector);
+                if (!element) {
+                  alert("Document not found.");
+                  return;
+                }
+
+                setIsExportingPdf(true);
+                await new Promise((resolve) => setTimeout(resolve, 200));
+
+                await html2pdf()
+                  .set({
+                    margin: 0,
+                    filename,
+                    image: { type: "jpeg", quality: 0.98 },
+                    html2canvas: {
+                      scale: 1.5,
+                      useCORS: true,
+                      scrollX: 0,
+                      scrollY: 0,
+                    },
+                    jsPDF: {
+                      unit: "in",
+                      format: "letter",
+                      orientation: "portrait",
+                    },
+                    pagebreak: { mode: ["css"] },
+                  })
+                  .from(element)
+                  .save();
+              } catch (err) {
+                alert(err?.message || "Failed to download PDF.");
+              } finally {
+                setIsExportingPdf(false);
+              }
+            }}
+          >
+            Download PDF
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+    </div>
+  );
 
   return (
     <div
@@ -2329,9 +3236,16 @@ export default function App() {
       }}
     >
       <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Nunito:wght@400;500;600;700&display=swap');
         body {
           margin: 0;
-          font-family: Arial, Helvetica, sans-serif;
+          font-family: 'Nunito', Arial, Helvetica, sans-serif;
+        }
+        input, textarea, select {
+          font-family: 'Nunito', Arial, Helvetica, sans-serif;
+        }
+        button {
+          font-family: 'Oswald', Arial, Helvetica, sans-serif;
         }
       `}</style>
 
@@ -2346,11 +3260,36 @@ export default function App() {
         {view === "input" ? (
           <Card>
             <CardHeader>
-              <CardTitle>Claim Intake</CardTitle>
-              <CardDescription>
-                Enter the information once, choose sign now or send for signing,
-                choose which forms to include, then continue.
-              </CardDescription>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div>
+                  <CardTitle>Claim Intake</CardTitle>
+                  <CardDescription>
+                    Enter the information once, choose sign now or send for signing,
+                    choose which forms to include, then continue.
+                  </CardDescription>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setView("manager")}
+                  style={{
+                    background: "transparent",
+                    border: "1px solid #d1d5db",
+                    borderRadius: 10,
+                    padding: "6px 14px",
+                    fontSize: 12,
+                    fontFamily: "'Oswald', sans-serif",
+                    fontWeight: 600,
+                    letterSpacing: "0.04em",
+                    color: "#6b7280",
+                    cursor: "pointer",
+                    textTransform: "uppercase",
+                    flexShrink: 0,
+                    marginTop: 4,
+                  }}
+                >
+                  ⚙️ Manager
+                </button>
+              </div>
             </CardHeader>
 
             <CardContent>
@@ -2375,11 +3314,42 @@ export default function App() {
                       value={data.homeowner2}
                       onChange={(v) => update("homeowner2", v)}
                     />
-                    <FormField
-                      label="Phone"
-                      value={data.phone}
-                      onChange={(v) => update("phone", v)}
-                    />
+                    <div>
+                      <label style={{
+                        display: "block",
+                        fontSize: 14,
+                        color: "#374151",
+                        marginBottom: 8,
+                        fontWeight: 600,
+                        fontFamily: "'Nunito', sans-serif",
+                      }}>Phone</label>
+                      <input
+                        type="tel"
+                        value={data.phone}
+                        placeholder="(813) 656-4161"
+                        onChange={(e) => {
+                          const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
+                          let formatted = digits;
+                          if (digits.length >= 7) {
+                            formatted = `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
+                          } else if (digits.length >= 4) {
+                            formatted = `(${digits.slice(0,3)}) ${digits.slice(3)}`;
+                          } else if (digits.length >= 1) {
+                            formatted = `(${digits}`;
+                          }
+                          update("phone", formatted);
+                        }}
+                        style={{
+                          width: "100%",
+                          height: 44,
+                          borderRadius: 14,
+                          border: "1px solid #d1d5db",
+                          padding: "0 12px",
+                          fontSize: 14,
+                          boxSizing: "border-box",
+                        }}
+                      />
+                    </div>
                     <FormField
                       label="Homeowner Email"
                       type="email"
@@ -2498,6 +3468,62 @@ export default function App() {
                     />
                   </div>
                 </Card>
+
+                {/* Claim Stage selector */}
+                <Card style={{ padding: 20, background: "#f8fafc" }}>
+                  <SectionTitle>Claim Stage</SectionTitle>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    <button
+                      type="button"
+                      onClick={() => update("claimStage", "pre_inspection")}
+                      style={{
+                        padding: "16px 12px",
+                        borderRadius: 16,
+                        border: data.claimStage === "pre_inspection" ? "3px solid #199c2e" : "2px solid #e5e7eb",
+                        background: data.claimStage === "pre_inspection" ? "#f0fdf4" : "#fff",
+                        cursor: "pointer",
+                        textAlign: "center",
+                        transition: "all 0.2s",
+                      }}
+                    >
+                      <div style={{ fontSize: 28, marginBottom: 6 }}>🏠</div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>
+                        Roof Needs Inspection
+                      </div>
+                      <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>
+                        Signing before the inspection — next step is scheduling
+                      </div>
+                      {data.claimStage === "pre_inspection" ? (
+                        <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#199c2e", fontFamily: "'Nunito', sans-serif" }}>✓ Selected</div>
+                      ) : null}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => update("claimStage", "post_inspection")}
+                      style={{
+                        padding: "16px 12px",
+                        borderRadius: 16,
+                        border: data.claimStage === "post_inspection" ? "3px solid #199c2e" : "2px solid #e5e7eb",
+                        background: data.claimStage === "post_inspection" ? "#f0fdf4" : "#fff",
+                        cursor: "pointer",
+                        textAlign: "center",
+                        transition: "all 0.2s",
+                      }}
+                    >
+                      <div style={{ fontSize: 28, marginBottom: 6 }}>✅</div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>
+                        Roof Was Inspected
+                      </div>
+                      <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>
+                        Damage confirmed — filing the claim now
+                      </div>
+                      {data.claimStage === "post_inspection" ? (
+                        <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#199c2e", fontFamily: "'Nunito', sans-serif" }}>✓ Selected</div>
+                      ) : null}
+                    </button>
+                  </div>
+                </Card>
               </div>
 
               <div style={{ marginTop: 20 }}>
@@ -2571,7 +3597,7 @@ export default function App() {
                     variant={selectedDocs.includes("pac") ? "default" : "outline"}
                     onClick={() => toggleDocSelection("pac")}
                   >
-                    <FileSignature size={16} /> PA Agreement
+                    <FileSignature size={16} /> PA Authorization
                   </Button>
                 </div>
 
@@ -2597,22 +3623,459 @@ export default function App() {
           </Card>
         ) : null}
 
-        {view === "sign" ? (
+        {view === "review" ? (
           <>
-            <div>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setView("input");
-                  if (isSigningFromLink) {
-                    window.history.replaceState({}, "", window.location.pathname);
-                    setIsSigningFromLink(false);
-                  }
+            {!isSigningFromLink ? (
+              <div>
+                <Button
+                  variant="outline"
+                  onClick={() => setView("input")}
+                >
+                  <ArrowLeft size={16} /> Back
+                </Button>
+              </div>
+            ) : null}
+
+            {/* ── Hero welcome banner ── */}
+            <div
+              style={{
+                background: "linear-gradient(135deg, #199c2e 0%, #14752200 100%), #199c2e",
+                borderRadius: 24,
+                padding: "36px 32px 32px",
+                color: "#fff",
+                position: "relative",
+                overflow: "hidden",
+              }}
+            >
+              {/* decorative circle */}
+              <div style={{ position: "absolute", top: -40, right: -40, width: 180, height: 180, background: "rgba(255,255,255,0.07)", borderRadius: "50%" }} />
+              <div style={{ position: "absolute", bottom: -20, right: 60, width: 100, height: 100, background: "rgba(255,255,255,0.05)", borderRadius: "50%" }} />
+
+              <div style={{ fontSize: 44, marginBottom: 10 }}>👋</div>
+              <div
+                style={{
+                  fontSize: 36,
+                  fontWeight: 700,
+                  fontFamily: "'Oswald', sans-serif",
+                  lineHeight: 1.15,
+                  marginBottom: 14,
+                  letterSpacing: "0.01em",
                 }}
               >
-                <ArrowLeft size={16} /> Back
-              </Button>
+                You're Almost Done!
+              </div>
+              <div
+                style={{
+                  fontSize: 21,
+                  lineHeight: 1.7,
+                  opacity: 0.95,
+                  maxWidth: 580,
+                  fontFamily: "'Nunito', sans-serif",
+                  fontWeight: 600,
+                }}
+              >
+                {reviewHeadline}
+              </div>
             </div>
+
+            {/* ── Step indicator ── */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 0,
+                padding: "0 4px",
+              }}
+            >
+              {[
+                { n: "1", label: "Review Docs" },
+                { n: "2", label: "Authorize" },
+                { n: "3", label: "Sign & Done!" },
+              ].map((step, i) => (
+                <React.Fragment key={step.n}>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                    <div
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: "50%",
+                        background: i === 0 ? "#199c2e" : i === 1 ? (reviewReady ? "#199c2e" : "#e5e7eb") : (reviewReady ? "#199c2e" : "#e5e7eb"),
+                        color: i === 0 ? "#fff" : (reviewReady ? "#fff" : "#9ca3af"),
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontWeight: 700,
+                        fontSize: 15,
+                        fontFamily: "'Oswald', sans-serif",
+                        transition: "background 0.4s",
+                      }}
+                    >
+                      {step.n}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", whiteSpace: "nowrap" }}>
+                      {step.label}
+                    </div>
+                  </div>
+                  {i < 2 ? (
+                    <div style={{ flex: 1, height: 3, background: reviewReady && i === 0 ? "#199c2e" : "#e5e7eb", margin: "0 4px", marginBottom: 20, transition: "background 0.4s" }} />
+                  ) : null}
+                </React.Fragment>
+              ))}
+            </div>
+
+            {/* ── Document cards ── */}
+            <div style={{ display: "grid", gap: 20 }}>
+
+              {selectedDocs.includes("lor") ? (
+                <div
+                  style={{
+                    borderRadius: 24,
+                    border: lorAgreed ? "2px solid #199c2e" : "2px solid #e5e7eb",
+                    background: lorAgreed ? "#f0fdf4" : "#fff",
+                    padding: "28px 28px 24px",
+                    transition: "border-color 0.3s, background 0.3s",
+                    boxShadow: lorAgreed ? "0 0 0 4px rgba(25,156,46,0.08)" : "0 1px 3px rgba(0,0,0,0.06)",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 16 }}>
+                    <div
+                      style={{
+                        width: 52,
+                        height: 52,
+                        borderRadius: 16,
+                        background: lorAgreed ? "#199c2e" : "#f3f4f6",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 24,
+                        flexShrink: 0,
+                        transition: "background 0.3s",
+                      }}
+                    >
+                      {lorAgreed ? "✅" : "📄"}
+                    </div>
+                    <div>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: "#199c2e",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.08em",
+                          fontFamily: "'Oswald', sans-serif",
+                          marginBottom: 4,
+                        }}
+                      >
+                        Document 1 of {selectedDocs.length}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 26,
+                          fontWeight: 700,
+                          color: "#111827",
+                          fontFamily: "'Oswald', sans-serif",
+                          lineHeight: 1.15,
+                        }}
+                      >
+                        Letter of Representation
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      fontSize: 19,
+                      lineHeight: 1.75,
+                      color: "#374151",
+                      marginBottom: 24,
+                      paddingLeft: 68,
+                      fontFamily: "'Nunito', sans-serif",
+                      fontWeight: 500,
+                    }}
+                  >
+                    {reviewLorText}
+                  </div>
+
+                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap", paddingLeft: 68 }}>
+                    <button
+                      type="button"
+                      onClick={() => previewDocument("lor")}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        padding: "10px 18px",
+                        borderRadius: 12,
+                        border: "1.5px solid #d1d5db",
+                        background: "#fff",
+                        color: "#374151",
+                        fontFamily: "'Oswald', sans-serif",
+                        fontWeight: 600,
+                        fontSize: 14,
+                        letterSpacing: "0.03em",
+                        cursor: "pointer",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      👁 Preview
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setLorAgreed(true)}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 10,
+                        padding: lorAgreed ? "12px 28px" : "14px 32px",
+                        borderRadius: 16,
+                        border: lorAgreed ? "2px solid #15803d" : "3px solid #15803d",
+                        background: lorAgreed ? "#f0fdf4" : "#199c2e",
+                        color: lorAgreed ? "#15803d" : "#fff",
+                        fontFamily: "'Oswald', sans-serif",
+                        fontWeight: 700,
+                        fontSize: lorAgreed ? 16 : 18,
+                        letterSpacing: "0.04em",
+                        cursor: lorAgreed ? "default" : "pointer",
+                        textTransform: "uppercase",
+                        transition: "all 0.3s",
+                        boxShadow: lorAgreed ? "none" : "0 6px 20px rgba(25,156,46,0.45)",
+                        animation: lorAgreed ? "none" : "ccg-pulse 2s ease-in-out infinite",
+                      }}
+                    >
+                      {lorAgreed ? "✅ Authorized!" : "👍 Tap Here — Looks Good!"}
+                    </button>
+                  </div>
+                  {!lorAgreed ? (
+                    <div style={{
+                      marginTop: 10,
+                      paddingLeft: 68,
+                      fontSize: 13,
+                      fontFamily: "'Nunito', sans-serif",
+                      fontWeight: 700,
+                      color: "#199c2e",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      animation: "ccg-bounce 1.2s ease-in-out infinite",
+                    }}>
+                      ☝️ Please tap the green button above to continue
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {selectedDocs.includes("pac") ? (
+                <div
+                  style={{
+                    borderRadius: 24,
+                    border: pacAgreed ? "2px solid #199c2e" : "2px solid #e5e7eb",
+                    background: pacAgreed ? "#f0fdf4" : "#fff",
+                    padding: "28px 28px 24px",
+                    transition: "border-color 0.3s, background 0.3s",
+                    boxShadow: pacAgreed ? "0 0 0 4px rgba(25,156,46,0.08)" : "0 1px 3px rgba(0,0,0,0.06)",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 16 }}>
+                    <div
+                      style={{
+                        width: 52,
+                        height: 52,
+                        borderRadius: 16,
+                        background: pacAgreed ? "#199c2e" : "#f3f4f6",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 24,
+                        flexShrink: 0,
+                        transition: "background 0.3s",
+                      }}
+                    >
+                      {pacAgreed ? "✅" : "📋"}
+                    </div>
+                    <div>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: "#199c2e",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.08em",
+                          fontFamily: "'Oswald', sans-serif",
+                          marginBottom: 4,
+                        }}
+                      >
+                        Document {selectedDocs.includes("lor") ? "2" : "1"} of {selectedDocs.length}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 26,
+                          fontWeight: 700,
+                          color: "#111827",
+                          fontFamily: "'Oswald', sans-serif",
+                          lineHeight: 1.15,
+                        }}
+                      >
+                        Public Adjuster Authorization
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      fontSize: 19,
+                      lineHeight: 1.75,
+                      color: "#374151",
+                      marginBottom: 24,
+                      paddingLeft: 68,
+                      fontFamily: "'Nunito', sans-serif",
+                      fontWeight: 500,
+                    }}
+                  >
+                    {reviewPacText}
+                  </div>
+
+                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap", paddingLeft: 68 }}>
+                    <button
+                      type="button"
+                      onClick={() => previewDocument("pac")}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        padding: "10px 18px",
+                        borderRadius: 12,
+                        border: "1.5px solid #d1d5db",
+                        background: "#fff",
+                        color: "#374151",
+                        fontFamily: "'Oswald', sans-serif",
+                        fontWeight: 600,
+                        fontSize: 14,
+                        letterSpacing: "0.03em",
+                        cursor: "pointer",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      👁 Preview
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setPacAgreed(true)}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 10,
+                        padding: pacAgreed ? "12px 28px" : "14px 32px",
+                        borderRadius: 16,
+                        border: pacAgreed ? "2px solid #15803d" : "3px solid #15803d",
+                        background: pacAgreed ? "#f0fdf4" : "#199c2e",
+                        color: pacAgreed ? "#15803d" : "#fff",
+                        fontFamily: "'Oswald', sans-serif",
+                        fontWeight: 700,
+                        fontSize: pacAgreed ? 16 : 18,
+                        letterSpacing: "0.04em",
+                        cursor: pacAgreed ? "default" : "pointer",
+                        textTransform: "uppercase",
+                        transition: "all 0.3s",
+                        boxShadow: pacAgreed ? "none" : "0 6px 20px rgba(25,156,46,0.45)",
+                        animation: pacAgreed ? "none" : "ccg-pulse 2s ease-in-out infinite",
+                      }}
+                    >
+                      {pacAgreed ? "✅ Authorized!" : "👍 Tap Here — Looks Good!"}
+                    </button>
+                  </div>
+                  {!pacAgreed ? (
+                    <div style={{
+                      marginTop: 10,
+                      paddingLeft: 68,
+                      fontSize: 13,
+                      fontFamily: "'Nunito', sans-serif",
+                      fontWeight: 700,
+                      color: "#199c2e",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                    }}>
+                      ☝️ Please tap the green button above to continue
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+
+            {/* ── Help text ── */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "14px 20px",
+                background: "#fffbeb",
+                border: "1px solid #fde68a",
+                borderRadius: 14,
+                fontSize: 15,
+                color: "#92400e",
+              }}
+            >
+              <span style={{ fontSize: 20 }}>💡</span>
+              <span style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 600, fontSize: 16 }}>{reviewHelpText}</span>
+            </div>
+
+            <div id="signature-section" style={{ scrollMarginTop: 20 }}>
+              {renderSigningFields(pendingSend)}
+            </div>
+
+            <div
+              style={{
+                position: "absolute",
+                left: "-20000px",
+                top: 0,
+                width: 1100,
+                pointerEvents: "none",
+              }}
+            >
+              {selectedDocs.includes("lor") ? (
+                <LetterOfRepresentation
+                  data={data}
+                  sig1={effectiveSig1}
+                  sig2={effectiveSig2}
+                  auditInfo={auditInfo}
+                  claimId={currentClaimId}
+                  isExportingPdf={isExportingPdf}
+                />
+              ) : null}
+
+              {selectedDocs.includes("pac") ? (
+                <PublicAdjusterContract
+                  data={{
+                    ...data,
+                    initials1: effectiveInitials1,
+                    initials2: effectiveInitials2,
+                  }}
+                  sig1={effectiveSig1}
+                  sig2={effectiveSig2}
+                  auditInfo={auditInfo}
+                  claimId={currentClaimId}
+                  isExportingPdf={isExportingPdf}
+                />
+              ) : null}
+            </div>
+          </>
+        ) : null}
+
+        {view === "sign" ? (
+          <>
+            {!isSigningFromLink ? (
+              <div>
+                <Button
+                  variant="outline"
+                  onClick={() => setView("input")}
+                >
+                  <ArrowLeft size={16} /> Back
+                </Button>
+              </div>
+            ) : null}
 
             <Card>
               <CardContent>
@@ -2687,296 +4150,930 @@ export default function App() {
               />
             ) : null}
 
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  {pendingSend ? "Review & Send for Signing" : "Sign Document(s)"}
-                </CardTitle>
-                <CardDescription>
-                  {pendingSend
-                    ? "Review the selected forms, then email one signing link to the homeowner."
-                    : "Complete all required signatures and initials before submitting."}
-                </CardDescription>
-              </CardHeader>
-
-              <CardContent>
-                {!pendingSend ? (
-                  <>
-                    <div
-                      style={{
-                        background: "#fef2f2",
-                        color: "#991b1b",
-                        border: "1px solid #fecaca",
-                        borderRadius: 12,
-                        padding: 12,
-                        marginBottom: 16,
-                        fontSize: 14,
-                        fontWeight: 600,
-                      }}
-                    >
-                      Please complete all required signatures
-                      {selectedDocs.includes("pac") ? " and initials" : ""}{" "}
-                      before submitting.
-                    </div>
-
-                    <div
-                      style={{
-                        fontWeight: 800,
-                        color: "#1d4ed8",
-                        textDecoration: "underline",
-                        marginBottom: 10,
-                        cursor: "pointer",
-                        fontSize: 14,
-                      }}
-                      onClick={() =>
-                        setSigMethod1(sigMethod1 === "draw" ? "type" : "draw")
-                      }
-                    >
-                      {sigMethod1 === "draw"
-                        ? "PREFER TO TYPE INSTEAD?"
-                        : "PREFER TO DRAW INSTEAD?"}
-                    </div>
-
-                    {sigMethod1 === "draw" ? (
-                      <SignaturePad
-                        title="Homeowner 1 Signature"
-                        value={sig1}
-                        onChange={setSig1}
-                        required
-                        missing={!effectiveSig1}
-                      />
-                    ) : (
-                      <TypedSignatureField
-                        title="Homeowner 1 Signature"
-                        value={typedSig1}
-                        onChange={setTypedSig1}
-                        fontValue={sigFont1}
-                        onFontChange={setSigFont1}
-                        required
-                        missing={!effectiveSig1}
-                        placeholder="Type Homeowner 1 full name"
-                      />
-                    )}
-
-                    {hasSecond ? (
-                      <>
-                        <div
-                          style={{
-                            fontWeight: 800,
-                            color: "#1d4ed8",
-                            textDecoration: "underline",
-                            marginBottom: 10,
-                            cursor: "pointer",
-                            fontSize: 14,
-                          }}
-                          onClick={() =>
-                            setSigMethod2(sigMethod2 === "draw" ? "type" : "draw")
-                          }
-                        >
-                          {sigMethod2 === "draw"
-                            ? "PREFER TO TYPE INSTEAD?"
-                            : "PREFER TO DRAW INSTEAD?"}
-                        </div>
-
-                        {sigMethod2 === "draw" ? (
-                          <SignaturePad
-                            title="Homeowner 2 Signature"
-                            value={sig2}
-                            onChange={setSig2}
-                            required
-                            missing={!effectiveSig2}
-                          />
-                        ) : (
-                          <TypedSignatureField
-                            title="Homeowner 2 Signature"
-                            value={typedSig2}
-                            onChange={setTypedSig2}
-                            fontValue={sigFont2}
-                            onFontChange={setSigFont2}
-                            required
-                            missing={!effectiveSig2}
-                            placeholder="Type Homeowner 2 full name"
-                          />
-                        )}
-                      </>
-                    ) : null}
-
-                    {selectedDocs.includes("pac") ? (
-                      <>
-                        <div
-                          style={{
-                            fontWeight: 800,
-                            color: "#1d4ed8",
-                            textDecoration: "underline",
-                            marginBottom: 10,
-                            cursor: "pointer",
-                            fontSize: 14,
-                          }}
-                          onClick={() =>
-                            setInitialsMethod1(
-                              initialsMethod1 === "draw" ? "type" : "draw"
-                            )
-                          }
-                        >
-                          {initialsMethod1 === "draw"
-                            ? "PREFER TO TYPE INITIALS INSTEAD?"
-                            : "PREFER TO DRAW INITIALS INSTEAD?"}
-                        </div>
-
-                        {initialsMethod1 === "draw" ? (
-                          <InitialsPad
-                            title="Homeowner 1 Initials"
-                            value={data.initials1}
-                            onChange={(v) => update("initials1", v)}
-                            required
-                            missing={!effectiveInitials1}
-                          />
-                        ) : (
-                          <TypedInitialsField
-                            title="Homeowner 1 Initials"
-                            value={initials1Typed}
-                            onChange={setInitials1Typed}
-                            fontValue={initialsFont1}
-                            onFontChange={setInitialsFont1}
-                            required
-                            missing={!effectiveInitials1}
-                            placeholder="Type Homeowner 1 initials"
-                          />
-                        )}
-
-                        {hasSecond ? (
-                          <>
-                            <div
-                              style={{
-                                fontWeight: 800,
-                                color: "#1d4ed8",
-                                textDecoration: "underline",
-                                marginBottom: 10,
-                                cursor: "pointer",
-                                fontSize: 14,
-                              }}
-                              onClick={() =>
-                                setInitialsMethod2(
-                                  initialsMethod2 === "draw" ? "type" : "draw"
-                                )
-                              }
-                            >
-                              {initialsMethod2 === "draw"
-                                ? "PREFER TO TYPE INITIALS INSTEAD?"
-                                : "PREFER TO DRAW INITIALS INSTEAD?"}
-                            </div>
-
-                            {initialsMethod2 === "draw" ? (
-                              <InitialsPad
-                                title="Homeowner 2 Initials"
-                                value={data.initials2}
-                                onChange={(v) => update("initials2", v)}
-                                required
-                                missing={!effectiveInitials2}
-                              />
-                            ) : (
-                              <TypedInitialsField
-                                title="Homeowner 2 Initials"
-                                value={initials2Typed}
-                                onChange={setInitials2Typed}
-                                fontValue={initialsFont2}
-                                onFontChange={setInitialsFont2}
-                                required
-                                missing={!effectiveInitials2}
-                                placeholder="Type Homeowner 2 initials"
-                              />
-                            )}
-                          </>
-                        ) : null}
-                      </>
-                    ) : null}
-                  </>
-                ) : null}
-
-                {!pendingSend && missingSigningFields.length > 0 ? (
-                  <div
-                    style={{
-                      marginTop: 8,
-                      marginBottom: 12,
-                      fontSize: 13,
-                      color: "#991b1b",
-                    }}
-                  >
-                    Missing: {missingSigningFields.join(", ")}
-                  </div>
-                ) : null}
-
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 12,
-                    paddingTop: 8,
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <Button
-                    onClick={submitDoc}
-                    disabled={!pendingSend && !isSigningComplete}
-                  >
-                    {pendingSend ? <Send size={16} /> : <Mail size={16} />}
-                    {pendingSend ? "Send for Signing" : "Submit & Email Copies"}
-                  </Button>
-
-                  <Button
-                    variant="outline"
-                    onClick={async () => {
-                      try {
-                        const selector = selectedDocs.includes("lor")
-                          ? "#lor-printable-document"
-                          : "#pac-printable-document";
-                        const filename = selectedDocs.includes("lor")
-                          ? documentFilename("lor")
-                          : documentFilename("pac");
-
-                        const element = document.querySelector(selector);
-                        if (!element) {
-                          alert("Document not found.");
-                          return;
-                        }
-
-                        setIsExportingPdf(true);
-                        await new Promise((resolve) => setTimeout(resolve, 200));
-
-                        await html2pdf()
-                          .set({
-                            margin: 0,
-                            filename,
-                            image: { type: "jpeg", quality: 0.98 },
-                            html2canvas: {
-                              scale: 1.5,
-                              useCORS: true,
-                              scrollX: 0,
-                              scrollY: 0,
-                            },
-                            jsPDF: {
-                              unit: "in",
-                              format: "letter",
-                              orientation: "portrait",
-                            },
-                            pagebreak: { mode: ["css"] },
-                          })
-                          .from(element)
-                          .save();
-                      } catch (err) {
-                        alert(err?.message || "Failed to download PDF.");
-                      } finally {
-                        setIsExportingPdf(false);
-                      }
-                    }}
-                  >
-                    Download PDF
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+            <div id="signature-section" style={{ scrollMarginTop: 20 }}>
+              {renderSigningFields(pendingSend)}
+            </div>
           </>
         ) : null}
+        {/* ── THANK YOU VIEW ── */}
+        {view === "thankyou" ? (
+          <>
+          <div style={{ maxWidth: 640, margin: "0 auto", padding: "32px 16px" }}>
+
+            {/* Hero celebration banner */}
+            <div style={{
+              background: "linear-gradient(135deg, #199c2e 0%, #15803d 100%)",
+              borderRadius: 28,
+              padding: "40px 36px 36px",
+              textAlign: "center",
+              marginBottom: 28,
+              position: "relative",
+              overflow: "hidden",
+            }}>
+              <div style={{ position: "absolute", top: -30, right: -30, width: 140, height: 140, background: "rgba(255,255,255,0.06)", borderRadius: "50%" }} />
+              <div style={{ position: "absolute", bottom: -20, left: 20, width: 90, height: 90, background: "rgba(255,255,255,0.05)", borderRadius: "50%" }} />
+              <div style={{ fontSize: 72, marginBottom: 16, lineHeight: 1 }}>🎉</div>
+              <div style={{
+                fontSize: 36,
+                fontWeight: 700,
+                color: "#fff",
+                fontFamily: "'Oswald', sans-serif",
+                lineHeight: 1.1,
+                marginBottom: 16,
+                letterSpacing: "0.01em",
+              }}>
+                {activeTYHeadline}
+              </div>
+              <div style={{
+                fontSize: 18,
+                color: "rgba(255,255,255,0.92)",
+                fontFamily: "'Nunito', sans-serif",
+                fontWeight: 600,
+                lineHeight: 1.65,
+                maxWidth: 480,
+                margin: "0 auto",
+              }}>
+                {activeTYOpening}
+              </div>
+            </div>
+
+            {/* What happens next steps */}
+            <div style={{
+              background: "#fff",
+              borderRadius: 24,
+              border: "1px solid #e5e7eb",
+              padding: "28px 28px 24px",
+              marginBottom: 24,
+              boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+            }}>
+              <div style={{
+                fontSize: 20,
+                fontWeight: 700,
+                color: "#111827",
+                fontFamily: "'Oswald', sans-serif",
+                letterSpacing: "0.03em",
+                marginBottom: 20,
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+              }}>
+                <span style={{ fontSize: 24 }}>📋</span> What Happens Next
+              </div>
+
+              <div style={{ display: "grid", gap: 14 }}>
+                {activeTYSteps.map((step, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: 14,
+                      padding: "14px 16px",
+                      background: "#f0fdf4",
+                      borderRadius: 16,
+                      border: "1px solid #bbf7d0",
+                    }}
+                  >
+                    <div style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: "50%",
+                      background: "#199c2e",
+                      color: "#fff",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontWeight: 700,
+                      fontSize: 13,
+                      fontFamily: "'Oswald', sans-serif",
+                      flexShrink: 0,
+                      marginTop: 1,
+                    }}>
+                      {i + 1}
+                    </div>
+                    <div style={{
+                      fontSize: 16,
+                      color: "#166534",
+                      fontFamily: "'Nunito', sans-serif",
+                      fontWeight: 600,
+                      lineHeight: 1.55,
+                    }}>
+                      {step}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Closing statement */}
+            <div style={{
+              background: "#fffbeb",
+              border: "1px solid #fde68a",
+              borderRadius: 20,
+              padding: "20px 24px",
+              textAlign: "center",
+              marginBottom: 32,
+            }}>
+              <div style={{
+                fontSize: 17,
+                color: "#92400e",
+                fontFamily: "'Nunito', sans-serif",
+                fontWeight: 700,
+                lineHeight: 1.6,
+              }}>
+                {activeTYClosing}
+              </div>
+            </div>
+
+            {/* Email + download notice */}
+            <div style={{
+              background: "#fff",
+              border: "1px solid #e5e7eb",
+              borderRadius: 20,
+              padding: "22px 26px",
+              marginBottom: 28,
+              boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+            }}>
+              <div style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 16,
+                marginBottom: 16,
+              }}>
+                <span style={{ fontSize: 36, flexShrink: 0 }}>📧</span>
+                <div>
+                  <div style={{
+                    fontSize: 19,
+                    fontWeight: 700,
+                    color: "#111827",
+                    fontFamily: "'Oswald', sans-serif",
+                    marginBottom: 6,
+                    letterSpacing: "0.02em",
+                  }}>
+                    Check Your Email!
+                  </div>
+                  <div style={{
+                    fontSize: 15,
+                    color: "#374151",
+                    fontFamily: "'Nunito', sans-serif",
+                    fontWeight: 600,
+                    lineHeight: 1.65,
+                  }}>
+                    We just sent everything to <strong>{data.signerEmail}</strong> — your signed documents
+                    plus a <strong>Welcome Package PDF</strong> with our contact info and your next steps.
+                    Keep it saved so you always know how to reach us!
+                  </div>
+                </div>
+              </div>
+
+              <div style={{
+                background: "#f0fdf4",
+                borderRadius: 14,
+                padding: "12px 16px",
+                fontSize: 13,
+                color: "#166534",
+                fontFamily: "'Nunito', sans-serif",
+                fontWeight: 600,
+                lineHeight: 1.6,
+              }}>
+                📎 Attached: {selectedDocs.map(d => documentLabel(d)).join(", ")} + CCG Welcome Package
+              </div>
+
+              <div style={{ marginTop: 14, textAlign: "center" }}>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setIsExportingPdf(true);
+                    await new Promise(r => setTimeout(r, 200));
+                    try {
+                      const el = document.getElementById("ty-summary-printable");
+                      await html2pdf().set({
+                        margin: 0,
+                        filename: "CCG-Welcome-Package.pdf",
+                        image: { type: "jpeg", quality: 0.98 },
+                        html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0 },
+                        jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
+                        pagebreak: { mode: ["css"] },
+                      }).from(el).save();
+                    } catch(err) {
+                      alert(err?.message || "Failed to download.");
+                    } finally {
+                      setIsExportingPdf(false);
+                    }
+                  }}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "10px 22px",
+                    borderRadius: 12,
+                    border: "1.5px solid #d1d5db",
+                    background: "#fff",
+                    color: "#374151",
+                    fontFamily: "'Nunito', sans-serif",
+                    fontWeight: 700,
+                    fontSize: 14,
+                    cursor: "pointer",
+                  }}
+                >
+                  📄 Download Welcome Package Now
+                </button>
+                <div style={{
+                  marginTop: 6,
+                  fontSize: 12,
+                  color: "#9ca3af",
+                  fontFamily: "'Nunito', sans-serif",
+                }}>
+                  Can't find the email? Download it right here.
+                </div>
+              </div>
+            </div>
+
+            {/* CCG logo */}
+            <div style={{ textAlign: "center" }}>
+              <img
+                src="/pa-header.png"
+                alt="Capital Claims Group"
+                style={{ maxWidth: 260, opacity: 0.85 }}
+              />
+            </div>
+          </div>
+
+          </>
+        ) : null}
+
+        {/* ── MANAGER VIEW ── */}
+        {view === "manager" ? (
+          <Card>
+            <CardHeader>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <CardTitle>Manager Settings</CardTitle>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setManagerUnlocked(false);
+                    setManagerPinEntry("");
+                    setView("input");
+                  }}
+                  style={{
+                    background: "transparent",
+                    border: "1px solid #d1d5db",
+                    borderRadius: 10,
+                    padding: "6px 14px",
+                    fontSize: 12,
+                    fontFamily: "'Oswald', sans-serif",
+                    fontWeight: 600,
+                    letterSpacing: "0.04em",
+                    color: "#6b7280",
+                    cursor: "pointer",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  ← Back
+                </button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {!managerUnlocked ? (
+                <div style={{ maxWidth: 320 }}>
+                  <Label>Enter Manager PIN</Label>
+                  <input
+                    type="password"
+                    value={managerPinEntry}
+                    onChange={(e) => setManagerPinEntry(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        if (managerPinEntry === managerPin) {
+                          setManagerUnlocked(true);
+                          setManagerPinEntry("");
+                        } else {
+                          alert("Incorrect PIN.");
+                          setManagerPinEntry("");
+                        }
+                      }
+                    }}
+                    placeholder="Enter PIN and press Enter"
+                    style={{
+                      width: "100%",
+                      height: 44,
+                      borderRadius: 14,
+                      border: "1px solid #d1d5db",
+                      padding: "0 12px",
+                      fontSize: 14,
+                      boxSizing: "border-box",
+                      marginBottom: 12,
+                    }}
+                  />
+                  <Button
+                    onClick={() => {
+                      if (managerPinEntry === managerPin) {
+                        setManagerUnlocked(true);
+                        setManagerPinEntry("");
+                      } else {
+                        alert("Incorrect PIN.");
+                        setManagerPinEntry("");
+                      }
+                    }}
+                  >
+                    Unlock
+                  </Button>
+                  <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 10 }}>
+                    Default PIN: 1234 — change it below once unlocked.
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: "grid", gap: 28 }}>
+                  {/* PIN change */}
+                  <Card style={{ padding: 20, background: "#f8fafc" }}>
+                    <SectionTitle>Security</SectionTitle>
+                    <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "flex-end" }}>
+                      <div style={{ maxWidth: 300, flex: 1 }}>
+                        <Label>Change Manager PIN</Label>
+                        <input
+                          type="password"
+                          value={managerPin}
+                          onChange={(e) => setManagerPin(e.target.value)}
+                          placeholder="New PIN"
+                          style={{
+                            width: "100%",
+                            height: 44,
+                            borderRadius: 14,
+                            border: "1px solid #d1d5db",
+                            padding: "0 12px",
+                            fontSize: 14,
+                            boxSizing: "border-box",
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (window.confirm("Reset all text to factory defaults?")) {
+                              setReviewHeadline(DEFAULTS.reviewHeadline);
+                              setReviewLorText(DEFAULTS.reviewLorText);
+                              setReviewPacText(DEFAULTS.reviewPacText);
+                              setReviewHelpText(DEFAULTS.reviewHelpText);
+                              setThankYouHeadline(DEFAULTS.thankYouHeadline);
+                              setThankYouOpening(DEFAULTS.thankYouOpening);
+                              try { setThankYouSteps(JSON.parse(DEFAULTS.thankYouSteps)); } catch {}
+                              setThankYouClosing(DEFAULTS.thankYouClosing);
+                              setPreInspHeadline(DEFAULTS.preInspHeadline);
+                              setPreInspOpening(DEFAULTS.preInspOpening);
+                              try { setPreInspSteps(JSON.parse(DEFAULTS.preInspSteps)); } catch {}
+                              setPreInspClosing(DEFAULTS.preInspClosing);
+                            }
+                          }}
+                          style={{
+                            padding: "10px 18px",
+                            borderRadius: 12,
+                            border: "1px solid #fca5a5",
+                            background: "#fff",
+                            color: "#dc2626",
+                            fontFamily: "'Oswald', sans-serif",
+                            fontWeight: 600,
+                            fontSize: 13,
+                            letterSpacing: "0.04em",
+                            textTransform: "uppercase",
+                            cursor: "pointer",
+                            height: 44,
+                          }}
+                        >
+                          ↺ Reset All Text to Defaults
+                        </button>
+                      </div>
+                    </div>
+                  </Card>
+
+                  {/* Review page text */}
+                  <Card style={{ padding: 20, background: "#f8fafc" }}>
+                    <SectionTitle>Review Page Text</SectionTitle>
+                    <div style={{ display: "grid", gap: 16 }}>
+                      <div>
+                        <Label>Headline (shown above the document cards)</Label>
+                        <textarea
+                          value={reviewHeadline}
+                          onChange={(e) => setReviewHeadline(e.target.value)}
+                          rows={2}
+                          style={{
+                            width: "100%",
+                            borderRadius: 12,
+                            border: "1px solid #d1d5db",
+                            padding: "10px 12px",
+                            fontSize: 14,
+                            boxSizing: "border-box",
+                            resize: "vertical",
+                            fontFamily: "inherit",
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <Label>Letter of Representation description</Label>
+                        <textarea
+                          value={reviewLorText}
+                          onChange={(e) => setReviewLorText(e.target.value)}
+                          rows={3}
+                          style={{
+                            width: "100%",
+                            borderRadius: 12,
+                            border: "1px solid #d1d5db",
+                            padding: "10px 12px",
+                            fontSize: 14,
+                            boxSizing: "border-box",
+                            resize: "vertical",
+                            fontFamily: "inherit",
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <Label>PA Authorization description</Label>
+                        <textarea
+                          value={reviewPacText}
+                          onChange={(e) => setReviewPacText(e.target.value)}
+                          rows={3}
+                          style={{
+                            width: "100%",
+                            borderRadius: 12,
+                            border: "1px solid #d1d5db",
+                            padding: "10px 12px",
+                            fontSize: 14,
+                            boxSizing: "border-box",
+                            resize: "vertical",
+                            fontFamily: "inherit",
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <Label>Help text (shown below the document cards)</Label>
+                        <textarea
+                          value={reviewHelpText}
+                          onChange={(e) => setReviewHelpText(e.target.value)}
+                          rows={2}
+                          style={{
+                            width: "100%",
+                            borderRadius: 12,
+                            border: "1px solid #d1d5db",
+                            padding: "10px 12px",
+                            fontSize: 14,
+                            boxSizing: "border-box",
+                            resize: "vertical",
+                            fontFamily: "inherit",
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </Card>
+
+                  {/* Thank you page text — tabbed */}
+                  <Card style={{ padding: 20, background: "#f8fafc" }}>
+                    <SectionTitle>Thank You Pages</SectionTitle>
+                    <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+                      {[
+                        { key: "post_inspection", label: "✅ Roof Inspected Flow", emoji: "✅" },
+                        { key: "pre_inspection",  label: "🏠 Pre-Inspection Flow", emoji: "🏠" },
+                      ].map(tab => (
+                        <button
+                          key={tab.key}
+                          type="button"
+                          onClick={() => setManagerTYTab(tab.key)}
+                          style={{
+                            padding: "8px 16px",
+                            borderRadius: 12,
+                            border: managerTYTab === tab.key ? "2px solid #199c2e" : "1px solid #d1d5db",
+                            background: managerTYTab === tab.key ? "#f0fdf4" : "#fff",
+                            color: managerTYTab === tab.key ? "#166534" : "#374151",
+                            fontFamily: "'Nunito', sans-serif",
+                            fontWeight: 700,
+                            fontSize: 13,
+                            cursor: "pointer",
+                          }}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                    </div>
+                    {managerTYTab === "post_inspection" ? (
+                    <>
+                    <div style={{ display: "grid", gap: 20 }}>
+
+                      {/* Headline */}
+                      <div>
+                        <Label>Headline</Label>
+                        <input
+                          type="text"
+                          value={thankYouHeadline}
+                          onChange={(e) => setThankYouHeadline(e.target.value)}
+                          style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }}
+                        />
+                      </div>
+
+                      {/* Opening statement */}
+                      <div>
+                        <Label>Opening statement (shown in the green hero banner)</Label>
+                        <textarea
+                          value={thankYouOpening}
+                          onChange={(e) => setThankYouOpening(e.target.value)}
+                          rows={3}
+                          style={{ width: "100%", borderRadius: 12, border: "1px solid #d1d5db", padding: "10px 12px", fontSize: 14, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }}
+                        />
+                      </div>
+
+                      {/* Steps */}
+                      <div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                          <Label>What to expect next (numbered steps)</Label>
+                          <button
+                            type="button"
+                            onClick={() => setThankYouSteps([...thankYouSteps, "✅ New step — click to edit"])}
+                            style={{
+                              padding: "6px 14px",
+                              borderRadius: 10,
+                              border: "1.5px solid #199c2e",
+                              background: "#fff",
+                              color: "#199c2e",
+                              fontFamily: "'Oswald', sans-serif",
+                              fontWeight: 600,
+                              fontSize: 13,
+                              cursor: "pointer",
+                              letterSpacing: "0.04em",
+                              textTransform: "uppercase",
+                            }}
+                          >
+                            + Add Step
+                          </button>
+                        </div>
+                        <div style={{ display: "grid", gap: 10 }}>
+                          {thankYouSteps.map((step, i) => (
+                            <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                              <div style={{
+                                width: 28, height: 28, borderRadius: "50%", background: "#199c2e",
+                                color: "#fff", display: "flex", alignItems: "center", justifyContent: "center",
+                                fontWeight: 700, fontSize: 13, fontFamily: "'Oswald', sans-serif",
+                                flexShrink: 0, marginTop: 8,
+                              }}>
+                                {i + 1}
+                              </div>
+                              <textarea
+                                value={step}
+                                onChange={(e) => {
+                                  const next = [...thankYouSteps];
+                                  next[i] = e.target.value;
+                                  setThankYouSteps(next);
+                                }}
+                                rows={2}
+                                style={{
+                                  flex: 1,
+                                  borderRadius: 12,
+                                  border: "1px solid #d1d5db",
+                                  padding: "8px 12px",
+                                  fontSize: 14,
+                                  boxSizing: "border-box",
+                                  resize: "vertical",
+                                  fontFamily: "inherit",
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setThankYouSteps(thankYouSteps.filter((_, idx) => idx !== i))}
+                                style={{
+                                  background: "transparent",
+                                  border: "none",
+                                  color: "#ef4444",
+                                  fontSize: 18,
+                                  cursor: "pointer",
+                                  padding: "4px 6px",
+                                  marginTop: 6,
+                                  flexShrink: 0,
+                                }}
+                                title="Remove step"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Closing statement */}
+                      <div>
+                        <Label>Closing statement (shown in amber box at bottom)</Label>
+                        <textarea
+                          value={thankYouClosing}
+                          onChange={(e) => setThankYouClosing(e.target.value)}
+                          rows={2}
+                          style={{ width: "100%", borderRadius: 12, border: "1px solid #d1d5db", padding: "10px 12px", fontSize: 14, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop: 24, borderTop: "1px solid #e5e7eb", paddingTop: 16 }}>
+                      <div style={{ fontSize: 12, color: "#9ca3af", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 12 }}>Live Preview</div>
+                      <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 16, padding: "20px 18px" }}>
+                        <div style={{ fontSize: 28, marginBottom: 8, textAlign: "center" }}>🎉</div>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: "#15803d", fontFamily: "'Oswald', sans-serif", marginBottom: 6, textAlign: "center" }}>{thankYouHeadline}</div>
+                        <div style={{ fontSize: 13, color: "#166534", fontFamily: "'Nunito', sans-serif", marginBottom: 14, textAlign: "center", lineHeight: 1.5 }}>{thankYouOpening}</div>
+                        {thankYouSteps.map((step, i) => (
+                          <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 8, padding: "8px 12px", background: "#fff", borderRadius: 10, border: "1px solid #bbf7d0" }}>
+                            <div style={{ width: 22, height: 22, borderRadius: "50%", background: "#199c2e", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
+                            <div style={{ fontSize: 13, color: "#166534", fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.4 }}>{step}</div>
+                          </div>
+                        ))}
+                        <div style={{ marginTop: 10, padding: "10px 14px", background: "#fffbeb", borderRadius: 10, textAlign: "center", fontSize: 13, color: "#92400e", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>{thankYouClosing}</div>
+                      </div>
+                    </div>
+                    </>
+                    ) : (
+                    <div style={{ display: "grid", gap: 20 }}>
+                      <div>
+                        <Label>Headline</Label>
+                        <input type="text" value={preInspHeadline} onChange={(e) => setPreInspHeadline(e.target.value)}
+                          style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                      </div>
+                      <div>
+                        <Label>Opening statement (shown in the green hero banner)</Label>
+                        <textarea value={preInspOpening} onChange={(e) => setPreInspOpening(e.target.value)} rows={3}
+                          style={{ width: "100%", borderRadius: 12, border: "1px solid #d1d5db", padding: "10px 12px", fontSize: 14, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }} />
+                      </div>
+                      <div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                          <Label>What to expect next (numbered steps)</Label>
+                          <button type="button" onClick={() => setPreInspSteps([...preInspSteps, "✅ New step — click to edit"])}
+                            style={{ padding: "6px 14px", borderRadius: 10, border: "1.5px solid #199c2e", background: "#fff", color: "#199c2e", fontFamily: "'Oswald', sans-serif", fontWeight: 600, fontSize: 13, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                            + Add Step
+                          </button>
+                        </div>
+                        <div style={{ display: "grid", gap: 10 }}>
+                          {preInspSteps.map((step, i) => (
+                            <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                              <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#199c2e", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13, fontFamily: "'Oswald', sans-serif", flexShrink: 0, marginTop: 8 }}>{i + 1}</div>
+                              <textarea value={step} onChange={(e) => { const n=[...preInspSteps]; n[i]=e.target.value; setPreInspSteps(n); }} rows={2}
+                                style={{ flex: 1, borderRadius: 12, border: "1px solid #d1d5db", padding: "8px 12px", fontSize: 14, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }} />
+                              <button type="button" onClick={() => setPreInspSteps(preInspSteps.filter((_,idx)=>idx!==i))}
+                                style={{ background: "transparent", border: "none", color: "#ef4444", fontSize: 18, cursor: "pointer", padding: "4px 6px", marginTop: 6, flexShrink: 0 }}>✕</button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <Label>Closing statement</Label>
+                        <textarea value={preInspClosing} onChange={(e) => setPreInspClosing(e.target.value)} rows={2}
+                          style={{ width: "100%", borderRadius: 12, border: "1px solid #d1d5db", padding: "10px 12px", fontSize: 14, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }} />
+                      </div>
+                      <div style={{ marginTop: 4, borderTop: "1px solid #e5e7eb", paddingTop: 16 }}>
+                        <div style={{ fontSize: 12, color: "#9ca3af", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 12 }}>Live Preview</div>
+                        <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 16, padding: "20px 18px" }}>
+                          <div style={{ fontSize: 28, marginBottom: 8, textAlign: "center" }}>🎉</div>
+                          <div style={{ fontSize: 20, fontWeight: 700, color: "#15803d", fontFamily: "'Oswald', sans-serif", marginBottom: 6, textAlign: "center" }}>{preInspHeadline}</div>
+                          <div style={{ fontSize: 13, color: "#166534", fontFamily: "'Nunito', sans-serif", marginBottom: 14, textAlign: "center", lineHeight: 1.5 }}>{preInspOpening}</div>
+                          {preInspSteps.map((step, i) => (
+                            <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 8, padding: "8px 12px", background: "#fff", borderRadius: 10, border: "1px solid #bbf7d0" }}>
+                              <div style={{ width: 22, height: 22, borderRadius: "50%", background: "#199c2e", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
+                              <div style={{ fontSize: 13, color: "#166534", fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.4 }}>{step}</div>
+                            </div>
+                          ))}
+                          <div style={{ marginTop: 10, padding: "10px 14px", background: "#fffbeb", borderRadius: 10, textAlign: "center", fontSize: 13, color: "#92400e", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>{preInspClosing}</div>
+                        </div>
+                      </div>
+                    </div>
+                    )}
+                  </Card>
+
+                  <div>
+                    <Button onClick={() => { setManagerUnlocked(false); setView("input"); }}>
+                      Save & Close
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        ) : null}
+
       </div>
+
+      {/* ── Always-rendered hidden welcome PDF (needed for email attachment at submit time) ── */}
+      <div style={{ position: "absolute", left: "-20000px", top: 0, width: 0, height: 0, overflow: "hidden", pointerEvents: "none" }}>
+        <div
+          id="ty-summary-printable"
+          style={{
+            width: "8.5in",
+            fontFamily: "Arial, Helvetica, sans-serif",
+            background: "#fff",
+          }}
+        >
+        <div style={{
+          width: "8.5in",
+          boxSizing: "border-box",
+          padding: "0",
+          background: "#fff",
+          position: "relative",
+        }}>
+          {/* Green header */}
+          <div style={{
+            background: "#199c2e",
+            padding: "0.5in 0.6in 0.4in",
+            color: "#fff",
+          }}>
+            <img src="/pa-header.png" alt="Capital Claims Group" style={{ height: 60, marginBottom: 20, filter: "brightness(0) invert(1)" }} />
+            <div style={{ fontSize: 32, fontWeight: 700, marginBottom: 8, lineHeight: 1.1 }}>
+              Welcome to Capital Claims Group!
+            </div>
+            <div style={{ fontSize: 16, opacity: 0.9, lineHeight: 1.5 }}>
+              {thankYouOpening}
+            </div>
+          </div>
+
+          {/* Contact info box */}
+          <div style={{ padding: "0.2in 0.5in 0.2in" }}>
+            <div style={{
+              background: "#f0fdf4",
+              border: "2px solid #199c2e",
+              borderRadius: 12,
+              padding: "20px 24px",
+              marginBottom: 24,
+            }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#166534", marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>
+                Your Point of Contact
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, fontSize: 12 }}>
+                <div><strong>Company:</strong> Capital Claims Group</div>
+                <div><strong>License:</strong> G240595</div>
+                <div><strong>Phone:</strong> +1 (954) 571-3035</div>
+                <div><strong>Email:</strong> claims@capitalclaimgroup.com</div>
+                <div><strong>Website:</strong> www.ccgclaims.com</div>
+                <div><strong>Address:</strong> 3600 Red Rd Ste 601B, Miramar, FL 33025</div>
+              </div>
+            </div>
+
+            {/* Claim details */}
+            <div style={{
+              background: "#f8fafc",
+              border: "1px solid #e5e7eb",
+              borderRadius: 12,
+              padding: "18px 24px",
+              marginBottom: 24,
+            }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>
+                Your Claim Details
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5, fontSize: 12 }}>
+                <div><strong>Name:</strong> {[data.homeowner1, data.homeowner2].filter(Boolean).join(" & ")}</div>
+                <div><strong>Date:</strong> {data.date}</div>
+                <div><strong>Address:</strong> {[data.address, data.city, data.state, data.zip].filter(Boolean).join(", ")}</div>
+                <div><strong>Phone:</strong> {data.phone}</div>
+                <div><strong>Insurance Co.:</strong> {data.insuranceCompany}</div>
+                <div><strong>Policy #:</strong> {data.policyNumber}</div>
+                {data.claimNumber ? <div><strong>Claim #:</strong> {data.claimNumber}</div> : null}
+                {data.dateOfLoss ? <div><strong>Date of Loss:</strong> {data.dateOfLoss}</div> : null}
+              </div>
+            </div>
+
+            {/* What to expect */}
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 10 }}>
+              📋 What Happens Next
+            </div>
+            {activeTYSteps.map((step, i) => (
+              <div key={i} style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 10,
+                marginBottom: 6,
+                padding: "7px 10px",
+                background: "#f0fdf4",
+                borderRadius: 8,
+                border: "1px solid #bbf7d0",
+              }}>
+                <div style={{
+                  width: 20, height: 20, borderRadius: "50%",
+                  background: "#199c2e", color: "#fff",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontWeight: 700, fontSize: 11, flexShrink: 0,
+                }}>{i + 1}</div>
+                <div style={{ fontSize: 12, color: "#166534", lineHeight: 1.45 }}>{step}</div>
+              </div>
+            ))}
+
+            {/* Closing */}
+            <div style={{
+              marginTop: 20,
+              background: "#fffbeb",
+              border: "1px solid #fde68a",
+              borderRadius: 12,
+              padding: "16px 20px",
+              fontSize: 14,
+              color: "#92400e",
+              fontWeight: 600,
+              textAlign: "center",
+              lineHeight: 1.6,
+            }}>
+              {thankYouClosing}
+            </div>
+
+            {/* Footer */}
+            <div style={{
+              marginTop: 28,
+              borderTop: "2px solid #199c2e",
+              paddingTop: 14,
+              fontSize: 11,
+              color: "#6b7280",
+              textAlign: "center",
+            }}>
+              Capital Claims Group Inc. • License No: G240595 • claims@capitalclaimgroup.com • +1 (954) 571-3035 • www.ccgclaims.com
+            </div>
+          </div>
+        </div>
+        </div>
+      </div>
+
+      {/* ── Submitting overlay ── */}
+      {isSubmitting ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.55)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            backdropFilter: "blur(3px)",
+          }}
+        >
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: 28,
+              padding: "44px 40px",
+              textAlign: "center",
+              maxWidth: 380,
+              width: "90%",
+              boxShadow: "0 24px 60px rgba(0,0,0,0.25)",
+            }}
+          >
+            {/* Animated spinner */}
+            <div style={{ marginBottom: 24 }}>
+              <div style={{
+                width: 64,
+                height: 64,
+                borderRadius: "50%",
+                border: "5px solid #d1fae5",
+                borderTop: "5px solid #199c2e",
+                margin: "0 auto",
+                animation: "ccg-spin 0.9s linear infinite",
+              }} />
+            </div>
+            <div style={{
+              fontSize: 26,
+              fontWeight: 700,
+              color: "#111827",
+              fontFamily: "'Oswald', sans-serif",
+              marginBottom: 12,
+              lineHeight: 1.2,
+            }}>
+              Submitting Your Documents
+            </div>
+            <div style={{
+              fontSize: 17,
+              color: "#4b5563",
+              fontFamily: "'Nunito', sans-serif",
+              fontWeight: 600,
+              lineHeight: 1.6,
+              marginBottom: 20,
+            }}>
+              Please wait — we're saving your signature and sending your copies by email. This takes just a moment. ✉️
+            </div>
+            <div style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "10px 20px",
+              background: "#f0fdf4",
+              borderRadius: 999,
+              fontSize: 14,
+              fontWeight: 700,
+              color: "#166534",
+              fontFamily: "'Nunito', sans-serif",
+            }}>
+              <span>⚠️</span> Please don't close this window
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <style>{`
+        @keyframes ccg-spin {
+          to { transform: rotate(360deg); }
+        }
+        @keyframes ccg-pulse {
+          0%, 100% { transform: scale(1); box-shadow: 0 6px 20px rgba(25,156,46,0.45); }
+          50% { transform: scale(1.04); box-shadow: 0 8px 28px rgba(25,156,46,0.65); }
+        }
+        @keyframes ccg-bounce {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-3px); }
+        }
+      `}</style>
+
     </div>
   );
 }
