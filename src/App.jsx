@@ -3916,30 +3916,35 @@ export default function App() {
                   <button type="button" onClick={() => toggleDocSelection("insp")}
                     style={{
                       padding: "16px 14px", borderRadius: 16, textAlign: "left", cursor: "pointer",
-                      border: "none",
-                      background: selectedDocs.includes("insp")
-                        ? "linear-gradient(135deg, #1a2e5a 0%, #c8392b 100%)"
-                        : "linear-gradient(135deg, #2d4a8a 0%, #e05040 100%)",
-                      boxShadow: selectedDocs.includes("insp") ? "0 4px 16px rgba(26,46,90,0.35)" : "0 2px 8px rgba(26,46,90,0.18)",
+                      border: selectedDocs.includes("insp") ? "3px solid #1a2e5a" : "2px solid #d1d5db",
+                      background: "#fff",
+                      boxShadow: selectedDocs.includes("insp") ? "0 4px 16px rgba(26,46,90,0.25)" : "0 2px 6px rgba(0,0,0,0.06)",
                       transition: "all 0.15s",
-                      opacity: selectedDocs.includes("insp") ? 1 : 0.82,
+                      position: "relative",
+                      overflow: "hidden",
                     }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.5)", flexShrink: 0 }} />
-                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.8)", flexShrink: 0 }} />
-                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#fff", flexShrink: 0 }} />
-                      <span style={{ fontSize: 10, fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "rgba(255,255,255,0.85)", letterSpacing: "0.06em", textTransform: "uppercase", marginLeft: 4 }}>
+                    {/* Red/White/Blue stripe bar at top */}
+                    <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 6, display: "flex" }}>
+                      <div style={{ flex: 1, background: "#1a2e5a" }} />
+                      <div style={{ flex: 1, background: "#fff", borderLeft: "1px solid #e5e7eb", borderRight: "1px solid #e5e7eb" }} />
+                      <div style={{ flex: 1, background: "#c8392b" }} />
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, marginTop: 8 }}>
+                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#1a2e5a", flexShrink: 0 }} />
+                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#d1d5db", flexShrink: 0 }} />
+                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#c8392b", flexShrink: 0 }} />
+                      <span style={{ fontSize: 10, fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "#1a2e5a", letterSpacing: "0.06em", textTransform: "uppercase", marginLeft: 4 }}>
                         U.S. Shingle & Metal
                       </span>
                     </div>
-                    <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#fff", marginBottom: 2 }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827", marginBottom: 2 }}>
                       🏠 Free Roof Inspection
                     </div>
-                    <div style={{ fontSize: 12, color: "rgba(255,255,255,0.8)", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>
+                    <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>
                       Homeowner signs inspection agreement
                     </div>
                     {selectedDocs.includes("insp") ? (
-                      <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#fff", fontFamily: "'Nunito', sans-serif" }}>✓ Selected</div>
+                      <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#1a2e5a", fontFamily: "'Nunito', sans-serif" }}>✓ Selected</div>
                     ) : null}
                   </button>
 
