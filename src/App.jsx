@@ -20,7 +20,7 @@ if (typeof document !== "undefined" && !document.getElementById("oswald-font")) 
 
 const PA_FIXED = {
   name: "Benito Paul",
-  initials: "PB",
+  initials: "BP",
   license: "P199496",
   signatureImage: "/benito-signature.png",
 };
@@ -65,6 +65,9 @@ const initialData = {
   signerEmail: "",
   paEmail: "claims@iambenitopaul.com",
   representativeName: "",
+  leadSource: "NEED",  // "NEED" | "INS"
+  salesRepId: "",
+  salesRepName: "",
   homeowner1: "",
   homeowner2: "",
   address: "",
@@ -1530,7 +1533,7 @@ function PublicAdjusterContract({
         flexWrap: "wrap",
       }}
     >
-      {/* PA Initials — Benito Paul "PB" in Brush Script */}
+      {/* PA Initials — Benito Paul "BP" in Brush Script */}
       <div style={{ minWidth: 80 }}>
         <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 2 }}>PA Initials:</div>
         <div
@@ -1550,7 +1553,7 @@ function PublicAdjusterContract({
               lineHeight: 1,
             }}
           >
-            PB
+            BP
           </span>
         </div>
       </div>
@@ -2051,6 +2054,32 @@ export default function App() {
   const [pendingSend, setPendingSend] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // ── Inspection form state ──
+  const initialInspData = {
+    date: new Date().toISOString().split("T")[0],
+    clientName: "",
+    mobile: "",
+    address: "",
+    city: "",
+    state: "",
+    zip: "",
+    email: "",
+  };
+  const [inspData, setInspData] = useState(initialInspData);
+  const [inspSig, setInspSig] = useState("");
+  const [inspSigMethod, setInspSigMethod] = useState("draw");
+  const [inspTypedSig, setInspTypedSig] = useState("");
+  const [inspSigFont, setInspSigFont] = useState(SIGNATURE_FONTS[0]);
+  const [inspSubmitting, setInspSubmitting] = useState(false);
+  const [inspSubmitAttempted, setInspSubmitAttempted] = useState(false);
+
+  const updateInsp = (key, val) => setInspData(prev => ({ ...prev, [key]: val }));
+
+  const effectiveInspSig = inspSigMethod === "type"
+    ? typedSignatureToDataUrl(inspTypedSig, inspSigFont)
+    : inspSig;
+  const [teamMembers, setTeamMembers] = useState([]);
   const [currentClaimId, setCurrentClaimId] = useState(null);
   const [isSigningFromLink, setIsSigningFromLink] = useState(false);
   const [isLoadingSigningLink, setIsLoadingSigningLink] = useState(false);
@@ -2279,6 +2308,23 @@ export default function App() {
     loadFromSigningLink();
   }, []);
 
+  // Fetch team members from Supabase
+  useEffect(() => {
+    const fetchTeamMembers = async () => {
+      try {
+        const { data, error } = await supabase
+          .from("team_members")
+          .select("id, name, jobnimbus_id")
+          .eq("active", true)
+          .order("name");
+        if (!error && data) setTeamMembers(data);
+      } catch (e) {
+        console.warn("Could not load team members:", e);
+      }
+    };
+    fetchTeamMembers();
+  }, []);
+
   useEffect(() => {
     if (view === "review" && reviewReady) {
       const timer = setTimeout(() => {
@@ -2492,6 +2538,90 @@ export default function App() {
 
     if (inserted?.id) setCurrentClaimId(inserted.id);
     return { record: inserted, error };
+  };
+
+  const submitInspection = async () => {
+    setInspSubmitAttempted(true);
+    if (!effectiveInspSig || !inspData.clientName || !inspData.address) {
+      return;
+    }
+    setInspSubmitting(true);
+    try {
+      // Generate PDF
+      const blob = await generatePDF("#inspection-printable", "Free-Roof-Inspection-Agreement.pdf");
+      const base64 = await blobToBase64(blob);
+      const base64Content = String(base64).split(",")[1];
+
+      // Email to homeowner
+      if (inspData.email) {
+        await fetch("/.netlify/functions/send-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            to: [inspData.email],
+            subject: "Your Free Roof Inspection Agreement — U.S. Shingle & Metal",
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <div style="background: #199c2e; padding: 24px 32px; border-radius: 12px 12px 0 0;">
+                  <h1 style="color: #fff; margin: 0; font-size: 22px;">🏠 Your Inspection Agreement</h1>
+                </div>
+                <div style="background: #f9fafb; padding: 24px 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb; border-top: none;">
+                  <p style="font-size: 15px; color: #374151;">Hi ${inspData.clientName},</p>
+                  <p style="font-size: 15px; color: #374151; line-height: 1.6;">
+                    Thank you for signing your Free Roof Inspection Agreement with U.S. Shingle & Metal LLC.
+                    Your signed agreement is attached. We will be in touch shortly to schedule the inspection.
+                  </p>
+                  <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 16px 20px; margin: 16px 0;">
+                    <p style="margin: 0; font-weight: 700; color: #166534;">📞 Questions? Contact us:</p>
+                    <p style="margin: 6px 0 0; color: #166534; font-size: 14px;">
+                      Phone: 727.761.5200<br/>Email: info@shingleusa.com
+                    </p>
+                  </div>
+                </div>
+              </div>
+            `,
+            attachments: [{ filename: "Free-Roof-Inspection-Agreement.pdf", content: base64Content }],
+          }),
+        });
+      }
+
+      // Job Nimbus sync
+      const nameParts = inspData.clientName.trim().split(" ");
+      await fetch("/.netlify/functions/jobnimbus-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          firstName: nameParts[0] || "",
+          lastName: nameParts.slice(1).join(" ") || "",
+          address: inspData.address,
+          city: inspData.city,
+          state: inspData.state,
+          zip: inspData.zip,
+          phone: inspData.mobile,
+          email: inspData.email,
+          salesRepId: data.salesRepId || null,
+          leadSource: data.leadSource || "NEED",
+          soldDate: inspData.date,
+          paSignedAlso: false,
+          inspectionPdfBase64: base64Content,
+          lorPdfBase64: null,
+          pacPdfBase64: null,
+        }),
+      }).catch(e => console.warn("JN sync non-fatal:", e));
+
+      // Reset and go to thank you
+      setInspData(initialInspData);
+      setInspSig("");
+      setInspTypedSig("");
+      setInspSubmitAttempted(false);
+      setView("input");
+      alert("✅ Inspection agreement sent to homeowner!");
+
+    } catch (err) {
+      alert(err?.message || "Something went wrong. Please try again.");
+    } finally {
+      setInspSubmitting(false);
+    }
   };
 
   const submitDoc = async () => {
@@ -2766,6 +2896,40 @@ export default function App() {
 
       setIsSubmitting(false);
       setPendingSend(false);
+
+      // ── Job Nimbus sync ──
+      try {
+        const nameParts = (data.homeowner1 || "").trim().split(" ");
+        const jnPayload = {
+          firstName: nameParts[0] || "",
+          lastName: nameParts.slice(1).join(" ") || "",
+          address: data.address,
+          city: data.city,
+          state: data.state,
+          zip: data.zip,
+          phone: data.phone,
+          email: data.signerEmail,
+          salesRepId: data.salesRepId || null,
+          leadSource: data.leadSource || "NEED",
+          soldDate: data.date,
+          paSignedAlso: selectedDocs.includes("pac"),
+          inspectionPdfBase64: null, // no inspection PDF in PA flow
+          lorPdfBase64: selectedDocs.includes("lor")
+            ? String(await blobToBase64(await generatePDF("#lor-printable-document", "lor.pdf"))).split(",")[1]
+            : null,
+          pacPdfBase64: selectedDocs.includes("pac")
+            ? String(await blobToBase64(await generatePDF("#pac-printable-document", "pac.pdf"))).split(",")[1]
+            : null,
+        };
+
+        await fetch("/.netlify/functions/jobnimbus-sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(jnPayload),
+        });
+      } catch (jnErr) {
+        console.warn("Job Nimbus sync failed (non-fatal):", jnErr);
+      }
 
       if (isSigningFromLink) {
         window.history.replaceState({}, "", window.location.pathname);
@@ -3289,6 +3453,27 @@ export default function App() {
                 >
                   ⚙️ Manager
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setView("inspection")}
+                  style={{
+                    background: "#1a2e5a",
+                    border: "none",
+                    borderRadius: 10,
+                    padding: "6px 14px",
+                    fontSize: 12,
+                    fontFamily: "'Oswald', sans-serif",
+                    fontWeight: 600,
+                    letterSpacing: "0.04em",
+                    color: "#fff",
+                    cursor: "pointer",
+                    textTransform: "uppercase",
+                    flexShrink: 0,
+                    marginTop: 4,
+                  }}
+                >
+                  🏠 Inspection Form
+                </button>
               </div>
             </CardHeader>
 
@@ -3466,6 +3651,74 @@ export default function App() {
                       value={data.paEmail}
                       onChange={(v) => update("paEmail", v)}
                     />
+
+                    {/* Lead Source */}
+                    <div>
+                      <Label>Lead Source</Label>
+                      <div style={{ display: "flex", gap: 10 }}>
+                        {["NEED", "INS"].map((src) => (
+                          <button
+                            key={src}
+                            type="button"
+                            onClick={() => update("leadSource", src)}
+                            style={{
+                              flex: 1,
+                              padding: "10px 8px",
+                              borderRadius: 12,
+                              border: data.leadSource === src ? "2.5px solid #199c2e" : "1.5px solid #d1d5db",
+                              background: data.leadSource === src ? "#f0fdf4" : "#fff",
+                              color: data.leadSource === src ? "#166534" : "#374151",
+                              fontFamily: "'Oswald', sans-serif",
+                              fontWeight: 700,
+                              fontSize: 15,
+                              cursor: "pointer",
+                              letterSpacing: "0.05em",
+                            }}
+                          >
+                            {src}
+                          </button>
+                        ))}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4, fontFamily: "'Nunito', sans-serif" }}>
+                        {data.leadSource === "NEED" ? "New lead — will create contact + job in JN" : "Existing lead — will search JN by address"}
+                      </div>
+                    </div>
+
+                    {/* Sales Rep dropdown */}
+                    <div>
+                      <Label>Sales Rep</Label>
+                      <select
+                        value={data.salesRepId}
+                        onChange={(e) => {
+                          const selected = teamMembers.find(m => m.jobnimbus_id === e.target.value);
+                          update("salesRepId", e.target.value);
+                          update("salesRepName", selected?.name || "");
+                        }}
+                        style={{
+                          width: "100%",
+                          height: 44,
+                          borderRadius: 14,
+                          border: "1px solid #d1d5db",
+                          padding: "0 12px",
+                          fontSize: 14,
+                          boxSizing: "border-box",
+                          background: "#fff",
+                          fontFamily: "'Nunito', sans-serif",
+                        }}
+                      >
+                        <option value="">— Select Rep —</option>
+                        {teamMembers.map((m) => (
+                          <option key={m.jobnimbus_id} value={m.jobnimbus_id}>
+                            {m.name}
+                          </option>
+                        ))}
+                      </select>
+                      {teamMembers.length === 0 ? (
+                        <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 4, fontFamily: "'Nunito', sans-serif" }}>
+                          ⚠️ No reps loaded — add to Supabase team_members table
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                 </Card>
 
@@ -4399,6 +4652,239 @@ export default function App() {
             </div>
           </div>
 
+          </>
+        ) : null}
+
+        {/* ── INSPECTION FORM VIEW ── */}
+        {view === "inspection" ? (
+          <>
+            <div>
+              <Button variant="outline" onClick={() => setView("input")}>
+                <ArrowLeft size={16} /> Back
+              </Button>
+            </div>
+
+            {/* Hero banner */}
+            <div style={{
+              background: "linear-gradient(135deg, #1a2e5a 0%, #0f1e3d 100%)",
+              borderRadius: 24,
+              padding: "32px 28px",
+              color: "#fff",
+              position: "relative",
+              overflow: "hidden",
+            }}>
+              <div style={{ position: "absolute", top: -30, right: -30, width: 160, height: 160, background: "rgba(200,57,43,0.15)", borderRadius: "50%" }} />
+              <div style={{ position: "absolute", bottom: -20, left: 40, width: 100, height: 100, background: "rgba(200,57,43,0.1)", borderRadius: "50%" }} />
+              <div style={{ fontSize: 36, marginBottom: 8 }}>🏠</div>
+              <div style={{ fontSize: 30, fontWeight: 700, fontFamily: "'Oswald', sans-serif", marginBottom: 8 }}>
+                Free Roof Inspection Agreement
+              </div>
+              <div style={{ fontSize: 14, fontFamily: "'Nunito', sans-serif", fontWeight: 700, color: "#c8392b", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                U.S. Shingle & Metal LLC
+              </div>
+              <div style={{ fontSize: 15, fontFamily: "'Nunito', sans-serif", fontWeight: 600, opacity: 0.88 }}>
+                Fill in the homeowner details and collect their signature below.
+              </div>
+            </div>
+
+            {/* Form fields */}
+            <Card>
+              <CardContent>
+                <div style={{ display: "grid", gap: 20 }}>
+                  <SectionTitle>Client Information</SectionTitle>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16 }}>
+                    <div>
+                      <Label>Date</Label>
+                      <input type="date" value={inspData.date} onChange={e => updateInsp("date", e.target.value)}
+                        style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                    </div>
+                    <div>
+                      <Label>Client Full Name *</Label>
+                      <input type="text" value={inspData.clientName} onChange={e => updateInsp("clientName", e.target.value)}
+                        placeholder="Full name"
+                        style={{ width: "100%", height: 44, borderRadius: 14, border: inspSubmitAttempted && !inspData.clientName ? "2px solid #ef4444" : "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                    </div>
+                    <div>
+                      <Label>Mobile</Label>
+                      <input type="tel" value={inspData.mobile}
+                        onChange={e => {
+                          const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
+                          let fmt = digits;
+                          if (digits.length >= 7) fmt = `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
+                          else if (digits.length >= 4) fmt = `(${digits.slice(0,3)}) ${digits.slice(3)}`;
+                          else if (digits.length >= 1) fmt = `(${digits}`;
+                          updateInsp("mobile", fmt);
+                        }}
+                        placeholder="(727) 000-0000"
+                        style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                    </div>
+                    <div>
+                      <Label>Email</Label>
+                      <input type="email" value={inspData.email} onChange={e => updateInsp("email", e.target.value)}
+                        placeholder="client@email.com"
+                        style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                    </div>
+                    <div>
+                      <Label>Address *</Label>
+                      <input type="text" value={inspData.address} onChange={e => updateInsp("address", e.target.value)}
+                        placeholder="Street address"
+                        style={{ width: "100%", height: 44, borderRadius: 14, border: inspSubmitAttempted && !inspData.address ? "2px solid #ef4444" : "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                    </div>
+                    <div>
+                      <Label>City</Label>
+                      <input type="text" value={inspData.city} onChange={e => updateInsp("city", e.target.value)}
+                        placeholder="City"
+                        style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                    </div>
+                    <div>
+                      <Label>State</Label>
+                      <input type="text" value={inspData.state} onChange={e => updateInsp("state", e.target.value)}
+                        placeholder="FL"
+                        style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                    </div>
+                    <div>
+                      <Label>Zip</Label>
+                      <input type="text" value={inspData.zip} onChange={e => updateInsp("zip", e.target.value)}
+                        placeholder="33782"
+                        style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Signature section */}
+            <div>
+              {!effectiveInspSig ? (
+                <div style={{
+                  background: "linear-gradient(135deg, #1a2e5a 0%, #0f1e3d 100%)",
+                  borderRadius: "24px 24px 0 0",
+                  padding: "24px 28px 20px",
+                  color: "#fff",
+                }}>
+                  <div style={{ fontSize: 28, marginBottom: 6 }}>✍️</div>
+                  <div style={{ fontSize: 26, fontWeight: 700, fontFamily: "'Oswald', sans-serif", marginBottom: 6 }}>
+                    Client Signature
+                  </div>
+                  <div style={{ fontSize: 15, fontFamily: "'Nunito', sans-serif", fontWeight: 600, opacity: 0.92 }}>
+                    Use your finger, mouse, or type your name below.
+                  </div>
+                </div>
+              ) : null}
+
+              <Card style={{ borderRadius: effectiveInspSig ? 24 : "0 0 24px 24px", borderTop: effectiveInspSig ? undefined : "none" }}>
+                <CardContent>
+                  {/* Method selector */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+                    {[["draw", "👆", "Draw It"], ["type", "⌨️", "Type It"]].map(([m, emoji, label]) => (
+                      <button key={m} type="button" onClick={() => setInspSigMethod(m)}
+                        style={{
+                          padding: "14px 12px", borderRadius: 16, textAlign: "center",
+                          border: inspSigMethod === m ? "3px solid #1a2e5a" : "2px solid #e5e7eb",
+                          background: inspSigMethod === m ? "#eef1f8" : "#fff", cursor: "pointer",
+                        }}>
+                        <div style={{ fontSize: 28, marginBottom: 6 }}>{emoji}</div>
+                        <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Nunito', sans-serif", color: "#111827" }}>{label}</div>
+                        {inspSigMethod === m ? <div style={{ fontSize: 12, color: "#1a2e5a", fontWeight: 700, fontFamily: "'Nunito', sans-serif", marginTop: 4 }}>✓ Selected</div> : null}
+                      </button>
+                    ))}
+                  </div>
+
+                  {inspSigMethod === "draw" ? (
+                    <SignaturePad title="" value={inspSig} onChange={setInspSig} required missing={inspSubmitAttempted && !effectiveInspSig} />
+                  ) : (
+                    <TypedSignatureField title="" value={inspTypedSig} onChange={setInspTypedSig}
+                      fontValue={inspSigFont} onFontChange={setInspSigFont}
+                      required missing={inspSubmitAttempted && !effectiveInspSig}
+                      placeholder="Type full legal name" />
+                  )}
+
+                  {inspSubmitAttempted && !inspData.clientName ? (
+                    <div style={{ color: "#ef4444", fontSize: 14, fontFamily: "'Nunito', sans-serif", fontWeight: 700, marginBottom: 12 }}>
+                      ⚠️ Please enter the client name above
+                    </div>
+                  ) : null}
+                  {inspSubmitAttempted && !inspData.address ? (
+                    <div style={{ color: "#ef4444", fontSize: 14, fontFamily: "'Nunito', sans-serif", fontWeight: 700, marginBottom: 12 }}>
+                      ⚠️ Please enter the property address above
+                    </div>
+                  ) : null}
+
+                  <Button onClick={submitInspection} disabled={inspSubmitting}
+                    style={{ background: "#1a2e5a", border: "1px solid #1a2e5a" }}>
+                    <Mail size={16} /> {inspSubmitting ? "Submitting..." : "Submit & Email to Client"}
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Hidden printable PDF */}
+            <div style={{ position: "absolute", left: "-20000px", top: 0, width: 1100, pointerEvents: "none" }}>
+              <div id="inspection-printable" style={{ fontFamily: "Arial, Helvetica, sans-serif", background: "#fff", width: "8.5in", padding: "0.6in 0.7in", boxSizing: "border-box" }}>
+                {/* Header */}
+                <div style={{ textAlign: "center", marginBottom: 24 }}>
+                  {/* Logo placeholder - add /uss-logo.png to public folder */}
+                  <img src="/uss-logo.png" alt="U.S. Shingle & Metal" style={{ height: 72, marginBottom: 12, objectFit: "contain" }}
+                    onError={e => { e.target.style.display="none"; }} />
+                  <div style={{ fontSize: 20, fontWeight: 700, color: "#1a2e5a", marginBottom: 4, textTransform: "uppercase", letterSpacing: 1.5 }}>
+                    Free Roof Inspection Agreement
+                  </div>
+                  <div style={{ width: 60, height: 3, background: "#c8392b", margin: "0 auto 10px", borderRadius: 2 }} />
+                  <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.7 }}>
+                    {INSPECTION_COMPANY.name} &nbsp;|&nbsp; {INSPECTION_COMPANY.address}<br />
+                    Phone: {INSPECTION_COMPANY.phone} &nbsp;|&nbsp; Email: {INSPECTION_COMPANY.email} &nbsp;|&nbsp; License #: {INSPECTION_COMPANY.license}
+                  </div>
+                  <div style={{ borderBottom: "2px solid #1a2e5a", marginTop: 14 }} />
+                </div>
+
+                {/* Client info */}
+                <div style={{ display: "grid", gap: 6, fontSize: 14, marginBottom: 20 }}>
+                  <div><strong>Date:</strong> {inspData.date}</div>
+                  <div><strong>Client:</strong> {inspData.clientName}</div>
+                  <div><strong>Mobile:</strong> {inspData.mobile}</div>
+                  <div><strong>Address:</strong> {inspData.address} &nbsp; <strong>City:</strong> {inspData.city} &nbsp; <strong>St:</strong> {inspData.state} &nbsp; <strong>Zip:</strong> {inspData.zip}</div>
+                  <div><strong>Email:</strong> {inspData.email}</div>
+                </div>
+
+                {/* Agreement text */}
+                <div style={{ fontSize: 13, lineHeight: 1.7, marginBottom: 28, color: "#111827" }}>
+                  <p style={{ margin: "0 0 10px" }}>
+                    Client agrees to allow {INSPECTION_COMPANY.name} (Company) to perform a free roof inspection at the above address and to forward all pictures and findings to a Public Adjuster for review. The Company maintains all required licenses and insurance and will not perform repairs during the inspection.
+                  </p>
+                  <p style={{ margin: "0 0 10px" }}>
+                    Client understands that they do not need to be present during the inspection; however, Company personnel will knock on the door upon arrival.
+                  </p>
+                  <p style={{ margin: "0 0 10px" }}>
+                    If the Public Adjuster determines that storm damage exists, they may proceed with filing an insurance claim provided the Client has hired them. Client authorizes the Public Adjuster to notify the Company of its findings and to keep the Company updated throughout the claims process.
+                  </p>
+                  <p style={{ margin: 0 }}>
+                    Client acknowledges that the Company is a licensed roofing contractor and cannot discuss policy coverages, insurance requirements, or statutory guidelines. Any such questions should be directed to the Public Adjuster or the Client's homeowner's insurance carrier.
+                  </p>
+                </div>
+
+                {/* Signatures */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 40, marginTop: 20 }}>
+                  <div>
+                    <div style={{ marginBottom: 4, fontSize: 12 }}>Client:</div>
+                    <div style={{ borderBottom: "1px solid #000", minHeight: 50, display: "flex", alignItems: "flex-end", paddingBottom: 4, marginBottom: 4 }}>
+                      {effectiveInspSig ? (
+                        <img src={effectiveInspSig} alt="Client signature" style={{ maxHeight: 44, objectFit: "contain" }} />
+                      ) : null}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#374151" }}>{inspData.clientName}</div>
+                    <div style={{ fontSize: 12, marginTop: 8 }}>Date: {inspData.date}</div>
+                  </div>
+                  <div>
+                    <div style={{ marginBottom: 4, fontSize: 12 }}>Representative:</div>
+                    <div style={{ borderBottom: "1px solid #000", minHeight: 50, display: "flex", alignItems: "flex-end", paddingBottom: 4, marginBottom: 4 }}>
+                      <img src={PA_FIXED.signatureImage} alt="Rep signature" style={{ maxHeight: 44, objectFit: "contain" }} />
+                    </div>
+                    <div style={{ fontSize: 11, color: "#374151" }}>{data.salesRepName || data.representativeName || REP_FIXED.name}</div>
+                    <div style={{ fontSize: 12, marginTop: 8 }}>Date: {inspData.date}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </>
         ) : null}
 
