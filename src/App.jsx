@@ -2322,18 +2322,16 @@ export default function App() {
     loadFromSigningLink();
   }, []);
 
-  // Fetch team members from Supabase
+  // Fetch team members from Job Nimbus
   useEffect(() => {
     const fetchTeamMembers = async () => {
       try {
-        const { data, error } = await supabase
-          .from("team_members")
-          .select("id, name, jobnimbus_id")
-          .eq("active", true)
-          .order("name");
-        if (!error && data) setTeamMembers(data);
+        const res = await fetch("/.netlify/functions/jobnimbus-users");
+        if (!res.ok) throw new Error("Failed to fetch");
+        const { members } = await res.json();
+        if (members?.length) setTeamMembers(members);
       } catch (e) {
-        console.warn("Could not load team members:", e);
+        console.warn("Could not load JN team members:", e);
       }
     };
     fetchTeamMembers();
@@ -3720,11 +3718,6 @@ export default function App() {
                     }}
                   >
                     <FormField
-                      label="Representative Name"
-                      value={data.representativeName}
-                      onChange={(v) => update("representativeName", v)}
-                    />
-                    <FormField
                       label="PA Email"
                       type="email"
                       value={data.paEmail}
@@ -3794,7 +3787,7 @@ export default function App() {
                       </select>
                       {teamMembers.length === 0 ? (
                         <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 4, fontFamily: "'Nunito', sans-serif" }}>
-                          ⚠️ No reps loaded — add to Supabase team_members table
+                          ⚠️ No reps loaded — check JN API connection
                         </div>
                       ) : null}
                     </div>
