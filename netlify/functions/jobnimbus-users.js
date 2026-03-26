@@ -35,17 +35,8 @@ exports.handler = async (event) => {
           console.log("Sample user fields:", JSON.stringify(list[0], null, 2));
           console.log("All user names+roles:", list.map(u => `${u.first_name} ${u.last_name} | role:${u.role} | group:${u.group} | type:${u.type} | division:${u.division} | team:${u.team} | location:${u.location} | access_profile:${u.access_profile} | acl:${JSON.stringify(u.acl)}`).join("\n"));
           
-          // Filter to Insurance Sales Reps only
-          // TODO: tighten once we confirm field names from logs
-          const filtered = list.filter(u => {
-            const fields = JSON.stringify(u).toLowerCase();
-            return fields.includes("insurance sales rep") ||
-                   fields.includes("u.s. shingle") ||
-                   fields.includes("insurance (ins)");
-          });
-
-          // Fall back to all if filter returns nothing
-          const useList = filtered.length > 0 ? filtered : list;
+          // Show all active users for now — filter by location once field names confirmed
+          const useList = list.filter(u => u.is_active !== false);
           
           members = useList
             .map(u => ({
