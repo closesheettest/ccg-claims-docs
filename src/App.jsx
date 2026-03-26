@@ -2414,9 +2414,9 @@ export default function App() {
     setInspSubmitAttempted(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
 
-    // If inspection is selected, go there first — PA forms follow after submit
+    // Always go to review — inspection doc is authorized there, then signed once at bottom
+    // Pre-populate inspection fields from intake if needed
     if (selectedDocs.includes("insp")) {
-      // Pre-populate inspection fields from intake
       setInspData(prev => ({
         ...prev,
         clientName: [data.homeowner1, data.homeowner2].filter(Boolean).join(" & ") || prev.clientName,
@@ -2427,10 +2427,8 @@ export default function App() {
         zip: data.zip || prev.zip,
         email: data.signerEmail || prev.email,
       }));
-      setView("inspection");
-    } else {
-      setView("review");
     }
+    setView("review");
   };
 
   const effectiveSig1 =
@@ -2763,6 +2761,22 @@ export default function App() {
       }
 
       const attachments = [];
+
+      if (selectedDocs.includes("insp")) {
+        try {
+          const inspBlob = await generatePDF(
+            "#inspection-printable",
+            documentFilename("insp")
+          );
+          const inspBase64 = await blobToBase64(inspBlob);
+          attachments.push({
+            filename: documentFilename("insp"),
+            content: String(inspBase64).split(",")[1],
+          });
+        } catch (e) {
+          console.warn("Inspection PDF failed:", e);
+        }
+      }
 
       if (selectedDocs.includes("lor")) {
         const lorBlob = await generatePDF(
@@ -4969,9 +4983,9 @@ export default function App() {
               </Card>
             </div>
 
-            {/* Hidden printable PDF */}
-            <div style={{ position: "absolute", left: "-20000px", top: 0, width: 1100, pointerEvents: "none" }}>
-              <div id="inspection-printable" style={{ fontFamily: "Arial, Helvetica, sans-serif", background: "#fff", width: "8.5in", padding: "0.6in 0.7in", boxSizing: "border-box" }}>
+            {/* Hidden printable PDF — moved to always-rendered section below */}
+            <div style={{ display: "none" }}>
+              <div id="inspection-printable-placeholder" style={{ fontFamily: "Arial, Helvetica, sans-serif", background: "#fff", width: "8.5in", padding: "0.6in 0.7in", boxSizing: "border-box" }}>
                 {/* Header */}
                 <div style={{ textAlign: "center", marginBottom: 24 }}>
                   {/* Logo placeholder - add /uss-logo.png to public folder */}
@@ -5028,7 +5042,7 @@ export default function App() {
                   <div>
                     <div style={{ marginBottom: 4, fontSize: 12 }}>Representative:</div>
                     <div style={{ borderBottom: "1px solid #000", minHeight: 50, display: "flex", alignItems: "flex-end", paddingBottom: 4, marginBottom: 4 }}>
-                      <img src={PA_FIXED.signatureImage} alt="Rep signature" style={{ maxHeight: 44, objectFit: "contain" }} />
+                      <img src={REP_FIXED.signatureImage} alt="Rep signature" style={{ maxHeight: 44, objectFit: "contain" }} />
                     </div>
                     <div style={{ fontSize: 11, color: "#374151" }}>{data.salesRepName || data.representativeName || REP_FIXED.name}</div>
                     <div style={{ fontSize: 12, marginTop: 8 }}>Date: {inspData.date}</div>
@@ -5486,6 +5500,53 @@ export default function App() {
           </Card>
         ) : null}
 
+      </div>
+
+      {/* ── Always-rendered hidden inspection PDF ── */}
+      <div style={{ position: "absolute", left: "-20000px", top: 0, width: 0, height: 0, overflow: "hidden", pointerEvents: "none" }}>
+        <div id="inspection-printable" style={{ fontFamily: "Arial, Helvetica, sans-serif", background: "#fff", width: "8.5in", padding: "0.6in 0.7in", boxSizing: "border-box" }}>
+          <div style={{ textAlign: "center", marginBottom: 24 }}>
+            <img src="/uss-logo.png" alt="U.S. Shingle & Metal" style={{ height: 72, marginBottom: 12, objectFit: "contain" }} onError={e => { e.target.style.display="none"; }} />
+            <div style={{ fontSize: 20, fontWeight: 700, color: "#1a2e5a", marginBottom: 4, textTransform: "uppercase", letterSpacing: 1.5 }}>Free Roof Inspection Agreement</div>
+            <div style={{ width: 60, height: 3, background: "#c8392b", margin: "0 auto 10px", borderRadius: 2 }} />
+            <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.7 }}>
+              {INSPECTION_COMPANY.name} &nbsp;|&nbsp; {INSPECTION_COMPANY.address}<br />
+              Phone: {INSPECTION_COMPANY.phone} &nbsp;|&nbsp; Email: {INSPECTION_COMPANY.email} &nbsp;|&nbsp; License #: {INSPECTION_COMPANY.license}
+            </div>
+            <div style={{ borderBottom: "2px solid #1a2e5a", marginTop: 14 }} />
+          </div>
+          <div style={{ display: "grid", gap: 6, fontSize: 14, marginBottom: 20 }}>
+            <div><strong>Date:</strong> {inspData.date || data.date}</div>
+            <div><strong>Client:</strong> {inspData.clientName || [data.homeowner1, data.homeowner2].filter(Boolean).join(" & ")}</div>
+            <div><strong>Mobile:</strong> {inspData.mobile || data.phone}</div>
+            <div><strong>Address:</strong> {inspData.address || data.address} &nbsp; <strong>City:</strong> {inspData.city || data.city} &nbsp; <strong>St:</strong> {inspData.state || data.state} &nbsp; <strong>Zip:</strong> {inspData.zip || data.zip}</div>
+            <div><strong>Email:</strong> {inspData.email || data.signerEmail}</div>
+          </div>
+          <div style={{ fontSize: 13, lineHeight: 1.7, marginBottom: 28, color: "#111827" }}>
+            <p style={{ margin: "0 0 10px" }}>Client agrees to allow {INSPECTION_COMPANY.name} (Company) to perform a free roof inspection at the above address and to forward all pictures and findings to a Public Adjuster for review. The Company maintains all required licenses and insurance and will not perform repairs during the inspection.</p>
+            <p style={{ margin: "0 0 10px" }}>Client understands that they do not need to be present during the inspection; however, Company personnel will knock on the door upon arrival.</p>
+            <p style={{ margin: "0 0 10px" }}>If the Public Adjuster determines that storm damage exists, they may proceed with filing an insurance claim provided the Client has hired them. Client authorizes the Public Adjuster to notify the Company of its findings and to keep the Company updated throughout the claims process.</p>
+            <p style={{ margin: 0 }}>Client acknowledges that the Company is a licensed roofing contractor and cannot discuss policy coverages, insurance requirements, or statutory guidelines. Any such questions should be directed to the Public Adjuster or the Client's homeowner's insurance carrier.</p>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 40, marginTop: 20 }}>
+            <div>
+              <div style={{ marginBottom: 4, fontSize: 12 }}>Client:</div>
+              <div style={{ borderBottom: "1px solid #000", minHeight: 50, display: "flex", alignItems: "flex-end", paddingBottom: 4, marginBottom: 4 }}>
+                {effectiveSig1 ? <img src={effectiveSig1} alt="Client signature" style={{ maxHeight: 44, objectFit: "contain" }} /> : null}
+              </div>
+              <div style={{ fontSize: 11, color: "#374151" }}>{[data.homeowner1, data.homeowner2].filter(Boolean).join(" & ")}</div>
+              <div style={{ fontSize: 12, marginTop: 8 }}>Date: {data.date}</div>
+            </div>
+            <div>
+              <div style={{ marginBottom: 4, fontSize: 12 }}>Representative:</div>
+              <div style={{ borderBottom: "1px solid #000", minHeight: 50, display: "flex", alignItems: "flex-end", paddingBottom: 4, marginBottom: 4 }}>
+                <img src={REP_FIXED.signatureImage} alt="Rep signature" style={{ maxHeight: 44, objectFit: "contain" }} />
+              </div>
+              <div style={{ fontSize: 11, color: "#374151" }}>{data.salesRepName || REP_FIXED.name}</div>
+              <div style={{ fontSize: 12, marginTop: 8 }}>Date: {data.date}</div>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* ── Always-rendered hidden welcome PDF (needed for email attachment at submit time) ── */}
