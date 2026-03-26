@@ -2981,13 +2981,11 @@ export default function App() {
         console.warn("Job Nimbus sync failed (non-fatal):", jnErr);
       }
 
+      window.scrollTo({ top: 0, behavior: "smooth" });
       if (isSigningFromLink) {
         window.history.replaceState({}, "", window.location.pathname);
-        window.scrollTo({ top: 0, behavior: "smooth" });
-        setView("thankyou");
-      } else {
-        setView("input");
       }
+      setView("thankyou");
     } catch (err) {
       setIsSubmitting(false);
       alert(err?.message || "Something went wrong. Please try again.");
@@ -4111,7 +4109,26 @@ export default function App() {
                     </p>
                     {!inspAgreed ? (
                       <div>
-                        <button type="button" onClick={() => setInspAgreed(true)}
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 10, marginBottom: 10 }}>
+                          <button type="button"
+                            onClick={async () => {
+                              try {
+                                const blob = await generatePDF("#inspection-printable", "Free-Roof-Inspection-Agreement.pdf");
+                                const blobUrl = URL.createObjectURL(blob);
+                                window.open(blobUrl, "_blank");
+                                setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+                              } catch(err) { alert(err?.message || "Failed to preview."); }
+                            }}
+                            style={{
+                              padding: "12px 8px", borderRadius: 12,
+                              border: "2px solid #1a2e5a", background: "#fff",
+                              color: "#1a2e5a", fontFamily: "'Oswald', sans-serif",
+                              fontWeight: 700, fontSize: 13, cursor: "pointer",
+                              letterSpacing: "0.04em", textTransform: "uppercase",
+                            }}>
+                            👁 Preview
+                          </button>
+                          <button type="button" onClick={() => setInspAgreed(true)}
                           style={{
                             width: "100%", padding: 0, borderRadius: 16, border: "none",
                             background: "transparent", cursor: "pointer",
