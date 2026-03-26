@@ -3493,40 +3493,6 @@ export default function App() {
                 >
                   ⚙️ Manager
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    // Pre-populate from intake form data
-                    setInspData(prev => ({
-                      ...prev,
-                      clientName: [data.homeowner1, data.homeowner2].filter(Boolean).join(" & ") || prev.clientName,
-                      mobile: data.phone || prev.mobile,
-                      address: data.address || prev.address,
-                      city: data.city || prev.city,
-                      state: data.state || prev.state,
-                      zip: data.zip || prev.zip,
-                      email: data.signerEmail || prev.email,
-                    }));
-                    setView("inspection");
-                  }}
-                  style={{
-                    background: "#1a2e5a",
-                    border: "none",
-                    borderRadius: 10,
-                    padding: "6px 14px",
-                    fontSize: 12,
-                    fontFamily: "'Oswald', sans-serif",
-                    fontWeight: 600,
-                    letterSpacing: "0.04em",
-                    color: "#fff",
-                    cursor: "pointer",
-                    textTransform: "uppercase",
-                    flexShrink: 0,
-                    marginTop: 4,
-                  }}
-                >
-                  🏠 Inspection Form
-                </button>
               </div>
             </CardHeader>
 
