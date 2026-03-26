@@ -31,6 +31,19 @@ const PA_ASSETS = {
   titleBar: "/pa-titlebar.png",
 };
 
+const REP_FIXED = {
+  name: "Neal Scoppe",
+  signatureImage: "/benito-signature.png",
+};
+
+const INSPECTION_COMPANY = {
+  name: "U.S. Shingle & Metal LLC",
+  address: "3845 Gateway Centre Blvd Suite 300 • Pinellas Park, FL 33782",
+  phone: "727.761.5200",
+  email: "info@shingleusa.com",
+  license: "CCC1331960",
+};
+
 const VALID_DOCS = ["lor", "pac"];
 
 const SIGNATURE_FONTS = [
@@ -1517,7 +1530,7 @@ function PublicAdjusterContract({
         boxSizing: "border-box",
       }}
     >
-      Public Adjuster Authorization
+      Public Adjuster Contract
     </div>
   );
 
@@ -1703,7 +1716,7 @@ function PublicAdjusterContract({
             independent appraiser to appraise, advise, negotiate, and/or settle
             the above-referenced claim.
           </p>
-          <p style={{ margin: "0 0 6px", fontWeight: 700, fontSize: 18, lineHeight: 1.4 }}>
+          <p style={{ margin: "0 0 6px", fontWeight: 700, fontSize: 18, lineHeight: 1.5 }}>
             The insured(s) agrees to pay and hereby assigns to Capital Claims Group <strong>10%</strong> of all payments made by the insurance company related to this claim.
           </p>
           <p style={{ margin: "0 0 10px" }}>
@@ -1830,17 +1843,6 @@ function PublicAdjusterContract({
             Agreement shall not affect any other clause.
           </p>
 
-          <InitialsRow />
-        </div>
-      </PdfPage>
-
-      <PdfPage
-        isExportingPdf={isExportingPdf}
-        header={<HeaderImg />}
-        contentPadding="0 0.42in 0.12in"
-        footer={<Footer page={3} />}
-      >
-        <div style={bodyText}>
           <p style={{ margin: "0 0 6px" }}>
             10. <span style={sectionHead}>Dispute:</span>
           </p>
@@ -1863,6 +1865,17 @@ function PublicAdjusterContract({
             contract.
           </p>
 
+          <InitialsRow />
+        </div>
+      </PdfPage>
+
+      <PdfPage
+        isExportingPdf={isExportingPdf}
+        header={<HeaderImg />}
+        contentPadding="0 0.42in 0.12in"
+        footer={<Footer page={3} />}
+      >
+        <div style={bodyText}>
           <p style={{ margin: "0 0 6px", fontWeight: 700, fontSize: 18, lineHeight: 1.4 }}>
             12.{" "}
             <span style={{ color: "#199c2e" }}>
@@ -1876,7 +1889,7 @@ function PublicAdjusterContract({
             contract.
           </p>
 
-          <p style={{ margin: 0, fontWeight: 700, fontSize: 18, lineHeight: 1.5 }}>
+          <p style={{ margin: "0 0 10px", fontWeight: 700, fontSize: 18, lineHeight: 1.5 }}>
             If this contract was entered into based on events that are the
             subject of a declaration of a state of emergency by the Governor,
             you may cancel this contract for any reason without penalty or
@@ -1887,6 +1900,31 @@ function PublicAdjusterContract({
             and your insurer a copy of a written estimate within 60 days of the
             execution of the contract, unless the failure to provide the
             estimate within 60 days is caused by factors beyond my control.
+          </p>
+
+          <p style={{ margin: "0 0 10px", fontWeight: 700, fontSize: 18, lineHeight: 1.5 }}>
+            The notice of cancellation shall be provided to Capital Claims
+            Group, submitted in writing, and sent by certified mail, return
+            receipt requested, or another form of mailing that provides proof
+            thereof, at the address specified in the contract.
+          </p>
+
+          <p style={{ margin: "0 0 10px", fontWeight: 700, fontSize: 18, lineHeight: 1.5 }}>
+            Pursuant to s. 817.234, Florida Statutes, any person who, with the
+            intent to injure, defraud, or deceive any insurer or insured,
+            prepares, presents, or causes to be presented a proof of loss or
+            estimate of cost or repair of damaged property in support of a claim
+            under an insurance policy, knowing that the proof of loss or
+            estimate of claim or repairs contains any false, incomplete, or
+            misleading information concerning any fact or thing material to the
+            claim, commits a felony of the third degree, punishable as provided
+            in s. 775.082, s. 775.803, or s. 775.084, Florida Statutes.
+          </p>
+
+          <p style={{ margin: "0 0 10px", fontWeight: 700, fontSize: 18, lineHeight: 1.5 }}>
+            Insured(s) have read, understand and voluntarily sign the foregoing
+            Agreement. A computer or faxed signature or copy of this document
+            shall be deemed to have the same effect as the original.
           </p>
 
           <InitialsRow />
@@ -1900,32 +1938,6 @@ function PublicAdjusterContract({
         footer={<Footer page={4} />}
       >
         <div style={bodyText}>
-          <p style={{ margin: "0 0 12px", fontWeight: 700 }}>
-            The notice of cancellation shall be provided to Capital Claims
-            Group, submitted in writing, and sent by certified mail, return
-            receipt requested, or another form of mailing that provides proof
-            thereof, at the address specified in the contract.
-          </p>
-
-          <p style={{ margin: "0 0 16px", fontWeight: 700 }}>
-            Pursuant to s. 817.234, Florida Statutes, any person who, with the
-            intent to injure, defraud, or deceive any insurer or insured,
-            prepares, presents, or causes to be presented a proof of loss or
-            estimate of cost or repair of damaged property in support of a claim
-            under an insurance policy, knowing that the proof of loss or
-            estimate of claim or repairs contains any false, incomplete, or
-            misleading information concerning any fact or thing material to the
-            claim, commits a felony of the third degree, punishable as provided
-            in s. 775.082, s. 775.803, or s. 775.084, Florida Statutes.
-          </p>
-
-          <p style={{ margin: "0 0 10px" }}>
-            Insured(s) have read, understand and voluntarily sign the foregoing
-            Agreement. A computer or faxed signature or copy of this document
-            shall be deemed to have the same effect as the original.
-          </p>
-
-          <InitialsRow />
 
           <div
             style={{
@@ -2077,7 +2089,7 @@ export default function App() {
   const updateInsp = (key, val) => setInspData(prev => ({ ...prev, [key]: val }));
 
   const effectiveInspSig = inspSigMethod === "type"
-    ? typedSignatureToDataUrl(inspTypedSig, inspSigFont)
+    ? (inspTypedSig ? typedSignatureToDataUrl(inspTypedSig, inspSigFont) : "")
     : inspSig;
   const [teamMembers, setTeamMembers] = useState([]);
   const [currentClaimId, setCurrentClaimId] = useState(null);
@@ -3455,7 +3467,20 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setView("inspection")}
+                  onClick={() => {
+                    // Pre-populate from intake form data
+                    setInspData(prev => ({
+                      ...prev,
+                      clientName: [data.homeowner1, data.homeowner2].filter(Boolean).join(" & ") || prev.clientName,
+                      mobile: data.phone || prev.mobile,
+                      address: data.address || prev.address,
+                      city: data.city || prev.city,
+                      state: data.state || prev.state,
+                      zip: data.zip || prev.zip,
+                      email: data.signerEmail || prev.email,
+                    }));
+                    setView("inspection");
+                  }}
                   style={{
                     background: "#1a2e5a",
                     border: "none",
@@ -3583,6 +3608,12 @@ export default function App() {
                       onChange={(v) => update("date", v)}
                     />
                     <FormField
+                      label="Date of Loss"
+                      type="date"
+                      value={data.dateOfLoss}
+                      onChange={(v) => update("dateOfLoss", v)}
+                    />
+                    <FormField
                       label="Insurance Company"
                       value={data.insuranceCompany}
                       onChange={(v) => update("insuranceCompany", v)}
@@ -3598,24 +3629,42 @@ export default function App() {
                         value={data.claimNumber}
                         onChange={(v) => update("claimNumber", v)}
                       />
-                      <div
-                        style={{
-                          fontSize: 12,
-                          color: "#6b7280",
-                          marginTop: 4,
-                        }}
-                      >
+                      <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
                         Only fill this out if there is an active claim.
                       </div>
+                    </div>
+
+                    {/* Claim Type */}
+                    <div>
+                      <Label>Claim Type</Label>
+                      <select value={data.claimType} onChange={e => update("claimType", e.target.value)}
+                        style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", background: "#fff", fontFamily: "'Nunito', sans-serif" }}>
+                        <option>Wind/Hail</option>
+                        <option>Water</option>
+                        <option>Fire</option>
+                        <option>Hurricane</option>
+                        <option>Other</option>
+                      </select>
+                    </div>
+
+                    {/* Loss Description */}
+                    <div>
+                      <Label>Loss Description</Label>
+                      <select value={data.lossDescription} onChange={e => update("lossDescription", e.target.value)}
+                        style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", background: "#fff", fontFamily: "'Nunito', sans-serif" }}>
+                        <option>Roof</option>
+                        <option>Interior</option>
+                        <option>Roof & Interior</option>
+                        <option>Fence</option>
+                        <option>Other</option>
+                      </select>
                     </div>
 
                     <div style={{ gridColumn: "1 / -1" }}>
                       <CheckboxField
                         label="Loss location is same as property address"
                         checked={data.lossLocationSameAsAddress}
-                        onChange={(checked) =>
-                          update("lossLocationSameAsAddress", checked)
-                        }
+                        onChange={(checked) => update("lossLocationSameAsAddress", checked)}
                       />
                     </div>
 
@@ -4070,7 +4119,7 @@ export default function App() {
                         textTransform: "uppercase",
                       }}
                     >
-                      👁 Preview
+                      👁 Preview Document
                     </button>
 
                     <button
@@ -4209,7 +4258,7 @@ export default function App() {
                         textTransform: "uppercase",
                       }}
                     >
-                      👁 Preview
+                      👁 Preview Document
                     </button>
 
                     <button
