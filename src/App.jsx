@@ -3915,37 +3915,39 @@ export default function App() {
                   {/* Free Roof Inspection — U.S. Shingle branding */}
                   <button type="button" onClick={() => toggleDocSelection("insp")}
                     style={{
-                      padding: "16px 14px", borderRadius: 16, textAlign: "left", cursor: "pointer",
+                      padding: 0, borderRadius: 16, textAlign: "left", cursor: "pointer",
                       border: selectedDocs.includes("insp") ? "3px solid #1a2e5a" : "2px solid #d1d5db",
                       background: "#fff",
                       boxShadow: selectedDocs.includes("insp") ? "0 4px 16px rgba(26,46,90,0.25)" : "0 2px 6px rgba(0,0,0,0.06)",
                       transition: "all 0.15s",
-                      position: "relative",
                       overflow: "hidden",
                     }}>
-                    {/* Red/White/Blue stripe bar at top */}
-                    <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 6, display: "flex" }}>
-                      <div style={{ flex: 1, background: "#1a2e5a" }} />
-                      <div style={{ flex: 1, background: "#fff", borderLeft: "1px solid #e5e7eb", borderRight: "1px solid #e5e7eb" }} />
-                      <div style={{ flex: 1, background: "#c8392b" }} />
+                    {/* Top third — Navy */}
+                    <div style={{ background: "#1a2e5a", padding: "10px 14px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.5)", flexShrink: 0 }} />
+                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.8)", flexShrink: 0 }} />
+                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#fff", flexShrink: 0 }} />
+                        <span style={{ fontSize: 11, fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "#fff", letterSpacing: "0.06em", textTransform: "uppercase", marginLeft: 4 }}>
+                          U.S. Shingle & Metal
+                        </span>
+                      </div>
                     </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, marginTop: 8 }}>
-                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#1a2e5a", flexShrink: 0 }} />
-                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#d1d5db", flexShrink: 0 }} />
-                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#c8392b", flexShrink: 0 }} />
-                      <span style={{ fontSize: 10, fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "#1a2e5a", letterSpacing: "0.06em", textTransform: "uppercase", marginLeft: 4 }}>
-                        U.S. Shingle & Metal
-                      </span>
+                    {/* Middle third — White */}
+                    <div style={{ background: "#fff", padding: "10px 14px" }}>
+                      <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827" }}>
+                        🏠 Free Roof Inspection
+                      </div>
+                      {selectedDocs.includes("insp") ? (
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "#1a2e5a", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>✓ Selected</div>
+                      ) : null}
                     </div>
-                    <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827", marginBottom: 2 }}>
-                      🏠 Free Roof Inspection
+                    {/* Bottom third — Red */}
+                    <div style={{ background: "#c8392b", padding: "8px 14px" }}>
+                      <div style={{ fontSize: 12, color: "#fff", fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.3 }}>
+                        Homeowner signs inspection agreement
+                      </div>
                     </div>
-                    <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>
-                      Homeowner signs inspection agreement
-                    </div>
-                    {selectedDocs.includes("insp") ? (
-                      <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#1a2e5a", fontFamily: "'Nunito', sans-serif" }}>✓ Selected</div>
-                    ) : null}
                   </button>
 
                   {/* Letter of Representation — CCG branding */}
