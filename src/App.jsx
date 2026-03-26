@@ -2647,16 +2647,9 @@ export default function App() {
       setInspTypedSig("");
       setInspSubmitAttempted(false);
 
-      // If PA forms also selected, chain to PA review flow
-      const hasPAForms = selectedDocs.includes("lor") || selectedDocs.includes("pac");
-      if (hasPAForms) {
-        window.scrollTo({ top: 0, behavior: "smooth" });
-        setView("review");
-      } else {
-        setInspData(initialInspData);
-        setView("input");
-        alert("✅ Inspection agreement sent to homeowner!");
-      }
+      // Go to thank you page
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      setView("thankyou");
 
     } catch (err) {
       alert(err?.message || "Something went wrong. Please try again.");
@@ -4120,14 +4113,20 @@ export default function App() {
                       <div>
                         <button type="button" onClick={() => setInspAgreed(true)}
                           style={{
-                            width: "100%", padding: "18px 24px", borderRadius: 16, border: "none",
-                            background: "linear-gradient(135deg, #1a2e5a, #c8392b)",
-                            color: "#fff", fontSize: 18, fontWeight: 700,
-                            fontFamily: "'Oswald', sans-serif", cursor: "pointer",
-                            letterSpacing: "0.04em", textTransform: "uppercase",
+                            width: "100%", padding: 0, borderRadius: 16, border: "none",
+                            background: "transparent", cursor: "pointer",
+                            overflow: "hidden", display: "flex",
                             animation: "ccg-pulse 2s infinite",
                           }}>
-                          👍 Tap Here — Looks Good!
+                          <div style={{ flex: 1, background: "#c8392b", padding: "18px 0", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <span style={{ fontSize: 20 }}>👍</span>
+                          </div>
+                          <div style={{ flex: 1, background: "#fff", padding: "18px 0", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <span style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#1a2e5a", letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}>TAP HERE — LOOKS GOOD!</span>
+                          </div>
+                          <div style={{ flex: 1, background: "#1a2e5a", padding: "18px 0", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <span style={{ fontSize: 20 }}>✅</span>
+                          </div>
                         </button>
                         <div style={{ textAlign: "center", marginTop: 10, fontSize: 13, color: "#1a2e5a", fontWeight: 600, fontFamily: "'Nunito', sans-serif" }}>
                           ☝️ Please tap the button above to continue
@@ -4975,10 +4974,34 @@ export default function App() {
                     </div>
                   ) : null}
 
-                  <Button onClick={submitInspection} disabled={inspSubmitting}
-                    style={{ background: "#1a2e5a", border: "1px solid #1a2e5a" }}>
-                    <Mail size={16} /> {inspSubmitting ? "Submitting..." : "Submit & Email to Client"}
-                  </Button>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12 }}>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const blob = await generatePDF("#inspection-printable", "Free-Roof-Inspection-Agreement.pdf");
+                          const blobUrl = URL.createObjectURL(blob);
+                          window.open(blobUrl, "_blank");
+                          setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+                        } catch(err) {
+                          alert(err?.message || "Failed to preview.");
+                        }
+                      }}
+                      style={{
+                        padding: "12px 16px", borderRadius: 14,
+                        border: "2px solid #1a2e5a", background: "#fff",
+                        color: "#1a2e5a", fontFamily: "'Oswald', sans-serif",
+                        fontWeight: 700, fontSize: 14, cursor: "pointer",
+                        letterSpacing: "0.04em", textTransform: "uppercase",
+                      }}
+                    >
+                      👁 Preview Document
+                    </button>
+                    <Button onClick={submitInspection} disabled={inspSubmitting}
+                      style={{ background: "#1a2e5a", border: "1px solid #1a2e5a" }}>
+                      <Mail size={16} /> {inspSubmitting ? "Submitting..." : "Submit & Email to Client"}
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             </div>
