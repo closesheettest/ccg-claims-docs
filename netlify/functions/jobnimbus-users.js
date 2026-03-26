@@ -1,4 +1,3 @@
-const JN_API = "https://app.jobnimbus.com/api1";
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 
 exports.handler = async (event) => {
@@ -7,42 +6,22 @@ exports.handler = async (event) => {
   }
 
   try {
-    // JN actual users endpoint
-    const res = await fetch(`${JN_API}/users?size=200`, {
+    const res = await fetch("https://app.jobnimbus.com/api1/accounts/users?size=200", {
       headers: {
         "Authorization": `Bearer ${JN_KEY}`,
         "Content-Type": "application/json",
       },
     });
 
-    console.log(`/users status: ${res.status}`);
+    console.log(`/accounts/users status: ${res.status}`);
     const rawText = await res.text();
-    console.log("Raw response (first 1000):", rawText.slice(0, 1000));
+    console.log("Raw response (first 2000):", rawText.slice(0, 2000));
 
     if (!res.ok) {
-      // Try alternate endpoint
-      const res2 = await fetch(`${JN_API}/team?size=200`, {
-        headers: {
-          "Authorization": `Bearer ${JN_KEY}`,
-          "Content-Type": "application/json",
-        },
-      });
-      console.log(`/team status: ${res2.status}`);
-      const raw2 = await res2.text();
-      console.log("Team raw (first 1000):", raw2.slice(0, 1000));
-
       return {
         statusCode: 200,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          members: [],
-          debug: {
-            usersStatus: res.status,
-            teamStatus: res2.status,
-            usersRaw: rawText.slice(0, 500),
-            teamRaw: raw2.slice(0, 500)
-          }
-        }),
+        body: JSON.stringify({ members: [], debug: { status: res.status, raw: rawText.slice(0, 500) } }),
       };
     }
 
@@ -52,29 +31,30 @@ exports.handler = async (event) => {
     }
 
     console.log("Data keys:", Object.keys(data));
-    const list = data.results || data.users || data.data || [];
-    console.log("List length:", list.length);
+    const list = data.results || data.users || data.data || data.members || [];
+    console.log("Total users:", list.length);
     if (list.length > 0) {
-      console.log("First user:", JSON.stringify(list[0], null, 2));
+      console.log("First user sample:", JSON.stringify(list[0], null, 2));
     }
 
     // Filter to Insurance Sales Reps at U.S. Shingle location
     const filtered = list.filter(u => {
-      const profile = (u.access_profile || u.acl?.name || u.role_name || u.role || "").toLowerCase();
-      const location = (u.location || u.location_name || u.office || "").toLowerCase();
-      return profile.includes("insurance") ||
-             location.includes("shingle") ||
-             location.includes("insurance");
+      const everything = JSON.stringify(u).toLowerCase();
+      return everything.includes("insurance sales rep") ||
+             everything.includes("u.s. shingle") ||
+             everything.includes("shingle") ||
+             everything.includes("insurance (ins)");
     });
 
     const useList = filtered.length > 0 ? filtered : list;
+    console.log(`Using ${useList.length} of ${list.length} users`);
 
     const members = useList
-      .filter(u => u.is_active !== false && u.status !== "inactive")
+      .filter(u => u.is_active !== false && u.status !== "inactive" && u.is_disabled !== true)
       .map(u => ({
         name: [u.first_name, u.last_name].filter(Boolean).join(" ") ||
-              u.name || u.display_name || u.username || "",
-        jobnimbus_id: u.jnid || u.id || u.recid || "",
+              u.name || u.display_name || u.username || u.email || "",
+        jobnimbus_id: u.jnid || u.id || u.recid || u.user_id || "",
       }))
       .filter(u => u.name && u.jobnimbus_id)
       .sort((a, b) => a.name.localeCompare(b.name));
