@@ -3916,26 +3916,30 @@ export default function App() {
                   <button type="button" onClick={() => toggleDocSelection("insp")}
                     style={{
                       padding: "16px 14px", borderRadius: 16, textAlign: "left", cursor: "pointer",
-                      border: selectedDocs.includes("insp") ? "3px solid #1a2e5a" : "2px solid #e5e7eb",
-                      background: selectedDocs.includes("insp") ? "#eef1f8" : "#fff",
+                      border: "none",
+                      background: selectedDocs.includes("insp")
+                        ? "linear-gradient(135deg, #1a2e5a 0%, #c8392b 100%)"
+                        : "linear-gradient(135deg, #2d4a8a 0%, #e05040 100%)",
+                      boxShadow: selectedDocs.includes("insp") ? "0 4px 16px rgba(26,46,90,0.35)" : "0 2px 8px rgba(26,46,90,0.18)",
                       transition: "all 0.15s",
+                      opacity: selectedDocs.includes("insp") ? 1 : 0.82,
                     }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#c8392b", flexShrink: 0 }} />
-                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#fff", border: "1.5px solid #d1d5db", flexShrink: 0 }} />
-                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#1a2e5a", flexShrink: 0 }} />
-                      <span style={{ fontSize: 10, fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "#1a2e5a", letterSpacing: "0.06em", textTransform: "uppercase", marginLeft: 4 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.5)", flexShrink: 0 }} />
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.8)", flexShrink: 0 }} />
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#fff", flexShrink: 0 }} />
+                      <span style={{ fontSize: 10, fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "rgba(255,255,255,0.85)", letterSpacing: "0.06em", textTransform: "uppercase", marginLeft: 4 }}>
                         U.S. Shingle & Metal
                       </span>
                     </div>
-                    <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827", marginBottom: 2 }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#fff", marginBottom: 2 }}>
                       🏠 Free Roof Inspection
                     </div>
-                    <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>
+                    <div style={{ fontSize: 12, color: "rgba(255,255,255,0.8)", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>
                       Homeowner signs inspection agreement
                     </div>
                     {selectedDocs.includes("insp") ? (
-                      <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#1a2e5a", fontFamily: "'Nunito', sans-serif" }}>✓ Selected</div>
+                      <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#fff", fontFamily: "'Nunito', sans-serif" }}>✓ Selected</div>
                     ) : null}
                   </button>
 
@@ -3943,24 +3947,28 @@ export default function App() {
                   <button type="button" onClick={() => toggleDocSelection("lor")}
                     style={{
                       padding: "16px 14px", borderRadius: 16, textAlign: "left", cursor: "pointer",
-                      border: selectedDocs.includes("lor") ? "3px solid #199c2e" : "2px solid #e5e7eb",
-                      background: selectedDocs.includes("lor") ? "#f0fdf4" : "#fff",
+                      border: "none",
+                      background: selectedDocs.includes("lor")
+                        ? "linear-gradient(135deg, #199c2e 0%, #14752a 100%)"
+                        : "linear-gradient(135deg, #22b535 0%, #199c2e 100%)",
+                      boxShadow: selectedDocs.includes("lor") ? "0 4px 16px rgba(25,156,46,0.35)" : "0 2px 8px rgba(25,156,46,0.18)",
                       transition: "all 0.15s",
+                      opacity: selectedDocs.includes("lor") ? 1 : 0.82,
                     }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#199c2e", flexShrink: 0 }} />
-                      <span style={{ fontSize: 10, fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "#199c2e", letterSpacing: "0.06em", textTransform: "uppercase", marginLeft: 4 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.7)", flexShrink: 0 }} />
+                      <span style={{ fontSize: 10, fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "rgba(255,255,255,0.85)", letterSpacing: "0.06em", textTransform: "uppercase", marginLeft: 4 }}>
                         Capital Claims Group
                       </span>
                     </div>
-                    <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827", marginBottom: 2 }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#fff", marginBottom: 2 }}>
                       📋 Letter of Representation
                     </div>
-                    <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>
+                    <div style={{ fontSize: 12, color: "rgba(255,255,255,0.8)", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>
                       Authorizes CCG to represent the client
                     </div>
                     {selectedDocs.includes("lor") ? (
-                      <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#199c2e", fontFamily: "'Nunito', sans-serif" }}>✓ Selected</div>
+                      <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#fff", fontFamily: "'Nunito', sans-serif" }}>✓ Selected</div>
                     ) : null}
                   </button>
 
@@ -3968,24 +3976,28 @@ export default function App() {
                   <button type="button" onClick={() => toggleDocSelection("pac")}
                     style={{
                       padding: "16px 14px", borderRadius: 16, textAlign: "left", cursor: "pointer",
-                      border: selectedDocs.includes("pac") ? "3px solid #199c2e" : "2px solid #e5e7eb",
-                      background: selectedDocs.includes("pac") ? "#f0fdf4" : "#fff",
+                      border: "none",
+                      background: selectedDocs.includes("pac")
+                        ? "linear-gradient(135deg, #14752a 0%, #199c2e 100%)"
+                        : "linear-gradient(135deg, #199c2e 0%, #22b535 100%)",
+                      boxShadow: selectedDocs.includes("pac") ? "0 4px 16px rgba(25,156,46,0.35)" : "0 2px 8px rgba(25,156,46,0.18)",
                       transition: "all 0.15s",
+                      opacity: selectedDocs.includes("pac") ? 1 : 0.82,
                     }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#199c2e", flexShrink: 0 }} />
-                      <span style={{ fontSize: 10, fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "#199c2e", letterSpacing: "0.06em", textTransform: "uppercase", marginLeft: 4 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.7)", flexShrink: 0 }} />
+                      <span style={{ fontSize: 10, fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "rgba(255,255,255,0.85)", letterSpacing: "0.06em", textTransform: "uppercase", marginLeft: 4 }}>
                         Capital Claims Group
                       </span>
                     </div>
-                    <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827", marginBottom: 2 }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#fff", marginBottom: 2 }}>
                       📄 PA Authorization
                     </div>
-                    <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>
+                    <div style={{ fontSize: 12, color: "rgba(255,255,255,0.8)", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>
                       Public Adjuster Contract
                     </div>
                     {selectedDocs.includes("pac") ? (
-                      <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#199c2e", fontFamily: "'Nunito', sans-serif" }}>✓ Selected</div>
+                      <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#fff", fontFamily: "'Nunito', sans-serif" }}>✓ Selected</div>
                     ) : null}
                   </button>
                 </div>
