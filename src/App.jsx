@@ -3605,12 +3605,6 @@ export default function App() {
                       onChange={(v) => update("date", v)}
                     />
                     <FormField
-                      label="Date of Loss"
-                      type="date"
-                      value={data.dateOfLoss}
-                      onChange={(v) => update("dateOfLoss", v)}
-                    />
-                    <FormField
                       label="Insurance Company"
                       value={data.insuranceCompany}
                       onChange={(v) => update("insuranceCompany", v)}
@@ -3629,32 +3623,6 @@ export default function App() {
                       <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
                         Only fill this out if there is an active claim.
                       </div>
-                    </div>
-
-                    {/* Claim Type */}
-                    <div>
-                      <Label>Claim Type</Label>
-                      <select value={data.claimType} onChange={e => update("claimType", e.target.value)}
-                        style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", background: "#fff", fontFamily: "'Nunito', sans-serif" }}>
-                        <option>Wind/Hail</option>
-                        <option>Water</option>
-                        <option>Fire</option>
-                        <option>Hurricane</option>
-                        <option>Other</option>
-                      </select>
-                    </div>
-
-                    {/* Loss Description */}
-                    <div>
-                      <Label>Loss Description</Label>
-                      <select value={data.lossDescription} onChange={e => update("lossDescription", e.target.value)}
-                        style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", background: "#fff", fontFamily: "'Nunito', sans-serif" }}>
-                        <option>Roof</option>
-                        <option>Interior</option>
-                        <option>Roof & Interior</option>
-                        <option>Fence</option>
-                        <option>Other</option>
-                      </select>
                     </div>
 
                     <div style={{ gridColumn: "1 / -1" }}>
