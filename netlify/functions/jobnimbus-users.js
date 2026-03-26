@@ -31,10 +31,15 @@ exports.handler = async (event) => {
         console.log("Response keys:", Object.keys(data));
         const list = data.results || data.data || data.members || [];
         if (list.length > 0) {
+          // Log first user to see all available fields for filtering
+          console.log("Sample user fields:", JSON.stringify(list[0], null, 2));
+          console.log("All user names+roles:", list.map(u => `${u.first_name} ${u.last_name} | role:${u.role} | group:${u.group} | type:${u.type} | division:${u.division} | team:${u.team} | location:${u.location}`).join("\n"));
           members = list
             .map(u => ({
               name: [u.first_name, u.last_name].filter(Boolean).join(" ") || u.name || u.display_name || "",
               jobnimbus_id: u.jnid || u.id || u.recid || "",
+              role: u.role || u.type || "",
+              group: u.group || u.division || u.team || "",
             }))
             .filter(u => u.name && u.jobnimbus_id)
             .sort((a, b) => a.name.localeCompare(b.name));
