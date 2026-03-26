@@ -4145,6 +4145,7 @@ export default function App() {
                             <span style={{ fontSize: 20 }}>✅</span>
                           </div>
                         </button>
+                        </div>
                         <div style={{ textAlign: "center", marginTop: 10, fontSize: 13, color: "#1a2e5a", fontWeight: 600, fontFamily: "'Nunito', sans-serif" }}>
                           ☝️ Please tap the button above to continue
                         </div>
