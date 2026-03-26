@@ -44,7 +44,7 @@ const INSPECTION_COMPANY = {
   license: "CCC1331960",
 };
 
-const VALID_DOCS = ["lor", "pac"];
+const VALID_DOCS = ["insp", "lor", "pac"];
 
 const SIGNATURE_FONTS = [
   `"Brush Script MT", cursive`,
@@ -110,13 +110,15 @@ const initialAuditInfo = {
 };
 
 function documentLabel(doc) {
-  return doc === "pac" ? "PA Authorization" : "Letter of Representation";
+  if (doc === "pac") return "PA Authorization";
+  if (doc === "insp") return "Free Roof Inspection";
+  return "Letter of Representation";
 }
 
 function documentFilename(doc) {
-  return doc === "pac"
-    ? "Public-Adjuster-Authorization.pdf"
-    : "Letter-of-Representation.pdf";
+  if (doc === "pac") return "Public-Adjuster-Authorization.pdf";
+  if (doc === "insp") return "Free-Roof-Inspection-Agreement.pdf";
+  return "Letter-of-Representation.pdf";
 }
 
 function formatAddress(data) {
@@ -2406,8 +2408,28 @@ export default function App() {
     setLorAgreed(false);
     setPacAgreed(false);
     setSubmitAttempted(false);
+    setInspSig("");
+    setInspTypedSig("");
+    setInspSubmitAttempted(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
-    setView("review");
+
+    // If inspection is selected, go there first — PA forms follow after submit
+    if (selectedDocs.includes("insp")) {
+      // Pre-populate inspection fields from intake
+      setInspData(prev => ({
+        ...prev,
+        clientName: [data.homeowner1, data.homeowner2].filter(Boolean).join(" & ") || prev.clientName,
+        mobile: data.phone || prev.mobile,
+        address: data.address || prev.address,
+        city: data.city || prev.city,
+        state: data.state || prev.state,
+        zip: data.zip || prev.zip,
+        email: data.signerEmail || prev.email,
+      }));
+      setView("inspection");
+    } else {
+      setView("review");
+    }
   };
 
   const effectiveSig1 =
@@ -2621,13 +2643,21 @@ export default function App() {
         }),
       }).catch(e => console.warn("JN sync non-fatal:", e));
 
-      // Reset and go to thank you
-      setInspData(initialInspData);
+      // Reset inspection sig fields
       setInspSig("");
       setInspTypedSig("");
       setInspSubmitAttempted(false);
-      setView("input");
-      alert("✅ Inspection agreement sent to homeowner!");
+
+      // If PA forms also selected, chain to PA review flow
+      const hasPAForms = selectedDocs.includes("lor") || selectedDocs.includes("pac");
+      if (hasPAForms) {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        setView("review");
+      } else {
+        setInspData(initialInspData);
+        setView("input");
+        alert("✅ Inspection agreement sent to homeowner!");
+      }
 
     } catch (err) {
       alert(err?.message || "Something went wrong. Please try again.");
@@ -3880,38 +3910,95 @@ export default function App() {
                   Choose form{selectedDocs.length !== 1 ? "s" : ""}
                 </div>
 
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns:
-                      "repeat(auto-fit, minmax(220px, 1fr))",
-                    gap: 12,
-                  }}
-                >
-                  <Button
-                    variant={selectedDocs.includes("lor") ? "default" : "outline"}
-                    onClick={() => toggleDocSelection("lor")}
-                  >
-                    <FileSignature size={16} /> Letter of Representation
-                  </Button>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
 
-                  <Button
-                    variant={selectedDocs.includes("pac") ? "default" : "outline"}
-                    onClick={() => toggleDocSelection("pac")}
-                  >
-                    <FileSignature size={16} /> PA Authorization
-                  </Button>
+                  {/* Free Roof Inspection — U.S. Shingle branding */}
+                  <button type="button" onClick={() => toggleDocSelection("insp")}
+                    style={{
+                      padding: "16px 14px", borderRadius: 16, textAlign: "left", cursor: "pointer",
+                      border: selectedDocs.includes("insp") ? "3px solid #1a2e5a" : "2px solid #e5e7eb",
+                      background: selectedDocs.includes("insp") ? "#eef1f8" : "#fff",
+                      transition: "all 0.15s",
+                    }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#c8392b", flexShrink: 0 }} />
+                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#fff", border: "1.5px solid #d1d5db", flexShrink: 0 }} />
+                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#1a2e5a", flexShrink: 0 }} />
+                      <span style={{ fontSize: 10, fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "#1a2e5a", letterSpacing: "0.06em", textTransform: "uppercase", marginLeft: 4 }}>
+                        U.S. Shingle & Metal
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827", marginBottom: 2 }}>
+                      🏠 Free Roof Inspection
+                    </div>
+                    <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>
+                      Homeowner signs inspection agreement
+                    </div>
+                    {selectedDocs.includes("insp") ? (
+                      <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#1a2e5a", fontFamily: "'Nunito', sans-serif" }}>✓ Selected</div>
+                    ) : null}
+                  </button>
+
+                  {/* Letter of Representation — CCG branding */}
+                  <button type="button" onClick={() => toggleDocSelection("lor")}
+                    style={{
+                      padding: "16px 14px", borderRadius: 16, textAlign: "left", cursor: "pointer",
+                      border: selectedDocs.includes("lor") ? "3px solid #199c2e" : "2px solid #e5e7eb",
+                      background: selectedDocs.includes("lor") ? "#f0fdf4" : "#fff",
+                      transition: "all 0.15s",
+                    }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#199c2e", flexShrink: 0 }} />
+                      <span style={{ fontSize: 10, fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "#199c2e", letterSpacing: "0.06em", textTransform: "uppercase", marginLeft: 4 }}>
+                        Capital Claims Group
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827", marginBottom: 2 }}>
+                      📋 Letter of Representation
+                    </div>
+                    <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>
+                      Authorizes CCG to represent the client
+                    </div>
+                    {selectedDocs.includes("lor") ? (
+                      <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#199c2e", fontFamily: "'Nunito', sans-serif" }}>✓ Selected</div>
+                    ) : null}
+                  </button>
+
+                  {/* PA Authorization — CCG branding */}
+                  <button type="button" onClick={() => toggleDocSelection("pac")}
+                    style={{
+                      padding: "16px 14px", borderRadius: 16, textAlign: "left", cursor: "pointer",
+                      border: selectedDocs.includes("pac") ? "3px solid #199c2e" : "2px solid #e5e7eb",
+                      background: selectedDocs.includes("pac") ? "#f0fdf4" : "#fff",
+                      transition: "all 0.15s",
+                    }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#199c2e", flexShrink: 0 }} />
+                      <span style={{ fontSize: 10, fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "#199c2e", letterSpacing: "0.06em", textTransform: "uppercase", marginLeft: 4 }}>
+                        Capital Claims Group
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827", marginBottom: 2 }}>
+                      📄 PA Authorization
+                    </div>
+                    <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>
+                      Public Adjuster Contract
+                    </div>
+                    {selectedDocs.includes("pac") ? (
+                      <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#199c2e", fontFamily: "'Nunito', sans-serif" }}>✓ Selected</div>
+                    ) : null}
+                  </button>
                 </div>
 
-                <div
-                  style={{
-                    fontSize: 13,
-                    color: "#6b7280",
-                    marginTop: 10,
-                  }}
-                >
-                  You can send one form or both in a single signing email.
-                </div>
+                {selectedDocs.includes("insp") && (selectedDocs.includes("lor") || selectedDocs.includes("pac")) ? (
+                  <div style={{ marginTop: 10, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 12, padding: "10px 14px", fontSize: 13, color: "#1e40af", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
+                    ℹ️ Inspection form first, then PA paperwork — the app will guide you through both in order.
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 13, color: "#6b7280", marginTop: 10 }}>
+                    Select one or more forms to include in this signing session.
+                  </div>
+                )}
               </div>
 
               <div style={{ marginTop: 20 }}>
