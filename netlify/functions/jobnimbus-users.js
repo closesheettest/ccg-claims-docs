@@ -7,55 +7,49 @@ exports.handler = async (event) => {
   }
 
   try {
-    const res = await fetch(`${JN_API}/users?size=100`, {
-      headers: {
-        "Authorization": `Bearer ${JN_KEY}`,
-        "Content-Type": "application/json",
-      },
-    });
+    // Try multiple possible endpoints for team members
+    const endpoints = [
+      `${JN_API}/team_members?size=100`,
+      `${JN_API}/salesreps?size=100`,
+      `${JN_API}/contacts?type=rep&size=100`,
+    ];
 
-    const rawText = await res.text();
-    console.log("JN users raw response:", rawText.slice(0, 500));
+    let members = [];
 
-    if (!res.ok) {
-      return {
-        statusCode: res.status,
-        body: JSON.stringify({ error: "Failed to fetch JN users", detail: rawText }),
-      };
+    for (const url of endpoints) {
+      const res = await fetch(url, {
+        headers: {
+          "Authorization": `Bearer ${JN_KEY}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      console.log(`Tried ${url} — status: ${res.status}`);
+
+      if (res.ok) {
+        const data = await res.json();
+        console.log("Response keys:", Object.keys(data));
+        const list = data.results || data.data || data.members || [];
+        if (list.length > 0) {
+          members = list
+            .map(u => ({
+              name: [u.first_name, u.last_name].filter(Boolean).join(" ") || u.name || u.display_name || "",
+              jobnimbus_id: u.jnid || u.id || u.recid || "",
+            }))
+            .filter(u => u.name && u.jobnimbus_id)
+            .sort((a, b) => a.name.localeCompare(b.name));
+          console.log("Found members:", members.length);
+          break;
+        }
+      }
     }
-
-    let data;
-    try {
-      data = JSON.parse(rawText);
-    } catch (e) {
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ error: "Invalid JSON from JN", detail: rawText.slice(0, 200) }),
-      };
-    }
-
-    console.log("JN users data keys:", Object.keys(data));
-    console.log("JN users count:", data.count, "results:", data.results?.length);
-
-    // JN can return results or data array
-    const userList = data.results || data.data || data.users || [];
-
-    const members = userList
-      .filter(u => u.is_active !== false && u.status !== "inactive")
-      .map(u => ({
-        name: [u.first_name, u.last_name].filter(Boolean).join(" ") || u.name || u.display_name || "",
-        jobnimbus_id: u.jnid || u.id || u.recid,
-      }))
-      .filter(u => u.name && u.jobnimbus_id)
-      .sort((a, b) => a.name.localeCompare(b.name));
-
-    console.log("Mapped members:", members);
 
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ members }),
     };
+
   } catch (err) {
     console.error("jobnimbus-users error:", err);
     return {
