@@ -33,17 +33,31 @@ exports.handler = async (event) => {
         if (list.length > 0) {
           // Log first user to see all available fields for filtering
           console.log("Sample user fields:", JSON.stringify(list[0], null, 2));
-          console.log("All user names+roles:", list.map(u => `${u.first_name} ${u.last_name} | role:${u.role} | group:${u.group} | type:${u.type} | division:${u.division} | team:${u.team} | location:${u.location}`).join("\n"));
-          members = list
+          console.log("All user names+roles:", list.map(u => `${u.first_name} ${u.last_name} | role:${u.role} | group:${u.group} | type:${u.type} | division:${u.division} | team:${u.team} | location:${u.location} | access_profile:${u.access_profile} | acl:${JSON.stringify(u.acl)}`).join("\n"));
+          
+          // Filter to Insurance Sales Reps only
+          const filtered = list.filter(u => {
+            const profile = (u.access_profile || u.acl?.name || u.role || "").toLowerCase();
+            const location = (u.location || u.office || "").toLowerCase();
+            return profile.includes("insurance sales rep") || 
+                   profile.includes("insurance") ||
+                   location.includes("u.s. shingle") ||
+                   location.includes("insurance");
+          });
+          
+          // Fall back to all if filter returns nothing (so dropdown isn't empty)
+          const useList = filtered.length > 0 ? filtered : list;
+          
+          members = useList
             .map(u => ({
               name: [u.first_name, u.last_name].filter(Boolean).join(" ") || u.name || u.display_name || "",
               jobnimbus_id: u.jnid || u.id || u.recid || "",
-              role: u.role || u.type || "",
-              group: u.group || u.division || u.team || "",
+              role: u.access_profile || u.role || "",
+              group: u.location || u.group || "",
             }))
             .filter(u => u.name && u.jobnimbus_id)
             .sort((a, b) => a.name.localeCompare(b.name));
-          console.log("Found members:", members.length);
+          console.log("Filtered members:", members.length, "of", list.length);
           break;
         }
       }

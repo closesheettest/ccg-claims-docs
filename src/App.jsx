@@ -4132,17 +4132,17 @@ export default function App() {
                           style={{
                             width: "100%", padding: 0, borderRadius: 16, border: "none",
                             background: "transparent", cursor: "pointer",
-                            overflow: "hidden", display: "flex",
+                            overflow: "hidden", display: "flex", flexDirection: "column",
                             animation: "ccg-pulse 2s infinite",
                           }}>
-                          <div style={{ flex: 1, background: "#c8392b", padding: "18px 0", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                            <span style={{ fontSize: 20 }}>👍</span>
+                          <div style={{ background: "#c8392b", padding: "8px 24px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                            <span style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#fff", letterSpacing: "0.04em", textTransform: "uppercase" }}>👍 Tap Here</span>
                           </div>
-                          <div style={{ flex: 1, background: "#fff", padding: "18px 0", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                            <span style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#1a2e5a", letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}>TAP HERE — LOOKS GOOD!</span>
+                          <div style={{ background: "#fff", padding: "8px 24px", display: "flex", alignItems: "center", justifyContent: "center", borderTop: "1px solid #e5e7eb", borderBottom: "1px solid #e5e7eb" }}>
+                            <span style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#1a2e5a", letterSpacing: "0.04em", textTransform: "uppercase" }}>Looks Good!</span>
                           </div>
-                          <div style={{ flex: 1, background: "#1a2e5a", padding: "18px 0", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                            <span style={{ fontSize: 20 }}>✅</span>
+                          <div style={{ background: "#1a2e5a", padding: "8px 24px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <span style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#fff", letterSpacing: "0.04em", textTransform: "uppercase" }}>✅ Authorized</span>
                           </div>
                         </button>
                         </div>
