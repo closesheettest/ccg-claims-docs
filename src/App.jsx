@@ -33,7 +33,7 @@ const PA_ASSETS = {
 
 const REP_FIXED = {
   name: "Neal Scoppe",
-  signatureImage: "/benito-signature.png",
+  signatureImage: "/rep-signature.png",
 };
 
 const INSPECTION_COMPANY = {
@@ -2197,6 +2197,7 @@ export default function App() {
 
   const [lorAgreed, setLorAgreed] = useState(false);
   const [pacAgreed, setPacAgreed] = useState(false);
+  const [inspAgreed, setInspAgreed] = useState(false);
   const [submitAttempted, setSubmitAttempted] = useState(false);
 
   const hasSecond = Boolean(data.homeowner2?.trim());
@@ -2209,6 +2210,7 @@ export default function App() {
     .join("\n");
 
   const reviewReady =
+    (!selectedDocs.includes("insp") || inspAgreed) &&
     (!selectedDocs.includes("lor") || lorAgreed) &&
     (!selectedDocs.includes("pac") || pacAgreed);
 
@@ -2405,6 +2407,7 @@ export default function App() {
     setInitials2Typed("");
     setLorAgreed(false);
     setPacAgreed(false);
+    setInspAgreed(false);
     setSubmitAttempted(false);
     setInspSig("");
     setInspTypedSig("");
@@ -4093,6 +4096,72 @@ export default function App() {
             {/* ── Document cards ── */}
             <div style={{ display: "grid", gap: 20 }}>
 
+              {selectedDocs.includes("insp") ? (
+                <div style={{
+                  borderRadius: 24,
+                  border: inspAgreed ? "3px solid #1a2e5a" : "2px solid #e5e7eb",
+                  background: inspAgreed ? "#eef1f8" : "#fff",
+                  padding: "0",
+                  transition: "border-color 0.3s, background 0.3s",
+                  boxShadow: inspAgreed ? "0 0 0 4px rgba(26,46,90,0.08)" : "0 1px 3px rgba(0,0,0,0.06)",
+                  overflow: "hidden",
+                }}>
+                  {/* USS tricolor stripe */}
+                  <div style={{ display: "flex", height: 6 }}>
+                    <div style={{ flex: 1, background: "#1a2e5a" }} />
+                    <div style={{ flex: 1, background: "#e5e7eb" }} />
+                    <div style={{ flex: 1, background: "#c8392b" }} />
+                  </div>
+                  <div style={{ padding: "24px 28px 20px" }}>
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 16 }}>
+                      <div style={{
+                        width: 52, height: 52, borderRadius: 16,
+                        background: inspAgreed ? "#1a2e5a" : "#f3f4f6",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        fontSize: 24, flexShrink: 0, transition: "background 0.3s",
+                      }}>
+                        {inspAgreed ? "✅" : "🏠"}
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "#1a2e5a", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>
+                          U.S. Shingle & Metal LLC — Document 1 of {selectedDocs.length}
+                        </div>
+                        <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827", lineHeight: 1.2 }}>
+                          Free Roof Inspection Agreement
+                        </div>
+                      </div>
+                    </div>
+                    <p style={{ fontSize: 14, color: "#374151", fontFamily: "'Nunito', sans-serif", lineHeight: 1.6, margin: "0 0 20px" }}>
+                      This authorizes U.S. Shingle & Metal LLC to perform a free roof inspection at your property and share findings with a Public Adjuster for review.
+                    </p>
+                    {!inspAgreed ? (
+                      <div>
+                        <button type="button" onClick={() => setInspAgreed(true)}
+                          style={{
+                            width: "100%", padding: "18px 24px", borderRadius: 16, border: "none",
+                            background: "linear-gradient(135deg, #1a2e5a, #c8392b)",
+                            color: "#fff", fontSize: 18, fontWeight: 700,
+                            fontFamily: "'Oswald', sans-serif", cursor: "pointer",
+                            letterSpacing: "0.04em", textTransform: "uppercase",
+                            animation: "ccg-pulse 2s infinite",
+                          }}>
+                          👍 Tap Here — Looks Good!
+                        </button>
+                        <div style={{ textAlign: "center", marginTop: 10, fontSize: 13, color: "#1a2e5a", fontWeight: 600, fontFamily: "'Nunito', sans-serif" }}>
+                          ☝️ Please tap the button above to continue
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ background: "#1a2e5a", borderRadius: 14, padding: "14px 20px", textAlign: "center" }}>
+                        <span style={{ fontSize: 20, fontWeight: 700, color: "#fff", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.04em" }}>
+                          ✅ Authorized!
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+
               {selectedDocs.includes("lor") ? (
                 <div
                   style={{
@@ -4655,7 +4724,7 @@ export default function App() {
             {/* Email + download notice */}
             <div style={{
               background: "#fff",
-              border: "1px solid #e5e7eb",
+              border: `1px solid ${selectedDocs.includes("insp") && !selectedDocs.includes("lor") && !selectedDocs.includes("pac") ? "#bfdbfe" : "#e5e7eb"}`,
               borderRadius: 20,
               padding: "22px 26px",
               marginBottom: 28,
@@ -4694,11 +4763,11 @@ export default function App() {
               </div>
 
               <div style={{
-                background: "#f0fdf4",
+                background: selectedDocs.includes("insp") && !selectedDocs.includes("lor") && !selectedDocs.includes("pac") ? "#eff6ff" : "#f0fdf4",
                 borderRadius: 14,
                 padding: "12px 16px",
                 fontSize: 13,
-                color: "#166534",
+                color: selectedDocs.includes("insp") && !selectedDocs.includes("lor") && !selectedDocs.includes("pac") ? "#1e40af" : "#166534",
                 fontFamily: "'Nunito', sans-serif",
                 fontWeight: 600,
                 lineHeight: 1.6,
