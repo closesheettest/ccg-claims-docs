@@ -2161,6 +2161,51 @@ export default function App() {
   const [managerPinEntry, setManagerPinEntry] = useState("");
   const [managerUnlocked, setManagerUnlocked] = useState(false);
   const [managerTYTab, setManagerTYTab] = useState("post_inspection");
+  const [reportData, setReportData] = useState(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportWeekOffset, setReportWeekOffset] = useState(0); // 0 = this week, -1 = last week, etc.
+
+  const fetchWeeklyReport = async (weekOffset = 0) => {
+    setReportLoading(true);
+    setReportData(null);
+    try {
+      const now = new Date();
+      const dayOfWeek = now.getDay(); // 0=Sun
+      const startOfWeek = new Date(now);
+      startOfWeek.setDate(now.getDate() - dayOfWeek + (weekOffset * 7));
+      startOfWeek.setHours(0, 0, 0, 0);
+      const endOfWeek = new Date(startOfWeek);
+      endOfWeek.setDate(startOfWeek.getDate() + 6);
+      endOfWeek.setHours(23, 59, 59, 999);
+
+      // Fetch claims
+      const { data: claims, error: claimsErr } = await supabase
+        .from("claims")
+        .select("id, homeowner1, homeowner2, address, city, state, signed_at, sign_method, representative_name, sales_rep_email")
+        .gte("signed_at", startOfWeek.toISOString())
+        .lte("signed_at", endOfWeek.toISOString())
+        .order("signed_at", { ascending: false });
+
+      // Fetch inspections
+      const { data: inspections, error: inspErr } = await supabase
+        .from("inspections")
+        .select("id, client_name, address, city, state, signed_at, sales_rep_name, sales_rep_email")
+        .gte("signed_at", startOfWeek.toISOString())
+        .lte("signed_at", endOfWeek.toISOString())
+        .order("signed_at", { ascending: false });
+
+      setReportData({
+        claims: claims || [],
+        inspections: inspections || [],
+        weekStart: startOfWeek,
+        weekEnd: endOfWeek,
+      });
+    } catch (e) {
+      console.error("Report fetch error:", e);
+    } finally {
+      setReportLoading(false);
+    }
+  };
 
   // Wrappers that save to localStorage on every change
   const setReviewHeadline = (v) => { setReviewHeadlineRaw(v); saveSetting("reviewHeadline", v); };
@@ -5679,6 +5724,109 @@ export default function App() {
                       </div>
                     </div>
                     )}
+                  </Card>
+
+                  {/* ── Weekly Report ── */}
+                  <Card style={{ padding: 20, background: "#f8fafc" }}>
+                    <SectionTitle>Weekly Report</SectionTitle>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+                      <button type="button"
+                        onClick={() => { const o = reportWeekOffset - 1; setReportWeekOffset(o); fetchWeeklyReport(o); }}
+                        style={{ padding: "8px 14px", borderRadius: 10, border: "1px solid #d1d5db", background: "#fff", cursor: "pointer", fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 14 }}>
+                        ← Prev
+                      </button>
+                      <button type="button"
+                        onClick={() => { fetchWeeklyReport(reportWeekOffset); }}
+                        style={{ flex: 1, padding: "10px 16px", borderRadius: 12, border: "none", background: "#199c2e", color: "#fff", cursor: "pointer", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                        {reportLoading ? "Loading..." : "📊 Generate Report"}
+                      </button>
+                      <button type="button"
+                        onClick={() => { const o = Math.min(0, reportWeekOffset + 1); setReportWeekOffset(o); fetchWeeklyReport(o); }}
+                        disabled={reportWeekOffset >= 0}
+                        style={{ padding: "8px 14px", borderRadius: 10, border: "1px solid #d1d5db", background: "#fff", cursor: reportWeekOffset >= 0 ? "not-allowed" : "pointer", opacity: reportWeekOffset >= 0 ? 0.4 : 1, fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 14 }}>
+                        Next →
+                      </button>
+                    </div>
+
+                    {reportData ? (
+                      <div>
+                        {/* Week header */}
+                        <div style={{ background: "#199c2e", borderRadius: 12, padding: "12px 16px", marginBottom: 16, color: "#fff", textAlign: "center" }}>
+                          <div style={{ fontSize: 13, fontFamily: "'Nunito', sans-serif", fontWeight: 700, opacity: 0.9 }}>
+                            Week of {reportData.weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – {reportData.weekEnd.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                          </div>
+                          <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", marginTop: 4 }}>
+                            {reportData.claims.length + reportData.inspections.length} Total Signings
+                          </div>
+                        </div>
+
+                        {/* Summary pills */}
+                        <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+                          <div style={{ flex: 1, background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10, padding: "10px 14px", textAlign: "center" }}>
+                            <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#199c2e" }}>{reportData.claims.length}</div>
+                            <div style={{ fontSize: 12, color: "#166534", fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}>PA Forms</div>
+                          </div>
+                          <div style={{ flex: 1, background: "#eef1f8", border: "1px solid #bfdbfe", borderRadius: 10, padding: "10px 14px", textAlign: "center" }}>
+                            <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#1a2e5a" }}>{reportData.inspections.length}</div>
+                            <div style={{ fontSize: 12, color: "#1e40af", fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}>Inspections</div>
+                          </div>
+                        </div>
+
+                        {/* PA Claims list */}
+                        {reportData.claims.length > 0 ? (
+                          <div style={{ marginBottom: 16 }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: "#199c2e", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8 }}>
+                              📋 PA Forms Signed
+                            </div>
+                            {reportData.claims.map((c, i) => (
+                              <div key={c.id || i} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "12px 14px", marginBottom: 8 }}>
+                                <div style={{ fontWeight: 700, fontSize: 15, fontFamily: "'Nunito', sans-serif", color: "#111827" }}>
+                                  {[c.homeowner1, c.homeowner2].filter(Boolean).join(" & ") || "—"}
+                                </div>
+                                <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>
+                                  📍 {[c.address, c.city, c.state].filter(Boolean).join(", ") || "—"}
+                                </div>
+                                <div style={{ display: "flex", gap: 12, marginTop: 6, fontSize: 12, color: "#9ca3af", fontFamily: "'Nunito', sans-serif" }}>
+                                  <span>🕐 {c.signed_at ? new Date(c.signed_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}</span>
+                                  {c.representative_name ? <span>👤 {c.representative_name}</span> : null}
+                                  {c.sign_method ? <span>✍️ {c.sign_method === "sign_now" ? "Sign Now" : c.sign_method === "email_link" ? "Email Link" : c.sign_method}</span> : null}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+
+                        {/* Inspections list */}
+                        {reportData.inspections.length > 0 ? (
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: "#1a2e5a", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8 }}>
+                              🏠 Inspection Agreements Signed
+                            </div>
+                            {reportData.inspections.map((insp, i) => (
+                              <div key={insp.id || i} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "12px 14px", marginBottom: 8, borderLeft: "4px solid #1a2e5a" }}>
+                                <div style={{ fontWeight: 700, fontSize: 15, fontFamily: "'Nunito', sans-serif", color: "#111827" }}>
+                                  {insp.client_name || "—"}
+                                </div>
+                                <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>
+                                  📍 {[insp.address, insp.city, insp.state].filter(Boolean).join(", ") || "—"}
+                                </div>
+                                <div style={{ display: "flex", gap: 12, marginTop: 6, fontSize: 12, color: "#9ca3af", fontFamily: "'Nunito', sans-serif" }}>
+                                  <span>🕐 {insp.signed_at ? new Date(insp.signed_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}</span>
+                                  {insp.sales_rep_name ? <span>👤 {insp.sales_rep_name}</span> : null}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+
+                        {reportData.claims.length === 0 && reportData.inspections.length === 0 ? (
+                          <div style={{ textAlign: "center", padding: "24px 0", color: "#9ca3af", fontFamily: "'Nunito', sans-serif", fontSize: 15 }}>
+                            No signings recorded this week.
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </Card>
 
                   <div>
