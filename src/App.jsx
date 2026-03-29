@@ -2170,7 +2170,7 @@ export default function App() {
     setReportData(null);
     try {
       const now = new Date();
-      const dayOfWeek = now.getDay(); // 0=Sun
+      const dayOfWeek = now.getDay();
       const startOfWeek = new Date(now);
       startOfWeek.setDate(now.getDate() - dayOfWeek + (weekOffset * 7));
       startOfWeek.setHours(0, 0, 0, 0);
@@ -2178,25 +2178,60 @@ export default function App() {
       endOfWeek.setDate(startOfWeek.getDate() + 6);
       endOfWeek.setHours(23, 59, 59, 999);
 
-      // Fetch claims
-      const { data: claims, error: claimsErr } = await supabase
-        .from("claims")
-        .select("id, homeowner1, homeowner2, address, city, state, signed_at, sign_method, representative_name, sales_rep_email")
-        .gte("signed_at", startOfWeek.toISOString())
-        .lte("signed_at", endOfWeek.toISOString())
-        .order("signed_at", { ascending: false });
+      const [claimsRes, inspRes] = await Promise.allSettled([
+        supabase.from("claims")
+          .select("id, homeowner1, homeowner2, address, city, state, signed_at, sign_method, representative_name, sales_rep_name, sales_rep_email")
+          .gte("signed_at", startOfWeek.toISOString())
+          .lte("signed_at", endOfWeek.toISOString())
+          .order("signed_at", { ascending: false }),
+        supabase.from("inspections")
+          .select("id, client_name, address, city, state, signed_at, sales_rep_name, sales_rep_email")
+          .gte("signed_at", startOfWeek.toISOString())
+          .lte("signed_at", endOfWeek.toISOString())
+          .order("signed_at", { ascending: false }),
+      ]);
 
-      // Fetch inspections
-      const { data: inspections, error: inspErr } = await supabase
-        .from("inspections")
-        .select("id, client_name, address, city, state, signed_at, sales_rep_name, sales_rep_email")
-        .gte("signed_at", startOfWeek.toISOString())
-        .lte("signed_at", endOfWeek.toISOString())
-        .order("signed_at", { ascending: false });
+      const claims = claimsRes.status === "fulfilled" ? (claimsRes.value.data || []) : [];
+      const inspections = inspRes.status === "fulfilled" ? (inspRes.value.data || []) : [];
+
+      console.log("Claims fetched:", claims.length, claimsRes.status === "fulfilled" ? claimsRes.value.error : "rejected");
+      console.log("Inspections fetched:", inspections.length, inspRes.status === "fulfilled" ? inspRes.value.error : "rejected");
+
+      // Normalize into unified signings with rep info
+      const allSignings = [
+        ...claims.map(c => ({
+          type: "pa",
+          name: [c.homeowner1, c.homeowner2].filter(Boolean).join(" & ") || "—",
+          address: [c.address, c.city, c.state].filter(Boolean).join(", "),
+          signedAt: c.signed_at,
+          signMethod: c.sign_method,
+          rep: c.sales_rep_name || c.representative_name || "Unassigned",
+        })),
+        ...inspections.map(i => ({
+          type: "insp",
+          name: i.client_name || "—",
+          address: [i.address, i.city, i.state].filter(Boolean).join(", "),
+          signedAt: i.signed_at,
+          signMethod: "sign_now",
+          rep: i.sales_rep_name || "Unassigned",
+        })),
+      ];
+
+      // Group by rep
+      const byRep = {};
+      allSignings.forEach(s => {
+        const key = s.rep || "Unassigned";
+        if (!byRep[key]) byRep[key] = [];
+        byRep[key].push(s);
+      });
+
+      // Sort each rep's signings by date desc
+      Object.values(byRep).forEach(arr => arr.sort((a, b) => new Date(b.signedAt) - new Date(a.signedAt)));
 
       setReportData({
-        claims: claims || [],
-        inspections: inspections || [],
+        byRep,
+        totalClaims: claims.length,
+        totalInspections: inspections.length,
         weekStart: startOfWeek,
         weekEnd: endOfWeek,
       });
@@ -5757,74 +5792,92 @@ export default function App() {
                             Week of {reportData.weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – {reportData.weekEnd.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                           </div>
                           <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", marginTop: 4 }}>
-                            {reportData.claims.length + reportData.inspections.length} Total Signings
+                            {reportData.totalClaims + reportData.totalInspections} Total Signings
                           </div>
                         </div>
 
                         {/* Summary pills */}
-                        <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+                        <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
                           <div style={{ flex: 1, background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10, padding: "10px 14px", textAlign: "center" }}>
-                            <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#199c2e" }}>{reportData.claims.length}</div>
+                            <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#199c2e" }}>{reportData.totalClaims}</div>
                             <div style={{ fontSize: 12, color: "#166534", fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}>PA Forms</div>
                           </div>
                           <div style={{ flex: 1, background: "#eef1f8", border: "1px solid #bfdbfe", borderRadius: 10, padding: "10px 14px", textAlign: "center" }}>
-                            <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#1a2e5a" }}>{reportData.inspections.length}</div>
+                            <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#1a2e5a" }}>{reportData.totalInspections}</div>
                             <div style={{ fontSize: 12, color: "#1e40af", fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}>Inspections</div>
+                          </div>
+                          <div style={{ flex: 1, background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 10, padding: "10px 14px", textAlign: "center" }}>
+                            <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#374151" }}>{Object.keys(reportData.byRep).length}</div>
+                            <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}>Reps Active</div>
                           </div>
                         </div>
 
-                        {/* PA Claims list */}
-                        {reportData.claims.length > 0 ? (
-                          <div style={{ marginBottom: 16 }}>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: "#199c2e", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8 }}>
-                              📋 PA Forms Signed
-                            </div>
-                            {reportData.claims.map((c, i) => (
-                              <div key={c.id || i} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "12px 14px", marginBottom: 8 }}>
-                                <div style={{ fontWeight: 700, fontSize: 15, fontFamily: "'Nunito', sans-serif", color: "#111827" }}>
-                                  {[c.homeowner1, c.homeowner2].filter(Boolean).join(" & ") || "—"}
+                        {/* By Rep */}
+                        {Object.keys(reportData.byRep).length > 0 ? (
+                          Object.entries(reportData.byRep)
+                            .sort((a, b) => b[1].length - a[1].length) // most signings first
+                            .map(([rep, signings]) => (
+                              <div key={rep} style={{ marginBottom: 20 }}>
+                                {/* Rep header */}
+                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#1a2e5a", borderRadius: "12px 12px 0 0", padding: "10px 16px" }}>
+                                  <div style={{ fontWeight: 700, fontSize: 15, fontFamily: "'Oswald', sans-serif", color: "#fff", letterSpacing: "0.04em" }}>
+                                    👤 {rep}
+                                  </div>
+                                  <div style={{ background: "rgba(255,255,255,0.2)", borderRadius: 20, padding: "2px 12px", fontSize: 13, fontFamily: "'Nunito', sans-serif", fontWeight: 700, color: "#fff" }}>
+                                    {signings.length} signing{signings.length !== 1 ? "s" : ""}
+                                  </div>
                                 </div>
-                                <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>
-                                  📍 {[c.address, c.city, c.state].filter(Boolean).join(", ") || "—"}
-                                </div>
-                                <div style={{ display: "flex", gap: 12, marginTop: 6, fontSize: 12, color: "#9ca3af", fontFamily: "'Nunito', sans-serif" }}>
-                                  <span>🕐 {c.signed_at ? new Date(c.signed_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}</span>
-                                  {c.representative_name ? <span>👤 {c.representative_name}</span> : null}
-                                  {c.sign_method ? <span>✍️ {c.sign_method === "sign_now" ? "Sign Now" : c.sign_method === "email_link" ? "Email Link" : c.sign_method}</span> : null}
+
+                                {/* Signings under this rep */}
+                                <div style={{ border: "1px solid #1a2e5a", borderTop: "none", borderRadius: "0 0 12px 12px", overflow: "hidden" }}>
+                                  {signings.map((s, i) => (
+                                    <div key={i} style={{
+                                      padding: "12px 16px",
+                                      borderBottom: i < signings.length - 1 ? "1px solid #f1f5f9" : "none",
+                                      background: "#fff",
+                                      display: "flex",
+                                      alignItems: "flex-start",
+                                      gap: 12,
+                                    }}>
+                                      {/* Type badge */}
+                                      <div style={{
+                                        flexShrink: 0,
+                                        padding: "3px 8px",
+                                        borderRadius: 8,
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                        fontFamily: "'Oswald', sans-serif",
+                                        letterSpacing: "0.04em",
+                                        textTransform: "uppercase",
+                                        background: s.type === "insp" ? "#eef1f8" : "#f0fdf4",
+                                        color: s.type === "insp" ? "#1a2e5a" : "#166534",
+                                        border: `1px solid ${s.type === "insp" ? "#bfdbfe" : "#bbf7d0"}`,
+                                        marginTop: 2,
+                                      }}>
+                                        {s.type === "insp" ? "🏠 Insp" : "📋 PA"}
+                                      </div>
+                                      <div style={{ flex: 1 }}>
+                                        <div style={{ fontWeight: 700, fontSize: 14, fontFamily: "'Nunito', sans-serif", color: "#111827" }}>
+                                          {s.name}
+                                        </div>
+                                        <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>
+                                          📍 {s.address || "—"}
+                                        </div>
+                                        <div style={{ fontSize: 11, color: "#9ca3af", fontFamily: "'Nunito', sans-serif", marginTop: 4 }}>
+                                          🕐 {s.signedAt ? new Date(s.signedAt).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}
+                                          {s.signMethod ? ` · ${s.signMethod === "sign_now" ? "Sign Now" : s.signMethod === "email_link" ? "Email Link" : s.signMethod}` : ""}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
                                 </div>
                               </div>
-                            ))}
-                          </div>
-                        ) : null}
-
-                        {/* Inspections list */}
-                        {reportData.inspections.length > 0 ? (
-                          <div>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: "#1a2e5a", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8 }}>
-                              🏠 Inspection Agreements Signed
-                            </div>
-                            {reportData.inspections.map((insp, i) => (
-                              <div key={insp.id || i} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "12px 14px", marginBottom: 8, borderLeft: "4px solid #1a2e5a" }}>
-                                <div style={{ fontWeight: 700, fontSize: 15, fontFamily: "'Nunito', sans-serif", color: "#111827" }}>
-                                  {insp.client_name || "—"}
-                                </div>
-                                <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>
-                                  📍 {[insp.address, insp.city, insp.state].filter(Boolean).join(", ") || "—"}
-                                </div>
-                                <div style={{ display: "flex", gap: 12, marginTop: 6, fontSize: 12, color: "#9ca3af", fontFamily: "'Nunito', sans-serif" }}>
-                                  <span>🕐 {insp.signed_at ? new Date(insp.signed_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}</span>
-                                  {insp.sales_rep_name ? <span>👤 {insp.sales_rep_name}</span> : null}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        ) : null}
-
-                        {reportData.claims.length === 0 && reportData.inspections.length === 0 ? (
+                            ))
+                        ) : (
                           <div style={{ textAlign: "center", padding: "24px 0", color: "#9ca3af", fontFamily: "'Nunito', sans-serif", fontSize: 15 }}>
                             No signings recorded this week.
                           </div>
-                        ) : null}
+                        )}
                       </div>
                     ) : null}
                   </Card>
