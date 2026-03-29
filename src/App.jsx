@@ -2191,9 +2191,12 @@ export default function App() {
       const claims = claimsRes.status === "fulfilled" ? (claimsRes.value.data || []) : [];
       const inspections = inspRes.status === "fulfilled" ? (inspRes.value.data || []) : [];
 
+      const claimsError = claimsRes.value?.error?.message || (claimsRes.status === "rejected" ? claimsRes.reason : null);
+      const inspError = inspRes.value?.error?.message || (inspRes.status === "rejected" ? inspRes.reason : null);
+
       console.log("Report range:", start, "to", end);
-      console.log("Claims:", claims.length, "error:", claimsRes.value?.error?.message);
-      console.log("Inspections:", inspections.length, "error:", inspRes.value?.error?.message);
+      console.log("Claims:", claims.length, "error:", claimsError);
+      console.log("Inspections:", inspections.length, "error:", inspError);
 
       const allSignings = [
         ...claims.map(c => ({
@@ -2227,6 +2230,8 @@ export default function App() {
         totalClaims: claims.length,
         totalInspections: inspections.length,
         startDate, endDate,
+        claimsError,
+        inspError,
       });
     } catch (e) {
       console.error("Report fetch error:", e);
@@ -3043,6 +3048,7 @@ export default function App() {
           attachments,
         }),
       });
+      console.log("Email to:", data.signerEmail || inspData.email, "isInspOnly:", isInspOnlyFlow);
 
       await parseJsonResponse(finalEmailResponse, "Homeowner email failed.");
 
@@ -5699,6 +5705,14 @@ export default function App() {
                             {reportData.totalClaims + reportData.totalInspections} Total Signings
                           </div>
                         </div>
+
+                        {/* Errors */}
+                        {(reportData.claimsError || reportData.inspError) ? (
+                          <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "#991b1b", fontFamily: "'Nunito', sans-serif" }}>
+                            {reportData.claimsError ? <div>⚠️ Claims error: {reportData.claimsError}</div> : null}
+                            {reportData.inspError ? <div>⚠️ Inspections error: {reportData.inspError} — run the SQL to create the inspections table</div> : null}
+                          </div>
+                        ) : null}
 
                         {/* Summary pills */}
                         <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
