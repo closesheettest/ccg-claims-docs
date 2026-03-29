@@ -2086,6 +2086,7 @@ export default function App() {
   const [inspTypedSig, setInspTypedSig] = useState("");
   const [inspSigFont, setInspSigFont] = useState(SIGNATURE_FONTS[0]);
   const [inspSubmitting, setInspSubmitting] = useState(false);
+  const [inspectionOnly, setInspectionOnly] = useState(false);
   const [inspSubmitAttempted, setInspSubmitAttempted] = useState(false);
 
   const updateInsp = (key, val) => setInspData(prev => ({ ...prev, [key]: val }));
@@ -2125,6 +2126,16 @@ export default function App() {
       "💚 No damage found? No problem — the inspection is completely free, no strings attached.",
     ]),
     preInspClosing: "We'll be in touch soon to schedule your inspection. Thank you for trusting Capital Claims Group! 💚",
+    inspOnlyHeadline: "Inspection Booked — We'll Be In Touch! 🏠",
+    inspOnlyOpening: "Thank you for signing your Free Roof Inspection Agreement with U.S. Shingle & Metal LLC. Your inspector will be in touch shortly to schedule a visit.",
+    inspOnlySteps: JSON.stringify([
+      "📞 Your sales rep will contact you within 24 hours to schedule the inspection.",
+      "🏠 A licensed inspector will visit your property and document any roof damage.",
+      "📊 All findings and photos are forwarded to a Public Adjuster for review.",
+      "✅ If storm damage is found, you'll be contacted about next steps for filing a claim.",
+      "💚 No damage? No problem — the inspection is completely free with no obligation.",
+    ]),
+    inspOnlyClosing: "Thank you for trusting U.S. Shingle & Metal LLC. We'll be in touch soon! 🏠",
     managerPin: "1234",
   };
 
@@ -2169,15 +2180,32 @@ export default function App() {
   });
   const [preInspClosing,  setPreInspClosingRaw]  = useState(() => loadSetting("preInspClosing"));
   const setPreInspHeadline = (v) => { setPreInspHeadlineRaw(v); saveSetting("preInspHeadline", v); };
+
+  // Inspection-only flow state
+  const [inspOnlyHeadline, setInspOnlyHeadlineRaw] = useState(() => loadSetting("inspOnlyHeadline"));
+  const [inspOnlyOpening,  setInspOnlyOpeningRaw]  = useState(() => loadSetting("inspOnlyOpening"));
+  const [inspOnlySteps,    setInspOnlyStepsRaw]    = useState(() => {
+    try { return JSON.parse(loadSetting("inspOnlySteps")); } catch { return JSON.parse(DEFAULTS.inspOnlySteps); }
+  });
+  const [inspOnlyClosing,  setInspOnlyClosingRaw]  = useState(() => loadSetting("inspOnlyClosing"));
+  const setInspOnlyHeadline = (v) => { setInspOnlyHeadlineRaw(v); saveSetting("inspOnlyHeadline", v); };
+  const setInspOnlyOpening  = (v) => { setInspOnlyOpeningRaw(v);  saveSetting("inspOnlyOpening", v); };
+  const setInspOnlySteps    = (v) => { setInspOnlyStepsRaw(v);    saveSetting("inspOnlySteps", JSON.stringify(v)); };
+  const setInspOnlyClosing  = (v) => { setInspOnlyClosingRaw(v);  saveSetting("inspOnlyClosing", v); };
   const setPreInspOpening  = (v) => { setPreInspOpeningRaw(v);  saveSetting("preInspOpening", v); };
   const setPreInspSteps    = (v) => { setPreInspStepsRaw(v);    saveSetting("preInspSteps", JSON.stringify(v)); };
   const setPreInspClosing  = (v) => { setPreInspClosingRaw(v);  saveSetting("preInspClosing", v); };
 
-  // Derived: which thank you content to show based on claimStage
-  const activeTYHeadline = data.claimStage === "pre_inspection" ? preInspHeadline : thankYouHeadline;
-  const activeTYOpening  = data.claimStage === "pre_inspection" ? preInspOpening  : thankYouOpening;
-  const activeTYSteps    = data.claimStage === "pre_inspection" ? preInspSteps    : thankYouSteps;
-  const activeTYClosing  = data.claimStage === "pre_inspection" ? preInspClosing  : thankYouClosing;
+  // Derived: which thank you content to show
+  // inspectionOnly = only inspection was signed (no PA forms)
+  const activeTYHeadline = inspectionOnly ? inspOnlyHeadline
+    : data.claimStage === "pre_inspection" ? preInspHeadline : thankYouHeadline;
+  const activeTYOpening  = inspectionOnly ? inspOnlyOpening
+    : data.claimStage === "pre_inspection" ? preInspOpening  : thankYouOpening;
+  const activeTYSteps    = inspectionOnly ? inspOnlySteps
+    : data.claimStage === "pre_inspection" ? preInspSteps    : thankYouSteps;
+  const activeTYClosing  = inspectionOnly ? inspOnlyClosing
+    : data.claimStage === "pre_inspection" ? preInspClosing  : thankYouClosing;
 
   const [sig1, setSig1] = useState("");
   const [sig2, setSig2] = useState("");
@@ -2412,6 +2440,7 @@ export default function App() {
     setInspSig("");
     setInspTypedSig("");
     setInspSubmitAttempted(false);
+    setInspectionOnly(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
 
     // Always go to review — inspection doc is authorized there, then signed once at bottom
@@ -2585,6 +2614,26 @@ export default function App() {
       const base64 = await blobToBase64(blob);
       const base64Content = String(base64).split(",")[1];
 
+      // Save to Supabase
+      try {
+        await supabase.from("inspections").insert([{
+          client_name: inspData.clientName,
+          mobile: inspData.mobile,
+          email: inspData.email,
+          address: inspData.address,
+          city: inspData.city,
+          state: inspData.state,
+          zip: inspData.zip,
+          date: inspData.date,
+          sales_rep_name: data.salesRepName || "",
+          sales_rep_id: data.salesRepId || "",
+          lead_source: data.leadSource || "NEED",
+          signed_at: new Date().toISOString(),
+        }]);
+      } catch (dbErr) {
+        console.warn("Supabase save failed (non-fatal):", dbErr);
+      }
+
       // Email to homeowner
       if (inspData.email) {
         await fetch("/.netlify/functions/send-email", {
@@ -2595,18 +2644,18 @@ export default function App() {
             subject: "Your Free Roof Inspection Agreement — U.S. Shingle & Metal",
             html: `
               <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <div style="background: #199c2e; padding: 24px 32px; border-radius: 12px 12px 0 0;">
+                <div style="background: #1a2e5a; padding: 24px 32px; border-radius: 12px 12px 0 0;">
                   <h1 style="color: #fff; margin: 0; font-size: 22px;">🏠 Your Inspection Agreement</h1>
                 </div>
                 <div style="background: #f9fafb; padding: 24px 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb; border-top: none;">
                   <p style="font-size: 15px; color: #374151;">Hi ${inspData.clientName},</p>
                   <p style="font-size: 15px; color: #374151; line-height: 1.6;">
                     Thank you for signing your Free Roof Inspection Agreement with U.S. Shingle & Metal LLC.
-                    Your signed agreement is attached. We will be in touch shortly to schedule the inspection.
+                    Your signed agreement is attached. We will be in touch shortly to schedule your inspection.
                   </p>
-                  <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 16px 20px; margin: 16px 0;">
-                    <p style="margin: 0; font-weight: 700; color: #166534;">📞 Questions? Contact us:</p>
-                    <p style="margin: 6px 0 0; color: #166534; font-size: 14px;">
+                  <div style="background: #eef1f8; border: 1px solid #bfdbfe; border-radius: 10px; padding: 16px 20px; margin: 16px 0;">
+                    <p style="margin: 0; font-weight: 700; color: #1a2e5a;">📞 Questions? Contact us:</p>
+                    <p style="margin: 6px 0 0; color: #1a2e5a; font-size: 14px;">
                       Phone: 727.761.5200<br/>Email: info@shingleusa.com
                     </p>
                   </div>
@@ -2618,36 +2667,58 @@ export default function App() {
         });
       }
 
-      // Job Nimbus sync
-      const nameParts = inspData.clientName.trim().split(" ");
-      await fetch("/.netlify/functions/jobnimbus-sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          firstName: nameParts[0] || "",
-          lastName: nameParts.slice(1).join(" ") || "",
-          address: inspData.address,
-          city: inspData.city,
-          state: inspData.state,
-          zip: inspData.zip,
-          phone: inspData.mobile,
-          email: inspData.email,
-          salesRepId: data.salesRepId || null,
-          leadSource: data.leadSource || "NEED",
-          soldDate: inspData.date,
-          paSignedAlso: false,
-          inspectionPdfBase64: base64Content,
-          lorPdfBase64: null,
-          pacPdfBase64: null,
-        }),
-      }).catch(e => console.warn("JN sync non-fatal:", e));
+      // Email signed PDF to sales rep for manual JN upload
+      if (data.salesRepId || data.paEmail) {
+        const repEmail = data.paEmail || "";
+        if (repEmail) {
+          await fetch("/.netlify/functions/send-email", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              to: [repEmail],
+              subject: `📋 New Inspection Agreement — ${inspData.clientName} (Upload to JN)`,
+              html: `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                  <div style="background: #1a2e5a; padding: 24px 32px; border-radius: 12px 12px 0 0;">
+                    <h1 style="color: #fff; margin: 0; font-size: 20px;">📋 New Signed Inspection Agreement</h1>
+                  </div>
+                  <div style="background: #f9fafb; padding: 24px 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb; border-top: none;">
+                    <p style="font-size: 15px; color: #374151; margin-top: 0;">A new Free Roof Inspection Agreement has been signed. Please upload the attached PDF to Job Nimbus and update the following fields:</p>
+                    <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 14px 18px; margin: 16px 0;">
+                      <p style="margin: 0; font-weight: 700; color: #92400e;">⚠️ Action Required: Upload to Job Nimbus</p>
+                      <ul style="margin: 8px 0 0; color: #92400e; font-size: 14px; line-height: 1.8; padding-left: 20px;">
+                        <li>Create contact if new, or find existing</li>
+                        <li>Create Job → Status: <strong>Sit Sold Insp</strong></li>
+                        <li>Location: <strong>U.S. Shingle - Insurance</strong></li>
+                        <li>Inspection: <strong>Needs Inspection</strong></li>
+                        <li>Attach the signed PDF to Documents</li>
+                      </ul>
+                    </div>
+                    <table style="font-size: 14px; color: #374151; width: 100%; border-collapse: collapse;">
+                      <tr><td style="padding: 4px 0; font-weight: 600; width: 140px;">Client:</td><td>${inspData.clientName}</td></tr>
+                      <tr><td style="padding: 4px 0; font-weight: 600;">Address:</td><td>${[inspData.address, inspData.city, inspData.state, inspData.zip].filter(Boolean).join(", ")}</td></tr>
+                      <tr><td style="padding: 4px 0; font-weight: 600;">Phone:</td><td>${inspData.mobile}</td></tr>
+                      <tr><td style="padding: 4px 0; font-weight: 600;">Email:</td><td>${inspData.email}</td></tr>
+                      <tr><td style="padding: 4px 0; font-weight: 600;">Date:</td><td>${inspData.date}</td></tr>
+                      <tr><td style="padding: 4px 0; font-weight: 600;">Lead Source:</td><td>${data.leadSource || "NEED"}</td></tr>
+                    </table>
+                  </div>
+                </div>
+              `,
+              attachments: [{ filename: "Free-Roof-Inspection-Agreement.pdf", content: base64Content }],
+            }),
+          });
+        }
+      }
 
-      // Reset inspection sig fields
+      // Reset
       setInspSig("");
       setInspTypedSig("");
       setInspSubmitAttempted(false);
 
-      // Go to thank you page
+      // Set inspection-only flag and go to thank you
+      const isInspectionOnly = !selectedDocs.includes("lor") && !selectedDocs.includes("pac");
+      setInspectionOnly(isInspectionOnly);
       window.scrollTo({ top: 0, behavior: "smooth" });
       setView("thankyou");
 
@@ -4597,7 +4668,9 @@ export default function App() {
 
             {/* Hero celebration banner */}
             <div style={{
-              background: "linear-gradient(135deg, #199c2e 0%, #15803d 100%)",
+              background: inspectionOnly
+                ? "linear-gradient(135deg, #1a2e5a 0%, #0f1e3d 100%)"
+                : "linear-gradient(135deg, #199c2e 0%, #15803d 100%)",
               borderRadius: 28,
               padding: "40px 36px 36px",
               textAlign: "center",
