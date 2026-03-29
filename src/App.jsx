@@ -161,6 +161,100 @@ function typedInitialsToDataUrl(text, fontFamily, width = 220, height = 70) {
   return canvas.toDataURL("image/png");
 }
 
+function DuplicateScreen({ duplicateRecord, signMode, signerEmail, onGoBack, onProceedAnyway, onResend }) {
+  const rec = duplicateRecord.record;
+  const isSigned = duplicateRecord.status === "signed";
+  const isInsp = duplicateRecord.type === "inspection";
+  const name = isInsp ? rec.client_name : [rec.homeowner1, rec.homeowner2].filter(Boolean).join(" & ");
+  const addr = [rec.address, rec.city, rec.state, rec.zip].filter(Boolean).join(", ");
+  const signedDate = rec.signed_at ? new Date(rec.signed_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : null;
+
+  return (
+    <div style={{ maxWidth: 520, margin: "0 auto", padding: "40px 20px" }}>
+      {/* Banner */}
+      <div style={{
+        background: isSigned ? "linear-gradient(135deg, #1a2e5a 0%, #0f1e3d 100%)" : "linear-gradient(135deg, #d97706 0%, #b45309 100%)",
+        borderRadius: 24, padding: "32px 28px", textAlign: "center", color: "#fff", marginBottom: 20,
+      }}>
+        <div style={{ fontSize: 52, marginBottom: 10 }}>{isSigned ? "⚠️" : "📨"}</div>
+        <div style={{ fontSize: 26, fontWeight: 700, fontFamily: "'Oswald', sans-serif", marginBottom: 8 }}>
+          {isSigned ? "Already Signed Up!" : "Documents Already Sent"}
+        </div>
+        <div style={{ fontSize: 15, fontFamily: "'Nunito', sans-serif", fontWeight: 600, opacity: 0.92, lineHeight: 1.6 }}>
+          {isSigned
+            ? `This address already has ${isInsp ? "an inspection agreement" : "signed PA documents"} on file.`
+            : "Documents were sent to this address but haven't been signed yet."}
+        </div>
+      </div>
+
+      {/* Details card */}
+      <div style={{ background: "#fff", borderRadius: 20, border: "1px solid #e5e7eb", padding: "22px 24px", marginBottom: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+        <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827", marginBottom: 14, letterSpacing: "0.02em" }}>
+          Existing Record
+        </div>
+        <div style={{ display: "grid", gap: 8, fontSize: 14, fontFamily: "'Nunito', sans-serif" }}>
+          <div style={{ display: "flex", gap: 10 }}>
+            <span style={{ color: "#6b7280", width: 80, flexShrink: 0 }}>Name:</span>
+            <span style={{ fontWeight: 700, color: "#111827" }}>{name || "—"}</span>
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <span style={{ color: "#6b7280", width: 80, flexShrink: 0 }}>Address:</span>
+            <span style={{ fontWeight: 600, color: "#374151" }}>{addr || "—"}</span>
+          </div>
+          {isInsp && rec.sales_rep_name ? (
+            <div style={{ display: "flex", gap: 10 }}>
+              <span style={{ color: "#6b7280", width: 80, flexShrink: 0 }}>Rep:</span>
+              <span style={{ fontWeight: 600, color: "#374151" }}>{rec.sales_rep_name}</span>
+            </div>
+          ) : null}
+          {signedDate ? (
+            <div style={{ display: "flex", gap: 10 }}>
+              <span style={{ color: "#6b7280", width: 80, flexShrink: 0 }}>Signed:</span>
+              <span style={{ fontWeight: 600, color: "#374151" }}>{signedDate}</span>
+            </div>
+          ) : null}
+          {!isSigned ? (
+            <div style={{ marginTop: 6, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 10, padding: "10px 14px", fontSize: 13, color: "#92400e", fontWeight: 600 }}>
+              ⏳ Sent but not yet signed — you can resend the link without creating a duplicate.
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      {/* Action buttons */}
+      <div style={{ display: "grid", gap: 10 }}>
+        {!isSigned ? (
+          /* Pending — offer to resend */
+          <button type="button" onClick={onResend}
+            style={{ padding: "14px", borderRadius: 14, border: "none", background: "#199c2e", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
+            📨 Resend Signing Link
+          </button>
+        ) : null}
+
+        {isSigned && signMode !== "send" ? (
+          /* Already signed + sign-now mode — can still proceed if it's a different form */
+          <button type="button" onClick={onProceedAnyway}
+            style={{ padding: "14px", borderRadius: 14, border: "none", background: "#6b7280", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
+            ⚠️ Sign Anyway (Different Forms)
+          </button>
+        ) : null}
+
+        {isSigned && signMode === "send" ? (
+          <button type="button" onClick={onProceedAnyway}
+            style={{ padding: "14px", borderRadius: 14, border: "none", background: "#6b7280", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
+            ⚠️ Send Anyway (Different Forms)
+          </button>
+        ) : null}
+
+        <button type="button" onClick={onGoBack}
+          style={{ padding: "14px", borderRadius: 14, border: "2px solid #d1d5db", background: "#fff", color: "#374151", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
+          ← Go Back
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function SendingScreen({ onMount }) {
   const calledRef = React.useRef(false);
   React.useEffect(() => {
@@ -2106,6 +2200,7 @@ export default function App() {
   const [inspSigFont, setInspSigFont] = useState(SIGNATURE_FONTS[0]);
   const [inspSubmitting, setInspSubmitting] = useState(false);
   const [inspectionOnly, setInspectionOnly] = useState(false);
+  const [duplicateRecord, setDuplicateRecord] = useState(null); // {type, record, status}
   const [inspSubmitAttempted, setInspSubmitAttempted] = useState(false);
 
   const updateInsp = (key, val) => setInspData(prev => ({ ...prev, [key]: val }));
@@ -2683,9 +2778,51 @@ export default function App() {
     });
   };
 
-  const beginDocumentFlow = () => {
+  const checkForDuplicate = async () => {
+    if (!data.address) return null;
+    const addr = data.address.trim().toLowerCase();
+
+    // Check claims table
+    const { data: claimMatches } = await supabase
+      .from("claims")
+      .select("id, homeowner1, homeowner2, address, city, state, zip, signed_at, sign_method, docs_signed")
+      .ilike("address", `%${addr}%`)
+      .order("signed_at", { ascending: false })
+      .limit(1);
+
+    if (claimMatches && claimMatches.length > 0) {
+      const match = claimMatches[0];
+      const isSigned = !!match.signed_at;
+      return { type: "claim", record: match, status: isSigned ? "signed" : "pending" };
+    }
+
+    // Check inspections table
+    const { data: inspMatches } = await supabase
+      .from("inspections")
+      .select("id, client_name, address, city, state, zip, signed_at, sales_rep_name")
+      .ilike("address", `%${addr}%`)
+      .order("signed_at", { ascending: false })
+      .limit(1);
+
+    if (inspMatches && inspMatches.length > 0) {
+      const match = inspMatches[0];
+      return { type: "inspection", record: match, status: "signed" };
+    }
+
+    return null;
+  };
+
+  const beginDocumentFlow = async () => {
     if (!selectedDocs.length) {
       alert("Please select at least one form.");
+      return;
+    }
+
+    // Check for duplicate address
+    const dupe = await checkForDuplicate();
+    if (dupe) {
+      setDuplicateRecord(dupe);
+      setView("duplicate");
       return;
     }
 
@@ -4495,7 +4632,7 @@ export default function App() {
               </div>
 
               <div style={{ marginTop: 20 }}>
-                <Button onClick={beginDocumentFlow} disabled={!selectedDocs.length}>
+                <Button onClick={() => beginDocumentFlow()} disabled={!selectedDocs.length}>
                   {signMode === "send"
                     ? "Continue to Send for Signing"
                     : "Continue to Sign"}
@@ -5129,6 +5266,40 @@ export default function App() {
             </div>
           </>
         ) : null}
+        {/* ── DUPLICATE VIEW ── */}
+        {view === "duplicate" && duplicateRecord ? (
+          <DuplicateScreen
+            duplicateRecord={duplicateRecord}
+            signMode={signMode}
+            signerEmail={data.signerEmail}
+            onGoBack={() => { setDuplicateRecord(null); setView("input"); }}
+            onProceedAnyway={() => {
+              setDuplicateRecord(null);
+              setPendingSend(signMode === "send");
+              setCurrentClaimId(null);
+              setAuditInfo(initialAuditInfo);
+              setSig1(""); setSig2(""); setTypedSig1(""); setTypedSig2("");
+              setSigMethod1("draw"); setSigMethod2("draw");
+              setInitialsMethod1("draw"); setInitialsMethod2("draw");
+              setData(prev => ({ ...prev, initials1: "", initials2: "" }));
+              setInitials1Typed(""); setInitials2Typed("");
+              setLorAgreed(false); setPacAgreed(false); setInspAgreed(false);
+              setSubmitAttempted(false); setInspSig(""); setInspTypedSig("");
+              setInspSubmitAttempted(false); setInspectionOnly(false);
+              window.scrollTo({ top: 0, behavior: "smooth" });
+              if (signMode === "send") setView("sending");
+              else setView("review");
+            }}
+            onResend={async () => {
+              const rec = duplicateRecord.record;
+              if (duplicateRecord.type === "claim" && rec.id) setCurrentClaimId(rec.id);
+              setDuplicateRecord(null);
+              setPendingSend(true);
+              setView("sending");
+            }}
+          />
+        ) : null}
+
         {/* ── SENDING VIEW — auto-submits when entered ── */}
         {view === "sending" ? (
           <SendingScreen onMount={async () => {
