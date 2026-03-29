@@ -3147,35 +3147,28 @@ export default function App() {
         });
       }
 
-      // Always attach the welcome package PDF — only for PA flows, not inspection-only
-      const isInspOnlyFlow = selectedDocs.includes("insp") && !selectedDocs.includes("lor") && !selectedDocs.includes("pac");
+      // Welcome PDF logic based on what was signed:
+      // Inspection only → USS welcome only
+      // PA docs (lor/pac, no insp) → CCG welcome only
+      // All three (insp + lor + pac) → both USS + CCG welcome
+      const hasInsp = selectedDocs.includes("insp");
+      const hasPADocs = selectedDocs.includes("lor") || selectedDocs.includes("pac");
+      const isInspOnlyFlow = hasInsp && !hasPADocs;
 
-      if (isInspOnlyFlow) {
-        // Attach USS welcome PDF for inspection-only homeowners
+      if (hasInsp) {
         try {
           const ussWelcomeBlob = await generatePDF("#uss-welcome-printable", "USS-Welcome-Package.pdf");
           const ussWelcomeBase64 = await blobToBase64(ussWelcomeBlob);
-          attachments.push({
-            filename: "USS-Welcome-Package.pdf",
-            content: String(ussWelcomeBase64).split(",")[1],
-          });
-        } catch (e) {
-          console.warn("USS welcome PDF failed, skipping:", e);
-        }
-      } else {
+          attachments.push({ filename: "USS-Welcome-Package.pdf", content: String(ussWelcomeBase64).split(",")[1] });
+        } catch (e) { console.warn("USS welcome PDF failed:", e); }
+      }
+
+      if (hasPADocs) {
         try {
-          const welcomeBlob = await generatePDF(
-            "#ty-summary-printable",
-            "CCG-Welcome-Package.pdf"
-          );
-          const welcomeBase64 = await blobToBase64(welcomeBlob);
-          attachments.push({
-            filename: "CCG-Welcome-Package.pdf",
-            content: String(welcomeBase64).split(",")[1],
-          });
-        } catch (e) {
-          console.warn("Welcome package PDF failed, skipping:", e);
-        }
+          const ccgWelcomeBlob = await generatePDF("#ty-summary-printable", "CCG-Welcome-Package.pdf");
+          const ccgWelcomeBase64 = await blobToBase64(ccgWelcomeBlob);
+          attachments.push({ filename: "CCG-Welcome-Package.pdf", content: String(ccgWelcomeBase64).split(",")[1] });
+        } catch (e) { console.warn("CCG welcome PDF failed:", e); }
       }
 
       const homeownerName = [data.homeowner1, data.homeowner2].filter(Boolean).join(" & ") || "Homeowner";
@@ -3202,6 +3195,7 @@ export default function App() {
             </p>
             <ul style="font-size: 15px; color: #374151; line-height: 1.8;">
               <li><strong>Free Roof Inspection Agreement</strong> — your signed copy</li>
+              <li><strong>USS Welcome Package</strong> — what to expect & our contact info</li>
             </ul>
             <div style="background: #eef1f8; border: 1px solid #bfdbfe; border-radius: 10px; padding: 18px 20px; margin: 20px 0;">
               <p style="margin: 0 0 8px; font-weight: 700; color: #1a2e5a;">📞 Questions? Contact us:</p>
@@ -3210,9 +3204,43 @@ export default function App() {
                 Email: info@shingleusa.com
               </p>
             </div>
-            <p style="font-size: 14px; color: #6b7280; margin-bottom: 0;">
-              <em>Signed at: ${nextAuditInfo.signedAt || ""}</em>
+            <p style="font-size: 14px; color: #6b7280; margin-bottom: 0;"><em>Signed at: ${nextAuditInfo.signedAt || ""}</em></p>
+          </div>
+        </div>
+      ` : hasInsp && hasPADocs ? `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background: #1a2e5a; padding: 0; border-radius: 12px 12px 0 0; overflow: hidden;">
+            <div style="display: flex; height: 8px;">
+              <div style="flex: 1; background: #c8392b;"></div>
+              <div style="flex: 1; background: #fff;"></div>
+              <div style="flex: 1; background: #1a2e5a;"></div>
+            </div>
+            <div style="padding: 24px 32px;">
+              <h1 style="color: #fff; margin: 0; font-size: 22px;">🎉 All Documents Signed!</h1>
+              <p style="color: rgba(255,255,255,0.85); margin: 6px 0 0; font-size: 14px;">U.S. Shingle & Metal LLC + Capital Claims Group</p>
+            </div>
+          </div>
+          <div style="background: #f9fafb; padding: 28px 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb; border-top: none;">
+            <p style="font-size: 16px; color: #111827; margin-top: 0;">Hi ${homeownerName},</p>
+            <p style="font-size: 15px; color: #374151; line-height: 1.6;">
+              Your documents are signed and we're officially on the case.
+              <strong>We've attached everything to this email</strong> for your records:
             </p>
+            <ul style="font-size: 15px; color: #374151; line-height: 1.8;">
+              <li><strong>Free Roof Inspection Agreement</strong> — your signed copy</li>
+              ${selectedDocs.filter(d => d !== "insp").map(d => `<li><strong>${documentLabel(d)}</strong> — your signed copy</li>`).join("")}
+              <li><strong>USS Welcome Package</strong> — inspection next steps & U.S. Shingle contact info</li>
+              <li><strong>CCG Welcome Package</strong> — claims process & Capital Claims contact info</li>
+            </ul>
+            <div style="background: #eef1f8; border: 1px solid #bfdbfe; border-radius: 10px; padding: 16px 20px; margin: 16px 0;">
+              <p style="margin: 0 0 6px; font-weight: 700; color: #1a2e5a;">📞 U.S. Shingle & Metal LLC</p>
+              <p style="margin: 0; color: #1a2e5a; font-size: 14px; line-height: 1.7;">Phone: 727.761.5200 &nbsp;|&nbsp; Email: info@shingleusa.com</p>
+            </div>
+            <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 16px 20px; margin: 16px 0;">
+              <p style="margin: 0 0 6px; font-weight: 700; color: #166534;">📞 Capital Claims Group</p>
+              <p style="margin: 0; color: #166534; font-size: 14px; line-height: 1.7;">Phone: +1 (954) 571-3035 &nbsp;|&nbsp; Email: claims@capitalclaimgroup.com</p>
+            </div>
+            <p style="font-size: 14px; color: #6b7280; margin-bottom: 0;"><em>Signed at: ${nextAuditInfo.signedAt || ""}</em></p>
           </div>
         </div>
       ` : `
@@ -3221,15 +3249,13 @@ export default function App() {
             <h1 style="color: #fff; margin: 0; font-size: 24px;">🎉 You're All Set!</h1>
           </div>
           <div style="background: #f9fafb; padding: 28px 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb; border-top: none;">
-            <p style="font-size: 16px; color: #111827; margin-top: 0;">
-              Hi ${homeownerName},
-            </p>
+            <p style="font-size: 16px; color: #111827; margin-top: 0;">Hi ${homeownerName},</p>
             <p style="font-size: 15px; color: #374151; line-height: 1.6;">
               Your documents are signed and we're officially on the case.
               <strong>We've attached everything to this email</strong> for your records:
             </p>
             <ul style="font-size: 15px; color: #374151; line-height: 1.8;">
-              ${selectedDocs.filter(d => d !== "insp").map(d => `<li><strong>${documentLabel(d)}</strong> — your signed copy</li>`).join("")}
+              ${selectedDocs.map(d => `<li><strong>${documentLabel(d)}</strong> — your signed copy</li>`).join("")}
               <li><strong>CCG Welcome Package</strong> — what to expect next &amp; our contact info</li>
             </ul>
             <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 18px 20px; margin: 20px 0;">
@@ -3240,9 +3266,7 @@ export default function App() {
                 Website: www.ccgclaims.com
               </p>
             </div>
-            <p style="font-size: 14px; color: #6b7280; margin-bottom: 0;">
-              <em>Signed at: ${nextAuditInfo.signedAt || ""}</em>
-            </p>
+            <p style="font-size: 14px; color: #6b7280; margin-bottom: 0;"><em>Signed at: ${nextAuditInfo.signedAt || ""}</em></p>
           </div>
         </div>
       `;
@@ -3254,6 +3278,8 @@ export default function App() {
           to: [data.signerEmail || inspData.email].filter(Boolean),
           subject: isInspOnlyFlow
             ? "Your Free Roof Inspection Agreement — U.S. Shingle & Metal"
+            : hasInsp && hasPADocs
+            ? "Your Signed Documents — U.S. Shingle & Metal + Capital Claims Group"
             : "Your Signed Documents — Capital Claims Group",
           html: homeownerEmailHtml,
           attachments,
@@ -5205,7 +5231,10 @@ export default function App() {
                     </div>
                   </div>
                   <div style={{ background: inspectionOnly ? "#eff6ff" : "#f0fdf4", borderRadius: 14, padding: "12px 16px", fontSize: 13, color: inspectionOnly ? "#1e40af" : "#166534", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
-                    📎 Attached: {selectedDocs.map(d => documentLabel(d)).join(", ")}{inspectionOnly ? " + USS Welcome Package" : " + CCG Welcome Package"}
+                    📎 Attached: {selectedDocs.map(d => documentLabel(d)).join(", ")}
+                    {selectedDocs.includes("insp") && !selectedDocs.includes("lor") && !selectedDocs.includes("pac") ? " + USS Welcome Package" : ""}
+                    {!selectedDocs.includes("insp") && (selectedDocs.includes("lor") || selectedDocs.includes("pac")) ? " + CCG Welcome Package" : ""}
+                    {selectedDocs.includes("insp") && (selectedDocs.includes("lor") || selectedDocs.includes("pac")) ? " + USS Welcome Package + CCG Welcome Package" : ""}
                   </div>
                   {!inspectionOnly ? (
                     <div style={{ marginTop: 14, textAlign: "center" }}>
