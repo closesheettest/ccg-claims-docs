@@ -2170,6 +2170,77 @@ export default function App() {
   const [newRepEmail, setNewRepEmail] = useState("");
   const [newRepJnId, setNewRepJnId] = useState("");
   const [repSaving, setRepSaving] = useState(false);
+  const [jnUsers, setJnUsers] = useState([]);
+  const [jnImporting, setJnImporting] = useState(false);
+  const [jnImportError, setJnImportError] = useState("");
+
+  const fetchJnUsers = async () => {
+    setJnImporting(true);
+    setJnImportError("");
+    try {
+      const res = await fetch("/.netlify/functions/jobnimbus-users");
+      const data = await res.json();
+      if (data.members && data.members.length > 0) {
+        setJnUsers(data.members);
+      } else {
+        setJnImportError("No users returned from JN. Check API connection.");
+      }
+    } catch (e) {
+      setJnImportError("Failed to connect to JN API.");
+    } finally {
+      setJnImporting(false);
+    }
+  };
+
+  const lookupJnUser = async (repId, repName) => {
+    // Try to find matching JN user by name similarity
+    if (!jnUsers.length) return null;
+    const nameLower = repName.toLowerCase();
+    const parts = nameLower.split(" ");
+    return jnUsers.find(u => {
+      const jnName = u.name.toLowerCase();
+      return jnName === nameLower ||
+        (parts.length >= 2 && jnName.includes(parts[0]) && jnName.includes(parts[parts.length - 1]));
+    }) || null;
+  };
+
+  const syncRepFromJn = async (repId, repName) => {
+    const match = await lookupJnUser(repId, repName);
+    if (!match) {
+      alert(`Could not find "${repName}" in Job Nimbus. Check that the name matches exactly.`);
+      return;
+    }
+    const { error } = await supabase.from("sales_reps")
+      .update({ jobnimbus_id: match.jobnimbus_id })
+      .eq("id", repId);
+    if (!error) {
+      await loadReps();
+      alert(`✅ Linked "${repName}" → JN ID: ${match.jobnimbus_id}`);
+    }
+  };
+
+  const importAllFromJn = async () => {
+    if (!jnUsers.length) { alert("Load JN users first."); return; }
+    let added = 0;
+    for (const u of jnUsers) {
+      if (!u.name || u.name.toLowerCase().includes("test")) continue;
+      const exists = reps.find(r => r.name.toLowerCase() === u.name.toLowerCase());
+      if (!exists) {
+        await supabase.from("sales_reps").insert([{
+          name: u.name,
+          jobnimbus_id: u.jobnimbus_id,
+          email: u.email || "",
+        }]);
+        added++;
+      } else if (u.jobnimbus_id) {
+        const updates = { jobnimbus_id: u.jobnimbus_id };
+        if (u.email && !exists.email) updates.email = u.email;
+        await supabase.from("sales_reps").update(updates).eq("id", exists.id);
+      }
+    }
+    await loadReps();
+    alert(`✅ Import complete — ${added} new rep(s) added.`);
+  };
 
   const loadReps = async () => {
     const { data, error } = await supabase.from("sales_reps").select("*").order("name");
@@ -5725,6 +5796,38 @@ export default function App() {
                       Add reps here. Their name and JN ID will be used in the Sales Rep dropdown and to sync with Job Nimbus when the API is connected.
                     </div>
 
+                    {/* JN Import */}
+                    <div style={{ background: "#eef1f8", border: "1px solid #bfdbfe", borderRadius: 14, padding: "14px 18px", marginBottom: 16 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#1a2e5a", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.04em", marginBottom: 8, textTransform: "uppercase" }}>
+                        🔗 Import / Sync from Job Nimbus
+                      </div>
+                      <div style={{ fontSize: 12, color: "#374151", fontFamily: "'Nunito', sans-serif", marginBottom: 10 }}>
+                        When the JN API is connected, load users to auto-fill IDs and emails by name.
+                      </div>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <button type="button" onClick={fetchJnUsers} disabled={jnImporting}
+                          style={{ flex: 1, minWidth: 120, padding: "9px 12px", borderRadius: 10, border: "none", background: "#1a2e5a", color: "#fff", fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: jnImporting ? 0.6 : 1 }}>
+                          {jnImporting ? "Loading..." : "📥 Load JN Users"}
+                        </button>
+                        {jnUsers.length > 0 ? (
+                          <button type="button" onClick={importAllFromJn}
+                            style={{ flex: 1, minWidth: 120, padding: "9px 12px", borderRadius: 10, border: "none", background: "#199c2e", color: "#fff", fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+                            ✅ Import All ({jnUsers.length} users)
+                          </button>
+                        ) : null}
+                      </div>
+                      {jnUsers.length > 0 ? (
+                        <div style={{ marginTop: 8, fontSize: 12, color: "#166534", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
+                          ✅ {jnUsers.length} JN users loaded — click "Import All" to add/update reps
+                        </div>
+                      ) : null}
+                      {jnImportError ? (
+                        <div style={{ marginTop: 8, fontSize: 12, color: "#ef4444", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
+                          ⚠️ {jnImportError}
+                        </div>
+                      ) : null}
+                    </div>
+
                     {/* Add new rep form */}
                     <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14, padding: "16px 18px", marginBottom: 16 }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.04em", marginBottom: 12, textTransform: "uppercase" }}>
@@ -5772,10 +5875,18 @@ export default function App() {
                                 {rep.jobnimbus_id ? `🔑 JN: ${rep.jobnimbus_id.slice(0, 12)}...` : "⚠️ No JN ID yet"}
                               </div>
                             </div>
-                            <button type="button" onClick={() => { if (window.confirm(`Remove ${rep.name}?`)) deleteRep(rep.id); }}
-                              style={{ background: "transparent", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 18, padding: "4px 8px", flexShrink: 0 }}>
-                              ✕
-                            </button>
+                            <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                              {jnUsers.length > 0 && !rep.jobnimbus_id ? (
+                                <button type="button" onClick={() => syncRepFromJn(rep.id, rep.name)}
+                                  style={{ background: "#eef1f8", border: "1px solid #bfdbfe", color: "#1a2e5a", borderRadius: 8, padding: "4px 10px", fontSize: 12, fontFamily: "'Nunito', sans-serif", fontWeight: 700, cursor: "pointer" }}>
+                                  🔗 Link JN
+                                </button>
+                              ) : null}
+                              <button type="button" onClick={() => { if (window.confirm(`Remove ${rep.name}?`)) deleteRep(rep.id); }}
+                                style={{ background: "transparent", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 18, padding: "4px 8px" }}>
+                                ✕
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>
