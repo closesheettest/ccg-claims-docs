@@ -4785,16 +4785,16 @@ export default function App() {
                       alignItems: "flex-start",
                       gap: 14,
                       padding: "14px 16px",
-                      background: "#f0fdf4",
+                      background: inspectionOnly ? "#eef1f8" : "#f0fdf4",
                       borderRadius: 16,
-                      border: "1px solid #bbf7d0",
+                      border: inspectionOnly ? "1px solid #bfdbfe" : "1px solid #bbf7d0",
                     }}
                   >
                     <div style={{
                       width: 28,
                       height: 28,
                       borderRadius: "50%",
-                      background: "#199c2e",
+                      background: inspectionOnly ? "#1a2e5a" : "#199c2e",
                       color: "#fff",
                       display: "flex",
                       alignItems: "center",
@@ -4809,7 +4809,7 @@ export default function App() {
                     </div>
                     <div style={{
                       fontSize: 16,
-                      color: "#166534",
+                      color: inspectionOnly ? "#1e40af" : "#166534",
                       fontFamily: "'Nunito', sans-serif",
                       fontWeight: 600,
                       lineHeight: 1.55,
@@ -4841,108 +4841,94 @@ export default function App() {
               </div>
             </div>
 
-            {/* Email + download notice */}
+            {/* Email + confirmation notice */}
             <div style={{
               background: "#fff",
-              border: `1px solid ${selectedDocs.includes("insp") && !selectedDocs.includes("lor") && !selectedDocs.includes("pac") ? "#bfdbfe" : "#e5e7eb"}`,
+              border: `1px solid ${inspectionOnly ? "#bfdbfe" : "#e5e7eb"}`,
               borderRadius: 20,
               padding: "22px 26px",
               marginBottom: 28,
               boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
             }}>
-              <div style={{
-                display: "flex",
-                alignItems: "flex-start",
-                gap: 16,
-                marginBottom: 16,
-              }}>
-                <span style={{ fontSize: 36, flexShrink: 0 }}>📧</span>
-                <div>
-                  <div style={{
-                    fontSize: 19,
-                    fontWeight: 700,
-                    color: "#111827",
-                    fontFamily: "'Oswald', sans-serif",
-                    marginBottom: 6,
-                    letterSpacing: "0.02em",
-                  }}>
-                    Check Your Email!
+              {isSigningFromLink ? (
+                /* Homeowner signed via email link — show email confirmation */
+                <>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 16 }}>
+                    <span style={{ fontSize: 36, flexShrink: 0 }}>📧</span>
+                    <div>
+                      <div style={{ fontSize: 19, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 6, letterSpacing: "0.02em" }}>
+                        Check Your Email!
+                      </div>
+                      <div style={{ fontSize: 15, color: "#374151", fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.65 }}>
+                        We just sent everything to <strong>{data.signerEmail}</strong> — your signed documents
+                        {inspectionOnly ? " are attached for your records." : " plus a Welcome Package PDF with our contact info and your next steps."}
+                      </div>
+                    </div>
                   </div>
                   <div style={{
-                    fontSize: 15,
-                    color: "#374151",
-                    fontFamily: "'Nunito', sans-serif",
-                    fontWeight: 600,
-                    lineHeight: 1.65,
+                    background: inspectionOnly ? "#eff6ff" : "#f0fdf4",
+                    borderRadius: 14, padding: "12px 16px", fontSize: 13,
+                    color: inspectionOnly ? "#1e40af" : "#166534",
+                    fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.6,
                   }}>
-                    We just sent everything to <strong>{data.signerEmail}</strong> — your signed documents
-                    plus a <strong>Welcome Package PDF</strong> with our contact info and your next steps.
-                    Keep it saved so you always know how to reach us!
+                    📎 Attached: {selectedDocs.map(d => documentLabel(d)).join(", ")}{inspectionOnly ? "" : " + CCG Welcome Package"}
+                  </div>
+                  {!inspectionOnly ? (
+                    <div style={{ marginTop: 14, textAlign: "center" }}>
+                      <button type="button" onClick={async () => {
+                        setIsExportingPdf(true);
+                        await new Promise(r => setTimeout(r, 200));
+                        try {
+                          const el = document.getElementById("ty-summary-printable");
+                          await html2pdf().set({
+                            margin: 0, filename: "CCG-Welcome-Package.pdf",
+                            image: { type: "jpeg", quality: 0.98 },
+                            html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0 },
+                            jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
+                            pagebreak: { mode: ["css"] },
+                          }).from(el).save();
+                        } catch(err) { alert(err?.message || "Failed to download."); }
+                        finally { setIsExportingPdf(false); }
+                      }} style={{
+                        display: "inline-flex", alignItems: "center", gap: 8,
+                        padding: "10px 22px", borderRadius: 12,
+                        border: "1.5px solid #d1d5db", background: "#fff",
+                        color: "#374151", fontFamily: "'Nunito', sans-serif",
+                        fontWeight: 700, fontSize: 14, cursor: "pointer",
+                      }}>
+                        📄 Download Welcome Package Now
+                      </button>
+                      <div style={{ marginTop: 6, fontSize: 12, color: "#9ca3af", fontFamily: "'Nunito', sans-serif" }}>
+                        Can't find the email? Download it right here.
+                      </div>
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                /* Rep signed in person (sign-now) — show rep confirmation */
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 16 }}>
+                  <span style={{ fontSize: 36, flexShrink: 0 }}>✅</span>
+                  <div>
+                    <div style={{ fontSize: 19, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 8, letterSpacing: "0.02em" }}>
+                      All Done — You're Good to Go!
+                    </div>
+                    <div style={{ fontSize: 15, color: "#374151", fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.65, marginBottom: 12 }}>
+                      Everything went through successfully:
+                    </div>
+                    <ul style={{ margin: 0, padding: "0 0 0 18px", fontSize: 14, color: "#374151", fontFamily: "'Nunito', sans-serif", lineHeight: 2 }}>
+                      <li>✉️ Signed PDF emailed to <strong>{data.signerEmail}</strong></li>
+                      {inspectionOnly
+                        ? <li>📋 Copy sent to sales rep for JN upload</li>
+                        : <li>📋 PA notified with signed documents</li>}
+                      {!inspectionOnly ? <li>🎁 Welcome Package emailed to homeowner</li> : null}
+                      <li>💾 Record saved to the system</li>
+                    </ul>
+                    <div style={{ marginTop: 14, background: inspectionOnly ? "#eff6ff" : "#f0fdf4", borderRadius: 12, padding: "10px 14px", fontSize: 13, color: inspectionOnly ? "#1e40af" : "#166534", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
+                      {inspectionOnly ? "🏠 You're all set — start a new form when ready." : "🎉 You're all set — start a new intake when ready."}
+                    </div>
                   </div>
                 </div>
-              </div>
-
-              <div style={{
-                background: selectedDocs.includes("insp") && !selectedDocs.includes("lor") && !selectedDocs.includes("pac") ? "#eff6ff" : "#f0fdf4",
-                borderRadius: 14,
-                padding: "12px 16px",
-                fontSize: 13,
-                color: selectedDocs.includes("insp") && !selectedDocs.includes("lor") && !selectedDocs.includes("pac") ? "#1e40af" : "#166534",
-                fontFamily: "'Nunito', sans-serif",
-                fontWeight: 600,
-                lineHeight: 1.6,
-              }}>
-                📎 Attached: {selectedDocs.map(d => documentLabel(d)).join(", ")} + CCG Welcome Package
-              </div>
-
-              <div style={{ marginTop: 14, textAlign: "center" }}>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    setIsExportingPdf(true);
-                    await new Promise(r => setTimeout(r, 200));
-                    try {
-                      const el = document.getElementById("ty-summary-printable");
-                      await html2pdf().set({
-                        margin: 0,
-                        filename: "CCG-Welcome-Package.pdf",
-                        image: { type: "jpeg", quality: 0.98 },
-                        html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0 },
-                        jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
-                        pagebreak: { mode: ["css"] },
-                      }).from(el).save();
-                    } catch(err) {
-                      alert(err?.message || "Failed to download.");
-                    } finally {
-                      setIsExportingPdf(false);
-                    }
-                  }}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 8,
-                    padding: "10px 22px",
-                    borderRadius: 12,
-                    border: "1.5px solid #d1d5db",
-                    background: "#fff",
-                    color: "#374151",
-                    fontFamily: "'Nunito', sans-serif",
-                    fontWeight: 700,
-                    fontSize: 14,
-                    cursor: "pointer",
-                  }}
-                >
-                  📄 Download Welcome Package Now
-                </button>
-                <div style={{
-                  marginTop: 6,
-                  fontSize: 12,
-                  color: "#9ca3af",
-                  fontFamily: "'Nunito', sans-serif",
-                }}>
-                  Can't find the email? Download it right here.
-                </div>
-              </div>
+              )}
             </div>
 
             {/* CCG logo */}
