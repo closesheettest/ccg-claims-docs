@@ -2163,41 +2163,37 @@ export default function App() {
   const [managerTYTab, setManagerTYTab] = useState("post_inspection");
   const [reportData, setReportData] = useState(null);
   const [reportLoading, setReportLoading] = useState(false);
-  const [reportWeekOffset, setReportWeekOffset] = useState(0); // 0 = this week, -1 = last week, etc.
+  const today = new Date().toISOString().split("T")[0];
+  const weekAgo = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+  const [reportStartDate, setReportStartDate] = useState(weekAgo);
+  const [reportEndDate, setReportEndDate] = useState(today);
 
-  const fetchWeeklyReport = async (weekOffset = 0) => {
+  const fetchReport = async (startDate, endDate) => {
     setReportLoading(true);
     setReportData(null);
     try {
-      const now = new Date();
-      const dayOfWeek = now.getDay();
-      const startOfWeek = new Date(now);
-      startOfWeek.setDate(now.getDate() - dayOfWeek + (weekOffset * 7));
-      startOfWeek.setHours(0, 0, 0, 0);
-      const endOfWeek = new Date(startOfWeek);
-      endOfWeek.setDate(startOfWeek.getDate() + 6);
-      endOfWeek.setHours(23, 59, 59, 999);
+      const start = new Date(startDate + "T00:00:00");
+      const end = new Date(endDate + "T23:59:59");
 
       const [claimsRes, inspRes] = await Promise.allSettled([
         supabase.from("claims")
           .select("id, homeowner1, homeowner2, address, city, state, signed_at, sign_method, representative_name, sales_rep_name, sales_rep_email")
-          .gte("signed_at", startOfWeek.toISOString())
-          .lte("signed_at", endOfWeek.toISOString())
+          .gte("signed_at", start.toISOString())
+          .lte("signed_at", end.toISOString())
           .order("signed_at", { ascending: false }),
         supabase.from("inspections")
           .select("id, client_name, address, city, state, signed_at, sales_rep_name, sales_rep_email")
-          .gte("signed_at", startOfWeek.toISOString())
-          .lte("signed_at", endOfWeek.toISOString())
+          .gte("signed_at", start.toISOString())
+          .lte("signed_at", end.toISOString())
           .order("signed_at", { ascending: false }),
       ]);
 
       const claims = claimsRes.status === "fulfilled" ? (claimsRes.value.data || []) : [];
       const inspections = inspRes.status === "fulfilled" ? (inspRes.value.data || []) : [];
 
-      console.log("Claims fetched:", claims.length, claimsRes.status === "fulfilled" ? claimsRes.value.error : "rejected");
-      console.log("Inspections fetched:", inspections.length, inspRes.status === "fulfilled" ? inspRes.value.error : "rejected");
+      console.log("Claims:", claims.length, claimsRes.value?.error);
+      console.log("Inspections:", inspections.length, inspRes.value?.error);
 
-      // Normalize into unified signings with rep info
       const allSignings = [
         ...claims.map(c => ({
           type: "pa",
@@ -2217,23 +2213,19 @@ export default function App() {
         })),
       ];
 
-      // Group by rep
       const byRep = {};
       allSignings.forEach(s => {
         const key = s.rep || "Unassigned";
         if (!byRep[key]) byRep[key] = [];
         byRep[key].push(s);
       });
-
-      // Sort each rep's signings by date desc
       Object.values(byRep).forEach(arr => arr.sort((a, b) => new Date(b.signedAt) - new Date(a.signedAt)));
 
       setReportData({
         byRep,
         totalClaims: claims.length,
         totalInspections: inspections.length,
-        weekStart: startOfWeek,
-        weekEnd: endOfWeek,
+        startDate, endDate,
       });
     } catch (e) {
       console.error("Report fetch error:", e);
@@ -2710,6 +2702,7 @@ export default function App() {
           date: inspData.date,
           sales_rep_name: data.salesRepName || "",
           sales_rep_id: data.salesRepId || "",
+          sales_rep_email: data.salesRepEmail || "",
           lead_source: data.leadSource || "NEED",
           signed_at: new Date().toISOString(),
         }]);
@@ -3041,7 +3034,7 @@ export default function App() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          to: [data.signerEmail].filter(Boolean),
+          to: [data.signerEmail || inspData.email].filter(Boolean),
           subject: isInspOnlyFlow
             ? "Your Free Roof Inspection Agreement — U.S. Shingle & Metal"
             : "Your Signed Documents — Capital Claims Group",
@@ -5765,22 +5758,46 @@ export default function App() {
                   <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Weekly Report</SectionTitle>
 
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+                    <div style={{ display: "grid", gap: 12, marginBottom: 16 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                        <div>
+                          <Label>From</Label>
+                          <input type="date" value={reportStartDate} onChange={e => setReportStartDate(e.target.value)}
+                            style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                        </div>
+                        <div>
+                          <Label>To</Label>
+                          <input type="date" value={reportEndDate} onChange={e => setReportEndDate(e.target.value)}
+                            style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        {[["This Week", 6], ["Last 30 Days", 29], ["This Month", null]].map(([label, days]) => (
+                          <button key={label} type="button" onClick={() => {
+                            const end = new Date().toISOString().split("T")[0];
+                            let start;
+                            if (days !== null) {
+                              start = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+                            } else {
+                              const now = new Date();
+                              start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
+                            }
+                            setReportStartDate(start);
+                            setReportEndDate(end);
+                          }} style={{
+                            flex: 1, padding: "6px 4px", borderRadius: 10, border: "1px solid #d1d5db",
+                            background: "#fff", cursor: "pointer", fontSize: 12,
+                            fontFamily: "'Nunito', sans-serif", fontWeight: 700, color: "#374151",
+                          }}>
+                            {label}
+                          </button>
+                        ))}
+                      </div>
                       <button type="button"
-                        onClick={() => { const o = reportWeekOffset - 1; setReportWeekOffset(o); fetchWeeklyReport(o); }}
-                        style={{ padding: "8px 14px", borderRadius: 10, border: "1px solid #d1d5db", background: "#fff", cursor: "pointer", fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 14 }}>
-                        ← Prev
-                      </button>
-                      <button type="button"
-                        onClick={() => { fetchWeeklyReport(reportWeekOffset); }}
-                        style={{ flex: 1, padding: "10px 16px", borderRadius: 12, border: "none", background: "#199c2e", color: "#fff", cursor: "pointer", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                        onClick={() => fetchReport(reportStartDate, reportEndDate)}
+                        disabled={reportLoading}
+                        style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "none", background: "#199c2e", color: "#fff", cursor: "pointer", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", opacity: reportLoading ? 0.7 : 1 }}>
                         {reportLoading ? "Loading..." : "📊 Generate Report"}
-                      </button>
-                      <button type="button"
-                        onClick={() => { const o = Math.min(0, reportWeekOffset + 1); setReportWeekOffset(o); fetchWeeklyReport(o); }}
-                        disabled={reportWeekOffset >= 0}
-                        style={{ padding: "8px 14px", borderRadius: 10, border: "1px solid #d1d5db", background: "#fff", cursor: reportWeekOffset >= 0 ? "not-allowed" : "pointer", opacity: reportWeekOffset >= 0 ? 0.4 : 1, fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 14 }}>
-                        Next →
                       </button>
                     </div>
 
@@ -5789,7 +5806,7 @@ export default function App() {
                         {/* Week header */}
                         <div style={{ background: "#199c2e", borderRadius: 12, padding: "12px 16px", marginBottom: 16, color: "#fff", textAlign: "center" }}>
                           <div style={{ fontSize: 13, fontFamily: "'Nunito', sans-serif", fontWeight: 700, opacity: 0.9 }}>
-                            Week of {reportData.weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – {reportData.weekEnd.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                            {reportData.startDate} → {reportData.endDate}
                           </div>
                           <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", marginTop: 4 }}>
                             {reportData.totalClaims + reportData.totalInspections} Total Signings
