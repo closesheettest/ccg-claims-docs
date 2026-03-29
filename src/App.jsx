@@ -77,6 +77,7 @@ const initialData = {
   lossLocationSameAsAddress: true,
   signerEmail: "",
   paEmail: "claims@iambenitopaul.com",
+  salesRepEmail: "",
   representativeName: "",
   leadSource: "NEED",  // "NEED" | "INS"
   salesRepId: "",
@@ -2329,6 +2330,7 @@ export default function App() {
           situation: claim.situation || "",
           signerEmail: claim.homeowner_email || "",
           paEmail: claim.pa_email || prev.paEmail,
+          salesRepEmail: claim.sales_rep_email || prev.salesRepEmail,
           initials1: claim.initials1 || "",
           initials2: claim.initials2 || "",
           claimType: prev.claimType,
@@ -2567,6 +2569,7 @@ export default function App() {
       situation: data.situation,
       homeowner_email: data.signerEmail,
       pa_email: data.paEmail,
+      sales_rep_email: data.salesRepEmail,
       signature1: effectiveSig1,
       signature2: effectiveSig2,
       initials1: effectiveInitials1,
@@ -2668,8 +2671,8 @@ export default function App() {
       }
 
       // Email signed PDF to sales rep for manual JN upload
-      if (data.salesRepId || data.paEmail) {
-        const repEmail = data.paEmail || "";
+      if (data.salesRepEmail) {
+        const repEmail = data.salesRepEmail;
         if (repEmail) {
           await fetch("/.netlify/functions/send-email", {
             method: "POST",
@@ -3803,6 +3806,26 @@ export default function App() {
                           ⚠️ No reps loaded — check JN API connection
                         </div>
                       ) : null}
+                    </div>
+
+                    {/* Sales Rep Email — separate from PA email */}
+                    <div>
+                      <Label>Sales Rep Email</Label>
+                      <input
+                        type="email"
+                        value={data.salesRepEmail}
+                        onChange={e => update("salesRepEmail", e.target.value)}
+                        placeholder="rep@email.com"
+                        style={{
+                          width: "100%", height: 44, borderRadius: 14,
+                          border: "1px solid #d1d5db", padding: "0 12px",
+                          fontSize: 14, boxSizing: "border-box",
+                          fontFamily: "'Nunito', sans-serif",
+                        }}
+                      />
+                      <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4, fontFamily: "'Nunito', sans-serif" }}>
+                        Signed PDF will be emailed here for JN upload
+                      </div>
                     </div>
                   </div>
                 </Card>
