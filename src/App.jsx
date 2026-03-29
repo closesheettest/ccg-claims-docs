@@ -2247,6 +2247,50 @@ export default function App() {
     if (!error) { setReps(data || []); setRepsLoaded(true); }
   };
 
+  const seedRepsFromList = async () => {
+    const knownReps = [
+      { name: 'Anthony "Brent" Parker', jobnimbus_id: "54ef6f4d65ec46f083d2d8abf678c2fc" },
+      { name: "Brandon Latronica",      jobnimbus_id: "22c5d7fc66a54ce98e6a84baf7d242f4" },
+      { name: "Bruce Holbert",          jobnimbus_id: "2f48ee33e65f49bb93018f55dd2992e3" },
+      { name: "Bruce Lowther",          jobnimbus_id: "e5a7561db36e43e0aa4c7f254b291165" },
+      { name: "Byron Ulrich",           jobnimbus_id: "mjbyrlmh4k077ynqcnt97a6" },
+      { name: "Chris Baughan",          jobnimbus_id: "95bf148916f141acad5d9df5e7aba0d0" },
+      { name: "Chris Gourdine",         jobnimbus_id: "mbtud30ydxwyiwsljut9ue6" },
+      { name: "Chris Hill",             jobnimbus_id: "31e0d80686714125ab0e08eefd13f8a7" },
+      { name: "Christopher Rath",       jobnimbus_id: "mjaf8gndd3am0tpi2jrgbt1" },
+      { name: "Corrie Dennie",          jobnimbus_id: "mbjvh9ev82npk3wh91tkm5k" },
+      { name: "Corynn Colbert",         jobnimbus_id: "mjheo3un8v3xbk0etrk101x" },
+      { name: "David Kirkbribe",        jobnimbus_id: "mjiuedq3au9cjffclui1g30" },
+      { name: "Eric Kofler",            jobnimbus_id: "mjiufcezufnrdze6h414e3m" },
+      { name: "Heath Larner",           jobnimbus_id: "715ff737aa334af29eefd5014c9bc519" },
+      { name: "Jason Hunt",             jobnimbus_id: "cbf9e3ab0f564d269bce24efdc48e7d6" },
+      { name: "Jermie James",           jobnimbus_id: "mjiuednf61am6t4td796xef" },
+      { name: "Jerry Rooney",           jobnimbus_id: "mjomom1c1v3jod1z97il1z6" },
+      { name: "John King",              jobnimbus_id: "496e19b644c0459cab64144378357f16" },
+      { name: "Jose Huerta",            jobnimbus_id: "e66f617fb6cb4e829ca87592b454a44d" },
+      { name: "Joseph LeBlanc",         jobnimbus_id: "1fde2aa1681d49be8ea15d7f498c2535" },
+      { name: "Justin Jones",           jobnimbus_id: "mjbyrnzv1sn3fu3chh26m98" },
+      { name: "Michael Brown",          jobnimbus_id: "40f8a3d05be14548906510da185a55d5" },
+      { name: "William Hernandez",      jobnimbus_id: "m9k7jgp9j6t5ncdvy8w5it6" },
+      { name: "Yulia Karnitskaya",      jobnimbus_id: "21a6d8b32e4442ffb50b9d911266c89f" },
+    ];
+    setRepSaving(true);
+    let added = 0, updated = 0;
+    for (const rep of knownReps) {
+      const existing = reps.find(r => r.name.toLowerCase() === rep.name.toLowerCase());
+      if (!existing) {
+        await supabase.from("sales_reps").insert([rep]);
+        added++;
+      } else if (!existing.jobnimbus_id) {
+        await supabase.from("sales_reps").update({ jobnimbus_id: rep.jobnimbus_id }).eq("id", existing.id);
+        updated++;
+      }
+    }
+    await loadReps();
+    setRepSaving(false);
+    alert(`✅ Done — ${added} added, ${updated} updated.`);
+  };
+
   const saveRep = async () => {
     if (!newRepName.trim()) return;
     setRepSaving(true);
@@ -5799,33 +5843,37 @@ export default function App() {
                     {/* JN Import */}
                     <div style={{ background: "#eef1f8", border: "1px solid #bfdbfe", borderRadius: 14, padding: "14px 18px", marginBottom: 16 }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: "#1a2e5a", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.04em", marginBottom: 8, textTransform: "uppercase" }}>
-                        🔗 Import / Sync from Job Nimbus
+                        🔗 Import / Sync Reps
                       </div>
-                      <div style={{ fontSize: 12, color: "#374151", fontFamily: "'Nunito', sans-serif", marginBottom: 10 }}>
-                        When the JN API is connected, load users to auto-fill IDs and emails by name.
-                      </div>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <button type="button" onClick={fetchJnUsers} disabled={jnImporting}
-                          style={{ flex: 1, minWidth: 120, padding: "9px 12px", borderRadius: 10, border: "none", background: "#1a2e5a", color: "#fff", fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: jnImporting ? 0.6 : 1 }}>
-                          {jnImporting ? "Loading..." : "📥 Load JN Users"}
+                      <div style={{ display: "grid", gap: 8 }}>
+                        {/* Import known reps from hardcoded list */}
+                        <button type="button" onClick={seedRepsFromList} disabled={repSaving}
+                          style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "none", background: "#1a2e5a", color: "#fff", fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: repSaving ? 0.6 : 1 }}>
+                          {repSaving ? "Importing..." : "📋 Import All 24 Known Reps"}
                         </button>
-                        {jnUsers.length > 0 ? (
-                          <button type="button" onClick={importAllFromJn}
-                            style={{ flex: 1, minWidth: 120, padding: "9px 12px", borderRadius: 10, border: "none", background: "#199c2e", color: "#fff", fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
-                            ✅ Import All ({jnUsers.length} users)
-                          </button>
-                        ) : null}
+                        <div style={{ fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>
+                          Adds all reps from the provided list with their JN IDs. Safe to run multiple times — won't duplicate.
+                        </div>
+                        {/* JN API live import — for when API is fixed */}
+                        <div style={{ borderTop: "1px solid #bfdbfe", paddingTop: 8, marginTop: 4 }}>
+                          <div style={{ fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 6 }}>
+                            When JN API is connected — pull live to update emails:
+                          </div>
+                          <div style={{ display: "flex", gap: 8 }}>
+                            <button type="button" onClick={fetchJnUsers} disabled={jnImporting}
+                              style={{ flex: 1, padding: "8px 10px", borderRadius: 10, border: "1px solid #bfdbfe", background: "#fff", color: "#1a2e5a", fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer", opacity: jnImporting ? 0.6 : 1 }}>
+                              {jnImporting ? "Loading..." : "📥 Load from JN API"}
+                            </button>
+                            {jnUsers.length > 0 ? (
+                              <button type="button" onClick={importAllFromJn}
+                                style={{ flex: 1, padding: "8px 10px", borderRadius: 10, border: "none", background: "#199c2e", color: "#fff", fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+                                ✅ Sync ({jnUsers.length})
+                              </button>
+                            ) : null}
+                          </div>
+                          {jnImportError ? <div style={{ marginTop: 6, fontSize: 11, color: "#ef4444", fontFamily: "'Nunito', sans-serif" }}>⚠️ {jnImportError}</div> : null}
+                        </div>
                       </div>
-                      {jnUsers.length > 0 ? (
-                        <div style={{ marginTop: 8, fontSize: 12, color: "#166534", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
-                          ✅ {jnUsers.length} JN users loaded — click "Import All" to add/update reps
-                        </div>
-                      ) : null}
-                      {jnImportError ? (
-                        <div style={{ marginTop: 8, fontSize: 12, color: "#ef4444", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
-                          ⚠️ {jnImportError}
-                        </div>
-                      ) : null}
                     </div>
 
                     {/* Add new rep form */}
