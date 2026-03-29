@@ -2888,7 +2888,7 @@ export default function App() {
         }
       }
 
-      const homeownerName = [data.homeowner1, data.homeowner2].filter(Boolean).join(" & ");
+      const homeownerName = [data.homeowner1, data.homeowner2].filter(Boolean).join(" & ") || "Homeowner";
 
       const homeownerEmailHtml = isInspOnlyFlow ? `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -2974,7 +2974,6 @@ export default function App() {
 
       // ── PA notification email — different content based on claim stage ──
       const isPostInspection = data.claimStage === "post_inspection";
-      const homeownerName = [data.homeowner1, data.homeowner2].filter(Boolean).join(" & ") || "Homeowner";
       const homeownerAddress = [data.address, data.city, data.state, data.zip].filter(Boolean).join(", ");
 
       const paSubject = isPostInspection
