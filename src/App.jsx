@@ -2966,7 +2966,19 @@ export default function App() {
       // Always attach the welcome package PDF — only for PA flows, not inspection-only
       const isInspOnlyFlow = selectedDocs.includes("insp") && !selectedDocs.includes("lor") && !selectedDocs.includes("pac");
 
-      if (!isInspOnlyFlow) {
+      if (isInspOnlyFlow) {
+        // Attach USS welcome PDF for inspection-only homeowners
+        try {
+          const ussWelcomeBlob = await generatePDF("#uss-welcome-printable", "USS-Welcome-Package.pdf");
+          const ussWelcomeBase64 = await blobToBase64(ussWelcomeBlob);
+          attachments.push({
+            filename: "USS-Welcome-Package.pdf",
+            content: String(ussWelcomeBase64).split(",")[1],
+          });
+        } catch (e) {
+          console.warn("USS welcome PDF failed, skipping:", e);
+        }
+      } else {
         try {
           const welcomeBlob = await generatePDF(
             "#ty-summary-printable",
@@ -4893,7 +4905,7 @@ export default function App() {
                     </div>
                   </div>
                   <div style={{ background: inspectionOnly ? "#eff6ff" : "#f0fdf4", borderRadius: 14, padding: "12px 16px", fontSize: 13, color: inspectionOnly ? "#1e40af" : "#166534", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
-                    📎 Attached: {selectedDocs.map(d => documentLabel(d)).join(", ")}{inspectionOnly ? "" : " + CCG Welcome Package"}
+                    📎 Attached: {selectedDocs.map(d => documentLabel(d)).join(", ")}{inspectionOnly ? " + USS Welcome Package" : " + CCG Welcome Package"}
                   </div>
                   {!inspectionOnly ? (
                     <div style={{ marginTop: 14, textAlign: "center" }}>
@@ -6085,6 +6097,57 @@ export default function App() {
           </div>
         </div>
       ) : null}
+
+      {/* ── Always-rendered hidden USS Welcome PDF ── */}
+      <div style={{ position: "absolute", left: "-20000px", top: 0, width: 0, height: 0, overflow: "hidden", pointerEvents: "none" }}>
+        <div id="uss-welcome-printable" style={{ width: "8.5in", fontFamily: "Arial, Helvetica, sans-serif", background: "#fff" }}>
+          <div style={{ width: "8.5in", boxSizing: "border-box", padding: "0.7in 0.75in", minHeight: "11in" }}>
+            <div style={{ display: "flex", height: 8, marginBottom: 24 }}>
+              <div style={{ flex: 1, background: "#c8392b" }} />
+              <div style={{ flex: 1, background: "#e5e7eb" }} />
+              <div style={{ flex: 1, background: "#1a2e5a" }} />
+            </div>
+            <div style={{ textAlign: "center", marginBottom: 28 }}>
+              <div style={{ fontSize: 26, fontWeight: 700, color: "#1a2e5a", fontFamily: "Arial, Helvetica, sans-serif", letterSpacing: 1 }}>U.S. Shingle & Metal LLC</div>
+              <div style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>3845 Gateway Centre Blvd Suite 300 • Pinellas Park, FL 33782</div>
+              <div style={{ fontSize: 13, color: "#6b7280" }}>Phone: 727.761.5200 • Email: info@shingleusa.com • License: CCC1331960</div>
+            </div>
+            <div style={{ borderBottom: "2px solid #1a2e5a", marginBottom: 28 }} />
+            <div style={{ fontSize: 22, fontWeight: 700, color: "#1a2e5a", marginBottom: 14 }}>Welcome, {[data.homeowner1, data.homeowner2].filter(Boolean).join(" & ") || inspData.clientName}!</div>
+            <p style={{ fontSize: 14, color: "#374151", lineHeight: 1.75, marginBottom: 20 }}>
+              Thank you for choosing U.S. Shingle & Metal LLC for your free roof inspection. We are a licensed and fully insured roofing contractor dedicated to helping homeowners navigate storm damage with honesty and professionalism.
+            </p>
+            <div style={{ background: "#eef1f8", borderRadius: 10, padding: "18px 22px", marginBottom: 22 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#1a2e5a", marginBottom: 12 }}>What Happens Next</div>
+              {["Your sales representative will contact you within 24 hours to coordinate the inspection.",
+                "One of our trained inspectors will visit your property and thoroughly document any storm damage.",
+                "All findings and photos are forwarded to a licensed Public Adjuster for professional review.",
+                "If storm damage is confirmed, you will be contacted about your options for filing an insurance claim.",
+                "If no damage is found — no problem! The inspection is completely free with no obligation."
+              ].map((step, i) => (
+                <div key={i} style={{ display: "flex", gap: 12, marginBottom: 10, alignItems: "flex-start" }}>
+                  <div style={{ width: 24, height: 24, borderRadius: "50%", background: "#1a2e5a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0, marginTop: 1 }}>{i + 1}</div>
+                  <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.6 }}>{step}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ background: "#1a2e5a", borderRadius: 10, padding: "18px 22px", color: "#fff", marginBottom: 22 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>Contact Us Anytime</div>
+              <div style={{ fontSize: 13, lineHeight: 2 }}>
+                📞 Phone: 727.761.5200<br/>
+                📧 Email: info@shingleusa.com<br/>
+                📍 3845 Gateway Centre Blvd Suite 300, Pinellas Park, FL 33782<br/>
+                🪪 License: CCC1331960
+              </div>
+            </div>
+            <div style={{ display: "flex", height: 8, marginTop: 32 }}>
+              <div style={{ flex: 1, background: "#c8392b" }} />
+              <div style={{ flex: 1, background: "#e5e7eb" }} />
+              <div style={{ flex: 1, background: "#1a2e5a" }} />
+            </div>
+          </div>
+        </div>
+      </div>
 
       <style>{`
         @keyframes ccg-spin {
