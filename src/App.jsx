@@ -3048,7 +3048,7 @@ export default function App() {
         </div>
       `;
 
-      if (data.paEmail) {
+      if (data.paEmail && !isInspOnlyFlow) {
         const paEmailResponse = await fetch("/.netlify/functions/send-email", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -3060,6 +3060,49 @@ export default function App() {
           }),
         });
         await parseJsonResponse(paEmailResponse, "PA notification email failed.");
+      }
+
+      // For inspection-only — email the rep with JN upload instructions
+      if (isInspOnlyFlow && data.salesRepEmail) {
+        await fetch("/.netlify/functions/send-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            to: [data.salesRepEmail],
+            subject: `📋 New Inspection Agreement — ${homeownerName} (Upload to JN)`,
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <div style="background: #1a2e5a; padding: 0; border-radius: 12px 12px 0 0; overflow: hidden;">
+                  <div style="display: flex; height: 6px;"><div style="flex:1;background:#c8392b"></div><div style="flex:1;background:#fff"></div><div style="flex:1;background:#1a2e5a"></div></div>
+                  <div style="padding: 20px 28px;">
+                    <h1 style="color: #fff; margin: 0; font-size: 20px;">📋 New Signed Inspection Agreement</h1>
+                  </div>
+                </div>
+                <div style="background: #f9fafb; padding: 24px 28px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb; border-top: none;">
+                  <p style="font-size: 15px; color: #374151; margin-top: 0;">A Free Roof Inspection Agreement has been signed. Please upload to Job Nimbus:</p>
+                  <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 14px 18px; margin: 16px 0;">
+                    <p style="margin: 0; font-weight: 700; color: #92400e;">⚠️ Action Required: Upload to Job Nimbus</p>
+                    <ul style="margin: 8px 0 0; color: #92400e; font-size: 14px; line-height: 1.8; padding-left: 20px;">
+                      <li>Create or find contact by address</li>
+                      <li>Create Job → Status: <strong>Sit Sold Insp</strong></li>
+                      <li>Location: <strong>U.S. Shingle - Insurance</strong></li>
+                      <li>Inspection: <strong>Needs Inspection</strong></li>
+                      <li>Attach the signed PDF to Documents</li>
+                    </ul>
+                  </div>
+                  <table style="font-size: 14px; color: #374151; width: 100%; border-collapse: collapse;">
+                    <tr><td style="padding: 4px 0; font-weight: 600; width: 120px;">Client:</td><td>${homeownerName}</td></tr>
+                    <tr><td style="padding: 4px 0; font-weight: 600;">Address:</td><td>${homeownerAddress}</td></tr>
+                    <tr><td style="padding: 4px 0; font-weight: 600;">Phone:</td><td>${data.phone || "—"}</td></tr>
+                    <tr><td style="padding: 4px 0; font-weight: 600;">Email:</td><td>${data.signerEmail || "—"}</td></tr>
+                    <tr><td style="padding: 4px 0; font-weight: 600;">Lead Source:</td><td>${data.leadSource || "NEED"}</td></tr>
+                  </table>
+                </div>
+              </div>
+            `,
+            attachments,
+          }),
+        }).catch(e => console.warn("Rep email non-fatal:", e));
       }
 
       setIsSubmitting(false);
@@ -3100,6 +3143,7 @@ export default function App() {
       }
 
       window.scrollTo({ top: 0, behavior: "smooth" });
+      setInspectionOnly(isInspOnlyFlow);
       if (isSigningFromLink) {
         window.history.replaceState({}, "", window.location.pathname);
       }
