@@ -2245,6 +2245,7 @@ export default function App() {
   const loadReps = async () => {
     const { data, error } = await supabase.from("sales_reps").select("*").order("name");
     if (!error) { setReps(data || []); setRepsLoaded(true); }
+    else console.error("loadReps error:", error);
   };
 
   const seedRepsFromList = async () => {
@@ -2310,6 +2311,13 @@ export default function App() {
     await supabase.from("sales_reps").delete().eq("id", id);
     await loadReps();
   };
+
+  const toggleRepActive = async (id, currentActive) => {
+    await supabase.from("sales_reps").update({ active: !currentActive }).eq("id", id);
+    await loadReps();
+  };
+
+  const [showInactiveReps, setShowInactiveReps] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
   const today = new Date().toISOString().split("T")[0];
   const weekAgo = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
@@ -4133,7 +4141,7 @@ export default function App() {
                         style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", background: "#fff", fontFamily: "'Nunito', sans-serif" }}
                       >
                         <option value="">— Select Rep —</option>
-                        {reps.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
+                        {reps.filter(r => r.active !== false).map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
                       </select>
                       {reps.length === 0 ? (
                         <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 4, fontFamily: "'Nunito', sans-serif" }}>
@@ -5912,35 +5920,71 @@ export default function App() {
 
                     {/* Rep list */}
                     {reps.length > 0 ? (
-                      <div style={{ display: "grid", gap: 8 }}>
-                        {reps.map(rep => (
-                          <div key={rep.id} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "12px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                            <div>
-                              <div style={{ fontWeight: 700, fontSize: 14, fontFamily: "'Nunito', sans-serif", color: "#111827" }}>{rep.name}</div>
-                              <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>
-                                {rep.email ? `📧 ${rep.email}` : ""}
-                                {rep.email && rep.jobnimbus_id ? " · " : ""}
-                                {rep.jobnimbus_id ? `🔑 JN: ${rep.jobnimbus_id.slice(0, 12)}...` : "⚠️ No JN ID yet"}
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", fontFamily: "'Nunito', sans-serif" }}>
+                            {reps.filter(r => r.active !== false).length} active · {reps.filter(r => r.active === false).length} inactive
+                          </div>
+                          <button type="button" onClick={() => setShowInactiveReps(v => !v)}
+                            style={{ fontSize: 12, color: "#6b7280", background: "none", border: "none", cursor: "pointer", fontFamily: "'Nunito', sans-serif", fontWeight: 600, textDecoration: "underline" }}>
+                            {showInactiveReps ? "Hide inactive" : "Show inactive"}
+                          </button>
+                        </div>
+                        <div style={{ display: "grid", gap: 8 }}>
+                          {reps
+                            .filter(r => showInactiveReps ? true : r.active !== false)
+                            .map(rep => (
+                            <div key={rep.id} style={{
+                              background: rep.active === false ? "#f9fafb" : "#fff",
+                              border: `1px solid ${rep.active === false ? "#e5e7eb" : "#e5e7eb"}`,
+                              borderRadius: 12, padding: "12px 14px",
+                              display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+                              opacity: rep.active === false ? 0.6 : 1,
+                            }}>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  <div style={{ fontWeight: 700, fontSize: 14, fontFamily: "'Nunito', sans-serif", color: "#111827" }}>{rep.name}</div>
+                                  {rep.active === false ? (
+                                    <span style={{ fontSize: 10, background: "#fee2e2", color: "#991b1b", borderRadius: 6, padding: "2px 6px", fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}>INACTIVE</span>
+                                  ) : null}
+                                </div>
+                                <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>
+                                  {rep.email ? `📧 ${rep.email}` : ""}
+                                  {rep.email && rep.jobnimbus_id ? " · " : ""}
+                                  {rep.jobnimbus_id ? `🔑 JN: ${rep.jobnimbus_id.slice(0, 10)}...` : <span style={{ color: "#f59e0b" }}>⚠️ No JN ID</span>}
+                                </div>
+                              </div>
+                              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                                {jnUsers.length > 0 && !rep.jobnimbus_id ? (
+                                  <button type="button" onClick={() => syncRepFromJn(rep.id, rep.name)}
+                                    style={{ background: "#eef1f8", border: "1px solid #bfdbfe", color: "#1a2e5a", borderRadius: 8, padding: "4px 10px", fontSize: 12, fontFamily: "'Nunito', sans-serif", fontWeight: 700, cursor: "pointer" }}>
+                                    🔗 Link
+                                  </button>
+                                ) : null}
+                                <button type="button"
+                                  onClick={() => toggleRepActive(rep.id, rep.active !== false)}
+                                  title={rep.active === false ? "Reactivate rep" : "Deactivate rep"}
+                                  style={{
+                                    background: rep.active === false ? "#f0fdf4" : "#fffbeb",
+                                    border: `1px solid ${rep.active === false ? "#bbf7d0" : "#fde68a"}`,
+                                    color: rep.active === false ? "#166534" : "#92400e",
+                                    borderRadius: 8, padding: "4px 10px", fontSize: 12,
+                                    fontFamily: "'Nunito', sans-serif", fontWeight: 700, cursor: "pointer"
+                                  }}>
+                                  {rep.active === false ? "✓ Reactivate" : "⏸ Deactivate"}
+                                </button>
+                                <button type="button" onClick={() => { if (window.confirm(`Permanently delete ${rep.name}? This cannot be undone.`)) deleteRep(rep.id); }}
+                                  style={{ background: "#fff1f2", border: "1px solid #fecdd3", color: "#e11d48", borderRadius: 8, padding: "4px 10px", fontSize: 12, fontFamily: "'Nunito', sans-serif", fontWeight: 700, cursor: "pointer" }}>
+                                  🗑
+                                </button>
                               </div>
                             </div>
-                            <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                              {jnUsers.length > 0 && !rep.jobnimbus_id ? (
-                                <button type="button" onClick={() => syncRepFromJn(rep.id, rep.name)}
-                                  style={{ background: "#eef1f8", border: "1px solid #bfdbfe", color: "#1a2e5a", borderRadius: 8, padding: "4px 10px", fontSize: 12, fontFamily: "'Nunito', sans-serif", fontWeight: 700, cursor: "pointer" }}>
-                                  🔗 Link JN
-                                </button>
-                              ) : null}
-                              <button type="button" onClick={() => { if (window.confirm(`Remove ${rep.name}?`)) deleteRep(rep.id); }}
-                                style={{ background: "transparent", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 18, padding: "4px 8px" }}>
-                                ✕
-                              </button>
-                            </div>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
                       </div>
                     ) : (
                       <div style={{ textAlign: "center", padding: "20px 0", color: "#9ca3af", fontFamily: "'Nunito', sans-serif", fontSize: 14 }}>
-                        No reps added yet. Add your first rep above.
+                        No reps added yet. Click "Import All 24 Known Reps" above.
                       </div>
                     )}
                   </Card>
