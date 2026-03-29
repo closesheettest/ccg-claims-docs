@@ -2172,27 +2172,28 @@ export default function App() {
     setReportLoading(true);
     setReportData(null);
     try {
-      const start = new Date(startDate + "T00:00:00");
-      const end = new Date(endDate + "T23:59:59");
+      const start = startDate + "T00:00:00.000Z";
+      const end = endDate + "T23:59:59.999Z";
 
       const [claimsRes, inspRes] = await Promise.allSettled([
         supabase.from("claims")
           .select("id, homeowner1, homeowner2, address, city, state, signed_at, sign_method, representative_name, sales_rep_name, sales_rep_email")
-          .gte("signed_at", start.toISOString())
-          .lte("signed_at", end.toISOString())
+          .gte("signed_at", start)
+          .lte("signed_at", end)
           .order("signed_at", { ascending: false }),
         supabase.from("inspections")
           .select("id, client_name, address, city, state, signed_at, sales_rep_name, sales_rep_email")
-          .gte("signed_at", start.toISOString())
-          .lte("signed_at", end.toISOString())
+          .gte("signed_at", start)
+          .lte("signed_at", end)
           .order("signed_at", { ascending: false }),
       ]);
 
       const claims = claimsRes.status === "fulfilled" ? (claimsRes.value.data || []) : [];
       const inspections = inspRes.status === "fulfilled" ? (inspRes.value.data || []) : [];
 
-      console.log("Claims:", claims.length, claimsRes.value?.error);
-      console.log("Inspections:", inspections.length, inspRes.value?.error);
+      console.log("Report range:", start, "to", end);
+      console.log("Claims:", claims.length, "error:", claimsRes.value?.error?.message);
+      console.log("Inspections:", inspections.length, "error:", inspRes.value?.error?.message);
 
       const allSignings = [
         ...claims.map(c => ({
@@ -4830,164 +4831,47 @@ export default function App() {
         {view === "thankyou" ? (
           <>
           <div style={{ maxWidth: 640, margin: "0 auto", padding: "32px 16px" }}>
-
-            {/* Hero celebration banner */}
-            <div style={{
-              background: inspectionOnly
-                ? "linear-gradient(135deg, #1a2e5a 0%, #0f1e3d 100%)"
-                : "linear-gradient(135deg, #199c2e 0%, #15803d 100%)",
-              borderRadius: 28,
-              padding: "40px 36px 36px",
-              textAlign: "center",
-              marginBottom: 28,
-              position: "relative",
-              overflow: "hidden",
-            }}>
-              <div style={{ position: "absolute", top: -30, right: -30, width: 140, height: 140, background: "rgba(255,255,255,0.06)", borderRadius: "50%" }} />
-              <div style={{ position: "absolute", bottom: -20, left: 20, width: 90, height: 90, background: "rgba(255,255,255,0.05)", borderRadius: "50%" }} />
-              <div style={{ fontSize: 72, marginBottom: 16, lineHeight: 1 }}>🎉</div>
-              <div style={{
-                fontSize: 36,
-                fontWeight: 700,
-                color: "#fff",
-                fontFamily: "'Oswald', sans-serif",
-                lineHeight: 1.1,
-                marginBottom: 16,
-                letterSpacing: "0.01em",
-              }}>
-                {activeTYHeadline}
-              </div>
-              <div style={{
-                fontSize: 18,
-                color: "rgba(255,255,255,0.92)",
-                fontFamily: "'Nunito', sans-serif",
-                fontWeight: 600,
-                lineHeight: 1.65,
-                maxWidth: 480,
-                margin: "0 auto",
-              }}>
-                {activeTYOpening}
-              </div>
-            </div>
-
-            {/* What happens next steps */}
-            <div style={{
-              background: "#fff",
-              borderRadius: 24,
-              border: "1px solid #e5e7eb",
-              padding: "28px 28px 24px",
-              marginBottom: 24,
-              boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
-            }}>
-              <div style={{
-                fontSize: 20,
-                fontWeight: 700,
-                color: "#111827",
-                fontFamily: "'Oswald', sans-serif",
-                letterSpacing: "0.03em",
-                marginBottom: 20,
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-              }}>
-                <span style={{ fontSize: 24 }}>📋</span> What Happens Next
-              </div>
-
-              <div style={{ display: "grid", gap: 14 }}>
-                {activeTYSteps.map((step, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      display: "flex",
-                      alignItems: "flex-start",
-                      gap: 14,
-                      padding: "14px 16px",
-                      background: inspectionOnly ? "#eef1f8" : "#f0fdf4",
-                      borderRadius: 16,
-                      border: inspectionOnly ? "1px solid #bfdbfe" : "1px solid #bbf7d0",
-                    }}
-                  >
-                    <div style={{
-                      width: 28,
-                      height: 28,
-                      borderRadius: "50%",
-                      background: inspectionOnly ? "#1a2e5a" : "#199c2e",
-                      color: "#fff",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontWeight: 700,
-                      fontSize: 13,
-                      fontFamily: "'Oswald', sans-serif",
-                      flexShrink: 0,
-                      marginTop: 1,
-                    }}>
-                      {i + 1}
-                    </div>
-                    <div style={{
-                      fontSize: 16,
-                      color: inspectionOnly ? "#1e40af" : "#166534",
-                      fontFamily: "'Nunito', sans-serif",
-                      fontWeight: 600,
-                      lineHeight: 1.55,
-                    }}>
-                      {step}
-                    </div>
+            {isSigningFromLink ? (
+              /* ── HOMEOWNER / EMAIL-LINK — full welcome page ── */
+              <>
+                <div style={{
+                  background: inspectionOnly ? "linear-gradient(135deg, #1a2e5a 0%, #0f1e3d 100%)" : "linear-gradient(135deg, #199c2e 0%, #15803d 100%)",
+                  borderRadius: 28, padding: "40px 36px 36px", textAlign: "center", marginBottom: 28, position: "relative", overflow: "hidden",
+                }}>
+                  <div style={{ position: "absolute", top: -30, right: -30, width: 140, height: 140, background: "rgba(255,255,255,0.06)", borderRadius: "50%" }} />
+                  <div style={{ position: "absolute", bottom: -20, left: 20, width: 90, height: 90, background: "rgba(255,255,255,0.05)", borderRadius: "50%" }} />
+                  <div style={{ fontSize: 72, marginBottom: 16, lineHeight: 1 }}>🎉</div>
+                  <div style={{ fontSize: 36, fontWeight: 700, color: "#fff", fontFamily: "'Oswald', sans-serif", lineHeight: 1.1, marginBottom: 16, letterSpacing: "0.01em" }}>{activeTYHeadline}</div>
+                  <div style={{ fontSize: 18, color: "rgba(255,255,255,0.92)", fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.65, maxWidth: 480, margin: "0 auto" }}>{activeTYOpening}</div>
+                </div>
+                <div style={{ background: "#fff", borderRadius: 24, border: "1px solid #e5e7eb", padding: "28px 28px 24px", marginBottom: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.03em", marginBottom: 20, display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontSize: 24 }}>📋</span> What Happens Next
                   </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Closing statement */}
-            <div style={{
-              background: "#fffbeb",
-              border: "1px solid #fde68a",
-              borderRadius: 20,
-              padding: "20px 24px",
-              textAlign: "center",
-              marginBottom: 32,
-            }}>
-              <div style={{
-                fontSize: 17,
-                color: "#92400e",
-                fontFamily: "'Nunito', sans-serif",
-                fontWeight: 700,
-                lineHeight: 1.6,
-              }}>
-                {activeTYClosing}
-              </div>
-            </div>
-
-            {/* Email + confirmation notice */}
-            <div style={{
-              background: "#fff",
-              border: `1px solid ${inspectionOnly ? "#bfdbfe" : "#e5e7eb"}`,
-              borderRadius: 20,
-              padding: "22px 26px",
-              marginBottom: 28,
-              boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
-            }}>
-              {isSigningFromLink ? (
-                /* Homeowner signed via email link — show email confirmation */
-                <>
+                  <div style={{ display: "grid", gap: 14 }}>
+                    {activeTYSteps.map((step, i) => (
+                      <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 14, padding: "14px 16px", background: inspectionOnly ? "#eef1f8" : "#f0fdf4", borderRadius: 16, border: inspectionOnly ? "1px solid #bfdbfe" : "1px solid #bbf7d0" }}>
+                        <div style={{ width: 28, height: 28, borderRadius: "50%", background: inspectionOnly ? "#1a2e5a" : "#199c2e", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13, fontFamily: "'Oswald', sans-serif", flexShrink: 0, marginTop: 1 }}>{i + 1}</div>
+                        <div style={{ fontSize: 16, color: inspectionOnly ? "#1e40af" : "#166534", fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.55 }}>{step}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 20, padding: "20px 24px", textAlign: "center", marginBottom: 24 }}>
+                  <div style={{ fontSize: 17, color: "#92400e", fontFamily: "'Nunito', sans-serif", fontWeight: 700, lineHeight: 1.6 }}>{activeTYClosing}</div>
+                </div>
+                <div style={{ background: "#fff", border: `1px solid ${inspectionOnly ? "#bfdbfe" : "#e5e7eb"}`, borderRadius: 20, padding: "22px 26px", marginBottom: 28, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
                   <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 16 }}>
                     <span style={{ fontSize: 36, flexShrink: 0 }}>📧</span>
                     <div>
-                      <div style={{ fontSize: 19, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 6, letterSpacing: "0.02em" }}>
-                        Check Your Email!
-                      </div>
+                      <div style={{ fontSize: 19, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 6, letterSpacing: "0.02em" }}>Check Your Email!</div>
                       <div style={{ fontSize: 15, color: "#374151", fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.65 }}>
-                        We just sent everything to <strong>{data.signerEmail}</strong> — your signed documents
-                        {inspectionOnly ? " are attached for your records." : " plus a Welcome Package PDF with our contact info and your next steps."}
+                        We sent everything to <strong>{data.signerEmail || inspData.email}</strong>
+                        {inspectionOnly ? " — your signed inspection agreement is attached." : " — your signed documents plus the Welcome Package PDF are attached."}
                       </div>
                     </div>
                   </div>
-                  <div style={{
-                    background: inspectionOnly ? "#eff6ff" : "#f0fdf4",
-                    borderRadius: 14, padding: "12px 16px", fontSize: 13,
-                    color: inspectionOnly ? "#1e40af" : "#166534",
-                    fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.6,
-                  }}>
+                  <div style={{ background: inspectionOnly ? "#eff6ff" : "#f0fdf4", borderRadius: 14, padding: "12px 16px", fontSize: 13, color: inspectionOnly ? "#1e40af" : "#166534", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
                     📎 Attached: {selectedDocs.map(d => documentLabel(d)).join(", ")}{inspectionOnly ? "" : " + CCG Welcome Package"}
                   </div>
                   {!inspectionOnly ? (
@@ -4995,69 +4879,72 @@ export default function App() {
                       <button type="button" onClick={async () => {
                         setIsExportingPdf(true);
                         await new Promise(r => setTimeout(r, 200));
-                        try {
-                          const el = document.getElementById("ty-summary-printable");
-                          await html2pdf().set({
-                            margin: 0, filename: "CCG-Welcome-Package.pdf",
-                            image: { type: "jpeg", quality: 0.98 },
-                            html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0 },
-                            jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
-                            pagebreak: { mode: ["css"] },
-                          }).from(el).save();
-                        } catch(err) { alert(err?.message || "Failed to download."); }
+                        try { await html2pdf().set({ margin: 0, filename: "CCG-Welcome-Package.pdf", image: { type: "jpeg", quality: 0.98 }, html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0 }, jsPDF: { unit: "in", format: "letter", orientation: "portrait" }, pagebreak: { mode: ["css"] } }).from(document.getElementById("ty-summary-printable")).save(); }
+                        catch(err) { alert(err?.message || "Failed to download."); }
                         finally { setIsExportingPdf(false); }
-                      }} style={{
-                        display: "inline-flex", alignItems: "center", gap: 8,
-                        padding: "10px 22px", borderRadius: 12,
-                        border: "1.5px solid #d1d5db", background: "#fff",
-                        color: "#374151", fontFamily: "'Nunito', sans-serif",
-                        fontWeight: 700, fontSize: 14, cursor: "pointer",
-                      }}>
+                      }} style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "10px 22px", borderRadius: 12, border: "1.5px solid #d1d5db", background: "#fff", color: "#374151", fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
                         📄 Download Welcome Package Now
                       </button>
-                      <div style={{ marginTop: 6, fontSize: 12, color: "#9ca3af", fontFamily: "'Nunito', sans-serif" }}>
-                        Can't find the email? Download it right here.
-                      </div>
+                      <div style={{ marginTop: 6, fontSize: 12, color: "#9ca3af", fontFamily: "'Nunito', sans-serif" }}>Can't find the email? Download it right here.</div>
                     </div>
                   ) : null}
-                </>
-              ) : (
-                /* Rep signed in person (sign-now) — show rep confirmation */
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 16 }}>
-                  <span style={{ fontSize: 36, flexShrink: 0 }}>✅</span>
-                  <div>
-                    <div style={{ fontSize: 19, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 8, letterSpacing: "0.02em" }}>
-                      All Done — You're Good to Go!
+                </div>
+                <div style={{ textAlign: "center" }}>
+                  <img src={inspectionOnly ? "/uss-logo.png" : "/pa-header.png"} alt={inspectionOnly ? "U.S. Shingle & Metal" : "Capital Claims Group"} style={{ maxWidth: 260, opacity: 0.85 }} onError={e => { e.target.style.display = "none"; }} />
+                </div>
+              </>
+            ) : (
+              /* ── SIGN-NOW / REP FLOW — simple confirmation only ── */
+              <>
+                <div style={{
+                  background: inspectionOnly ? "linear-gradient(135deg, #1a2e5a 0%, #0f1e3d 100%)" : "linear-gradient(135deg, #199c2e 0%, #15803d 100%)",
+                  borderRadius: 24, padding: "32px 28px", color: "#fff", textAlign: "center", marginBottom: 20,
+                }}>
+                  <div style={{ fontSize: 56, marginBottom: 10 }}>✅</div>
+                  <div style={{ fontSize: 28, fontWeight: 700, fontFamily: "'Oswald', sans-serif", marginBottom: 8 }}>
+                    {inspectionOnly ? "Inspection Agreement Signed!" : "All Signed — You're Done!"}
+                  </div>
+                  <div style={{ fontSize: 15, fontFamily: "'Nunito', sans-serif", fontWeight: 600, opacity: 0.9 }}>
+                    {inspectionOnly ? "Everything was sent successfully." : "All documents sent successfully."}
+                  </div>
+                </div>
+                <div style={{ background: "#fff", borderRadius: 20, border: `1px solid ${inspectionOnly ? "#bfdbfe" : "#bbf7d0"}`, padding: "24px 26px", marginBottom: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                  <div style={{ fontSize: 17, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827", marginBottom: 16, letterSpacing: "0.02em" }}>Here's what was sent:</div>
+                  <div style={{ display: "grid", gap: 12 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, fontFamily: "'Nunito', sans-serif", color: "#374151", fontWeight: 600 }}>
+                      <span style={{ fontSize: 20 }}>✉️</span>
+                      <span>Signed PDF emailed to <strong>{data.signerEmail || inspData.email || "homeowner"}</strong></span>
                     </div>
-                    <div style={{ fontSize: 15, color: "#374151", fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.65, marginBottom: 12 }}>
-                      Everything went through successfully:
-                    </div>
-                    <ul style={{ margin: 0, padding: "0 0 0 18px", fontSize: 14, color: "#374151", fontFamily: "'Nunito', sans-serif", lineHeight: 2 }}>
-                      <li>✉️ Signed PDF emailed to <strong>{data.signerEmail}</strong></li>
-                      {inspectionOnly
-                        ? <li>📋 Copy sent to sales rep for JN upload</li>
-                        : <li>📋 PA notified with signed documents</li>}
-                      {!inspectionOnly ? <li>🎁 Welcome Package emailed to homeowner</li> : null}
-                      <li>💾 Record saved to the system</li>
-                    </ul>
-                    <div style={{ marginTop: 14, background: inspectionOnly ? "#eff6ff" : "#f0fdf4", borderRadius: 12, padding: "10px 14px", fontSize: 13, color: inspectionOnly ? "#1e40af" : "#166534", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
-                      {inspectionOnly ? "🏠 You're all set — start a new form when ready." : "🎉 You're all set — start a new intake when ready."}
+                    {inspectionOnly ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, fontFamily: "'Nunito', sans-serif", color: "#374151", fontWeight: 600 }}>
+                        <span style={{ fontSize: 20 }}>📋</span>
+                        <span>JN upload instructions sent to <strong>{data.salesRepEmail || "sales rep"}</strong></span>
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, fontFamily: "'Nunito', sans-serif", color: "#374151", fontWeight: 600 }}>
+                        <span style={{ fontSize: 20 }}>📋</span>
+                        <span>PA notified with signed documents</span>
+                      </div>
+                    )}
+                    {!inspectionOnly ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, fontFamily: "'Nunito', sans-serif", color: "#374151", fontWeight: 600 }}>
+                        <span style={{ fontSize: 20 }}>🎁</span>
+                        <span>Welcome Package emailed to homeowner</span>
+                      </div>
+                    ) : null}
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, fontFamily: "'Nunito', sans-serif", color: "#374151", fontWeight: 600 }}>
+                      <span style={{ fontSize: 20 }}>💾</span>
+                      <span>Record saved to the system</span>
                     </div>
                   </div>
                 </div>
-              )}
-            </div>
-
-            {/* CCG logo */}
-            <div style={{ textAlign: "center" }}>
-              <img
-                src="/pa-header.png"
-                alt="Capital Claims Group"
-                style={{ maxWidth: 260, opacity: 0.85 }}
-              />
-            </div>
+                <button type="button" onClick={() => { setView("input"); setInspectionOnly(false); }}
+                  style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", background: inspectionOnly ? "#1a2e5a" : "#199c2e", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 16, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
+                  {inspectionOnly ? "🏠 Start New Form" : "✚ Start New Intake"}
+                </button>
+              </>
+            )}
           </div>
-
           </>
         ) : null}
 
