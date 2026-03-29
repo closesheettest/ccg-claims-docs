@@ -2162,6 +2162,39 @@ export default function App() {
   const [managerUnlocked, setManagerUnlocked] = useState(false);
   const [managerTYTab, setManagerTYTab] = useState("post_inspection");
   const [reportData, setReportData] = useState(null);
+
+  // Sales rep manager
+  const [reps, setReps] = useState([]);
+  const [repsLoaded, setRepsLoaded] = useState(false);
+  const [newRepName, setNewRepName] = useState("");
+  const [newRepEmail, setNewRepEmail] = useState("");
+  const [newRepJnId, setNewRepJnId] = useState("");
+  const [repSaving, setRepSaving] = useState(false);
+
+  const loadReps = async () => {
+    const { data, error } = await supabase.from("sales_reps").select("*").order("name");
+    if (!error) { setReps(data || []); setRepsLoaded(true); }
+  };
+
+  const saveRep = async () => {
+    if (!newRepName.trim()) return;
+    setRepSaving(true);
+    const { error } = await supabase.from("sales_reps").insert([{
+      name: newRepName.trim(),
+      email: newRepEmail.trim(),
+      jobnimbus_id: newRepJnId.trim(),
+    }]);
+    if (!error) {
+      setNewRepName(""); setNewRepEmail(""); setNewRepJnId("");
+      await loadReps();
+    }
+    setRepSaving(false);
+  };
+
+  const deleteRep = async (id) => {
+    await supabase.from("sales_reps").delete().eq("id", id);
+    await loadReps();
+  };
   const [reportLoading, setReportLoading] = useState(false);
   const today = new Date().toISOString().split("T")[0];
   const weekAgo = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
@@ -2346,6 +2379,9 @@ export default function App() {
     data.lossLocationSameAsAddress,
     propertyAddressText,
   ]);
+
+  // Load reps on mount
+  useEffect(() => { loadReps(); }, []);
 
   useEffect(() => {
     const loadFromSigningLink = async () => {
@@ -3169,8 +3205,9 @@ export default function App() {
         await parseJsonResponse(paEmailResponse, "PA notification email failed.");
       }
 
-      // For inspection-only — email the rep with JN upload instructions
+      // For inspection-only — email the rep with JN upload instructions (inspection PDF only, no welcome)
       if (isInspOnlyFlow && data.salesRepEmail) {
+        const inspAttachmentOnly = attachments.filter(a => a.filename !== "USS-Welcome-Package.pdf");
         await fetch("/.netlify/functions/send-email", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -3207,7 +3244,7 @@ export default function App() {
                 </div>
               </div>
             `,
-            attachments,
+            attachments: inspAttachmentOnly,
           }),
         }).catch(e => console.warn("Rep email non-fatal:", e));
       }
@@ -3967,21 +4004,27 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Sales Rep — simple text until JN API is connected */}
+                    {/* Sales Rep — from Supabase reps table */}
                     <div>
                       <Label>Sales Rep</Label>
-                      <input
-                        type="text"
+                      <select
                         value={data.salesRepName}
-                        onChange={e => update("salesRepName", e.target.value)}
-                        placeholder="Rep name"
-                        style={{
-                          width: "100%", height: 44, borderRadius: 14,
-                          border: "1px solid #d1d5db", padding: "0 12px",
-                          fontSize: 14, boxSizing: "border-box",
-                          fontFamily: "'Nunito', sans-serif",
+                        onChange={e => {
+                          const selected = reps.find(r => r.name === e.target.value);
+                          update("salesRepName", e.target.value);
+                          update("salesRepId", selected?.jobnimbus_id || "");
+                          if (selected?.email) update("salesRepEmail", selected.email);
                         }}
-                      />
+                        style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", background: "#fff", fontFamily: "'Nunito', sans-serif" }}
+                      >
+                        <option value="">— Select Rep —</option>
+                        {reps.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
+                      </select>
+                      {reps.length === 0 ? (
+                        <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 4, fontFamily: "'Nunito', sans-serif" }}>
+                          ⚠️ No reps added yet — add reps in Manager page
+                        </div>
+                      ) : null}
                     </div>
 
                     {/* Sales Rep Email */}
@@ -5282,6 +5325,7 @@ export default function App() {
                         if (managerPinEntry === managerPin) {
                           setManagerUnlocked(true);
                           setManagerPinEntry("");
+                          loadReps();
                         } else {
                           alert("Incorrect PIN.");
                           setManagerPinEntry("");
@@ -5674,6 +5718,74 @@ export default function App() {
                     )}
                   </Card>
 
+                  {/* ── Sales Rep Manager ── */}
+                  <Card style={{ padding: 20, background: "#f8fafc" }}>
+                    <SectionTitle>Sales Rep Manager</SectionTitle>
+                    <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 16 }}>
+                      Add reps here. Their name and JN ID will be used in the Sales Rep dropdown and to sync with Job Nimbus when the API is connected.
+                    </div>
+
+                    {/* Add new rep form */}
+                    <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14, padding: "16px 18px", marginBottom: 16 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.04em", marginBottom: 12, textTransform: "uppercase" }}>
+                        Add New Rep
+                      </div>
+                      <div style={{ display: "grid", gap: 10 }}>
+                        <div>
+                          <Label>Full Name *</Label>
+                          <input type="text" value={newRepName} onChange={e => setNewRepName(e.target.value)}
+                            placeholder="e.g. Jose Huerta"
+                            style={{ width: "100%", height: 40, borderRadius: 12, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", fontFamily: "'Nunito', sans-serif" }} />
+                        </div>
+                        <div>
+                          <Label>Email</Label>
+                          <input type="email" value={newRepEmail} onChange={e => setNewRepEmail(e.target.value)}
+                            placeholder="rep@email.com"
+                            style={{ width: "100%", height: 40, borderRadius: 12, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", fontFamily: "'Nunito', sans-serif" }} />
+                        </div>
+                        <div>
+                          <Label>Job Nimbus ID</Label>
+                          <input type="text" value={newRepJnId} onChange={e => setNewRepJnId(e.target.value)}
+                            placeholder="JN user ID (for future sync)"
+                            style={{ width: "100%", height: 40, borderRadius: 12, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", fontFamily: "'Nunito', sans-serif" }} />
+                          <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 3, fontFamily: "'Nunito', sans-serif" }}>
+                            Find this in JN: Settings → Team → click rep → copy ID from URL
+                          </div>
+                        </div>
+                        <button type="button" onClick={saveRep} disabled={repSaving || !newRepName.trim()}
+                          style={{ padding: "10px", borderRadius: 12, border: "none", background: "#199c2e", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14, letterSpacing: "0.04em", textTransform: "uppercase", cursor: newRepName.trim() ? "pointer" : "not-allowed", opacity: newRepName.trim() ? 1 : 0.5 }}>
+                          {repSaving ? "Saving..." : "✚ Add Rep"}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Rep list */}
+                    {reps.length > 0 ? (
+                      <div style={{ display: "grid", gap: 8 }}>
+                        {reps.map(rep => (
+                          <div key={rep.id} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "12px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                            <div>
+                              <div style={{ fontWeight: 700, fontSize: 14, fontFamily: "'Nunito', sans-serif", color: "#111827" }}>{rep.name}</div>
+                              <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>
+                                {rep.email ? `📧 ${rep.email}` : ""}
+                                {rep.email && rep.jobnimbus_id ? " · " : ""}
+                                {rep.jobnimbus_id ? `🔑 JN: ${rep.jobnimbus_id.slice(0, 12)}...` : "⚠️ No JN ID yet"}
+                              </div>
+                            </div>
+                            <button type="button" onClick={() => { if (window.confirm(`Remove ${rep.name}?`)) deleteRep(rep.id); }}
+                              style={{ background: "transparent", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 18, padding: "4px 8px", flexShrink: 0 }}>
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ textAlign: "center", padding: "20px 0", color: "#9ca3af", fontFamily: "'Nunito', sans-serif", fontSize: 14 }}>
+                        No reps added yet. Add your first rep above.
+                      </div>
+                    )}
+                  </Card>
+
                   {/* ── Weekly Report ── */}
                   <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Weekly Report</SectionTitle>
@@ -5691,21 +5803,40 @@ export default function App() {
                             style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
                         </div>
                       </div>
-                      <div style={{ display: "flex", gap: 8 }}>
-                        {[["This Week", 6], ["Last 30 Days", 29], ["This Month", null]].map(([label, days]) => (
-                          <button key={label} type="button" onClick={() => {
-                            const end = new Date().toISOString().split("T")[0];
-                            let start;
-                            if (days !== null) {
-                              start = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
-                            } else {
-                              const now = new Date();
-                              start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
-                            }
-                            setReportStartDate(start);
-                            setReportEndDate(end);
-                          }} style={{
-                            flex: 1, padding: "6px 4px", borderRadius: 10, border: "1px solid #d1d5db",
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                        {[
+                          ["This Week", () => {
+                            const now = new Date();
+                            const day = now.getDay();
+                            const start = new Date(now); start.setDate(now.getDate() - day); 
+                            const s = start.toISOString().split("T")[0];
+                            const e = now.toISOString().split("T")[0];
+                            setReportStartDate(s); setReportEndDate(e); fetchReport(s, e);
+                          }],
+                          ["Last Week", () => {
+                            const now = new Date();
+                            const day = now.getDay();
+                            const startOfThisWeek = new Date(now); startOfThisWeek.setDate(now.getDate() - day);
+                            const end = new Date(startOfThisWeek); end.setDate(startOfThisWeek.getDate() - 1);
+                            const start = new Date(end); start.setDate(end.getDate() - 6);
+                            const s = start.toISOString().split("T")[0];
+                            const e = end.toISOString().split("T")[0];
+                            setReportStartDate(s); setReportEndDate(e); fetchReport(s, e);
+                          }],
+                          ["Last 30 Days", () => {
+                            const e = new Date().toISOString().split("T")[0];
+                            const s = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+                            setReportStartDate(s); setReportEndDate(e); fetchReport(s, e);
+                          }],
+                          ["This Month", () => {
+                            const now = new Date();
+                            const s = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
+                            const e = now.toISOString().split("T")[0];
+                            setReportStartDate(s); setReportEndDate(e); fetchReport(s, e);
+                          }],
+                        ].map(([label, handler]) => (
+                          <button key={label} type="button" onClick={handler} style={{
+                            padding: "8px 4px", borderRadius: 10, border: "1px solid #d1d5db",
                             background: "#fff", cursor: "pointer", fontSize: 12,
                             fontFamily: "'Nunito', sans-serif", fontWeight: 700, color: "#374151",
                           }}>
