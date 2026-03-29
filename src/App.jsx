@@ -2177,7 +2177,7 @@ export default function App() {
 
       const [claimsRes, inspRes] = await Promise.allSettled([
         supabase.from("claims")
-          .select("id, homeowner1, homeowner2, address, city, state, signed_at, sign_method, representative_name, sales_rep_name, sales_rep_email")
+          .select("id, homeowner1, homeowner2, address, city, state, signed_at, sign_method, representative_name, sales_rep_name, sales_rep_email, docs_signed")
           .gte("signed_at", start)
           .lte("signed_at", end)
           .order("signed_at", { ascending: false }),
@@ -2199,14 +2199,24 @@ export default function App() {
       console.log("Inspections:", inspections.length, "error:", inspError);
 
       const allSignings = [
-        ...claims.map(c => ({
-          type: "pa",
-          name: [c.homeowner1, c.homeowner2].filter(Boolean).join(" & ") || "—",
-          address: [c.address, c.city, c.state].filter(Boolean).join(", "),
-          signedAt: c.signed_at,
-          signMethod: c.sign_method,
-          rep: c.sales_rep_name || c.representative_name || "Unassigned",
-        })),
+        ...claims.map(c => {
+          const docs = (c.docs_signed || "").split(",").filter(Boolean);
+          // If docs_signed not stored, infer from claim existing = lor+pac
+          const hasInsp = docs.includes("insp") || docs.length === 0 ? docs.includes("insp") : false;
+          const hasLor = docs.includes("lor") || docs.length === 0;
+          const hasPac = docs.includes("pac") || docs.length === 0;
+          return {
+            type: "claim",
+            name: [c.homeowner1, c.homeowner2].filter(Boolean).join(" & ") || "—",
+            address: [c.address, c.city, c.state].filter(Boolean).join(", "),
+            signedAt: c.signed_at,
+            signMethod: c.sign_method,
+            rep: c.sales_rep_name || c.representative_name || "Unassigned",
+            hasInsp,
+            hasLor,
+            hasPac,
+          };
+        }),
         ...inspections.map(i => ({
           type: "insp",
           name: i.client_name || "—",
@@ -2214,6 +2224,9 @@ export default function App() {
           signedAt: i.signed_at,
           signMethod: "sign_now",
           rep: i.sales_rep_name || "Unassigned",
+          hasInsp: true,
+          hasLor: false,
+          hasPac: false,
         })),
       ];
 
@@ -2647,7 +2660,9 @@ export default function App() {
       situation: data.situation,
       homeowner_email: data.signerEmail,
       pa_email: data.paEmail,
+      sales_rep_name: data.salesRepName || "",
       sales_rep_email: data.salesRepEmail,
+      docs_signed: selectedDocs.join(","),
       signature1: effectiveSig1,
       signature2: effectiveSig2,
       initials1: effectiveInitials1,
@@ -5748,43 +5763,45 @@ export default function App() {
 
                                 {/* Signings under this rep */}
                                 <div style={{ border: "1px solid #1a2e5a", borderTop: "none", borderRadius: "0 0 12px 12px", overflow: "hidden" }}>
+                                  {/* Column headers */}
+                                  <div style={{ display: "grid", gridTemplateColumns: "1fr 60px 60px 60px", gap: 4, padding: "8px 16px 6px", background: "#f8fafc", borderBottom: "1px solid #e5e7eb" }}>
+                                    <div style={{ fontSize: 11, fontWeight: 700, color: "#9ca3af", fontFamily: "'Nunito', sans-serif", textTransform: "uppercase", letterSpacing: "0.06em" }}>Homeowner</div>
+                                    <div style={{ fontSize: 11, fontWeight: 700, color: "#1a2e5a", fontFamily: "'Nunito', sans-serif", textTransform: "uppercase", letterSpacing: "0.04em", textAlign: "center" }}>🏠 Insp</div>
+                                    <div style={{ fontSize: 11, fontWeight: 700, color: "#199c2e", fontFamily: "'Nunito', sans-serif", textTransform: "uppercase", letterSpacing: "0.04em", textAlign: "center" }}>📋 LOR</div>
+                                    <div style={{ fontSize: 11, fontWeight: 700, color: "#199c2e", fontFamily: "'Nunito', sans-serif", textTransform: "uppercase", letterSpacing: "0.04em", textAlign: "center" }}>📄 PA</div>
+                                  </div>
                                   {signings.map((s, i) => (
                                     <div key={i} style={{
-                                      padding: "12px 16px",
+                                      display: "grid",
+                                      gridTemplateColumns: "1fr 60px 60px 60px",
+                                      gap: 4,
+                                      padding: "10px 16px",
                                       borderBottom: i < signings.length - 1 ? "1px solid #f1f5f9" : "none",
                                       background: "#fff",
-                                      display: "flex",
-                                      alignItems: "flex-start",
-                                      gap: 12,
+                                      alignItems: "center",
                                     }}>
-                                      {/* Type badge */}
-                                      <div style={{
-                                        flexShrink: 0,
-                                        padding: "3px 8px",
-                                        borderRadius: 8,
-                                        fontSize: 11,
-                                        fontWeight: 700,
-                                        fontFamily: "'Oswald', sans-serif",
-                                        letterSpacing: "0.04em",
-                                        textTransform: "uppercase",
-                                        background: s.type === "insp" ? "#eef1f8" : "#f0fdf4",
-                                        color: s.type === "insp" ? "#1a2e5a" : "#166534",
-                                        border: `1px solid ${s.type === "insp" ? "#bfdbfe" : "#bbf7d0"}`,
-                                        marginTop: 2,
-                                      }}>
-                                        {s.type === "insp" ? "🏠 Insp" : "📋 PA"}
-                                      </div>
-                                      <div style={{ flex: 1 }}>
+                                      <div>
                                         <div style={{ fontWeight: 700, fontSize: 14, fontFamily: "'Nunito', sans-serif", color: "#111827" }}>
                                           {s.name}
                                         </div>
-                                        <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>
+                                        <div style={{ fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>
                                           📍 {s.address || "—"}
                                         </div>
-                                        <div style={{ fontSize: 11, color: "#9ca3af", fontFamily: "'Nunito', sans-serif", marginTop: 4 }}>
-                                          🕐 {s.signedAt ? new Date(s.signedAt).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}
-                                          {s.signMethod ? ` · ${s.signMethod === "sign_now" ? "Sign Now" : s.signMethod === "email_link" ? "Email Link" : s.signMethod}` : ""}
+                                        <div style={{ fontSize: 11, color: "#9ca3af", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>
+                                          🕐 {s.signedAt ? new Date(s.signedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}
                                         </div>
+                                      </div>
+                                      {/* Insp checkmark */}
+                                      <div style={{ textAlign: "center", fontSize: 18 }}>
+                                        {s.hasInsp ? <span style={{ color: "#1a2e5a" }}>✅</span> : <span style={{ color: "#e5e7eb" }}>○</span>}
+                                      </div>
+                                      {/* LOR checkmark */}
+                                      <div style={{ textAlign: "center", fontSize: 18 }}>
+                                        {s.hasLor ? <span style={{ color: "#199c2e" }}>✅</span> : <span style={{ color: "#e5e7eb" }}>○</span>}
+                                      </div>
+                                      {/* PAC checkmark */}
+                                      <div style={{ textAlign: "center", fontSize: 18 }}>
+                                        {s.hasPac ? <span style={{ color: "#199c2e" }}>✅</span> : <span style={{ color: "#e5e7eb" }}>○</span>}
                                       </div>
                                     </div>
                                   ))}
