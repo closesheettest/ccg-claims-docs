@@ -161,6 +161,24 @@ function typedInitialsToDataUrl(text, fontFamily, width = 220, height = 70) {
   return canvas.toDataURL("image/png");
 }
 
+function SendingScreen({ onMount }) {
+  const calledRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!calledRef.current) { calledRef.current = true; onMount(); }
+  }, []);
+  return (
+    <div style={{ maxWidth: 440, margin: "80px auto", padding: "0 20px", textAlign: "center" }}>
+      <div style={{ fontSize: 56, marginBottom: 16 }}>📨</div>
+      <div style={{ fontSize: 24, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#199c2e", marginBottom: 10 }}>
+        Sending...
+      </div>
+      <div style={{ fontSize: 15, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>
+        Saving record and sending signing link to homeowner.
+      </div>
+    </div>
+  );
+}
+
 function Button({
   children,
   onClick,
@@ -2695,8 +2713,7 @@ export default function App() {
     setInspectionOnly(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
 
-    // Always go to review — inspection doc is authorized there, then signed once at bottom
-    // Pre-populate inspection fields from intake if needed
+    // Pre-populate inspection fields
     if (selectedDocs.includes("insp")) {
       setInspData(prev => ({
         ...prev,
@@ -2709,6 +2726,14 @@ export default function App() {
         email: data.signerEmail || prev.email,
       }));
     }
+
+    // Send for signing — skip review page entirely, go straight to send
+    if (signMode === "send") {
+      setView("sending");
+      return;
+    }
+
+    // Sign now — go to review page to authorize and sign
     setView("review");
   };
 
@@ -3034,7 +3059,7 @@ export default function App() {
 
         await parseJsonResponse(emailResponse, "Signing email failed.");
         setIsSubmitting(false);
-        setView("input");
+        setView("sent");
         setPendingSend(false);
         return;
       }
@@ -5078,6 +5103,63 @@ export default function App() {
             </div>
           </>
         ) : null}
+        {/* ── SENDING VIEW — auto-submits when entered ── */}
+        {view === "sending" ? (
+          <SendingScreen onMount={async () => {
+            setIsSubmitting(true);
+            try { await submitDoc(); }
+            catch(e) { alert(e?.message || "Something went wrong."); setView("input"); setIsSubmitting(false); }
+          }} />
+        ) : null}
+
+        {/* ── SENT VIEW — confirmation after send-for-signing ── */}
+        {view === "sent" ? (
+          <div style={{ maxWidth: 540, margin: "0 auto", padding: "48px 20px" }}>
+            <div style={{
+              background: "linear-gradient(135deg, #199c2e 0%, #15803d 100%)",
+              borderRadius: 24, padding: "40px 32px", textAlign: "center", color: "#fff", marginBottom: 24,
+            }}>
+              <div style={{ fontSize: 64, marginBottom: 12 }}>📨</div>
+              <div style={{ fontSize: 30, fontWeight: 700, fontFamily: "'Oswald', sans-serif", marginBottom: 10 }}>
+                Sent for Signing!
+              </div>
+              <div style={{ fontSize: 16, fontFamily: "'Nunito', sans-serif", fontWeight: 600, opacity: 0.92, lineHeight: 1.6 }}>
+                The signing link has been emailed to<br/>
+                <strong>{data.signerEmail}</strong>
+              </div>
+            </div>
+            <div style={{ background: "#fff", borderRadius: 20, border: "1px solid #e5e7eb", padding: "24px 26px", marginBottom: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+              <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827", marginBottom: 14, letterSpacing: "0.02em" }}>
+                What happens next:
+              </div>
+              <div style={{ display: "grid", gap: 10 }}>
+                <div style={{ display: "flex", gap: 10, fontSize: 14, fontFamily: "'Nunito', sans-serif", color: "#374151", fontWeight: 600 }}>
+                  <span>📧</span><span>Homeowner receives an email with a secure signing link</span>
+                </div>
+                <div style={{ display: "flex", gap: 10, fontSize: 14, fontFamily: "'Nunito', sans-serif", color: "#374151", fontWeight: 600 }}>
+                  <span>✍️</span><span>They review and sign at their own pace</span>
+                </div>
+                <div style={{ display: "flex", gap: 10, fontSize: 14, fontFamily: "'Nunito', sans-serif", color: "#374151", fontWeight: 600 }}>
+                  <span>📋</span><span>Once signed, you and the PA will be notified automatically</span>
+                </div>
+                <div style={{ display: "flex", gap: 10, fontSize: 14, fontFamily: "'Nunito', sans-serif", color: "#374151", fontWeight: 600 }}>
+                  <span>📄</span><span>Signed PDFs emailed to everyone — no follow-up needed</span>
+                </div>
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <button type="button" onClick={() => { setView("input"); setSignMode("now"); }}
+                style={{ padding: "14px", borderRadius: 14, border: "2px solid #199c2e", background: "#fff", color: "#199c2e", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
+                ✚ New Intake
+              </button>
+              <button type="button" onClick={() => { setView("input"); setSignMode("send"); }}
+                style={{ padding: "14px", borderRadius: 14, border: "none", background: "#199c2e", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
+                📨 Send Another
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         {/* ── THANK YOU VIEW ── */}
         {view === "thankyou" ? (
           <>
