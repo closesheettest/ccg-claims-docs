@@ -3772,43 +3772,24 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Sales Rep dropdown */}
+                    {/* Sales Rep — simple text until JN API is connected */}
                     <div>
                       <Label>Sales Rep</Label>
-                      <select
-                        value={data.salesRepId}
-                        onChange={(e) => {
-                          const selected = teamMembers.find(m => m.jobnimbus_id === e.target.value);
-                          update("salesRepId", e.target.value);
-                          update("salesRepName", selected?.name || "");
-                        }}
+                      <input
+                        type="text"
+                        value={data.salesRepName}
+                        onChange={e => update("salesRepName", e.target.value)}
+                        placeholder="Rep name"
                         style={{
-                          width: "100%",
-                          height: 44,
-                          borderRadius: 14,
-                          border: "1px solid #d1d5db",
-                          padding: "0 12px",
-                          fontSize: 14,
-                          boxSizing: "border-box",
-                          background: "#fff",
+                          width: "100%", height: 44, borderRadius: 14,
+                          border: "1px solid #d1d5db", padding: "0 12px",
+                          fontSize: 14, boxSizing: "border-box",
                           fontFamily: "'Nunito', sans-serif",
                         }}
-                      >
-                        <option value="">— Select Rep —</option>
-                        {teamMembers.map((m) => (
-                          <option key={m.jobnimbus_id} value={m.jobnimbus_id}>
-                            {m.name}
-                          </option>
-                        ))}
-                      </select>
-                      {teamMembers.length === 0 ? (
-                        <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 4, fontFamily: "'Nunito', sans-serif" }}>
-                          ⚠️ No reps loaded — check JN API connection
-                        </div>
-                      ) : null}
+                      />
                     </div>
 
-                    {/* Sales Rep Email — separate from PA email */}
+                    {/* Sales Rep Email */}
                     <div>
                       <Label>Sales Rep Email</Label>
                       <input
