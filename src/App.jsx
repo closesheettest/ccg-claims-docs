@@ -2284,7 +2284,7 @@ export default function App() {
   const [managerPinEntry, setManagerPinEntry] = useState("");
   const [managerUnlocked, setManagerUnlocked] = useState(false);
   const [managerTYTab, setManagerTYTab] = useState("post_inspection");
-  const [managerSection, setManagerSection] = useState("security");
+  const [managerSection, setManagerSection] = useState("home");
   const [reportData, setReportData] = useState(null);
 
   // Sales rep manager
@@ -5806,6 +5806,7 @@ export default function App() {
                           setManagerUnlocked(true);
                           setManagerPinEntry("");
                           loadReps();
+                          setManagerSection("home");
                         } else {
                           alert("Incorrect PIN.");
                           setManagerPinEntry("");
@@ -5842,36 +5843,50 @@ export default function App() {
                   </div>
                 </div>
               ) : (
-                <div style={{ display: "grid", gap: 16 }}>
-
-                  {/* ── Manager Tab Nav ── */}
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8 }}>
-                    {[
-                      { key: "security", label: "🔒", sublabel: "Security" },
-                      { key: "review",   label: "📝", sublabel: "Review" },
-                      { key: "thankyou", label: "🎉", sublabel: "Thank You" },
-                      { key: "reps",     label: "👤", sublabel: "Sales Reps" },
-                      { key: "report",   label: "📊", sublabel: "Report" },
-                    ].map(({ key, label, sublabel }) => (
-                      <button key={key} type="button"
-                        onClick={() => { setManagerSection(key); window.scrollTo({ top: 0, behavior: "smooth" }); }}
-                        style={{
-                          padding: "12px 6px", borderRadius: 14, cursor: "pointer",
-                          border: managerSection === key ? "2px solid #199c2e" : "1px solid #e5e7eb",
-                          background: managerSection === key ? "#f0fdf4" : "#fff",
-                          color: managerSection === key ? "#166534" : "#374151",
-                          fontFamily: "'Nunito', sans-serif", fontWeight: 700,
-                          display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
-                          boxShadow: managerSection === key ? "0 0 0 3px rgba(25,156,46,0.12)" : "0 1px 3px rgba(0,0,0,0.06)",
-                          transition: "all 0.15s",
-                        }}>
-                        <span style={{ fontSize: 22 }}>{label}</span>
-                        <span style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>{sublabel}</span>
+                <div>
+                  {/* ── Manager Home — section picker ── */}
+                  {managerSection === "home" ? (
+                    <div style={{ display: "grid", gap: 12, padding: "8px 0" }}>
+                      <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 4 }}>
+                        Select a section to manage:
+                      </div>
+                      {[
+                        { key: "security", icon: "🔒", label: "Security",      desc: "Change manager PIN" },
+                        { key: "review",   icon: "📝", label: "Review Page",   desc: "Edit text shown on the review screen" },
+                        { key: "thankyou", icon: "🎉", label: "Thank You Pages", desc: "Edit CCG, pre-inspection & USS welcome content" },
+                        { key: "reps",     icon: "👤", label: "Sales Reps",    desc: "Add, edit or deactivate sales reps" },
+                        { key: "report",   icon: "📊", label: "Weekly Report", desc: "View signings by rep and date range" },
+                      ].map(({ key, icon, label, desc }) => (
+                        <button key={key} type="button"
+                          onClick={() => { setManagerSection(key); window.scrollTo({ top: 0 }); }}
+                          style={{
+                            display: "flex", alignItems: "center", gap: 16,
+                            padding: "16px 20px", borderRadius: 16, border: "1px solid #e5e7eb",
+                            background: "#fff", cursor: "pointer", textAlign: "left", width: "100%",
+                            boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+                          }}
+                          onMouseEnter={e => { e.currentTarget.style.borderColor = "#199c2e"; e.currentTarget.style.background = "#f0fdf4"; }}
+                          onMouseLeave={e => { e.currentTarget.style.borderColor = "#e5e7eb"; e.currentTarget.style.background = "#fff"; }}
+                        >
+                          <span style={{ fontSize: 28, flexShrink: 0 }}>{icon}</span>
+                          <div>
+                            <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827", letterSpacing: "0.02em" }}>{label}</div>
+                            <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>{desc}</div>
+                          </div>
+                          <span style={{ marginLeft: "auto", color: "#9ca3af", fontSize: 20 }}>›</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div>
+                      {/* Back button */}
+                      <button type="button"
+                        onClick={() => { setManagerSection("home"); window.scrollTo({ top: 0 }); }}
+                        style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, background: "none", border: "none", color: "#199c2e", cursor: "pointer", fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 14, padding: 0 }}>
+                        ← Back to Menu
                       </button>
-                    ))}
-                  </div>
 
-                  {managerSection === "security" ? (
+                      {managerSection === "security" ? (
                   <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Security</SectionTitle>
                     <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "flex-end" }}>
@@ -5936,9 +5951,10 @@ export default function App() {
                       </div>
                     </div>
                   </Card>
-                  ) : null}
 
-                  {managerSection === "review" ? (
+                      ) : null}
+
+                      {managerSection === "review" ? (
                   <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Review Page Text</SectionTitle>
                     <div style={{ display: "grid", gap: 16 }}>
@@ -6017,9 +6033,11 @@ export default function App() {
                     </div>
                   </Card>
 
-                  ) : null}
 
-                  {managerSection === "thankyou" ? (
+                      </Card>
+                      ) : null}
+
+                      {managerSection === "thankyou" ? (
                   <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Thank You Pages</SectionTitle>
                     <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
@@ -6290,11 +6308,12 @@ export default function App() {
                         </div>
                       </div>
                     </div>
-                    ) : null}
-                  </Card>
-                  ) : null}
 
-                  {managerSection === "reps" ? (
+                      </div>
+                      </Card>
+                      ) : null}
+
+                      {managerSection === "reps" ? (
                   <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Sales Rep Manager</SectionTitle>
                     <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 16 }}>
@@ -6442,9 +6461,11 @@ export default function App() {
                     )}
                   </Card>
 
-                  ) : null}
 
-                  {managerSection === "report" ? (
+                      </Card>
+                      ) : null}
+
+                      {managerSection === "report" ? (
                   <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Weekly Report</SectionTitle>
 
@@ -6615,15 +6636,19 @@ export default function App() {
                           </div>
                         )}
                       </div>
-                    ) : null}
-                  </Card>
-                  ) : null}
 
-                  <div>
-                    <Button onClick={() => { setManagerUnlocked(false); setView("input"); }}>
-                      Save & Close
-                    </Button>
-                  </div>
+                      </div>
+                      </Card>
+                      ) : null}
+
+                      <div style={{ marginTop: 20 }}>
+                        <Button onClick={() => { setManagerUnlocked(false); setView("input"); setManagerSection("home"); }}>
+                          Save & Close
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
                 </div>
               )}
             </CardContent>
