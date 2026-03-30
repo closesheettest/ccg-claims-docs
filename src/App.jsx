@@ -5725,49 +5725,9 @@ export default function App() {
                   </div>
                 </div>
               ) : (
-                <div>
-                  {/* ── Manager Home ── */}
-                  {managerSection === "home" && (
-                    <div style={{ display: "grid", gap: 12, padding: "8px 0" }}>
-                      <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 4 }}>
-                        Select a section to manage:
-                      </div>
-                      {[
-                        { key: "security", icon: "🔒", label: "Security",        desc: "Change manager PIN" },
-                        { key: "review",   icon: "📝", label: "Review Page",     desc: "Edit text shown on the review screen" },
-                        { key: "thankyou", icon: "🎉", label: "Thank You Pages", desc: "Edit CCG, pre-inspection & USS welcome content" },
-                        { key: "reps",     icon: "👤", label: "Sales Reps",      desc: "Add, edit or deactivate sales reps" },
-                        { key: "report",   icon: "📊", label: "Weekly Report",   desc: "View signings by rep and date range" },
-                      ].map(({ key, icon, label, desc }) => (
-                        <button key={key} type="button"
-                          onClick={() => { setManagerSection(key); window.scrollTo({ top: 0 }); }}
-                          style={{
-                            display: "flex", alignItems: "center", gap: 16,
-                            padding: "16px 20px", borderRadius: 16, border: "1px solid #e5e7eb",
-                            background: "#fff", cursor: "pointer", textAlign: "left", width: "100%",
-                            boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
-                          }}
-                          onMouseEnter={e => { e.currentTarget.style.borderColor = "#199c2e"; e.currentTarget.style.background = "#f0fdf4"; }}
-                          onMouseLeave={e => { e.currentTarget.style.borderColor = "#e5e7eb"; e.currentTarget.style.background = "#fff"; }}
-                        >
-                          <span style={{ fontSize: 28, flexShrink: 0 }}>{icon}</span>
-                          <div>
-                            <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827", letterSpacing: "0.02em" }}>{label}</div>
-                            <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>{desc}</div>
-                          </div>
-                          <span style={{ marginLeft: "auto", color: "#9ca3af", fontSize: 20 }}>›</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {managerSection !== "home" && (
-                    <div>
-                      <button type="button"
-                        onClick={() => { setManagerSection("home"); window.scrollTo({ top: 0 }); }}
-                        style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20, background: "none", border: "none", color: "#199c2e", cursor: "pointer", fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 14, padding: 0 }}>
-                        ← Back to Menu
-                      </button>
-                      {managerSection === "security" && (<div style={{ padding: 20, background: "#f8fafc", borderRadius: 12, border: "1px solid #e5e7eb", marginTop: 4 }}>
+                <div style={{ display: "grid", gap: 28 }}>
+                  {/* PIN change */}
+                  <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Security</SectionTitle>
                     <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "flex-end" }}>
                       <div style={{ maxWidth: 300, flex: 1 }}>
@@ -5805,10 +5765,6 @@ export default function App() {
                               setPreInspOpening(DEFAULTS.preInspOpening);
                               try { setPreInspSteps(JSON.parse(DEFAULTS.preInspSteps)); } catch {}
                               setPreInspClosing(DEFAULTS.preInspClosing);
-                              setUssWelcomeHeading(DEFAULTS.ussWelcomeHeading);
-                              try { setUssWelcomeSteps(JSON.parse(DEFAULTS.ussWelcomeSteps)); } catch {}
-                              setUssContactPhone(DEFAULTS.ussContactPhone);
-                              setUssContactEmail(DEFAULTS.ussContactEmail);
                             }
                           }}
                           style={{
@@ -5830,9 +5786,10 @@ export default function App() {
                         </button>
                       </div>
                     </div>
-                  </div>
-                      )}
-                      {managerSection === "review" && (<div style={{ padding: 20, background: "#f8fafc", borderRadius: 12, border: "1px solid #e5e7eb", marginTop: 4 }}>
+                  </Card>
+
+                  {/* Review page text */}
+                  <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Review Page Text</SectionTitle>
                     <div style={{ display: "grid", gap: 16 }}>
                       <div>
@@ -5908,9 +5865,10 @@ export default function App() {
                         />
                       </div>
                     </div>
-                  </div>
-                      )}
-                      {managerSection === "thankyou" && (<div style={{ padding: 20, background: "#f8fafc", borderRadius: 12, border: "1px solid #e5e7eb", marginTop: 4 }}>
+                  </Card>
+
+                  {/* Thank you page text — tabbed */}
+                  <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Thank You Pages</SectionTitle>
                     <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
                       {[
@@ -6121,336 +6079,14 @@ export default function App() {
                       </div>
                     </div>
                     )}
+                  </Card>
+
+                  <div>
+                    <Button onClick={() => { setManagerUnlocked(false); setView("input"); }}>
+                      Save & Close
+                    </Button>
                   </div>
-                      )}
-                      {managerSection === "reps" && (<div style={{ padding: 20, background: "#f8fafc", borderRadius: 12, border: "1px solid #e5e7eb", marginTop: 4 }}>
-                    <SectionTitle>Sales Rep Manager</SectionTitle>
-                    <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 16 }}>
-                      Add reps here. Their name and JN ID will be used in the Sales Rep dropdown and to sync with Job Nimbus when the API is connected.
-                    </div>
-
-                    {/* JN Import */}
-                    <div style={{ background: "#eef1f8", border: "1px solid #bfdbfe", borderRadius: 14, padding: "14px 18px", marginBottom: 16 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: "#1a2e5a", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.04em", marginBottom: 8, textTransform: "uppercase" }}>
-                        🔗 Import / Sync Reps
-                      </div>
-                      <div style={{ display: "grid", gap: 8 }}>
-                        {/* Import known reps from hardcoded list */}
-                        <button type="button" onClick={seedRepsFromList} disabled={repSaving}
-                          style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "none", background: "#1a2e5a", color: "#fff", fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: repSaving ? 0.6 : 1 }}>
-                          {repSaving ? "Importing..." : "📋 Import All 24 Known Reps"}
-                        </button>
-                        <div style={{ fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>
-                          Adds all reps from the provided list with their JN IDs. Safe to run multiple times — won't duplicate.
-                        </div>
-                        {/* JN API live import — for when API is fixed */}
-                        <div style={{ borderTop: "1px solid #bfdbfe", paddingTop: 8, marginTop: 4 }}>
-                          <div style={{ fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 6 }}>
-                            When JN API is connected — pull live to update emails:
-                          </div>
-                          <div style={{ display: "flex", gap: 8 }}>
-                            <button type="button" onClick={fetchJnUsers} disabled={jnImporting}
-                              style={{ flex: 1, padding: "8px 10px", borderRadius: 10, border: "1px solid #bfdbfe", background: "#fff", color: "#1a2e5a", fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer", opacity: jnImporting ? 0.6 : 1 }}>
-                              {jnImporting ? "Loading..." : "📥 Load from JN API"}
-                            </button>
-                            {jnUsers.length > 0 ? (
-                              <button type="button" onClick={importAllFromJn}
-                                style={{ flex: 1, padding: "8px 10px", borderRadius: 10, border: "none", background: "#199c2e", color: "#fff", fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
-                                ✅ Sync ({jnUsers.length})
-                              </button>
-                            ) : null}
-                          </div>
-                          {jnImportError ? <div style={{ marginTop: 6, fontSize: 11, color: "#ef4444", fontFamily: "'Nunito', sans-serif" }}>⚠️ {jnImportError}</div> : null}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Add new rep form */}
-                    <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14, padding: "16px 18px", marginBottom: 16 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.04em", marginBottom: 12, textTransform: "uppercase" }}>
-                        Add New Rep
-                      </div>
-                      <div style={{ display: "grid", gap: 10 }}>
-                        <div>
-                          <Label>Full Name *</Label>
-                          <input type="text" value={newRepName} onChange={e => setNewRepName(e.target.value)}
-                            placeholder="e.g. Jose Huerta"
-                            style={{ width: "100%", height: 40, borderRadius: 12, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", fontFamily: "'Nunito', sans-serif" }} />
-                        </div>
-                        <div>
-                          <Label>Email</Label>
-                          <input type="email" value={newRepEmail} onChange={e => setNewRepEmail(e.target.value)}
-                            placeholder="rep@email.com"
-                            style={{ width: "100%", height: 40, borderRadius: 12, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", fontFamily: "'Nunito', sans-serif" }} />
-                        </div>
-                        <div>
-                          <Label>Job Nimbus ID</Label>
-                          <input type="text" value={newRepJnId} onChange={e => setNewRepJnId(e.target.value)}
-                            placeholder="JN user ID (for future sync)"
-                            style={{ width: "100%", height: 40, borderRadius: 12, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", fontFamily: "'Nunito', sans-serif" }} />
-                          <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 3, fontFamily: "'Nunito', sans-serif" }}>
-                            Find this in JN: Settings → Team → click rep → copy ID from URL
-                          </div>
-                        </div>
-                        <button type="button" onClick={saveRep} disabled={repSaving || !newRepName.trim()}
-                          style={{ padding: "10px", borderRadius: 12, border: "none", background: "#199c2e", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14, letterSpacing: "0.04em", textTransform: "uppercase", cursor: newRepName.trim() ? "pointer" : "not-allowed", opacity: newRepName.trim() ? 1 : 0.5 }}>
-                          {repSaving ? "Saving..." : "✚ Add Rep"}
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Rep list */}
-                    {reps.length > 0 ? (
-                      <div>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", fontFamily: "'Nunito', sans-serif" }}>
-                            {reps.filter(r => r.active !== false).length} active · {reps.filter(r => r.active === false).length} inactive
-                          </div>
-                          <button type="button" onClick={() => setShowInactiveReps(v => !v)}
-                            style={{ fontSize: 12, color: "#6b7280", background: "none", border: "none", cursor: "pointer", fontFamily: "'Nunito', sans-serif", fontWeight: 600, textDecoration: "underline" }}>
-                            {showInactiveReps ? "Hide inactive" : "Show inactive"}
-                          </button>
-                        </div>
-                        <div style={{ display: "grid", gap: 8 }}>
-                          {reps
-                            .filter(r => showInactiveReps ? true : r.active !== false)
-                            .map(rep => (
-                            <div key={rep.id} style={{
-                              background: rep.active === false ? "#f9fafb" : "#fff",
-                              border: `1px solid ${rep.active === false ? "#e5e7eb" : "#e5e7eb"}`,
-                              borderRadius: 12, padding: "12px 14px",
-                              display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
-                              opacity: rep.active === false ? 0.6 : 1,
-                            }}>
-                              <div style={{ flex: 1 }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                  <div style={{ fontWeight: 700, fontSize: 14, fontFamily: "'Nunito', sans-serif", color: "#111827" }}>{rep.name}</div>
-                                  {rep.active === false ? (
-                                    <span style={{ fontSize: 10, background: "#fee2e2", color: "#991b1b", borderRadius: 6, padding: "2px 6px", fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}>INACTIVE</span>
-                                  ) : null}
-                                </div>
-                                <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>
-                                  {rep.email ? `📧 ${rep.email}` : ""}
-                                  {rep.email && rep.jobnimbus_id ? " · " : ""}
-                                  {rep.jobnimbus_id ? `🔑 JN: ${rep.jobnimbus_id.slice(0, 10)}...` : <span style={{ color: "#f59e0b" }}>⚠️ No JN ID</span>}
-                                </div>
-                              </div>
-                              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                                {jnUsers.length > 0 && !rep.jobnimbus_id ? (
-                                  <button type="button" onClick={() => syncRepFromJn(rep.id, rep.name)}
-                                    style={{ background: "#eef1f8", border: "1px solid #bfdbfe", color: "#1a2e5a", borderRadius: 8, padding: "4px 10px", fontSize: 12, fontFamily: "'Nunito', sans-serif", fontWeight: 700, cursor: "pointer" }}>
-                                    🔗 Link
-                                  </button>
-                                ) : null}
-                                <button type="button"
-                                  onClick={() => toggleRepActive(rep.id, rep.active !== false)}
-                                  title={rep.active === false ? "Reactivate rep" : "Deactivate rep"}
-                                  style={{
-                                    background: rep.active === false ? "#f0fdf4" : "#fffbeb",
-                                    border: `1px solid ${rep.active === false ? "#bbf7d0" : "#fde68a"}`,
-                                    color: rep.active === false ? "#166534" : "#92400e",
-                                    borderRadius: 8, padding: "4px 10px", fontSize: 12,
-                                    fontFamily: "'Nunito', sans-serif", fontWeight: 700, cursor: "pointer"
-                                  }}>
-                                  {rep.active === false ? "✓ Reactivate" : "⏸ Deactivate"}
-                                </button>
-                                <button type="button" onClick={() => { if (window.confirm(`Permanently delete ${rep.name}? This cannot be undone.`)) deleteRep(rep.id); }}
-                                  style={{ background: "#fff1f2", border: "1px solid #fecdd3", color: "#e11d48", borderRadius: 8, padding: "4px 10px", fontSize: 12, fontFamily: "'Nunito', sans-serif", fontWeight: 700, cursor: "pointer" }}>
-                                  🗑
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : (
-                      <div style={{ textAlign: "center", padding: "20px 0", color: "#9ca3af", fontFamily: "'Nunito', sans-serif", fontSize: 14 }}>
-                        No reps added yet. Click "Import All 24 Known Reps" above.
-                      </div>
-                    )}
-                  </div>
-                      )}
-                      {managerSection === "report" && (<div style={{ padding: 20, background: "#f8fafc", borderRadius: 12, border: "1px solid #e5e7eb", marginTop: 4 }}>
-                    <SectionTitle>Weekly Report</SectionTitle>
-
-                    <div style={{ display: "grid", gap: 12, marginBottom: 16 }}>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                        <div>
-                          <Label>From</Label>
-                          <input type="date" value={reportStartDate} onChange={e => setReportStartDate(e.target.value)}
-                            style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
-                        </div>
-                        <div>
-                          <Label>To</Label>
-                          <input type="date" value={reportEndDate} onChange={e => setReportEndDate(e.target.value)}
-                            style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
-                        </div>
-                      </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                        {[
-                          ["This Week", () => {
-                            const now = new Date();
-                            const day = now.getDay();
-                            const start = new Date(now); start.setDate(now.getDate() - day); 
-                            const s = start.toISOString().split("T")[0];
-                            const e = now.toISOString().split("T")[0];
-                            setReportStartDate(s); setReportEndDate(e); fetchReport(s, e);
-                          }],
-                          ["Last Week", () => {
-                            const now = new Date();
-                            const day = now.getDay();
-                            const startOfThisWeek = new Date(now); startOfThisWeek.setDate(now.getDate() - day);
-                            const end = new Date(startOfThisWeek); end.setDate(startOfThisWeek.getDate() - 1);
-                            const start = new Date(end); start.setDate(end.getDate() - 6);
-                            const s = start.toISOString().split("T")[0];
-                            const e = end.toISOString().split("T")[0];
-                            setReportStartDate(s); setReportEndDate(e); fetchReport(s, e);
-                          }],
-                          ["Last 30 Days", () => {
-                            const e = new Date().toISOString().split("T")[0];
-                            const s = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
-                            setReportStartDate(s); setReportEndDate(e); fetchReport(s, e);
-                          }],
-                          ["This Month", () => {
-                            const now = new Date();
-                            const s = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
-                            const e = now.toISOString().split("T")[0];
-                            setReportStartDate(s); setReportEndDate(e); fetchReport(s, e);
-                          }],
-                        ].map(([label, handler]) => (
-                          <button key={label} type="button" onClick={handler} style={{
-                            padding: "8px 4px", borderRadius: 10, border: "1px solid #d1d5db",
-                            background: "#fff", cursor: "pointer", fontSize: 12,
-                            fontFamily: "'Nunito', sans-serif", fontWeight: 700, color: "#374151",
-                          }}>
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                      <button type="button"
-                        onClick={() => fetchReport(reportStartDate, reportEndDate)}
-                        disabled={reportLoading}
-                        style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "none", background: "#199c2e", color: "#fff", cursor: "pointer", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", opacity: reportLoading ? 0.7 : 1 }}>
-                        {reportLoading ? "Loading..." : "📊 Generate Report"}
-                      </button>
-                    </div>
-
-                    {reportData ? (
-                      <div>
-                        {/* Week header */}
-                        <div style={{ background: "#199c2e", borderRadius: 12, padding: "12px 16px", marginBottom: 16, color: "#fff", textAlign: "center" }}>
-                          <div style={{ fontSize: 13, fontFamily: "'Nunito', sans-serif", fontWeight: 700, opacity: 0.9 }}>
-                            {reportData.startDate} → {reportData.endDate}
-                          </div>
-                          <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", marginTop: 4 }}>
-                            {reportData.totalClaims + reportData.totalInspections} Total Signings
-                          </div>
-                        </div>
-
-                        {/* Errors */}
-                        {(reportData.claimsError || reportData.inspError) ? (
-                          <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "#991b1b", fontFamily: "'Nunito', sans-serif" }}>
-                            {reportData.claimsError ? <div>⚠️ Claims error: {reportData.claimsError}</div> : null}
-                            {reportData.inspError ? <div>⚠️ Inspections error: {reportData.inspError} — run the SQL to create the inspections table</div> : null}
-                          </div>
-                        ) : null}
-
-                        {/* Summary pills */}
-                        <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
-                          <div style={{ flex: 1, background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10, padding: "10px 14px", textAlign: "center" }}>
-                            <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#199c2e" }}>{reportData.totalClaims}</div>
-                            <div style={{ fontSize: 12, color: "#166534", fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}>PA Forms</div>
-                          </div>
-                          <div style={{ flex: 1, background: "#eef1f8", border: "1px solid #bfdbfe", borderRadius: 10, padding: "10px 14px", textAlign: "center" }}>
-                            <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#1a2e5a" }}>{reportData.totalInspections}</div>
-                            <div style={{ fontSize: 12, color: "#1e40af", fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}>Inspections</div>
-                          </div>
-                          <div style={{ flex: 1, background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 10, padding: "10px 14px", textAlign: "center" }}>
-                            <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#374151" }}>{Object.keys(reportData.byRep).length}</div>
-                            <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}>Reps Active</div>
-                          </div>
-                        </div>
-
-                        {/* By Rep */}
-                        {Object.keys(reportData.byRep).length > 0 ? (
-                          Object.entries(reportData.byRep)
-                            .sort((a, b) => b[1].length - a[1].length) // most signings first
-                            .map(([rep, signings]) => (
-                              <div key={rep} style={{ marginBottom: 20 }}>
-                                {/* Rep header */}
-                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#1a2e5a", borderRadius: "12px 12px 0 0", padding: "10px 16px" }}>
-                                  <div style={{ fontWeight: 700, fontSize: 15, fontFamily: "'Oswald', sans-serif", color: "#fff", letterSpacing: "0.04em" }}>
-                                    👤 {rep}
-                                  </div>
-                                  <div style={{ background: "rgba(255,255,255,0.2)", borderRadius: 20, padding: "2px 12px", fontSize: 13, fontFamily: "'Nunito', sans-serif", fontWeight: 700, color: "#fff" }}>
-                                    {signings.length} signing{signings.length !== 1 ? "s" : ""}
-                                  </div>
-                                </div>
-
-                                {/* Signings under this rep */}
-                                <div style={{ border: "1px solid #1a2e5a", borderTop: "none", borderRadius: "0 0 12px 12px", overflow: "hidden" }}>
-                                  {/* Column headers */}
-                                  <div style={{ display: "grid", gridTemplateColumns: "1fr 60px 60px 60px", gap: 4, padding: "8px 16px 6px", background: "#f8fafc", borderBottom: "1px solid #e5e7eb" }}>
-                                    <div style={{ fontSize: 11, fontWeight: 700, color: "#9ca3af", fontFamily: "'Nunito', sans-serif", textTransform: "uppercase", letterSpacing: "0.06em" }}>Homeowner</div>
-                                    <div style={{ fontSize: 11, fontWeight: 700, color: "#1a2e5a", fontFamily: "'Nunito', sans-serif", textTransform: "uppercase", letterSpacing: "0.04em", textAlign: "center" }}>🏠 Insp</div>
-                                    <div style={{ fontSize: 11, fontWeight: 700, color: "#199c2e", fontFamily: "'Nunito', sans-serif", textTransform: "uppercase", letterSpacing: "0.04em", textAlign: "center" }}>📋 LOR</div>
-                                    <div style={{ fontSize: 11, fontWeight: 700, color: "#199c2e", fontFamily: "'Nunito', sans-serif", textTransform: "uppercase", letterSpacing: "0.04em", textAlign: "center" }}>📄 PA</div>
-                                  </div>
-                                  {signings.map((s, i) => (
-                                    <div key={i} style={{
-                                      display: "grid",
-                                      gridTemplateColumns: "1fr 60px 60px 60px",
-                                      gap: 4,
-                                      padding: "10px 16px",
-                                      borderBottom: i < signings.length - 1 ? "1px solid #f1f5f9" : "none",
-                                      background: "#fff",
-                                      alignItems: "center",
-                                    }}>
-                                      <div>
-                                        <div style={{ fontWeight: 700, fontSize: 14, fontFamily: "'Nunito', sans-serif", color: "#111827" }}>
-                                          {s.name}
-                                        </div>
-                                        <div style={{ fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>
-                                          📍 {s.address || "—"}
-                                        </div>
-                                        <div style={{ fontSize: 11, color: "#9ca3af", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>
-                                          🕐 {s.signedAt ? new Date(s.signedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}
-                                        </div>
-                                      </div>
-                                      {/* Insp checkmark */}
-                                      <div style={{ textAlign: "center", fontSize: 18 }}>
-                                        {s.hasInsp ? <span style={{ color: "#1a2e5a" }}>✅</span> : <span style={{ color: "#e5e7eb" }}>○</span>}
-                                      </div>
-                                      {/* LOR checkmark */}
-                                      <div style={{ textAlign: "center", fontSize: 18 }}>
-                                        {s.hasLor ? <span style={{ color: "#199c2e" }}>✅</span> : <span style={{ color: "#e5e7eb" }}>○</span>}
-                                      </div>
-                                      {/* PAC checkmark */}
-                                      <div style={{ textAlign: "center", fontSize: 18 }}>
-                                        {s.hasPac ? <span style={{ color: "#199c2e" }}>✅</span> : <span style={{ color: "#e5e7eb" }}>○</span>}
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            ))
-                        ) : (
-                          <div style={{ textAlign: "center", padding: "24px 0", color: "#9ca3af", fontFamily: "'Nunito', sans-serif", fontSize: 15 }}>
-                            No signings recorded this week.
-                          </div>
-                        )}
-                      </div>
-                      </div>
-                      )}
-                      <div style={{ marginTop: 20 }}>
-                        <Button onClick={() => { setManagerUnlocked(false); setView("input"); setManagerSection("home"); }}>
-                          Save & Close
-                        </Button>
-                      </div>
-                    </div>
-                  )}
                 </div>
-              )}
               )}
             </CardContent>
           </Card>
