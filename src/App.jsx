@@ -2250,6 +2250,16 @@ export default function App() {
       "💚 No damage? No problem — the inspection is completely free with no obligation.",
     ]),
     inspOnlyClosing: "Thank you for trusting U.S. Shingle & Metal LLC. We'll be in touch soon! 🏠",
+    ussWelcomeHeading: "What Happens Next",
+    ussWelcomeSteps: JSON.stringify([
+      "Your sales representative will contact you within 24 hours to coordinate the inspection.",
+      "One of our trained inspectors will visit your property and thoroughly document any storm damage.",
+      "All findings and photos are forwarded to a licensed Public Adjuster for professional review.",
+      "If storm damage is confirmed, you will be contacted about your options for filing an insurance claim.",
+      "If no damage is found — no problem! The inspection is completely free with no obligation.",
+    ]),
+    ussContactPhone: "727.761.5200",
+    ussContactEmail: "info@shingleusa.com",
     managerPin: "1234",
   };
 
@@ -2553,6 +2563,18 @@ export default function App() {
   const setInspOnlyOpening  = (v) => { setInspOnlyOpeningRaw(v);  saveSetting("inspOnlyOpening", v); };
   const setInspOnlySteps    = (v) => { setInspOnlyStepsRaw(v);    saveSetting("inspOnlySteps", JSON.stringify(v)); };
   const setInspOnlyClosing  = (v) => { setInspOnlyClosingRaw(v);  saveSetting("inspOnlyClosing", v); };
+
+  // USS Welcome PDF editable content
+  const [ussWelcomeHeading, setUssWelcomeHeadingRaw] = useState(() => loadSetting("ussWelcomeHeading"));
+  const [ussWelcomeSteps,   setUssWelcomeStepsRaw]   = useState(() => {
+    try { return JSON.parse(loadSetting("ussWelcomeSteps")); } catch { return JSON.parse(DEFAULTS.ussWelcomeSteps); }
+  });
+  const [ussContactPhone,   setUssContactPhoneRaw]   = useState(() => loadSetting("ussContactPhone"));
+  const [ussContactEmail,   setUssContactEmailRaw]   = useState(() => loadSetting("ussContactEmail"));
+  const setUssWelcomeHeading = (v) => { setUssWelcomeHeadingRaw(v); saveSetting("ussWelcomeHeading", v); };
+  const setUssWelcomeSteps   = (v) => { setUssWelcomeStepsRaw(v);   saveSetting("ussWelcomeSteps", JSON.stringify(v)); };
+  const setUssContactPhone   = (v) => { setUssContactPhoneRaw(v);   saveSetting("ussContactPhone", v); };
+  const setUssContactEmail   = (v) => { setUssContactEmailRaw(v);   saveSetting("ussContactEmail", v); };
   const setPreInspOpening  = (v) => { setPreInspOpeningRaw(v);  saveSetting("preInspOpening", v); };
   const setPreInspSteps    = (v) => { setPreInspStepsRaw(v);    saveSetting("preInspSteps", JSON.stringify(v)); };
   const setPreInspClosing  = (v) => { setPreInspClosingRaw(v);  saveSetting("preInspClosing", v); };
@@ -5859,6 +5881,10 @@ export default function App() {
                               setPreInspOpening(DEFAULTS.preInspOpening);
                               try { setPreInspSteps(JSON.parse(DEFAULTS.preInspSteps)); } catch {}
                               setPreInspClosing(DEFAULTS.preInspClosing);
+                              setUssWelcomeHeading(DEFAULTS.ussWelcomeHeading);
+                              try { setUssWelcomeSteps(JSON.parse(DEFAULTS.ussWelcomeSteps)); } catch {}
+                              setUssContactPhone(DEFAULTS.ussContactPhone);
+                              setUssContactEmail(DEFAULTS.ussContactEmail);
                             }
                           }}
                           style={{
@@ -5964,27 +5990,26 @@ export default function App() {
                   {/* Thank you page text — tabbed */}
                   <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Thank You Pages</SectionTitle>
-                    <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+                    <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
                       {[
-                        { key: "post_inspection", label: "✅ Roof Inspected Flow", emoji: "✅" },
-                        { key: "pre_inspection",  label: "🏠 Pre-Inspection Flow", emoji: "🏠" },
+                        { key: "post_inspection", label: "✅ Roof Inspected" },
+                        { key: "pre_inspection",  label: "🏠 Pre-Inspection" },
+                        { key: "uss_welcome",     label: "🏠 USS Welcome PDF" },
                       ].map(tab => (
-                        <button
-                          key={tab.key}
-                          type="button"
-                          onClick={() => setManagerTYTab(tab.key)}
+                        <button key={tab.key} type="button" onClick={() => setManagerTYTab(tab.key)}
                           style={{
-                            padding: "8px 16px",
-                            borderRadius: 12,
-                            border: managerTYTab === tab.key ? "2px solid #199c2e" : "1px solid #d1d5db",
-                            background: managerTYTab === tab.key ? "#f0fdf4" : "#fff",
-                            color: managerTYTab === tab.key ? "#166534" : "#374151",
-                            fontFamily: "'Nunito', sans-serif",
-                            fontWeight: 700,
-                            fontSize: 13,
-                            cursor: "pointer",
-                          }}
-                        >
+                            padding: "8px 16px", borderRadius: 12,
+                            border: managerTYTab === tab.key
+                              ? tab.key === "uss_welcome" ? "2px solid #1a2e5a" : "2px solid #199c2e"
+                              : "1px solid #d1d5db",
+                            background: managerTYTab === tab.key
+                              ? tab.key === "uss_welcome" ? "#eef1f8" : "#f0fdf4"
+                              : "#fff",
+                            color: managerTYTab === tab.key
+                              ? tab.key === "uss_welcome" ? "#1a2e5a" : "#166534"
+                              : "#374151",
+                            fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer",
+                          }}>
                           {tab.label}
                         </button>
                       ))}
@@ -6173,9 +6198,68 @@ export default function App() {
                       </div>
                     </div>
                     )}
-                  </Card>
+                    {managerTYTab === "uss_welcome" ? (
+                    <div style={{ display: "grid", gap: 20 }}>
+                      <div>
+                        <Label>Section Heading</Label>
+                        <input type="text" value={ussWelcomeHeading} onChange={e => setUssWelcomeHeading(e.target.value)}
+                          style={{ width: "100%", height: 44, borderRadius: 12, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                      </div>
+                      <div>
+                        <Label>Steps</Label>
+                        <div style={{ display: "grid", gap: 8 }}>
+                          <button type="button" onClick={() => setUssWelcomeSteps([...ussWelcomeSteps, "New step — click to edit"])}
+                            style={{ background: "#eef1f8", border: "1px solid #bfdbfe", color: "#1a2e5a", borderRadius: 10, padding: "8px 14px", fontSize: 13, fontFamily: "'Nunito', sans-serif", fontWeight: 700, cursor: "pointer", width: "fit-content" }}>
+                            + Add Step
+                          </button>
+                          {ussWelcomeSteps.map((step, i) => (
+                            <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                              <div style={{ width: 24, height: 24, borderRadius: "50%", background: "#1a2e5a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0, marginTop: 10 }}>{i + 1}</div>
+                              <textarea value={step} onChange={e => { const n = [...ussWelcomeSteps]; n[i] = e.target.value; setUssWelcomeSteps(n); }} rows={2}
+                                style={{ flex: 1, borderRadius: 12, border: "1px solid #d1d5db", padding: "8px 12px", fontSize: 14, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }} />
+                              <button type="button" onClick={() => setUssWelcomeSteps(ussWelcomeSteps.filter((_, idx) => idx !== i))}
+                                style={{ background: "transparent", border: "none", color: "#ef4444", fontSize: 18, cursor: "pointer", padding: "4px 6px", marginTop: 6, flexShrink: 0 }}>✕</button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                        <div>
+                          <Label>Contact Phone</Label>
+                          <input type="text" value={ussContactPhone} onChange={e => setUssContactPhone(e.target.value)}
+                            style={{ width: "100%", height: 44, borderRadius: 12, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                        </div>
+                        <div>
+                          <Label>Contact Email</Label>
+                          <input type="text" value={ussContactEmail} onChange={e => setUssContactEmail(e.target.value)}
+                            style={{ width: "100%", height: 44, borderRadius: 12, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                        </div>
+                      </div>
 
-                  {/* ── Sales Rep Manager ── */}
+                      {/* Live Preview */}
+                      <div style={{ borderTop: "1px solid #e5e7eb", paddingTop: 16 }}>
+                        <div style={{ fontSize: 12, color: "#9ca3af", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 12 }}>Live Preview</div>
+                        <div style={{ background: "#eef1f8", border: "1px solid #bfdbfe", borderRadius: 16, padding: "20px 18px", overflow: "hidden" }}>
+                          <div style={{ display: "flex", height: 6, marginBottom: 16, borderRadius: 4, overflow: "hidden" }}>
+                            <div style={{ flex: 1, background: "#c8392b" }} />
+                            <div style={{ flex: 1, background: "#e5e7eb" }} />
+                            <div style={{ flex: 1, background: "#1a2e5a" }} />
+                          </div>
+                          <div style={{ fontSize: 16, fontWeight: 700, color: "#1a2e5a", marginBottom: 10 }}>{ussWelcomeHeading}</div>
+                          {ussWelcomeSteps.map((step, i) => (
+                            <div key={i} style={{ display: "flex", gap: 10, marginBottom: 8, alignItems: "flex-start" }}>
+                              <div style={{ width: 20, height: 20, borderRadius: "50%", background: "#1a2e5a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
+                              <div style={{ fontSize: 12, color: "#374151", fontFamily: "'Nunito', sans-serif", lineHeight: 1.5 }}>{step}</div>
+                            </div>
+                          ))}
+                          <div style={{ marginTop: 12, background: "#1a2e5a", borderRadius: 8, padding: "10px 14px", color: "#fff", fontSize: 12 }}>
+                            📞 {ussContactPhone} · 📧 {ussContactEmail}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    ) : null}
+                  </Card>
                   <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Sales Rep Manager</SectionTitle>
                     <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 16 }}>
@@ -6786,13 +6870,8 @@ export default function App() {
               Thank you for choosing U.S. Shingle & Metal LLC for your free roof inspection. We are a licensed and fully insured roofing contractor dedicated to helping homeowners navigate storm damage with honesty and professionalism.
             </p>
             <div style={{ background: "#eef1f8", borderRadius: 10, padding: "18px 22px", marginBottom: 22 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "#1a2e5a", marginBottom: 12 }}>What Happens Next</div>
-              {["Your sales representative will contact you within 24 hours to coordinate the inspection.",
-                "One of our trained inspectors will visit your property and thoroughly document any storm damage.",
-                "All findings and photos are forwarded to a licensed Public Adjuster for professional review.",
-                "If storm damage is confirmed, you will be contacted about your options for filing an insurance claim.",
-                "If no damage is found — no problem! The inspection is completely free with no obligation."
-              ].map((step, i) => (
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#1a2e5a", marginBottom: 12 }}>{ussWelcomeHeading}</div>
+              {ussWelcomeSteps.map((step, i) => (
                 <div key={i} style={{ display: "flex", gap: 12, marginBottom: 10, alignItems: "flex-start" }}>
                   <div style={{ width: 24, height: 24, borderRadius: "50%", background: "#1a2e5a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0, marginTop: 1 }}>{i + 1}</div>
                   <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.6 }}>{step}</div>
@@ -6802,8 +6881,8 @@ export default function App() {
             <div style={{ background: "#1a2e5a", borderRadius: 10, padding: "18px 22px", color: "#fff", marginBottom: 22 }}>
               <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>Contact Us Anytime</div>
               <div style={{ fontSize: 13, lineHeight: 2 }}>
-                📞 Phone: 727.761.5200<br/>
-                📧 Email: info@shingleusa.com<br/>
+                📞 Phone: {ussContactPhone}<br/>
+                📧 Email: {ussContactEmail}<br/>
                 📍 3845 Gateway Centre Blvd Suite 300, Pinellas Park, FL 33782<br/>
                 🪪 License: CCC1331960
               </div>
