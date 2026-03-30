@@ -6305,9 +6305,6 @@ export default function App() {
                         </div>
                       </div>
                     </div>
-
-                      </div>
-                      </Card>
                       ) : null}
 
                       {managerSection === "reps" ? (
@@ -6457,9 +6454,6 @@ export default function App() {
                       </div>
                     )}
                   </Card>
-
-
-                      </Card>
                       ) : null}
 
                       {managerSection === "report" ? (
@@ -6632,8 +6626,6 @@ export default function App() {
                             No signings recorded this week.
                           </div>
                         )}
-                      </div>
-
                       </div>
                       </Card>
                       ) : null}
