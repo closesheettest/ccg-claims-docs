@@ -5858,7 +5858,13 @@ export default function App() {
                       { label: "📊 Report",         id: "mgr-report" },
                     ].map(({ label, id }) => (
                       <button key={id} type="button"
-                        onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                        onClick={() => {
+                          const el = document.getElementById(id);
+                          if (el) {
+                            const y = el.getBoundingClientRect().top + window.scrollY - 80;
+                            window.scrollTo({ top: y, behavior: "smooth" });
+                          }
+                        }}
                         style={{
                           padding: "7px 14px", borderRadius: 20, border: "1px solid #d1d5db",
                           background: "#f9fafb", color: "#374151", cursor: "pointer",
