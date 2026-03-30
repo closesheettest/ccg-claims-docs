@@ -5767,8 +5767,7 @@ export default function App() {
                         style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20, background: "none", border: "none", color: "#199c2e", cursor: "pointer", fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 14, padding: 0 }}>
                         ← Back to Menu
                       </button>
-                      {managerSection === "security" && (
-                  <Card style={{ padding: 20, background: "#f8fafc" }}>
+                      {managerSection === "security" && (<div style={{ padding: 20, background: "#f8fafc", borderRadius: 12, border: "1px solid #e5e7eb", marginTop: 4 }}>
                     <SectionTitle>Security</SectionTitle>
                     <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "flex-end" }}>
                       <div style={{ maxWidth: 300, flex: 1 }}>
@@ -5831,10 +5830,9 @@ export default function App() {
                         </button>
                       </div>
                     </div>
-                  </Card>
+                  </div>
                       )}
-                      {managerSection === "review" && (
-                    <Card style={{ padding: 20, background: "#f8fafc" }}>
+                      {managerSection === "review" && (<div style={{ padding: 20, background: "#f8fafc", borderRadius: 12, border: "1px solid #e5e7eb", marginTop: 4 }}>
                     <SectionTitle>Review Page Text</SectionTitle>
                     <div style={{ display: "grid", gap: 16 }}>
                       <div>
@@ -5910,10 +5908,9 @@ export default function App() {
                         />
                       </div>
                     </div>
-                  </Card>
+                  </div>
                       )}
-                      {managerSection === "thankyou" && (
-                    <Card style={{ padding: 20, background: "#f8fafc" }}>
+                      {managerSection === "thankyou" && (<div style={{ padding: 20, background: "#f8fafc", borderRadius: 12, border: "1px solid #e5e7eb", marginTop: 4 }}>
                     <SectionTitle>Thank You Pages</SectionTitle>
                     <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
                       {[
@@ -6124,10 +6121,9 @@ export default function App() {
                       </div>
                     </div>
                     )}
-                  </Card>
+                  </div>
                       )}
-                      {managerSection === "reps" && (
-                  <Card style={{ padding: 20, background: "#f8fafc" }}>
+                      {managerSection === "reps" && (<div style={{ padding: 20, background: "#f8fafc", borderRadius: 12, border: "1px solid #e5e7eb", marginTop: 4 }}>
                     <SectionTitle>Sales Rep Manager</SectionTitle>
                     <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 16 }}>
                       Add reps here. Their name and JN ID will be used in the Sales Rep dropdown and to sync with Job Nimbus when the API is connected.
@@ -6272,10 +6268,9 @@ export default function App() {
                         No reps added yet. Click "Import All 24 Known Reps" above.
                       </div>
                     )}
-                  </Card>
+                  </div>
                       )}
-                      {managerSection === "report" && (
-                  <Card style={{ padding: 20, background: "#f8fafc" }}>
+                      {managerSection === "report" && (<div style={{ padding: 20, background: "#f8fafc", borderRadius: 12, border: "1px solid #e5e7eb", marginTop: 4 }}>
                     <SectionTitle>Weekly Report</SectionTitle>
 
                     <div style={{ display: "grid", gap: 12, marginBottom: 16 }}>
@@ -6445,7 +6440,7 @@ export default function App() {
                           </div>
                         )}
                       </div>
-                      </Card>
+                      </div>
                       )}
                       <div style={{ marginTop: 20 }}>
                         <Button onClick={() => { setManagerUnlocked(false); setView("input"); setManagerSection("home"); }}>
