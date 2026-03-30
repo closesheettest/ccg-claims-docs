@@ -3884,7 +3884,6 @@ export default function App() {
                       placeholder="Type co-owner's full legal name"
                     />
                   )}
-                </>
               ) : null}
 
               {selectedDocs.includes("pac") ? (
@@ -3978,11 +3977,8 @@ export default function App() {
                           placeholder="Co-owner initials (e.g. JD)"
                         />
                       )}
-                    </>
                   ) : null}
-                </>
               ) : null}
-            </>
           ) : null}
 
           {!showSendMode && submitAttempted && missingSigningFields.length > 0 ? (
@@ -4663,7 +4659,6 @@ export default function App() {
               </div>
             </CardContent>
           </Card>
-        </>
         ) : null}
 
         {view === "review" ? (
@@ -5196,7 +5191,6 @@ export default function App() {
                 />
               ) : null}
             </div>
-          </>
         ) : null}
 
         {view === "sign" ? (
@@ -5288,7 +5282,6 @@ export default function App() {
             <div id="signature-section" style={{ scrollMarginTop: 20 }}>
               {renderSigningFields(pendingSend)}
             </div>
-          </>
         ) : null}
         {/* ── DUPLICATE VIEW ── */}
         {view === "duplicate" && duplicateRecord ? (
@@ -5502,7 +5495,6 @@ export default function App() {
               </>
             )}
           </div>
-          </>
         ) : null}
 
         {/* ── INSPECTION FORM VIEW ── */}
@@ -5759,7 +5751,6 @@ export default function App() {
                 </div>
               </div>
             </div>
-          </>
         ) : null}
 
         {/* ── MANAGER VIEW ── */}
@@ -5887,7 +5878,7 @@ export default function App() {
                         ← Back to Menu
                       </button>
 
-                      {managerSection === "security" ? (<>
+                      {managerSection === "security" && 
                   <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Security</SectionTitle>
                     <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "flex-end" }}>
@@ -5952,10 +5943,9 @@ export default function App() {
                       </div>
                     </div>
                   </Card>
-                      </>
-                      ) : null}
+                      }
 
-                      {managerSection === "review" ? (<>
+                      {managerSection === "review" && 
                   <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Review Page Text</SectionTitle>
                     <div style={{ display: "grid", gap: 16 }}>
@@ -6033,10 +6023,9 @@ export default function App() {
                       </div>
                     </div>
                   </Card>
-                      </>
-                      ) : null}
+                      }
 
-                      {managerSection === "thankyou" ? (<>
+                      {managerSection === "thankyou" && 
                   <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Thank You Pages</SectionTitle>
                     <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
@@ -6309,10 +6298,9 @@ export default function App() {
                     </div>
                     ) : null}
                   </Card>
-                      </>
-                      ) : null}
+                      }
 
-                      {managerSection === "reps" ? (<>
+                      {managerSection === "reps" && 
                   <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Sales Rep Manager</SectionTitle>
                     <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 16 }}>
@@ -6459,10 +6447,9 @@ export default function App() {
                       </div>
                     )}
                   </Card>
-                      </>
-                      ) : null}
+                      }
 
-                      {managerSection === "report" ? (<>
+                      {managerSection === "report" && 
                   <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Weekly Report</SectionTitle>
 
@@ -6634,8 +6621,7 @@ export default function App() {
                         )}
                       </div>
                       </Card>
-                      </>
-                      ) : null}
+                      }
 
                       <div style={{ marginTop: 20 }}>
                         <Button onClick={() => { setManagerUnlocked(false); setView("input"); setManagerSection("home"); }}>
@@ -6649,8 +6635,7 @@ export default function App() {
               )}
             </CardContent>
           </Card>
-        </>
-        ) : null}
+        }
 
       </div>
 
