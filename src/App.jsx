@@ -2555,19 +2555,6 @@ export default function App() {
   const setUssWelcomeSteps   = (v) => { setUssWelcomeStepsRaw(v);   saveSetting("ussWelcomeSteps", JSON.stringify(v)); };
   const setUssContactPhone   = (v) => { setUssContactPhoneRaw(v);   saveSetting("ussContactPhone", v); };
   const setUssContactEmail   = (v) => { setUssContactEmailRaw(v);   saveSetting("ussContactEmail", v); };
-  const setPreInspOpening  = (v) => { setPreInspOpeningRaw(v);  saveSetting("preInspOpening",
-
-  // USS Welcome PDF editable content
-  const [ussWelcomeHeading, setUssWelcomeHeadingRaw] = useState(() => loadSetting("ussWelcomeHeading"));
-  const [ussWelcomeSteps,   setUssWelcomeStepsRaw]   = useState(() => {
-    try { return JSON.parse(loadSetting("ussWelcomeSteps")); } catch { return JSON.parse(DEFAULTS.ussWelcomeSteps); }
-  });
-  const [ussContactPhone,   setUssContactPhoneRaw]   = useState(() => loadSetting("ussContactPhone"));
-  const [ussContactEmail,   setUssContactEmailRaw]   = useState(() => loadSetting("ussContactEmail"));
-  const setUssWelcomeHeading = (v) => { setUssWelcomeHeadingRaw(v); saveSetting("ussWelcomeHeading", v); };
-  const setUssWelcomeSteps   = (v) => { setUssWelcomeStepsRaw(v);   saveSetting("ussWelcomeSteps", JSON.stringify(v)); };
-  const setUssContactPhone   = (v) => { setUssContactPhoneRaw(v);   saveSetting("ussContactPhone", v); };
-  const setUssContactEmail   = (v) => { setUssContactEmailRaw(v);   saveSetting("ussContactEmail", v); };
   const setPreInspOpening  = (v) => { setPreInspOpeningRaw(v);  saveSetting("preInspOpening", v); };
   const setPreInspSteps    = (v) => { setPreInspStepsRaw(v);    saveSetting("preInspSteps", JSON.stringify(v)); };
   const setPreInspClosing  = (v) => { setPreInspClosingRaw(v);  saveSetting("preInspClosing", v); };
