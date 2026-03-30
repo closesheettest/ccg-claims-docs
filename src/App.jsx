@@ -2198,6 +2198,8 @@ export default function App() {
   const [inspTypedSig, setInspTypedSig] = useState("");
   const [inspSigFont, setInspSigFont] = useState(SIGNATURE_FONTS[0]);
   const [inspSubmitting, setInspSubmitting] = useState(false);
+  const [inspectionOnly, setInspectionOnly] = useState(false);
+  const [duplicateRecord, setDuplicateRecord] = useState(null);
   const [inspSubmitAttempted, setInspSubmitAttempted] = useState(false);
 
   const updateInsp = (key, val) => setInspData(prev => ({ ...prev, [key]: val }));
