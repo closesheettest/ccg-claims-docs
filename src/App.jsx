@@ -2175,7 +2175,7 @@ function PublicAdjusterContract({
 
 export default function App() {
   const [view, setView] = useState("input");
-  const [selectedDocs, setSelectedDocs] = useState(["lor"]);
+  const [selectedDocs, setSelectedDocs] = useState(["insp", "lor", "pac"]);
   const [signMode, setSignMode] = useState("now");
   const [data, setData] = useState(initialData);
   const [pendingSend, setPendingSend] = useState(false);
@@ -5842,8 +5842,39 @@ export default function App() {
                 </div>
               ) : (
                 <div style={{ display: "grid", gap: 28 }}>
+
+                  {/* ── Manager Nav ── */}
+                  <div style={{
+                    position: "sticky", top: 0, zIndex: 10,
+                    background: "#fff", borderRadius: 16, padding: "12px 16px",
+                    boxShadow: "0 2px 8px rgba(0,0,0,0.08)", border: "1px solid #e5e7eb",
+                    display: "flex", gap: 8, flexWrap: "wrap",
+                  }}>
+                    {[
+                      { label: "🔒 Security",       id: "mgr-security" },
+                      { label: "📝 Review Page",    id: "mgr-review" },
+                      { label: "🎉 Thank You",      id: "mgr-thankyou" },
+                      { label: "👤 Sales Reps",     id: "mgr-reps" },
+                      { label: "📊 Report",         id: "mgr-report" },
+                    ].map(({ label, id }) => (
+                      <button key={id} type="button"
+                        onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                        style={{
+                          padding: "7px 14px", borderRadius: 20, border: "1px solid #d1d5db",
+                          background: "#f9fafb", color: "#374151", cursor: "pointer",
+                          fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 12,
+                          whiteSpace: "nowrap",
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.background = "#199c2e"; e.currentTarget.style.color = "#fff"; e.currentTarget.style.borderColor = "#199c2e"; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = "#f9fafb"; e.currentTarget.style.color = "#374151"; e.currentTarget.style.borderColor = "#d1d5db"; }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+
                   {/* PIN change */}
-                  <Card style={{ padding: 20, background: "#f8fafc" }}>
+                  <Card id="mgr-security" style={{ padding: 20, background: "#f8fafc", scrollMarginTop: 80 }}>
                     <SectionTitle>Security</SectionTitle>
                     <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "flex-end" }}>
                       <div style={{ maxWidth: 300, flex: 1 }}>
@@ -5909,7 +5940,7 @@ export default function App() {
                   </Card>
 
                   {/* Review page text */}
-                  <Card style={{ padding: 20, background: "#f8fafc" }}>
+                  <Card id="mgr-review" style={{ padding: 20, background: "#f8fafc", scrollMarginTop: 80 }}>
                     <SectionTitle>Review Page Text</SectionTitle>
                     <div style={{ display: "grid", gap: 16 }}>
                       <div>
@@ -5988,7 +6019,7 @@ export default function App() {
                   </Card>
 
                   {/* Thank you page text — tabbed */}
-                  <Card style={{ padding: 20, background: "#f8fafc" }}>
+                  <Card id="mgr-thankyou" style={{ padding: 20, background: "#f8fafc", scrollMarginTop: 80 }}>
                     <SectionTitle>Thank You Pages</SectionTitle>
                     <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
                       {[
@@ -6260,7 +6291,7 @@ export default function App() {
                     </div>
                     ) : null}
                   </Card>
-                  <Card style={{ padding: 20, background: "#f8fafc" }}>
+                  <Card id="mgr-reps" style={{ padding: 20, background: "#f8fafc", scrollMarginTop: 80 }}>
                     <SectionTitle>Sales Rep Manager</SectionTitle>
                     <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 16 }}>
                       Add reps here. Their name and JN ID will be used in the Sales Rep dropdown and to sync with Job Nimbus when the API is connected.
@@ -6408,7 +6439,7 @@ export default function App() {
                   </Card>
 
                   {/* ── Weekly Report ── */}
-                  <Card style={{ padding: 20, background: "#f8fafc" }}>
+                  <Card id="mgr-report" style={{ padding: 20, background: "#f8fafc", scrollMarginTop: 80 }}>
                     <SectionTitle>Weekly Report</SectionTitle>
 
                     <div style={{ display: "grid", gap: 12, marginBottom: 16 }}>
