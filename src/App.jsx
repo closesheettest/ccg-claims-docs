@@ -5936,8 +5936,6 @@ export default function App() {
                       </div>
                     </div>
                   </Card>
-
-                  {/* Review page text */}
                   ) : null}
 
                   {managerSection === "review" ? (
