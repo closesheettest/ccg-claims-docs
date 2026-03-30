@@ -6305,6 +6305,8 @@ export default function App() {
                         </div>
                       </div>
                     </div>
+                    ) : null}
+                  </Card>
                       ) : null}
 
                       {managerSection === "reps" ? (
