@@ -6032,9 +6032,6 @@ export default function App() {
                       </div>
                     </div>
                   </Card>
-
-
-                      </Card>
                       ) : null}
 
                       {managerSection === "thankyou" ? (
