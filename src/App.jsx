@@ -6125,8 +6125,6 @@ export default function App() {
                     </div>
                     )}
                   </Card>
-
-                    </Card>
                       )}
                       {managerSection === "reps" && (
                   <Card style={{ padding: 20, background: "#f8fafc" }}>
