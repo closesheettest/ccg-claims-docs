@@ -6017,7 +6017,6 @@ export default function App() {
                     </div>
                   </Card>
 
-                  {/* Thank you page text — tabbed */}
                   ) : null}
 
                   {managerSection === "thankyou" ? (
