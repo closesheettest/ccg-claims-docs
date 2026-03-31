@@ -81,6 +81,7 @@ const initialData = {
   leadSource: "NEED",  // "NEED" | "INS"
   salesRepId: "",
   salesRepName: "",
+  salesRepEmail: "",
   homeowner1: "",
   homeowner2: "",
   address: "",
@@ -2982,6 +2983,9 @@ export default function App() {
       policy_number: data.policyNumber,
       claim_number: data.claimNumber,
       representative_name: data.representativeName,
+      sales_rep_name: data.salesRepName || "",
+      sales_rep_email: data.salesRepEmail || "",
+      docs_signed: selectedDocs.join(","),
       homeowner1: data.homeowner1,
       homeowner2: data.homeowner2,
       phone: data.phone,
