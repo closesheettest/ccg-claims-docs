@@ -2259,6 +2259,7 @@ export default function App() {
     ]),
     ussContactPhone: "727.761.5200",
     ussContactEmail: "info@shingleusa.com",
+    activityEmail: "",
     managerPin: "1234",
   };
 
@@ -2577,6 +2578,9 @@ export default function App() {
   const setUssWelcomeSteps   = (v) => { setUssWelcomeStepsRaw(v);   saveSetting("ussWelcomeSteps", JSON.stringify(v)); };
   const setUssContactPhone   = (v) => { setUssContactPhoneRaw(v);   saveSetting("ussContactPhone", v); };
   const setUssContactEmail   = (v) => { setUssContactEmailRaw(v);   saveSetting("ussContactEmail", v); };
+
+  const [activityEmail, setActivityEmailRaw] = useState(() => loadSetting("activityEmail"));
+  const setActivityEmail = (v) => { setActivityEmailRaw(v); saveSetting("activityEmail", v); };
   const setPreInspOpening  = (v) => { setPreInspOpeningRaw(v);  saveSetting("preInspOpening", v); };
   const setPreInspSteps    = (v) => { setPreInspStepsRaw(v);    saveSetting("preInspSteps", JSON.stringify(v)); };
   const setPreInspClosing  = (v) => { setPreInspClosingRaw(v);  saveSetting("preInspClosing", v); };
@@ -3099,6 +3103,36 @@ export default function App() {
       setInspTypedSig("");
       setInspSubmitAttempted(false);
 
+      // ── Activity notification email ──
+      if (activityEmail) {
+        const repName = data.salesRepName || "—";
+        await fetch("/.netlify/functions/send-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            to: [activityEmail],
+            subject: `🏠 New Inspection — ${inspData.clientName} (${repName})`,
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto;">
+                <div style="background: #1a2e5a; padding: 20px 28px; border-radius: 12px 12px 0 0;">
+                  <h2 style="color: #fff; margin: 0; font-size: 20px;">🏠 New Inspection Signed</h2>
+                </div>
+                <div style="background: #f9fafb; padding: 24px 28px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb; border-top: none;">
+                  <table style="font-size: 14px; color: #374151; width: 100%; border-collapse: collapse;">
+                    <tr><td style="padding: 5px 0; font-weight: 700; width: 130px;">Client:</td><td>${inspData.clientName}</td></tr>
+                    <tr><td style="padding: 5px 0; font-weight: 700;">Address:</td><td>${[inspData.address, inspData.city, inspData.state, inspData.zip].filter(Boolean).join(", ")}</td></tr>
+                    <tr><td style="padding: 5px 0; font-weight: 700;">Rep:</td><td>${repName}</td></tr>
+                    <tr><td style="padding: 5px 0; font-weight: 700;">Doc:</td><td>Free Roof Inspection Agreement</td></tr>
+                    ${inspData.mobile ? `<tr><td style="padding: 5px 0; font-weight: 700;">Phone:</td><td>${inspData.mobile}</td></tr>` : ""}
+                    ${inspData.email ? `<tr><td style="padding: 5px 0; font-weight: 700;">Email:</td><td>${inspData.email}</td></tr>` : ""}
+                  </table>
+                </div>
+              </div>
+            `,
+          }),
+        }).catch(e => console.warn("Activity email non-fatal:", e));
+      }
+
       // Go to thank you page
       window.scrollTo({ top: 0, behavior: "smooth" });
       setView("thankyou");
@@ -3394,6 +3428,40 @@ export default function App() {
           }),
         });
         await parseJsonResponse(paEmailResponse, "PA notification email failed.");
+      }
+
+      // ── Activity notification email ──
+      if (activityEmail) {
+        const repName = data.salesRepName || data.representativeName || "—";
+        const homeownerName = [data.homeowner1, data.homeowner2].filter(Boolean).join(" & ");
+        const homeownerAddress = [data.address, data.city, data.state, data.zip].filter(Boolean).join(", ");
+        await fetch("/.netlify/functions/send-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            to: [activityEmail],
+            subject: `📋 New Signing — ${homeownerName} (${repName})`,
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto;">
+                <div style="background: #199c2e; padding: 20px 28px; border-radius: 12px 12px 0 0;">
+                  <h2 style="color: #fff; margin: 0; font-size: 20px;">📋 New Signing Activity</h2>
+                </div>
+                <div style="background: #f9fafb; padding: 24px 28px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb; border-top: none;">
+                  <table style="font-size: 14px; color: #374151; width: 100%; border-collapse: collapse;">
+                    <tr><td style="padding: 5px 0; font-weight: 700; width: 130px;">Homeowner:</td><td>${homeownerName}</td></tr>
+                    <tr><td style="padding: 5px 0; font-weight: 700;">Address:</td><td>${homeownerAddress}</td></tr>
+                    <tr><td style="padding: 5px 0; font-weight: 700;">Rep:</td><td>${repName}</td></tr>
+                    <tr><td style="padding: 5px 0; font-weight: 700;">Docs:</td><td>${selectedDocs.map(d => documentLabel(d)).join(", ")}</td></tr>
+                    <tr><td style="padding: 5px 0; font-weight: 700;">Stage:</td><td>${data.claimStage === "post_inspection" ? "✅ Roof Inspected" : "🏠 Pre-Inspection"}</td></tr>
+                    <tr><td style="padding: 5px 0; font-weight: 700;">Signed:</td><td>${nextAuditInfo.signedAt || new Date().toLocaleString()}</td></tr>
+                    ${data.phone ? `<tr><td style="padding: 5px 0; font-weight: 700;">Phone:</td><td>${data.phone}</td></tr>` : ""}
+                    ${data.signerEmail ? `<tr><td style="padding: 5px 0; font-weight: 700;">Email:</td><td>${data.signerEmail}</td></tr>` : ""}
+                  </table>
+                </div>
+              </div>
+            `,
+          }),
+        }).catch(e => console.warn("Activity email non-fatal:", e));
       }
 
       setIsSubmitting(false);
@@ -5769,61 +5837,55 @@ export default function App() {
                   {/* PIN change */}
                   <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Security</SectionTitle>
-                    <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "flex-end" }}>
-                      <div style={{ maxWidth: 300, flex: 1 }}>
-                        <Label>Change Manager PIN</Label>
-                        <input
-                          type="password"
-                          value={managerPin}
-                          onChange={(e) => setManagerPin(e.target.value)}
-                          placeholder="New PIN"
-                          style={{
-                            width: "100%",
-                            height: 44,
-                            borderRadius: 14,
-                            border: "1px solid #d1d5db",
-                            padding: "0 12px",
-                            fontSize: 14,
-                            boxSizing: "border-box",
-                          }}
-                        />
+                    <div style={{ display: "grid", gap: 16 }}>
+                      <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "flex-end" }}>
+                        <div style={{ maxWidth: 300, flex: 1 }}>
+                          <Label>Change Manager PIN</Label>
+                          <input
+                            type="password"
+                            value={managerPin}
+                            onChange={(e) => setManagerPin(e.target.value)}
+                            placeholder="New PIN"
+                            style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }}
+                          />
+                        </div>
+                        <div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (window.confirm("Reset all text to factory defaults?")) {
+                                setReviewHeadline(DEFAULTS.reviewHeadline);
+                                setReviewLorText(DEFAULTS.reviewLorText);
+                                setReviewPacText(DEFAULTS.reviewPacText);
+                                setReviewHelpText(DEFAULTS.reviewHelpText);
+                                setThankYouHeadline(DEFAULTS.thankYouHeadline);
+                                setThankYouOpening(DEFAULTS.thankYouOpening);
+                                try { setThankYouSteps(JSON.parse(DEFAULTS.thankYouSteps)); } catch {}
+                                setThankYouClosing(DEFAULTS.thankYouClosing);
+                                setPreInspHeadline(DEFAULTS.preInspHeadline);
+                                setPreInspOpening(DEFAULTS.preInspOpening);
+                                try { setPreInspSteps(JSON.parse(DEFAULTS.preInspSteps)); } catch {}
+                                setPreInspClosing(DEFAULTS.preInspClosing);
+                              }
+                            }}
+                            style={{ padding: "10px 18px", borderRadius: 12, border: "1px solid #fca5a5", background: "#fff", color: "#dc2626", fontFamily: "'Oswald', sans-serif", fontWeight: 600, fontSize: 13, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer", height: 44 }}
+                          >
+                            ↺ Reset All Text to Defaults
+                          </button>
+                        </div>
                       </div>
                       <div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (window.confirm("Reset all text to factory defaults?")) {
-                              setReviewHeadline(DEFAULTS.reviewHeadline);
-                              setReviewLorText(DEFAULTS.reviewLorText);
-                              setReviewPacText(DEFAULTS.reviewPacText);
-                              setReviewHelpText(DEFAULTS.reviewHelpText);
-                              setThankYouHeadline(DEFAULTS.thankYouHeadline);
-                              setThankYouOpening(DEFAULTS.thankYouOpening);
-                              try { setThankYouSteps(JSON.parse(DEFAULTS.thankYouSteps)); } catch {}
-                              setThankYouClosing(DEFAULTS.thankYouClosing);
-                              setPreInspHeadline(DEFAULTS.preInspHeadline);
-                              setPreInspOpening(DEFAULTS.preInspOpening);
-                              try { setPreInspSteps(JSON.parse(DEFAULTS.preInspSteps)); } catch {}
-                              setPreInspClosing(DEFAULTS.preInspClosing);
-                            }
-                          }}
-                          style={{
-                            padding: "10px 18px",
-                            borderRadius: 12,
-                            border: "1px solid #fca5a5",
-                            background: "#fff",
-                            color: "#dc2626",
-                            fontFamily: "'Oswald', sans-serif",
-                            fontWeight: 600,
-                            fontSize: 13,
-                            letterSpacing: "0.04em",
-                            textTransform: "uppercase",
-                            cursor: "pointer",
-                            height: 44,
-                          }}
-                        >
-                          ↺ Reset All Text to Defaults
-                        </button>
+                        <Label>Activity Notification Email</Label>
+                        <input
+                          type="email"
+                          value={activityEmail}
+                          onChange={(e) => setActivityEmail(e.target.value)}
+                          placeholder="e.g. manager@company.com"
+                          style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }}
+                        />
+                        <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4, fontFamily: "'Nunito', sans-serif" }}>
+                          Every signing (PA docs or inspection) will CC this address with a summary. Leave blank to disable.
+                        </div>
                       </div>
                     </div>
                   </Card>
