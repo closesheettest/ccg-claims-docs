@@ -3059,6 +3059,17 @@ export default function App() {
 
       // Email to homeowner
       if (inspData.email) {
+        // Generate USS welcome PDF
+        let ussWelcomeAttachment = null;
+        try {
+          const ussBlob = await generatePDF("#uss-welcome-printable", "USS-Welcome-Package.pdf");
+          const ussBase64 = await blobToBase64(ussBlob);
+          ussWelcomeAttachment = { filename: "USS-Welcome-Package.pdf", content: String(ussBase64).split(",")[1] };
+        } catch(e) { console.warn("USS welcome PDF failed:", e); }
+
+        const inspAttachments = [{ filename: "Free-Roof-Inspection-Agreement.pdf", content: base64Content }];
+        if (ussWelcomeAttachment) inspAttachments.push(ussWelcomeAttachment);
+
         await fetch("/.netlify/functions/send-email", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -3067,27 +3078,34 @@ export default function App() {
             subject: "Your Free Roof Inspection Agreement — U.S. Shingle & Metal",
             html: `
               <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <div style="background: #199c2e; padding: 24px 32px; border-radius: 12px 12px 0 0;">
+                <div style="background: #1a2e5a; padding: 24px 32px; border-radius: 12px 12px 0 0;">
                   <h1 style="color: #fff; margin: 0; font-size: 22px;">🏠 Your Inspection Agreement</h1>
                 </div>
                 <div style="background: #f9fafb; padding: 24px 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb; border-top: none;">
                   <p style="font-size: 15px; color: #374151;">Hi ${inspData.clientName},</p>
                   <p style="font-size: 15px; color: #374151; line-height: 1.6;">
                     Thank you for signing your Free Roof Inspection Agreement with U.S. Shingle & Metal LLC.
-                    Your signed agreement is attached. We will be in touch shortly to schedule the inspection.
+                    Your signed agreement and welcome package are attached. We will be in touch shortly to schedule your inspection.
                   </p>
-                  <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 16px 20px; margin: 16px 0;">
-                    <p style="margin: 0; font-weight: 700; color: #166534;">📞 Questions? Contact us:</p>
-                    <p style="margin: 6px 0 0; color: #166534; font-size: 14px;">
-                      Phone: 727.761.5200<br/>Email: info@shingleusa.com
+                  <div style="background: #eef1f8; border: 1px solid #bfdbfe; border-radius: 10px; padding: 16px 20px; margin: 16px 0;">
+                    <p style="margin: 0; font-weight: 700; color: #1a2e5a;">📎 Attached:</p>
+                    <ul style="margin: 8px 0 0; padding-left: 18px; color: #374151; font-size: 14px; line-height: 1.8;">
+                      <li>Free Roof Inspection Agreement (signed copy)</li>
+                      <li>USS Welcome Package — what to expect next</li>
+                    </ul>
+                  </div>
+                  <div style="background: #1a2e5a; border-radius: 10px; padding: 16px 20px; margin: 16px 0;">
+                    <p style="margin: 0; font-weight: 700; color: #fff;">📞 Questions? Contact us:</p>
+                    <p style="margin: 6px 0 0; color: rgba(255,255,255,0.85); font-size: 14px;">
+                      Phone: ${ussContactPhone}<br/>Email: ${ussContactEmail}
                     </p>
                   </div>
                 </div>
               </div>
             `,
-            attachments: [{ filename: "Free-Roof-Inspection-Agreement.pdf", content: base64Content }],
+            attachments: inspAttachments,
           }),
-        });
+        }).catch(e => console.warn("Homeowner email non-fatal:", e));
       }
 
       // Job Nimbus sync disabled until API key is fixed
