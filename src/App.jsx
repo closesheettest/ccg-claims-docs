@@ -2175,7 +2175,7 @@ function PublicAdjusterContract({
 
 export default function App() {
   const [view, setView] = useState("input");
-  const [selectedDocs, setSelectedDocs] = useState(["lor"]);
+  const [selectedDocs, setSelectedDocs] = useState(["insp", "lor", "pac"]);
   const [signMode, setSignMode] = useState("now");
   const [data, setData] = useState(initialData);
   const [pendingSend, setPendingSend] = useState(false);
@@ -3130,6 +3130,7 @@ export default function App() {
 
       // Go to thank you page
       window.scrollTo({ top: 0, behavior: "smooth" });
+      setInspectionOnly(true);
       setView("thankyou");
 
     } catch (err) {
@@ -3487,6 +3488,8 @@ export default function App() {
       if (isSigningFromLink) {
         window.history.replaceState({}, "", window.location.pathname);
       }
+      // Set inspectionOnly flag — insp signed but no PA docs
+      setInspectionOnly(selectedDocs.includes("insp") && !selectedDocs.includes("lor") && !selectedDocs.includes("pac"));
       setView("thankyou");
     } catch (err) {
       setIsSubmitting(false);
@@ -5271,245 +5274,152 @@ export default function App() {
           <>
           <div style={{ maxWidth: 640, margin: "0 auto", padding: "32px 16px" }}>
 
-            {/* Hero celebration banner */}
-            <div style={{
-              background: "linear-gradient(135deg, #199c2e 0%, #15803d 100%)",
-              borderRadius: 28,
-              padding: "40px 36px 36px",
-              textAlign: "center",
-              marginBottom: 28,
-              position: "relative",
-              overflow: "hidden",
-            }}>
-              <div style={{ position: "absolute", top: -30, right: -30, width: 140, height: 140, background: "rgba(255,255,255,0.06)", borderRadius: "50%" }} />
-              <div style={{ position: "absolute", bottom: -20, left: 20, width: 90, height: 90, background: "rgba(255,255,255,0.05)", borderRadius: "50%" }} />
-              <div style={{ fontSize: 72, marginBottom: 16, lineHeight: 1 }}>🎉</div>
-              <div style={{
-                fontSize: 36,
-                fontWeight: 700,
-                color: "#fff",
-                fontFamily: "'Oswald', sans-serif",
-                lineHeight: 1.1,
-                marginBottom: 16,
-                letterSpacing: "0.01em",
-              }}>
-                {activeTYHeadline}
-              </div>
-              <div style={{
-                fontSize: 18,
-                color: "rgba(255,255,255,0.92)",
-                fontFamily: "'Nunito', sans-serif",
-                fontWeight: 600,
-                lineHeight: 1.65,
-                maxWidth: 480,
-                margin: "0 auto",
-              }}>
-                {activeTYOpening}
-              </div>
-            </div>
-
-            {/* What happens next steps */}
-            <div style={{
-              background: "#fff",
-              borderRadius: 24,
-              border: "1px solid #e5e7eb",
-              padding: "28px 28px 24px",
-              marginBottom: 24,
-              boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
-            }}>
-              <div style={{
-                fontSize: 20,
-                fontWeight: 700,
-                color: "#111827",
-                fontFamily: "'Oswald', sans-serif",
-                letterSpacing: "0.03em",
-                marginBottom: 20,
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-              }}>
-                <span style={{ fontSize: 24 }}>📋</span> What Happens Next
-              </div>
-
-              <div style={{ display: "grid", gap: 14 }}>
-                {activeTYSteps.map((step, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      display: "flex",
-                      alignItems: "flex-start",
-                      gap: 14,
-                      padding: "14px 16px",
-                      background: "#f0fdf4",
-                      borderRadius: 16,
-                      border: "1px solid #bbf7d0",
-                    }}
-                  >
-                    <div style={{
-                      width: 28,
-                      height: 28,
-                      borderRadius: "50%",
-                      background: "#199c2e",
-                      color: "#fff",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontWeight: 700,
-                      fontSize: 13,
-                      fontFamily: "'Oswald', sans-serif",
-                      flexShrink: 0,
-                      marginTop: 1,
-                    }}>
-                      {i + 1}
-                    </div>
-                    <div style={{
-                      fontSize: 16,
-                      color: "#166534",
-                      fontFamily: "'Nunito', sans-serif",
-                      fontWeight: 600,
-                      lineHeight: 1.55,
-                    }}>
-                      {step}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Closing statement */}
-            <div style={{
-              background: "#fffbeb",
-              border: "1px solid #fde68a",
-              borderRadius: 20,
-              padding: "20px 24px",
-              textAlign: "center",
-              marginBottom: 32,
-            }}>
-              <div style={{
-                fontSize: 17,
-                color: "#92400e",
-                fontFamily: "'Nunito', sans-serif",
-                fontWeight: 700,
-                lineHeight: 1.6,
-              }}>
-                {activeTYClosing}
-              </div>
-            </div>
-
-            {/* Email + download notice */}
-            <div style={{
-              background: "#fff",
-              border: `1px solid ${selectedDocs.includes("insp") && !selectedDocs.includes("lor") && !selectedDocs.includes("pac") ? "#bfdbfe" : "#e5e7eb"}`,
-              borderRadius: 20,
-              padding: "22px 26px",
-              marginBottom: 28,
-              boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
-            }}>
-              <div style={{
-                display: "flex",
-                alignItems: "flex-start",
-                gap: 16,
-                marginBottom: 16,
-              }}>
-                <span style={{ fontSize: 36, flexShrink: 0 }}>📧</span>
-                <div>
-                  <div style={{
-                    fontSize: 19,
-                    fontWeight: 700,
-                    color: "#111827",
-                    fontFamily: "'Oswald', sans-serif",
-                    marginBottom: 6,
-                    letterSpacing: "0.02em",
-                  }}>
-                    Check Your Email!
-                  </div>
-                  <div style={{
-                    fontSize: 15,
-                    color: "#374151",
-                    fontFamily: "'Nunito', sans-serif",
-                    fontWeight: 600,
-                    lineHeight: 1.65,
-                  }}>
-                    We just sent everything to <strong>{data.signerEmail}</strong> — your signed documents
-                    plus a <strong>Welcome Package PDF</strong> with our contact info and your next steps.
-                    Keep it saved so you always know how to reach us!
-                  </div>
-                </div>
-              </div>
-
-              <div style={{
-                background: selectedDocs.includes("insp") && !selectedDocs.includes("lor") && !selectedDocs.includes("pac") ? "#eff6ff" : "#f0fdf4",
-                borderRadius: 14,
-                padding: "12px 16px",
-                fontSize: 13,
-                color: selectedDocs.includes("insp") && !selectedDocs.includes("lor") && !selectedDocs.includes("pac") ? "#1e40af" : "#166534",
-                fontFamily: "'Nunito', sans-serif",
-                fontWeight: 600,
-                lineHeight: 1.6,
-              }}>
-                📎 Attached: {selectedDocs.map(d => documentLabel(d)).join(", ")} + CCG Welcome Package
-              </div>
-
-              <div style={{ marginTop: 14, textAlign: "center" }}>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    setIsExportingPdf(true);
-                    await new Promise(r => setTimeout(r, 200));
-                    try {
-                      const el = document.getElementById("ty-summary-printable");
-                      await html2pdf().set({
-                        margin: 0,
-                        filename: "CCG-Welcome-Package.pdf",
-                        image: { type: "jpeg", quality: 0.98 },
-                        html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0 },
-                        jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
-                        pagebreak: { mode: ["css"] },
-                      }).from(el).save();
-                    } catch(err) {
-                      alert(err?.message || "Failed to download.");
-                    } finally {
-                      setIsExportingPdf(false);
-                    }
-                  }}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 8,
-                    padding: "10px 22px",
-                    borderRadius: 12,
-                    border: "1.5px solid #d1d5db",
-                    background: "#fff",
-                    color: "#374151",
-                    fontFamily: "'Nunito', sans-serif",
-                    fontWeight: 700,
-                    fontSize: 14,
-                    cursor: "pointer",
-                  }}
-                >
-                  📄 Download Welcome Package Now
-                </button>
+            {/* ── SIGN NOW: Rep confirmation screen ── */}
+            {!isSigningFromLink && !inspectionOnly ? (
+              <>
                 <div style={{
-                  marginTop: 6,
-                  fontSize: 12,
-                  color: "#9ca3af",
-                  fontFamily: "'Nunito', sans-serif",
+                  background: "linear-gradient(135deg, #199c2e 0%, #15803d 100%)",
+                  borderRadius: 28, padding: "40px 36px", textAlign: "center",
+                  marginBottom: 24, color: "#fff",
                 }}>
-                  Can't find the email? Download it right here.
+                  <div style={{ fontSize: 72, marginBottom: 16 }}>✅</div>
+                  <div style={{ fontSize: 34, fontWeight: 700, fontFamily: "'Oswald', sans-serif", marginBottom: 12 }}>
+                    Documents Signed!
+                  </div>
+                  <div style={{ fontSize: 18, fontFamily: "'Nunito', sans-serif", fontWeight: 600, opacity: 0.93, lineHeight: 1.6 }}>
+                    {[data.homeowner1, data.homeowner2].filter(Boolean).join(" & ")} has signed and copies have been emailed to everyone.
+                  </div>
                 </div>
-              </div>
-            </div>
+                <div style={{ background: "#fff", borderRadius: 20, border: "1px solid #e5e7eb", padding: "24px 28px", marginBottom: 16, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827", marginBottom: 14, letterSpacing: "0.02em" }}>Summary</div>
+                  <div style={{ display: "grid", gap: 8, fontSize: 14, fontFamily: "'Nunito', sans-serif" }}>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <span style={{ color: "#6b7280", width: 100, flexShrink: 0 }}>Homeowner:</span>
+                      <span style={{ fontWeight: 700 }}>{[data.homeowner1, data.homeowner2].filter(Boolean).join(" & ")}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <span style={{ color: "#6b7280", width: 100, flexShrink: 0 }}>Address:</span>
+                      <span style={{ fontWeight: 600 }}>{[data.address, data.city, data.state].filter(Boolean).join(", ")}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <span style={{ color: "#6b7280", width: 100, flexShrink: 0 }}>Rep:</span>
+                      <span style={{ fontWeight: 600 }}>{data.salesRepName || "—"}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <span style={{ color: "#6b7280", width: 100, flexShrink: 0 }}>Docs:</span>
+                      <span style={{ fontWeight: 600 }}>{selectedDocs.map(d => documentLabel(d)).join(", ")}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <span style={{ color: "#6b7280", width: 100, flexShrink: 0 }}>Email:</span>
+                      <span style={{ fontWeight: 600 }}>{data.signerEmail}</span>
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <button type="button" onClick={() => { setView("input"); setData(prev => ({ ...prev, homeowner1: "", homeowner2: "", phone: "", signerEmail: "", address: "", city: "", state: "", zip: "" })); window.scrollTo({ top: 0 }); }}
+                    style={{ padding: "14px", borderRadius: 14, border: "2px solid #199c2e", background: "#fff", color: "#199c2e", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
+                    ✚ New Client
+                  </button>
+                  <button type="button" onClick={() => { setView("input"); window.scrollTo({ top: 0 }); }}
+                    style={{ padding: "14px", borderRadius: 14, border: "none", background: "#199c2e", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
+                    ← Back to Intake
+                  </button>
+                </div>
+              </>
+            ) : null}
 
-            {/* CCG logo */}
-            <div style={{ textAlign: "center" }}>
-              <img
-                src="/pa-header.png"
-                alt="Capital Claims Group"
-                style={{ maxWidth: 260, opacity: 0.85 }}
-              />
-            </div>
+            {/* ── INSPECTION ONLY: USS Welcome screen ── */}
+            {inspectionOnly ? (
+              <>
+                <div style={{
+                  background: "linear-gradient(135deg, #1a2e5a 0%, #0f1e3d 100%)",
+                  borderRadius: 28, padding: "40px 36px", textAlign: "center",
+                  marginBottom: 24, color: "#fff",
+                }}>
+                  <div style={{ fontSize: 56, marginBottom: 16 }}>🏠</div>
+                  <div style={{ fontSize: 32, fontWeight: 700, fontFamily: "'Oswald', sans-serif", marginBottom: 12 }}>
+                    {activeTYHeadline}
+                  </div>
+                  <div style={{ fontSize: 17, fontFamily: "'Nunito', sans-serif", fontWeight: 600, opacity: 0.92, lineHeight: 1.6 }}>
+                    {activeTYOpening}
+                  </div>
+                </div>
+                <div style={{ background: "#fff", borderRadius: 24, border: "1px solid #e5e7eb", padding: "28px 28px 24px", marginBottom: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: "#1a2e5a", fontFamily: "'Oswald', sans-serif", marginBottom: 16 }}>
+                    📋 {activeTYHeadline === inspOnlyHeadline ? "What Happens Next" : "Next Steps"}
+                  </div>
+                  <div style={{ display: "grid", gap: 12 }}>
+                    {activeTYSteps.map((step, i) => (
+                      <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 14, padding: "12px 16px", background: "#eef1f8", borderRadius: 14, border: "1px solid #bfdbfe" }}>
+                        <div style={{ width: 26, height: 26, borderRadius: "50%", background: "#1a2e5a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 12, flexShrink: 0 }}>{i + 1}</div>
+                        <div style={{ fontSize: 15, color: "#1e3a5f", fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.5 }}>{step}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 20, padding: "18px 24px", textAlign: "center", marginBottom: 24 }}>
+                  <div style={{ fontSize: 16, color: "#92400e", fontFamily: "'Nunito', sans-serif", fontWeight: 700, lineHeight: 1.6 }}>{activeTYClosing}</div>
+                </div>
+                <div style={{ background: "#1a2e5a", borderRadius: 20, padding: "20px 24px", color: "#fff", marginBottom: 24, textAlign: "center" }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 8, fontFamily: "'Oswald', sans-serif" }}>📞 Contact U.S. Shingle & Metal LLC</div>
+                  <div style={{ fontSize: 14, fontFamily: "'Nunito', sans-serif", lineHeight: 1.8, opacity: 0.9 }}>
+                    {ussContactPhone} &nbsp;|&nbsp; {ussContactEmail}
+                  </div>
+                </div>
+              </>
+            ) : null}
+
+            {/* ── EMAIL LINK: Full homeowner welcome screen ── */}
+            {isSigningFromLink && !inspectionOnly ? (
+              <>
+                <div style={{
+                  background: "linear-gradient(135deg, #199c2e 0%, #15803d 100%)",
+                  borderRadius: 28, padding: "40px 36px 36px", textAlign: "center",
+                  marginBottom: 28, position: "relative", overflow: "hidden",
+                }}>
+                  <div style={{ position: "absolute", top: -30, right: -30, width: 140, height: 140, background: "rgba(255,255,255,0.06)", borderRadius: "50%" }} />
+                  <div style={{ fontSize: 72, marginBottom: 16, lineHeight: 1 }}>🎉</div>
+                  <div style={{ fontSize: 36, fontWeight: 700, color: "#fff", fontFamily: "'Oswald', sans-serif", lineHeight: 1.1, marginBottom: 16 }}>
+                    {activeTYHeadline}
+                  </div>
+                  <div style={{ fontSize: 18, color: "rgba(255,255,255,0.92)", fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.65, maxWidth: 480, margin: "0 auto" }}>
+                    {activeTYOpening}
+                  </div>
+                </div>
+                <div style={{ background: "#fff", borderRadius: 24, border: "1px solid #e5e7eb", padding: "28px 28px 24px", marginBottom: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.03em", marginBottom: 20, display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontSize: 24 }}>📋</span> What Happens Next
+                  </div>
+                  <div style={{ display: "grid", gap: 14 }}>
+                    {activeTYSteps.map((step, i) => (
+                      <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 14, padding: "14px 16px", background: "#f0fdf4", borderRadius: 16, border: "1px solid #bbf7d0" }}>
+                        <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#199c2e", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13, fontFamily: "'Oswald', sans-serif", flexShrink: 0 }}>{i + 1}</div>
+                        <div style={{ fontSize: 16, color: "#166534", fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.55 }}>{step}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 20, padding: "20px 24px", textAlign: "center", marginBottom: 32 }}>
+                  <div style={{ fontSize: 17, color: "#92400e", fontFamily: "'Nunito', sans-serif", fontWeight: 700, lineHeight: 1.6 }}>{activeTYClosing}</div>
+                </div>
+                <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 20, padding: "22px 26px", marginBottom: 28, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 16 }}>
+                    <span style={{ fontSize: 36, flexShrink: 0 }}>📧</span>
+                    <div>
+                      <div style={{ fontSize: 19, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 6 }}>Check Your Email!</div>
+                      <div style={{ fontSize: 15, color: "#374151", fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.65 }}>
+                        We sent your signed documents and a Welcome Package to <strong>{data.signerEmail}</strong>.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div style={{ textAlign: "center" }}>
+                  <img src="/pa-header.png" alt="Capital Claims Group" style={{ maxWidth: 260, opacity: 0.85 }} />
+                </div>
+              </>
+            ) : null}
+
           </div>
-
           </>
         ) : null}
 
