@@ -3544,9 +3544,9 @@ export default function App() {
         }).catch(e => console.warn("Rep email non-fatal:", e));
       }
       setPendingSend(false);
+      setIsSubmitting(false);
 
       // ── Job Nimbus sync disabled until API key is fixed ──
-
 
       window.scrollTo({ top: 0, behavior: "smooth" });
       if (isSigningFromLink) {
