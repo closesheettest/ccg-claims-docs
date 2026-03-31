@@ -5351,10 +5351,23 @@ export default function App() {
                     Documents Signed!
                   </div>
                   <div style={{ fontSize: 18, fontFamily: "'Nunito', sans-serif", fontWeight: 600, opacity: 0.93, lineHeight: 1.6 }}>
-                    {[data.homeowner1, data.homeowner2].filter(Boolean).join(" & ")} has signed and copies have been emailed to everyone.
+                    {[data.homeowner1, data.homeowner2].filter(Boolean).join(" & ")} has signed. PDFs have been emailed to everyone.
                   </div>
                 </div>
-                <div style={{ background: "#fff", borderRadius: 20, border: "1px solid #e5e7eb", padding: "24px 28px", marginBottom: 16, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+
+                {/* JN reminder */}
+                <div style={{ background: "#fffbeb", border: "2px solid #f59e0b", borderRadius: 20, padding: "20px 24px", marginBottom: 20 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#92400e", fontFamily: "'Oswald', sans-serif", marginBottom: 10, letterSpacing: "0.03em" }}>
+                    ⚠️ Don't Forget — Update JobNimbus
+                  </div>
+                  <div style={{ display: "grid", gap: 8, fontSize: 14, color: "#78350f", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
+                    <div>1. Go to JobNimbus and find or create this contact</div>
+                    <div>2. Update all fields (address, insurance, policy #, etc.)</div>
+                    <div>3. Upload the signed inspection form from your email</div>
+                  </div>
+                </div>
+
+                <div style={{ background: "#fff", borderRadius: 20, border: "1px solid #e5e7eb", padding: "24px 28px", marginBottom: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
                   <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827", marginBottom: 14, letterSpacing: "0.02em" }}>Summary</div>
                   <div style={{ display: "grid", gap: 8, fontSize: 14, fontFamily: "'Nunito', sans-serif" }}>
                     <div style={{ display: "flex", gap: 10 }}>
@@ -5392,8 +5405,75 @@ export default function App() {
               </>
             ) : null}
 
-            {/* ── INSPECTION ONLY: USS Welcome screen ── */}
-            {inspectionOnly ? (
+            {/* ── INSPECTION ONLY (sign now): Rep confirmation ── */}
+            {inspectionOnly && !isSigningFromLink ? (
+              <>
+                <div style={{
+                  background: "linear-gradient(135deg, #1a2e5a 0%, #0f1e3d 100%)",
+                  borderRadius: 28, padding: "40px 36px", textAlign: "center",
+                  marginBottom: 24, color: "#fff",
+                }}>
+                  <div style={{ fontSize: 72, marginBottom: 16 }}>✅</div>
+                  <div style={{ fontSize: 34, fontWeight: 700, fontFamily: "'Oswald', sans-serif", marginBottom: 12 }}>
+                    Inspection Signed!
+                  </div>
+                  <div style={{ fontSize: 18, fontFamily: "'Nunito', sans-serif", fontWeight: 600, opacity: 0.93, lineHeight: 1.6 }}>
+                    {inspData.clientName || [data.homeowner1, data.homeowner2].filter(Boolean).join(" & ")} has signed. PDFs have been emailed to everyone.
+                  </div>
+                </div>
+
+                {/* JN reminder */}
+                <div style={{ background: "#fffbeb", border: "2px solid #f59e0b", borderRadius: 20, padding: "20px 24px", marginBottom: 20 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#92400e", fontFamily: "'Oswald', sans-serif", marginBottom: 10, letterSpacing: "0.03em" }}>
+                    ⚠️ Don't Forget — Update JobNimbus
+                  </div>
+                  <div style={{ display: "grid", gap: 8, fontSize: 14, color: "#78350f", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
+                    <div>1. Go to JobNimbus and find or create this contact</div>
+                    <div>2. Update all fields (address, phone, email, etc.)</div>
+                    <div>3. Upload the signed inspection form from your email</div>
+                  </div>
+                </div>
+
+                <div style={{ background: "#fff", borderRadius: 20, border: "1px solid #e5e7eb", padding: "24px 28px", marginBottom: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827", marginBottom: 14, letterSpacing: "0.02em" }}>Summary</div>
+                  <div style={{ display: "grid", gap: 8, fontSize: 14, fontFamily: "'Nunito', sans-serif" }}>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <span style={{ color: "#6b7280", width: 100, flexShrink: 0 }}>Client:</span>
+                      <span style={{ fontWeight: 700 }}>{inspData.clientName || [data.homeowner1, data.homeowner2].filter(Boolean).join(" & ")}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <span style={{ color: "#6b7280", width: 100, flexShrink: 0 }}>Address:</span>
+                      <span style={{ fontWeight: 600 }}>{[inspData.address || data.address, inspData.city || data.city, inspData.state || data.state].filter(Boolean).join(", ")}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <span style={{ color: "#6b7280", width: 100, flexShrink: 0 }}>Rep:</span>
+                      <span style={{ fontWeight: 600 }}>{data.salesRepName || "—"}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <span style={{ color: "#6b7280", width: 100, flexShrink: 0 }}>Phone:</span>
+                      <span style={{ fontWeight: 600 }}>{inspData.mobile || data.phone || "—"}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <span style={{ color: "#6b7280", width: 100, flexShrink: 0 }}>Email:</span>
+                      <span style={{ fontWeight: 600 }}>{inspData.email || data.signerEmail || "—"}</span>
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <button type="button" onClick={() => { setView("input"); window.scrollTo({ top: 0 }); }}
+                    style={{ padding: "14px", borderRadius: 14, border: "2px solid #1a2e5a", background: "#fff", color: "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
+                    ✚ New Client
+                  </button>
+                  <button type="button" onClick={() => { setView("input"); window.scrollTo({ top: 0 }); }}
+                    style={{ padding: "14px", borderRadius: 14, border: "none", background: "#1a2e5a", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
+                    ← Back to Intake
+                  </button>
+                </div>
+              </>
+            ) : null}
+
+            {/* ── INSPECTION ONLY (email link): Homeowner USS welcome ── */}
+            {inspectionOnly && isSigningFromLink ? (
               <>
                 <div style={{
                   background: "linear-gradient(135deg, #1a2e5a 0%, #0f1e3d 100%)",
@@ -5410,7 +5490,7 @@ export default function App() {
                 </div>
                 <div style={{ background: "#fff", borderRadius: 24, border: "1px solid #e5e7eb", padding: "28px 28px 24px", marginBottom: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
                   <div style={{ fontSize: 18, fontWeight: 700, color: "#1a2e5a", fontFamily: "'Oswald', sans-serif", marginBottom: 16 }}>
-                    📋 {activeTYHeadline === inspOnlyHeadline ? "What Happens Next" : "Next Steps"}
+                    📋 What Happens Next
                   </div>
                   <div style={{ display: "grid", gap: 12 }}>
                     {activeTYSteps.map((step, i) => (
