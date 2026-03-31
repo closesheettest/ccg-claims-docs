@@ -3208,45 +3208,53 @@ export default function App() {
         return;
       }
 
-      const auditResponse = await fetch("/.netlify/functions/sign-audit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          claimId: currentClaimId,
-          docType: selectedDocs.join(","),
-          signMethod: isSigningFromLink ? "email_link" : "sign_now",
-          signedByEmail: data.signerEmail,
-          signedByName: [data.homeowner1, data.homeowner2]
-            .filter(Boolean)
-            .join(", "),
-        }),
-      });
-
-      const serverAudit = await parseJsonResponse(
-        auditResponse,
-        "Failed to capture signing audit trail."
-      );
-
-      const nextAuditInfo = {
-        signedAt: serverAudit.signedAt || "",
-        signedIp: serverAudit.signedIp || "",
-        signedUserAgent: serverAudit.signedUserAgent || "",
-        signMethod: serverAudit.signMethod || "",
-        signedByEmail: serverAudit.signedByEmail || data.signerEmail || "",
-        signedByName:
-          serverAudit.signedByName ||
-          [data.homeowner1, data.homeowner2].filter(Boolean).join(", "),
-        signedCity: serverAudit.signedCity || "",
-        signedRegion: serverAudit.signedRegion || "",
+      let nextAuditInfo = {
+        signedAt: new Date().toISOString(),
+        signedIp: "",
+        signedUserAgent: navigator.userAgent || "",
+        signMethod: isSigningFromLink ? "email_link" : "sign_now",
+        signedByEmail: data.signerEmail || "",
+        signedByName: [data.homeowner1, data.homeowner2].filter(Boolean).join(", "),
+        signedCity: "",
+        signedRegion: "",
       };
+
+      try {
+        const auditResponse = await fetch("/.netlify/functions/sign-audit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            claimId: currentClaimId,
+            docType: selectedDocs.join(","),
+            signMethod: isSigningFromLink ? "email_link" : "sign_now",
+            signedByEmail: data.signerEmail,
+            signedByName: [data.homeowner1, data.homeowner2].filter(Boolean).join(", "),
+          }),
+        });
+        const serverAudit = await parseJsonResponse(auditResponse, "Audit failed.");
+        nextAuditInfo = {
+          signedAt: serverAudit.signedAt || nextAuditInfo.signedAt,
+          signedIp: serverAudit.signedIp || "",
+          signedUserAgent: serverAudit.signedUserAgent || navigator.userAgent || "",
+          signMethod: serverAudit.signMethod || nextAuditInfo.signMethod,
+          signedByEmail: serverAudit.signedByEmail || data.signerEmail || "",
+          signedByName: serverAudit.signedByName || nextAuditInfo.signedByName,
+          signedCity: serverAudit.signedCity || "",
+          signedRegion: serverAudit.signedRegion || "",
+        };
+      } catch(auditErr) {
+        console.warn("Audit non-fatal:", auditErr);
+      }
 
       setAuditInfo(nextAuditInfo);
       await new Promise((resolve) => setTimeout(resolve, 150));
 
-      const { error } = await saveClaimToSupabase(nextAuditInfo);
-      if (error) {
-        alert("Error saving: " + error.message);
-        return;
+      // Only save to claims table if PA docs are included
+      if (selectedDocs.includes("lor") || selectedDocs.includes("pac")) {
+        const { error } = await saveClaimToSupabase(nextAuditInfo);
+        if (error) {
+          console.warn("Claims save error:", error.message);
+        }
       }
 
       const attachments = [];
