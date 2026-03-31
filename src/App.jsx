@@ -2964,6 +2964,11 @@ export default function App() {
     });
 
   const saveClaimToSupabase = async (audit = null) => {
+    console.log("saveClaimToSupabase — rep fields:", {
+      salesRepName: data.salesRepName,
+      salesRepEmail: data.salesRepEmail,
+      salesRepId: data.salesRepId,
+    });
     const payload = {
       date: data.date,
       insurance_company: data.insuranceCompany,
