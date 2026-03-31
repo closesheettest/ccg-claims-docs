@@ -2924,6 +2924,9 @@ export default function App() {
         html2canvas: {
           scale: 1.5,
           useCORS: true,
+          allowTaint: true,
+          logging: false,
+          ignoreElements: (el) => el.tagName === "IMG" && el.naturalWidth === 0,
           scrollX: 0,
           scrollY: 0,
         },
@@ -3454,7 +3457,8 @@ export default function App() {
         </div>
       `;
 
-      if (data.paEmail) {
+      // Only send PA email if PA docs were included
+      if (data.paEmail && (selectedDocs.includes("lor") || selectedDocs.includes("pac"))) {
         const paEmailResponse = await fetch("/.netlify/functions/send-email", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -3465,7 +3469,8 @@ export default function App() {
             attachments,
           }),
         });
-        await parseJsonResponse(paEmailResponse, "PA notification email failed.");
+        try { await parseJsonResponse(paEmailResponse, "PA notification email failed."); }
+        catch(e) { console.warn("PA email non-fatal:", e); }
       }
 
       // ── Activity notification email ──
@@ -5674,9 +5679,7 @@ export default function App() {
               <div id="inspection-printable-placeholder" style={{ fontFamily: "Arial, Helvetica, sans-serif", background: "#fff", width: "8.5in", padding: "0.6in 0.7in", boxSizing: "border-box" }}>
                 {/* Header */}
                 <div style={{ textAlign: "center", marginBottom: 24 }}>
-                  {/* Logo placeholder - add /uss-logo.png to public folder */}
-                  <img src="/uss-logo.png" alt="U.S. Shingle & Metal" style={{ height: 72, marginBottom: 12, objectFit: "contain" }}
-                    onError={e => { e.target.style.display="none"; }} />
+
                   <div style={{ fontSize: 20, fontWeight: 700, color: "#1a2e5a", marginBottom: 4, textTransform: "uppercase", letterSpacing: 1.5 }}>
                     Free Roof Inspection Agreement
                   </div>
@@ -6321,7 +6324,7 @@ export default function App() {
       <div style={{ position: "absolute", left: "-20000px", top: 0, width: 0, height: 0, overflow: "hidden", pointerEvents: "none" }}>
         <div id="inspection-printable" style={{ fontFamily: "Arial, Helvetica, sans-serif", background: "#fff", width: "8.5in", padding: "0.6in 0.7in", boxSizing: "border-box" }}>
           <div style={{ textAlign: "center", marginBottom: 24 }}>
-            <img src="/uss-logo.png" alt="U.S. Shingle & Metal" style={{ height: 72, marginBottom: 12, objectFit: "contain" }} onError={e => { e.target.style.display="none"; }} />
+
             <div style={{ fontSize: 20, fontWeight: 700, color: "#1a2e5a", marginBottom: 4, textTransform: "uppercase", letterSpacing: 1.5 }}>Free Roof Inspection Agreement</div>
             <div style={{ width: 60, height: 3, background: "#c8392b", margin: "0 auto 10px", borderRadius: 2 }} />
             <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.7 }}>
