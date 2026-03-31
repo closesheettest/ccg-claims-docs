@@ -9,7 +9,7 @@ exports.handler = async (event) => {
   }
 
   try {
-    const { to, subject, html, attachments } = JSON.parse(event.body || "{}");
+    const { to, cc, bcc, subject, html, attachments } = JSON.parse(event.body || "{}");
 
     if (!to || !subject || !html) {
       return {
@@ -19,6 +19,8 @@ exports.handler = async (event) => {
     }
 
     console.log("ATTACHMENTS RECEIVED:", attachments?.length || 0);
+    console.log("TO:", to);
+    console.log("BCC:", bcc);
     console.log(
       "FIRST ATTACHMENT:",
       attachments?.[0]
@@ -31,7 +33,7 @@ exports.handler = async (event) => {
 
     const resend = new Resend(process.env.RESEND_API_KEY);
 
-    const result = await resend.emails.send({
+    const emailPayload = {
       from:
         process.env.EMAIL_FROM ||
         "Inspection For You <noreply@inspectionforyou.com>",
@@ -42,7 +44,12 @@ exports.handler = async (event) => {
         filename: file.filename,
         content: file.content,
       })),
-    });
+    };
+
+    if (cc && cc.length > 0) emailPayload.cc = Array.isArray(cc) ? cc : [cc];
+    if (bcc && bcc.length > 0) emailPayload.bcc = Array.isArray(bcc) ? bcc : [bcc];
+
+    const result = await resend.emails.send(emailPayload);
 
     console.log("RESEND RESULT:", JSON.stringify(result, null, 2));
 
