@@ -4020,44 +4020,72 @@ export default function App() {
       {/* ── Always-rendered hidden USS Welcome PDF ── */}
       <div style={{ position: "absolute", left: "-20000px", top: 0, width: 0, height: 0, overflow: "hidden", pointerEvents: "none" }}>
         <div id="uss-welcome-printable" style={{ width: "8.5in", fontFamily: "Arial, Helvetica, sans-serif", background: "#fff" }}>
-          <div style={{ width: "8.5in", boxSizing: "border-box", padding: "0.7in 0.75in", minHeight: "11in" }}>
-            <div style={{ display: "flex", height: 8, marginBottom: 24 }}>
-              <div style={{ flex: 1, background: "#c8392b" }} />
-              <div style={{ flex: 1, background: "#e5e7eb" }} />
-              <div style={{ flex: 1, background: "#1a2e5a" }} />
-            </div>
-            <div style={{ textAlign: "center", marginBottom: 28 }}>
-              <div style={{ fontSize: 26, fontWeight: 700, color: "#1a2e5a", fontFamily: "Arial, Helvetica, sans-serif", letterSpacing: 1 }}>U.S. Shingle & Metal LLC</div>
-              <div style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>3845 Gateway Centre Blvd Suite 300 • Pinellas Park, FL 33782</div>
-              <div style={{ fontSize: 13, color: "#6b7280" }}>Phone: 727.761.5200 • Email: info@shingleusa.com • License: CCC1331960</div>
-            </div>
-            <div style={{ borderBottom: "2px solid #1a2e5a", marginBottom: 28 }} />
-            <div style={{ fontSize: 22, fontWeight: 700, color: "#1a2e5a", marginBottom: 14 }}>Welcome, {[data.homeowner1, data.homeowner2].filter(Boolean).join(" & ") || inspData.clientName}!</div>
-            <p style={{ fontSize: 14, color: "#374151", lineHeight: 1.75, marginBottom: 20 }}>
-              Thank you for choosing U.S. Shingle & Metal LLC for your free roof inspection. We are a licensed and fully insured roofing contractor dedicated to helping homeowners navigate storm damage with honesty and professionalism.
-            </p>
-            <div style={{ background: "#eef1f8", borderRadius: 10, padding: "18px 22px", marginBottom: 22 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "#1a2e5a", marginBottom: 12 }}>{ussWelcomeHeading}</div>
-              {ussWelcomeSteps.map((step, i) => (
-                <div key={i} style={{ display: "flex", gap: 12, marginBottom: 10, alignItems: "flex-start" }}>
-                  <div style={{ width: 24, height: 24, borderRadius: "50%", background: "#1a2e5a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0, marginTop: 1 }}>{i + 1}</div>
-                  <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.6 }}>{step}</div>
-                </div>
-              ))}
-            </div>
-            <div style={{ background: "#1a2e5a", borderRadius: 10, padding: "18px 22px", color: "#fff", marginBottom: 22 }}>
-              <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>Contact Us Anytime</div>
-              <div style={{ fontSize: 13, lineHeight: 2 }}>
-                📞 Phone: {ussContactPhone}<br/>
-                📧 Email: {ussContactEmail}<br/>
-                📍 3845 Gateway Centre Blvd Suite 300, Pinellas Park, FL 33782<br/>
-                🪪 License: CCC1331960
+          <div style={{ width: "8.5in", boxSizing: "border-box", padding: "0", background: "#fff", position: "relative" }}>
+
+            {/* Navy header */}
+            <div style={{ background: "#1a2e5a", padding: "0.5in 0.6in 0.4in", color: "#fff" }}>
+              <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+                <div style={{ width: 40, height: 6, background: "#c8392b", borderRadius: 3 }} />
+                <div style={{ width: 40, height: 6, background: "rgba(255,255,255,0.3)", borderRadius: 3 }} />
+                <div style={{ width: 40, height: 6, background: "rgba(255,255,255,0.15)", borderRadius: 3 }} />
+              </div>
+              <div style={{ fontSize: 32, fontWeight: 700, marginBottom: 6, lineHeight: 1.1 }}>
+                Welcome to U.S. Shingle & Metal LLC!
+              </div>
+              <div style={{ fontSize: 15, opacity: 0.88, lineHeight: 1.5 }}>
+                Thank you for choosing us for your free roof inspection. We're licensed, insured, and committed to helping you every step of the way.
               </div>
             </div>
-            <div style={{ display: "flex", height: 8, marginTop: 32 }}>
-              <div style={{ flex: 1, background: "#c8392b" }} />
-              <div style={{ flex: 1, background: "#e5e7eb" }} />
-              <div style={{ flex: 1, background: "#1a2e5a" }} />
+
+            <div style={{ padding: "0.25in 0.5in 0.3in" }}>
+
+              {/* Contact info box */}
+              <div style={{ background: "#eef1f8", border: "2px solid #1a2e5a", borderRadius: 12, padding: "20px 24px", marginBottom: 20 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: "#1a2e5a", marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>
+                  Your Point of Contact
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, fontSize: 12, color: "#374151" }}>
+                  <div><strong>Company:</strong> U.S. Shingle & Metal LLC</div>
+                  <div><strong>License:</strong> CCC1331960</div>
+                  <div><strong>Phone:</strong> {ussContactPhone}</div>
+                  <div><strong>Email:</strong> {ussContactEmail}</div>
+                  <div style={{ gridColumn: "1 / -1" }}><strong>Address:</strong> 3845 Gateway Centre Blvd Suite 300, Pinellas Park, FL 33782</div>
+                </div>
+              </div>
+
+              {/* Client details */}
+              <div style={{ background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 12, padding: "18px 24px", marginBottom: 20 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>
+                  Your Inspection Details
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5, fontSize: 12, color: "#374151" }}>
+                  <div><strong>Name:</strong> {inspData.clientName || [data.homeowner1, data.homeowner2].filter(Boolean).join(" & ")}</div>
+                  <div><strong>Date:</strong> {inspData.date || data.date}</div>
+                  <div><strong>Address:</strong> {[inspData.address || data.address, inspData.city || data.city, inspData.state || data.state, inspData.zip || data.zip].filter(Boolean).join(", ")}</div>
+                  <div><strong>Phone:</strong> {inspData.mobile || data.phone}</div>
+                  {(inspData.email || data.signerEmail) ? <div><strong>Email:</strong> {inspData.email || data.signerEmail}</div> : null}
+                  {data.salesRepName ? <div><strong>Rep:</strong> {data.salesRepName}</div> : null}
+                </div>
+              </div>
+
+              {/* What to expect */}
+              <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", marginBottom: 10 }}>📋 {ussWelcomeHeading}</div>
+              {ussWelcomeSteps.map((step, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 6, padding: "8px 12px", background: "#eef1f8", borderRadius: 8, border: "1px solid #bfdbfe" }}>
+                  <div style={{ width: 20, height: 20, borderRadius: "50%", background: "#1a2e5a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 11, flexShrink: 0 }}>{i + 1}</div>
+                  <div style={{ fontSize: 12, color: "#1e3a5f", lineHeight: 1.5 }}>{step}</div>
+                </div>
+              ))}
+
+              {/* Closing */}
+              <div style={{ marginTop: 18, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 12, padding: "16px 20px", fontSize: 13, color: "#92400e", fontWeight: 600, textAlign: "center", lineHeight: 1.6 }}>
+                {inspOnlyClosing}
+              </div>
+
+              {/* Footer */}
+              <div style={{ marginTop: 24, borderTop: "2px solid #1a2e5a", paddingTop: 12, fontSize: 11, color: "#6b7280", textAlign: "center" }}>
+                U.S. Shingle & Metal LLC • License No: CCC1331960 • {ussContactEmail} • {ussContactPhone} • 3845 Gateway Centre Blvd Suite 300, Pinellas Park, FL 33782
+              </div>
             </div>
           </div>
         </div>
