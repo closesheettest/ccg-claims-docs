@@ -4028,41 +4028,36 @@ export default function App() {
 
             {/* Navy header */}
             <div style={{ background: "#1a2e5a", padding: "0.5in 0.6in 0.4in", color: "#fff" }}>
-              <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
-                <div style={{ width: 40, height: 6, background: "#c8392b", borderRadius: 3 }} />
-                <div style={{ width: 40, height: 6, background: "rgba(255,255,255,0.3)", borderRadius: 3 }} />
-                <div style={{ width: 40, height: 6, background: "rgba(255,255,255,0.15)", borderRadius: 3 }} />
-              </div>
-              <div style={{ fontSize: 32, fontWeight: 700, marginBottom: 6, lineHeight: 1.1 }}>
+              <div style={{ fontSize: 32, fontWeight: 700, marginBottom: 8, lineHeight: 1.1 }}>
                 Welcome to U.S. Shingle & Metal LLC!
               </div>
-              <div style={{ fontSize: 15, opacity: 0.88, lineHeight: 1.5 }}>
-                Thank you for choosing us for your free roof inspection. We're licensed, insured, and committed to helping you every step of the way.
+              <div style={{ fontSize: 16, opacity: 0.9, lineHeight: 1.5 }}>
+                {inspOnlyOpening}
               </div>
             </div>
 
-            <div style={{ padding: "0.25in 0.5in 0.3in" }}>
+            <div style={{ padding: "0.2in 0.5in 0.2in" }}>
 
               {/* Contact info box */}
-              <div style={{ background: "#eef1f8", border: "2px solid #1a2e5a", borderRadius: 12, padding: "20px 24px", marginBottom: 20 }}>
-                <div style={{ fontSize: 15, fontWeight: 700, color: "#1a2e5a", marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>
+              <div style={{ background: "#eef1f8", border: "2px solid #1a2e5a", borderRadius: 12, padding: "20px 24px", marginBottom: 24 }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#1a2e5a", marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>
                   Your Point of Contact
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, fontSize: 12, color: "#374151" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, fontSize: 12 }}>
                   <div><strong>Company:</strong> U.S. Shingle & Metal LLC</div>
                   <div><strong>License:</strong> CCC1331960</div>
                   <div><strong>Phone:</strong> {ussContactPhone}</div>
                   <div><strong>Email:</strong> {ussContactEmail}</div>
-                  <div style={{ gridColumn: "1 / -1" }}><strong>Address:</strong> 3845 Gateway Centre Blvd Suite 300, Pinellas Park, FL 33782</div>
+                  <div><strong>Address:</strong> 3845 Gateway Centre Blvd Suite 300, Pinellas Park, FL 33782</div>
                 </div>
               </div>
 
-              {/* Client details */}
-              <div style={{ background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 12, padding: "18px 24px", marginBottom: 20 }}>
-                <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>
+              {/* Inspection details */}
+              <div style={{ background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 12, padding: "18px 24px", marginBottom: 24 }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>
                   Your Inspection Details
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5, fontSize: 12, color: "#374151" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5, fontSize: 12 }}>
                   <div><strong>Name:</strong> {inspData.clientName || [data.homeowner1, data.homeowner2].filter(Boolean).join(" & ")}</div>
                   <div><strong>Date:</strong> {inspData.date || data.date}</div>
                   <div><strong>Address:</strong> {[inspData.address || data.address, inspData.city || data.city, inspData.state || data.state, inspData.zip || data.zip].filter(Boolean).join(", ")}</div>
@@ -4073,21 +4068,23 @@ export default function App() {
               </div>
 
               {/* What to expect */}
-              <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", marginBottom: 10 }}>📋 {ussWelcomeHeading}</div>
-              {ussWelcomeSteps.map((step, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 6, padding: "8px 12px", background: "#eef1f8", borderRadius: 8, border: "1px solid #bfdbfe" }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 10 }}>
+                📋 What Happens Next
+              </div>
+              {inspOnlySteps.map((step, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 6, padding: "7px 10px", background: "#eef1f8", borderRadius: 8, border: "1px solid #bfdbfe" }}>
                   <div style={{ width: 20, height: 20, borderRadius: "50%", background: "#1a2e5a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 11, flexShrink: 0 }}>{i + 1}</div>
-                  <div style={{ fontSize: 12, color: "#1e3a5f", lineHeight: 1.5 }}>{step}</div>
+                  <div style={{ fontSize: 12, color: "#1e3a5f", lineHeight: 1.45 }}>{step}</div>
                 </div>
               ))}
 
               {/* Closing */}
-              <div style={{ marginTop: 18, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 12, padding: "16px 20px", fontSize: 13, color: "#92400e", fontWeight: 600, textAlign: "center", lineHeight: 1.6 }}>
+              <div style={{ marginTop: 20, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 12, padding: "16px 20px", fontSize: 14, color: "#92400e", fontWeight: 600, textAlign: "center", lineHeight: 1.6 }}>
                 {inspOnlyClosing}
               </div>
 
               {/* Footer */}
-              <div style={{ marginTop: 24, borderTop: "2px solid #1a2e5a", paddingTop: 12, fontSize: 11, color: "#6b7280", textAlign: "center" }}>
+              <div style={{ marginTop: 28, borderTop: "2px solid #1a2e5a", paddingTop: 14, fontSize: 11, color: "#6b7280", textAlign: "center" }}>
                 U.S. Shingle & Metal LLC • License No: CCC1331960 • {ussContactEmail} • {ussContactPhone} • 3845 Gateway Centre Blvd Suite 300, Pinellas Park, FL 33782
               </div>
             </div>
