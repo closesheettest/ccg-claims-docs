@@ -3054,7 +3054,7 @@ export default function App() {
         city: inspData.city,
         state: inspData.state,
         zip: inspData.zip,
-        inspection_date: inspData.date,
+        date: inspData.date,
         sales_rep_name: data.salesRepName || "",
         sales_rep_id: data.salesRepId || "",
         sales_rep_email: data.salesRepEmail || "",
