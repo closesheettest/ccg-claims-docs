@@ -4018,7 +4018,7 @@ export default function App() {
     >
 
       {/* ── Always-rendered hidden USS Welcome PDF ── */}
-      <div style={{ position: "absolute", left: "-20000px", top: 0, width: 0, height: 0, overflow: "hidden", pointerEvents: "none" }}>
+      <div style={{ position: "fixed", left: "-9999px", top: 0, pointerEvents: "none", zIndex: -1 }}>
         <div id="uss-welcome-printable" style={{ width: "8.5in", fontFamily: "Arial, Helvetica, sans-serif", background: "#fff" }}>
           <div style={{ width: "8.5in", boxSizing: "border-box", padding: "0", background: "#fff", position: "relative" }}>
 
@@ -6429,7 +6429,7 @@ export default function App() {
       </div>
 
       {/* ── Always-rendered hidden inspection PDF ── */}
-      <div style={{ position: "absolute", left: "-20000px", top: 0, width: 0, height: 0, overflow: "hidden", pointerEvents: "none" }}>
+      <div style={{ position: "fixed", left: "-9999px", top: 0, pointerEvents: "none", zIndex: -1 }}>
         <div id="inspection-printable" style={{ fontFamily: "Arial, Helvetica, sans-serif", background: "#fff", width: "8.5in", padding: "0.6in 0.7in", boxSizing: "border-box" }}>
           <div style={{ textAlign: "center", marginBottom: 24 }}>
 
@@ -6476,7 +6476,7 @@ export default function App() {
       </div>
 
       {/* ── Always-rendered hidden welcome PDF (needed for email attachment at submit time) ── */}
-      <div style={{ position: "absolute", left: "-20000px", top: 0, width: 0, height: 0, overflow: "hidden", pointerEvents: "none" }}>
+      <div style={{ position: "fixed", left: "-9999px", top: 0, pointerEvents: "none", zIndex: -1 }}>
         <div
           id="ty-summary-printable"
           style={{
