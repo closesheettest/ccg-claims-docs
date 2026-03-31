@@ -3320,20 +3320,34 @@ export default function App() {
         });
       }
 
-      // Always attach the welcome package PDF
+      // Attach welcome package — USS for inspection-only, CCG for PA docs
+      const isInspOnly = selectedDocs.includes("insp") && !selectedDocs.includes("lor") && !selectedDocs.includes("pac");
       try {
-        const welcomeBlob = await generatePDF(
-          "#ty-summary-printable",
-          "CCG-Welcome-Package.pdf"
-        );
+        const welcomeSelector = isInspOnly ? "#uss-welcome-printable" : "#ty-summary-printable";
+        const welcomeFilename = isInspOnly ? "USS-Welcome-Package.pdf" : "CCG-Welcome-Package.pdf";
+        const welcomeBlob = await generatePDF(welcomeSelector, welcomeFilename);
         const welcomeBase64 = await blobToBase64(welcomeBlob);
-        attachments.push({
-          filename: "CCG-Welcome-Package.pdf",
-          content: String(welcomeBase64).split(",")[1],
-        });
+        attachments.push({ filename: welcomeFilename, content: String(welcomeBase64).split(",")[1] });
       } catch (e) {
         console.warn("Welcome package PDF failed, skipping:", e);
       }
+
+      const emailSubject = isInspOnly
+        ? "Your Free Roof Inspection Agreement — U.S. Shingle & Metal"
+        : "Your Signed Documents — Capital Claims Group";
+      const emailHeaderBg = isInspOnly ? "#1a2e5a" : "#199c2e";
+      const emailHeaderText = isInspOnly ? "🏠 Your Inspection Agreement" : "🎉 You're All Set!";
+      const emailWelcomeLine = isInspOnly
+        ? `Your signed inspection agreement and USS welcome package are attached.`
+        : `Your documents are signed and we're officially on the case. <strong>We've attached everything to this email</strong> for your records:`;
+      const emailDocList = isInspOnly
+        ? `<li><strong>Free Roof Inspection Agreement</strong> — your signed copy</li><li><strong>USS Welcome Package</strong> — what to expect next</li>`
+        : `${selectedDocs.map(d => `<li><strong>${documentLabel(d)}</strong> — your signed copy</li>`).join("")}<li><strong>CCG Welcome Package</strong> — what to expect next &amp; our contact info</li>`;
+      const emailContactBg = isInspOnly ? "#1a2e5a" : "#f0fdf4";
+      const emailContactColor = isInspOnly ? "#fff" : "#166534";
+      const emailContactInfo = isInspOnly
+        ? `Phone: ${ussContactPhone}<br/>Email: ${ussContactEmail}`
+        : `Phone: +1 (954) 571-3035<br/>Email: claims@capitalclaimgroup.com<br/>Website: www.ccgclaims.com`;
 
       const finalEmailResponse = await fetch("/.netlify/functions/send-email", {
         method: "POST",
@@ -3341,31 +3355,21 @@ export default function App() {
         body: JSON.stringify({
           to: [data.signerEmail].filter(Boolean),
           bcc: activityEmail ? [activityEmail] : [],
-          subject: "Your Signed Documents — Capital Claims Group",
+          subject: emailSubject,
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-              <div style="background: #199c2e; padding: 28px 32px; border-radius: 12px 12px 0 0;">
-                <h1 style="color: #fff; margin: 0; font-size: 24px;">🎉 You're All Set!</h1>
+              <div style="background: ${emailHeaderBg}; padding: 28px 32px; border-radius: 12px 12px 0 0;">
+                <h1 style="color: #fff; margin: 0; font-size: 24px;">${emailHeaderText}</h1>
               </div>
               <div style="background: #f9fafb; padding: 28px 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb; border-top: none;">
                 <p style="font-size: 16px; color: #111827; margin-top: 0;">
                   Hi ${[data.homeowner1, data.homeowner2].filter(Boolean).join(" & ")},
                 </p>
-                <p style="font-size: 15px; color: #374151; line-height: 1.6;">
-                  Your documents are signed and we're officially on the case.
-                  <strong>We've attached everything to this email</strong> for your records:
-                </p>
-                <ul style="font-size: 15px; color: #374151; line-height: 1.8;">
-                  ${selectedDocs.map(d => `<li><strong>${documentLabel(d)}</strong> — your signed copy</li>`).join("")}
-                  <li><strong>CCG Welcome Package</strong> — what to expect next &amp; our contact info</li>
-                </ul>
-                <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 18px 20px; margin: 20px 0;">
-                  <p style="margin: 0 0 8px; font-weight: 700; color: #166534;">📞 Need to reach us?</p>
-                  <p style="margin: 0; color: #166534; font-size: 14px; line-height: 1.7;">
-                    Phone: +1 (954) 571-3035<br/>
-                    Email: claims@capitalclaimgroup.com<br/>
-                    Website: www.ccgclaims.com
-                  </p>
+                <p style="font-size: 15px; color: #374151; line-height: 1.6;">${emailWelcomeLine}</p>
+                <ul style="font-size: 15px; color: #374151; line-height: 1.8;">${emailDocList}</ul>
+                <div style="background: ${emailContactBg}; border-radius: 10px; padding: 18px 20px; margin: 20px 0;">
+                  <p style="margin: 0 0 8px; font-weight: 700; color: ${emailContactColor};">📞 Need to reach us?</p>
+                  <p style="margin: 0; color: ${emailContactColor}; font-size: 14px; line-height: 1.7;">${emailContactInfo}</p>
                 </div>
                 <p style="font-size: 14px; color: #6b7280; margin-bottom: 0;">
                   <em>Signed at: ${nextAuditInfo.signedAt || ""}</em>
