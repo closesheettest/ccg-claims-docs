@@ -3046,7 +3046,7 @@ export default function App() {
       const base64Content = String(base64).split(",")[1];
 
       // Save to Supabase inspections table
-      await supabase.from("inspections").insert([{
+      const { error: inspSaveError } = await supabase.from("inspections").insert([{
         client_name: inspData.clientName,
         mobile: inspData.mobile,
         email: inspData.email,
@@ -3054,15 +3054,16 @@ export default function App() {
         city: inspData.city,
         state: inspData.state,
         zip: inspData.zip,
-        date: inspData.date,
+        inspection_date: inspData.date,
         sales_rep_name: data.salesRepName || "",
         sales_rep_id: data.salesRepId || "",
         sales_rep_email: data.salesRepEmail || "",
         lead_source: data.leadSource || "NEED",
-        signed_at: new Date().toISOString(),
-      }]).then(({ error }) => {
-        if (error) console.error("Failed to save inspection to Supabase:", error);
-      });
+      }]);
+      if (inspSaveError) {
+        console.error("Inspection save error:", inspSaveError);
+        alert("Warning: Could not save to database — " + inspSaveError.message);
+      }
 
       // Email to homeowner
       if (inspData.email) {
