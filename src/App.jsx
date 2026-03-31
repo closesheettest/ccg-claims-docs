@@ -4324,6 +4324,41 @@ export default function App() {
                         </div>
                       ) : null}
                     </div>
+
+                    {/* Rep Email — auto-fills from rep record, saves back if edited */}
+                    <div>
+                      <Label>Rep Email</Label>
+                      <input
+                        type="email"
+                        value={data.salesRepEmail}
+                        placeholder="Rep's email address"
+                        onChange={(e) => update("salesRepEmail", e.target.value)}
+                        onBlur={async (e) => {
+                          const email = e.target.value.trim();
+                          if (!email || !data.salesRepId) return;
+                          const rep = reps.find(r => r.id === data.salesRepId);
+                          if (rep && rep.email !== email) {
+                            await supabase.from("sales_reps").update({ email }).eq("id", data.salesRepId);
+                            await loadReps();
+                          }
+                        }}
+                        style={{
+                          width: "100%",
+                          height: 44,
+                          borderRadius: 14,
+                          border: "1px solid #d1d5db",
+                          padding: "0 12px",
+                          fontSize: 14,
+                          boxSizing: "border-box",
+                          background: data.salesRepEmail ? "#fff" : "#fafafa",
+                        }}
+                      />
+                      {data.salesRepId && !data.salesRepEmail ? (
+                        <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 4, fontFamily: "'Nunito', sans-serif" }}>
+                          ⚠️ No email on file for this rep — type it once and it will be saved
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                 </Card>
 
