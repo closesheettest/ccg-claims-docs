@@ -2763,20 +2763,7 @@ export default function App() {
     loadFromSigningLink();
   }, []);
 
-  // Fetch team members from Job Nimbus
-  useEffect(() => {
-    const fetchTeamMembers = async () => {
-      try {
-        const res = await fetch("/.netlify/functions/jobnimbus-users");
-        if (!res.ok) throw new Error("Failed to fetch");
-        const { members } = await res.json();
-        if (members?.length) setTeamMembers(members);
-      } catch (e) {
-        console.warn("Could not load JN team members:", e);
-      }
-    };
-    fetchTeamMembers();
-  }, []);
+  // JN team members fetch disabled — re-enable on test site when API key works
 
   useEffect(() => {
     if (view === "review" && reviewReady) {
@@ -3098,29 +3085,8 @@ export default function App() {
         });
       }
 
-      // Job Nimbus sync
-      const nameParts = inspData.clientName.trim().split(" ");
-      await fetch("/.netlify/functions/jobnimbus-sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          firstName: nameParts[0] || "",
-          lastName: nameParts.slice(1).join(" ") || "",
-          address: inspData.address,
-          city: inspData.city,
-          state: inspData.state,
-          zip: inspData.zip,
-          phone: inspData.mobile,
-          email: inspData.email,
-          salesRepId: data.salesRepId || null,
-          leadSource: data.leadSource || "NEED",
-          soldDate: inspData.date,
-          paSignedAlso: false,
-          inspectionPdfBase64: base64Content,
-          lorPdfBase64: null,
-          pacPdfBase64: null,
-        }),
-      }).catch(e => console.warn("JN sync non-fatal:", e));
+      // Job Nimbus sync disabled until API key is fixed
+      // fetch("/.netlify/functions/jobnimbus-sync", ...
 
       // Reset inspection sig fields
       setInspSig("");
@@ -3491,39 +3457,8 @@ export default function App() {
       setIsSubmitting(false);
       setPendingSend(false);
 
-      // ── Job Nimbus sync ──
-      try {
-        const nameParts = (data.homeowner1 || "").trim().split(" ");
-        const jnPayload = {
-          firstName: nameParts[0] || "",
-          lastName: nameParts.slice(1).join(" ") || "",
-          address: data.address,
-          city: data.city,
-          state: data.state,
-          zip: data.zip,
-          phone: data.phone,
-          email: data.signerEmail,
-          salesRepId: data.salesRepId || null,
-          leadSource: data.leadSource || "NEED",
-          soldDate: data.date,
-          paSignedAlso: selectedDocs.includes("pac"),
-          inspectionPdfBase64: null, // no inspection PDF in PA flow
-          lorPdfBase64: selectedDocs.includes("lor")
-            ? String(await blobToBase64(await generatePDF("#lor-printable-document", "lor.pdf"))).split(",")[1]
-            : null,
-          pacPdfBase64: selectedDocs.includes("pac")
-            ? String(await blobToBase64(await generatePDF("#pac-printable-document", "pac.pdf"))).split(",")[1]
-            : null,
-        };
+      // ── Job Nimbus sync disabled until API key is fixed ──
 
-        await fetch("/.netlify/functions/jobnimbus-sync", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(jnPayload),
-        });
-      } catch (jnErr) {
-        console.warn("Job Nimbus sync failed (non-fatal):", jnErr);
-      }
 
       window.scrollTo({ top: 0, behavior: "smooth" });
       if (isSigningFromLink) {
