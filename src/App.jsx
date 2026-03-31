@@ -3104,6 +3104,7 @@ export default function App() {
               </div>
             `,
             attachments: inspAttachments,
+            bcc: activityEmail ? [activityEmail] : [],
           }),
         }).catch(e => console.warn("Homeowner email non-fatal:", e));
       }
@@ -3333,6 +3334,7 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           to: [data.signerEmail].filter(Boolean),
+          bcc: activityEmail ? [activityEmail] : [],
           subject: "Your Signed Documents — Capital Claims Group",
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -3496,7 +3498,42 @@ export default function App() {
         }).catch(e => console.warn("Activity email non-fatal:", e));
       }
 
-      setIsSubmitting(false);
+      // ── Rep notification email ──
+      if (data.salesRepEmail) {
+        const homeownerName = [data.homeowner1, data.homeowner2].filter(Boolean).join(" & ");
+        const homeownerAddress = [data.address, data.city, data.state, data.zip].filter(Boolean).join(", ");
+        await fetch("/.netlify/functions/send-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            to: [data.salesRepEmail],
+            subject: `✅ Signed — ${homeownerName}`,
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto;">
+                <div style="background: #199c2e; padding: 20px 28px; border-radius: 12px 12px 0 0;">
+                  <h2 style="color: #fff; margin: 0; font-size: 20px;">✅ Your client just signed!</h2>
+                </div>
+                <div style="background: #f9fafb; padding: 24px 28px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb; border-top: none;">
+                  <table style="font-size: 14px; color: #374151; width: 100%; border-collapse: collapse;">
+                    <tr><td style="padding: 5px 0; font-weight: 700; width: 130px;">Homeowner:</td><td>${homeownerName}</td></tr>
+                    <tr><td style="padding: 5px 0; font-weight: 700;">Address:</td><td>${homeownerAddress}</td></tr>
+                    <tr><td style="padding: 5px 0; font-weight: 700;">Docs signed:</td><td>${selectedDocs.map(d => documentLabel(d)).join(", ")}</td></tr>
+                    <tr><td style="padding: 5px 0; font-weight: 700;">Stage:</td><td>${data.claimStage === "post_inspection" ? "✅ Roof Inspected" : "🏠 Pre-Inspection"}</td></tr>
+                    ${data.phone ? `<tr><td style="padding: 5px 0; font-weight: 700;">Phone:</td><td>${data.phone}</td></tr>` : ""}
+                    ${data.signerEmail ? `<tr><td style="padding: 5px 0; font-weight: 700;">Email:</td><td>${data.signerEmail}</td></tr>` : ""}
+                    ${data.insuranceCompany ? `<tr><td style="padding: 5px 0; font-weight: 700;">Insurance:</td><td>${data.insuranceCompany}</td></tr>` : ""}
+                    ${data.policyNumber ? `<tr><td style="padding: 5px 0; font-weight: 700;">Policy #:</td><td>${data.policyNumber}</td></tr>` : ""}
+                  </table>
+                  <div style="margin-top: 16px; background: #f0fdf4; border-radius: 10px; padding: 12px 16px; font-size: 13px; color: #166534; font-weight: 600;">
+                    Signed PDFs have been emailed to the homeowner and PA. Your copy is attached.
+                  </div>
+                </div>
+              </div>
+            `,
+            attachments,
+          }),
+        }).catch(e => console.warn("Rep email non-fatal:", e));
+      }
       setPendingSend(false);
 
       // ── Job Nimbus sync disabled until API key is fixed ──
