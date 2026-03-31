@@ -3232,6 +3232,24 @@ export default function App() {
       const attachments = [];
 
       if (selectedDocs.includes("insp")) {
+        // Save to inspections table
+        await supabase.from("inspections").insert([{
+          client_name: [data.homeowner1, data.homeowner2].filter(Boolean).join(" & "),
+          mobile: data.phone,
+          email: data.signerEmail,
+          address: data.address,
+          city: data.city,
+          state: data.state,
+          zip: data.zip,
+          date: data.date,
+          sales_rep_name: data.salesRepName || "",
+          sales_rep_id: data.salesRepId || "",
+          sales_rep_email: data.salesRepEmail || "",
+          lead_source: data.leadSource || "NEED",
+        }]).then(({ error }) => {
+          if (error) console.error("Inspection insert error:", error);
+        });
+
         try {
           const inspBlob = await generatePDF(
             "#inspection-printable",
