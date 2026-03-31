@@ -2460,7 +2460,7 @@ export default function App() {
 
       const [claimsRes, inspRes] = await Promise.allSettled([
         supabase.from("claims")
-          .select("id, homeowner1, homeowner2, address, city, state, signed_at, sign_method, representative_name, sales_rep_name, sales_rep_email, docs_signed")
+          .select("id, homeowner1, homeowner2, address, city, state, signed_at, sign_method, representative_name_old, sales_rep_name, sales_rep_email, docs_signed")
           .gte("signed_at", start)
           .lte("signed_at", end)
           .order("signed_at", { ascending: false }),
@@ -2494,7 +2494,7 @@ export default function App() {
             address: [c.address, c.city, c.state].filter(Boolean).join(", "),
             signedAt: c.signed_at,
             signMethod: c.sign_method,
-            rep: c.sales_rep_name || c.representative_name || "Unassigned",
+            rep: c.sales_rep_name || c.representative_name_old || "Unassigned",
             hasInsp,
             hasLor,
             hasPac,
@@ -2974,9 +2974,9 @@ export default function App() {
       insurance_company: data.insuranceCompany,
       policy_number: data.policyNumber,
       claim_number: data.claimNumber,
-      representative_name: data.representativeName,
       sales_rep_name: data.salesRepName || "",
       sales_rep_email: data.salesRepEmail || "",
+      sales_rep_id: data.salesRepId || "",
       docs_signed: selectedDocs.join(","),
       homeowner1: data.homeowner1,
       homeowner2: data.homeowner2,
