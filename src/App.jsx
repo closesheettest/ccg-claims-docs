@@ -3041,6 +3041,25 @@ export default function App() {
       const base64 = await blobToBase64(blob);
       const base64Content = String(base64).split(",")[1];
 
+      // Save to Supabase inspections table
+      await supabase.from("inspections").insert([{
+        client_name: inspData.clientName,
+        mobile: inspData.mobile,
+        email: inspData.email,
+        address: inspData.address,
+        city: inspData.city,
+        state: inspData.state,
+        zip: inspData.zip,
+        date: inspData.date,
+        sales_rep_name: data.salesRepName || "",
+        sales_rep_id: data.salesRepId || "",
+        sales_rep_email: data.salesRepEmail || "",
+        lead_source: data.leadSource || "NEED",
+        signed_at: new Date().toISOString(),
+      }]).then(({ error }) => {
+        if (error) console.error("Failed to save inspection to Supabase:", error);
+      });
+
       // Email to homeowner
       if (inspData.email) {
         await fetch("/.netlify/functions/send-email", {
