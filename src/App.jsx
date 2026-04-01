@@ -6070,10 +6070,11 @@ export default function App() {
                   {/* Thank you page text — tabbed */}
                   <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Thank You Pages</SectionTitle>
-                    <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+                    <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
                       {[
-                        { key: "post_inspection", label: "✅ Roof Inspected Flow", emoji: "✅" },
-                        { key: "pre_inspection",  label: "🏠 Pre-Inspection Flow", emoji: "🏠" },
+                        { key: "post_inspection", label: "✅ Roof Inspected Flow" },
+                        { key: "pre_inspection",  label: "🏠 Pre-Inspection Flow" },
+                        { key: "insp_only",       label: "🔧 Inspection Only (USS)" },
                       ].map(tab => (
                         <button
                           key={tab.key}
@@ -6082,9 +6083,9 @@ export default function App() {
                           style={{
                             padding: "8px 16px",
                             borderRadius: 12,
-                            border: managerTYTab === tab.key ? "2px solid #199c2e" : "1px solid #d1d5db",
-                            background: managerTYTab === tab.key ? "#f0fdf4" : "#fff",
-                            color: managerTYTab === tab.key ? "#166534" : "#374151",
+                            border: managerTYTab === tab.key ? "2px solid #1a2e5a" : "1px solid #d1d5db",
+                            background: managerTYTab === tab.key ? "#eef1f8" : "#fff",
+                            color: managerTYTab === tab.key ? "#1a2e5a" : "#374151",
                             fontFamily: "'Nunito', sans-serif",
                             fontWeight: 700,
                             fontSize: 13,
@@ -6278,7 +6279,63 @@ export default function App() {
                         </div>
                       </div>
                     </div>
-                    )}
+                    ) : managerTYTab === "insp_only" ? (
+                    <div style={{ display: "grid", gap: 20 }}>
+                      <div style={{ background: "#eef1f8", border: "1px solid #bfdbfe", borderRadius: 12, padding: "12px 16px", fontSize: 13, color: "#1e3a5f", fontFamily: "'Nunito', sans-serif" }}>
+                        This content appears on the <strong>thank you screen</strong> shown after an inspection-only signing, and in the <strong>USS Welcome Package PDF</strong> emailed to the homeowner.
+                      </div>
+                      <div>
+                        <Label>Headline</Label>
+                        <input type="text" value={inspOnlyHeadline} onChange={(e) => setInspOnlyHeadline(e.target.value)}
+                          style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                      </div>
+                      <div>
+                        <Label>Opening statement</Label>
+                        <textarea value={inspOnlyOpening} onChange={(e) => setInspOnlyOpening(e.target.value)} rows={3}
+                          style={{ width: "100%", borderRadius: 12, border: "1px solid #d1d5db", padding: "10px 12px", fontSize: 14, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }} />
+                      </div>
+                      <div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                          <Label>What to expect next (numbered steps)</Label>
+                          <button type="button" onClick={() => setInspOnlySteps([...inspOnlySteps, "New step — click to edit"])}
+                            style={{ padding: "6px 14px", borderRadius: 10, border: "1.5px solid #1a2e5a", background: "#fff", color: "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 600, fontSize: 13, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                            + Add Step
+                          </button>
+                        </div>
+                        <div style={{ display: "grid", gap: 10 }}>
+                          {inspOnlySteps.map((step, i) => (
+                            <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                              <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#1a2e5a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13, fontFamily: "'Oswald', sans-serif", flexShrink: 0, marginTop: 8 }}>{i + 1}</div>
+                              <textarea value={step} onChange={(e) => { const n=[...inspOnlySteps]; n[i]=e.target.value; setInspOnlySteps(n); }} rows={2}
+                                style={{ flex: 1, borderRadius: 12, border: "1px solid #d1d5db", padding: "8px 12px", fontSize: 14, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }} />
+                              <button type="button" onClick={() => setInspOnlySteps(inspOnlySteps.filter((_,idx)=>idx!==i))}
+                                style={{ background: "transparent", border: "none", color: "#ef4444", fontSize: 18, cursor: "pointer", padding: "4px 6px", marginTop: 6, flexShrink: 0 }}>✕</button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <Label>Closing statement</Label>
+                        <textarea value={inspOnlyClosing} onChange={(e) => setInspOnlyClosing(e.target.value)} rows={2}
+                          style={{ width: "100%", borderRadius: 12, border: "1px solid #d1d5db", padding: "10px 12px", fontSize: 14, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }} />
+                      </div>
+                      <div style={{ marginTop: 4, borderTop: "1px solid #e5e7eb", paddingTop: 16 }}>
+                        <div style={{ fontSize: 12, color: "#9ca3af", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 12 }}>Live Preview</div>
+                        <div style={{ background: "#eef1f8", border: "1px solid #bfdbfe", borderRadius: 16, padding: "20px 18px" }}>
+                          <div style={{ fontSize: 28, marginBottom: 8, textAlign: "center" }}>🏠</div>
+                          <div style={{ fontSize: 20, fontWeight: 700, color: "#1a2e5a", fontFamily: "'Oswald', sans-serif", marginBottom: 6, textAlign: "center" }}>{inspOnlyHeadline}</div>
+                          <div style={{ fontSize: 13, color: "#1e3a5f", fontFamily: "'Nunito', sans-serif", marginBottom: 14, textAlign: "center", lineHeight: 1.5 }}>{inspOnlyOpening}</div>
+                          {inspOnlySteps.map((step, i) => (
+                            <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 8, padding: "8px 12px", background: "#fff", borderRadius: 10, border: "1px solid #bfdbfe" }}>
+                              <div style={{ width: 22, height: 22, borderRadius: "50%", background: "#1a2e5a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
+                              <div style={{ fontSize: 13, color: "#1e3a5f", fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.4 }}>{step}</div>
+                            </div>
+                          ))}
+                          <div style={{ marginTop: 10, padding: "10px 14px", background: "#fffbeb", borderRadius: 10, textAlign: "center", fontSize: 13, color: "#92400e", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>{inspOnlyClosing}</div>
+                        </div>
+                      </div>
+                    </div>
+                    ) : null}
                   </Card>
 
                   {/* Sales Rep Manager */}
