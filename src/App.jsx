@@ -6473,6 +6473,33 @@ export default function App() {
               <div style={{ fontSize: 12, marginTop: 8 }}>Date: {data.date}</div>
             </div>
           </div>
+
+          {/* Audit trail page */}
+          <div style={{ marginTop: 40, paddingTop: 24, borderTop: "2px solid #1a2e5a", pageBreakBefore: "always" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#1a2e5a", marginBottom: 14, textTransform: "uppercase", letterSpacing: 1 }}>
+              Signing Audit Trail
+            </div>
+            <div style={{ display: "grid", gap: 6, fontSize: 12 }}>
+              {[
+                ["Document", "Free Roof Inspection Agreement"],
+                ["Signed by", inspData.clientName || [data.homeowner1, data.homeowner2].filter(Boolean).join(" & ")],
+                ["Signer email", inspData.email || data.signerEmail || "—"],
+                ["Signed at", auditInfo?.signedAt || new Date().toISOString()],
+                ["IP address", auditInfo?.signedIp || "—"],
+                ["City / State", [auditInfo?.signedCity, auditInfo?.signedRegion].filter(Boolean).join(", ") || "—"],
+                ["Sign method", auditInfo?.signMethod || "sign_now"],
+                ["Browser / device", auditInfo?.signedUserAgent || navigator.userAgent || "—"],
+              ].map(([label, value]) => (
+                <div key={label} style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: 8, padding: "6px 10px", background: "#f8fafc", borderRadius: 6, border: "1px solid #e5e7eb" }}>
+                  <div style={{ fontWeight: 700, color: "#374151" }}>{label}</div>
+                  <div style={{ color: "#111827", wordBreak: "break-all" }}>{value}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ marginTop: 14, fontSize: 11, color: "#6b7280", textAlign: "center" }}>
+              This audit trail is automatically generated and serves as a record of the electronic signing event.
+            </div>
+          </div>
         </div>
       </div>
 
