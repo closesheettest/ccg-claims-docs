@@ -6096,7 +6096,8 @@ export default function App() {
                         </button>
                       ))}
                     </div>
-                    {managerTYTab === "post_inspection" ? (
+                    {managerTYTab === "post_inspection" && (
+
                     <>
                     <div style={{ display: "grid", gap: 20 }}>
 
@@ -6226,7 +6227,8 @@ export default function App() {
                       </div>
                     </div>
                     </>
-                    ) : (
+                    )}
+                    {managerTYTab === "pre_inspection" && (
                     <div style={{ display: "grid", gap: 20 }}>
                       <div>
                         <Label>Headline</Label>
@@ -6279,7 +6281,8 @@ export default function App() {
                         </div>
                       </div>
                     </div>
-                    ) : managerTYTab === "insp_only" ? (
+                    )}
+                    {managerTYTab === "insp_only" && (
                     <div style={{ display: "grid", gap: 20 }}>
                       <div style={{ background: "#eef1f8", border: "1px solid #bfdbfe", borderRadius: 12, padding: "12px 16px", fontSize: 13, color: "#1e3a5f", fontFamily: "'Nunito', sans-serif" }}>
                         This content appears on the <strong>thank you screen</strong> shown after an inspection-only signing, and in the <strong>USS Welcome Package PDF</strong> emailed to the homeowner.
@@ -6335,7 +6338,7 @@ export default function App() {
                         </div>
                       </div>
                     </div>
-                    ) : null}
+                    )}
                   </Card>
 
                   {/* Sales Rep Manager */}
