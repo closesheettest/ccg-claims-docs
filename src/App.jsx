@@ -160,7 +160,160 @@ function typedInitialsToDataUrl(text, fontFamily, width = 220, height = 70) {
   ctx.fillText(text, width / 2, height / 2);
   return canvas.toDataURL("image/png");
 }
+const INSP_ROWS_NO_DAMAGE = [
+  { category: "Roofing Material Type",       finding: "Asphalt Shingle & Metal Roofing System",           result: "PASS" },
+  { category: "Shingle Condition",            finding: "No cracking, curling, buckling, or granule loss",  result: "PASS" },
+  { category: "Metal Panel Condition",        finding: "No rust, corrosion, dents, or seam separation",    result: "PASS" },
+  { category: "Flashing & Sealants",          finding: "All flashings intact; sealants in good condition", result: "PASS" },
+  { category: "Gutters & Downspouts",         finding: "Clear of debris; properly secured and functional", result: "PASS" },
+  { category: "Ridge & Hip Caps",             finding: "Intact; no lifting or displacement observed",      result: "PASS" },
+  { category: "Roof Deck (Visible)",          finding: "No soft spots, sagging, or structural compromise", result: "PASS" },
+  { category: "Ventilation",                  finding: "Adequate ventilation present; no obstruction",     result: "PASS" },
+  { category: "Water Intrusion / Leaks",      finding: "No evidence of active or prior water intrusion",   result: "PASS" },
+  { category: "Overall Structural Integrity", finding: "Roof system structurally sound and weathertight",  result: "PASS" },
+];
 
+const INSP_ROWS_DAMAGE = [
+  { category: "Roofing Material Type",       finding: "Asphalt Shingle & Metal Roofing System",              result: "N/A"  },
+  { category: "Shingle Condition",            finding: "Storm damage observed — see inspection notes",         result: "FAIL" },
+  { category: "Metal Panel Condition",        finding: "N/A",                                                  result: "N/A"  },
+  { category: "Flashing & Sealants",          finding: "N/A",                                                  result: "N/A"  },
+  { category: "Gutters & Downspouts",         finding: "N/A",                                                  result: "N/A"  },
+  { category: "Ridge & Hip Caps",             finding: "N/A",                                                  result: "N/A"  },
+  { category: "Roof Deck (Visible)",          finding: "N/A",                                                  result: "N/A"  },
+  { category: "Ventilation",                  finding: "N/A",                                                  result: "N/A"  },
+  { category: "Water Intrusion / Leaks",      finding: "N/A",                                                  result: "N/A"  },
+  { category: "Overall Structural Integrity", finding: "Structural damage confirmed — replacement required",   result: "FAIL" },
+];
+
+function InspectionCertificatePDF({ record, result, inspectorName, certNumber, inspectionDate, fmtDateLong, fmtDateShort, addOneYearStr }) {
+  if (!record) return null;
+  const hasDamage = result === "damage";
+  const rows = hasDamage ? INSP_ROWS_DAMAGE : INSP_ROWS_NO_DAMAGE;
+  const today = inspectionDate || new Date().toISOString().split("T")[0];
+  const certNo = certNumber || `RC-${today.replace(/-/g,"").slice(0,8)}-0001`;
+  const inspector = inspectorName || "—";
+  const tdL = { padding: "6px 10px", fontSize: 10.5, fontWeight: 700, color: "#1a2e5a", background: "#eef1f8", border: "1px solid #c8d4e8", width: "24%" };
+  const tdV = { padding: "6px 10px", fontSize: 10.5, color: "#111827", background: "#fff", border: "1px solid #c8d4e8" };
+
+  return (
+    <div id="inspection-certificate-printable" style={{ width: "8.5in", minHeight: "11in", background: "#fff", fontFamily: "Arial, Helvetica, sans-serif", boxSizing: "border-box" }}>
+      <div style={{ border: "6px solid #1a2e5a", margin: "0.3in 0.35in" }}>
+
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "stretch", borderBottom: "4px solid #1a2e5a" }}>
+          <div style={{ width: "1.9in", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", padding: "12px 10px", borderRight: "3px solid #1a2e5a", flexShrink: 0 }}>
+            <img src="/uss-header.png" alt="U.S. Shingle & Metal" style={{ width: "100%", maxHeight: "1in", objectFit: "contain" }} />
+          </div>
+          <div style={{ flex: 1, textAlign: "center", padding: "12px 14px" }}>
+            <div style={{ fontSize: 20, fontWeight: 700, color: "#1a2e5a", textTransform: "uppercase" }}>CERTIFIED ROOFING INSPECTION CERTIFICATE</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#c8392b", marginTop: 3 }}>U.S. Shingle and Metal LLC</div>
+            <div style={{ fontSize: 10.5, color: "#374151", marginTop: 2 }}>Residential &amp; Commercial Roofing Inspection</div>
+            <div style={{ fontSize: 10.5, color: "#374151" }}>Licensed • Insured • Roof Inspectors</div>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: "#c8392b", marginTop: 2 }}>ASPHALT SHINGLE | METAL ROOFING SYSTEMS</div>
+          </div>
+        </div>
+
+        {/* Contact bar */}
+        <div style={{ background: "#1a2e5a", color: "#fff", textAlign: "center", padding: "5px 14px", fontSize: 10.5, borderBottom: "3px solid #c8392b" }}>
+          Phone: 727-761-5200 &nbsp;|&nbsp; Email: inspection@shingleusa.com &nbsp;|&nbsp; www.shingleusa.com &nbsp;|&nbsp; License #: CCC1331960
+        </div>
+
+        {/* Cert # / date */}
+        <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 14px", fontSize: 10.5, borderBottom: "1px solid #c8d4e8", background: "#f8fafc" }}>
+          <div><strong>Certificate No:</strong> {certNo}</div>
+          <div><strong>Issue Date:</strong> {fmtDateLong(today)}</div>
+        </div>
+
+        {/* Property info */}
+        <div style={{ padding: "10px 14px 6px", borderBottom: "2px solid #1a2e5a" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#1a2e5a", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 7 }}>PROPERTY INFORMATION</div>
+          <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 4 }}>
+            <tbody>
+              <tr><td style={tdL}>Property Address:</td><td style={tdV}>{record.address || ""}</td><td style={tdL}>Inspection Date:</td><td style={tdV}>{fmtDateLong(today)}</td></tr>
+              <tr><td style={tdL}>City, State, ZIP:</td><td style={tdV}>{[record.city, record.state, record.zip].filter(Boolean).join(", ")}</td><td style={tdL}>Inspector Name:</td><td style={tdV}>{inspector}</td></tr>
+              <tr><td style={tdL}>Property Owner:</td><td style={tdV}>{record.client_name || ""}</td><td style={tdL}>License No.:</td><td style={tdV}>CCC1331960</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Certification statement */}
+        <div style={{ margin: "8px 14px", border: "2px solid #1a2e5a", borderRadius: 4, padding: "9px 13px", background: hasDamage ? "#fff5f5" : "#f0fdf4" }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#1a2e5a", textAlign: "center", marginBottom: 5, textTransform: "uppercase" }}>OFFICIAL CERTIFICATION STATEMENT</div>
+          <div style={{ fontSize: 10.5, lineHeight: 1.65, color: "#111827", textAlign: "center" }}>
+            {hasDamage
+              ? <>This is to certify that a thorough roofing inspection was conducted by U.S. Shingle and Metal LLC on the above-referenced property. Based on the findings, the roof system has been evaluated and <strong>STORM DAMAGE HAS BEEN IDENTIFIED</strong>. The roof system requires immediate attention. A licensed Public Adjuster has been notified to assist with the insurance claims process.</>
+              : <>This is to certify that a thorough roofing inspection was conducted by U.S. Shingle and Metal LLC on the above-referenced property. Based on the findings, the roof system has been evaluated and is hereby certified to be <strong>FREE FROM STRUCTURAL DAMAGE</strong>, with an estimated remaining serviceable life of <strong>FIVE (5) YEARS OR MORE</strong> under normal weather and maintenance conditions.</>}
+          </div>
+        </div>
+
+        {/* Findings table */}
+        <div style={{ padding: "0 14px 6px" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#1a2e5a", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 5 }}>INSPECTION FINDINGS</div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
+            <thead>
+              <tr style={{ background: "#1a2e5a", color: "#fff" }}>
+                <th style={{ padding: "5px 9px", textAlign: "left", border: "1px solid #1a2e5a", width: "30%" }}>INSPECTION CATEGORY</th>
+                <th style={{ padding: "5px 9px", textAlign: "left", border: "1px solid #1a2e5a" }}>FINDINGS / OBSERVATIONS</th>
+                <th style={{ padding: "5px 9px", textAlign: "center", border: "1px solid #1a2e5a", width: "72px" }}>RESULT</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, i) => {
+                const isFail = row.result === "FAIL";
+                const isNA = row.result === "N/A";
+                return (
+                  <tr key={row.category} style={{ background: i % 2 === 0 ? "#fff" : "#f8fafc" }}>
+                    <td style={{ padding: "4px 9px", border: "1px solid #d1d5db", fontWeight: 700, color: isFail ? "#dc2626" : "#1a2e5a", fontSize: 10 }}>{row.category}</td>
+                    <td style={{ padding: "4px 9px", border: "1px solid #d1d5db", color: "#374151", fontSize: 10 }}>{row.finding}</td>
+                    <td style={{ padding: "4px 9px", border: "1px solid #d1d5db", textAlign: "center" }}>
+                      <div style={{ background: isFail ? "#dc2626" : isNA ? "#6b7280" : "#199c2e", color: "#fff", borderRadius: 3, padding: "2px 5px", fontSize: 9.5, fontWeight: 700, display: "inline-block", minWidth: 32 }}>{row.result}</div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Status boxes */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", margin: "6px 14px", border: "2px solid #1a2e5a", borderRadius: 4, overflow: "hidden" }}>
+          <div style={{ background: "#1a2e5a", padding: "9px 13px", borderRight: "2px solid #fff" }}>
+            <div style={{ fontSize: 8.5, color: "#c8392b", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2 }}>ESTIMATED REMAINING ROOF LIFE:</div>
+            <div style={{ fontSize: hasDamage ? 14 : 20, fontWeight: 700, color: "#fff" }}>{hasDamage ? "Needs Replacement" : "5+ YEARS"}</div>
+          </div>
+          <div style={{ background: hasDamage ? "#dc2626" : "#199c2e", padding: "9px 13px", textAlign: "center", borderRight: "2px solid #fff", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ fontSize: 9.5, fontWeight: 700, color: "rgba(255,255,255,0.85)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2 }}>DAMAGE STATUS</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: "#fff" }}>{hasDamage ? "DAMAGE FOUND" : "NO DAMAGE"}</div>
+          </div>
+          <div style={{ background: "#c8392b", padding: "9px 13px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ fontSize: 9.5, fontWeight: 700, color: "rgba(255,255,255,0.85)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2 }}>CERT. INSPECTED ON</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>{fmtDateShort(today)}</div>
+          </div>
+        </div>
+
+        {/* Signature */}
+        <div style={{ padding: "7px 14px 9px" }}>
+          <div style={{ borderTop: "1px solid #c8d4e8", paddingTop: 7 }}>
+            <div style={{ borderBottom: "1px solid #111827", height: 32, width: "2.5in", marginBottom: 3 }} />
+            <div style={{ fontSize: 9.5, fontWeight: 700, color: "#374151" }}>Inspector Signature</div>
+            <div style={{ fontSize: 9.5, color: "#374151", marginTop: 1 }}>Name: {inspector} &nbsp;&nbsp;&nbsp; License #: CCC1331960</div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div style={{ background: "#f8fafc", borderTop: "3px solid #1a2e5a", padding: "7px 14px", display: "flex", alignItems: "center", gap: 12 }}>
+          <img src="/uss-header.png" alt="USS" style={{ height: 32, objectFit: "contain", flexShrink: 0 }} />
+          <div>
+            <div style={{ fontSize: 9.5, fontWeight: 700, color: "#1a2e5a" }}>U.S. Shingle and Metal LLC — Residential &amp; Commercial Roofing Inspection</div>
+            <div style={{ fontSize: 8.5, color: "#6b7280" }}>This certificate is based on visual inspection only and does not constitute a warranty or guarantee.</div>
+            <div style={{ fontSize: 8.5, color: "#6b7280" }}>Cert No. {certNo} | Issued: {fmtDateLong(today)} | Valid Through: {addOneYearStr(today)}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 function DuplicateScreen({ duplicateRecord, signMode, signerEmail, onGoBack, onProceedAnyway, onResend }) {
   const rec = duplicateRecord.record;
   const isSigned = duplicateRecord.status === "signed";
@@ -2203,7 +2356,22 @@ export default function App() {
   const [duplicateRecord, setDuplicateRecord] = useState(null);
   const [inspSubmitAttempted, setInspSubmitAttempted] = useState(false);
 
-  const updateInsp = (key, val) => setInspData(prev => ({ ...prev, [key]: val }));
+ const updateInsp = (key, val) => setInspData(prev => ({ ...prev, [key]: val }));
+
+  // ── Record Lookup & Inspection Result state ──
+  const [recordSearch, setRecordSearch] = useState("");
+  const [recordSearchResults, setRecordSearchResults] = useState([]);
+  const [recordSearchLoading, setRecordSearchLoading] = useState(false);
+  const [selectedInspRecord, setSelectedInspRecord] = useState(null);
+  const [resultChoice, setResultChoice] = useState("");
+  const [resultInspectorName, setResultInspectorName] = useState("");
+  const [resultSubmitting, setResultSubmitting] = useState(false);
+  const [resultCertDate, setResultCertDate] = useState(new Date().toISOString().split("T")[0]);
+  const [resultDone, setResultDone] = useState(false);
+  const [resultCertNumber, setResultCertNumber] = useState(() => {
+    const d = new Date(); const m = String(d.getMonth()+1).padStart(2,"0"); const dy = String(d.getDate()).padStart(2,"0");
+    return `RC-${d.getFullYear()}-${m}${dy}-${Math.floor(Math.random()*9000)+1000}`;
+  });
 
   const effectiveInspSig = inspSigMethod === "type"
     ? (inspTypedSig ? typedSignatureToDataUrl(inspTypedSig, inspSigFont) : "")
@@ -2296,6 +2464,7 @@ export default function App() {
   const [newRepName, setNewRepName] = useState("");
   const [newRepEmail, setNewRepEmail] = useState("");
   const [newRepJnId, setNewRepJnId] = useState("");
+  const [newRepPhone, setNewRepPhone] = useState("");
   const [repSaving, setRepSaving] = useState(false);
   const [jnUsers, setJnUsers] = useState([]);
   const [jnImporting, setJnImporting] = useState(false);
@@ -2419,16 +2588,17 @@ export default function App() {
     alert(`✅ Done — ${added} added, ${updated} updated.`);
   };
 
-  const saveRep = async () => {
+ const saveRep = async () => {
     if (!newRepName.trim()) return;
     setRepSaving(true);
     const { error } = await supabase.from("sales_reps").insert([{
       name: newRepName.trim(),
       email: newRepEmail.trim(),
+      phone: newRepPhone.trim(),
       jobnimbus_id: newRepJnId.trim(),
     }]);
     if (!error) {
-      setNewRepName(""); setNewRepEmail(""); setNewRepJnId("");
+      setNewRepName(""); setNewRepEmail(""); setNewRepPhone(""); setNewRepJnId("");
       await loadReps();
     }
     setRepSaving(false);
@@ -3565,6 +3735,148 @@ export default function App() {
     }
   };
 
+  const searchInspectionRecords = async (query) => {
+    if (!query || query.trim().length < 2) { setRecordSearchResults([]); return; }
+    setRecordSearchLoading(true);
+    try {
+      const q = query.trim();
+      const { data: results, error } = await supabase
+        .from("inspections")
+        .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at")
+        .or(`address.ilike.%${q}%,client_name.ilike.%${q}%,zip.ilike.%${q}%`)
+        .order("signed_at", { ascending: false })
+        .limit(10);
+      if (!error) setRecordSearchResults(results || []);
+    } catch (e) { console.error("Record search error:", e); }
+    finally { setRecordSearchLoading(false); }
+  };
+
+  const genCertNo = (dateStr) => {
+    const d = dateStr ? new Date(dateStr + "T12:00:00") : new Date();
+    const m = String(d.getMonth()+1).padStart(2,"0"); const dy = String(d.getDate()).padStart(2,"0");
+    return `RC-${d.getFullYear()}-${m}${dy}-${Math.floor(Math.random()*9000)+1000}`;
+  };
+
+  const fmtDateLong = (dateStr) => {
+    if (!dateStr) return "";
+    return new Date(dateStr + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  };
+
+  const fmtDateShort = (dateStr) => {
+    if (!dateStr) return "";
+    const d = new Date(dateStr + "T12:00:00");
+    return `${String(d.getMonth()+1).padStart(2,"0")} / ${String(d.getDate()).padStart(2,"0")} / ${d.getFullYear()}`;
+  };
+
+  const addOneYearStr = (dateStr) => {
+    if (!dateStr) return "";
+    const d = new Date(dateStr + "T12:00:00"); d.setFullYear(d.getFullYear()+1);
+    return d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  };
+
+  const submitInspectionResult = async () => {
+    if (!resultChoice || !resultInspectorName.trim() || !selectedInspRecord) return;
+    setResultSubmitting(true);
+    try {
+      const certNo = genCertNo(resultCertDate);
+      setResultCertNumber(certNo);
+      const hasDamage = resultChoice === "damage";
+
+      await supabase.from("inspections").update({
+        result: resultChoice,
+        result_at: new Date().toISOString(),
+        inspector_name: resultInspectorName.trim(),
+        cert_number: certNo,
+      }).eq("id", selectedInspRecord.id);
+
+      // Generate PDF
+      setIsExportingPdf(true);
+      await new Promise(r => setTimeout(r, 350));
+      let certBase64 = null;
+      try {
+        const blob = await generatePDF("#inspection-certificate-printable", "Inspection-Certificate.pdf");
+        certBase64 = String(await blobToBase64(blob)).split(",")[1];
+      } catch(e) { console.warn("Cert PDF failed:", e); }
+      setIsExportingPdf(false);
+
+      const homeownerEmail = selectedInspRecord.email || "";
+      const repId = selectedInspRecord.sales_rep_id || "";
+      const repName = selectedInspRecord.sales_rep_name || "";
+      const ownerName = selectedInspRecord.client_name || "Homeowner";
+      const propertyAddr = [selectedInspRecord.address, selectedInspRecord.city, selectedInspRecord.state].filter(Boolean).join(", ");
+
+      let repPhone = "";
+      if (repId) {
+        const { data: repData } = await supabase.from("sales_reps").select("phone").eq("id", repId).single();
+        repPhone = repData?.phone || "";
+      }
+
+      if (!hasDamage) {
+        if (homeownerEmail) {
+          await fetch("/.netlify/functions/send-email", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              to: [homeownerEmail],
+              bcc: activityEmail ? [activityEmail] : [],
+              subject: "Your Roof Inspection Certificate — No Damage Found ✅",
+              html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto"><div style="background:#199c2e;padding:24px 32px;border-radius:12px 12px 0 0"><h1 style="color:#fff;margin:0">✅ Good News — No Damage Found!</h1></div><div style="background:#f9fafb;padding:24px 32px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none"><p>Hi ${ownerName},</p><p>Our inspector completed the roof inspection at <strong>${propertyAddr}</strong> and found <strong>no structural damage</strong>.</p><div style="background:#f0fdf4;border:2px solid #199c2e;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#166534">📄 Keep This Certificate Safe!</p><p style="margin:8px 0 0;color:#166534;font-size:14px;line-height:1.6">Your official inspection certificate is attached. <strong>If your insurance company ever sends a notice requiring roof replacement, submit this certified inspection report as evidence that your roof was professionally inspected and found to be in good condition.</strong></p></div><div style="background:#1a2e5a;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#fff">📞 U.S. Shingle &amp; Metal LLC</p><p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:14px">Phone: 727-761-5200 | Email: inspection@shingleusa.com</p></div></div></div>`,
+              attachments: certBase64 ? [{ filename: "Inspection-Certificate-No-Damage.pdf", content: certBase64 }] : [],
+            }),
+          }).catch(e => console.warn("No-damage email:", e));
+        }
+      } else {
+        // Check PA status
+        const addr = (selectedInspRecord.address || "").trim().toLowerCase();
+        const zip = (selectedInspRecord.zip || "").trim();
+        let paIsSigned = false;
+        if (addr && zip) {
+          const { data: claimData } = await supabase.from("claims").select("id, docs_signed").ilike("address", addr).eq("zip", zip).order("signed_at", { ascending: false }).limit(1);
+          const c = claimData?.[0];
+          paIsSigned = c && ((c.docs_signed || "").includes("lor") || (c.docs_signed || "").includes("pac"));
+        }
+
+        if (homeownerEmail) {
+          await fetch("/.netlify/functions/send-email", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              to: [homeownerEmail],
+              bcc: activityEmail ? [activityEmail] : [],
+              subject: "⚠️ Roof Inspection Results — Damage Found",
+              html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto"><div style="background:#dc2626;padding:24px 32px;border-radius:12px 12px 0 0"><h1 style="color:#fff;margin:0">⚠️ Damage Found — We're On It</h1></div><div style="background:#f9fafb;padding:24px 32px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none"><p>Hi ${ownerName},</p><p>Our inspector has completed the roof inspection at <strong>${propertyAddr}</strong> and identified <strong>storm damage</strong>.</p><div style="background:#fef2f2;border:2px solid #dc2626;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#991b1b">📋 What Happens Next</p><p style="margin:8px 0 0;color:#991b1b;font-size:14px;line-height:1.6">Your representative, <strong>${repName || "our team"}</strong>, will be contacting you soon to get the PA paperwork started so we can work with your insurance company on your behalf.</p></div><p style="font-size:14px;color:#374151">Your official inspection report is attached. Please do not repair or replace anything until your claim has been reviewed.</p><div style="background:#1a2e5a;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#fff">📞 U.S. Shingle &amp; Metal LLC</p><p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:14px">Phone: 727-761-5200 | Email: inspection@shingleusa.com</p></div></div></div>`,
+              attachments: certBase64 ? [{ filename: "Inspection-Certificate-Damage.pdf", content: certBase64 }] : [],
+            }),
+          }).catch(e => console.warn("Damage email:", e));
+        }
+
+        if (selectedInspRecord.mobile) {
+          await fetch("/.netlify/functions/ghl-sms", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              to: selectedInspRecord.mobile,
+              message: `Hi ${ownerName}! U.S. Shingle & Metal completed your roof inspection at ${selectedInspRecord.address} and found storm damage. ${repName || "Your representative"} will be contacting you soon to get the insurance claim process started. We've emailed you a copy of the inspection report. Questions? Call 727-761-5200.`,
+            }),
+          }).catch(e => console.warn("SMS to homeowner:", e));
+        }
+
+        if (!paIsSigned && repPhone) {
+          await fetch("/.netlify/functions/ghl-sms", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              to: repPhone,
+              message: `🚨 DAMAGE FOUND — ${selectedInspRecord.address}, ${selectedInspRecord.city || ""} — Homeowner: ${ownerName}. Storm damage confirmed. PA paperwork has NOT been signed. Contact homeowner ASAP to get LOR + PA Authorization signed! — USS Inspection System`,
+            }),
+          }).catch(e => console.warn("SMS to rep:", e));
+        }
+      }
+      setResultDone(true);
+    } catch(err) {
+      alert(err?.message || "Something went wrong.");
+    } finally {
+      setResultSubmitting(false);
+      setIsExportingPdf(false);
+    }
+  };
+
   if (isLoadingSigningLink) {
     return (
       <div
@@ -4027,7 +4339,8 @@ export default function App() {
           <div style={{ width: "8.5in", boxSizing: "border-box", padding: "0", background: "#fff", position: "relative" }}>
 
             {/* Navy header */}
-            <div style={{ background: "#1a2e5a", padding: "0.5in 0.6in 0.4in", color: "#fff" }}>
+           <div style={{ background: "#1a2e5a", padding: "0.5in 0.6in 0.4in", color: "#fff" }}>
+              <img src="/uss-header.png" alt="U.S. Shingle & Metal" style={{ height: 56, objectFit: "contain", marginBottom: 18, filter: "brightness(0) invert(1)" }} />
               <div style={{ fontSize: 32, fontWeight: 700, marginBottom: 8, lineHeight: 1.1 }}>
                 Welcome to U.S. Shingle & Metal LLC!
               </div>
@@ -6355,7 +6668,7 @@ export default function App() {
                         {repSaving ? "Importing..." : "⬇️ Import All 24 Reps"}
                       </button>
                     </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 10, marginBottom: 16, alignItems: "flex-end" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 10, marginBottom: 16, alignItems: "flex-end" }}>
                       <div>
                         <Label>Rep Name</Label>
                         <input type="text" value={newRepName} onChange={e => setNewRepName(e.target.value)} placeholder="Full name"
@@ -6364,6 +6677,11 @@ export default function App() {
                       <div>
                         <Label>Email (optional)</Label>
                         <input type="email" value={newRepEmail} onChange={e => setNewRepEmail(e.target.value)} placeholder="rep@email.com"
+                          style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                      </div>
+                      <div>
+                        <Label>Cell Phone (for SMS)</Label>
+                        <input type="tel" value={newRepPhone} onChange={e => setNewRepPhone(e.target.value)} placeholder="(727) 555-0000"
                           style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
                       </div>
                       <button type="button" onClick={saveRep} disabled={repSaving || !newRepName.trim()}
@@ -6388,8 +6706,22 @@ export default function App() {
                               {rep.name}
                               {rep.active === false ? <span style={{ fontSize: 10, background: "#fee2e2", color: "#991b1b", borderRadius: 6, padding: "2px 6px", fontFamily: "'Nunito', sans-serif", fontWeight: 700, marginLeft: 8 }}>INACTIVE</span> : null}
                             </div>
+                            {rep.phone ? <div style={{ fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>📞 {rep.phone}</div> : null}
                             {rep.jobnimbus_id ? <div style={{ fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>JN: {rep.jobnimbus_id}</div> : null}
                           </div>
+                          <input
+                            type="tel"
+                            defaultValue={rep.phone || ""}
+                            placeholder="Cell phone"
+                            onBlur={async (e) => {
+                              const phone = e.target.value.trim();
+                              if (phone !== (rep.phone || "")) {
+                                await supabase.from("sales_reps").update({ phone }).eq("id", rep.id);
+                                await loadReps();
+                              }
+                            }}
+                            style={{ height: 32, borderRadius: 8, border: "1px solid #d1d5db", padding: "0 8px", fontSize: 11, width: 130, fontFamily: "'Nunito', sans-serif" }}
+                          />
                           <button type="button" onClick={() => toggleRepActive(rep.id, rep.active !== false)}
                             style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid #d1d5db", background: "#fff", color: "#374151", fontSize: 11, cursor: "pointer", fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}>
                             {rep.active === false ? "Activate" : "Deactivate"}
@@ -6401,7 +6733,91 @@ export default function App() {
                       ) : null}
                     </div>
                   </Card>
+{/* Record Lookup & Inspection Results */}
+                  <Card style={{ padding: 20, background: "#f8fafc" }}>
+                    <SectionTitle>Record Lookup & Inspection Results</SectionTitle>
+                    <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 16 }}>
+                      Search for an inspection record by name, address, or ZIP — then record the result.
+                    </div>
+                    <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+                      <input type="text" value={recordSearch} onChange={(e) => { setRecordSearch(e.target.value); searchInspectionRecords(e.target.value); }}
+                        placeholder="Search by name, address, or ZIP..."
+                        style={{ flex: 1, height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 14px", fontSize: 14, boxSizing: "border-box" }} />
+                      {recordSearchLoading ? <div style={{ display: "flex", alignItems: "center", color: "#6b7280", fontSize: 13, fontFamily: "'Nunito', sans-serif" }}>Searching…</div> : null}
+                    </div>
 
+                    {recordSearchResults.length > 0 ? (
+                      <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
+                        {recordSearchResults.map((rec) => (
+                          <div key={rec.id}
+                            onClick={() => { setSelectedInspRecord(rec); setResultDone(false); setResultChoice(""); setResultInspectorName(""); }}
+                            style={{ background: selectedInspRecord?.id === rec.id ? "#eef1f8" : "#fff", border: selectedInspRecord?.id === rec.id ? "2px solid #1a2e5a" : "1px solid #e5e7eb", borderRadius: 14, padding: "12px 16px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                            <div>
+                              <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", fontFamily: "'Nunito', sans-serif" }}>{rec.client_name || "—"}</div>
+                              <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>{[rec.address, rec.city, rec.state, rec.zip].filter(Boolean).join(", ")}</div>
+                              <div style={{ fontSize: 11, color: "#9ca3af", fontFamily: "'Nunito', sans-serif" }}>Rep: {rec.sales_rep_name || "—"} | Signed: {rec.signed_at ? new Date(rec.signed_at).toLocaleDateString() : "—"}</div>
+                            </div>
+                            <div style={{ flexShrink: 0 }}>
+                              {rec.result === "no_damage" ? <div style={{ background: "#199c2e", color: "#fff", borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>✅ No Damage</div>
+                                : rec.result === "damage" ? <div style={{ background: "#dc2626", color: "#fff", borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>⚠️ Damage</div>
+                                : <div style={{ background: "#f3f4f6", color: "#6b7280", borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>Pending</div>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : recordSearch.length >= 2 && !recordSearchLoading ? (
+                      <div style={{ fontSize: 13, color: "#9ca3af", fontFamily: "'Nunito', sans-serif", marginBottom: 16 }}>No records found.</div>
+                    ) : null}
+
+                    {selectedInspRecord && !resultDone ? (
+                      <div style={{ background: "#fff", border: "2px solid #1a2e5a", borderRadius: 18, padding: "20px 22px", marginTop: 8 }}>
+                        <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#1a2e5a", marginBottom: 14 }}>
+                          🏠 Record Result — {selectedInspRecord.client_name}
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+                          {[{ key: "no_damage", emoji: "✅", label: "No Damage", desc: "Roof is in good condition" }, { key: "damage", emoji: "⚠️", label: "Damage Found", desc: "Storm damage confirmed" }].map(opt => (
+                            <button key={opt.key} type="button" onClick={() => setResultChoice(opt.key)}
+                              style={{ padding: "18px 12px", borderRadius: 16, textAlign: "center", border: resultChoice === opt.key ? `3px solid ${opt.key === "damage" ? "#dc2626" : "#199c2e"}` : "2px solid #e5e7eb", background: resultChoice === opt.key ? (opt.key === "damage" ? "#fef2f2" : "#f0fdf4") : "#fff", cursor: "pointer" }}>
+                              <div style={{ fontSize: 32, marginBottom: 6 }}>{opt.emoji}</div>
+                              <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827" }}>{opt.label}</div>
+                              <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginTop: 4 }}>{opt.desc}</div>
+                              {resultChoice === opt.key ? <div style={{ fontSize: 12, fontWeight: 700, color: opt.key === "damage" ? "#dc2626" : "#199c2e", fontFamily: "'Nunito', sans-serif", marginTop: 4 }}>✓ Selected</div> : null}
+                            </button>
+                          ))}
+                        </div>
+                        <div style={{ marginBottom: 14 }}>
+                          <Label>Inspector Name *</Label>
+                          <input type="text" value={resultInspectorName} onChange={(e) => setResultInspectorName(e.target.value)} placeholder="Full name of inspector"
+                            style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                        </div>
+                        <div style={{ marginBottom: 14 }}>
+                          <Label>Inspection Date</Label>
+                          <input type="date" value={resultCertDate} onChange={(e) => setResultCertDate(e.target.value)}
+                            style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                        </div>
+                        {resultChoice === "damage" ? <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 12, padding: "12px 16px", marginBottom: 14, fontSize: 13, color: "#991b1b", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>⚠️ Will email + SMS homeowner the damage report, and SMS sales rep to get PA paperwork signed ASAP (if not already signed).</div> : null}
+                        {resultChoice === "no_damage" ? <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 12, padding: "12px 16px", marginBottom: 14, fontSize: 13, color: "#166534", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>✅ Will email homeowner their official no-damage certificate with instructions to keep it safe.</div> : null}
+                        <button type="button" onClick={submitInspectionResult} disabled={!resultChoice || !resultInspectorName.trim() || resultSubmitting}
+                          style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", background: resultChoice === "damage" ? "#dc2626" : resultChoice === "no_damage" ? "#199c2e" : "#9ca3af", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: (!resultChoice || !resultInspectorName.trim() || resultSubmitting) ? "not-allowed" : "pointer", opacity: (!resultChoice || !resultInspectorName.trim() || resultSubmitting) ? 0.6 : 1 }}>
+                          {resultSubmitting ? "Processing..." : resultChoice === "damage" ? "⚠️ Record Damage & Notify All" : resultChoice === "no_damage" ? "✅ Record No Damage & Send Certificate" : "Select a Result Above"}
+                        </button>
+                      </div>
+                    ) : null}
+
+                    {selectedInspRecord && resultDone ? (
+                      <div style={{ background: "#f0fdf4", border: "2px solid #199c2e", borderRadius: 18, padding: "24px 22px", marginTop: 8, textAlign: "center" }}>
+                        <div style={{ fontSize: 48, marginBottom: 10 }}>✅</div>
+                        <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#166534", marginBottom: 8 }}>Result Recorded!</div>
+                        <div style={{ fontSize: 15, color: "#166534", fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.6 }}>
+                          {selectedInspRecord.client_name} — {resultChoice === "damage" ? "Damage reported. Homeowner and rep notified." : "No-damage certificate sent to homeowner."}
+                        </div>
+                        <button type="button" onClick={() => { setSelectedInspRecord(null); setResultChoice(""); setResultDone(false); setRecordSearch(""); setRecordSearchResults([]); }}
+                          style={{ marginTop: 16, padding: "10px 24px", borderRadius: 14, border: "2px solid #199c2e", background: "#fff", color: "#199c2e", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                          Search Another
+                        </button>
+                      </div>
+                    ) : null}
+                  </Card>
                   {/* Weekly Report */}
                   <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Weekly Report</SectionTitle>
@@ -6494,6 +6910,7 @@ export default function App() {
         <div id="inspection-printable" style={{ fontFamily: "Arial, Helvetica, sans-serif", background: "#fff", width: "8.5in", padding: "0.6in 0.7in", boxSizing: "border-box" }}>
           <div style={{ textAlign: "center", marginBottom: 24 }}>
 
+            <img src="/uss-header.png" alt="U.S. Shingle & Metal" style={{ height: 70, objectFit: "contain", marginBottom: 10 }} />
             <div style={{ fontSize: 20, fontWeight: 700, color: "#1a2e5a", marginBottom: 4, textTransform: "uppercase", letterSpacing: 1.5 }}>Free Roof Inspection Agreement</div>
             <div style={{ width: 60, height: 3, background: "#c8392b", margin: "0 auto 10px", borderRadius: 2 }} />
             <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.7 }}>
@@ -6696,7 +7113,19 @@ export default function App() {
         </div>
         </div>
       </div>
-
+{/* ── Hidden Inspection Certificate PDF (for result recording) ── */}
+      <div style={{ position: "fixed", left: "-9999px", top: 0, pointerEvents: "none", zIndex: -1 }}>
+        <InspectionCertificatePDF
+          record={selectedInspRecord}
+          result={resultChoice}
+          inspectorName={resultInspectorName}
+          certNumber={resultCertNumber}
+          inspectionDate={resultCertDate}
+          fmtDateLong={fmtDateLong}
+          fmtDateShort={fmtDateShort}
+          addOneYearStr={addOneYearStr}
+        />
+      </div>
       {/* ── Submitting overlay ── */}
       {isSubmitting ? (
         <div
