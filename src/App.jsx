@@ -6784,6 +6784,40 @@ if (!hasDamage) {
                     <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 16 }}>
                       Search for an inspection record by name, address, or ZIP — then record the result.
                     </div>
+                    <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
+  <button
+    type="button"
+    onClick={async () => {
+      setRecordSearchLoading(true);
+      setRecordSearch("");
+      try {
+        const { data: results, error } = await supabase
+          .from("inspections")
+          .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at")
+          .is("result", null);
+        if (!error) {
+          const sorted = (results || []).sort((a, b) => {
+            const lastName = (name) => {
+              const parts = (name || "").trim().split(" ");
+              return parts[parts.length - 1].toLowerCase();
+            };
+            return lastName(a.client_name).localeCompare(lastName(b.client_name));
+          });
+          setRecordSearchResults(sorted);
+        }
+      } catch (e) { console.error("Load pending error:", e); }
+      finally { setRecordSearchLoading(false); }
+    }}
+    style={{ padding: "10px 20px", borderRadius: 12, border: "1.5px solid #1a2e5a", background: "#fff", color: "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}
+  >
+    📋 Load Pending Inspections
+  </button>
+  {recordSearchResults.length > 0 && !recordSearch ? (
+    <span style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
+      {recordSearchResults.length} pending — sorted A→Z by last name
+    </span>
+  ) : null}
+</div>
                     <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
                       <input type="text" value={recordSearch} onChange={(e) => { setRecordSearch(e.target.value); searchInspectionRecords(e.target.value); }}
                         placeholder="Search by name, address, or ZIP..."
