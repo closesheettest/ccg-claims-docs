@@ -6367,8 +6367,6 @@ if (!hasDamage) {
                       </div>
                       </div>
                     </div>
-                  </Card>
-
                   </Card>}
                   {managerSection === "review" && <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Review Page Text</SectionTitle>
@@ -6446,8 +6444,6 @@ if (!hasDamage) {
                         />
                       </div>
                     </div>
-                  </Card>
-
                   </Card>}
                   {managerSection === "thankyou" && <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Thank You Pages</SectionTitle>
@@ -6720,8 +6716,6 @@ if (!hasDamage) {
                       </div>
                     </div>
                     )}
-                  </Card>
-
                   </Card>}
                   {managerSection === "reps" && <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Sales Rep Manager</SectionTitle>
@@ -6800,7 +6794,6 @@ if (!hasDamage) {
                         <div style={{ fontSize: 13, color: "#9ca3af", fontFamily: "'Nunito', sans-serif", padding: "12px 0" }}>No reps yet — import or add one above.</div>
                       ) : null}
                     </div>
-                  </Card>
                   </Card>}
                   {managerSection === "lookup" && <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Record Lookup & Inspection Results</SectionTitle>
@@ -6919,7 +6912,6 @@ if (!hasDamage) {
                         </button>
                       </div>
                     ) : null}
-                  </Card>
                   </Card>}
                   {managerSection === "report" && <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Weekly Report</SectionTitle>
