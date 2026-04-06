@@ -2752,6 +2752,10 @@ export default function App() {
 
   const [activityEmail, setActivityEmailRaw] = useState(() => loadSetting("activityEmail"));
   const setActivityEmail = (v) => { setActivityEmailRaw(v); saveSetting("activityEmail", v); };
+  const [noDamageManagerPhone, setNoDamageManagerPhoneRaw] = useState(() => loadSetting("noDamageManagerPhone") || "4437973758");
+const [noDamageManagerSms, setNoDamageManagerSmsRaw] = useState(() => loadSetting("noDamageManagerSms") || "✅ No damage found at {address} for {client}. Rep: {rep}. Inspection complete — no claim needed.");
+const setNoDamageManagerPhone = (v) => { setNoDamageManagerPhoneRaw(v); saveSetting("noDamageManagerPhone", v); };
+const setNoDamageManagerSms = (v) => { setNoDamageManagerSmsRaw(v); saveSetting("noDamageManagerSms", v); };
   const setPreInspOpening  = (v) => { setPreInspOpeningRaw(v);  saveSetting("preInspOpening", v); };
   const setPreInspSteps    = (v) => { setPreInspStepsRaw(v);    saveSetting("preInspSteps", JSON.stringify(v)); };
   const setPreInspClosing  = (v) => { setPreInspClosingRaw(v);  saveSetting("preInspClosing", v); };
@@ -3810,8 +3814,8 @@ export default function App() {
         const { data: repData } = await supabase.from("sales_reps").select("phone").eq("id", repId).single();
         repPhone = repData?.phone || "";
       }
-
-      if (!hasDamage) {
+if (!hasDamage) {
+        // NO DAMAGE — email homeowner certificate + SMS retail sales manager
         if (homeownerEmail) {
           await fetch("/.netlify/functions/send-email", {
             method: "POST", headers: { "Content-Type": "application/json" },
@@ -3824,8 +3828,22 @@ export default function App() {
             }),
           }).catch(e => console.warn("No-damage email:", e));
         }
+
+        // SMS retail sales manager
+        if (noDamageManagerPhone) {
+          const smsText = (noDamageManagerSms || "")
+            .replace(/{address}/g, selectedInspRecord.address || "")
+            .replace(/{client}/g, ownerName)
+            .replace(/{rep}/g, repName || "Unknown rep")
+            .replace(/{city}/g, selectedInspRecord.city || "");
+          await fetch("/.netlify/functions/ghl-sms", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ to: noDamageManagerPhone, message: smsText, name: "Retail Sales Manager" }),
+          }).catch(e => console.warn("No-damage manager SMS:", e));
+        }
+
       } else {
-        // Check PA status
+        // DAMAGE — check if PA paperwork is signed
         const addr = (selectedInspRecord.address || "").trim().toLowerCase();
         const zip = (selectedInspRecord.zip || "").trim();
         let paIsSigned = false;
@@ -3835,37 +3853,47 @@ export default function App() {
           paIsSigned = c && ((c.docs_signed || "").includes("lor") || (c.docs_signed || "").includes("pac"));
         }
 
-        if (homeownerEmail) {
-          await fetch("/.netlify/functions/send-email", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              to: [homeownerEmail],
-              bcc: activityEmail ? [activityEmail] : [],
-              subject: "⚠️ Roof Inspection Results — Damage Found",
-              html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto"><div style="background:#dc2626;padding:24px 32px;border-radius:12px 12px 0 0"><h1 style="color:#fff;margin:0">⚠️ Damage Found — We're On It</h1></div><div style="background:#f9fafb;padding:24px 32px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none"><p>Hi ${ownerName},</p><p>Our inspector has completed the roof inspection at <strong>${propertyAddr}</strong> and identified <strong>storm damage</strong>.</p><div style="background:#fef2f2;border:2px solid #dc2626;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#991b1b">📋 What Happens Next</p><p style="margin:8px 0 0;color:#991b1b;font-size:14px;line-height:1.6">Your representative, <strong>${repName || "our team"}</strong>, will be contacting you soon to get the PA paperwork started so we can work with your insurance company on your behalf.</p></div><p style="font-size:14px;color:#374151">Your official inspection report is attached. Please do not repair or replace anything until your claim has been reviewed.</p><div style="background:#1a2e5a;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#fff">📞 U.S. Shingle &amp; Metal LLC</p><p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:14px">Phone: 727-761-5200 | Email: inspection@shingleusa.com</p></div></div></div>`,
-              attachments: certBase64 ? [{ filename: "Inspection-Certificate-Damage.pdf", content: certBase64 }] : [],
-            }),
-          }).catch(e => console.warn("Damage email:", e));
-        }
+        if (paIsSigned) {
+          // PA already signed — email homeowner that CCG Claims is starting right away
+          if (homeownerEmail) {
+            await fetch("/.netlify/functions/send-email", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                to: [homeownerEmail],
+                bcc: activityEmail ? [activityEmail] : [],
+                subject: "⚠️ Roof Damage Found — Your Claim Is Being Started",
+                html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto"><div style="background:#dc2626;padding:24px 32px;border-radius:12px 12px 0 0"><h1 style="color:#fff;margin:0">⚠️ Damage Found — CCG Claims Is On It</h1></div><div style="background:#f9fafb;padding:24px 32px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none"><p>Hi ${ownerName},</p><p>Our inspector has completed the roof inspection at <strong>${propertyAddr}</strong> and confirmed <strong>storm damage</strong>.</p><div style="background:#fef2f2;border:2px solid #dc2626;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#991b1b">🚀 Your Claim Is Already In Motion</p><p style="margin:8px 0 0;color:#991b1b;font-size:14px;line-height:1.6">Because you already have your paperwork signed with Capital Claims Group, <strong>your claim is being started right away.</strong> CCG Claims will be reaching out to you shortly to walk you through the next steps.</p></div><div style="background:#1a2e5a;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#fff">📞 Capital Claims Group</p><p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:14px">Phone: +1 (954) 571-3035 | Email: claims@capitalclaimgroup.com</p></div><p style="font-size:13px;color:#6b7280">Please do not repair or replace anything until your claim has been reviewed.</p></div></div>`,
+                attachments: certBase64 ? [{ filename: "Inspection-Certificate-Damage.pdf", content: certBase64 }] : [],
+              }),
+            }).catch(e => console.warn("Damage+PA email:", e));
+          }
 
-        if (selectedInspRecord.mobile) {
-          await fetch("/.netlify/functions/ghl-sms", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              to: selectedInspRecord.mobile,
-              message: `Hi ${ownerName}! U.S. Shingle & Metal completed your roof inspection at ${selectedInspRecord.address} and found storm damage. ${repName || "Your representative"} will be contacting you soon to get the insurance claim process started. We've emailed you a copy of the inspection report. Questions? Call 727-761-5200.`,
-            }),
-          }).catch(e => console.warn("SMS to homeowner:", e));
-        }
+        } else {
+          // Inspection only — email homeowner + SMS rep immediately
+          if (homeownerEmail) {
+            await fetch("/.netlify/functions/send-email", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                to: [homeownerEmail],
+                bcc: activityEmail ? [activityEmail] : [],
+                subject: "⚠️ Roof Inspection Results — Damage Found",
+                html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto"><div style="background:#dc2626;padding:24px 32px;border-radius:12px 12px 0 0"><h1 style="color:#fff;margin:0">⚠️ Damage Found — We're On It</h1></div><div style="background:#f9fafb;padding:24px 32px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none"><p>Hi ${ownerName},</p><p>Our inspector has completed the roof inspection at <strong>${propertyAddr}</strong> and identified <strong>storm damage</strong>.</p><div style="background:#fef2f2;border:2px solid #dc2626;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#991b1b">📋 What Happens Next</p><p style="margin:8px 0 0;color:#991b1b;font-size:14px;line-height:1.6">Your representative, <strong>${repName || "our team"}</strong>, will be contacting you soon to get the paperwork started so we can work with your insurance company on your behalf.</p></div><p style="font-size:14px;color:#374151">Your official inspection report is attached. Please do not repair or replace anything until your claim has been reviewed.</p><div style="background:#1a2e5a;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#fff">📞 U.S. Shingle &amp; Metal LLC</p><p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:14px">Phone: 727-761-5200 | Email: inspection@shingleusa.com</p></div></div></div>`,
+                attachments: certBase64 ? [{ filename: "Inspection-Certificate-Damage.pdf", content: certBase64 }] : [],
+              }),
+            }).catch(e => console.warn("Damage email:", e));
+          }
 
-        if (!paIsSigned && repPhone) {
-          await fetch("/.netlify/functions/ghl-sms", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              to: repPhone,
-              message: `🚨 DAMAGE FOUND — ${selectedInspRecord.address}, ${selectedInspRecord.city || ""} — Homeowner: ${ownerName}. Storm damage confirmed. PA paperwork has NOT been signed. Contact homeowner ASAP to get LOR + PA Authorization signed! — USS Inspection System`,
-            }),
-          }).catch(e => console.warn("SMS to rep:", e));
+          // SMS rep immediately
+          if (repPhone) {
+            await fetch("/.netlify/functions/ghl-sms", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                to: repPhone,
+                name: repName || "Sales Rep",
+                message: `🚨 DAMAGE FOUND — ${selectedInspRecord.address}, ${selectedInspRecord.city || ""} — Homeowner: ${ownerName}. Storm damage confirmed. PA paperwork has NOT been signed. Contact homeowner ASAP to get LOR + PA Authorization signed! — USS Inspection System`,
+              }),
+            }).catch(e => console.warn("SMS to rep:", e));
+          }
         }
       }
       setResultDone(true);
@@ -6297,6 +6325,23 @@ export default function App() {
                         <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4, fontFamily: "'Nunito', sans-serif" }}>
                           Every signing (PA docs or inspection) will CC this address with a summary. Leave blank to disable.
                         </div>
+                        <div style={{ marginTop: 16 }}>
+                        <Label>No-Damage SMS — Retail Sales Manager Phone</Label>
+                        <input type="tel" value={noDamageManagerPhone} onChange={(e) => setNoDamageManagerPhone(e.target.value)}
+                          placeholder="4437973758"
+                          style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                        <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4, fontFamily: "'Nunito', sans-serif" }}>
+                          This number gets an SMS when an inspection comes back with no damage. Currently: {noDamageManagerPhone || "not set"}
+                        </div>
+                      </div>
+                      <div style={{ marginTop: 16 }}>
+                        <Label>No-Damage SMS — Message Template</Label>
+                        <textarea value={noDamageManagerSms} onChange={(e) => setNoDamageManagerSms(e.target.value)} rows={3}
+                          style={{ width: "100%", borderRadius: 12, border: "1px solid #d1d5db", padding: "10px 12px", fontSize: 14, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }} />
+                        <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4, fontFamily: "'Nunito', sans-serif" }}>
+                          Available placeholders: {"{address}"} {"{client}"} {"{rep}"} {"{city}"}
+                        </div>
+                      </div>
                       </div>
                     </div>
                   </Card>
@@ -6799,7 +6844,7 @@ export default function App() {
                         {resultChoice === "no_damage" ? <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 12, padding: "12px 16px", marginBottom: 14, fontSize: 13, color: "#166534", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>✅ Will email homeowner their official no-damage certificate with instructions to keep it safe.</div> : null}
                         <button type="button" onClick={submitInspectionResult} disabled={!resultChoice || !resultInspectorName.trim() || resultSubmitting}
                           style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", background: resultChoice === "damage" ? "#dc2626" : resultChoice === "no_damage" ? "#199c2e" : "#9ca3af", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: (!resultChoice || !resultInspectorName.trim() || resultSubmitting) ? "not-allowed" : "pointer", opacity: (!resultChoice || !resultInspectorName.trim() || resultSubmitting) ? 0.6 : 1 }}>
-                          {resultSubmitting ? "Processing..." : resultChoice === "damage" ? "⚠️ Record Damage & Notify All" : resultChoice === "no_damage" ? "✅ Record No Damage & Send Certificate" : "Select a Result Above"}
+                          {resultSubmitting ? "Processing..." : resultChoice === "damage" ? "📤 Send Results — Damage" : resultChoice === "no_damage" ? "📤 Send Results — No Damage" : "Select a Result Above"}
                         </button>
                       </div>
                     ) : null}
