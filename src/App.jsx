@@ -6272,10 +6272,33 @@ if (!hasDamage) {
                   </div>
                 </div>
               ) : (
-                <div style={{ display: "grid", gap: 28 }}>
-                  {/* PIN change */}
-                  <Card style={{ padding: 20, background: "#f8fafc" }}>
-                    <SectionTitle>Security</SectionTitle>
+                <div>
+                  {managerSection === "home" ? (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 8 }}>
+                      {[
+                        { key: "security", emoji: "⚙️", label: "Security & Notifications", desc: "PIN, activity email, no-damage SMS" },
+                        { key: "review", emoji: "📝", label: "Review Page Text", desc: "Headlines, document descriptions" },
+                        { key: "thankyou", emoji: "🎉", label: "Thank You Pages", desc: "Post-inspection, pre-inspection, USS" },
+                        { key: "reps", emoji: "👥", label: "Sales Rep Manager", desc: "Add, import, activate reps" },
+                        { key: "lookup", emoji: "🔍", label: "Record Lookup & Results", desc: "Find inspections, record damage/no damage" },
+                        { key: "report", emoji: "📊", label: "Weekly Report", desc: "View signings by rep and date range" },
+                      ].map(item => (
+                        <button key={item.key} type="button" onClick={() => setManagerSection(item.key)}
+                          style={{ padding: "24px 20px", borderRadius: 20, border: "2px solid #e5e7eb", background: "#fff", textAlign: "left", cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+                          <div style={{ fontSize: 36, marginBottom: 10 }}>{item.emoji}</div>
+                          <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>{item.label}</div>
+                          <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>{item.desc}</div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div>
+                      <button type="button" onClick={() => setManagerSection("home")}
+                        style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 24, padding: "8px 16px", borderRadius: 12, border: "1.5px solid #d1d5db", background: "#fff", color: "#374151", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", textTransform: "uppercase" }}>
+                        ← Back to Manager Home
+                      </button>
+                  {managerSection === "security" && <Card style={{ padding: 20, background: "#f8fafc" }}>
+                    <SectionTitle>Security & Notifications</SectionTitle>
                     <div style={{ display: "grid", gap: 16 }}>
                       <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "flex-end" }}>
                         <div style={{ maxWidth: 300, flex: 1 }}>
@@ -6346,8 +6369,8 @@ if (!hasDamage) {
                     </div>
                   </Card>
 
-                  {/* Review page text */}
-                  <Card style={{ padding: 20, background: "#f8fafc" }}>
+                  </Card>}
+                  {managerSection === "review" && <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Review Page Text</SectionTitle>
                     <div style={{ display: "grid", gap: 16 }}>
                       <div>
@@ -6425,8 +6448,8 @@ if (!hasDamage) {
                     </div>
                   </Card>
 
-                  {/* Thank you page text — tabbed */}
-                  <Card style={{ padding: 20, background: "#f8fafc" }}>
+                  </Card>}
+                  {managerSection === "thankyou" && <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Thank You Pages</SectionTitle>
                     <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
                       {[
@@ -6699,8 +6722,8 @@ if (!hasDamage) {
                     )}
                   </Card>
 
-                  {/* Sales Rep Manager */}
-                  <Card style={{ padding: 20, background: "#f8fafc" }}>
+                  </Card>}
+                  {managerSection === "reps" && <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Sales Rep Manager</SectionTitle>
                     <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 16 }}>
                       Add reps here. Their name will appear in the Sales Rep dropdown on the intake form.
@@ -6778,8 +6801,8 @@ if (!hasDamage) {
                       ) : null}
                     </div>
                   </Card>
-{/* Record Lookup & Inspection Results */}
-                  <Card style={{ padding: 20, background: "#f8fafc" }}>
+                  </Card>}
+                  {managerSection === "lookup" && <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Record Lookup & Inspection Results</SectionTitle>
                     <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 16 }}>
                       Search for an inspection record by name, address, or ZIP — then record the result.
@@ -6897,8 +6920,8 @@ if (!hasDamage) {
                       </div>
                     ) : null}
                   </Card>
-                  {/* Weekly Report */}
-                  <Card style={{ padding: 20, background: "#f8fafc" }}>
+                  </Card>}
+                  {managerSection === "report" && <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Weekly Report</SectionTitle>
                     <div style={{ display: "grid", gap: 12, marginBottom: 16 }}>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -6969,13 +6992,14 @@ if (!hasDamage) {
                         ) : null}
                       </div>
                     ) : null}
-                  </Card>
-
-                  <div>
-                    <Button onClick={() => { setManagerUnlocked(false); setView("input"); }}>
-                      Save & Close
-                    </Button>
-                  </div>
+                  </Card>}
+                      <div style={{ marginTop: 24 }}>
+                        <Button onClick={() => { setManagerUnlocked(false); setManagerSection("home"); setView("input"); }}>
+                          Save & Close
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </CardContent>
