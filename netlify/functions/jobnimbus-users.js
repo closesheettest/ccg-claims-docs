@@ -1,56 +1,66 @@
-const JN_KEY = process.env.JOBNIMBUS_API_KEY;
-
 exports.handler = async (event) => {
-  if (event.httpMethod !== "GET") {
-    return { statusCode: 405, body: JSON.stringify({ error: "Method not allowed" }) };
+  const apiKey = process.env.JOBNIMBUS_API_KEY;
+
+  if (!apiKey) {
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: "JOBNIMBUS_API_KEY not set" }),
+    };
   }
 
   try {
-    const res = await fetch("https://app.jobnimbus.com/api1/accounts/users?size=200", {
+    const response = await fetch("https://app.jobnimbus.com/api1/account/users", {
+      method: "GET",
       headers: {
-        "Authorization": `Bearer ${JN_KEY}`,
+        Authorization: `bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
     });
 
-    console.log(`/accounts/users status: ${res.status}`);
-    const rawText = await res.text();
+    console.log("JN /account/users status:", response.status);
 
-    if (!res.ok) {
+    if (!response.ok) {
+      const text = await response.text();
+      console.error("JN error response:", text);
       return {
-        statusCode: 200,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ members: [], debug: { status: res.status, raw: rawText.slice(0, 300) } }),
+        statusCode: response.status,
+        body: JSON.stringify({ error: `JN API returned ${response.status}`, detail: text }),
       };
     }
 
-    let data;
-    try { data = JSON.parse(rawText); } catch(e) {
-      return { statusCode: 500, body: JSON.stringify({ error: "Invalid JSON" }) };
+    const data = await response.json();
+    console.log("JN users raw count:", data.users?.length);
+
+    if (!data.users || !Array.isArray(data.users)) {
+      return {
+        statusCode: 200,
+        body: JSON.stringify({ members: [] }),
+      };
     }
 
-    const list = data.results || data.users || data.data || data.members || [];
-    console.log("Total users from JN:", list.length);
-    if (list.length > 0) console.log("Sample:", JSON.stringify(list[0], null, 2));
-
-    const members = list
-      .filter(u => u.is_active !== false && u.is_disabled !== true && u.status !== "inactive")
-      .map(u => ({
-        name: [u.first_name, u.last_name].filter(Boolean).join(" ") || u.name || u.display_name || "",
-        jobnimbus_id: u.jnid || u.id || u.recid || u.user_id || "",
-        email: u.email || u.email_address || "",
+    // Map to our standard format, filter active only
+    const members = data.users
+      .filter((u) => u.is_active !== false)
+      .map((u) => ({
+        name: `${u.first_name || ""} ${u.last_name || ""}`.trim(),
+        jobnimbus_id: u.id,
+        email: u.email || "",
       }))
-      .filter(u => u.name && u.jobnimbus_id)
+      .filter((u) => u.name.length > 0)
       .sort((a, b) => a.name.localeCompare(b.name));
+
+    console.log("Filtered active members:", members.length);
 
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ members }),
     };
-
   } catch (err) {
     console.error("jobnimbus-users error:", err);
-    return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: err.message }),
+    };
   }
 };

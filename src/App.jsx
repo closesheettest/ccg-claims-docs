@@ -77,11 +77,11 @@ const initialData = {
   lossLocationSameAsAddress: true,
   signerEmail: "",
   paEmail: "claims@iambenitopaul.com",
-  salesRepEmail: "",
   representativeName: "",
   leadSource: "NEED",  // "NEED" | "INS"
   salesRepId: "",
   salesRepName: "",
+  salesRepEmail: "",
   homeowner1: "",
   homeowner2: "",
   address: "",
@@ -160,7 +160,160 @@ function typedInitialsToDataUrl(text, fontFamily, width = 220, height = 70) {
   ctx.fillText(text, width / 2, height / 2);
   return canvas.toDataURL("image/png");
 }
+const INSP_ROWS_NO_DAMAGE = [
+  { category: "Roofing Material Type",       finding: "Asphalt Shingle & Metal Roofing System",           result: "PASS" },
+  { category: "Shingle Condition",            finding: "No cracking, curling, buckling, or granule loss",  result: "PASS" },
+  { category: "Metal Panel Condition",        finding: "No rust, corrosion, dents, or seam separation",    result: "PASS" },
+  { category: "Flashing & Sealants",          finding: "All flashings intact; sealants in good condition", result: "PASS" },
+  { category: "Gutters & Downspouts",         finding: "Clear of debris; properly secured and functional", result: "PASS" },
+  { category: "Ridge & Hip Caps",             finding: "Intact; no lifting or displacement observed",      result: "PASS" },
+  { category: "Roof Deck (Visible)",          finding: "No soft spots, sagging, or structural compromise", result: "PASS" },
+  { category: "Ventilation",                  finding: "Adequate ventilation present; no obstruction",     result: "PASS" },
+  { category: "Water Intrusion / Leaks",      finding: "No evidence of active or prior water intrusion",   result: "PASS" },
+  { category: "Overall Structural Integrity", finding: "Roof system structurally sound and weathertight",  result: "PASS" },
+];
 
+const INSP_ROWS_DAMAGE = [
+  { category: "Roofing Material Type",       finding: "Asphalt Shingle & Metal Roofing System",              result: "N/A"  },
+  { category: "Shingle Condition",            finding: "Storm damage observed — see inspection notes",         result: "FAIL" },
+  { category: "Metal Panel Condition",        finding: "N/A",                                                  result: "N/A"  },
+  { category: "Flashing & Sealants",          finding: "N/A",                                                  result: "N/A"  },
+  { category: "Gutters & Downspouts",         finding: "N/A",                                                  result: "N/A"  },
+  { category: "Ridge & Hip Caps",             finding: "N/A",                                                  result: "N/A"  },
+  { category: "Roof Deck (Visible)",          finding: "N/A",                                                  result: "N/A"  },
+  { category: "Ventilation",                  finding: "N/A",                                                  result: "N/A"  },
+  { category: "Water Intrusion / Leaks",      finding: "N/A",                                                  result: "N/A"  },
+  { category: "Overall Structural Integrity", finding: "Structural damage confirmed — replacement required",   result: "FAIL" },
+];
+
+function InspectionCertificatePDF({ record, result, inspectorName, certNumber, inspectionDate, fmtDateLong, fmtDateShort, addOneYearStr }) {
+  if (!record) return null;
+  const hasDamage = result === "damage";
+  const rows = hasDamage ? INSP_ROWS_DAMAGE : INSP_ROWS_NO_DAMAGE;
+  const today = inspectionDate || new Date().toISOString().split("T")[0];
+  const certNo = certNumber || `RC-${today.replace(/-/g,"").slice(0,8)}-0001`;
+  const inspector = inspectorName || "—";
+  const tdL = { padding: "6px 10px", fontSize: 10.5, fontWeight: 700, color: "#1a2e5a", background: "#eef1f8", border: "1px solid #c8d4e8", width: "24%" };
+  const tdV = { padding: "6px 10px", fontSize: 10.5, color: "#111827", background: "#fff", border: "1px solid #c8d4e8" };
+
+  return (
+    <div id="inspection-certificate-printable" style={{ width: "8.5in", minHeight: "11in", background: "#fff", fontFamily: "Arial, Helvetica, sans-serif", boxSizing: "border-box" }}>
+      <div style={{ border: "6px solid #1a2e5a", margin: "0.3in 0.35in" }}>
+
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "stretch", borderBottom: "4px solid #1a2e5a" }}>
+          <div style={{ width: "1.9in", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", padding: "12px 10px", borderRight: "3px solid #1a2e5a", flexShrink: 0 }}>
+            <img src="/uss-header.png" alt="U.S. Shingle & Metal" style={{ width: "100%", maxHeight: "1in", objectFit: "contain" }} />
+          </div>
+          <div style={{ flex: 1, textAlign: "center", padding: "12px 14px" }}>
+            <div style={{ fontSize: 20, fontWeight: 700, color: "#1a2e5a", textTransform: "uppercase" }}>CERTIFIED ROOFING INSPECTION CERTIFICATE</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#c8392b", marginTop: 3 }}>U.S. Shingle and Metal LLC</div>
+            <div style={{ fontSize: 10.5, color: "#374151", marginTop: 2 }}>Residential &amp; Commercial Roofing Inspection</div>
+            <div style={{ fontSize: 10.5, color: "#374151" }}>Licensed • Insured • Roof Inspectors</div>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: "#c8392b", marginTop: 2 }}>ASPHALT SHINGLE | METAL ROOFING SYSTEMS</div>
+          </div>
+        </div>
+
+        {/* Contact bar */}
+        <div style={{ background: "#1a2e5a", color: "#fff", textAlign: "center", padding: "5px 14px", fontSize: 10.5, borderBottom: "3px solid #c8392b" }}>
+          Phone: 727-761-5200 &nbsp;|&nbsp; Email: inspection@shingleusa.com &nbsp;|&nbsp; www.shingleusa.com &nbsp;|&nbsp; License #: CCC1331960
+        </div>
+
+        {/* Cert # / date */}
+        <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 14px", fontSize: 10.5, borderBottom: "1px solid #c8d4e8", background: "#f8fafc" }}>
+          <div><strong>Certificate No:</strong> {certNo}</div>
+          <div><strong>Issue Date:</strong> {fmtDateLong(today)}</div>
+        </div>
+
+        {/* Property info */}
+        <div style={{ padding: "10px 14px 6px", borderBottom: "2px solid #1a2e5a" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#1a2e5a", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 7 }}>PROPERTY INFORMATION</div>
+          <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 4 }}>
+            <tbody>
+              <tr><td style={tdL}>Property Address:</td><td style={tdV}>{record.address || ""}</td><td style={tdL}>Inspection Date:</td><td style={tdV}>{fmtDateLong(today)}</td></tr>
+              <tr><td style={tdL}>City, State, ZIP:</td><td style={tdV}>{[record.city, record.state, record.zip].filter(Boolean).join(", ")}</td><td style={tdL}>Inspector Name:</td><td style={tdV}>{inspector}</td></tr>
+              <tr><td style={tdL}>Property Owner:</td><td style={tdV}>{record.client_name || ""}</td><td style={tdL}>License No.:</td><td style={tdV}>CCC1331960</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Certification statement */}
+        <div style={{ margin: "8px 14px", border: "2px solid #1a2e5a", borderRadius: 4, padding: "9px 13px", background: hasDamage ? "#fff5f5" : "#f0fdf4" }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#1a2e5a", textAlign: "center", marginBottom: 5, textTransform: "uppercase" }}>OFFICIAL CERTIFICATION STATEMENT</div>
+          <div style={{ fontSize: 10.5, lineHeight: 1.65, color: "#111827", textAlign: "center" }}>
+            {hasDamage
+              ? <>This is to certify that a thorough roofing inspection was conducted by U.S. Shingle and Metal LLC on the above-referenced property. Based on the findings, the roof system has been evaluated and <strong>STORM DAMAGE HAS BEEN IDENTIFIED</strong>. The roof system requires immediate attention. A licensed Public Adjuster has been notified to assist with the insurance claims process.</>
+              : <>This is to certify that a thorough roofing inspection was conducted by U.S. Shingle and Metal LLC on the above-referenced property. Based on the findings, the roof system has been evaluated and is hereby certified to be <strong>FREE FROM STRUCTURAL DAMAGE</strong>, with an estimated remaining serviceable life of <strong>FIVE (5) YEARS OR MORE</strong> under normal weather and maintenance conditions.</>}
+          </div>
+        </div>
+
+        {/* Findings table */}
+        <div style={{ padding: "0 14px 6px" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#1a2e5a", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 5 }}>INSPECTION FINDINGS</div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
+            <thead>
+              <tr style={{ background: "#1a2e5a", color: "#fff" }}>
+                <th style={{ padding: "5px 9px", textAlign: "left", border: "1px solid #1a2e5a", width: "30%" }}>INSPECTION CATEGORY</th>
+                <th style={{ padding: "5px 9px", textAlign: "left", border: "1px solid #1a2e5a" }}>FINDINGS / OBSERVATIONS</th>
+                <th style={{ padding: "5px 9px", textAlign: "center", border: "1px solid #1a2e5a", width: "72px" }}>RESULT</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, i) => {
+                const isFail = row.result === "FAIL";
+                const isNA = row.result === "N/A";
+                return (
+                  <tr key={row.category} style={{ background: i % 2 === 0 ? "#fff" : "#f8fafc" }}>
+                    <td style={{ padding: "4px 9px", border: "1px solid #d1d5db", fontWeight: 700, color: isFail ? "#dc2626" : "#1a2e5a", fontSize: 10 }}>{row.category}</td>
+                    <td style={{ padding: "4px 9px", border: "1px solid #d1d5db", color: "#374151", fontSize: 10 }}>{row.finding}</td>
+                    <td style={{ padding: "4px 9px", border: "1px solid #d1d5db", textAlign: "center" }}>
+                      <div style={{ background: isFail ? "#dc2626" : isNA ? "#6b7280" : "#199c2e", color: "#fff", borderRadius: 3, padding: "2px 5px", fontSize: 9.5, fontWeight: 700, display: "inline-block", minWidth: 32 }}>{row.result}</div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Status boxes */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", margin: "6px 14px", border: "2px solid #1a2e5a", borderRadius: 4, overflow: "hidden" }}>
+          <div style={{ background: "#1a2e5a", padding: "9px 13px", borderRight: "2px solid #fff" }}>
+            <div style={{ fontSize: 8.5, color: "#c8392b", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2 }}>ESTIMATED REMAINING ROOF LIFE:</div>
+            <div style={{ fontSize: hasDamage ? 14 : 20, fontWeight: 700, color: "#fff" }}>{hasDamage ? "Needs Replacement" : "5+ YEARS"}</div>
+          </div>
+          <div style={{ background: hasDamage ? "#dc2626" : "#199c2e", padding: "9px 13px", textAlign: "center", borderRight: "2px solid #fff", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ fontSize: 9.5, fontWeight: 700, color: "rgba(255,255,255,0.85)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2 }}>DAMAGE STATUS</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: "#fff" }}>{hasDamage ? "DAMAGE FOUND" : "NO DAMAGE"}</div>
+          </div>
+          <div style={{ background: "#c8392b", padding: "9px 13px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ fontSize: 9.5, fontWeight: 700, color: "rgba(255,255,255,0.85)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2 }}>CERT. INSPECTED ON</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>{fmtDateShort(today)}</div>
+          </div>
+        </div>
+
+        {/* Signature */}
+        <div style={{ padding: "7px 14px 9px" }}>
+          <div style={{ borderTop: "1px solid #c8d4e8", paddingTop: 7 }}>
+            <div style={{ borderBottom: "1px solid #111827", height: 32, width: "2.5in", marginBottom: 3 }} />
+            <div style={{ fontSize: 9.5, fontWeight: 700, color: "#374151" }}>Inspector Signature</div>
+            <div style={{ fontSize: 9.5, color: "#374151", marginTop: 1 }}>Name: {inspector} &nbsp;&nbsp;&nbsp; License #: CCC1331960</div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div style={{ background: "#f8fafc", borderTop: "3px solid #1a2e5a", padding: "7px 14px", display: "flex", alignItems: "center", gap: 12 }}>
+          <img src="/uss-header.png" alt="USS" style={{ height: 32, objectFit: "contain", flexShrink: 0 }} />
+          <div>
+            <div style={{ fontSize: 9.5, fontWeight: 700, color: "#1a2e5a" }}>U.S. Shingle and Metal LLC — Residential &amp; Commercial Roofing Inspection</div>
+            <div style={{ fontSize: 8.5, color: "#6b7280" }}>This certificate is based on visual inspection only and does not constitute a warranty or guarantee.</div>
+            <div style={{ fontSize: 8.5, color: "#6b7280" }}>Cert No. {certNo} | Issued: {fmtDateLong(today)} | Valid Through: {addOneYearStr(today)}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 function DuplicateScreen({ duplicateRecord, signMode, signerEmail, onGoBack, onProceedAnyway, onResend }) {
   const rec = duplicateRecord.record;
   const isSigned = duplicateRecord.status === "signed";
@@ -2175,7 +2328,7 @@ function PublicAdjusterContract({
 
 export default function App() {
   const [view, setView] = useState("input");
-  const [selectedDocs, setSelectedDocs] = useState(["lor"]);
+  const [selectedDocs, setSelectedDocs] = useState(["insp", "lor", "pac"]);
   const [signMode, setSignMode] = useState("now");
   const [data, setData] = useState(initialData);
   const [pendingSend, setPendingSend] = useState(false);
@@ -2200,10 +2353,25 @@ export default function App() {
   const [inspSigFont, setInspSigFont] = useState(SIGNATURE_FONTS[0]);
   const [inspSubmitting, setInspSubmitting] = useState(false);
   const [inspectionOnly, setInspectionOnly] = useState(false);
-  const [duplicateRecord, setDuplicateRecord] = useState(null); // {type, record, status}
+  const [duplicateRecord, setDuplicateRecord] = useState(null);
   const [inspSubmitAttempted, setInspSubmitAttempted] = useState(false);
 
-  const updateInsp = (key, val) => setInspData(prev => ({ ...prev, [key]: val }));
+ const updateInsp = (key, val) => setInspData(prev => ({ ...prev, [key]: val }));
+
+  // ── Record Lookup & Inspection Result state ──
+  const [recordSearch, setRecordSearch] = useState("");
+  const [recordSearchResults, setRecordSearchResults] = useState([]);
+  const [recordSearchLoading, setRecordSearchLoading] = useState(false);
+  const [selectedInspRecord, setSelectedInspRecord] = useState(null);
+  const [resultChoice, setResultChoice] = useState("");
+  const [resultInspectorName, setResultInspectorName] = useState("");
+  const [resultSubmitting, setResultSubmitting] = useState(false);
+  const [resultCertDate, setResultCertDate] = useState(new Date().toISOString().split("T")[0]);
+  const [resultDone, setResultDone] = useState(false);
+  const [resultCertNumber, setResultCertNumber] = useState(() => {
+    const d = new Date(); const m = String(d.getMonth()+1).padStart(2,"0"); const dy = String(d.getDate()).padStart(2,"0");
+    return `RC-${d.getFullYear()}-${m}${dy}-${Math.floor(Math.random()*9000)+1000}`;
+  });
 
   const effectiveInspSig = inspSigMethod === "type"
     ? (inspTypedSig ? typedSignatureToDataUrl(inspTypedSig, inspSigFont) : "")
@@ -2245,11 +2413,22 @@ export default function App() {
     inspOnlySteps: JSON.stringify([
       "📞 Your sales rep will contact you within 24 hours to schedule the inspection.",
       "🏠 A licensed inspector will visit your property and document any roof damage.",
-      "📊 All findings and photos are forwarded to a Public Adjuster for review.",
-      "✅ If storm damage is found, you'll be contacted about next steps for filing a claim.",
-      "💚 No damage? No problem — the inspection is completely free with no obligation.",
+      "📊 All findings and photos are forwarded to a licensed Public Adjuster for review.",
+      "✅ If storm damage is confirmed, you'll be contacted about your options for filing a claim.",
+      "💚 No damage found? No problem — the inspection is completely free with no obligation.",
     ]),
     inspOnlyClosing: "Thank you for trusting U.S. Shingle & Metal LLC. We'll be in touch soon! 🏠",
+    ussWelcomeHeading: "What Happens Next",
+    ussWelcomeSteps: JSON.stringify([
+      "Your sales representative will contact you within 24 hours to coordinate the inspection.",
+      "One of our trained inspectors will visit your property and thoroughly document any storm damage.",
+      "All findings and photos are forwarded to a licensed Public Adjuster for professional review.",
+      "If storm damage is confirmed, you will be contacted about your options for filing an insurance claim.",
+      "If no damage is found — no problem! The inspection is completely free with no obligation.",
+    ]),
+    ussContactPhone: "727.761.5200",
+    ussContactEmail: "info@shingleusa.com",
+    activityEmail: "",
     managerPin: "1234",
   };
 
@@ -2274,7 +2453,10 @@ export default function App() {
   const [managerPinEntry, setManagerPinEntry] = useState("");
   const [managerUnlocked, setManagerUnlocked] = useState(false);
   const [managerTYTab, setManagerTYTab] = useState("post_inspection");
+  const [managerSection, setManagerSection] = useState("home");
   const [reportData, setReportData] = useState(null);
+
+  // Sales rep manager
 
   // Sales rep manager
   const [reps, setReps] = useState([]);
@@ -2282,6 +2464,7 @@ export default function App() {
   const [newRepName, setNewRepName] = useState("");
   const [newRepEmail, setNewRepEmail] = useState("");
   const [newRepJnId, setNewRepJnId] = useState("");
+  const [newRepPhone, setNewRepPhone] = useState("");
   const [repSaving, setRepSaving] = useState(false);
   const [jnUsers, setJnUsers] = useState([]);
   const [jnImporting, setJnImporting] = useState(false);
@@ -2356,9 +2539,65 @@ export default function App() {
   };
 
   const loadReps = async () => {
+    // 1. Try JN live first
+    try {
+      const res = await fetch("/.netlify/functions/jobnimbus-users");
+      if (res.ok) {
+        const json = await res.json();
+        if (json.members && json.members.length > 0) {
+          // Shape JN members to match the reps object shape the rest of the app expects
+          const jnReps = json.members.map((m) => ({
+            id: m.jobnimbus_id,          // use jnid as the id
+            name: m.name,
+            email: m.email || "",
+            jobnimbus_id: m.jobnimbus_id,
+            active: true,
+            _fromJN: true,               // flag so we know it came live from JN
+          }));
+          setReps(jnReps);
+          setRepsLoaded(true);
+
+          // Silently sync any new reps / emails back to Supabase in the background
+          syncJnRepsToSupabase(jnReps);
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn("JN users fetch failed, falling back to Supabase:", e.message);
+    }
+
+    // 2. Fall back to Supabase
     const { data, error } = await supabase.from("sales_reps").select("*").order("name");
     if (!error) { setReps(data || []); setRepsLoaded(true); }
     else console.error("loadReps error:", error);
+  };
+
+  // Keep Supabase in sync with JN data (runs silently in background)
+  const syncJnRepsToSupabase = async (jnReps) => {
+    try {
+      const { data: existing } = await supabase.from("sales_reps").select("name, jobnimbus_id, email");
+      const existingMap = {};
+      (existing || []).forEach(r => { existingMap[r.jobnimbus_id] = r; });
+
+      for (const rep of jnReps) {
+        if (rep.name.toLowerCase().includes("test")) continue;
+        if (!existingMap[rep.jobnimbus_id]) {
+          // New rep — insert
+          await supabase.from("sales_reps").insert([{
+            name: rep.name,
+            jobnimbus_id: rep.jobnimbus_id,
+            email: rep.email,
+            active: true,
+          }]);
+        } else if (rep.email && existingMap[rep.jobnimbus_id].email !== rep.email) {
+          // Email changed in JN — update Supabase
+          await supabase.from("sales_reps").update({ email: rep.email })
+            .eq("jobnimbus_id", rep.jobnimbus_id);
+        }
+      }
+    } catch (e) {
+      console.warn("syncJnRepsToSupabase error:", e.message);
+    }
   };
 
   const seedRepsFromList = async () => {
@@ -2405,16 +2644,17 @@ export default function App() {
     alert(`✅ Done — ${added} added, ${updated} updated.`);
   };
 
-  const saveRep = async () => {
+ const saveRep = async () => {
     if (!newRepName.trim()) return;
     setRepSaving(true);
     const { error } = await supabase.from("sales_reps").insert([{
       name: newRepName.trim(),
       email: newRepEmail.trim(),
+      phone: newRepPhone.trim(),
       jobnimbus_id: newRepJnId.trim(),
     }]);
     if (!error) {
-      setNewRepName(""); setNewRepEmail(""); setNewRepJnId("");
+      setNewRepName(""); setNewRepEmail(""); setNewRepPhone(""); setNewRepJnId("");
       await loadReps();
     }
     setRepSaving(false);
@@ -2446,7 +2686,7 @@ export default function App() {
 
       const [claimsRes, inspRes] = await Promise.allSettled([
         supabase.from("claims")
-          .select("id, homeowner1, homeowner2, address, city, state, signed_at, sign_method, representative_name, sales_rep_name, sales_rep_email, docs_signed")
+          .select("id, homeowner1, homeowner2, address, city, state, signed_at, sign_method, representative_name_old, sales_rep_name, sales_rep_email, docs_signed")
           .gte("signed_at", start)
           .lte("signed_at", end)
           .order("signed_at", { ascending: false }),
@@ -2480,7 +2720,7 @@ export default function App() {
             address: [c.address, c.city, c.state].filter(Boolean).join(", "),
             signedAt: c.signed_at,
             signMethod: c.sign_method,
-            rep: c.sales_rep_name || c.representative_name || "Unassigned",
+            rep: c.sales_rep_name || c.representative_name_old || "Unassigned",
             hasInsp,
             hasLor,
             hasPac,
@@ -2553,6 +2793,25 @@ export default function App() {
   const setInspOnlyOpening  = (v) => { setInspOnlyOpeningRaw(v);  saveSetting("inspOnlyOpening", v); };
   const setInspOnlySteps    = (v) => { setInspOnlyStepsRaw(v);    saveSetting("inspOnlySteps", JSON.stringify(v)); };
   const setInspOnlyClosing  = (v) => { setInspOnlyClosingRaw(v);  saveSetting("inspOnlyClosing", v); };
+
+  // USS Welcome PDF editable content
+  const [ussWelcomeHeading, setUssWelcomeHeadingRaw] = useState(() => loadSetting("ussWelcomeHeading"));
+  const [ussWelcomeSteps,   setUssWelcomeStepsRaw]   = useState(() => {
+    try { return JSON.parse(loadSetting("ussWelcomeSteps")); } catch { return JSON.parse(DEFAULTS.ussWelcomeSteps); }
+  });
+  const [ussContactPhone,   setUssContactPhoneRaw]   = useState(() => loadSetting("ussContactPhone"));
+  const [ussContactEmail,   setUssContactEmailRaw]   = useState(() => loadSetting("ussContactEmail"));
+  const setUssWelcomeHeading = (v) => { setUssWelcomeHeadingRaw(v); saveSetting("ussWelcomeHeading", v); };
+  const setUssWelcomeSteps   = (v) => { setUssWelcomeStepsRaw(v);   saveSetting("ussWelcomeSteps", JSON.stringify(v)); };
+  const setUssContactPhone   = (v) => { setUssContactPhoneRaw(v);   saveSetting("ussContactPhone", v); };
+  const setUssContactEmail   = (v) => { setUssContactEmailRaw(v);   saveSetting("ussContactEmail", v); };
+
+  const [activityEmail, setActivityEmailRaw] = useState(() => loadSetting("activityEmail"));
+  const setActivityEmail = (v) => { setActivityEmailRaw(v); saveSetting("activityEmail", v); };
+  const [noDamageManagerPhone, setNoDamageManagerPhoneRaw] = useState(() => loadSetting("noDamageManagerPhone") || "4437973758");
+const [noDamageManagerSms, setNoDamageManagerSmsRaw] = useState(() => loadSetting("noDamageManagerSms") || "✅ No damage found at {address} for {client}. Rep: {rep}. Inspection complete — no claim needed.");
+const setNoDamageManagerPhone = (v) => { setNoDamageManagerPhoneRaw(v); saveSetting("noDamageManagerPhone", v); };
+const setNoDamageManagerSms = (v) => { setNoDamageManagerSmsRaw(v); saveSetting("noDamageManagerSms", v); };
   const setPreInspOpening  = (v) => { setPreInspOpeningRaw(v);  saveSetting("preInspOpening", v); };
   const setPreInspSteps    = (v) => { setPreInspStepsRaw(v);    saveSetting("preInspSteps", JSON.stringify(v)); };
   const setPreInspClosing  = (v) => { setPreInspClosingRaw(v);  saveSetting("preInspClosing", v); };
@@ -2618,6 +2877,23 @@ export default function App() {
 
   // Load reps on mount
   useEffect(() => { loadReps(); }, []);
+
+  const checkForDuplicate = async () => {
+    if (!data.address || !data.zip) return null;
+    const addr = data.address.trim().toLowerCase();
+    const zip = data.zip.trim();
+    try {
+      const [claimRes, inspRes] = await Promise.allSettled([
+        supabase.from("claims").select("id, homeowner1, homeowner2, address, city, state, zip, signed_at").ilike("address", addr).eq("zip", zip).order("signed_at", { ascending: false }).limit(1),
+        supabase.from("inspections").select("id, client_name, address, city, state, zip, signed_at, sales_rep_name").ilike("address", addr).eq("zip", zip).order("signed_at", { ascending: false }).limit(1),
+      ]);
+      const claim = claimRes.status === "fulfilled" && claimRes.value.data?.[0];
+      const insp  = inspRes.status  === "fulfilled" && inspRes.value.data?.[0];
+      if (claim) return { type: "claim", status: "signed", record: claim };
+      if (insp)  return { type: "inspection", status: "signed", record: insp };
+    } catch (e) { console.warn("Duplicate check failed:", e); }
+    return null;
+  };
 
   useEffect(() => {
     const loadFromSigningLink = async () => {
@@ -2717,20 +2993,7 @@ export default function App() {
     loadFromSigningLink();
   }, []);
 
-  // Fetch team members from Job Nimbus
-  useEffect(() => {
-    const fetchTeamMembers = async () => {
-      try {
-        const res = await fetch("/.netlify/functions/jobnimbus-users");
-        if (!res.ok) throw new Error("Failed to fetch");
-        const { members } = await res.json();
-        if (members?.length) setTeamMembers(members);
-      } catch (e) {
-        console.warn("Could not load JN team members:", e);
-      }
-    };
-    fetchTeamMembers();
-  }, []);
+  // JN team members fetch disabled — re-enable on test site when API key works
 
   useEffect(() => {
     if (view === "review" && reviewReady) {
@@ -2778,39 +3041,7 @@ export default function App() {
     });
   };
 
-  const checkForDuplicate = async () => {
-    if (!data.address) return null;
-    const addr = data.address.trim().toLowerCase();
 
-    // Check claims table
-    const { data: claimMatches } = await supabase
-      .from("claims")
-      .select("id, homeowner1, homeowner2, address, city, state, zip, signed_at, sign_method, docs_signed")
-      .ilike("address", `%${addr}%`)
-      .order("signed_at", { ascending: false })
-      .limit(1);
-
-    if (claimMatches && claimMatches.length > 0) {
-      const match = claimMatches[0];
-      const isSigned = !!match.signed_at;
-      return { type: "claim", record: match, status: isSigned ? "signed" : "pending" };
-    }
-
-    // Check inspections table
-    const { data: inspMatches } = await supabase
-      .from("inspections")
-      .select("id, client_name, address, city, state, zip, signed_at, sales_rep_name")
-      .ilike("address", `%${addr}%`)
-      .order("signed_at", { ascending: false })
-      .limit(1);
-
-    if (inspMatches && inspMatches.length > 0) {
-      const match = inspMatches[0];
-      return { type: "inspection", record: match, status: "signed" };
-    }
-
-    return null;
-  };
 
   const beginDocumentFlow = async () => {
     if (!selectedDocs.length) {
@@ -2923,6 +3154,9 @@ export default function App() {
         html2canvas: {
           scale: 1.5,
           useCORS: true,
+          allowTaint: true,
+          logging: false,
+          ignoreElements: (el) => el.tagName === "IMG" && el.naturalWidth === 0,
           scrollX: 0,
           scrollY: 0,
         },
@@ -2968,7 +3202,10 @@ export default function App() {
       insurance_company: data.insuranceCompany,
       policy_number: data.policyNumber,
       claim_number: data.claimNumber,
-      representative_name: data.representativeName,
+      sales_rep_name: data.salesRepName || "",
+      sales_rep_email: data.salesRepEmail || "",
+      sales_rep_id: data.salesRepId || "",
+      docs_signed: selectedDocs.join(","),
       homeowner1: data.homeowner1,
       homeowner2: data.homeowner2,
       phone: data.phone,
@@ -2981,9 +3218,6 @@ export default function App() {
       situation: data.situation,
       homeowner_email: data.signerEmail,
       pa_email: data.paEmail,
-      sales_rep_name: data.salesRepName || "",
-      sales_rep_email: data.salesRepEmail,
-      docs_signed: selectedDocs.join(","),
       signature1: effectiveSig1,
       signature2: effectiveSig2,
       initials1: effectiveInitials1,
@@ -3031,29 +3265,39 @@ export default function App() {
       const base64 = await blobToBase64(blob);
       const base64Content = String(base64).split(",")[1];
 
-      // Save to Supabase
-      try {
-        await supabase.from("inspections").insert([{
-          client_name: inspData.clientName,
-          mobile: inspData.mobile,
-          email: inspData.email,
-          address: inspData.address,
-          city: inspData.city,
-          state: inspData.state,
-          zip: inspData.zip,
-          date: inspData.date,
-          sales_rep_name: data.salesRepName || "",
-          sales_rep_id: data.salesRepId || "",
-          sales_rep_email: data.salesRepEmail || "",
-          lead_source: data.leadSource || "NEED",
-          signed_at: new Date().toISOString(),
-        }]);
-      } catch (dbErr) {
-        console.warn("Supabase save failed (non-fatal):", dbErr);
+      // Save to Supabase inspections table
+      const { error: inspSaveError } = await supabase.from("inspections").insert([{
+        client_name: inspData.clientName,
+        mobile: inspData.mobile,
+        email: inspData.email,
+        address: inspData.address,
+        city: inspData.city,
+        state: inspData.state,
+        zip: inspData.zip,
+        date: inspData.date,
+        sales_rep_name: data.salesRepName || "",
+        sales_rep_id: data.salesRepId || "",
+        sales_rep_email: data.salesRepEmail || "",
+        lead_source: data.leadSource || "NEED",
+      }]);
+      if (inspSaveError) {
+        console.error("Inspection save error:", inspSaveError);
+        alert("Warning: Could not save to database — " + inspSaveError.message);
       }
 
       // Email to homeowner
       if (inspData.email) {
+        // Generate USS welcome PDF
+        let ussWelcomeAttachment = null;
+        try {
+          const ussBlob = await generatePDF("#uss-welcome-printable", "USS-Welcome-Package.pdf");
+          const ussBase64 = await blobToBase64(ussBlob);
+          ussWelcomeAttachment = { filename: "USS-Welcome-Package.pdf", content: String(ussBase64).split(",")[1] };
+        } catch(e) { console.warn("USS welcome PDF failed:", e); }
+
+        const inspAttachments = [{ filename: "Free-Roof-Inspection-Agreement.pdf", content: base64Content }];
+        if (ussWelcomeAttachment) inspAttachments.push(ussWelcomeAttachment);
+
         await fetch("/.netlify/functions/send-email", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -3069,75 +3313,71 @@ export default function App() {
                   <p style="font-size: 15px; color: #374151;">Hi ${inspData.clientName},</p>
                   <p style="font-size: 15px; color: #374151; line-height: 1.6;">
                     Thank you for signing your Free Roof Inspection Agreement with U.S. Shingle & Metal LLC.
-                    Your signed agreement is attached. We will be in touch shortly to schedule your inspection.
+                    Your signed agreement and welcome package are attached. We will be in touch shortly to schedule your inspection.
                   </p>
                   <div style="background: #eef1f8; border: 1px solid #bfdbfe; border-radius: 10px; padding: 16px 20px; margin: 16px 0;">
-                    <p style="margin: 0; font-weight: 700; color: #1a2e5a;">📞 Questions? Contact us:</p>
-                    <p style="margin: 6px 0 0; color: #1a2e5a; font-size: 14px;">
-                      Phone: 727.761.5200<br/>Email: info@shingleusa.com
+                    <p style="margin: 0; font-weight: 700; color: #1a2e5a;">📎 Attached:</p>
+                    <ul style="margin: 8px 0 0; padding-left: 18px; color: #374151; font-size: 14px; line-height: 1.8;">
+                      <li>Free Roof Inspection Agreement (signed copy)</li>
+                      <li>USS Welcome Package — what to expect next</li>
+                    </ul>
+                  </div>
+                  <div style="background: #1a2e5a; border-radius: 10px; padding: 16px 20px; margin: 16px 0;">
+                    <p style="margin: 0; font-weight: 700; color: #fff;">📞 Questions? Contact us:</p>
+                    <p style="margin: 6px 0 0; color: rgba(255,255,255,0.85); font-size: 14px;">
+                      Phone: ${ussContactPhone}<br/>Email: ${ussContactEmail}
                     </p>
                   </div>
                 </div>
               </div>
             `,
-            attachments: [{ filename: "Free-Roof-Inspection-Agreement.pdf", content: base64Content }],
+            attachments: inspAttachments,
+            bcc: activityEmail ? [activityEmail] : [],
           }),
-        });
+        }).catch(e => console.warn("Homeowner email non-fatal:", e));
       }
 
-      // Email signed PDF to sales rep for manual JN upload
-      if (data.salesRepEmail) {
-        const repEmail = data.salesRepEmail;
-        if (repEmail) {
-          await fetch("/.netlify/functions/send-email", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              to: [repEmail],
-              subject: `📋 New Inspection Agreement — ${inspData.clientName} (Upload to JN)`,
-              html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                  <div style="background: #1a2e5a; padding: 24px 32px; border-radius: 12px 12px 0 0;">
-                    <h1 style="color: #fff; margin: 0; font-size: 20px;">📋 New Signed Inspection Agreement</h1>
-                  </div>
-                  <div style="background: #f9fafb; padding: 24px 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb; border-top: none;">
-                    <p style="font-size: 15px; color: #374151; margin-top: 0;">A new Free Roof Inspection Agreement has been signed. Please upload the attached PDF to Job Nimbus and update the following fields:</p>
-                    <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 14px 18px; margin: 16px 0;">
-                      <p style="margin: 0; font-weight: 700; color: #92400e;">⚠️ Action Required: Upload to Job Nimbus</p>
-                      <ul style="margin: 8px 0 0; color: #92400e; font-size: 14px; line-height: 1.8; padding-left: 20px;">
-                        <li>Create contact if new, or find existing</li>
-                        <li>Create Job → Status: <strong>Sit Sold Insp</strong></li>
-                        <li>Location: <strong>U.S. Shingle - Insurance</strong></li>
-                        <li>Inspection: <strong>Needs Inspection</strong></li>
-                        <li>Attach the signed PDF to Documents</li>
-                      </ul>
-                    </div>
-                    <table style="font-size: 14px; color: #374151; width: 100%; border-collapse: collapse;">
-                      <tr><td style="padding: 4px 0; font-weight: 600; width: 140px;">Client:</td><td>${inspData.clientName}</td></tr>
-                      <tr><td style="padding: 4px 0; font-weight: 600;">Address:</td><td>${[inspData.address, inspData.city, inspData.state, inspData.zip].filter(Boolean).join(", ")}</td></tr>
-                      <tr><td style="padding: 4px 0; font-weight: 600;">Phone:</td><td>${inspData.mobile}</td></tr>
-                      <tr><td style="padding: 4px 0; font-weight: 600;">Email:</td><td>${inspData.email}</td></tr>
-                      <tr><td style="padding: 4px 0; font-weight: 600;">Date:</td><td>${inspData.date}</td></tr>
-                      <tr><td style="padding: 4px 0; font-weight: 600;">Lead Source:</td><td>${data.leadSource || "NEED"}</td></tr>
-                    </table>
-                  </div>
-                </div>
-              `,
-              attachments: [{ filename: "Free-Roof-Inspection-Agreement.pdf", content: base64Content }],
-            }),
-          });
-        }
-      }
+      // Job Nimbus sync disabled until API key is fixed
+      // fetch("/.netlify/functions/jobnimbus-sync", ...
 
-      // Reset
+      // Reset inspection sig fields
       setInspSig("");
       setInspTypedSig("");
       setInspSubmitAttempted(false);
 
-      // Set inspection-only flag and go to thank you
-      const isInspectionOnly = !selectedDocs.includes("lor") && !selectedDocs.includes("pac");
-      setInspectionOnly(isInspectionOnly);
+      // ── Activity notification email ──
+      if (activityEmail) {
+        const repName = data.salesRepName || "—";
+        await fetch("/.netlify/functions/send-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            to: [activityEmail],
+            subject: `🏠 New Inspection — ${inspData.clientName} (${repName})`,
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto;">
+                <div style="background: #1a2e5a; padding: 20px 28px; border-radius: 12px 12px 0 0;">
+                  <h2 style="color: #fff; margin: 0; font-size: 20px;">🏠 New Inspection Signed</h2>
+                </div>
+                <div style="background: #f9fafb; padding: 24px 28px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb; border-top: none;">
+                  <table style="font-size: 14px; color: #374151; width: 100%; border-collapse: collapse;">
+                    <tr><td style="padding: 5px 0; font-weight: 700; width: 130px;">Client:</td><td>${inspData.clientName}</td></tr>
+                    <tr><td style="padding: 5px 0; font-weight: 700;">Address:</td><td>${[inspData.address, inspData.city, inspData.state, inspData.zip].filter(Boolean).join(", ")}</td></tr>
+                    <tr><td style="padding: 5px 0; font-weight: 700;">Rep:</td><td>${repName}</td></tr>
+                    <tr><td style="padding: 5px 0; font-weight: 700;">Doc:</td><td>Free Roof Inspection Agreement</td></tr>
+                    ${inspData.mobile ? `<tr><td style="padding: 5px 0; font-weight: 700;">Phone:</td><td>${inspData.mobile}</td></tr>` : ""}
+                    ${inspData.email ? `<tr><td style="padding: 5px 0; font-weight: 700;">Email:</td><td>${inspData.email}</td></tr>` : ""}
+                  </table>
+                </div>
+              </div>
+            `,
+          }),
+        }).catch(e => console.warn("Activity email non-fatal:", e));
+      }
+
+      // Go to thank you page
       window.scrollTo({ top: 0, behavior: "smooth" });
+      setInspectionOnly(true);
       setView("thankyou");
 
     } catch (err) {
@@ -3196,55 +3436,81 @@ export default function App() {
 
         await parseJsonResponse(emailResponse, "Signing email failed.");
         setIsSubmitting(false);
-        setView("sent");
+        setView("input");
         setPendingSend(false);
         return;
       }
 
-      const auditResponse = await fetch("/.netlify/functions/sign-audit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          claimId: currentClaimId,
-          docType: selectedDocs.join(","),
-          signMethod: isSigningFromLink ? "email_link" : "sign_now",
-          signedByEmail: data.signerEmail,
-          signedByName: [data.homeowner1, data.homeowner2]
-            .filter(Boolean)
-            .join(", "),
-        }),
-      });
-
-      const serverAudit = await parseJsonResponse(
-        auditResponse,
-        "Failed to capture signing audit trail."
-      );
-
-      const nextAuditInfo = {
-        signedAt: serverAudit.signedAt || "",
-        signedIp: serverAudit.signedIp || "",
-        signedUserAgent: serverAudit.signedUserAgent || "",
-        signMethod: serverAudit.signMethod || "",
-        signedByEmail: serverAudit.signedByEmail || data.signerEmail || "",
-        signedByName:
-          serverAudit.signedByName ||
-          [data.homeowner1, data.homeowner2].filter(Boolean).join(", "),
-        signedCity: serverAudit.signedCity || "",
-        signedRegion: serverAudit.signedRegion || "",
+      let nextAuditInfo = {
+        signedAt: new Date().toISOString(),
+        signedIp: "",
+        signedUserAgent: navigator.userAgent || "",
+        signMethod: isSigningFromLink ? "email_link" : "sign_now",
+        signedByEmail: data.signerEmail || "",
+        signedByName: [data.homeowner1, data.homeowner2].filter(Boolean).join(", "),
+        signedCity: "",
+        signedRegion: "",
       };
+
+      try {
+        const auditResponse = await fetch("/.netlify/functions/sign-audit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            claimId: currentClaimId,
+            docType: selectedDocs.join(","),
+            signMethod: isSigningFromLink ? "email_link" : "sign_now",
+            signedByEmail: data.signerEmail,
+            signedByName: [data.homeowner1, data.homeowner2].filter(Boolean).join(", "),
+          }),
+        });
+        const serverAudit = await parseJsonResponse(auditResponse, "Audit failed.");
+        nextAuditInfo = {
+          signedAt: serverAudit.signedAt || nextAuditInfo.signedAt,
+          signedIp: serverAudit.signedIp || "",
+          signedUserAgent: serverAudit.signedUserAgent || navigator.userAgent || "",
+          signMethod: serverAudit.signMethod || nextAuditInfo.signMethod,
+          signedByEmail: serverAudit.signedByEmail || data.signerEmail || "",
+          signedByName: serverAudit.signedByName || nextAuditInfo.signedByName,
+          signedCity: serverAudit.signedCity || "",
+          signedRegion: serverAudit.signedRegion || "",
+        };
+      } catch(auditErr) {
+        console.warn("Audit non-fatal:", auditErr);
+      }
 
       setAuditInfo(nextAuditInfo);
       await new Promise((resolve) => setTimeout(resolve, 150));
 
-      const { error } = await saveClaimToSupabase(nextAuditInfo);
-      if (error) {
-        alert("Error saving: " + error.message);
-        return;
+      // Only save to claims table if PA docs are included
+      if (selectedDocs.includes("lor") || selectedDocs.includes("pac")) {
+        const { error } = await saveClaimToSupabase(nextAuditInfo);
+        if (error) {
+          console.warn("Claims save error:", error.message);
+        }
       }
 
       const attachments = [];
 
       if (selectedDocs.includes("insp")) {
+        // Save to inspections table
+        await supabase.from("inspections").insert([{
+          client_name: [data.homeowner1, data.homeowner2].filter(Boolean).join(" & "),
+          mobile: data.phone,
+          email: data.signerEmail,
+          address: data.address,
+          city: data.city,
+          state: data.state,
+          zip: data.zip,
+          date: data.date,
+          sales_rep_name: data.salesRepName || "",
+          sales_rep_id: data.salesRepId || "",
+          sales_rep_email: data.salesRepEmail || "",
+          lead_source: data.leadSource || "NEED",
+        }]).then(({ error }) => {
+          if (error) console.error("Inspection insert error:", error);
+        });
+
         try {
           const inspBlob = await generatePDF(
             "#inspection-printable",
@@ -3284,150 +3550,73 @@ export default function App() {
         });
       }
 
-      // Welcome PDF logic based on what was signed:
-      // Inspection only → USS welcome only
-      // PA docs (lor/pac, no insp) → CCG welcome only
-      // All three (insp + lor + pac) → both USS + CCG welcome
-      const hasInsp = selectedDocs.includes("insp");
-      const hasPADocs = selectedDocs.includes("lor") || selectedDocs.includes("pac");
-      const isInspOnlyFlow = hasInsp && !hasPADocs;
-
-      if (hasInsp) {
-        try {
-          const ussWelcomeBlob = await generatePDF("#uss-welcome-printable", "USS-Welcome-Package.pdf");
-          const ussWelcomeBase64 = await blobToBase64(ussWelcomeBlob);
-          attachments.push({ filename: "USS-Welcome-Package.pdf", content: String(ussWelcomeBase64).split(",")[1] });
-        } catch (e) { console.warn("USS welcome PDF failed:", e); }
+      // Attach welcome package — USS for inspection-only, CCG for PA docs
+      const isInspOnly = selectedDocs.includes("insp") && !selectedDocs.includes("lor") && !selectedDocs.includes("pac");
+      try {
+        const welcomeSelector = isInspOnly ? "#uss-welcome-printable" : "#ty-summary-printable";
+        const welcomeFilename = isInspOnly ? "USS-Welcome-Package.pdf" : "CCG-Welcome-Package.pdf";
+        const welcomeBlob = await generatePDF(welcomeSelector, welcomeFilename);
+        const welcomeBase64 = await blobToBase64(welcomeBlob);
+        attachments.push({ filename: welcomeFilename, content: String(welcomeBase64).split(",")[1] });
+      } catch (e) {
+        console.warn("Welcome package PDF failed, skipping:", e);
       }
 
-      if (hasPADocs) {
-        try {
-          const ccgWelcomeBlob = await generatePDF("#ty-summary-printable", "CCG-Welcome-Package.pdf");
-          const ccgWelcomeBase64 = await blobToBase64(ccgWelcomeBlob);
-          attachments.push({ filename: "CCG-Welcome-Package.pdf", content: String(ccgWelcomeBase64).split(",")[1] });
-        } catch (e) { console.warn("CCG welcome PDF failed:", e); }
-      }
-
-      const homeownerName = [data.homeowner1, data.homeowner2].filter(Boolean).join(" & ") || "Homeowner";
-
-      const homeownerEmailHtml = isInspOnlyFlow ? `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <div style="background: #1a2e5a; padding: 0; border-radius: 12px 12px 0 0; overflow: hidden;">
-            <div style="display: flex; height: 8px;">
-              <div style="flex: 1; background: #c8392b;"></div>
-              <div style="flex: 1; background: #fff;"></div>
-              <div style="flex: 1; background: #1a2e5a;"></div>
-            </div>
-            <div style="padding: 24px 32px;">
-              <h1 style="color: #fff; margin: 0; font-size: 22px;">🏠 Inspection Agreement Signed!</h1>
-              <p style="color: rgba(255,255,255,0.85); margin: 6px 0 0; font-size: 14px;">U.S. Shingle & Metal LLC</p>
-            </div>
-          </div>
-          <div style="background: #f9fafb; padding: 28px 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb; border-top: none;">
-            <p style="font-size: 16px; color: #111827; margin-top: 0;">Hi ${homeownerName},</p>
-            <p style="font-size: 15px; color: #374151; line-height: 1.6;">
-              Thank you for signing your Free Roof Inspection Agreement with U.S. Shingle & Metal LLC.
-              <strong>Your signed agreement is attached</strong> for your records.
-              We will be in touch shortly to schedule your inspection.
-            </p>
-            <ul style="font-size: 15px; color: #374151; line-height: 1.8;">
-              <li><strong>Free Roof Inspection Agreement</strong> — your signed copy</li>
-              <li><strong>USS Welcome Package</strong> — what to expect & our contact info</li>
-            </ul>
-            <div style="background: #eef1f8; border: 1px solid #bfdbfe; border-radius: 10px; padding: 18px 20px; margin: 20px 0;">
-              <p style="margin: 0 0 8px; font-weight: 700; color: #1a2e5a;">📞 Questions? Contact us:</p>
-              <p style="margin: 0; color: #1a2e5a; font-size: 14px; line-height: 1.7;">
-                Phone: 727.761.5200<br/>
-                Email: info@shingleusa.com
-              </p>
-            </div>
-            <p style="font-size: 14px; color: #6b7280; margin-bottom: 0;"><em>Signed at: ${nextAuditInfo.signedAt || ""}</em></p>
-          </div>
-        </div>
-      ` : hasInsp && hasPADocs ? `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <div style="background: #1a2e5a; padding: 0; border-radius: 12px 12px 0 0; overflow: hidden;">
-            <div style="display: flex; height: 8px;">
-              <div style="flex: 1; background: #c8392b;"></div>
-              <div style="flex: 1; background: #fff;"></div>
-              <div style="flex: 1; background: #1a2e5a;"></div>
-            </div>
-            <div style="padding: 24px 32px;">
-              <h1 style="color: #fff; margin: 0; font-size: 22px;">🎉 All Documents Signed!</h1>
-              <p style="color: rgba(255,255,255,0.85); margin: 6px 0 0; font-size: 14px;">U.S. Shingle & Metal LLC + Capital Claims Group</p>
-            </div>
-          </div>
-          <div style="background: #f9fafb; padding: 28px 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb; border-top: none;">
-            <p style="font-size: 16px; color: #111827; margin-top: 0;">Hi ${homeownerName},</p>
-            <p style="font-size: 15px; color: #374151; line-height: 1.6;">
-              Your documents are signed and we're officially on the case.
-              <strong>We've attached everything to this email</strong> for your records:
-            </p>
-            <ul style="font-size: 15px; color: #374151; line-height: 1.8;">
-              <li><strong>Free Roof Inspection Agreement</strong> — your signed copy</li>
-              ${selectedDocs.filter(d => d !== "insp").map(d => `<li><strong>${documentLabel(d)}</strong> — your signed copy</li>`).join("")}
-              <li><strong>USS Welcome Package</strong> — inspection next steps & U.S. Shingle contact info</li>
-              <li><strong>CCG Welcome Package</strong> — claims process & Capital Claims contact info</li>
-            </ul>
-            <div style="background: #eef1f8; border: 1px solid #bfdbfe; border-radius: 10px; padding: 16px 20px; margin: 16px 0;">
-              <p style="margin: 0 0 6px; font-weight: 700; color: #1a2e5a;">📞 U.S. Shingle & Metal LLC</p>
-              <p style="margin: 0; color: #1a2e5a; font-size: 14px; line-height: 1.7;">Phone: 727.761.5200 &nbsp;|&nbsp; Email: info@shingleusa.com</p>
-            </div>
-            <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 16px 20px; margin: 16px 0;">
-              <p style="margin: 0 0 6px; font-weight: 700; color: #166534;">📞 Capital Claims Group</p>
-              <p style="margin: 0; color: #166534; font-size: 14px; line-height: 1.7;">Phone: +1 (954) 571-3035 &nbsp;|&nbsp; Email: claims@capitalclaimgroup.com</p>
-            </div>
-            <p style="font-size: 14px; color: #6b7280; margin-bottom: 0;"><em>Signed at: ${nextAuditInfo.signedAt || ""}</em></p>
-          </div>
-        </div>
-      ` : `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <div style="background: #199c2e; padding: 28px 32px; border-radius: 12px 12px 0 0;">
-            <h1 style="color: #fff; margin: 0; font-size: 24px;">🎉 You're All Set!</h1>
-          </div>
-          <div style="background: #f9fafb; padding: 28px 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb; border-top: none;">
-            <p style="font-size: 16px; color: #111827; margin-top: 0;">Hi ${homeownerName},</p>
-            <p style="font-size: 15px; color: #374151; line-height: 1.6;">
-              Your documents are signed and we're officially on the case.
-              <strong>We've attached everything to this email</strong> for your records:
-            </p>
-            <ul style="font-size: 15px; color: #374151; line-height: 1.8;">
-              ${selectedDocs.map(d => `<li><strong>${documentLabel(d)}</strong> — your signed copy</li>`).join("")}
-              <li><strong>CCG Welcome Package</strong> — what to expect next &amp; our contact info</li>
-            </ul>
-            <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 18px 20px; margin: 20px 0;">
-              <p style="margin: 0 0 8px; font-weight: 700; color: #166534;">📞 Need to reach us?</p>
-              <p style="margin: 0; color: #166534; font-size: 14px; line-height: 1.7;">
-                Phone: +1 (954) 571-3035<br/>
-                Email: claims@capitalclaimgroup.com<br/>
-                Website: www.ccgclaims.com
-              </p>
-            </div>
-            <p style="font-size: 14px; color: #6b7280; margin-bottom: 0;"><em>Signed at: ${nextAuditInfo.signedAt || ""}</em></p>
-          </div>
-        </div>
-      `;
+      const emailSubject = isInspOnly
+        ? "Your Free Roof Inspection Agreement — U.S. Shingle & Metal"
+        : "Your Signed Documents — Capital Claims Group";
+      const emailHeaderBg = isInspOnly ? "#1a2e5a" : "#199c2e";
+      const emailHeaderText = isInspOnly ? "🏠 Your Inspection Agreement" : "🎉 You're All Set!";
+      const emailWelcomeLine = isInspOnly
+        ? `Your signed inspection agreement and USS welcome package are attached.`
+        : `Your documents are signed and we're officially on the case. <strong>We've attached everything to this email</strong> for your records:`;
+      const emailDocList = isInspOnly
+        ? `<li><strong>Free Roof Inspection Agreement</strong> — your signed copy</li><li><strong>USS Welcome Package</strong> — what to expect next</li>`
+        : `${selectedDocs.map(d => `<li><strong>${documentLabel(d)}</strong> — your signed copy</li>`).join("")}<li><strong>CCG Welcome Package</strong> — what to expect next &amp; our contact info</li>`;
+      const emailContactBg = isInspOnly ? "#1a2e5a" : "#f0fdf4";
+      const emailContactColor = isInspOnly ? "#fff" : "#166534";
+      const emailContactInfo = isInspOnly
+        ? `Phone: ${ussContactPhone}<br/>Email: ${ussContactEmail}`
+        : `Phone: +1 (954) 571-3035<br/>Email: claims@capitalclaimgroup.com<br/>Website: www.ccgclaims.com`;
 
       const finalEmailResponse = await fetch("/.netlify/functions/send-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          to: [data.signerEmail || inspData.email].filter(Boolean),
-          subject: isInspOnlyFlow
-            ? "Your Free Roof Inspection Agreement — U.S. Shingle & Metal"
-            : hasInsp && hasPADocs
-            ? "Your Signed Documents — U.S. Shingle & Metal + Capital Claims Group"
-            : "Your Signed Documents — Capital Claims Group",
-          html: homeownerEmailHtml,
+          to: [data.signerEmail].filter(Boolean),
+          bcc: activityEmail ? [activityEmail] : [],
+          subject: emailSubject,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <div style="background: ${emailHeaderBg}; padding: 28px 32px; border-radius: 12px 12px 0 0;">
+                <h1 style="color: #fff; margin: 0; font-size: 24px;">${emailHeaderText}</h1>
+              </div>
+              <div style="background: #f9fafb; padding: 28px 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb; border-top: none;">
+                <p style="font-size: 16px; color: #111827; margin-top: 0;">
+                  Hi ${[data.homeowner1, data.homeowner2].filter(Boolean).join(" & ")},
+                </p>
+                <p style="font-size: 15px; color: #374151; line-height: 1.6;">${emailWelcomeLine}</p>
+                <ul style="font-size: 15px; color: #374151; line-height: 1.8;">${emailDocList}</ul>
+                <div style="background: ${emailContactBg}; border-radius: 10px; padding: 18px 20px; margin: 20px 0;">
+                  <p style="margin: 0 0 8px; font-weight: 700; color: ${emailContactColor};">📞 Need to reach us?</p>
+                  <p style="margin: 0; color: ${emailContactColor}; font-size: 14px; line-height: 1.7;">${emailContactInfo}</p>
+                </div>
+                <p style="font-size: 14px; color: #6b7280; margin-bottom: 0;">
+                  <em>Signed at: ${nextAuditInfo.signedAt || ""}</em>
+                </p>
+              </div>
+            </div>
+          `,
           attachments,
         }),
       });
-      console.log("Email to:", data.signerEmail || inspData.email, "isInspOnly:", isInspOnlyFlow);
 
-      await parseJsonResponse(finalEmailResponse, "Homeowner email failed.");
+      try { await parseJsonResponse(finalEmailResponse, "Homeowner email failed."); }
+      catch(emailErr) { console.warn("Homeowner email error (non-fatal):", emailErr); }
 
       // ── PA notification email — different content based on claim stage ──
       const isPostInspection = data.claimStage === "post_inspection";
+      const homeownerName = [data.homeowner1, data.homeowner2].filter(Boolean).join(" & ") || "Homeowner";
       const homeownerAddress = [data.address, data.city, data.state, data.zip].filter(Boolean).join(", ");
 
       const paSubject = isPostInspection
@@ -3502,7 +3691,8 @@ export default function App() {
         </div>
       `;
 
-      if (data.paEmail && !isInspOnlyFlow) {
+      // Only send PA email if PA docs were included
+      if (data.paEmail && (selectedDocs.includes("lor") || selectedDocs.includes("pac"))) {
         const paEmailResponse = await fetch("/.netlify/functions/send-email", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -3513,99 +3703,261 @@ export default function App() {
             attachments,
           }),
         });
-        await parseJsonResponse(paEmailResponse, "PA notification email failed.");
+        try { await parseJsonResponse(paEmailResponse, "PA notification email failed."); }
+        catch(e) { console.warn("PA email non-fatal:", e); }
       }
 
-      // For inspection-only — email the rep with JN upload instructions (inspection PDF only, no welcome)
-      if (isInspOnlyFlow && data.salesRepEmail) {
-        const inspAttachmentOnly = attachments.filter(a => a.filename !== "USS-Welcome-Package.pdf");
+      // ── Activity notification email ──
+      if (activityEmail) {
+        const repName = data.salesRepName || data.representativeName || "—";
+        const homeownerName = [data.homeowner1, data.homeowner2].filter(Boolean).join(" & ");
+        const homeownerAddress = [data.address, data.city, data.state, data.zip].filter(Boolean).join(", ");
+        await fetch("/.netlify/functions/send-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            to: [activityEmail],
+            subject: `📋 New Signing — ${homeownerName} (${repName})`,
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto;">
+                <div style="background: #199c2e; padding: 20px 28px; border-radius: 12px 12px 0 0;">
+                  <h2 style="color: #fff; margin: 0; font-size: 20px;">📋 New Signing Activity</h2>
+                </div>
+                <div style="background: #f9fafb; padding: 24px 28px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb; border-top: none;">
+                  <table style="font-size: 14px; color: #374151; width: 100%; border-collapse: collapse;">
+                    <tr><td style="padding: 5px 0; font-weight: 700; width: 130px;">Homeowner:</td><td>${homeownerName}</td></tr>
+                    <tr><td style="padding: 5px 0; font-weight: 700;">Address:</td><td>${homeownerAddress}</td></tr>
+                    <tr><td style="padding: 5px 0; font-weight: 700;">Rep:</td><td>${repName}</td></tr>
+                    <tr><td style="padding: 5px 0; font-weight: 700;">Docs:</td><td>${selectedDocs.map(d => documentLabel(d)).join(", ")}</td></tr>
+                    <tr><td style="padding: 5px 0; font-weight: 700;">Stage:</td><td>${data.claimStage === "post_inspection" ? "✅ Roof Inspected" : "🏠 Pre-Inspection"}</td></tr>
+                    <tr><td style="padding: 5px 0; font-weight: 700;">Signed:</td><td>${nextAuditInfo.signedAt || new Date().toLocaleString()}</td></tr>
+                    ${data.phone ? `<tr><td style="padding: 5px 0; font-weight: 700;">Phone:</td><td>${data.phone}</td></tr>` : ""}
+                    ${data.signerEmail ? `<tr><td style="padding: 5px 0; font-weight: 700;">Email:</td><td>${data.signerEmail}</td></tr>` : ""}
+                  </table>
+                </div>
+              </div>
+            `,
+          }),
+        }).catch(e => console.warn("Activity email non-fatal:", e));
+      }
+
+      // ── Rep notification email ──
+      if (data.salesRepEmail) {
+        const homeownerName = [data.homeowner1, data.homeowner2].filter(Boolean).join(" & ");
+        const homeownerAddress = [data.address, data.city, data.state, data.zip].filter(Boolean).join(", ");
         await fetch("/.netlify/functions/send-email", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             to: [data.salesRepEmail],
-            subject: `📋 New Inspection Agreement — ${homeownerName} (Upload to JN)`,
+            subject: `✅ Signed — ${homeownerName}`,
             html: `
-              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <div style="background: #1a2e5a; padding: 0; border-radius: 12px 12px 0 0; overflow: hidden;">
-                  <div style="display: flex; height: 6px;"><div style="flex:1;background:#c8392b"></div><div style="flex:1;background:#fff"></div><div style="flex:1;background:#1a2e5a"></div></div>
-                  <div style="padding: 20px 28px;">
-                    <h1 style="color: #fff; margin: 0; font-size: 20px;">📋 New Signed Inspection Agreement</h1>
-                  </div>
+              <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto;">
+                <div style="background: #199c2e; padding: 20px 28px; border-radius: 12px 12px 0 0;">
+                  <h2 style="color: #fff; margin: 0; font-size: 20px;">✅ Your client just signed!</h2>
                 </div>
                 <div style="background: #f9fafb; padding: 24px 28px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb; border-top: none;">
-                  <p style="font-size: 15px; color: #374151; margin-top: 0;">A Free Roof Inspection Agreement has been signed. Please upload to Job Nimbus:</p>
-                  <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 14px 18px; margin: 16px 0;">
-                    <p style="margin: 0; font-weight: 700; color: #92400e;">⚠️ Action Required: Upload to Job Nimbus</p>
-                    <ul style="margin: 8px 0 0; color: #92400e; font-size: 14px; line-height: 1.8; padding-left: 20px;">
-                      <li>Create or find contact by address</li>
-                      <li>Create Job → Status: <strong>Sit Sold Insp</strong></li>
-                      <li>Location: <strong>U.S. Shingle - Insurance</strong></li>
-                      <li>Inspection: <strong>Needs Inspection</strong></li>
-                      <li>Attach the signed PDF to Documents</li>
-                    </ul>
-                  </div>
                   <table style="font-size: 14px; color: #374151; width: 100%; border-collapse: collapse;">
-                    <tr><td style="padding: 4px 0; font-weight: 600; width: 120px;">Client:</td><td>${homeownerName}</td></tr>
-                    <tr><td style="padding: 4px 0; font-weight: 600;">Address:</td><td>${homeownerAddress}</td></tr>
-                    <tr><td style="padding: 4px 0; font-weight: 600;">Phone:</td><td>${data.phone || "—"}</td></tr>
-                    <tr><td style="padding: 4px 0; font-weight: 600;">Email:</td><td>${data.signerEmail || "—"}</td></tr>
-                    <tr><td style="padding: 4px 0; font-weight: 600;">Lead Source:</td><td>${data.leadSource || "NEED"}</td></tr>
+                    <tr><td style="padding: 5px 0; font-weight: 700; width: 130px;">Homeowner:</td><td>${homeownerName}</td></tr>
+                    <tr><td style="padding: 5px 0; font-weight: 700;">Address:</td><td>${homeownerAddress}</td></tr>
+                    <tr><td style="padding: 5px 0; font-weight: 700;">Docs signed:</td><td>${selectedDocs.map(d => documentLabel(d)).join(", ")}</td></tr>
+                    <tr><td style="padding: 5px 0; font-weight: 700;">Stage:</td><td>${data.claimStage === "post_inspection" ? "✅ Roof Inspected" : "🏠 Pre-Inspection"}</td></tr>
+                    ${data.phone ? `<tr><td style="padding: 5px 0; font-weight: 700;">Phone:</td><td>${data.phone}</td></tr>` : ""}
+                    ${data.signerEmail ? `<tr><td style="padding: 5px 0; font-weight: 700;">Email:</td><td>${data.signerEmail}</td></tr>` : ""}
+                    ${data.insuranceCompany ? `<tr><td style="padding: 5px 0; font-weight: 700;">Insurance:</td><td>${data.insuranceCompany}</td></tr>` : ""}
+                    ${data.policyNumber ? `<tr><td style="padding: 5px 0; font-weight: 700;">Policy #:</td><td>${data.policyNumber}</td></tr>` : ""}
                   </table>
+                  <div style="margin-top: 16px; background: #f0fdf4; border-radius: 10px; padding: 12px 16px; font-size: 13px; color: #166534; font-weight: 600;">
+                    Signed PDFs have been emailed to the homeowner and PA. Your copy is attached.
+                  </div>
                 </div>
               </div>
             `,
-            attachments: inspAttachmentOnly,
+            attachments,
           }),
         }).catch(e => console.warn("Rep email non-fatal:", e));
       }
-
-      setIsSubmitting(false);
       setPendingSend(false);
+      setIsSubmitting(false);
 
-      // ── Job Nimbus sync ──
-      try {
-        const nameParts = (data.homeowner1 || "").trim().split(" ");
-        const jnPayload = {
-          firstName: nameParts[0] || "",
-          lastName: nameParts.slice(1).join(" ") || "",
-          address: data.address,
-          city: data.city,
-          state: data.state,
-          zip: data.zip,
-          phone: data.phone,
-          email: data.signerEmail,
-          salesRepId: data.salesRepId || null,
-          leadSource: data.leadSource || "NEED",
-          soldDate: data.date,
-          paSignedAlso: selectedDocs.includes("pac"),
-          inspectionPdfBase64: null, // no inspection PDF in PA flow
-          lorPdfBase64: selectedDocs.includes("lor")
-            ? String(await blobToBase64(await generatePDF("#lor-printable-document", "lor.pdf"))).split(",")[1]
-            : null,
-          pacPdfBase64: selectedDocs.includes("pac")
-            ? String(await blobToBase64(await generatePDF("#pac-printable-document", "pac.pdf"))).split(",")[1]
-            : null,
-        };
-
-        await fetch("/.netlify/functions/jobnimbus-sync", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(jnPayload),
-        });
-      } catch (jnErr) {
-        console.warn("Job Nimbus sync failed (non-fatal):", jnErr);
-      }
+      // ── Job Nimbus sync disabled until API key is fixed ──
 
       window.scrollTo({ top: 0, behavior: "smooth" });
-      setInspectionOnly(isInspOnlyFlow);
       if (isSigningFromLink) {
         window.history.replaceState({}, "", window.location.pathname);
       }
+      // Set inspectionOnly flag — insp signed but no PA docs
+      setInspectionOnly(selectedDocs.includes("insp") && !selectedDocs.includes("lor") && !selectedDocs.includes("pac"));
       setView("thankyou");
     } catch (err) {
       setIsSubmitting(false);
       alert(err?.message || "Something went wrong. Please try again.");
+    }
+  };
+
+  const searchInspectionRecords = async (query) => {
+    if (!query || query.trim().length < 2) { setRecordSearchResults([]); return; }
+    setRecordSearchLoading(true);
+    try {
+      const q = query.trim();
+      const { data: results, error } = await supabase
+        .from("inspections")
+        .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at")
+        .or(`address.ilike.%${q}%,client_name.ilike.%${q}%,zip.ilike.%${q}%`)
+        .order("signed_at", { ascending: false })
+        .limit(10);
+      if (!error) setRecordSearchResults(results || []);
+    } catch (e) { console.error("Record search error:", e); }
+    finally { setRecordSearchLoading(false); }
+  };
+
+  const genCertNo = (dateStr) => {
+    const d = dateStr ? new Date(dateStr + "T12:00:00") : new Date();
+    const m = String(d.getMonth()+1).padStart(2,"0"); const dy = String(d.getDate()).padStart(2,"0");
+    return `RC-${d.getFullYear()}-${m}${dy}-${Math.floor(Math.random()*9000)+1000}`;
+  };
+
+  const fmtDateLong = (dateStr) => {
+    if (!dateStr) return "";
+    return new Date(dateStr + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  };
+
+  const fmtDateShort = (dateStr) => {
+    if (!dateStr) return "";
+    const d = new Date(dateStr + "T12:00:00");
+    return `${String(d.getMonth()+1).padStart(2,"0")} / ${String(d.getDate()).padStart(2,"0")} / ${d.getFullYear()}`;
+  };
+
+  const addOneYearStr = (dateStr) => {
+    if (!dateStr) return "";
+    const d = new Date(dateStr + "T12:00:00"); d.setFullYear(d.getFullYear()+1);
+    return d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  };
+
+  const submitInspectionResult = async () => {
+    if (!resultChoice || !resultInspectorName.trim() || !selectedInspRecord) return;
+    setResultSubmitting(true);
+    try {
+      const certNo = genCertNo(resultCertDate);
+      setResultCertNumber(certNo);
+      const hasDamage = resultChoice === "damage";
+
+      await supabase.from("inspections").update({
+        result: resultChoice,
+        result_at: new Date().toISOString(),
+        inspector_name: resultInspectorName.trim(),
+        cert_number: certNo,
+      }).eq("id", selectedInspRecord.id);
+
+      // Generate PDF
+      setIsExportingPdf(true);
+      await new Promise(r => setTimeout(r, 350));
+      let certBase64 = null;
+      try {
+        const blob = await generatePDF("#inspection-certificate-printable", "Inspection-Certificate.pdf");
+        certBase64 = String(await blobToBase64(blob)).split(",")[1];
+      } catch(e) { console.warn("Cert PDF failed:", e); }
+      setIsExportingPdf(false);
+
+      const homeownerEmail = selectedInspRecord.email || "";
+      const repId = selectedInspRecord.sales_rep_id || "";
+      const repName = selectedInspRecord.sales_rep_name || "";
+      const ownerName = selectedInspRecord.client_name || "Homeowner";
+      const propertyAddr = [selectedInspRecord.address, selectedInspRecord.city, selectedInspRecord.state].filter(Boolean).join(", ");
+
+      let repPhone = "";
+      if (repId) {
+        const { data: repData } = await supabase.from("sales_reps").select("phone").eq("id", repId).single();
+        repPhone = repData?.phone || "";
+      }
+if (!hasDamage) {
+        // NO DAMAGE — email homeowner certificate + SMS retail sales manager
+        if (homeownerEmail) {
+          await fetch("/.netlify/functions/send-email", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              to: [homeownerEmail],
+              bcc: activityEmail ? [activityEmail] : [],
+              subject: "Your Roof Inspection Certificate — No Damage Found ✅",
+              html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto"><div style="background:#199c2e;padding:24px 32px;border-radius:12px 12px 0 0"><h1 style="color:#fff;margin:0">✅ Good News — No Damage Found!</h1></div><div style="background:#f9fafb;padding:24px 32px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none"><p>Hi ${ownerName},</p><p>Our inspector completed the roof inspection at <strong>${propertyAddr}</strong> and found <strong>no structural damage</strong>.</p><div style="background:#f0fdf4;border:2px solid #199c2e;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#166534">📄 Keep This Certificate Safe!</p><p style="margin:8px 0 0;color:#166534;font-size:14px;line-height:1.6">Your official inspection certificate is attached. <strong>If your insurance company ever sends a notice requiring roof replacement, submit this certified inspection report as evidence that your roof was professionally inspected and found to be in good condition.</strong></p></div><div style="background:#1a2e5a;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#fff">📞 U.S. Shingle &amp; Metal LLC</p><p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:14px">Phone: 727-761-5200 | Email: inspection@shingleusa.com</p></div></div></div>`,
+              attachments: certBase64 ? [{ filename: "Inspection-Certificate-No-Damage.pdf", content: certBase64 }] : [],
+            }),
+          }).catch(e => console.warn("No-damage email:", e));
+        }
+
+        // SMS retail sales manager
+        if (noDamageManagerPhone) {
+          const smsText = (noDamageManagerSms || "")
+            .replace(/{address}/g, selectedInspRecord.address || "")
+            .replace(/{client}/g, ownerName)
+            .replace(/{rep}/g, repName || "Unknown rep")
+            .replace(/{city}/g, selectedInspRecord.city || "");
+          await fetch("/.netlify/functions/ghl-sms", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ to: noDamageManagerPhone, message: smsText, name: "Retail Sales Manager" }),
+          }).catch(e => console.warn("No-damage manager SMS:", e));
+        }
+
+      } else {
+        // DAMAGE — check if PA paperwork is signed
+        const addr = (selectedInspRecord.address || "").trim().toLowerCase();
+        const zip = (selectedInspRecord.zip || "").trim();
+        let paIsSigned = false;
+        if (addr && zip) {
+          const { data: claimData } = await supabase.from("claims").select("id, docs_signed").ilike("address", addr).eq("zip", zip).order("signed_at", { ascending: false }).limit(1);
+          const c = claimData?.[0];
+          paIsSigned = c && ((c.docs_signed || "").includes("lor") || (c.docs_signed || "").includes("pac"));
+        }
+
+        if (paIsSigned) {
+          // PA already signed — email homeowner that CCG Claims is starting right away
+          if (homeownerEmail) {
+            await fetch("/.netlify/functions/send-email", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                to: [homeownerEmail],
+                bcc: activityEmail ? [activityEmail] : [],
+                subject: "⚠️ Roof Damage Found — Your Claim Is Being Started",
+                html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto"><div style="background:#dc2626;padding:24px 32px;border-radius:12px 12px 0 0"><h1 style="color:#fff;margin:0">⚠️ Damage Found — CCG Claims Is On It</h1></div><div style="background:#f9fafb;padding:24px 32px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none"><p>Hi ${ownerName},</p><p>Our inspector has completed the roof inspection at <strong>${propertyAddr}</strong> and confirmed <strong>storm damage</strong>.</p><div style="background:#fef2f2;border:2px solid #dc2626;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#991b1b">🚀 Your Claim Is Already In Motion</p><p style="margin:8px 0 0;color:#991b1b;font-size:14px;line-height:1.6">Because you already have your paperwork signed with Capital Claims Group, <strong>your claim is being started right away.</strong> CCG Claims will be reaching out to you shortly to walk you through the next steps.</p></div><div style="background:#1a2e5a;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#fff">📞 Capital Claims Group</p><p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:14px">Phone: +1 (954) 571-3035 | Email: claims@capitalclaimgroup.com</p></div><p style="font-size:13px;color:#6b7280">Please do not repair or replace anything until your claim has been reviewed.</p></div></div>`,
+                attachments: certBase64 ? [{ filename: "Inspection-Certificate-Damage.pdf", content: certBase64 }] : [],
+              }),
+            }).catch(e => console.warn("Damage+PA email:", e));
+          }
+
+        } else {
+          // Inspection only — email homeowner + SMS rep immediately
+          if (homeownerEmail) {
+            await fetch("/.netlify/functions/send-email", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                to: [homeownerEmail],
+                bcc: activityEmail ? [activityEmail] : [],
+                subject: "⚠️ Roof Inspection Results — Damage Found",
+                html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto"><div style="background:#dc2626;padding:24px 32px;border-radius:12px 12px 0 0"><h1 style="color:#fff;margin:0">⚠️ Damage Found — We're On It</h1></div><div style="background:#f9fafb;padding:24px 32px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none"><p>Hi ${ownerName},</p><p>Our inspector has completed the roof inspection at <strong>${propertyAddr}</strong> and identified <strong>storm damage</strong>.</p><div style="background:#fef2f2;border:2px solid #dc2626;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#991b1b">📋 What Happens Next</p><p style="margin:8px 0 0;color:#991b1b;font-size:14px;line-height:1.6">Your representative, <strong>${repName || "our team"}</strong>, will be contacting you soon to get the paperwork started so we can work with your insurance company on your behalf.</p></div><p style="font-size:14px;color:#374151">Your official inspection report is attached. Please do not repair or replace anything until your claim has been reviewed.</p><div style="background:#1a2e5a;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#fff">📞 U.S. Shingle &amp; Metal LLC</p><p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:14px">Phone: 727-761-5200 | Email: inspection@shingleusa.com</p></div></div></div>`,
+                attachments: certBase64 ? [{ filename: "Inspection-Certificate-Damage.pdf", content: certBase64 }] : [],
+              }),
+            }).catch(e => console.warn("Damage email:", e));
+          }
+
+          // SMS rep immediately
+          if (repPhone) {
+            await fetch("/.netlify/functions/ghl-sms", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                to: repPhone,
+                name: repName || "Sales Rep",
+                message: `🚨 DAMAGE FOUND — ${selectedInspRecord.address}, ${selectedInspRecord.city || ""} — Homeowner: ${ownerName}. Storm damage confirmed. PA paperwork has NOT been signed. Contact homeowner ASAP to get LOR + PA Authorization signed! — USS Inspection System`,
+              }),
+            }).catch(e => console.warn("SMS to rep:", e));
+          }
+        }
+      }
+      setResultDone(true);
+    } catch(err) {
+      alert(err?.message || "Something went wrong.");
+    } finally {
+      setResultSubmitting(false);
+      setIsExportingPdf(false);
     }
   };
 
@@ -4064,6 +4416,79 @@ export default function App() {
         boxSizing: "border-box",
       }}
     >
+
+      {/* ── Always-rendered hidden USS Welcome PDF ── */}
+      <div style={{ position: "fixed", left: "-9999px", top: 0, pointerEvents: "none", zIndex: -1 }}>
+        <div id="uss-welcome-printable" style={{ width: "8.5in", fontFamily: "Arial, Helvetica, sans-serif", background: "#fff" }}>
+          <div style={{ width: "8.5in", boxSizing: "border-box", padding: "0", background: "#fff", position: "relative" }}>
+
+            {/* Navy header */}
+           <div style={{ background: "#1a2e5a", padding: "0.5in 0.6in 0.4in", color: "#fff" }}>
+              <img src="/uss-header.png" alt="U.S. Shingle & Metal" style={{ height: 56, objectFit: "contain", marginBottom: 18, filter: "brightness(0) invert(1)" }} />
+              <div style={{ fontSize: 32, fontWeight: 700, marginBottom: 8, lineHeight: 1.1 }}>
+                Welcome to U.S. Shingle & Metal LLC!
+              </div>
+              <div style={{ fontSize: 16, opacity: 0.9, lineHeight: 1.5 }}>
+                {inspOnlyOpening}
+              </div>
+            </div>
+
+            <div style={{ padding: "0.2in 0.5in 0.2in" }}>
+
+              {/* Contact info box */}
+              <div style={{ background: "#eef1f8", border: "2px solid #1a2e5a", borderRadius: 12, padding: "20px 24px", marginBottom: 24 }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#1a2e5a", marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>
+                  Your Point of Contact
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, fontSize: 12 }}>
+                  <div><strong>Company:</strong> U.S. Shingle & Metal LLC</div>
+                  <div><strong>License:</strong> CCC1331960</div>
+                  <div><strong>Phone:</strong> {ussContactPhone}</div>
+                  <div><strong>Email:</strong> {ussContactEmail}</div>
+                  <div><strong>Address:</strong> 3845 Gateway Centre Blvd Suite 300, Pinellas Park, FL 33782</div>
+                </div>
+              </div>
+
+              {/* Inspection details */}
+              <div style={{ background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 12, padding: "18px 24px", marginBottom: 24 }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>
+                  Your Inspection Details
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5, fontSize: 12 }}>
+                  <div><strong>Name:</strong> {inspData.clientName || [data.homeowner1, data.homeowner2].filter(Boolean).join(" & ")}</div>
+                  <div><strong>Date:</strong> {inspData.date || data.date}</div>
+                  <div><strong>Address:</strong> {[inspData.address || data.address, inspData.city || data.city, inspData.state || data.state, inspData.zip || data.zip].filter(Boolean).join(", ")}</div>
+                  <div><strong>Phone:</strong> {inspData.mobile || data.phone}</div>
+                  {(inspData.email || data.signerEmail) ? <div><strong>Email:</strong> {inspData.email || data.signerEmail}</div> : null}
+                  {data.salesRepName ? <div><strong>Rep:</strong> {data.salesRepName}</div> : null}
+                </div>
+              </div>
+
+              {/* What to expect */}
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 10 }}>
+                📋 What Happens Next
+              </div>
+              {inspOnlySteps.map((step, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 6, padding: "7px 10px", background: "#eef1f8", borderRadius: 8, border: "1px solid #bfdbfe" }}>
+                  <div style={{ width: 20, height: 20, borderRadius: "50%", background: "#1a2e5a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 11, flexShrink: 0 }}>{i + 1}</div>
+                  <div style={{ fontSize: 12, color: "#1e3a5f", lineHeight: 1.45 }}>{step}</div>
+                </div>
+              ))}
+
+              {/* Closing */}
+              <div style={{ marginTop: 20, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 12, padding: "16px 20px", fontSize: 14, color: "#92400e", fontWeight: 600, textAlign: "center", lineHeight: 1.6 }}>
+                {inspOnlyClosing}
+              </div>
+
+              {/* Footer */}
+              <div style={{ marginTop: 28, borderTop: "2px solid #1a2e5a", paddingTop: 14, fontSize: 11, color: "#6b7280", textAlign: "center" }}>
+                U.S. Shingle & Metal LLC • License No: CCC1331960 • {ussContactEmail} • {ussContactPhone} • 3845 Gateway Centre Blvd Suite 300, Pinellas Park, FL 33782
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Nunito:wght@400;500;600;700&display=swap');
         body {
@@ -4315,99 +4740,76 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Sales Rep — autocomplete typeahead */}
-                    <div style={{ position: "relative" }}>
-                      <Label>Sales Rep</Label>
-                      <input
-                        type="text"
-                        value={data.salesRepName}
-                        onChange={e => {
-                          update("salesRepName", e.target.value);
-                          update("salesRepId", "");
-                          // Clear email only if they're typing something new
-                          if (!e.target.value) update("salesRepEmail", "");
+                    {/* Sales Rep dropdown */}
+                    <div>
+                      <Label>Sales Rep {repsLoaded && reps[0]?._fromJN ? <span style={{ fontSize: 11, color: "#16a34a", fontWeight: 400, marginLeft: 6 }}>● Live from JN</span> : null}</Label>
+                      <select
+                        value={data.salesRepId}
+                        onChange={(e) => {
+                          const selected = reps.find(r => r.id === e.target.value);
+                          update("salesRepId", e.target.value);
+                          update("salesRepName", selected?.name || "");
+                          update("salesRepEmail", selected?.email || "");
                         }}
-                        onBlur={() => {
-                          // On blur, if exact match exists snap to it
-                          const match = reps.find(r => r.name.toLowerCase() === data.salesRepName.toLowerCase());
-                          if (match) {
-                            update("salesRepName", match.name);
-                            update("salesRepId", match.jobnimbus_id || "");
-                            if (match.email) update("salesRepEmail", match.email);
-                          }
-                        }}
-                        placeholder="Type rep name..."
-                        autoComplete="off"
                         style={{
-                          width: "100%", height: 44, borderRadius: 14,
-                          border: "1px solid #d1d5db", padding: "0 12px",
-                          fontSize: 14, boxSizing: "border-box",
+                          width: "100%",
+                          height: 44,
+                          borderRadius: 14,
+                          border: "1px solid #d1d5db",
+                          padding: "0 12px",
+                          fontSize: 14,
+                          boxSizing: "border-box",
+                          background: "#fff",
                           fontFamily: "'Nunito', sans-serif",
                         }}
-                      />
-                      {/* Suggestions dropdown */}
-                      {data.salesRepName && reps.filter(r =>
-                        r.active !== false &&
-                        r.name.toLowerCase().includes(data.salesRepName.toLowerCase()) &&
-                        r.name.toLowerCase() !== data.salesRepName.toLowerCase()
-                      ).length > 0 ? (
-                        <div style={{
-                          position: "absolute", top: "100%", left: 0, right: 0, zIndex: 50,
-                          background: "#fff", border: "1px solid #d1d5db", borderRadius: 12,
-                          boxShadow: "0 4px 16px rgba(0,0,0,0.12)", overflow: "hidden", marginTop: 4,
-                        }}>
-                          {reps.filter(r =>
-                            r.active !== false &&
-                            r.name.toLowerCase().includes(data.salesRepName.toLowerCase()) &&
-                            r.name.toLowerCase() !== data.salesRepName.toLowerCase()
-                          ).slice(0, 6).map(r => (
-                            <div key={r.id}
-                              onMouseDown={e => {
-                                e.preventDefault(); // prevent blur before click
-                                update("salesRepName", r.name);
-                                update("salesRepId", r.jobnimbus_id || "");
-                                if (r.email) update("salesRepEmail", r.email);
-                              }}
-                              style={{
-                                padding: "10px 14px", cursor: "pointer", fontSize: 14,
-                                fontFamily: "'Nunito', sans-serif", color: "#111827",
-                                borderBottom: "1px solid #f3f4f6",
-                                display: "flex", alignItems: "center", justifyContent: "space-between",
-                              }}
-                              onMouseEnter={e => e.currentTarget.style.background = "#f9fafb"}
-                              onMouseLeave={e => e.currentTarget.style.background = "#fff"}
-                            >
-                              <span style={{ fontWeight: 600 }}>{r.name}</span>
-                              {r.jobnimbus_id ? <span style={{ fontSize: 11, color: "#9ca3af" }}>JN ✓</span> : null}
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
+                      >
+                        <option value="">— Select Rep —</option>
+                        {reps.filter(r => r.active !== false).map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.name}
+                          </option>
+                        ))}
+                      </select>
                       {reps.length === 0 ? (
                         <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 4, fontFamily: "'Nunito', sans-serif" }}>
-                          ⚠️ No reps added yet — add reps in Manager page
+                          ⚠️ No reps loaded — check JN API connection or go to Manager → Sales Rep Manager to add manually
                         </div>
                       ) : null}
                     </div>
 
-                    {/* Sales Rep Email */}
+                    {/* Rep Email — auto-fills from rep record, saves back if edited */}
                     <div>
-                      <Label>Sales Rep Email</Label>
+                      <Label>Rep Email</Label>
                       <input
                         type="email"
                         value={data.salesRepEmail}
-                        onChange={e => update("salesRepEmail", e.target.value)}
-                        placeholder="rep@email.com"
+                        placeholder="Rep's email address"
+                        onChange={(e) => update("salesRepEmail", e.target.value)}
+                        onBlur={async (e) => {
+                          const email = e.target.value.trim();
+                          if (!email || !data.salesRepId) return;
+                          const rep = reps.find(r => r.id === data.salesRepId);
+                          if (rep && rep.email !== email) {
+                            await supabase.from("sales_reps").update({ email }).eq("id", data.salesRepId);
+                            await loadReps();
+                          }
+                        }}
                         style={{
-                          width: "100%", height: 44, borderRadius: 14,
-                          border: "1px solid #d1d5db", padding: "0 12px",
-                          fontSize: 14, boxSizing: "border-box",
-                          fontFamily: "'Nunito', sans-serif",
+                          width: "100%",
+                          height: 44,
+                          borderRadius: 14,
+                          border: "1px solid #d1d5db",
+                          padding: "0 12px",
+                          fontSize: 14,
+                          boxSizing: "border-box",
+                          background: data.salesRepEmail ? "#fff" : "#fafafa",
                         }}
                       />
-                      <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4, fontFamily: "'Nunito', sans-serif" }}>
-                        Signed PDF will be emailed here for JN upload
-                      </div>
+                      {data.salesRepId && !data.salesRepEmail ? (
+                        <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 4, fontFamily: "'Nunito', sans-serif" }}>
+                          ⚠️ No email on file for this rep — type it once and it will be saved
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </Card>
@@ -4632,7 +5034,7 @@ export default function App() {
               </div>
 
               <div style={{ marginTop: 20 }}>
-                <Button onClick={() => beginDocumentFlow()} disabled={!selectedDocs.length}>
+                <Button onClick={beginDocumentFlow} disabled={!selectedDocs.length}>
                   {signMode === "send"
                     ? "Continue to Send for Signing"
                     : "Continue to Sign"}
@@ -5361,18 +5763,198 @@ export default function App() {
         {view === "thankyou" ? (
           <>
           <div style={{ maxWidth: 640, margin: "0 auto", padding: "32px 16px" }}>
-            {isSigningFromLink ? (
-              /* ── HOMEOWNER / EMAIL-LINK — full welcome page ── */
+
+            {/* ── SIGN NOW: Rep confirmation screen ── */}
+            {!isSigningFromLink && !inspectionOnly ? (
               <>
                 <div style={{
-                  background: inspectionOnly ? "linear-gradient(135deg, #1a2e5a 0%, #0f1e3d 100%)" : "linear-gradient(135deg, #199c2e 0%, #15803d 100%)",
-                  borderRadius: 28, padding: "40px 36px 36px", textAlign: "center", marginBottom: 28, position: "relative", overflow: "hidden",
+                  background: "linear-gradient(135deg, #199c2e 0%, #15803d 100%)",
+                  borderRadius: 28, padding: "40px 36px", textAlign: "center",
+                  marginBottom: 24, color: "#fff",
+                }}>
+                  <div style={{ fontSize: 72, marginBottom: 16 }}>✅</div>
+                  <div style={{ fontSize: 34, fontWeight: 700, fontFamily: "'Oswald', sans-serif", marginBottom: 12 }}>
+                    Documents Signed!
+                  </div>
+                  <div style={{ fontSize: 18, fontFamily: "'Nunito', sans-serif", fontWeight: 600, opacity: 0.93, lineHeight: 1.6 }}>
+                    {[data.homeowner1, data.homeowner2].filter(Boolean).join(" & ")} has signed. PDFs have been emailed to everyone.
+                  </div>
+                </div>
+
+                {/* JN reminder */}
+                <div style={{ background: "#fffbeb", border: "2px solid #f59e0b", borderRadius: 20, padding: "20px 24px", marginBottom: 20 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#92400e", fontFamily: "'Oswald', sans-serif", marginBottom: 10, letterSpacing: "0.03em" }}>
+                    ⚠️ Don't Forget — Update JobNimbus
+                  </div>
+                  <div style={{ display: "grid", gap: 8, fontSize: 14, color: "#78350f", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
+                    <div>1. Go to JobNimbus and find or create this contact</div>
+                    <div>2. Update all fields (address, insurance, policy #, etc.)</div>
+                    <div>3. Upload the signed inspection form from your email</div>
+                  </div>
+                </div>
+
+                <div style={{ background: "#fff", borderRadius: 20, border: "1px solid #e5e7eb", padding: "24px 28px", marginBottom: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827", marginBottom: 14, letterSpacing: "0.02em" }}>Summary</div>
+                  <div style={{ display: "grid", gap: 8, fontSize: 14, fontFamily: "'Nunito', sans-serif" }}>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <span style={{ color: "#6b7280", width: 100, flexShrink: 0 }}>Homeowner:</span>
+                      <span style={{ fontWeight: 700 }}>{[data.homeowner1, data.homeowner2].filter(Boolean).join(" & ")}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <span style={{ color: "#6b7280", width: 100, flexShrink: 0 }}>Address:</span>
+                      <span style={{ fontWeight: 600 }}>{[data.address, data.city, data.state].filter(Boolean).join(", ")}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <span style={{ color: "#6b7280", width: 100, flexShrink: 0 }}>Rep:</span>
+                      <span style={{ fontWeight: 600 }}>{data.salesRepName || "—"}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <span style={{ color: "#6b7280", width: 100, flexShrink: 0 }}>Docs:</span>
+                      <span style={{ fontWeight: 600 }}>{selectedDocs.map(d => documentLabel(d)).join(", ")}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <span style={{ color: "#6b7280", width: 100, flexShrink: 0 }}>Email:</span>
+                      <span style={{ fontWeight: 600 }}>{data.signerEmail}</span>
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <button type="button" onClick={() => { setView("input"); setData(prev => ({ ...prev, homeowner1: "", homeowner2: "", phone: "", signerEmail: "", address: "", city: "", state: "", zip: "" })); window.scrollTo({ top: 0 }); }}
+                    style={{ padding: "14px", borderRadius: 14, border: "2px solid #199c2e", background: "#fff", color: "#199c2e", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
+                    ✚ New Client
+                  </button>
+                  <button type="button" onClick={() => { setView("input"); window.scrollTo({ top: 0 }); }}
+                    style={{ padding: "14px", borderRadius: 14, border: "none", background: "#199c2e", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
+                    ← Back to Intake
+                  </button>
+                </div>
+              </>
+            ) : null}
+
+            {/* ── INSPECTION ONLY (sign now): Rep confirmation ── */}
+            {inspectionOnly && !isSigningFromLink ? (
+              <>
+                <div style={{
+                  background: "linear-gradient(135deg, #1a2e5a 0%, #0f1e3d 100%)",
+                  borderRadius: 28, padding: "40px 36px", textAlign: "center",
+                  marginBottom: 24, color: "#fff",
+                }}>
+                  <div style={{ fontSize: 72, marginBottom: 16 }}>✅</div>
+                  <div style={{ fontSize: 34, fontWeight: 700, fontFamily: "'Oswald', sans-serif", marginBottom: 12 }}>
+                    Inspection Signed!
+                  </div>
+                  <div style={{ fontSize: 18, fontFamily: "'Nunito', sans-serif", fontWeight: 600, opacity: 0.93, lineHeight: 1.6 }}>
+                    {inspData.clientName || [data.homeowner1, data.homeowner2].filter(Boolean).join(" & ")} has signed. PDFs have been emailed to everyone.
+                  </div>
+                </div>
+
+                {/* JN reminder */}
+                <div style={{ background: "#fffbeb", border: "2px solid #f59e0b", borderRadius: 20, padding: "20px 24px", marginBottom: 20 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#92400e", fontFamily: "'Oswald', sans-serif", marginBottom: 10, letterSpacing: "0.03em" }}>
+                    ⚠️ Don't Forget — Update JobNimbus
+                  </div>
+                  <div style={{ display: "grid", gap: 8, fontSize: 14, color: "#78350f", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
+                    <div>1. Go to JobNimbus and find or create this contact</div>
+                    <div>2. Update all fields (address, phone, email, etc.)</div>
+                    <div>3. Upload the signed inspection form from your email</div>
+                  </div>
+                </div>
+
+                <div style={{ background: "#fff", borderRadius: 20, border: "1px solid #e5e7eb", padding: "24px 28px", marginBottom: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827", marginBottom: 14, letterSpacing: "0.02em" }}>Summary</div>
+                  <div style={{ display: "grid", gap: 8, fontSize: 14, fontFamily: "'Nunito', sans-serif" }}>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <span style={{ color: "#6b7280", width: 100, flexShrink: 0 }}>Client:</span>
+                      <span style={{ fontWeight: 700 }}>{inspData.clientName || [data.homeowner1, data.homeowner2].filter(Boolean).join(" & ")}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <span style={{ color: "#6b7280", width: 100, flexShrink: 0 }}>Address:</span>
+                      <span style={{ fontWeight: 600 }}>{[inspData.address || data.address, inspData.city || data.city, inspData.state || data.state].filter(Boolean).join(", ")}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <span style={{ color: "#6b7280", width: 100, flexShrink: 0 }}>Rep:</span>
+                      <span style={{ fontWeight: 600 }}>{data.salesRepName || "—"}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <span style={{ color: "#6b7280", width: 100, flexShrink: 0 }}>Phone:</span>
+                      <span style={{ fontWeight: 600 }}>{inspData.mobile || data.phone || "—"}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <span style={{ color: "#6b7280", width: 100, flexShrink: 0 }}>Email:</span>
+                      <span style={{ fontWeight: 600 }}>{inspData.email || data.signerEmail || "—"}</span>
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <button type="button" onClick={() => { setView("input"); window.scrollTo({ top: 0 }); }}
+                    style={{ padding: "14px", borderRadius: 14, border: "2px solid #1a2e5a", background: "#fff", color: "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
+                    ✚ New Client
+                  </button>
+                  <button type="button" onClick={() => { setView("input"); window.scrollTo({ top: 0 }); }}
+                    style={{ padding: "14px", borderRadius: 14, border: "none", background: "#1a2e5a", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
+                    ← Back to Intake
+                  </button>
+                </div>
+              </>
+            ) : null}
+
+            {/* ── INSPECTION ONLY (email link): Homeowner USS welcome ── */}
+            {inspectionOnly && isSigningFromLink ? (
+              <>
+                <div style={{
+                  background: "linear-gradient(135deg, #1a2e5a 0%, #0f1e3d 100%)",
+                  borderRadius: 28, padding: "40px 36px", textAlign: "center",
+                  marginBottom: 24, color: "#fff",
+                }}>
+                  <div style={{ fontSize: 56, marginBottom: 16 }}>🏠</div>
+                  <div style={{ fontSize: 32, fontWeight: 700, fontFamily: "'Oswald', sans-serif", marginBottom: 12 }}>
+                    {activeTYHeadline}
+                  </div>
+                  <div style={{ fontSize: 17, fontFamily: "'Nunito', sans-serif", fontWeight: 600, opacity: 0.92, lineHeight: 1.6 }}>
+                    {activeTYOpening}
+                  </div>
+                </div>
+                <div style={{ background: "#fff", borderRadius: 24, border: "1px solid #e5e7eb", padding: "28px 28px 24px", marginBottom: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: "#1a2e5a", fontFamily: "'Oswald', sans-serif", marginBottom: 16 }}>
+                    📋 What Happens Next
+                  </div>
+                  <div style={{ display: "grid", gap: 12 }}>
+                    {activeTYSteps.map((step, i) => (
+                      <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 14, padding: "12px 16px", background: "#eef1f8", borderRadius: 14, border: "1px solid #bfdbfe" }}>
+                        <div style={{ width: 26, height: 26, borderRadius: "50%", background: "#1a2e5a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 12, flexShrink: 0 }}>{i + 1}</div>
+                        <div style={{ fontSize: 15, color: "#1e3a5f", fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.5 }}>{step}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 20, padding: "18px 24px", textAlign: "center", marginBottom: 24 }}>
+                  <div style={{ fontSize: 16, color: "#92400e", fontFamily: "'Nunito', sans-serif", fontWeight: 700, lineHeight: 1.6 }}>{activeTYClosing}</div>
+                </div>
+                <div style={{ background: "#1a2e5a", borderRadius: 20, padding: "20px 24px", color: "#fff", marginBottom: 24, textAlign: "center" }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 8, fontFamily: "'Oswald', sans-serif" }}>📞 Contact U.S. Shingle & Metal LLC</div>
+                  <div style={{ fontSize: 14, fontFamily: "'Nunito', sans-serif", lineHeight: 1.8, opacity: 0.9 }}>
+                    {ussContactPhone} &nbsp;|&nbsp; {ussContactEmail}
+                  </div>
+                </div>
+              </>
+            ) : null}
+
+            {/* ── EMAIL LINK: Full homeowner welcome screen ── */}
+            {isSigningFromLink && !inspectionOnly ? (
+              <>
+                <div style={{
+                  background: "linear-gradient(135deg, #199c2e 0%, #15803d 100%)",
+                  borderRadius: 28, padding: "40px 36px 36px", textAlign: "center",
+                  marginBottom: 28, position: "relative", overflow: "hidden",
                 }}>
                   <div style={{ position: "absolute", top: -30, right: -30, width: 140, height: 140, background: "rgba(255,255,255,0.06)", borderRadius: "50%" }} />
-                  <div style={{ position: "absolute", bottom: -20, left: 20, width: 90, height: 90, background: "rgba(255,255,255,0.05)", borderRadius: "50%" }} />
                   <div style={{ fontSize: 72, marginBottom: 16, lineHeight: 1 }}>🎉</div>
-                  <div style={{ fontSize: 36, fontWeight: 700, color: "#fff", fontFamily: "'Oswald', sans-serif", lineHeight: 1.1, marginBottom: 16, letterSpacing: "0.01em" }}>{activeTYHeadline}</div>
-                  <div style={{ fontSize: 18, color: "rgba(255,255,255,0.92)", fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.65, maxWidth: 480, margin: "0 auto" }}>{activeTYOpening}</div>
+                  <div style={{ fontSize: 36, fontWeight: 700, color: "#fff", fontFamily: "'Oswald', sans-serif", lineHeight: 1.1, marginBottom: 16 }}>
+                    {activeTYHeadline}
+                  </div>
+                  <div style={{ fontSize: 18, color: "rgba(255,255,255,0.92)", fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.65, maxWidth: 480, margin: "0 auto" }}>
+                    {activeTYOpening}
+                  </div>
                 </div>
                 <div style={{ background: "#fff", borderRadius: 24, border: "1px solid #e5e7eb", padding: "28px 28px 24px", marginBottom: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
                   <div style={{ fontSize: 20, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.03em", marginBottom: 20, display: "flex", alignItems: "center", gap: 10 }}>
@@ -5380,103 +5962,33 @@ export default function App() {
                   </div>
                   <div style={{ display: "grid", gap: 14 }}>
                     {activeTYSteps.map((step, i) => (
-                      <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 14, padding: "14px 16px", background: inspectionOnly ? "#eef1f8" : "#f0fdf4", borderRadius: 16, border: inspectionOnly ? "1px solid #bfdbfe" : "1px solid #bbf7d0" }}>
-                        <div style={{ width: 28, height: 28, borderRadius: "50%", background: inspectionOnly ? "#1a2e5a" : "#199c2e", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13, fontFamily: "'Oswald', sans-serif", flexShrink: 0, marginTop: 1 }}>{i + 1}</div>
-                        <div style={{ fontSize: 16, color: inspectionOnly ? "#1e40af" : "#166534", fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.55 }}>{step}</div>
+                      <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 14, padding: "14px 16px", background: "#f0fdf4", borderRadius: 16, border: "1px solid #bbf7d0" }}>
+                        <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#199c2e", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13, fontFamily: "'Oswald', sans-serif", flexShrink: 0 }}>{i + 1}</div>
+                        <div style={{ fontSize: 16, color: "#166534", fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.55 }}>{step}</div>
                       </div>
                     ))}
                   </div>
                 </div>
-                <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 20, padding: "20px 24px", textAlign: "center", marginBottom: 24 }}>
+                <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 20, padding: "20px 24px", textAlign: "center", marginBottom: 32 }}>
                   <div style={{ fontSize: 17, color: "#92400e", fontFamily: "'Nunito', sans-serif", fontWeight: 700, lineHeight: 1.6 }}>{activeTYClosing}</div>
                 </div>
-                <div style={{ background: "#fff", border: `1px solid ${inspectionOnly ? "#bfdbfe" : "#e5e7eb"}`, borderRadius: 20, padding: "22px 26px", marginBottom: 28, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+                <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 20, padding: "22px 26px", marginBottom: 28, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
                   <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 16 }}>
                     <span style={{ fontSize: 36, flexShrink: 0 }}>📧</span>
                     <div>
-                      <div style={{ fontSize: 19, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 6, letterSpacing: "0.02em" }}>Check Your Email!</div>
+                      <div style={{ fontSize: 19, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 6 }}>Check Your Email!</div>
                       <div style={{ fontSize: 15, color: "#374151", fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.65 }}>
-                        We sent everything to <strong>{data.signerEmail || inspData.email}</strong>
-                        {inspectionOnly ? " — your signed inspection agreement is attached." : " — your signed documents plus the Welcome Package PDF are attached."}
+                        We sent your signed documents and a Welcome Package to <strong>{data.signerEmail}</strong>.
                       </div>
                     </div>
                   </div>
-                  <div style={{ background: inspectionOnly ? "#eff6ff" : "#f0fdf4", borderRadius: 14, padding: "12px 16px", fontSize: 13, color: inspectionOnly ? "#1e40af" : "#166534", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
-                    📎 Attached: {selectedDocs.map(d => documentLabel(d)).join(", ")}
-                    {selectedDocs.includes("insp") && !selectedDocs.includes("lor") && !selectedDocs.includes("pac") ? " + USS Welcome Package" : ""}
-                    {!selectedDocs.includes("insp") && (selectedDocs.includes("lor") || selectedDocs.includes("pac")) ? " + CCG Welcome Package" : ""}
-                    {selectedDocs.includes("insp") && (selectedDocs.includes("lor") || selectedDocs.includes("pac")) ? " + USS Welcome Package + CCG Welcome Package" : ""}
-                  </div>
-                  {!inspectionOnly ? (
-                    <div style={{ marginTop: 14, textAlign: "center" }}>
-                      <button type="button" onClick={async () => {
-                        setIsExportingPdf(true);
-                        await new Promise(r => setTimeout(r, 200));
-                        try { await html2pdf().set({ margin: 0, filename: "CCG-Welcome-Package.pdf", image: { type: "jpeg", quality: 0.98 }, html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0 }, jsPDF: { unit: "in", format: "letter", orientation: "portrait" }, pagebreak: { mode: ["css"] } }).from(document.getElementById("ty-summary-printable")).save(); }
-                        catch(err) { alert(err?.message || "Failed to download."); }
-                        finally { setIsExportingPdf(false); }
-                      }} style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "10px 22px", borderRadius: 12, border: "1.5px solid #d1d5db", background: "#fff", color: "#374151", fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
-                        📄 Download Welcome Package Now
-                      </button>
-                      <div style={{ marginTop: 6, fontSize: 12, color: "#9ca3af", fontFamily: "'Nunito', sans-serif" }}>Can't find the email? Download it right here.</div>
-                    </div>
-                  ) : null}
                 </div>
                 <div style={{ textAlign: "center" }}>
-                  <img src={inspectionOnly ? "/uss-logo.png" : "/pa-header.png"} alt={inspectionOnly ? "U.S. Shingle & Metal" : "Capital Claims Group"} style={{ maxWidth: 260, opacity: 0.85 }} onError={e => { e.target.style.display = "none"; }} />
+                  <img src="/pa-header.png" alt="Capital Claims Group" style={{ maxWidth: 260, opacity: 0.85 }} />
                 </div>
               </>
-            ) : (
-              /* ── SIGN-NOW / REP FLOW — simple confirmation only ── */
-              <>
-                <div style={{
-                  background: inspectionOnly ? "linear-gradient(135deg, #1a2e5a 0%, #0f1e3d 100%)" : "linear-gradient(135deg, #199c2e 0%, #15803d 100%)",
-                  borderRadius: 24, padding: "32px 28px", color: "#fff", textAlign: "center", marginBottom: 20,
-                }}>
-                  <div style={{ fontSize: 56, marginBottom: 10 }}>✅</div>
-                  <div style={{ fontSize: 28, fontWeight: 700, fontFamily: "'Oswald', sans-serif", marginBottom: 8 }}>
-                    {inspectionOnly ? "Inspection Agreement Signed!" : "All Signed — You're Done!"}
-                  </div>
-                  <div style={{ fontSize: 15, fontFamily: "'Nunito', sans-serif", fontWeight: 600, opacity: 0.9 }}>
-                    {inspectionOnly ? "Everything was sent successfully." : "All documents sent successfully."}
-                  </div>
-                </div>
-                <div style={{ background: "#fff", borderRadius: 20, border: `1px solid ${inspectionOnly ? "#bfdbfe" : "#bbf7d0"}`, padding: "24px 26px", marginBottom: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-                  <div style={{ fontSize: 17, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827", marginBottom: 16, letterSpacing: "0.02em" }}>Here's what was sent:</div>
-                  <div style={{ display: "grid", gap: 12 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, fontFamily: "'Nunito', sans-serif", color: "#374151", fontWeight: 600 }}>
-                      <span style={{ fontSize: 20 }}>✉️</span>
-                      <span>Signed PDF emailed to <strong>{data.signerEmail || inspData.email || "homeowner"}</strong></span>
-                    </div>
-                    {inspectionOnly ? (
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, fontFamily: "'Nunito', sans-serif", color: "#374151", fontWeight: 600 }}>
-                        <span style={{ fontSize: 20 }}>📋</span>
-                        <span>JN upload instructions sent to <strong>{data.salesRepEmail || "sales rep"}</strong></span>
-                      </div>
-                    ) : (
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, fontFamily: "'Nunito', sans-serif", color: "#374151", fontWeight: 600 }}>
-                        <span style={{ fontSize: 20 }}>📋</span>
-                        <span>PA notified with signed documents</span>
-                      </div>
-                    )}
-                    {!inspectionOnly ? (
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, fontFamily: "'Nunito', sans-serif", color: "#374151", fontWeight: 600 }}>
-                        <span style={{ fontSize: 20 }}>🎁</span>
-                        <span>Welcome Package emailed to homeowner</span>
-                      </div>
-                    ) : null}
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, fontFamily: "'Nunito', sans-serif", color: "#374151", fontWeight: 600 }}>
-                      <span style={{ fontSize: 20 }}>💾</span>
-                      <span>Record saved to the system</span>
-                    </div>
-                  </div>
-                </div>
-                <button type="button" onClick={() => { setView("input"); setInspectionOnly(false); }}
-                  style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", background: inspectionOnly ? "#1a2e5a" : "#199c2e", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 16, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
-                  {inspectionOnly ? "🏠 Start New Form" : "✚ Start New Intake"}
-                </button>
-              </>
-            )}
+            ) : null}
+
           </div>
           </>
         ) : null}
@@ -5673,9 +6185,7 @@ export default function App() {
               <div id="inspection-printable-placeholder" style={{ fontFamily: "Arial, Helvetica, sans-serif", background: "#fff", width: "8.5in", padding: "0.6in 0.7in", boxSizing: "border-box" }}>
                 {/* Header */}
                 <div style={{ textAlign: "center", marginBottom: 24 }}>
-                  {/* Logo placeholder - add /uss-logo.png to public folder */}
-                  <img src="/uss-logo.png" alt="U.S. Shingle & Metal" style={{ height: 72, marginBottom: 12, objectFit: "contain" }}
-                    onError={e => { e.target.style.display="none"; }} />
+
                   <div style={{ fontSize: 20, fontWeight: 700, color: "#1a2e5a", marginBottom: 4, textTransform: "uppercase", letterSpacing: 1.5 }}>
                     Free Roof Inspection Agreement
                   </div>
@@ -5782,7 +6292,6 @@ export default function App() {
                         if (managerPinEntry === managerPin) {
                           setManagerUnlocked(true);
                           setManagerPinEntry("");
-                          loadReps();
                         } else {
                           alert("Incorrect PIN.");
                           setManagerPinEntry("");
@@ -5819,71 +6328,103 @@ export default function App() {
                   </div>
                 </div>
               ) : (
-                <div style={{ display: "grid", gap: 28 }}>
-                  {/* PIN change */}
-                  <Card style={{ padding: 20, background: "#f8fafc" }}>
-                    <SectionTitle>Security</SectionTitle>
-                    <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "flex-end" }}>
-                      <div style={{ maxWidth: 300, flex: 1 }}>
-                        <Label>Change Manager PIN</Label>
-                        <input
-                          type="password"
-                          value={managerPin}
-                          onChange={(e) => setManagerPin(e.target.value)}
-                          placeholder="New PIN"
-                          style={{
-                            width: "100%",
-                            height: 44,
-                            borderRadius: 14,
-                            border: "1px solid #d1d5db",
-                            padding: "0 12px",
-                            fontSize: 14,
-                            boxSizing: "border-box",
-                          }}
-                        />
+                <div>
+                  {managerSection === "home" ? (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 8 }}>
+                      {[
+                        { key: "security", emoji: "⚙️", label: "Security & Notifications", desc: "PIN, activity email, no-damage SMS" },
+                        { key: "review", emoji: "📝", label: "Review Page Text", desc: "Headlines, document descriptions" },
+                        { key: "thankyou", emoji: "🎉", label: "Thank You Pages", desc: "Post-inspection, pre-inspection, USS" },
+                        { key: "reps", emoji: "👥", label: "Sales Rep Manager", desc: "Add, import, activate reps" },
+                        { key: "lookup", emoji: "🔍", label: "Record Lookup & Results", desc: "Find inspections, record damage/no damage" },
+                        { key: "report", emoji: "📊", label: "Weekly Report", desc: "View signings by rep and date range" },
+                      ].map(item => (
+                        <button key={item.key} type="button" onClick={() => setManagerSection(item.key)}
+                          style={{ padding: "24px 20px", borderRadius: 20, border: "2px solid #e5e7eb", background: "#fff", textAlign: "left", cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+                          <div style={{ fontSize: 36, marginBottom: 10 }}>{item.emoji}</div>
+                          <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>{item.label}</div>
+                          <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>{item.desc}</div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div>
+                      <button type="button" onClick={() => setManagerSection("home")}
+                        style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 24, padding: "8px 16px", borderRadius: 12, border: "1.5px solid #d1d5db", background: "#fff", color: "#374151", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", textTransform: "uppercase" }}>
+                        ← Back to Manager Home
+                      </button>
+                  {managerSection === "security" && <Card style={{ padding: 20, background: "#f8fafc" }}>
+                    <SectionTitle>Security & Notifications</SectionTitle>
+                    <div style={{ display: "grid", gap: 16 }}>
+                      <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "flex-end" }}>
+                        <div style={{ maxWidth: 300, flex: 1 }}>
+                          <Label>Change Manager PIN</Label>
+                          <input
+                            type="password"
+                            value={managerPin}
+                            onChange={(e) => setManagerPin(e.target.value)}
+                            placeholder="New PIN"
+                            style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }}
+                          />
+                        </div>
+                        <div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (window.confirm("Reset all text to factory defaults?")) {
+                                setReviewHeadline(DEFAULTS.reviewHeadline);
+                                setReviewLorText(DEFAULTS.reviewLorText);
+                                setReviewPacText(DEFAULTS.reviewPacText);
+                                setReviewHelpText(DEFAULTS.reviewHelpText);
+                                setThankYouHeadline(DEFAULTS.thankYouHeadline);
+                                setThankYouOpening(DEFAULTS.thankYouOpening);
+                                try { setThankYouSteps(JSON.parse(DEFAULTS.thankYouSteps)); } catch {}
+                                setThankYouClosing(DEFAULTS.thankYouClosing);
+                                setPreInspHeadline(DEFAULTS.preInspHeadline);
+                                setPreInspOpening(DEFAULTS.preInspOpening);
+                                try { setPreInspSteps(JSON.parse(DEFAULTS.preInspSteps)); } catch {}
+                                setPreInspClosing(DEFAULTS.preInspClosing);
+                              }
+                            }}
+                            style={{ padding: "10px 18px", borderRadius: 12, border: "1px solid #fca5a5", background: "#fff", color: "#dc2626", fontFamily: "'Oswald', sans-serif", fontWeight: 600, fontSize: 13, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer", height: 44 }}
+                          >
+                            ↺ Reset All Text to Defaults
+                          </button>
+                        </div>
                       </div>
                       <div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (window.confirm("Reset all text to factory defaults?")) {
-                              setReviewHeadline(DEFAULTS.reviewHeadline);
-                              setReviewLorText(DEFAULTS.reviewLorText);
-                              setReviewPacText(DEFAULTS.reviewPacText);
-                              setReviewHelpText(DEFAULTS.reviewHelpText);
-                              setThankYouHeadline(DEFAULTS.thankYouHeadline);
-                              setThankYouOpening(DEFAULTS.thankYouOpening);
-                              try { setThankYouSteps(JSON.parse(DEFAULTS.thankYouSteps)); } catch {}
-                              setThankYouClosing(DEFAULTS.thankYouClosing);
-                              setPreInspHeadline(DEFAULTS.preInspHeadline);
-                              setPreInspOpening(DEFAULTS.preInspOpening);
-                              try { setPreInspSteps(JSON.parse(DEFAULTS.preInspSteps)); } catch {}
-                              setPreInspClosing(DEFAULTS.preInspClosing);
-                            }
-                          }}
-                          style={{
-                            padding: "10px 18px",
-                            borderRadius: 12,
-                            border: "1px solid #fca5a5",
-                            background: "#fff",
-                            color: "#dc2626",
-                            fontFamily: "'Oswald', sans-serif",
-                            fontWeight: 600,
-                            fontSize: 13,
-                            letterSpacing: "0.04em",
-                            textTransform: "uppercase",
-                            cursor: "pointer",
-                            height: 44,
-                          }}
-                        >
-                          ↺ Reset All Text to Defaults
-                        </button>
+                        <Label>Activity Notification Email</Label>
+                        <input
+                          type="email"
+                          value={activityEmail}
+                          onChange={(e) => setActivityEmail(e.target.value)}
+                          placeholder="e.g. manager@company.com"
+                          style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }}
+                        />
+                        <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4, fontFamily: "'Nunito', sans-serif" }}>
+                          Every signing (PA docs or inspection) will CC this address with a summary. Leave blank to disable.
+                        </div>
+                        <div style={{ marginTop: 16 }}>
+                        <Label>No-Damage SMS — Retail Sales Manager Phone</Label>
+                        <input type="tel" value={noDamageManagerPhone} onChange={(e) => setNoDamageManagerPhone(e.target.value)}
+                          placeholder="4437973758"
+                          style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                        <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4, fontFamily: "'Nunito', sans-serif" }}>
+                          This number gets an SMS when an inspection comes back with no damage. Currently: {noDamageManagerPhone || "not set"}
+                        </div>
+                      </div>
+                      <div style={{ marginTop: 16 }}>
+                        <Label>No-Damage SMS — Message Template</Label>
+                        <textarea value={noDamageManagerSms} onChange={(e) => setNoDamageManagerSms(e.target.value)} rows={3}
+                          style={{ width: "100%", borderRadius: 12, border: "1px solid #d1d5db", padding: "10px 12px", fontSize: 14, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }} />
+                        <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4, fontFamily: "'Nunito', sans-serif" }}>
+                          Available placeholders: {"{address}"} {"{client}"} {"{rep}"} {"{city}"}
+                        </div>
+                      </div>
                       </div>
                     </div>
-                  </Card>
-
-                  {/* Review page text */}
-                  <Card style={{ padding: 20, background: "#f8fafc" }}>
+                  </Card>}
+                  {managerSection === "review" && <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Review Page Text</SectionTitle>
                     <div style={{ display: "grid", gap: 16 }}>
                       <div>
@@ -5959,15 +6500,14 @@ export default function App() {
                         />
                       </div>
                     </div>
-                  </Card>
-
-                  {/* Thank you page text — tabbed */}
-                  <Card style={{ padding: 20, background: "#f8fafc" }}>
+                  </Card>}
+                  {managerSection === "thankyou" && <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Thank You Pages</SectionTitle>
-                    <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+                    <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
                       {[
-                        { key: "post_inspection", label: "✅ Roof Inspected Flow", emoji: "✅" },
-                        { key: "pre_inspection",  label: "🏠 Pre-Inspection Flow", emoji: "🏠" },
+                        { key: "post_inspection", label: "✅ Roof Inspected Flow" },
+                        { key: "pre_inspection",  label: "🏠 Pre-Inspection Flow" },
+                        { key: "insp_only",       label: "🔧 Inspection Only (USS)" },
                       ].map(tab => (
                         <button
                           key={tab.key}
@@ -5976,9 +6516,9 @@ export default function App() {
                           style={{
                             padding: "8px 16px",
                             borderRadius: 12,
-                            border: managerTYTab === tab.key ? "2px solid #199c2e" : "1px solid #d1d5db",
-                            background: managerTYTab === tab.key ? "#f0fdf4" : "#fff",
-                            color: managerTYTab === tab.key ? "#166534" : "#374151",
+                            border: managerTYTab === tab.key ? "2px solid #1a2e5a" : "1px solid #d1d5db",
+                            background: managerTYTab === tab.key ? "#eef1f8" : "#fff",
+                            color: managerTYTab === tab.key ? "#1a2e5a" : "#374151",
                             fontFamily: "'Nunito', sans-serif",
                             fontWeight: 700,
                             fontSize: 13,
@@ -5989,7 +6529,8 @@ export default function App() {
                         </button>
                       ))}
                     </div>
-                    {managerTYTab === "post_inspection" ? (
+                    {managerTYTab === "post_inspection" && (
+
                     <>
                     <div style={{ display: "grid", gap: 20 }}>
 
@@ -6119,7 +6660,8 @@ export default function App() {
                       </div>
                     </div>
                     </>
-                    ) : (
+                    )}
+                    {managerTYTab === "pre_inspection" && (
                     <div style={{ display: "grid", gap: 20 }}>
                       <div>
                         <Label>Headline</Label>
@@ -6173,160 +6715,280 @@ export default function App() {
                       </div>
                     </div>
                     )}
-                  </Card>
-
-                  {/* ── Sales Rep Manager ── */}
-                  <Card style={{ padding: 20, background: "#f8fafc" }}>
-                    <SectionTitle>Sales Rep Manager</SectionTitle>
-                    <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 16 }}>
-                      Add reps here. Their name and JN ID will be used in the Sales Rep dropdown and to sync with Job Nimbus when the API is connected.
-                    </div>
-
-                    {/* JN Import */}
-                    <div style={{ background: "#eef1f8", border: "1px solid #bfdbfe", borderRadius: 14, padding: "14px 18px", marginBottom: 16 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: "#1a2e5a", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.04em", marginBottom: 8, textTransform: "uppercase" }}>
-                        🔗 Import / Sync Reps
+                    {managerTYTab === "insp_only" && (
+                    <div style={{ display: "grid", gap: 20 }}>
+                      <div style={{ background: "#eef1f8", border: "1px solid #bfdbfe", borderRadius: 12, padding: "12px 16px", fontSize: 13, color: "#1e3a5f", fontFamily: "'Nunito', sans-serif" }}>
+                        This content appears on the <strong>thank you screen</strong> shown after an inspection-only signing, and in the <strong>USS Welcome Package PDF</strong> emailed to the homeowner.
                       </div>
-                      <div style={{ display: "grid", gap: 8 }}>
-                        {/* Import known reps from hardcoded list */}
-                        <button type="button" onClick={seedRepsFromList} disabled={repSaving}
-                          style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "none", background: "#1a2e5a", color: "#fff", fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: repSaving ? 0.6 : 1 }}>
-                          {repSaving ? "Importing..." : "📋 Import All 24 Known Reps"}
-                        </button>
-                        <div style={{ fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>
-                          Adds all reps from the provided list with their JN IDs. Safe to run multiple times — won't duplicate.
-                        </div>
-                        {/* JN API live import — for when API is fixed */}
-                        <div style={{ borderTop: "1px solid #bfdbfe", paddingTop: 8, marginTop: 4 }}>
-                          <div style={{ fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 6 }}>
-                            When JN API is connected — pull live to update emails:
-                          </div>
-                          <div style={{ display: "flex", gap: 8 }}>
-                            <button type="button" onClick={fetchJnUsers} disabled={jnImporting}
-                              style={{ flex: 1, padding: "8px 10px", borderRadius: 10, border: "1px solid #bfdbfe", background: "#fff", color: "#1a2e5a", fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer", opacity: jnImporting ? 0.6 : 1 }}>
-                              {jnImporting ? "Loading..." : "📥 Load from JN API"}
-                            </button>
-                            {jnUsers.length > 0 ? (
-                              <button type="button" onClick={importAllFromJn}
-                                style={{ flex: 1, padding: "8px 10px", borderRadius: 10, border: "none", background: "#199c2e", color: "#fff", fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
-                                ✅ Sync ({jnUsers.length})
-                              </button>
-                            ) : null}
-                          </div>
-                          {jnImportError ? <div style={{ marginTop: 6, fontSize: 11, color: "#ef4444", fontFamily: "'Nunito', sans-serif" }}>⚠️ {jnImportError}</div> : null}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Add new rep form */}
-                    <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14, padding: "16px 18px", marginBottom: 16 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.04em", marginBottom: 12, textTransform: "uppercase" }}>
-                        Add New Rep
-                      </div>
-                      <div style={{ display: "grid", gap: 10 }}>
-                        <div>
-                          <Label>Full Name *</Label>
-                          <input type="text" value={newRepName} onChange={e => setNewRepName(e.target.value)}
-                            placeholder="e.g. Jose Huerta"
-                            style={{ width: "100%", height: 40, borderRadius: 12, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", fontFamily: "'Nunito', sans-serif" }} />
-                        </div>
-                        <div>
-                          <Label>Email</Label>
-                          <input type="email" value={newRepEmail} onChange={e => setNewRepEmail(e.target.value)}
-                            placeholder="rep@email.com"
-                            style={{ width: "100%", height: 40, borderRadius: 12, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", fontFamily: "'Nunito', sans-serif" }} />
-                        </div>
-                        <div>
-                          <Label>Job Nimbus ID</Label>
-                          <input type="text" value={newRepJnId} onChange={e => setNewRepJnId(e.target.value)}
-                            placeholder="JN user ID (for future sync)"
-                            style={{ width: "100%", height: 40, borderRadius: 12, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", fontFamily: "'Nunito', sans-serif" }} />
-                          <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 3, fontFamily: "'Nunito', sans-serif" }}>
-                            Find this in JN: Settings → Team → click rep → copy ID from URL
-                          </div>
-                        </div>
-                        <button type="button" onClick={saveRep} disabled={repSaving || !newRepName.trim()}
-                          style={{ padding: "10px", borderRadius: 12, border: "none", background: "#199c2e", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14, letterSpacing: "0.04em", textTransform: "uppercase", cursor: newRepName.trim() ? "pointer" : "not-allowed", opacity: newRepName.trim() ? 1 : 0.5 }}>
-                          {repSaving ? "Saving..." : "✚ Add Rep"}
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Rep list */}
-                    {reps.length > 0 ? (
                       <div>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", fontFamily: "'Nunito', sans-serif" }}>
-                            {reps.filter(r => r.active !== false).length} active · {reps.filter(r => r.active === false).length} inactive
-                          </div>
-                          <button type="button" onClick={() => setShowInactiveReps(v => !v)}
-                            style={{ fontSize: 12, color: "#6b7280", background: "none", border: "none", cursor: "pointer", fontFamily: "'Nunito', sans-serif", fontWeight: 600, textDecoration: "underline" }}>
-                            {showInactiveReps ? "Hide inactive" : "Show inactive"}
+                        <Label>Headline</Label>
+                        <input type="text" value={inspOnlyHeadline} onChange={(e) => setInspOnlyHeadline(e.target.value)}
+                          style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                      </div>
+                      <div>
+                        <Label>Opening statement</Label>
+                        <textarea value={inspOnlyOpening} onChange={(e) => setInspOnlyOpening(e.target.value)} rows={3}
+                          style={{ width: "100%", borderRadius: 12, border: "1px solid #d1d5db", padding: "10px 12px", fontSize: 14, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }} />
+                      </div>
+                      <div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                          <Label>What to expect next (numbered steps)</Label>
+                          <button type="button" onClick={() => setInspOnlySteps([...inspOnlySteps, "New step — click to edit"])}
+                            style={{ padding: "6px 14px", borderRadius: 10, border: "1.5px solid #1a2e5a", background: "#fff", color: "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 600, fontSize: 13, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                            + Add Step
                           </button>
                         </div>
-                        <div style={{ display: "grid", gap: 8 }}>
-                          {reps
-                            .filter(r => showInactiveReps ? true : r.active !== false)
-                            .map(rep => (
-                            <div key={rep.id} style={{
-                              background: rep.active === false ? "#f9fafb" : "#fff",
-                              border: `1px solid ${rep.active === false ? "#e5e7eb" : "#e5e7eb"}`,
-                              borderRadius: 12, padding: "12px 14px",
-                              display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
-                              opacity: rep.active === false ? 0.6 : 1,
-                            }}>
-                              <div style={{ flex: 1 }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                  <div style={{ fontWeight: 700, fontSize: 14, fontFamily: "'Nunito', sans-serif", color: "#111827" }}>{rep.name}</div>
-                                  {rep.active === false ? (
-                                    <span style={{ fontSize: 10, background: "#fee2e2", color: "#991b1b", borderRadius: 6, padding: "2px 6px", fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}>INACTIVE</span>
-                                  ) : null}
-                                </div>
-                                <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>
-                                  {rep.email ? `📧 ${rep.email}` : ""}
-                                  {rep.email && rep.jobnimbus_id ? " · " : ""}
-                                  {rep.jobnimbus_id ? `🔑 JN: ${rep.jobnimbus_id.slice(0, 10)}...` : <span style={{ color: "#f59e0b" }}>⚠️ No JN ID</span>}
-                                </div>
-                              </div>
-                              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                                {jnUsers.length > 0 && !rep.jobnimbus_id ? (
-                                  <button type="button" onClick={() => syncRepFromJn(rep.id, rep.name)}
-                                    style={{ background: "#eef1f8", border: "1px solid #bfdbfe", color: "#1a2e5a", borderRadius: 8, padding: "4px 10px", fontSize: 12, fontFamily: "'Nunito', sans-serif", fontWeight: 700, cursor: "pointer" }}>
-                                    🔗 Link
-                                  </button>
-                                ) : null}
-                                <button type="button"
-                                  onClick={() => toggleRepActive(rep.id, rep.active !== false)}
-                                  title={rep.active === false ? "Reactivate rep" : "Deactivate rep"}
-                                  style={{
-                                    background: rep.active === false ? "#f0fdf4" : "#fffbeb",
-                                    border: `1px solid ${rep.active === false ? "#bbf7d0" : "#fde68a"}`,
-                                    color: rep.active === false ? "#166534" : "#92400e",
-                                    borderRadius: 8, padding: "4px 10px", fontSize: 12,
-                                    fontFamily: "'Nunito', sans-serif", fontWeight: 700, cursor: "pointer"
-                                  }}>
-                                  {rep.active === false ? "✓ Reactivate" : "⏸ Deactivate"}
-                                </button>
-                                <button type="button" onClick={() => { if (window.confirm(`Permanently delete ${rep.name}? This cannot be undone.`)) deleteRep(rep.id); }}
-                                  style={{ background: "#fff1f2", border: "1px solid #fecdd3", color: "#e11d48", borderRadius: 8, padding: "4px 10px", fontSize: 12, fontFamily: "'Nunito', sans-serif", fontWeight: 700, cursor: "pointer" }}>
-                                  🗑
-                                </button>
-                              </div>
+                        <div style={{ display: "grid", gap: 10 }}>
+                          {inspOnlySteps.map((step, i) => (
+                            <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                              <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#1a2e5a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13, fontFamily: "'Oswald', sans-serif", flexShrink: 0, marginTop: 8 }}>{i + 1}</div>
+                              <textarea value={step} onChange={(e) => { const n=[...inspOnlySteps]; n[i]=e.target.value; setInspOnlySteps(n); }} rows={2}
+                                style={{ flex: 1, borderRadius: 12, border: "1px solid #d1d5db", padding: "8px 12px", fontSize: 14, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }} />
+                              <button type="button" onClick={() => setInspOnlySteps(inspOnlySteps.filter((_,idx)=>idx!==i))}
+                                style={{ background: "transparent", border: "none", color: "#ef4444", fontSize: 18, cursor: "pointer", padding: "4px 6px", marginTop: 6, flexShrink: 0 }}>✕</button>
                             </div>
                           ))}
                         </div>
                       </div>
-                    ) : (
-                      <div style={{ textAlign: "center", padding: "20px 0", color: "#9ca3af", fontFamily: "'Nunito', sans-serif", fontSize: 14 }}>
-                        No reps added yet. Click "Import All 24 Known Reps" above.
+                      <div>
+                        <Label>Closing statement</Label>
+                        <textarea value={inspOnlyClosing} onChange={(e) => setInspOnlyClosing(e.target.value)} rows={2}
+                          style={{ width: "100%", borderRadius: 12, border: "1px solid #d1d5db", padding: "10px 12px", fontSize: 14, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }} />
                       </div>
+                      <div style={{ marginTop: 4, borderTop: "1px solid #e5e7eb", paddingTop: 16 }}>
+                        <div style={{ fontSize: 12, color: "#9ca3af", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 12 }}>Live Preview</div>
+                        <div style={{ background: "#eef1f8", border: "1px solid #bfdbfe", borderRadius: 16, padding: "20px 18px" }}>
+                          <div style={{ fontSize: 28, marginBottom: 8, textAlign: "center" }}>🏠</div>
+                          <div style={{ fontSize: 20, fontWeight: 700, color: "#1a2e5a", fontFamily: "'Oswald', sans-serif", marginBottom: 6, textAlign: "center" }}>{inspOnlyHeadline}</div>
+                          <div style={{ fontSize: 13, color: "#1e3a5f", fontFamily: "'Nunito', sans-serif", marginBottom: 14, textAlign: "center", lineHeight: 1.5 }}>{inspOnlyOpening}</div>
+                          {inspOnlySteps.map((step, i) => (
+                            <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 8, padding: "8px 12px", background: "#fff", borderRadius: 10, border: "1px solid #bfdbfe" }}>
+                              <div style={{ width: 22, height: 22, borderRadius: "50%", background: "#1a2e5a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
+                              <div style={{ fontSize: 13, color: "#1e3a5f", fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.4 }}>{step}</div>
+                            </div>
+                          ))}
+                          <div style={{ marginTop: 10, padding: "10px 14px", background: "#fffbeb", borderRadius: 10, textAlign: "center", fontSize: 13, color: "#92400e", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>{inspOnlyClosing}</div>
+                        </div>
+                      </div>
+                    </div>
                     )}
-                  </Card>
+                  </Card>}
+                  {managerSection === "reps" && <Card style={{ padding: 20, background: "#f8fafc" }}>
+                    <SectionTitle>Sales Rep Manager</SectionTitle>
+                    <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 16 }}>
+                      Reps are pulled live from Job Nimbus on every page load and synced to Supabase as a backup.
+                    </div>
 
-                  {/* ── Weekly Report ── */}
-                  <Card style={{ padding: 20, background: "#f8fafc" }}>
+                    {/* JN Live Sync status */}
+                    <div style={{ background: reps[0]?._fromJN ? "#f0fdf4" : "#fffbeb", border: `1px solid ${reps[0]?._fromJN ? "#86efac" : "#fde68a"}`, borderRadius: 14, padding: "14px 18px", marginBottom: 16 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: reps[0]?._fromJN ? "#166534" : "#92400e", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>
+                        {reps[0]?._fromJN ? "✅ Live from Job Nimbus" : "⚠️ Using Supabase fallback"}
+                      </div>
+                      <div style={{ fontSize: 12, color: "#374151", fontFamily: "'Nunito', sans-serif", marginBottom: 10 }}>
+                        {reps[0]?._fromJN
+                          ? `${reps.length} active reps loaded from JN. New reps added to JN will appear automatically on the next page load.`
+                          : "Could not reach JN API. Using manually managed reps from Supabase. Check your API key."}
+                      </div>
+                      <button type="button" onClick={loadReps} disabled={jnImporting}
+                        style={{ padding: "8px 18px", borderRadius: 10, border: "none", background: "#1a2e5a", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                        {jnImporting ? "Syncing…" : "🔄 Sync from JN Now"}
+                      </button>
+                      {jnImportError ? <div style={{ marginTop: 8, fontSize: 12, color: "#dc2626", fontFamily: "'Nunito', sans-serif" }}>{jnImportError}</div> : null}
+                    </div>
+
+                    <div style={{ background: "#eef1f8", border: "1px solid #bfdbfe", borderRadius: 14, padding: "14px 18px", marginBottom: 16 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#1e40af", fontFamily: "'Oswald', sans-serif", marginBottom: 6 }}>Fallback: Import Known Reps</div>
+                      <div style={{ fontSize: 13, color: "#374151", fontFamily: "'Nunito', sans-serif", marginBottom: 10 }}>Use only if JN API is unavailable. Imports 24 known reps with their JN IDs into Supabase.</div>
+                      <button type="button" onClick={seedRepsFromList} disabled={repSaving}
+                        style={{ padding: "8px 18px", borderRadius: 10, border: "none", background: "#1e40af", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                        {repSaving ? "Importing..." : "⬇️ Import All 24 Reps"}
+                      </button>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 10, marginBottom: 16, alignItems: "flex-end" }}>
+                      <div>
+                        <Label>Rep Name</Label>
+                        <input type="text" value={newRepName} onChange={e => setNewRepName(e.target.value)} placeholder="Full name"
+                          style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                      </div>
+                      <div>
+                        <Label>Email (optional)</Label>
+                        <input type="email" value={newRepEmail} onChange={e => setNewRepEmail(e.target.value)} placeholder="rep@email.com"
+                          style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                      </div>
+                      <div>
+                        <Label>Cell Phone (for SMS)</Label>
+                        <input type="tel" value={newRepPhone} onChange={e => setNewRepPhone(e.target.value)} placeholder="(727) 555-0000"
+                          style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                      </div>
+                      <button type="button" onClick={saveRep} disabled={repSaving || !newRepName.trim()}
+                        style={{ height: 44, padding: "0 18px", borderRadius: 14, border: "none", background: "#199c2e", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
+                        + Add Rep
+                      </button>
+                    </div>
+                    <div style={{ display: "grid", gap: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", fontFamily: "'Nunito', sans-serif" }}>
+                          {reps.filter(r => r.active !== false).length} active rep{reps.filter(r => r.active !== false).length !== 1 ? "s" : ""}
+                        </div>
+                        <button type="button" onClick={() => setShowInactiveReps(v => !v)}
+                          style={{ fontSize: 12, color: "#6b7280", background: "none", border: "none", cursor: "pointer", fontFamily: "'Nunito', sans-serif", textDecoration: "underline" }}>
+                          {showInactiveReps ? "Hide inactive" : `Show inactive (${reps.filter(r => r.active === false).length})`}
+                        </button>
+                      </div>
+                      {reps.filter(r => showInactiveReps || r.active !== false).map(rep => (
+                        <div key={rep.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderRadius: 12, background: rep.active === false ? "#f9fafb" : "#fff", border: "1px solid #e5e7eb", gap: 10, opacity: rep.active === false ? 0.6 : 1 }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", fontFamily: "'Nunito', sans-serif" }}>
+                              {rep.name}
+                              {rep.active === false ? <span style={{ fontSize: 10, background: "#fee2e2", color: "#991b1b", borderRadius: 6, padding: "2px 6px", fontFamily: "'Nunito', sans-serif", fontWeight: 700, marginLeft: 8 }}>INACTIVE</span> : null}
+                            </div>
+                            {rep.phone ? <div style={{ fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>📞 {rep.phone}</div> : null}
+                            {rep.jobnimbus_id ? <div style={{ fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>JN: {rep.jobnimbus_id}</div> : null}
+                          </div>
+                          <input
+                            type="tel"
+                            defaultValue={rep.phone || ""}
+                            placeholder="Cell phone"
+                            onBlur={async (e) => {
+                              const phone = e.target.value.trim();
+                              if (phone !== (rep.phone || "")) {
+                                await supabase.from("sales_reps").update({ phone }).eq("id", rep.id);
+                                await loadReps();
+                              }
+                            }}
+                            style={{ height: 32, borderRadius: 8, border: "1px solid #d1d5db", padding: "0 8px", fontSize: 11, width: 130, fontFamily: "'Nunito', sans-serif" }}
+                          />
+                          <button type="button" onClick={() => toggleRepActive(rep.id, rep.active !== false)}
+                            style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid #d1d5db", background: "#fff", color: "#374151", fontSize: 11, cursor: "pointer", fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}>
+                            {rep.active === false ? "Activate" : "Deactivate"}
+                          </button>
+                        </div>
+                      ))}
+                      {reps.length === 0 ? (
+                        <div style={{ fontSize: 13, color: "#9ca3af", fontFamily: "'Nunito', sans-serif", padding: "12px 0" }}>No reps yet — import or add one above.</div>
+                      ) : null}
+                    </div>
+                  </Card>}
+                  {managerSection === "lookup" && <Card style={{ padding: 20, background: "#f8fafc" }}>
+                    <SectionTitle>Record Lookup & Inspection Results</SectionTitle>
+                    <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 16 }}>
+                      Search for an inspection record by name, address, or ZIP — then record the result.
+                    </div>
+                    <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
+  <button
+    type="button"
+    onClick={async () => {
+      setRecordSearchLoading(true);
+      setRecordSearch("");
+      try {
+        const { data: results, error } = await supabase
+          .from("inspections")
+          .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at")
+          .is("result", null);
+        if (!error) {
+          const sorted = (results || []).sort((a, b) => {
+            const lastName = (name) => {
+              const parts = (name || "").trim().split(" ");
+              return parts[parts.length - 1].toLowerCase();
+            };
+            return lastName(a.client_name).localeCompare(lastName(b.client_name));
+          });
+          setRecordSearchResults(sorted);
+        }
+      } catch (e) { console.error("Load pending error:", e); }
+      finally { setRecordSearchLoading(false); }
+    }}
+    style={{ padding: "10px 20px", borderRadius: 12, border: "1.5px solid #1a2e5a", background: "#fff", color: "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}
+  >
+    📋 Load Pending Inspections
+  </button>
+  {recordSearchResults.length > 0 && !recordSearch ? (
+    <span style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
+      {recordSearchResults.length} pending — sorted A→Z by last name
+    </span>
+  ) : null}
+</div>
+                    <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+                      <input type="text" value={recordSearch} onChange={(e) => { setRecordSearch(e.target.value); searchInspectionRecords(e.target.value); }}
+                        placeholder="Search by name, address, or ZIP..."
+                        style={{ flex: 1, height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 14px", fontSize: 14, boxSizing: "border-box" }} />
+                      {recordSearchLoading ? <div style={{ display: "flex", alignItems: "center", color: "#6b7280", fontSize: 13, fontFamily: "'Nunito', sans-serif" }}>Searching…</div> : null}
+                    </div>
+
+                    {recordSearchResults.length > 0 ? (
+                      <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
+                        {recordSearchResults.map((rec) => (
+                          <div key={rec.id}
+                            onClick={() => { setSelectedInspRecord(rec); setResultDone(false); setResultChoice(""); setResultInspectorName(""); }}
+                            style={{ background: selectedInspRecord?.id === rec.id ? "#eef1f8" : "#fff", border: selectedInspRecord?.id === rec.id ? "2px solid #1a2e5a" : "1px solid #e5e7eb", borderRadius: 14, padding: "12px 16px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                            <div>
+                              <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", fontFamily: "'Nunito', sans-serif" }}>{rec.client_name || "—"}</div>
+                              <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>{[rec.address, rec.city, rec.state, rec.zip].filter(Boolean).join(", ")}</div>
+                              <div style={{ fontSize: 11, color: "#9ca3af", fontFamily: "'Nunito', sans-serif" }}>Rep: {rec.sales_rep_name || "—"} | Signed: {rec.signed_at ? new Date(rec.signed_at).toLocaleDateString() : "—"}</div>
+                            </div>
+                            <div style={{ flexShrink: 0 }}>
+                              {rec.result === "no_damage" ? <div style={{ background: "#199c2e", color: "#fff", borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>✅ No Damage</div>
+                                : rec.result === "damage" ? <div style={{ background: "#dc2626", color: "#fff", borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>⚠️ Damage</div>
+                                : <div style={{ background: "#f3f4f6", color: "#6b7280", borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>Pending</div>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : recordSearch.length >= 2 && !recordSearchLoading ? (
+                      <div style={{ fontSize: 13, color: "#9ca3af", fontFamily: "'Nunito', sans-serif", marginBottom: 16 }}>No records found.</div>
+                    ) : null}
+
+                    {selectedInspRecord && !resultDone ? (
+                      <div style={{ background: "#fff", border: "2px solid #1a2e5a", borderRadius: 18, padding: "20px 22px", marginTop: 8 }}>
+                        <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#1a2e5a", marginBottom: 14 }}>
+                          🏠 Record Result — {selectedInspRecord.client_name}
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+                          {[{ key: "no_damage", emoji: "✅", label: "No Damage", desc: "Roof is in good condition" }, { key: "damage", emoji: "⚠️", label: "Damage Found", desc: "Storm damage confirmed" }].map(opt => (
+                            <button key={opt.key} type="button" onClick={() => setResultChoice(opt.key)}
+                              style={{ padding: "18px 12px", borderRadius: 16, textAlign: "center", border: resultChoice === opt.key ? `3px solid ${opt.key === "damage" ? "#dc2626" : "#199c2e"}` : "2px solid #e5e7eb", background: resultChoice === opt.key ? (opt.key === "damage" ? "#fef2f2" : "#f0fdf4") : "#fff", cursor: "pointer" }}>
+                              <div style={{ fontSize: 32, marginBottom: 6 }}>{opt.emoji}</div>
+                              <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827" }}>{opt.label}</div>
+                              <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginTop: 4 }}>{opt.desc}</div>
+                              {resultChoice === opt.key ? <div style={{ fontSize: 12, fontWeight: 700, color: opt.key === "damage" ? "#dc2626" : "#199c2e", fontFamily: "'Nunito', sans-serif", marginTop: 4 }}>✓ Selected</div> : null}
+                            </button>
+                          ))}
+                        </div>
+                        <div style={{ marginBottom: 14 }}>
+                          <Label>Inspector Name *</Label>
+                          <input type="text" value={resultInspectorName} onChange={(e) => setResultInspectorName(e.target.value)} placeholder="Full name of inspector"
+                            style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                        </div>
+                        <div style={{ marginBottom: 14 }}>
+                          <Label>Inspection Date</Label>
+                          <input type="date" value={resultCertDate} onChange={(e) => setResultCertDate(e.target.value)}
+                            style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                        </div>
+                        {resultChoice === "damage" ? <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 12, padding: "12px 16px", marginBottom: 14, fontSize: 13, color: "#991b1b", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>⚠️ Will email + SMS homeowner the damage report, and SMS sales rep to get PA paperwork signed ASAP (if not already signed).</div> : null}
+                        {resultChoice === "no_damage" ? <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 12, padding: "12px 16px", marginBottom: 14, fontSize: 13, color: "#166534", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>✅ Will email homeowner their official no-damage certificate with instructions to keep it safe.</div> : null}
+                        <button type="button" onClick={submitInspectionResult} disabled={!resultChoice || !resultInspectorName.trim() || resultSubmitting}
+                          style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", background: resultChoice === "damage" ? "#dc2626" : resultChoice === "no_damage" ? "#199c2e" : "#9ca3af", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: (!resultChoice || !resultInspectorName.trim() || resultSubmitting) ? "not-allowed" : "pointer", opacity: (!resultChoice || !resultInspectorName.trim() || resultSubmitting) ? 0.6 : 1 }}>
+                          {resultSubmitting ? "Processing..." : resultChoice === "damage" ? "📤 Send Results — Damage" : resultChoice === "no_damage" ? "📤 Send Results — No Damage" : "Select a Result Above"}
+                        </button>
+                      </div>
+                    ) : null}
+
+                    {selectedInspRecord && resultDone ? (
+                      <div style={{ background: "#f0fdf4", border: "2px solid #199c2e", borderRadius: 18, padding: "24px 22px", marginTop: 8, textAlign: "center" }}>
+                        <div style={{ fontSize: 48, marginBottom: 10 }}>✅</div>
+                        <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#166534", marginBottom: 8 }}>Result Recorded!</div>
+                        <div style={{ fontSize: 15, color: "#166534", fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.6 }}>
+                          {selectedInspRecord.client_name} — {resultChoice === "damage" ? "Damage reported. Homeowner and rep notified." : "No-damage certificate sent to homeowner."}
+                        </div>
+                        <button type="button" onClick={() => { setSelectedInspRecord(null); setResultChoice(""); setResultDone(false); setRecordSearch(""); setRecordSearchResults([]); }}
+                          style={{ marginTop: 16, padding: "10px 24px", borderRadius: 14, border: "2px solid #199c2e", background: "#fff", color: "#199c2e", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                          Search Another
+                        </button>
+                      </div>
+                    ) : null}
+                  </Card>}
+                  {managerSection === "report" && <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Weekly Report</SectionTitle>
-
                     <div style={{ display: "grid", gap: 12, marginBottom: 16 }}>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                         <div>
@@ -6340,168 +7002,70 @@ export default function App() {
                             style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
                         </div>
                       </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         {[
-                          ["This Week", () => {
-                            const now = new Date();
-                            const day = now.getDay();
-                            const start = new Date(now); start.setDate(now.getDate() - day); 
-                            const s = start.toISOString().split("T")[0];
-                            const e = now.toISOString().split("T")[0];
-                            setReportStartDate(s); setReportEndDate(e); fetchReport(s, e);
-                          }],
-                          ["Last Week", () => {
-                            const now = new Date();
-                            const day = now.getDay();
-                            const startOfThisWeek = new Date(now); startOfThisWeek.setDate(now.getDate() - day);
-                            const end = new Date(startOfThisWeek); end.setDate(startOfThisWeek.getDate() - 1);
-                            const start = new Date(end); start.setDate(end.getDate() - 6);
-                            const s = start.toISOString().split("T")[0];
-                            const e = end.toISOString().split("T")[0];
-                            setReportStartDate(s); setReportEndDate(e); fetchReport(s, e);
-                          }],
-                          ["Last 30 Days", () => {
-                            const e = new Date().toISOString().split("T")[0];
-                            const s = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
-                            setReportStartDate(s); setReportEndDate(e); fetchReport(s, e);
-                          }],
-                          ["This Month", () => {
-                            const now = new Date();
-                            const s = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
-                            const e = now.toISOString().split("T")[0];
-                            setReportStartDate(s); setReportEndDate(e); fetchReport(s, e);
-                          }],
-                        ].map(([label, handler]) => (
-                          <button key={label} type="button" onClick={handler} style={{
-                            padding: "8px 4px", borderRadius: 10, border: "1px solid #d1d5db",
-                            background: "#fff", cursor: "pointer", fontSize: 12,
-                            fontFamily: "'Nunito', sans-serif", fontWeight: 700, color: "#374151",
-                          }}>
+                          { label: "This Week", fn: () => { const t=new Date(); const d=new Date(t); d.setDate(t.getDate()-t.getDay()); setReportStartDate(d.toISOString().split("T")[0]); setReportEndDate(t.toISOString().split("T")[0]); } },
+                          { label: "Last Week", fn: () => { const t=new Date(); const s=new Date(t); s.setDate(t.getDate()-t.getDay()-7); const e=new Date(t); e.setDate(t.getDate()-t.getDay()-1); setReportStartDate(s.toISOString().split("T")[0]); setReportEndDate(e.toISOString().split("T")[0]); } },
+                          { label: "Last 30 Days", fn: () => { const t=new Date(); const s=new Date(t); s.setDate(t.getDate()-30); setReportStartDate(s.toISOString().split("T")[0]); setReportEndDate(t.toISOString().split("T")[0]); } },
+                          { label: "This Month", fn: () => { const t=new Date(); setReportStartDate(new Date(t.getFullYear(),t.getMonth(),1).toISOString().split("T")[0]); setReportEndDate(t.toISOString().split("T")[0]); } },
+                        ].map(({ label, fn }) => (
+                          <button key={label} type="button" onClick={fn}
+                            style={{ padding: "6px 14px", borderRadius: 20, border: "1px solid #d1d5db", background: "#fff", color: "#374151", fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
                             {label}
                           </button>
                         ))}
                       </div>
-                      <button type="button"
-                        onClick={() => fetchReport(reportStartDate, reportEndDate)}
-                        disabled={reportLoading}
-                        style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "none", background: "#199c2e", color: "#fff", cursor: "pointer", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", opacity: reportLoading ? 0.7 : 1 }}>
+                      <button type="button" onClick={() => fetchReport(reportStartDate, reportEndDate)} disabled={reportLoading}
+                        style={{ padding: "10px 24px", borderRadius: 14, border: "none", background: "#199c2e", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", width: "fit-content" }}>
                         {reportLoading ? "Loading..." : "📊 Generate Report"}
                       </button>
                     </div>
-
                     {reportData ? (
                       <div>
-                        {/* Week header */}
-                        <div style={{ background: "#199c2e", borderRadius: 12, padding: "12px 16px", marginBottom: 16, color: "#fff", textAlign: "center" }}>
-                          <div style={{ fontSize: 13, fontFamily: "'Nunito', sans-serif", fontWeight: 700, opacity: 0.9 }}>
-                            {reportData.startDate} → {reportData.endDate}
-                          </div>
-                          <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", marginTop: 4 }}>
-                            {reportData.totalClaims + reportData.totalInspections} Total Signings
-                          </div>
+                        <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 12 }}>
+                          {reportData.startDate} → {reportData.endDate} &nbsp;|&nbsp; {reportData.totalClaims} PA signing{reportData.totalClaims !== 1 ? "s" : ""}, {reportData.totalInspections} inspection{reportData.totalInspections !== 1 ? "s" : ""}
                         </div>
-
-                        {/* Errors */}
-                        {(reportData.claimsError || reportData.inspError) ? (
-                          <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "#991b1b", fontFamily: "'Nunito', sans-serif" }}>
-                            {reportData.claimsError ? <div>⚠️ Claims error: {reportData.claimsError}</div> : null}
-                            {reportData.inspError ? <div>⚠️ Inspections error: {reportData.inspError} — run the SQL to create the inspections table</div> : null}
-                          </div>
-                        ) : null}
-
-                        {/* Summary pills */}
-                        <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
-                          <div style={{ flex: 1, background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10, padding: "10px 14px", textAlign: "center" }}>
-                            <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#199c2e" }}>{reportData.totalClaims}</div>
-                            <div style={{ fontSize: 12, color: "#166534", fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}>PA Forms</div>
-                          </div>
-                          <div style={{ flex: 1, background: "#eef1f8", border: "1px solid #bfdbfe", borderRadius: 10, padding: "10px 14px", textAlign: "center" }}>
-                            <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#1a2e5a" }}>{reportData.totalInspections}</div>
-                            <div style={{ fontSize: 12, color: "#1e40af", fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}>Inspections</div>
-                          </div>
-                          <div style={{ flex: 1, background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 10, padding: "10px 14px", textAlign: "center" }}>
-                            <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#374151" }}>{Object.keys(reportData.byRep).length}</div>
-                            <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}>Reps Active</div>
-                          </div>
+                        {reportData.claimsError ? <div style={{ color: "#ef4444", fontSize: 12, marginBottom: 8 }}>⚠️ Claims error: {reportData.claimsError}</div> : null}
+                        {reportData.inspError ? <div style={{ color: "#ef4444", fontSize: 12, marginBottom: 8 }}>⚠️ Inspections error: {reportData.inspError}</div> : null}
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: 8, padding: "6px 12px", background: "#f3f4f6", borderRadius: 8, marginBottom: 8, fontSize: 11, fontWeight: 700, color: "#6b7280", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                          <div>Homeowner</div>
+                          <div style={{ textAlign: "center", width: 36 }}>Insp</div>
+                          <div style={{ textAlign: "center", width: 36 }}>LOR</div>
+                          <div style={{ textAlign: "center", width: 36 }}>PA</div>
                         </div>
-
-                        {/* By Rep */}
-                        {Object.keys(reportData.byRep).length > 0 ? (
-                          Object.entries(reportData.byRep)
-                            .sort((a, b) => b[1].length - a[1].length) // most signings first
-                            .map(([rep, signings]) => (
-                              <div key={rep} style={{ marginBottom: 20 }}>
-                                {/* Rep header */}
-                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#1a2e5a", borderRadius: "12px 12px 0 0", padding: "10px 16px" }}>
-                                  <div style={{ fontWeight: 700, fontSize: 15, fontFamily: "'Oswald', sans-serif", color: "#fff", letterSpacing: "0.04em" }}>
-                                    👤 {rep}
-                                  </div>
-                                  <div style={{ background: "rgba(255,255,255,0.2)", borderRadius: 20, padding: "2px 12px", fontSize: 13, fontFamily: "'Nunito', sans-serif", fontWeight: 700, color: "#fff" }}>
-                                    {signings.length} signing{signings.length !== 1 ? "s" : ""}
-                                  </div>
+                        {Object.keys(reportData.byRep).sort((a,b) => reportData.byRep[b].length - reportData.byRep[a].length).map(rep => (
+                          <div key={rep} style={{ marginBottom: 16 }}>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", padding: "8px 12px", background: "#e0f2fe", borderRadius: 10, marginBottom: 6, display: "flex", justifyContent: "space-between" }}>
+                              <span>👤 {rep}</span>
+                              <span style={{ fontSize: 12, color: "#0369a1" }}>{reportData.byRep[rep].length} signing{reportData.byRep[rep].length !== 1 ? "s" : ""}</span>
+                            </div>
+                            {reportData.byRep[rep].map((s, i) => (
+                              <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: 8, padding: "8px 12px", background: i%2===0 ? "#fff" : "#f9fafb", borderRadius: 8, marginBottom: 4, alignItems: "center", border: "1px solid #f3f4f6" }}>
+                                <div>
+                                  <div style={{ fontSize: 13, fontWeight: 700, color: "#111827", fontFamily: "'Nunito', sans-serif" }}>{s.name}</div>
+                                  <div style={{ fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>{s.address}</div>
+                                  <div style={{ fontSize: 11, color: "#9ca3af", fontFamily: "'Nunito', sans-serif" }}>{s.signedAt ? new Date(s.signedAt).toLocaleString() : ""}</div>
                                 </div>
-
-                                {/* Signings under this rep */}
-                                <div style={{ border: "1px solid #1a2e5a", borderTop: "none", borderRadius: "0 0 12px 12px", overflow: "hidden" }}>
-                                  {/* Column headers */}
-                                  <div style={{ display: "grid", gridTemplateColumns: "1fr 60px 60px 60px", gap: 4, padding: "8px 16px 6px", background: "#f8fafc", borderBottom: "1px solid #e5e7eb" }}>
-                                    <div style={{ fontSize: 11, fontWeight: 700, color: "#9ca3af", fontFamily: "'Nunito', sans-serif", textTransform: "uppercase", letterSpacing: "0.06em" }}>Homeowner</div>
-                                    <div style={{ fontSize: 11, fontWeight: 700, color: "#1a2e5a", fontFamily: "'Nunito', sans-serif", textTransform: "uppercase", letterSpacing: "0.04em", textAlign: "center" }}>🏠 Insp</div>
-                                    <div style={{ fontSize: 11, fontWeight: 700, color: "#199c2e", fontFamily: "'Nunito', sans-serif", textTransform: "uppercase", letterSpacing: "0.04em", textAlign: "center" }}>📋 LOR</div>
-                                    <div style={{ fontSize: 11, fontWeight: 700, color: "#199c2e", fontFamily: "'Nunito', sans-serif", textTransform: "uppercase", letterSpacing: "0.04em", textAlign: "center" }}>📄 PA</div>
-                                  </div>
-                                  {signings.map((s, i) => (
-                                    <div key={i} style={{
-                                      display: "grid",
-                                      gridTemplateColumns: "1fr 60px 60px 60px",
-                                      gap: 4,
-                                      padding: "10px 16px",
-                                      borderBottom: i < signings.length - 1 ? "1px solid #f1f5f9" : "none",
-                                      background: "#fff",
-                                      alignItems: "center",
-                                    }}>
-                                      <div>
-                                        <div style={{ fontWeight: 700, fontSize: 14, fontFamily: "'Nunito', sans-serif", color: "#111827" }}>
-                                          {s.name}
-                                        </div>
-                                        <div style={{ fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>
-                                          📍 {s.address || "—"}
-                                        </div>
-                                        <div style={{ fontSize: 11, color: "#9ca3af", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>
-                                          🕐 {s.signedAt ? new Date(s.signedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}
-                                        </div>
-                                      </div>
-                                      {/* Insp checkmark */}
-                                      <div style={{ textAlign: "center", fontSize: 18 }}>
-                                        {s.hasInsp ? <span style={{ color: "#1a2e5a" }}>✅</span> : <span style={{ color: "#e5e7eb" }}>○</span>}
-                                      </div>
-                                      {/* LOR checkmark */}
-                                      <div style={{ textAlign: "center", fontSize: 18 }}>
-                                        {s.hasLor ? <span style={{ color: "#199c2e" }}>✅</span> : <span style={{ color: "#e5e7eb" }}>○</span>}
-                                      </div>
-                                      {/* PAC checkmark */}
-                                      <div style={{ textAlign: "center", fontSize: 18 }}>
-                                        {s.hasPac ? <span style={{ color: "#199c2e" }}>✅</span> : <span style={{ color: "#e5e7eb" }}>○</span>}
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
+                                <div style={{ textAlign: "center", width: 36, fontSize: 16 }}>{s.hasInsp ? "✅" : "○"}</div>
+                                <div style={{ textAlign: "center", width: 36, fontSize: 16 }}>{s.hasLor ? "✅" : "○"}</div>
+                                <div style={{ textAlign: "center", width: 36, fontSize: 16 }}>{s.hasPac ? "✅" : "○"}</div>
                               </div>
-                            ))
-                        ) : (
-                          <div style={{ textAlign: "center", padding: "24px 0", color: "#9ca3af", fontFamily: "'Nunito', sans-serif", fontSize: 15 }}>
-                            No signings recorded this week.
+                            ))}
                           </div>
-                        )}
+                        ))}
+                        {Object.keys(reportData.byRep).length === 0 ? (
+                          <div style={{ textAlign: "center", padding: "24px 0", color: "#9ca3af", fontFamily: "'Nunito', sans-serif", fontSize: 15 }}>No signings recorded this period.</div>
+                        ) : null}
                       </div>
                     ) : null}
-                  </Card>
-
-                  <div>
-                    <Button onClick={() => { setManagerUnlocked(false); setView("input"); }}>
-                      Save & Close
-                    </Button>
-                  </div>
+                  </Card>}
+                      <div style={{ marginTop: 24 }}>
+                        <Button onClick={() => { setManagerUnlocked(false); setManagerSection("home"); setView("input"); }}>
+                          Save & Close
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </CardContent>
@@ -6511,10 +7075,11 @@ export default function App() {
       </div>
 
       {/* ── Always-rendered hidden inspection PDF ── */}
-      <div style={{ position: "absolute", left: "-20000px", top: 0, width: 0, height: 0, overflow: "hidden", pointerEvents: "none" }}>
+      <div style={{ position: "fixed", left: "-9999px", top: 0, pointerEvents: "none", zIndex: -1 }}>
         <div id="inspection-printable" style={{ fontFamily: "Arial, Helvetica, sans-serif", background: "#fff", width: "8.5in", padding: "0.6in 0.7in", boxSizing: "border-box" }}>
           <div style={{ textAlign: "center", marginBottom: 24 }}>
-            <img src="/uss-logo.png" alt="U.S. Shingle & Metal" style={{ height: 72, marginBottom: 12, objectFit: "contain" }} onError={e => { e.target.style.display="none"; }} />
+
+            <img src="/uss-header.png" alt="U.S. Shingle & Metal" style={{ height: 70, objectFit: "contain", marginBottom: 10 }} />
             <div style={{ fontSize: 20, fontWeight: 700, color: "#1a2e5a", marginBottom: 4, textTransform: "uppercase", letterSpacing: 1.5 }}>Free Roof Inspection Agreement</div>
             <div style={{ width: 60, height: 3, background: "#c8392b", margin: "0 auto 10px", borderRadius: 2 }} />
             <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.7 }}>
@@ -6554,11 +7119,38 @@ export default function App() {
               <div style={{ fontSize: 12, marginTop: 8 }}>Date: {data.date}</div>
             </div>
           </div>
+
+          {/* Audit trail page */}
+          <div style={{ marginTop: 40, paddingTop: 24, borderTop: "2px solid #1a2e5a", pageBreakBefore: "always" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#1a2e5a", marginBottom: 14, textTransform: "uppercase", letterSpacing: 1 }}>
+              Signing Audit Trail
+            </div>
+            <div style={{ display: "grid", gap: 6, fontSize: 12 }}>
+              {[
+                ["Document", "Free Roof Inspection Agreement"],
+                ["Signed by", inspData.clientName || [data.homeowner1, data.homeowner2].filter(Boolean).join(" & ")],
+                ["Signer email", inspData.email || data.signerEmail || "—"],
+                ["Signed at", auditInfo?.signedAt || new Date().toISOString()],
+                ["IP address", auditInfo?.signedIp || "—"],
+                ["City / State", [auditInfo?.signedCity, auditInfo?.signedRegion].filter(Boolean).join(", ") || "—"],
+                ["Sign method", auditInfo?.signMethod || "sign_now"],
+                ["Browser / device", auditInfo?.signedUserAgent || navigator.userAgent || "—"],
+              ].map(([label, value]) => (
+                <div key={label} style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: 8, padding: "6px 10px", background: "#f8fafc", borderRadius: 6, border: "1px solid #e5e7eb" }}>
+                  <div style={{ fontWeight: 700, color: "#374151" }}>{label}</div>
+                  <div style={{ color: "#111827", wordBreak: "break-all" }}>{value}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ marginTop: 14, fontSize: 11, color: "#6b7280", textAlign: "center" }}>
+              This audit trail is automatically generated and serves as a record of the electronic signing event.
+            </div>
+          </div>
         </div>
       </div>
 
       {/* ── Always-rendered hidden welcome PDF (needed for email attachment at submit time) ── */}
-      <div style={{ position: "absolute", left: "-20000px", top: 0, width: 0, height: 0, overflow: "hidden", pointerEvents: "none" }}>
+      <div style={{ position: "fixed", left: "-9999px", top: 0, pointerEvents: "none", zIndex: -1 }}>
         <div
           id="ty-summary-printable"
           style={{
@@ -6690,7 +7282,19 @@ export default function App() {
         </div>
         </div>
       </div>
-
+{/* ── Hidden Inspection Certificate PDF (for result recording) ── */}
+      <div style={{ position: "fixed", left: "-9999px", top: 0, pointerEvents: "none", zIndex: -1 }}>
+        <InspectionCertificatePDF
+          record={selectedInspRecord}
+          result={resultChoice}
+          inspectorName={resultInspectorName}
+          certNumber={resultCertNumber}
+          inspectionDate={resultCertDate}
+          fmtDateLong={fmtDateLong}
+          fmtDateShort={fmtDateShort}
+          addOneYearStr={addOneYearStr}
+        />
+      </div>
       {/* ── Submitting overlay ── */}
       {isSubmitting ? (
         <div
@@ -6765,57 +7369,6 @@ export default function App() {
           </div>
         </div>
       ) : null}
-
-      {/* ── Always-rendered hidden USS Welcome PDF ── */}
-      <div style={{ position: "absolute", left: "-20000px", top: 0, width: 0, height: 0, overflow: "hidden", pointerEvents: "none" }}>
-        <div id="uss-welcome-printable" style={{ width: "8.5in", fontFamily: "Arial, Helvetica, sans-serif", background: "#fff" }}>
-          <div style={{ width: "8.5in", boxSizing: "border-box", padding: "0.7in 0.75in", minHeight: "11in" }}>
-            <div style={{ display: "flex", height: 8, marginBottom: 24 }}>
-              <div style={{ flex: 1, background: "#c8392b" }} />
-              <div style={{ flex: 1, background: "#e5e7eb" }} />
-              <div style={{ flex: 1, background: "#1a2e5a" }} />
-            </div>
-            <div style={{ textAlign: "center", marginBottom: 28 }}>
-              <div style={{ fontSize: 26, fontWeight: 700, color: "#1a2e5a", fontFamily: "Arial, Helvetica, sans-serif", letterSpacing: 1 }}>U.S. Shingle & Metal LLC</div>
-              <div style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>3845 Gateway Centre Blvd Suite 300 • Pinellas Park, FL 33782</div>
-              <div style={{ fontSize: 13, color: "#6b7280" }}>Phone: 727.761.5200 • Email: info@shingleusa.com • License: CCC1331960</div>
-            </div>
-            <div style={{ borderBottom: "2px solid #1a2e5a", marginBottom: 28 }} />
-            <div style={{ fontSize: 22, fontWeight: 700, color: "#1a2e5a", marginBottom: 14 }}>Welcome, {[data.homeowner1, data.homeowner2].filter(Boolean).join(" & ") || inspData.clientName}!</div>
-            <p style={{ fontSize: 14, color: "#374151", lineHeight: 1.75, marginBottom: 20 }}>
-              Thank you for choosing U.S. Shingle & Metal LLC for your free roof inspection. We are a licensed and fully insured roofing contractor dedicated to helping homeowners navigate storm damage with honesty and professionalism.
-            </p>
-            <div style={{ background: "#eef1f8", borderRadius: 10, padding: "18px 22px", marginBottom: 22 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "#1a2e5a", marginBottom: 12 }}>What Happens Next</div>
-              {["Your sales representative will contact you within 24 hours to coordinate the inspection.",
-                "One of our trained inspectors will visit your property and thoroughly document any storm damage.",
-                "All findings and photos are forwarded to a licensed Public Adjuster for professional review.",
-                "If storm damage is confirmed, you will be contacted about your options for filing an insurance claim.",
-                "If no damage is found — no problem! The inspection is completely free with no obligation."
-              ].map((step, i) => (
-                <div key={i} style={{ display: "flex", gap: 12, marginBottom: 10, alignItems: "flex-start" }}>
-                  <div style={{ width: 24, height: 24, borderRadius: "50%", background: "#1a2e5a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0, marginTop: 1 }}>{i + 1}</div>
-                  <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.6 }}>{step}</div>
-                </div>
-              ))}
-            </div>
-            <div style={{ background: "#1a2e5a", borderRadius: 10, padding: "18px 22px", color: "#fff", marginBottom: 22 }}>
-              <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>Contact Us Anytime</div>
-              <div style={{ fontSize: 13, lineHeight: 2 }}>
-                📞 Phone: 727.761.5200<br/>
-                📧 Email: info@shingleusa.com<br/>
-                📍 3845 Gateway Centre Blvd Suite 300, Pinellas Park, FL 33782<br/>
-                🪪 License: CCC1331960
-              </div>
-            </div>
-            <div style={{ display: "flex", height: 8, marginTop: 32 }}>
-              <div style={{ flex: 1, background: "#c8392b" }} />
-              <div style={{ flex: 1, background: "#e5e7eb" }} />
-              <div style={{ flex: 1, background: "#1a2e5a" }} />
-            </div>
-          </div>
-        </div>
-      </div>
 
       <style>{`
         @keyframes ccg-spin {
