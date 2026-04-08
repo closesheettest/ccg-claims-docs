@@ -3343,8 +3343,30 @@ const setNoDamageManagerSms = (v) => { setNoDamageManagerSmsRaw(v); saveSetting(
         }).catch(e => console.warn("Homeowner email non-fatal:", e));
       }
 
-      // Job Nimbus sync disabled until API key is fixed
-      // fetch("/.netlify/functions/jobnimbus-sync", ...
+      // ── Job Nimbus sync ──────────────────────────────────────────────────
+      fetch("/.netlify/functions/jobnimbus-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          leadSource: data.leadSource || "NEED",
+          docsSignedList: ["insp"],
+          homeowner1: inspData.clientName || data.homeowner1 || "",
+          homeowner2: "",
+          phone: inspData.mobile || data.phone || "",
+          email: inspData.email || data.signerEmail || "",
+          address: inspData.address || data.address || "",
+          city: inspData.city || data.city || "",
+          state: inspData.state || data.state || "",
+          zip: inspData.zip || data.zip || "",
+          salesRepName: data.salesRepName || "",
+          salesRepId: data.salesRepId || "",
+          pdfBase64: base64Content,
+          pdfFilename: "Free-Roof-Inspection-Agreement.pdf",
+        }),
+      }).then(async r => {
+        const d = await r.json().catch(() => ({}));
+        console.log("JN sync (inspection):", d);
+      }).catch(e => console.warn("JN sync non-fatal:", e));
 
       // Reset inspection sig fields
       setInspSig("");
@@ -3786,7 +3808,32 @@ const setNoDamageManagerSms = (v) => { setNoDamageManagerSmsRaw(v); saveSetting(
       setPendingSend(false);
       setIsSubmitting(false);
 
-      // ── Job Nimbus sync disabled until API key is fixed ──
+      // ── Job Nimbus sync ──────────────────────────────────────────────────
+      // Find the inspection PDF attachment if it was generated
+      const inspAttachment = attachments.find(a => a.filename && a.filename.toLowerCase().includes("inspection"));
+      fetch("/.netlify/functions/jobnimbus-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          leadSource: data.leadSource || "NEED",
+          docsSignedList: selectedDocs,
+          homeowner1: data.homeowner1 || "",
+          homeowner2: data.homeowner2 || "",
+          phone: data.phone || "",
+          email: data.signerEmail || "",
+          address: data.address || "",
+          city: data.city || "",
+          state: data.state || "",
+          zip: data.zip || "",
+          salesRepName: data.salesRepName || "",
+          salesRepId: data.salesRepId || "",
+          pdfBase64: inspAttachment?.content || null,
+          pdfFilename: inspAttachment?.filename || null,
+        }),
+      }).then(async r => {
+        const d = await r.json().catch(() => ({}));
+        console.log("JN sync (submitDoc):", d);
+      }).catch(e => console.warn("JN sync non-fatal:", e));
 
       window.scrollTo({ top: 0, behavior: "smooth" });
       if (isSigningFromLink) {
