@@ -2,131 +2,148 @@ const fetch = (...args) => import("node-fetch").then(({ default: f }) => f(...ar
 
 const JN_BASE = "https://app.jobnimbus.com/api1";
 
-// ─── helpers ────────────────────────────────────────────────────────────────
-
 const jnHeaders = (apiKey) => ({
   Authorization: `bearer ${apiKey}`,
   "Content-Type": "application/json",
 });
 
-// Search contacts by address (partial match)
-async function findContactByAddress(apiKey, address) {
+// ─── Search contacts by address ───────────────────────────────────────────
+async function findContactByAddress(apiKey, address, zip) {
   try {
-    const encoded = encodeURIComponent(address);
-    const res = await fetch(`${JN_BASE}/contacts?search=${encoded}&size=5`, {
+    // Try searching by address string
+    const query = encodeURIComponent(address.split(",")[0].trim());
+    const res = await fetch(`${JN_BASE}/contacts?search=${query}&size=10`, {
       headers: jnHeaders(apiKey),
     });
+    const text = await res.text();
+    console.log("Contact search status:", res.status);
+    console.log("Contact search response:", text.slice(0, 500));
+
     if (!res.ok) return null;
-    const data = await res.json();
-    const contacts = data.results || data.contacts || [];
+    const data = JSON.parse(text);
+    const contacts = data.results || data.contacts || data.items || [];
+    console.log("Contacts found:", contacts.length);
     if (!contacts.length) return null;
 
-    // Find best match — address contains the search string
+    // Match by address
     const addrLower = address.toLowerCase().replace(/\s+/g, " ").trim();
-    return contacts.find((c) => {
-      const cAddr = ((c.address_line1 || "") + " " + (c.city || "")).toLowerCase();
-      return cAddr.includes(addrLower.split(",")[0].toLowerCase());
-    }) || contacts[0];
+    const match = contacts.find((c) => {
+      const cAddr = [c.address_line1, c.address_line2, c.city]
+        .filter(Boolean).join(" ").toLowerCase();
+      const streetNum = addrLower.split(" ")[0];
+      return cAddr.includes(streetNum) && (
+        !zip || (c.zip || "").replace(/\s/g, "") === zip.replace(/\s/g, "")
+      );
+    });
+    return match || null;
   } catch (e) {
     console.error("findContactByAddress error:", e.message);
     return null;
   }
 }
 
-// Create a new contact
+// ─── Create contact ───────────────────────────────────────────────────────
 async function createContact(apiKey, payload) {
+  console.log("Creating contact payload:", JSON.stringify(payload));
   const res = await fetch(`${JN_BASE}/contacts`, {
     method: "POST",
     headers: jnHeaders(apiKey),
     body: JSON.stringify(payload),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(`Create contact failed: ${JSON.stringify(data)}`);
-  return data;
+  const text = await res.text();
+  console.log("Create contact status:", res.status);
+  console.log("Create contact response:", text.slice(0, 500));
+  if (!res.ok) throw new Error(`Create contact failed (${res.status}): ${text.slice(0, 300)}`);
+  return JSON.parse(text);
 }
 
-// Create a new job linked to a contact
+// ─── Create job ───────────────────────────────────────────────────────────
 async function createJob(apiKey, payload) {
+  console.log("Creating job payload:", JSON.stringify(payload));
   const res = await fetch(`${JN_BASE}/jobs`, {
     method: "POST",
     headers: jnHeaders(apiKey),
     body: JSON.stringify(payload),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(`Create job failed: ${JSON.stringify(data)}`);
-  return data;
+  const text = await res.text();
+  console.log("Create job status:", res.status);
+  console.log("Create job response:", text.slice(0, 500));
+  if (!res.ok) throw new Error(`Create job failed (${res.status}): ${text.slice(0, 300)}`);
+  return JSON.parse(text);
 }
 
-// Upload a file to a job using single-part upload
-// Step 1: initiate upload, get upload URL
-// Step 2: PUT file bytes to S3 URL
-// Step 3: complete upload
+// ─── Upload PDF to job (single-part) ─────────────────────────────────────
 async function uploadFileToJob(apiKey, jobId, filename, base64Content) {
   try {
     const fileBytes = Buffer.from(base64Content, "base64");
-    const fileSizeBytes = fileBytes.length;
+    console.log("Uploading file:", filename, "size:", fileBytes.length, "to job:", jobId);
 
-    // Step 1 — initiate single-part upload
+    // Step 1 — initiate upload
+    const initBody = {
+      record_id: jobId,
+      record_type: "job",
+      filename: filename,
+      content_type: "application/pdf",
+      size: fileBytes.length,
+    };
+    console.log("File init payload:", JSON.stringify(initBody));
     const initRes = await fetch(`${JN_BASE}/files`, {
       method: "POST",
       headers: jnHeaders(apiKey),
-      body: JSON.stringify({
-        record_id: jobId,
-        record_type: "job",
-        filename: filename,
-        content_type: "application/pdf",
-        size: fileSizeBytes,
-      }),
+      body: JSON.stringify(initBody),
     });
-    const initData = await initRes.json();
-    console.log("File init response:", JSON.stringify(initData).slice(0, 300));
+    const initText = await initRes.text();
+    console.log("File init status:", initRes.status);
+    console.log("File init response:", initText.slice(0, 500));
 
     if (!initRes.ok) {
-      console.error("File init failed:", JSON.stringify(initData));
-      return false;
+      console.error("File init failed:", initText);
+      return { success: false, error: `Init failed ${initRes.status}: ${initText.slice(0,200)}` };
     }
 
-    const uploadUrl = initData.url || initData.upload_url;
+    const initData = JSON.parse(initText);
+    const uploadUrl = initData.url || initData.upload_url || initData.presigned_url;
     const fileId = initData.id || initData.jnid;
+    console.log("Upload URL:", uploadUrl ? "received" : "MISSING");
+    console.log("File ID:", fileId);
 
     if (!uploadUrl) {
-      console.error("No upload URL returned:", JSON.stringify(initData));
-      return false;
+      return { success: false, error: "No upload URL in response: " + initText.slice(0,200) };
     }
 
-    // Step 2 — PUT the file bytes to the S3 URL
+    // Step 2 — PUT bytes to S3
     const s3Res = await fetch(uploadUrl, {
       method: "PUT",
-      headers: { "Content-Type": "application/pdf" },
+      headers: { "Content-Type": "application/pdf", "Content-Length": String(fileBytes.length) },
       body: fileBytes,
     });
+    console.log("S3 PUT status:", s3Res.status);
     if (!s3Res.ok) {
-      console.error("S3 upload failed:", s3Res.status);
-      return false;
+      const s3Err = await s3Res.text();
+      console.error("S3 upload failed:", s3Err.slice(0, 200));
+      return { success: false, error: `S3 upload failed ${s3Res.status}` };
     }
 
-    // Step 3 — complete the upload
-    const completeRes = await fetch(`${JN_BASE}/files/${fileId}/complete`, {
-      method: "POST",
-      headers: jnHeaders(apiKey),
-      body: JSON.stringify({}),
-    });
-    if (!completeRes.ok) {
-      const err = await completeRes.text();
-      console.error("File complete failed:", err);
-      return false;
+    // Step 3 — complete
+    if (fileId) {
+      const completeRes = await fetch(`${JN_BASE}/files/${fileId}/complete`, {
+        method: "POST",
+        headers: jnHeaders(apiKey),
+        body: JSON.stringify({}),
+      });
+      const completeText = await completeRes.text();
+      console.log("Complete status:", completeRes.status, completeText.slice(0, 200));
     }
 
-    console.log("✅ File uploaded successfully:", filename);
-    return true;
+    console.log("✅ File uploaded successfully");
+    return { success: true };
   } catch (e) {
     console.error("uploadFileToJob error:", e.message);
-    return false;
+    return { success: false, error: e.message };
   }
 }
 
-// ─── main handler ────────────────────────────────────────────────────────────
-
+// ─── Main handler ─────────────────────────────────────────────────────────
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: JSON.stringify({ error: "Method not allowed" }) };
@@ -145,65 +162,60 @@ exports.handler = async (event) => {
   }
 
   const {
-    leadSource,      // "NEED" or "INS"
-    docsSignedList,  // e.g. ["insp"] or ["insp","lor","pac"] or ["lor","pac"]
-    homeowner1,
-    homeowner2,
-    phone,
-    email,
-    address,
-    city,
-    state,
-    zip,
-    salesRepName,
-    salesRepId,      // JN user id
-    pdfBase64,       // base64 encoded PDF of the signed inspection form
-    pdfFilename,     // e.g. "Free-Roof-Inspection-John-Smith.pdf"
+    leadSource,
+    docsSignedList,
+    homeowner1, homeowner2,
+    phone, email,
+    address, city, state, zip,
+    salesRepName, salesRepId,
+    pdfBase64, pdfFilename,
   } = body;
 
-  console.log("JN Sync payload:", {
-    leadSource, docsSignedList, homeowner1, address, city, state, zip, salesRepName,
-  });
+  console.log("=== JN Sync Start ===");
+  console.log("Lead:", leadSource, "| Docs:", docsSignedList, "| Address:", address, zip);
+  console.log("Rep:", salesRepName, salesRepId);
+  console.log("Has PDF:", !!pdfBase64);
 
   try {
-    // ── Determine status based on what was signed ──────────────────────────
-    const hasInsp = (docsSignedList || []).includes("insp");
-    const hasPADocs = (docsSignedList || []).some((d) => d === "lor" || d === "pac");
-    const status = hasPADocs ? "Sit Sold PA" : "Sit Sold Insp";
+    const hasPADocs = (docsSignedList || []).some(d => d === "lor" || d === "pac");
+    const hasInsp   = (docsSignedList || []).includes("insp");
+    const status    = hasPADocs ? "Sit Sold PA" : "Sit Sold Insp";
 
-    // ── Build full name ────────────────────────────────────────────────────
-    const fullName = [homeowner1, homeowner2].filter(Boolean).join(" & ");
-    const [firstName, ...lastParts] = (homeowner1 || "Homeowner").split(" ");
-    const lastName = lastParts.join(" ") || "";
+    const fullName  = [homeowner1, homeowner2].filter(Boolean).join(" & ");
+    const nameParts = (homeowner1 || "Homeowner").trim().split(" ");
+    const firstName = nameParts[0];
+    const lastName  = nameParts.slice(1).join(" ") || "";
 
-    // ── Find or create contact ─────────────────────────────────────────────
+    console.log("Status will be:", status, "| Name:", fullName);
+
+    // ── Find or create contact ──────────────────────────────────────────
     let contactId = null;
+    let contactAction = "";
 
     if (leadSource === "INS") {
-      // INS — contact should already exist, search by address
-      console.log("INS flow — searching for existing contact by address:", address);
-      const existing = await findContactByAddress(apiKey, address);
+      console.log("INS: searching for contact by address:", address);
+      const existing = await findContactByAddress(apiKey, address, zip);
       if (existing) {
         contactId = existing.jnid || existing.id;
-        console.log("Found existing contact:", contactId, existing.display_name);
+        contactAction = "found_existing";
+        console.log("Found contact:", contactId, existing.display_name || existing.name);
 
-        // Update contact name if different (new info takes precedence)
-        if (homeowner1 && existing.first_name !== firstName) {
-          await fetch(`${JN_BASE}/contacts/${contactId}`, {
+        // Update name if changed
+        if (homeowner1 && (existing.first_name || "") !== firstName) {
+          const updateRes = await fetch(`${JN_BASE}/contacts/${contactId}`, {
             method: "PUT",
             headers: jnHeaders(apiKey),
             body: JSON.stringify({ first_name: firstName, last_name: lastName }),
           });
-          console.log("Updated contact name to:", firstName, lastName);
+          console.log("Name update status:", updateRes.status);
         }
       } else {
-        console.log("INS contact not found by address — creating new");
+        console.log("INS contact not found — will create new");
       }
     }
 
     if (!contactId) {
-      // NEED flow (or INS not found) — create new contact
-      console.log("Creating new contact:", fullName, address);
+      // Build contact payload — use JN field names from API docs
       const contactPayload = {
         first_name: firstName,
         last_name: lastName,
@@ -214,59 +226,55 @@ exports.handler = async (event) => {
         state_text: state || "",
         zip: zip || "",
         record_type_name: "Contact",
-        sales_rep_name: salesRepName || "",
-        sales_rep_id: salesRepId || "",
       };
+      // Add rep if we have the JN id
+      if (salesRepId) contactPayload.sales_rep = { id: salesRepId };
+
       const newContact = await createContact(apiKey, contactPayload);
       contactId = newContact.jnid || newContact.id;
-      console.log("Created contact:", contactId);
+      contactAction = "created";
+      console.log("Contact created with ID:", contactId);
     }
 
-    if (!contactId) {
-      throw new Error("Could not find or create contact in JN");
-    }
+    if (!contactId) throw new Error("No contact ID after create/find step");
 
-    // ── Create job ─────────────────────────────────────────────────────────
-    console.log("Creating job for contact:", contactId, "status:", status);
+    // ── Create job ──────────────────────────────────────────────────────
     const jobPayload = {
-      name: `${fullName} - ${address}`,
+      name: `${fullName} - ${address}`.trim(),
       record_type_name: "Job",
       status_name: status,
-      sales_rep_name: salesRepName || "",
-      sales_rep_id: salesRepId || "",
-      primary: { id: contactId },
-      number: "",
       location_name: "U.S. Shingle - Insurance",
-      date_created: Math.floor(Date.now() / 1000),
+      primary: { id: contactId },
     };
+    if (salesRepId) jobPayload.sales_rep = { id: salesRepId };
+
     const newJob = await createJob(apiKey, jobPayload);
     const jobId = newJob.jnid || newJob.id;
-    console.log("Created job:", jobId);
+    console.log("Job created with ID:", jobId);
 
-    if (!jobId) {
-      throw new Error("Job created but no ID returned");
-    }
+    if (!jobId) throw new Error("Job created but no ID returned");
 
-    // ── Upload PDF if provided ─────────────────────────────────────────────
-    let fileUploaded = false;
+    // ── Upload PDF ──────────────────────────────────────────────────────
+    let fileResult = { success: false, error: "No PDF provided" };
     if (pdfBase64 && pdfFilename && hasInsp) {
-      console.log("Uploading PDF to job:", pdfFilename);
-      fileUploaded = await uploadFileToJob(apiKey, jobId, pdfFilename, pdfBase64);
+      fileResult = await uploadFileToJob(apiKey, jobId, pdfFilename, pdfBase64);
     }
 
+    console.log("=== JN Sync Complete ===");
     return {
       statusCode: 200,
       body: JSON.stringify({
         success: true,
         contactId,
+        contactAction,
         jobId,
         status,
-        fileUploaded,
-        message: `JN sync complete — contact ${contactId}, job ${jobId}, status: ${status}`,
+        fileUploaded: fileResult.success,
+        fileError: fileResult.error || null,
       }),
     };
   } catch (err) {
-    console.error("jobnimbus-sync error:", err.message);
+    console.error("=== JN Sync Error ===", err.message);
     return {
       statusCode: 500,
       body: JSON.stringify({ error: err.message }),
