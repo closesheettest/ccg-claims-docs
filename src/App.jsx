@@ -2465,6 +2465,9 @@ export default function App() {
   const [newRepEmail, setNewRepEmail] = useState("");
   const [newRepJnId, setNewRepJnId] = useState("");
   const [newRepPhone, setNewRepPhone] = useState("");
+  const [repSearch, setRepSearch] = useState("");
+  const [repSuggestions, setRepSuggestions] = useState([]);
+  const [showRepSuggestions, setShowRepSuggestions] = useState(false);
   const [repSaving, setRepSaving] = useState(false);
   const [jnUsers, setJnUsers] = useState([]);
   const [jnImporting, setJnImporting] = useState(false);
@@ -2539,9 +2542,65 @@ export default function App() {
   };
 
   const loadReps = async () => {
+    // 1. Try JN live first
+    try {
+      const res = await fetch("/.netlify/functions/jobnimbus-users");
+      if (res.ok) {
+        const json = await res.json();
+        if (json.members && json.members.length > 0) {
+          // Shape JN members to match the reps object shape the rest of the app expects
+          const jnReps = json.members.map((m) => ({
+            id: m.jobnimbus_id,          // use jnid as the id
+            name: m.name,
+            email: m.email || "",
+            jobnimbus_id: m.jobnimbus_id,
+            active: true,
+            _fromJN: true,               // flag so we know it came live from JN
+          }));
+          setReps(jnReps);
+          setRepsLoaded(true);
+
+          // Silently sync any new reps / emails back to Supabase in the background
+          syncJnRepsToSupabase(jnReps);
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn("JN users fetch failed, falling back to Supabase:", e.message);
+    }
+
+    // 2. Fall back to Supabase
     const { data, error } = await supabase.from("sales_reps").select("*").order("name");
     if (!error) { setReps(data || []); setRepsLoaded(true); }
     else console.error("loadReps error:", error);
+  };
+
+  // Keep Supabase in sync with JN data (runs silently in background)
+  const syncJnRepsToSupabase = async (jnReps) => {
+    try {
+      const { data: existing } = await supabase.from("sales_reps").select("name, jobnimbus_id, email");
+      const existingMap = {};
+      (existing || []).forEach(r => { existingMap[r.jobnimbus_id] = r; });
+
+      for (const rep of jnReps) {
+        if (rep.name.toLowerCase().includes("test")) continue;
+        if (!existingMap[rep.jobnimbus_id]) {
+          // New rep — insert
+          await supabase.from("sales_reps").insert([{
+            name: rep.name,
+            jobnimbus_id: rep.jobnimbus_id,
+            email: rep.email,
+            active: true,
+          }]);
+        } else if (rep.email && existingMap[rep.jobnimbus_id].email !== rep.email) {
+          // Email changed in JN — update Supabase
+          await supabase.from("sales_reps").update({ email: rep.email })
+            .eq("jobnimbus_id", rep.jobnimbus_id);
+        }
+      }
+    } catch (e) {
+      console.warn("syncJnRepsToSupabase error:", e.message);
+    }
   };
 
   const seedRepsFromList = async () => {
@@ -2928,6 +2987,9 @@ const setNoDamageManagerSms = (v) => { setNoDamageManagerSmsRaw(v); saveSetting(
               .join("\n"),
         }));
 
+        // Restore rep search field from saved rep name
+        if (claim.sales_rep_name) setRepSearch(claim.sales_rep_name);
+
         setView("review");
       } finally {
         setIsLoadingSigningLink(false);
@@ -3281,8 +3343,30 @@ const setNoDamageManagerSms = (v) => { setNoDamageManagerSmsRaw(v); saveSetting(
         }).catch(e => console.warn("Homeowner email non-fatal:", e));
       }
 
-      // Job Nimbus sync disabled until API key is fixed
-      // fetch("/.netlify/functions/jobnimbus-sync", ...
+      // ── Job Nimbus sync ──────────────────────────────────────────────────
+      fetch("/.netlify/functions/jobnimbus-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          leadSource: data.leadSource || "NEED",
+          docsSignedList: ["insp"],
+          homeowner1: inspData.clientName || data.homeowner1 || "",
+          homeowner2: "",
+          phone: inspData.mobile || data.phone || "",
+          email: inspData.email || data.signerEmail || "",
+          address: inspData.address || data.address || "",
+          city: inspData.city || data.city || "",
+          state: inspData.state || data.state || "",
+          zip: inspData.zip || data.zip || "",
+          salesRepName: data.salesRepName || "",
+          salesRepId: data.salesRepId || "",
+          pdfBase64: base64Content,
+          pdfFilename: "Free-Roof-Inspection-Agreement.pdf",
+        }),
+      }).then(async r => {
+        const d = await r.json().catch(() => ({}));
+        console.log("JN sync (inspection):", d);
+      }).catch(e => console.warn("JN sync non-fatal:", e));
 
       // Reset inspection sig fields
       setInspSig("");
@@ -3724,7 +3808,32 @@ const setNoDamageManagerSms = (v) => { setNoDamageManagerSmsRaw(v); saveSetting(
       setPendingSend(false);
       setIsSubmitting(false);
 
-      // ── Job Nimbus sync disabled until API key is fixed ──
+      // ── Job Nimbus sync ──────────────────────────────────────────────────
+      // Find the inspection PDF attachment if it was generated
+      const inspAttachment = attachments.find(a => a.filename && a.filename.toLowerCase().includes("inspection"));
+      fetch("/.netlify/functions/jobnimbus-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          leadSource: data.leadSource || "NEED",
+          docsSignedList: selectedDocs,
+          homeowner1: data.homeowner1 || "",
+          homeowner2: data.homeowner2 || "",
+          phone: data.phone || "",
+          email: data.signerEmail || "",
+          address: data.address || "",
+          city: data.city || "",
+          state: data.state || "",
+          zip: data.zip || "",
+          salesRepName: data.salesRepName || "",
+          salesRepId: data.salesRepId || "",
+          pdfBase64: inspAttachment?.content || null,
+          pdfFilename: inspAttachment?.filename || null,
+        }),
+      }).then(async r => {
+        const d = await r.json().catch(() => ({}));
+        console.log("JN sync (submitDoc):", d);
+      }).catch(e => console.warn("JN sync non-fatal:", e));
 
       window.scrollTo({ top: 0, behavior: "smooth" });
       if (isSigningFromLink) {
@@ -4684,39 +4793,99 @@ if (!hasDamage) {
                       </div>
                     </div>
 
-                    {/* Sales Rep dropdown */}
-                    <div>
-                      <Label>Sales Rep</Label>
-                      <select
-                        value={data.salesRepId}
+                    {/* Sales Rep autocomplete typeahead */}
+                    <div style={{ position: "relative" }}>
+                      <Label>Sales Rep {repsLoaded && reps[0]?._fromJN ? <span style={{ fontSize: 11, color: "#16a34a", fontWeight: 400, marginLeft: 6 }}>● Live from JN</span> : null}</Label>
+                      <input
+                        type="text"
+                        value={repSearch}
+                        placeholder="Start typing a name..."
+                        autoComplete="off"
                         onChange={(e) => {
-                          const selected = reps.find(r => r.id === e.target.value);
-                          update("salesRepId", e.target.value);
-                          update("salesRepName", selected?.name || "");
-                          update("salesRepEmail", selected?.email || "");
+                          const val = e.target.value;
+                          setRepSearch(val);
+                          // If cleared, also clear the selected rep
+                          if (!val.trim()) {
+                            update("salesRepId", "");
+                            update("salesRepName", "");
+                            update("salesRepEmail", "");
+                          }
+                          // Filter suggestions
+                          if (val.trim().length >= 1) {
+                            const lower = val.toLowerCase();
+                            const matches = reps
+                              .filter(r => r.active !== false && r.name.toLowerCase().includes(lower))
+                              .slice(0, 6);
+                            setRepSuggestions(matches);
+                            setShowRepSuggestions(true);
+                          } else {
+                            setRepSuggestions([]);
+                            setShowRepSuggestions(false);
+                          }
+                        }}
+                        onBlur={() => {
+                          // Delay hide so click on suggestion registers first
+                          setTimeout(() => setShowRepSuggestions(false), 180);
+                          // If what was typed exactly matches a rep name, auto-select
+                          if (repSearch.trim()) {
+                            const exact = reps.find(r => r.name.toLowerCase() === repSearch.trim().toLowerCase());
+                            if (exact) {
+                              const jnId = exact.jobnimbus_id || exact.id;
+                              update("salesRepId", jnId);
+                              update("salesRepName", exact.name);
+                              update("salesRepEmail", exact.email || "");
+                              setRepSearch(exact.name);
+                            }
+                          }
                         }}
                         style={{
                           width: "100%",
                           height: 44,
                           borderRadius: 14,
-                          border: "1px solid #d1d5db",
+                          border: data.salesRepId ? "1.5px solid #199c2e" : "1px solid #d1d5db",
                           padding: "0 12px",
                           fontSize: 14,
                           boxSizing: "border-box",
                           background: "#fff",
                           fontFamily: "'Nunito', sans-serif",
                         }}
-                      >
-                        <option value="">— Select Rep —</option>
-                        {reps.filter(r => r.active !== false).map((r) => (
-                          <option key={r.id} value={r.id}>
-                            {r.name}
-                          </option>
-                        ))}
-                      </select>
+                      />
+                      {/* Selected rep badge */}
+                      {data.salesRepId && (
+                        <div style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", marginTop: 11, display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ fontSize: 11, background: "#dcfce7", color: "#166534", borderRadius: 8, padding: "2px 8px", fontWeight: 700, fontFamily: "'Nunito', sans-serif" }}>✓ Selected</span>
+                          <button type="button" onClick={() => { setRepSearch(""); update("salesRepId",""); update("salesRepName",""); update("salesRepEmail",""); }}
+                            style={{ background: "none", border: "none", color: "#9ca3af", fontSize: 16, cursor: "pointer", padding: 0, lineHeight: 1 }}>×</button>
+                        </div>
+                      )}
+                      {/* Suggestions dropdown */}
+                      {showRepSuggestions && repSuggestions.length > 0 && (
+                        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#fff", border: "1.5px solid #d1d5db", borderRadius: 12, boxShadow: "0 4px 16px rgba(0,0,0,0.10)", zIndex: 999, overflow: "hidden", marginTop: 2 }}>
+                          {repSuggestions.map((rep) => (
+                            <div
+                              key={rep.id}
+                              onMouseDown={() => {
+                                // Always use the JN ID for syncing — fall back to rep.id if no jn id
+                                const jnId = rep.jobnimbus_id || rep.id;
+                                update("salesRepId", jnId);
+                                update("salesRepName", rep.name);
+                                update("salesRepEmail", rep.email || "");
+                                setRepSearch(rep.name);
+                                setShowRepSuggestions(false);
+                              }}
+                              style={{ padding: "10px 14px", cursor: "pointer", fontSize: 14, fontFamily: "'Nunito', sans-serif", color: "#111827", borderBottom: "1px solid #f3f4f6", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                              onMouseEnter={e => e.currentTarget.style.background = "#f0fdf4"}
+                              onMouseLeave={e => e.currentTarget.style.background = "#fff"}
+                            >
+                              <span style={{ fontWeight: 600 }}>{rep.name}</span>
+                              {rep.email ? <span style={{ fontSize: 11, color: "#9ca3af" }}>{rep.email}</span> : null}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       {reps.length === 0 ? (
                         <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 4, fontFamily: "'Nunito', sans-serif" }}>
-                          ⚠️ No reps loaded — go to Manager → Sales Rep Manager to import
+                          ⚠️ No reps loaded — check JN API connection or go to Manager → Sales Rep Manager to add manually
                         </div>
                       ) : null}
                     </div>
@@ -5691,11 +5860,11 @@ if (!hasDamage) {
               </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <button type="button" onClick={() => { setView("input"); setSignMode("now"); }}
+              <button type="button" onClick={() => { setView("input"); setSignMode("now"); setRepSearch(""); }}
                 style={{ padding: "14px", borderRadius: 14, border: "2px solid #199c2e", background: "#fff", color: "#199c2e", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
                 ✚ New Intake
               </button>
-              <button type="button" onClick={() => { setView("input"); setSignMode("send"); }}
+              <button type="button" onClick={() => { setView("input"); setSignMode("send"); setRepSearch(""); }}
                 style={{ padding: "14px", borderRadius: 14, border: "none", background: "#199c2e", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
                 📨 Send Another
               </button>
@@ -5763,7 +5932,7 @@ if (!hasDamage) {
                   </div>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  <button type="button" onClick={() => { setView("input"); setData(prev => ({ ...prev, homeowner1: "", homeowner2: "", phone: "", signerEmail: "", address: "", city: "", state: "", zip: "" })); window.scrollTo({ top: 0 }); }}
+                  <button type="button" onClick={() => { setView("input"); setData(prev => ({ ...prev, homeowner1: "", homeowner2: "", phone: "", signerEmail: "", address: "", city: "", state: "", zip: "" })); setRepSearch(""); window.scrollTo({ top: 0 }); }}
                     style={{ padding: "14px", borderRadius: 14, border: "2px solid #199c2e", background: "#fff", color: "#199c2e", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
                     ✚ New Client
                   </button>
@@ -5830,11 +5999,11 @@ if (!hasDamage) {
                   </div>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  <button type="button" onClick={() => { setView("input"); window.scrollTo({ top: 0 }); }}
+                  <button type="button" onClick={() => { setView("input"); setRepSearch(""); window.scrollTo({ top: 0 }); }}
                     style={{ padding: "14px", borderRadius: 14, border: "2px solid #1a2e5a", background: "#fff", color: "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
                     ✚ New Client
                   </button>
-                  <button type="button" onClick={() => { setView("input"); window.scrollTo({ top: 0 }); }}
+                  <button type="button" onClick={() => { setView("input"); setRepSearch(""); window.scrollTo({ top: 0 }); }}
                     style={{ padding: "14px", borderRadius: 14, border: "none", background: "#1a2e5a", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
                     ← Back to Intake
                   </button>
@@ -6720,11 +6889,29 @@ if (!hasDamage) {
                   {managerSection === "reps" && <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Sales Rep Manager</SectionTitle>
                     <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 16 }}>
-                      Add reps here. Their name will appear in the Sales Rep dropdown on the intake form.
+                      Reps are pulled live from Job Nimbus on every page load and synced to Supabase as a backup.
                     </div>
+
+                    {/* JN Live Sync status */}
+                    <div style={{ background: reps[0]?._fromJN ? "#f0fdf4" : "#fffbeb", border: `1px solid ${reps[0]?._fromJN ? "#86efac" : "#fde68a"}`, borderRadius: 14, padding: "14px 18px", marginBottom: 16 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: reps[0]?._fromJN ? "#166534" : "#92400e", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>
+                        {reps[0]?._fromJN ? "✅ Live from Job Nimbus" : "⚠️ Using Supabase fallback"}
+                      </div>
+                      <div style={{ fontSize: 12, color: "#374151", fontFamily: "'Nunito', sans-serif", marginBottom: 10 }}>
+                        {reps[0]?._fromJN
+                          ? `${reps.length} active reps loaded from JN. New reps added to JN will appear automatically on the next page load.`
+                          : "Could not reach JN API. Using manually managed reps from Supabase. Check your API key."}
+                      </div>
+                      <button type="button" onClick={loadReps} disabled={jnImporting}
+                        style={{ padding: "8px 18px", borderRadius: 10, border: "none", background: "#1a2e5a", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                        {jnImporting ? "Syncing…" : "🔄 Sync from JN Now"}
+                      </button>
+                      {jnImportError ? <div style={{ marginTop: 8, fontSize: 12, color: "#dc2626", fontFamily: "'Nunito', sans-serif" }}>{jnImportError}</div> : null}
+                    </div>
+
                     <div style={{ background: "#eef1f8", border: "1px solid #bfdbfe", borderRadius: 14, padding: "14px 18px", marginBottom: 16 }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#1e40af", fontFamily: "'Oswald', sans-serif", marginBottom: 6 }}>Import Known Reps</div>
-                      <div style={{ fontSize: 13, color: "#374151", fontFamily: "'Nunito', sans-serif", marginBottom: 10 }}>Click to import all 24 known reps with their Job Nimbus IDs.</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#1e40af", fontFamily: "'Oswald', sans-serif", marginBottom: 6 }}>Fallback: Import Known Reps</div>
+                      <div style={{ fontSize: 13, color: "#374151", fontFamily: "'Nunito', sans-serif", marginBottom: 10 }}>Use only if JN API is unavailable. Imports 24 known reps with their JN IDs into Supabase.</div>
                       <button type="button" onClick={seedRepsFromList} disabled={repSaving}
                         style={{ padding: "8px 18px", borderRadius: 10, border: "none", background: "#1e40af", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase" }}>
                         {repSaving ? "Importing..." : "⬇️ Import All 24 Reps"}
