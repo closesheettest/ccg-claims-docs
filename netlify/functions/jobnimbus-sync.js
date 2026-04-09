@@ -254,9 +254,6 @@ exports.handler = async (event) => {
 
     if (!contactId) throw new Error("No contact ID after create/find step");
 
-    // ── Location is hardcoded now that we know ID 3 = U.S. SHINGLE - Insurance
-    const locationId = 3;
-
     // ── Location hardcoded — ID 3 = U.S. SHINGLE - Insurance ──────────────
     const locationId = 3;
 
