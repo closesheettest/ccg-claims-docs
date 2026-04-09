@@ -102,92 +102,59 @@ async function uploadFileToJob(apiKey, jobId, filename, base64Content) {
     const fileBytes = Buffer.from(base64Content, "base64");
     console.log("Uploading file:", filename, "bytes:", fileBytes.length, "jobId:", jobId);
 
-    // Step 1 — Upload Single Part File (initiates upload, returns presigned S3 URL)
-    // Endpoint: POST /files/upload_url
-    const initRes = await fetch(`${JN_BASE}/files/upload_url`, {
+    // JN requires multipart/form-data for file uploads — NOT JSON
+    // Build multipart body manually since Node 18 FormData doesn't set boundary reliably
+    const boundary = `----FormBoundary${Date.now()}`;
+    const CRLF = "\r\n";
+
+    // Build the multipart parts
+    const parts = [];
+
+    // jnid field
+    parts.push(
+      `--${boundary}${CRLF}` +
+      `Content-Disposition: form-data; name="jnid"${CRLF}${CRLF}` +
+      `${jobId}`
+    );
+
+    // object_type field
+    parts.push(
+      `--${boundary}${CRLF}` +
+      `Content-Disposition: form-data; name="object_type"${CRLF}${CRLF}` +
+      `job`
+    );
+
+    // file field
+    const fileHeader =
+      `--${boundary}${CRLF}` +
+      `Content-Disposition: form-data; name="file"; filename="${filename}"${CRLF}` +
+      `Content-Type: application/pdf${CRLF}${CRLF}`;
+
+    // Combine all parts into a single Buffer
+    const textParts = Buffer.from(
+      parts.join(CRLF) + CRLF + fileHeader,
+      "utf8"
+    );
+    const closingBoundary = Buffer.from(`${CRLF}--${boundary}--${CRLF}`, "utf8");
+    const body = Buffer.concat([textParts, fileBytes, closingBoundary]);
+
+    console.log("Multipart body size:", body.length, "boundary:", boundary);
+
+    const uploadRes = await fetch(`${JN_BASE}/files`, {
       method: "POST",
-      headers: jnHeaders(apiKey),
-      body: JSON.stringify({
-        jnid: jobId,
-        object_type: "job",
-        filename: filename,
-        content_type: "application/pdf",
-      }),
+      headers: {
+        Authorization: `bearer ${apiKey}`,
+        "Content-Type": `multipart/form-data; boundary=${boundary}`,
+        "Content-Length": String(body.length),
+      },
+      body: body,
     });
-    const initText = await initRes.text();
-    console.log("File upload_url status:", initRes.status, initText.slice(0, 500));
 
-    if (!initRes.ok) {
-      // Try alternate endpoint format
-      console.log("Trying alternate endpoint...");
-      const alt1Res = await fetch(`${JN_BASE}/files`, {
-        method: "POST",
-        headers: jnHeaders(apiKey),
-        body: JSON.stringify({
-          jnid: jobId,
-          object_type: "job",
-          filename: filename,
-          content_type: "application/pdf",
-        }),
-      });
-      const alt1Text = await alt1Res.text();
-      console.log("Alternate endpoint status:", alt1Res.status, alt1Text.slice(0, 500));
+    const uploadText = await uploadRes.text();
+    console.log("File upload status:", uploadRes.status, uploadText.slice(0, 500));
 
-      if (!alt1Res.ok) {
-        return { success: false, error: `Upload init failed: ${alt1Text.slice(0,200)}` };
-      }
-
-      const alt1Data = JSON.parse(alt1Text);
-      const uploadUrl = alt1Data.url || alt1Data.upload_url || alt1Data.presigned_url || alt1Data.signed_url;
-      const fileId = alt1Data.id || alt1Data.jnid;
-      console.log("Alt upload URL:", !!uploadUrl, "fileId:", fileId);
-      if (!uploadUrl) return { success: false, error: "No upload URL in alt response: " + alt1Text.slice(0,200) };
-
-      const s3Res = await fetch(uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": "application/pdf" },
-        body: fileBytes,
-      });
-      console.log("S3 PUT (alt) status:", s3Res.status);
-      if (!s3Res.ok) return { success: false, error: `S3 failed ${s3Res.status}` };
-
-      if (fileId) {
-        const compRes = await fetch(`${JN_BASE}/files/${fileId}/complete`, {
-          method: "POST",
-          headers: jnHeaders(apiKey),
-          body: JSON.stringify({}),
-        });
-        console.log("Complete (alt) status:", compRes.status);
-      }
-      return { success: true };
-    }
-
-    const initData = JSON.parse(initText);
-    console.log("Init data keys:", Object.keys(initData));
-    const uploadUrl = initData.url || initData.upload_url || initData.presigned_url || initData.signed_url;
-    const fileId = initData.id || initData.jnid || initData.file_id;
-    console.log("Upload URL present:", !!uploadUrl, "| File ID:", fileId);
-
-    if (!uploadUrl) return { success: false, error: "No upload URL: " + initText.slice(0,300) };
-
-    // Step 2 — PUT bytes to S3
-    const s3Res = await fetch(uploadUrl, {
-      method: "PUT",
-      headers: { "Content-Type": "application/pdf" },
-      body: fileBytes,
-    });
-    console.log("S3 PUT status:", s3Res.status);
-    if (!s3Res.ok) return { success: false, error: `S3 failed ${s3Res.status}` };
-
-    // Step 3 — Complete Single Part Upload
-    if (fileId) {
-      const compRes = await fetch(`${JN_BASE}/files/${fileId}/complete`, {
-        method: "POST",
-        headers: jnHeaders(apiKey),
-        body: JSON.stringify({}),
-      });
-      const compText = await compRes.text();
-      console.log("Complete status:", compRes.status, compText.slice(0, 200));
+    if (!uploadRes.ok) {
+      return { success: false, error: `Upload failed ${uploadRes.status}: ${uploadText.slice(0,200)}` };
     }
 
     console.log("✅ File uploaded successfully");
@@ -288,13 +255,42 @@ export const handler = async (event) => {
 
     if (!contactId) throw new Error("No contact ID after create/find step");
 
+    // ── Look up location ID ─────────────────────────────────────────────
+    let locationId = null;
+    try {
+      const locRes = await fetch(`${JN_BASE}/account`, {
+        headers: jnHeaders(apiKey),
+      });
+      const locText = await locRes.text();
+      console.log("Account fetch status:", locRes.status);
+      const locData = JSON.parse(locText);
+
+      // Locations may be under different keys
+      const locations = locData.locations || locData.location || [];
+      console.log("Locations found:", JSON.stringify(locations).slice(0, 500));
+
+      if (Array.isArray(locations)) {
+        const match = locations.find(l =>
+          (l.name || "").toLowerCase().includes("shingle") ||
+          (l.name || "").toLowerCase().includes("insurance")
+        );
+        if (match) {
+          locationId = match.id;
+          console.log("Found location:", match.name, "ID:", locationId);
+        } else {
+          console.log("Available locations:", locations.map(l => `${l.id}:${l.name}`).join(", "));
+        }
+      }
+    } catch (e) {
+      console.warn("Location lookup failed:", e.message);
+    }
+
     // ── Create job ──────────────────────────────────────────────────────
     const cleanCity = (city || "").split(",")[0].trim();
 
     const jobPayload = {
       name: `${fullName} - ${address}`.trim(),
       status_name: status,
-      location_name: "U.S. SHINGLE - Insurance",
       primary: { id: contactId },
       date_sold: soldDateUnix,
       sold_date: soldDateUnix,
@@ -303,11 +299,16 @@ export const handler = async (event) => {
       inspection_type: "Needs Inspection",
     };
 
-    // Try rep assignment — use 'assigned' array which JN uses for assignees
-    console.log("Rep ID being sent:", salesRepId, "Rep name:", salesRepName);
-    if (salesRepId) {
-      jobPayload.assigned = [{ id: salesRepId }];
+    // Set location — use numeric ID if we found it, otherwise try name
+    if (locationId) {
+      jobPayload.location = { id: locationId };
+      console.log("Using location ID:", locationId);
+    } else {
+      jobPayload.location_name = "U.S. SHINGLE - Insurance";
+      console.log("Falling back to location_name string");
     }
+
+    if (salesRepId) jobPayload.assigned = [{ id: salesRepId }];
 
     const newJob = await createJob(apiKey, jobPayload);
     const jobId = newJob.jnid || newJob.id;
