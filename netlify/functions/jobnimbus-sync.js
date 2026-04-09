@@ -267,6 +267,8 @@ exports.handler = async (event) => {
       location: { id: locationId },
       // Sales rep — top-level string field with JN user ID
       sales_rep: salesRepId || undefined,
+      // Also try owners array which appears in real JN jobs
+      owners: salesRepId ? [{ id: salesRepId }] : undefined,
       // Custom fields sent as flat keys matching their field name
       cf_string_34: "Needs Inspection",   // Inspection field
       cf_date_5: soldDateUnix,            // Sold Date field (unix timestamp)
@@ -283,6 +285,7 @@ exports.handler = async (event) => {
     try {
       const putBody = {
         sales_rep: salesRepId || undefined,
+        owners: salesRepId ? [{ id: salesRepId }] : undefined,
         cf_string_34: "Needs Inspection",
         cf_date_5: soldDateUnix,
       };
