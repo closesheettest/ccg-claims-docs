@@ -254,33 +254,32 @@ export const handler = async (event) => {
 
     if (!contactId) throw new Error("No contact ID after create/find step");
 
-    // ── Look up location ID ─────────────────────────────────────────────
-    let locationId = null;
+    // ── Location is hardcoded now that we know ID 3 = U.S. SHINGLE - Insurance
+    const locationId = 3;
+
+    // ── Look up custom field ID for "Inspection" ────────────────────────
+    let inspectionFieldId = null;
     try {
-      const locRes = await fetch(`${JN_BASE}/account/settings`, {
+      const cfRes = await fetch(`${JN_BASE}/account/settings`, {
         headers: jnHeaders(apiKey),
       });
-      if (locRes.ok) {
-        const locData = await locRes.json();
-        const locations = locData.locations || locData.location || [];
-        console.log("All locations:", locations.map(l => `${l.id}:${l.name}`).join(" | "));
-
-        if (Array.isArray(locations)) {
-          // Prefer "insurance" location specifically over general "shingle"
-          const insuranceMatch = locations.find(l =>
-            (l.name || "").toLowerCase().includes("insurance")
-          );
-          const shingleMatch = locations.find(l =>
-            (l.name || "").toLowerCase().includes("shingle")
-          );
-          const match = insuranceMatch || shingleMatch;
-          if (match) {
-            locationId = match.id;
-            console.log("Using location:", match.name, "ID:", locationId);
-          }
+      if (cfRes.ok) {
+        const cfData = await cfRes.json();
+        // Custom fields are usually under custom_fields array
+        const customFields = cfData.custom_fields || cfData.fields || [];
+        console.log("Custom fields count:", customFields.length);
+        // Find the Inspection field
+        const inspField = customFields.find(f =>
+          (f.name || f.label || "").toLowerCase() === "inspection"
+        );
+        if (inspField) {
+          inspectionFieldId = inspField.id || inspField.jnid;
+          console.log("Found Inspection field ID:", inspectionFieldId);
+        } else {
+          console.log("Custom field names:", customFields.slice(0,10).map(f => f.name || f.label).join(", "));
         }
       }
-    } catch (e) { console.warn("Location lookup:", e.message); }
+    } catch (e) { console.warn("Custom field lookup:", e.message); }
 
     // ── Create job ──────────────────────────────────────────────────────
     const jobPayload = {
@@ -291,24 +290,40 @@ export const handler = async (event) => {
       sold_date: soldDateUnix,
     };
 
-    // Set location
-    if (locationId) {
-      jobPayload.location = { id: locationId };
-      console.log("Using location ID:", locationId);
-    } else {
-      console.log("No location ID found — job will use default");
-    }
+    // Set location — hardcoded ID 3 = U.S. SHINGLE - Insurance
+    jobPayload.location = { id: locationId };
 
-    // Assign rep — use assigned array with JN user id only (no sales_rep text field)
+    // Assign rep
     if (salesRepId) {
       jobPayload.assigned = [{ id: salesRepId }];
       console.log("Assigning rep ID:", salesRepId);
+    }
+
+    // Set Inspection custom field if we found its ID
+    if (inspectionFieldId) {
+      jobPayload.custom_fields = [{ id: inspectionFieldId, value: "Needs Inspection" }];
+      console.log("Setting Inspection field:", inspectionFieldId, "= Needs Inspection");
     }
 
     const newJob = await createJob(apiKey, jobPayload);
     const jobId = newJob.jnid || newJob.id;
     console.log("Job created:", jobId);
     if (!jobId) throw new Error("Job created but no ID returned");
+
+    // If custom field wasn't set in create payload, try updating via PUT
+    if (inspectionFieldId) {
+      try {
+        const putRes = await fetch(`${JN_BASE}/jobs/${jobId}`, {
+          method: "PUT",
+          headers: jnHeaders(apiKey),
+          body: JSON.stringify({
+            custom_fields: [{ id: inspectionFieldId, value: "Needs Inspection" }],
+          }),
+        });
+        const putText = await putRes.text();
+        console.log("Job custom field update status:", putRes.status, putText.slice(0, 200));
+      } catch(e) { console.warn("Custom field update failed:", e.message); }
+    }
 
     // Inspect the created job so we can see what fields JN actually saved
     await inspectJob(apiKey, jobId);
