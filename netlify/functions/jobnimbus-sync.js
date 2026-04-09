@@ -102,66 +102,84 @@ async function uploadFileToJob(apiKey, jobId, filename, base64Content) {
     const fileBytes = Buffer.from(base64Content, "base64");
     console.log("Uploading file:", filename, "bytes:", fileBytes.length, "jobId:", jobId);
 
-    // JN Single Part Upload — Step 1: POST to /files to get a presigned URL
-    // The correct payload uses record_jnid not record_id
-    const initBody = {
-      record_jnid: jobId,
-      record_type: "job",
-      filename: filename,
-      content_type: "application/pdf",
-    };
-    console.log("File init payload:", JSON.stringify(initBody));
-
-    const initRes = await fetch(`${JN_BASE}/files`, {
+    // Step 1 — Upload Single Part File (initiates upload, returns presigned S3 URL)
+    // Endpoint: POST /files/upload_url
+    const initRes = await fetch(`${JN_BASE}/files/upload_url`, {
       method: "POST",
       headers: jnHeaders(apiKey),
-      body: JSON.stringify(initBody),
+      body: JSON.stringify({
+        jnid: jobId,
+        object_type: "job",
+        filename: filename,
+        content_type: "application/pdf",
+      }),
     });
     const initText = await initRes.text();
-    console.log("File init status:", initRes.status, initText.slice(0, 500));
-    if (!initRes.ok) return { success: false, error: `Init ${initRes.status}: ${initText.slice(0,300)}` };
+    console.log("File upload_url status:", initRes.status, initText.slice(0, 500));
+
+    if (!initRes.ok) {
+      // Try alternate endpoint format
+      console.log("Trying alternate endpoint...");
+      const alt1Res = await fetch(`${JN_BASE}/files`, {
+        method: "POST",
+        headers: jnHeaders(apiKey),
+        body: JSON.stringify({
+          jnid: jobId,
+          object_type: "job",
+          filename: filename,
+          content_type: "application/pdf",
+        }),
+      });
+      const alt1Text = await alt1Res.text();
+      console.log("Alternate endpoint status:", alt1Res.status, alt1Text.slice(0, 500));
+
+      if (!alt1Res.ok) {
+        return { success: false, error: `Upload init failed: ${alt1Text.slice(0,200)}` };
+      }
+
+      const alt1Data = JSON.parse(alt1Text);
+      const uploadUrl = alt1Data.url || alt1Data.upload_url || alt1Data.presigned_url || alt1Data.signed_url;
+      const fileId = alt1Data.id || alt1Data.jnid;
+      console.log("Alt upload URL:", !!uploadUrl, "fileId:", fileId);
+      if (!uploadUrl) return { success: false, error: "No upload URL in alt response: " + alt1Text.slice(0,200) };
+
+      const s3Res = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": "application/pdf" },
+        body: fileBytes,
+      });
+      console.log("S3 PUT (alt) status:", s3Res.status);
+      if (!s3Res.ok) return { success: false, error: `S3 failed ${s3Res.status}` };
+
+      if (fileId) {
+        const compRes = await fetch(`${JN_BASE}/files/${fileId}/complete`, {
+          method: "POST",
+          headers: jnHeaders(apiKey),
+          body: JSON.stringify({}),
+        });
+        console.log("Complete (alt) status:", compRes.status);
+      }
+      return { success: true };
+    }
 
     const initData = JSON.parse(initText);
     console.log("Init data keys:", Object.keys(initData));
-
-    // Try every possible URL field name
-    const uploadUrl = initData.url || initData.upload_url || initData.presigned_url
-      || initData.signed_url || initData.put_url;
+    const uploadUrl = initData.url || initData.upload_url || initData.presigned_url || initData.signed_url;
     const fileId = initData.id || initData.jnid || initData.file_id;
-
     console.log("Upload URL present:", !!uploadUrl, "| File ID:", fileId);
 
-    if (!uploadUrl) {
-      // No presigned URL — try direct upload via multipart form
-      console.log("No presigned URL — trying direct PUT upload");
-      const putRes = await fetch(`${JN_BASE}/files/${fileId || "upload"}`, {
-        method: "PUT",
-        headers: {
-          ...jnHeaders(apiKey),
-          "Content-Type": "application/pdf",
-          "Content-Length": String(fileBytes.length),
-        },
-        body: fileBytes,
-      });
-      const putText = await putRes.text();
-      console.log("Direct PUT status:", putRes.status, putText.slice(0, 300));
-      return { success: putRes.ok, error: putRes.ok ? null : putText.slice(0,200) };
-    }
+    if (!uploadUrl) return { success: false, error: "No upload URL: " + initText.slice(0,300) };
 
-    // Step 2 — PUT bytes to S3 presigned URL
+    // Step 2 — PUT bytes to S3
     const s3Res = await fetch(uploadUrl, {
       method: "PUT",
       headers: { "Content-Type": "application/pdf" },
       body: fileBytes,
     });
     console.log("S3 PUT status:", s3Res.status);
-    if (!s3Res.ok) {
-      const s3Err = await s3Res.text();
-      console.error("S3 error:", s3Err.slice(0, 200));
-      return { success: false, error: `S3 failed ${s3Res.status}` };
-    }
+    if (!s3Res.ok) return { success: false, error: `S3 failed ${s3Res.status}` };
 
-    // Step 3 — Complete upload
+    // Step 3 — Complete Single Part Upload
     if (fileId) {
       const compRes = await fetch(`${JN_BASE}/files/${fileId}/complete`, {
         method: "POST",
@@ -169,7 +187,7 @@ async function uploadFileToJob(apiKey, jobId, filename, base64Content) {
         body: JSON.stringify({}),
       });
       const compText = await compRes.text();
-      console.log("Complete upload status:", compRes.status, compText.slice(0, 200));
+      console.log("Complete status:", compRes.status, compText.slice(0, 200));
     }
 
     console.log("✅ File uploaded successfully");
