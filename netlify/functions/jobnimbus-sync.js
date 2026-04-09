@@ -257,21 +257,20 @@ exports.handler = async (event) => {
     // ── Location hardcoded — ID 3 = U.S. SHINGLE - Insurance ──────────────
     const locationId = 3;
 
-    // ── Create job with all correct field names ─────────────────────────
-    // From debug: custom fields are sent as flat keys on the job object
-    // cf_string_34 = "Inspection", cf_date_5 = "Sold Date", sales_rep = JN user ID string
+    // Status IDs from PA workflow (id:37)
+    // 597 = Sit Sold Insp, 598 = Sit Sold PA
+    const statusId = hasPADocs ? 598 : 597;
+
     const jobPayload = {
       name: `${fullName} - ${address}`.trim(),
-      status_name: status,
+      record_type_name: "PA",   // PA workflow
+      status: statusId,         // numeric status ID
       primary: { id: contactId },
       location: { id: locationId },
-      // Sales rep — top-level string field with JN user ID
       sales_rep: salesRepId || undefined,
-      // Also try owners array which appears in real JN jobs
       owners: salesRepId ? [{ id: salesRepId }] : undefined,
-      // Custom fields sent as flat keys matching their field name
-      cf_string_34: "Needs Inspection",   // Inspection field
-      cf_date_5: soldDateUnix,            // Sold Date field (unix timestamp)
+      cf_string_34: "Needs Inspection",
+      cf_date_5: soldDateUnix,
     };
 
     console.log("Creating job payload:", JSON.stringify(jobPayload));
