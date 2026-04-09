@@ -257,100 +257,47 @@ export const handler = async (event) => {
     // ── Location is hardcoded now that we know ID 3 = U.S. SHINGLE - Insurance
     const locationId = 3;
 
-    // ── Look up custom field ID for "Inspection" ────────────────────────
-    let inspectionFieldId = null;
-    let inspectionOptionValue = null;
-    try {
-      const cfRes = await fetch(`${JN_BASE}/account/settings`, {
-        headers: jnHeaders(apiKey),
-      });
-      if (cfRes.ok) {
-        const cfData = await cfRes.json();
-        // Log ALL top-level keys so we can see the structure
-        console.log("Settings keys:", Object.keys(cfData).join(", "));
+    // ── Location hardcoded — ID 3 = U.S. SHINGLE - Insurance ──────────────
+    const locationId = 3;
 
-        // Custom fields may be nested under different keys
-        const customFields = cfData.custom_fields || cfData.fields || cfData.job_fields || [];
-        console.log("Custom fields count:", customFields.length);
-
-        if (customFields.length > 0) {
-          console.log("First custom field sample:", JSON.stringify(customFields[0]).slice(0, 200));
-          const inspField = customFields.find(f =>
-            (f.name || f.label || f.title || "").toLowerCase().includes("inspection")
-          );
-          if (inspField) {
-            inspectionFieldId = inspField.id || inspField.jnid;
-            console.log("Found Inspection field:", JSON.stringify(inspField).slice(0, 300));
-            // Find the "Needs Inspection" option value
-            const opts = inspField.options || inspField.values || [];
-            const needsOpt = opts.find(o =>
-              (o.value || o.name || o.label || "").toLowerCase().includes("needs")
-            );
-            inspectionOptionValue = needsOpt?.id || needsOpt?.value || "Needs Inspection";
-            console.log("Inspection option value:", inspectionOptionValue);
-          } else {
-            console.log("All custom field names:", customFields.map(f => f.name || f.label || f.title).join(", "));
-          }
-        }
-
-        // Also check if there's a workflows or groups section with custom fields
-        const workflows = cfData.workflows || [];
-        if (workflows.length > 0) {
-          console.log("Workflow sample:", JSON.stringify(workflows[0]).slice(0, 200));
-        }
-      }
-    } catch (e) { console.warn("Custom field lookup:", e.message); }
-
-    // ── Create job ──────────────────────────────────────────────────────
+    // ── Create job with all correct field names ─────────────────────────
+    // From debug: custom fields are sent as flat keys on the job object
+    // cf_string_34 = "Inspection", cf_date_5 = "Sold Date", sales_rep = JN user ID string
     const jobPayload = {
       name: `${fullName} - ${address}`.trim(),
       status_name: status,
       primary: { id: contactId },
-      date_sold: soldDateUnix,
-      sold_date: soldDateUnix,
+      location: { id: locationId },
+      // Sales rep — top-level string field with JN user ID
+      sales_rep: salesRepId || undefined,
+      // Custom fields sent as flat keys matching their field name
+      cf_string_34: "Needs Inspection",   // Inspection field
+      cf_date_5: soldDateUnix,            // Sold Date field (unix timestamp)
     };
 
-    // Set location — hardcoded ID 3 = U.S. SHINGLE - Insurance
-    jobPayload.location = { id: locationId };
-
-    // Assign rep — try every format JN might accept
-    if (salesRepId) {
-      jobPayload.assigned = [{ id: salesRepId }];
-      jobPayload.sales_rep_id = salesRepId;
-      console.log("Assigning rep with ID:", salesRepId, "and name:", salesRepName);
-    }
-
-    // Set Inspection custom field
-    if (inspectionFieldId) {
-      jobPayload.custom_fields = [{ id: inspectionFieldId, value: inspectionOptionValue || "Needs Inspection" }];
-      console.log("Setting Inspection field:", inspectionFieldId, "=", inspectionOptionValue);
-    }
+    console.log("Creating job payload:", JSON.stringify(jobPayload));
 
     const newJob = await createJob(apiKey, jobPayload);
     const jobId = newJob.jnid || newJob.id;
     console.log("Job created:", jobId);
     if (!jobId) throw new Error("Job created but no ID returned");
 
-    // Follow-up PUT to set custom field and rep (belt + suspenders)
+    // Follow-up PUT to ensure all fields are set
     try {
-      const putBody = {};
-      if (inspectionFieldId) {
-        putBody.custom_fields = [{ id: inspectionFieldId, value: inspectionOptionValue || "Needs Inspection" }];
-      }
-      if (salesRepId) {
-        putBody.sales_rep_id = salesRepId;
-        putBody.assigned = [{ id: salesRepId }];
-      }
-      if (Object.keys(putBody).length > 0) {
-        const putRes = await fetch(`${JN_BASE}/jobs/${jobId}`, {
-          method: "PUT",
-          headers: jnHeaders(apiKey),
-          body: JSON.stringify(putBody),
-        });
-        const putText = await putRes.text();
-        console.log("Job PUT update status:", putRes.status, putText.slice(0, 300));
-      }
-    } catch(e) { console.warn("Job PUT update failed:", e.message); }
+      const putBody = {
+        sales_rep: salesRepId || undefined,
+        cf_string_34: "Needs Inspection",
+        cf_date_5: soldDateUnix,
+      };
+      console.log("PUT body:", JSON.stringify(putBody));
+      const putRes = await fetch(`${JN_BASE}/jobs/${jobId}`, {
+        method: "PUT",
+        headers: jnHeaders(apiKey),
+        body: JSON.stringify(putBody),
+      });
+      const putText = await putRes.text();
+      console.log("Job PUT status:", putRes.status, putText.slice(0, 200));
+    } catch(e) { console.warn("Job PUT failed:", e.message); }
 
     // Inspect the created job so we can see what fields JN actually saved
     await inspectJob(apiKey, jobId);
