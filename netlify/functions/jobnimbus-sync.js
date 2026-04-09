@@ -102,59 +102,58 @@ async function uploadFileToJob(apiKey, jobId, filename, base64Content) {
     const fileBytes = Buffer.from(base64Content, "base64");
     console.log("Uploading file:", filename, "bytes:", fileBytes.length, "jobId:", jobId);
 
-    // JN requires multipart/form-data for file uploads — NOT JSON
-    // Build multipart body manually since Node 18 FormData doesn't set boundary reliably
-    const boundary = `----FormBoundary${Date.now()}`;
-    const CRLF = "\r\n";
+    // Step 1 — Get presigned S3 URL
+    // Correct endpoint: http://api.jobnimbus.com/files/v1/uploads/url (different base URL!)
+    const initBody = {
+      related: [jobId],
+      type: 1,            // 1 = Document
+      filename: filename,
+      description: "Signed Inspection Agreement",
+    };
+    console.log("File init payload:", JSON.stringify(initBody));
 
-    // Build the multipart parts
-    const parts = [];
-
-    // jnid field
-    parts.push(
-      `--${boundary}${CRLF}` +
-      `Content-Disposition: form-data; name="jnid"${CRLF}${CRLF}` +
-      `${jobId}`
-    );
-
-    // object_type field
-    parts.push(
-      `--${boundary}${CRLF}` +
-      `Content-Disposition: form-data; name="object_type"${CRLF}${CRLF}` +
-      `job`
-    );
-
-    // file field
-    const fileHeader =
-      `--${boundary}${CRLF}` +
-      `Content-Disposition: form-data; name="file"; filename="${filename}"${CRLF}` +
-      `Content-Type: application/pdf${CRLF}${CRLF}`;
-
-    // Combine all parts into a single Buffer
-    const textParts = Buffer.from(
-      parts.join(CRLF) + CRLF + fileHeader,
-      "utf8"
-    );
-    const closingBoundary = Buffer.from(`${CRLF}--${boundary}--${CRLF}`, "utf8");
-    const body = Buffer.concat([textParts, fileBytes, closingBoundary]);
-
-    console.log("Multipart body size:", body.length, "boundary:", boundary);
-
-    const uploadRes = await fetch(`${JN_BASE}/files`, {
+    const initRes = await fetch("https://api.jobnimbus.com/files/v1/uploads/url", {
       method: "POST",
       headers: {
         Authorization: `bearer ${apiKey}`,
-        "Content-Type": `multipart/form-data; boundary=${boundary}`,
-        "Content-Length": String(body.length),
+        "Content-Type": "application/json",
       },
-      body: body,
+      body: JSON.stringify(initBody),
     });
+    const initText = await initRes.text();
+    console.log("File init status:", initRes.status, initText.slice(0, 500));
+    if (!initRes.ok) return { success: false, error: `Init ${initRes.status}: ${initText.slice(0,300)}` };
 
-    const uploadText = await uploadRes.text();
-    console.log("File upload status:", uploadRes.status, uploadText.slice(0, 500));
+    const initData = JSON.parse(initText);
+    // Response is { data: { url: "...", jnid: "..." } }
+    const uploadUrl = initData.data?.url || initData.url || initData.upload_url;
+    const fileJnid  = initData.data?.jnid || initData.jnid;
+    console.log("Upload URL present:", !!uploadUrl, "| File jnid:", fileJnid);
+    if (!uploadUrl) return { success: false, error: "No upload URL in response: " + initText.slice(0,300) };
 
-    if (!uploadRes.ok) {
-      return { success: false, error: `Upload failed ${uploadRes.status}: ${uploadText.slice(0,200)}` };
+    // Step 2 — PUT file bytes to S3 presigned URL
+    const s3Res = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: { "Content-Type": "application/pdf" },
+      body: fileBytes,
+    });
+    console.log("S3 PUT status:", s3Res.status);
+    if (!s3Res.ok) {
+      const s3Err = await s3Res.text();
+      return { success: false, error: `S3 failed ${s3Res.status}: ${s3Err.slice(0,200)}` };
+    }
+
+    // Step 3 — Complete upload (optional but triggers thumbnail generation)
+    if (fileJnid) {
+      const compRes = await fetch(`https://api.jobnimbus.com/files/v1/uploads/${fileJnid}/complete`, {
+        method: "POST",
+        headers: {
+          Authorization: `bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({}),
+      });
+      console.log("Complete upload status:", compRes.status);
     }
 
     console.log("✅ File uploaded successfully");
@@ -256,34 +255,33 @@ export const handler = async (event) => {
     if (!contactId) throw new Error("No contact ID after create/find step");
 
     // ── Look up location ID ─────────────────────────────────────────────
+    // GET /account/settings returns locations
     let locationId = null;
     try {
-      const locRes = await fetch(`${JN_BASE}/account`, {
+      const locRes = await fetch(`${JN_BASE}/account/settings`, {
         headers: jnHeaders(apiKey),
       });
-      const locText = await locRes.text();
-      console.log("Account fetch status:", locRes.status);
-      const locData = JSON.parse(locText);
-
-      // Locations may be under different keys
-      const locations = locData.locations || locData.location || [];
-      console.log("Locations found:", JSON.stringify(locations).slice(0, 500));
-
-      if (Array.isArray(locations)) {
-        const match = locations.find(l =>
-          (l.name || "").toLowerCase().includes("shingle") ||
-          (l.name || "").toLowerCase().includes("insurance")
-        );
-        if (match) {
-          locationId = match.id;
-          console.log("Found location:", match.name, "ID:", locationId);
-        } else {
-          console.log("Available locations:", locations.map(l => `${l.id}:${l.name}`).join(", "));
+      if (locRes.ok) {
+        const locData = await locRes.json();
+        const locations = locData.locations || locData.location || [];
+        console.log("Locations:", JSON.stringify(locations).slice(0, 500));
+        if (Array.isArray(locations)) {
+          const match = locations.find(l =>
+            (l.name || "").toLowerCase().includes("shingle") ||
+            (l.name || "").toLowerCase().includes("insurance")
+          );
+          if (match) { locationId = match.id; console.log("Found location ID:", locationId, match.name); }
+          else console.log("All locations:", locations.map(l => `${l.id}:${l.name}`).join(", "));
+        }
+      } else {
+        // Try group information endpoint which was in the API docs
+        const grpRes = await fetch(`${JN_BASE}/account/group`, { headers: jnHeaders(apiKey) });
+        if (grpRes.ok) {
+          const grpData = await grpRes.json();
+          console.log("Group data:", JSON.stringify(grpData).slice(0, 500));
         }
       }
-    } catch (e) {
-      console.warn("Location lookup failed:", e.message);
-    }
+    } catch (e) { console.warn("Location lookup:", e.message); }
 
     // ── Create job ──────────────────────────────────────────────────────
     const cleanCity = (city || "").split(",")[0].trim();
@@ -308,7 +306,11 @@ export const handler = async (event) => {
       console.log("Falling back to location_name string");
     }
 
-    if (salesRepId) jobPayload.assigned = [{ id: salesRepId }];
+    if (salesRepId) {
+      // Try both formats JN might accept
+      jobPayload.assigned = [{ id: salesRepId, jnid: salesRepId }];
+      jobPayload.sales_rep = salesRepName || "";
+    }
 
     const newJob = await createJob(apiKey, jobPayload);
     const jobId = newJob.jnid || newJob.id;
