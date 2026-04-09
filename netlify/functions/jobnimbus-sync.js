@@ -259,24 +259,44 @@ export const handler = async (event) => {
 
     // ── Look up custom field ID for "Inspection" ────────────────────────
     let inspectionFieldId = null;
+    let inspectionOptionValue = null;
     try {
       const cfRes = await fetch(`${JN_BASE}/account/settings`, {
         headers: jnHeaders(apiKey),
       });
       if (cfRes.ok) {
         const cfData = await cfRes.json();
-        // Custom fields are usually under custom_fields array
-        const customFields = cfData.custom_fields || cfData.fields || [];
+        // Log ALL top-level keys so we can see the structure
+        console.log("Settings keys:", Object.keys(cfData).join(", "));
+
+        // Custom fields may be nested under different keys
+        const customFields = cfData.custom_fields || cfData.fields || cfData.job_fields || [];
         console.log("Custom fields count:", customFields.length);
-        // Find the Inspection field
-        const inspField = customFields.find(f =>
-          (f.name || f.label || "").toLowerCase() === "inspection"
-        );
-        if (inspField) {
-          inspectionFieldId = inspField.id || inspField.jnid;
-          console.log("Found Inspection field ID:", inspectionFieldId);
-        } else {
-          console.log("Custom field names:", customFields.slice(0,10).map(f => f.name || f.label).join(", "));
+
+        if (customFields.length > 0) {
+          console.log("First custom field sample:", JSON.stringify(customFields[0]).slice(0, 200));
+          const inspField = customFields.find(f =>
+            (f.name || f.label || f.title || "").toLowerCase().includes("inspection")
+          );
+          if (inspField) {
+            inspectionFieldId = inspField.id || inspField.jnid;
+            console.log("Found Inspection field:", JSON.stringify(inspField).slice(0, 300));
+            // Find the "Needs Inspection" option value
+            const opts = inspField.options || inspField.values || [];
+            const needsOpt = opts.find(o =>
+              (o.value || o.name || o.label || "").toLowerCase().includes("needs")
+            );
+            inspectionOptionValue = needsOpt?.id || needsOpt?.value || "Needs Inspection";
+            console.log("Inspection option value:", inspectionOptionValue);
+          } else {
+            console.log("All custom field names:", customFields.map(f => f.name || f.label || f.title).join(", "));
+          }
+        }
+
+        // Also check if there's a workflows or groups section with custom fields
+        const workflows = cfData.workflows || [];
+        if (workflows.length > 0) {
+          console.log("Workflow sample:", JSON.stringify(workflows[0]).slice(0, 200));
         }
       }
     } catch (e) { console.warn("Custom field lookup:", e.message); }
@@ -293,16 +313,17 @@ export const handler = async (event) => {
     // Set location — hardcoded ID 3 = U.S. SHINGLE - Insurance
     jobPayload.location = { id: locationId };
 
-    // Assign rep
+    // Assign rep — try every format JN might accept
     if (salesRepId) {
       jobPayload.assigned = [{ id: salesRepId }];
-      console.log("Assigning rep ID:", salesRepId);
+      jobPayload.sales_rep_id = salesRepId;
+      console.log("Assigning rep with ID:", salesRepId, "and name:", salesRepName);
     }
 
-    // Set Inspection custom field if we found its ID
+    // Set Inspection custom field
     if (inspectionFieldId) {
-      jobPayload.custom_fields = [{ id: inspectionFieldId, value: "Needs Inspection" }];
-      console.log("Setting Inspection field:", inspectionFieldId, "= Needs Inspection");
+      jobPayload.custom_fields = [{ id: inspectionFieldId, value: inspectionOptionValue || "Needs Inspection" }];
+      console.log("Setting Inspection field:", inspectionFieldId, "=", inspectionOptionValue);
     }
 
     const newJob = await createJob(apiKey, jobPayload);
@@ -310,20 +331,26 @@ export const handler = async (event) => {
     console.log("Job created:", jobId);
     if (!jobId) throw new Error("Job created but no ID returned");
 
-    // If custom field wasn't set in create payload, try updating via PUT
-    if (inspectionFieldId) {
-      try {
+    // Follow-up PUT to set custom field and rep (belt + suspenders)
+    try {
+      const putBody = {};
+      if (inspectionFieldId) {
+        putBody.custom_fields = [{ id: inspectionFieldId, value: inspectionOptionValue || "Needs Inspection" }];
+      }
+      if (salesRepId) {
+        putBody.sales_rep_id = salesRepId;
+        putBody.assigned = [{ id: salesRepId }];
+      }
+      if (Object.keys(putBody).length > 0) {
         const putRes = await fetch(`${JN_BASE}/jobs/${jobId}`, {
           method: "PUT",
           headers: jnHeaders(apiKey),
-          body: JSON.stringify({
-            custom_fields: [{ id: inspectionFieldId, value: "Needs Inspection" }],
-          }),
+          body: JSON.stringify(putBody),
         });
         const putText = await putRes.text();
-        console.log("Job custom field update status:", putRes.status, putText.slice(0, 200));
-      } catch(e) { console.warn("Custom field update failed:", e.message); }
-    }
+        console.log("Job PUT update status:", putRes.status, putText.slice(0, 300));
+      }
+    } catch(e) { console.warn("Job PUT update failed:", e.message); }
 
     // Inspect the created job so we can see what fields JN actually saved
     await inspectJob(apiKey, jobId);
