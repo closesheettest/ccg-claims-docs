@@ -4830,7 +4830,8 @@ if (!hasDamage) {
                           if (repSearch.trim()) {
                             const exact = reps.find(r => r.name.toLowerCase() === repSearch.trim().toLowerCase());
                             if (exact) {
-                              update("salesRepId", exact.id);
+                              const jnId = exact.jobnimbus_id || exact.id;
+                              update("salesRepId", jnId);
                               update("salesRepName", exact.name);
                               update("salesRepEmail", exact.email || "");
                               setRepSearch(exact.name);
@@ -4864,7 +4865,9 @@ if (!hasDamage) {
                             <div
                               key={rep.id}
                               onMouseDown={() => {
-                                update("salesRepId", rep.id);
+                                // Always use the JN ID for syncing — fall back to rep.id if no jn id
+                                const jnId = rep.jobnimbus_id || rep.id;
+                                update("salesRepId", jnId);
                                 update("salesRepName", rep.name);
                                 update("salesRepEmail", rep.email || "");
                                 setRepSearch(rep.name);
