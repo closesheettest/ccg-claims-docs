@@ -1,4 +1,4 @@
-export const handler = async (event) => {
+exports.handler = async (event) => {
   const apiKey = process.env.JOBNIMBUS_API_KEY;
   if (!apiKey) return { statusCode: 500, body: "No API key" };
 
