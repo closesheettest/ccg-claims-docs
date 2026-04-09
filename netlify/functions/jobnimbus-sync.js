@@ -255,7 +255,6 @@ export const handler = async (event) => {
     if (!contactId) throw new Error("No contact ID after create/find step");
 
     // ── Look up location ID ─────────────────────────────────────────────
-    // GET /account/settings returns locations
     let locationId = null;
     try {
       const locRes = await fetch(`${JN_BASE}/account/settings`, {
@@ -264,52 +263,46 @@ export const handler = async (event) => {
       if (locRes.ok) {
         const locData = await locRes.json();
         const locations = locData.locations || locData.location || [];
-        console.log("Locations:", JSON.stringify(locations).slice(0, 500));
+        console.log("All locations:", locations.map(l => `${l.id}:${l.name}`).join(" | "));
+
         if (Array.isArray(locations)) {
-          const match = locations.find(l =>
-            (l.name || "").toLowerCase().includes("shingle") ||
+          // Prefer "insurance" location specifically over general "shingle"
+          const insuranceMatch = locations.find(l =>
             (l.name || "").toLowerCase().includes("insurance")
           );
-          if (match) { locationId = match.id; console.log("Found location ID:", locationId, match.name); }
-          else console.log("All locations:", locations.map(l => `${l.id}:${l.name}`).join(", "));
-        }
-      } else {
-        // Try group information endpoint which was in the API docs
-        const grpRes = await fetch(`${JN_BASE}/account/group`, { headers: jnHeaders(apiKey) });
-        if (grpRes.ok) {
-          const grpData = await grpRes.json();
-          console.log("Group data:", JSON.stringify(grpData).slice(0, 500));
+          const shingleMatch = locations.find(l =>
+            (l.name || "").toLowerCase().includes("shingle")
+          );
+          const match = insuranceMatch || shingleMatch;
+          if (match) {
+            locationId = match.id;
+            console.log("Using location:", match.name, "ID:", locationId);
+          }
         }
       }
     } catch (e) { console.warn("Location lookup:", e.message); }
 
     // ── Create job ──────────────────────────────────────────────────────
-    const cleanCity = (city || "").split(",")[0].trim();
-
     const jobPayload = {
       name: `${fullName} - ${address}`.trim(),
       status_name: status,
       primary: { id: contactId },
       date_sold: soldDateUnix,
       sold_date: soldDateUnix,
-      inspection: "Needs Inspection",
-      inspection_status: "Needs Inspection",
-      inspection_type: "Needs Inspection",
     };
 
-    // Set location — use numeric ID if we found it, otherwise try name
+    // Set location
     if (locationId) {
       jobPayload.location = { id: locationId };
       console.log("Using location ID:", locationId);
     } else {
-      jobPayload.location_name = "U.S. SHINGLE - Insurance";
-      console.log("Falling back to location_name string");
+      console.log("No location ID found — job will use default");
     }
 
+    // Assign rep — use assigned array with JN user id only (no sales_rep text field)
     if (salesRepId) {
-      // Try both formats JN might accept
-      jobPayload.assigned = [{ id: salesRepId, jnid: salesRepId }];
-      jobPayload.sales_rep = salesRepName || "";
+      jobPayload.assigned = [{ id: salesRepId }];
+      console.log("Assigning rep ID:", salesRepId);
     }
 
     const newJob = await createJob(apiKey, jobPayload);
