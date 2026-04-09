@@ -102,43 +102,77 @@ async function uploadFileToJob(apiKey, jobId, filename, base64Content) {
     const fileBytes = Buffer.from(base64Content, "base64");
     console.log("Uploading file:", filename, "bytes:", fileBytes.length, "jobId:", jobId);
 
+    // JN Single Part Upload — Step 1: POST to /files to get a presigned URL
+    // The correct payload uses record_jnid not record_id
+    const initBody = {
+      record_jnid: jobId,
+      record_type: "job",
+      filename: filename,
+      content_type: "application/pdf",
+    };
+    console.log("File init payload:", JSON.stringify(initBody));
+
     const initRes = await fetch(`${JN_BASE}/files`, {
       method: "POST",
       headers: jnHeaders(apiKey),
-      body: JSON.stringify({
-        record_id: jobId,
-        record_type: "job",
-        filename,
-        content_type: "application/pdf",
-        size: fileBytes.length,
-      }),
+      body: JSON.stringify(initBody),
     });
     const initText = await initRes.text();
-    console.log("File init status:", initRes.status, initText.slice(0, 400));
-    if (!initRes.ok) return { success: false, error: `Init ${initRes.status}: ${initText.slice(0,200)}` };
+    console.log("File init status:", initRes.status, initText.slice(0, 500));
+    if (!initRes.ok) return { success: false, error: `Init ${initRes.status}: ${initText.slice(0,300)}` };
 
     const initData = JSON.parse(initText);
-    const uploadUrl = initData.url || initData.upload_url || initData.presigned_url;
-    const fileId = initData.id || initData.jnid;
-    console.log("Upload URL present:", !!uploadUrl, "| File ID:", fileId);
-    if (!uploadUrl) return { success: false, error: "No upload URL: " + initText.slice(0,200) };
+    console.log("Init data keys:", Object.keys(initData));
 
+    // Try every possible URL field name
+    const uploadUrl = initData.url || initData.upload_url || initData.presigned_url
+      || initData.signed_url || initData.put_url;
+    const fileId = initData.id || initData.jnid || initData.file_id;
+
+    console.log("Upload URL present:", !!uploadUrl, "| File ID:", fileId);
+
+    if (!uploadUrl) {
+      // No presigned URL — try direct upload via multipart form
+      console.log("No presigned URL — trying direct PUT upload");
+      const putRes = await fetch(`${JN_BASE}/files/${fileId || "upload"}`, {
+        method: "PUT",
+        headers: {
+          ...jnHeaders(apiKey),
+          "Content-Type": "application/pdf",
+          "Content-Length": String(fileBytes.length),
+        },
+        body: fileBytes,
+      });
+      const putText = await putRes.text();
+      console.log("Direct PUT status:", putRes.status, putText.slice(0, 300));
+      return { success: putRes.ok, error: putRes.ok ? null : putText.slice(0,200) };
+    }
+
+    // Step 2 — PUT bytes to S3 presigned URL
     const s3Res = await fetch(uploadUrl, {
       method: "PUT",
       headers: { "Content-Type": "application/pdf" },
       body: fileBytes,
     });
     console.log("S3 PUT status:", s3Res.status);
-    if (!s3Res.ok) return { success: false, error: `S3 failed ${s3Res.status}` };
+    if (!s3Res.ok) {
+      const s3Err = await s3Res.text();
+      console.error("S3 error:", s3Err.slice(0, 200));
+      return { success: false, error: `S3 failed ${s3Res.status}` };
+    }
 
+    // Step 3 — Complete upload
     if (fileId) {
       const compRes = await fetch(`${JN_BASE}/files/${fileId}/complete`, {
         method: "POST",
         headers: jnHeaders(apiKey),
         body: JSON.stringify({}),
       });
-      console.log("Complete upload status:", compRes.status);
+      const compText = await compRes.text();
+      console.log("Complete upload status:", compRes.status, compText.slice(0, 200));
     }
+
+    console.log("✅ File uploaded successfully");
     return { success: true };
   } catch (e) {
     console.error("uploadFileToJob error:", e.message);
@@ -242,7 +276,7 @@ export const handler = async (event) => {
     const jobPayload = {
       name: `${fullName} - ${address}`.trim(),
       status_name: status,
-      location_name: "U.S. Shingle - Insurance",
+      location_name: "U.S. SHINGLE - Insurance",
       primary: { id: contactId },
       date_sold: soldDateUnix,
       sold_date: soldDateUnix,
@@ -251,13 +285,10 @@ export const handler = async (event) => {
       inspection_type: "Needs Inspection",
     };
 
-    // Try rep assignment — log salesRepId so we can verify format
+    // Try rep assignment — use 'assigned' array which JN uses for assignees
     console.log("Rep ID being sent:", salesRepId, "Rep name:", salesRepName);
     if (salesRepId) {
-      // Try the sales_rep_id field (string) rather than nested object
-      jobPayload.sales_rep_id = salesRepId;
-    } else if (salesRepName) {
-      jobPayload.sales_rep_name = salesRepName;
+      jobPayload.assigned = [{ id: salesRepId }];
     }
 
     const newJob = await createJob(apiKey, jobPayload);
