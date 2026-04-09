@@ -211,6 +211,9 @@ export const handler = async (event) => {
       }
     } else {
       console.log("No existing contact — creating new");
+      // Clean city — strip any trailing ", ST" if address parsing bled over
+      const cleanCity = (city || "").split(",")[0].trim();
+
       const contactPayload = {
         first_name: firstName,
         last_name: lastName,
@@ -218,10 +221,9 @@ export const handler = async (event) => {
         email: email || "",
         mobile_phone: phone || "",
         address_line1: address || "",
-        city: city || "",
+        city: cleanCity,
         state_text: state || "",
         zip: zip || "",
-        record_type_name: "Contact",
       };
       if (salesRepId) contactPayload.sales_rep = { id: salesRepId };
 
@@ -234,18 +236,15 @@ export const handler = async (event) => {
     if (!contactId) throw new Error("No contact ID after create/find step");
 
     // ── Create job ──────────────────────────────────────────────────────
-    // Include sold_date and inspection fields
-    // We try both common field name patterns — JN logs will show us which ones stuck
+    const cleanCity = (city || "").split(",")[0].trim();
+
     const jobPayload = {
       name: `${fullName} - ${address}`.trim(),
-      record_type_name: "Job",
       status_name: status,
       location_name: "U.S. Shingle - Insurance",
       primary: { id: contactId },
-      // Sold date — try both field name patterns
       date_sold: soldDateUnix,
       sold_date: soldDateUnix,
-      // Inspection field — try common patterns
       inspection: "Needs Inspection",
       inspection_status: "Needs Inspection",
       inspection_type: "Needs Inspection",
