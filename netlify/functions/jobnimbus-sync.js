@@ -225,7 +225,8 @@ export const handler = async (event) => {
         state_text: state || "",
         zip: zip || "",
       };
-      if (salesRepId) contactPayload.sales_rep = { id: salesRepId };
+      // Note: NOT setting sales_rep on contact — causes Couchbase key error
+      // Rep is set on the job instead
 
       const newContact = await createContact(apiKey, contactPayload);
       contactId = newContact.jnid || newContact.id;
@@ -249,7 +250,15 @@ export const handler = async (event) => {
       inspection_status: "Needs Inspection",
       inspection_type: "Needs Inspection",
     };
-    if (salesRepId) jobPayload.sales_rep = { id: salesRepId };
+
+    // Try rep assignment — log salesRepId so we can verify format
+    console.log("Rep ID being sent:", salesRepId, "Rep name:", salesRepName);
+    if (salesRepId) {
+      // Try the sales_rep_id field (string) rather than nested object
+      jobPayload.sales_rep_id = salesRepId;
+    } else if (salesRepName) {
+      jobPayload.sales_rep_name = salesRepName;
+    }
 
     const newJob = await createJob(apiKey, jobPayload);
     const jobId = newJob.jnid || newJob.id;
