@@ -284,6 +284,7 @@ exports.handler = async (event) => {
     // Follow-up PUT to ensure all fields are set
     try {
       const putBody = {
+        jnid: jobId,
         sales_rep: salesRepId || undefined,
         owners: salesRepId ? [{ id: salesRepId }] : undefined,
         cf_string_34: "Needs Inspection",
@@ -296,7 +297,7 @@ exports.handler = async (event) => {
         body: JSON.stringify(putBody),
       });
       const putText = await putRes.text();
-      console.log("Job PUT status:", putRes.status, putText.slice(0, 200));
+      console.log("Job PUT status:", putRes.status, putText.slice(0, 500));
     } catch(e) { console.warn("Job PUT failed:", e.message); }
 
     // Inspect the created job so we can see what fields JN actually saved
