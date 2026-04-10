@@ -242,6 +242,8 @@ exports.handler = async (event) => {
         city: cleanCity,
         state_text: state || "",
         zip: zip || "",
+        source_name: leadSource || "NEED",
+        source: leadSource || "NEED",
       };
       // Note: NOT setting sales_rep on contact — causes Couchbase key error
       // Rep is set on the job instead
@@ -263,11 +265,12 @@ exports.handler = async (event) => {
 
     const jobPayload = {
       name: `${fullName} - ${address}`.trim(),
-      record_type_name: "PA",   // PA workflow
-      status: statusId,         // numeric status ID
+      record_type_name: "PA",
+      status: statusId,
       primary: { id: contactId },
       location: { id: locationId },
-      sales_rep: salesRepId || undefined,
+      source_name: leadSource || "NEED",
+      source: leadSource || "NEED",
       owners: salesRepId ? [{ id: salesRepId }] : undefined,
       cf_string_34: "Needs Inspection",
       cf_date_5: soldDateUnix,
