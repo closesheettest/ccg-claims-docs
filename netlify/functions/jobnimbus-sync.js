@@ -268,6 +268,11 @@ exports.handler = async (event) => {
       primary: { id: contactId },
       location: { id: locationId },
       source_name: leadSource || "NEED",
+      // Address fields on the job so city shows in reports
+      address_line1: address || "",
+      city: (city || "").split(",")[0].trim(),
+      state_text: state || "",
+      zip: zip || "",
       sales_rep: salesRepId || undefined,
       owners: salesRepId ? [{ id: salesRepId }] : undefined,
       cf_string_34: "Needs Inspection",
