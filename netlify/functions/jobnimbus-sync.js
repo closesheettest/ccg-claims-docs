@@ -242,8 +242,6 @@ exports.handler = async (event) => {
         city: cleanCity,
         state_text: state || "",
         zip: zip || "",
-        source_name: leadSource || "NEED",
-        source: leadSource || "NEED",
       };
       // Note: NOT setting sales_rep on contact — causes Couchbase key error
       // Rep is set on the job instead
@@ -269,8 +267,8 @@ exports.handler = async (event) => {
       status: statusId,
       primary: { id: contactId },
       location: { id: locationId },
-      source_name: leadSource || "NEED",
-      source: leadSource || "NEED",
+      source_name: leadSource === "INS" ? "Insurance" : undefined,
+      source: leadSource === "INS" ? "Insurance" : undefined,
       owners: salesRepId ? [{ id: salesRepId }] : undefined,
       cf_string_34: "Needs Inspection",
       cf_date_5: soldDateUnix,
