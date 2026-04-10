@@ -267,7 +267,7 @@ exports.handler = async (event) => {
       status: statusId,
       primary: { id: contactId },
       location: { id: locationId },
-      source: leadSource || "NEED",
+      source_name: leadSource || "NEED",
       sales_rep: salesRepId || undefined,
       owners: salesRepId ? [{ id: salesRepId }] : undefined,
       cf_string_34: "Needs Inspection",
