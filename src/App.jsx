@@ -3055,6 +3055,13 @@ const setNoDamageManagerSms = (v) => { setNoDamageManagerSmsRaw(v); saveSetting(
       return;
     }
 
+    if (!data.salesRepId) {
+      alert("Please select a sales rep before continuing.");
+      // Scroll to the rep field
+      document.getElementById("rep-search-field")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+
     // Check for duplicate address
     const dupe = await checkForDuplicate();
     if (dupe) {
@@ -3129,6 +3136,7 @@ const setNoDamageManagerSms = (v) => { setNoDamageManagerSmsRaw(v); saveSetting(
   const missingSigningFields = (() => {
     if (pendingSend) return [];
     const missing = [];
+    if (!data.salesRepName) missing.push("Sales rep name");
     if (!effectiveSig1) missing.push("Homeowner 1 signature");
     if (hasSecond && !effectiveSig2) missing.push("Homeowner 2 signature");
     if (selectedDocs.includes("pac")) {
@@ -4795,7 +4803,7 @@ if (!hasDamage) {
 
                     {/* Sales Rep autocomplete typeahead */}
                     <div style={{ position: "relative" }}>
-                      <Label>Sales Rep {repsLoaded && reps[0]?._fromJN ? <span style={{ fontSize: 11, color: "#16a34a", fontWeight: 400, marginLeft: 6 }}>● Live from JN</span> : null}</Label>
+                      <Label>Sales Rep <span style={{ color: "#dc2626" }}>*</span> {repsLoaded && reps[0]?._fromJN ? <span style={{ fontSize: 11, color: "#16a34a", fontWeight: 400, marginLeft: 6 }}>● Live from JN</span> : null}</Label>
                       <input
                         type="text"
                         value={repSearch}
@@ -4842,14 +4850,14 @@ if (!hasDamage) {
                           width: "100%",
                           height: 44,
                           borderRadius: 14,
-                          border: data.salesRepId ? "1.5px solid #199c2e" : "1px solid #d1d5db",
+                          border: data.salesRepId ? "1.5px solid #199c2e" : submitAttempted && !data.salesRepName ? "1.5px solid #dc2626" : "1.5px solid #d1d5db",
                           padding: "0 12px",
                           fontSize: 14,
                           boxSizing: "border-box",
-                          background: "#fff",
+                          background: submitAttempted && !data.salesRepName ? "#fef2f2" : "#fff",
                           fontFamily: "'Nunito', sans-serif",
                         }}
-                      />
+                        id="rep-search-field"                      />
                       {/* Selected rep badge */}
                       {data.salesRepId && (
                         <div style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", marginTop: 11, display: "flex", alignItems: "center", gap: 6 }}>
@@ -6352,7 +6360,7 @@ if (!hasDamage) {
                     <div style={{ borderBottom: "1px solid #000", minHeight: 50, display: "flex", alignItems: "flex-end", paddingBottom: 4, marginBottom: 4 }}>
                       <img src={REP_FIXED.signatureImage} alt="Rep signature" style={{ maxHeight: 44, objectFit: "contain" }} />
                     </div>
-                    <div style={{ fontSize: 11, color: "#374151" }}>{data.salesRepName || data.representativeName || REP_FIXED.name}</div>
+                    <div style={{ fontSize: 11, color: "#374151" }}>{REP_FIXED.name}</div>
                     <div style={{ fontSize: 12, marginTop: 8 }}>Date: {inspData.date}</div>
                   </div>
                 </div>
@@ -6957,6 +6965,33 @@ if (!hasDamage) {
                             </div>
                             {rep.phone ? <div style={{ fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>📞 {rep.phone}</div> : null}
                             {rep.jobnimbus_id ? <div style={{ fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>JN: {rep.jobnimbus_id}</div> : null}
+                            {rep.short_code ? (
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
+                                <span style={{ fontSize: 12, fontWeight: 700, background: "#1a2e5a", color: "#fff", borderRadius: 6, padding: "2px 8px", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.06em" }}>
+                                  Code: {rep.short_code}
+                                </span>
+                                <a
+                                  href={`https://scan.inspectionforyou.com/?rep=${rep.jobnimbus_id}&name=${encodeURIComponent(rep.name)}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  style={{ fontSize: 11, color: "#2563eb", fontFamily: "'Nunito', sans-serif", textDecoration: "underline" }}
+                                >
+                                  🔗 QR Link
+                                </a>
+                              </div>
+                            ) : (
+                              <button type="button" onClick={async () => {
+                                // Generate a unique 4-digit code
+                                const existing = reps.map(r => r.short_code).filter(Boolean);
+                                let code;
+                                do { code = String(Math.floor(1000 + Math.random() * 9000)); }
+                                while (existing.includes(code));
+                                await supabase.from("sales_reps").update({ short_code: code }).eq("id", rep.id);
+                                await loadReps();
+                              }} style={{ marginTop: 4, fontSize: 11, color: "#2563eb", background: "none", border: "none", cursor: "pointer", fontFamily: "'Nunito', sans-serif", textDecoration: "underline", padding: 0 }}>
+                                + Generate Code
+                              </button>
+                            )}
                           </div>
                           <input
                             type="tel"
@@ -7228,7 +7263,7 @@ if (!hasDamage) {
               <div style={{ borderBottom: "1px solid #000", minHeight: 50, display: "flex", alignItems: "flex-end", paddingBottom: 4, marginBottom: 4 }}>
                 <img src={REP_FIXED.signatureImage} alt="Rep signature" style={{ maxHeight: 44, objectFit: "contain" }} />
               </div>
-              <div style={{ fontSize: 11, color: "#374151" }}>{data.salesRepName || REP_FIXED.name}</div>
+              <div style={{ fontSize: 11, color: "#374151" }}>{REP_FIXED.name}</div>
               <div style={{ fontSize: 12, marginTop: 8 }}>Date: {data.date}</div>
             </div>
           </div>
