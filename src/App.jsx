@@ -4409,8 +4409,10 @@ if (!hasDamage) {
               isSubmitting || (showSendMode ? false : !reviewReady || !isSigningComplete)
             }
           >
-            {showSendMode ? <Send size={16} /> : <Mail size={16} />}
-            {showSendMode ? "Send for Signing" : "Submit & Email Copies"}
+            {isSubmitting
+              ? <><span style={{ display: "inline-block", width: 16, height: 16, border: "2.5px solid rgba(255,255,255,0.4)", borderTop: "2.5px solid #fff", borderRadius: "50%", animation: "ccg-spin 0.8s linear infinite" }} /> Processing...</>
+              : <>{showSendMode ? <Send size={16} /> : <Mail size={16} />} {showSendMode ? "Send for Signing" : "Submit & Email Copies"}</>
+            }
           </Button>
 
           <Button
@@ -7449,70 +7451,81 @@ if (!hasDamage) {
           style={{
             position: "fixed",
             inset: 0,
-            background: "rgba(0,0,0,0.55)",
+            background: "rgba(0,0,0,0.75)",
             zIndex: 9999,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            backdropFilter: "blur(3px)",
+            backdropFilter: "blur(6px)",
           }}
         >
           <div
             style={{
               background: "#fff",
               borderRadius: 28,
-              padding: "44px 40px",
+              padding: "48px 40px",
               textAlign: "center",
-              maxWidth: 380,
+              maxWidth: 420,
               width: "90%",
-              boxShadow: "0 24px 60px rgba(0,0,0,0.25)",
+              boxShadow: "0 32px 80px rgba(0,0,0,0.4)",
             }}
           >
-            {/* Animated spinner */}
-            <div style={{ marginBottom: 24 }}>
+            {/* Big animated spinner */}
+            <div style={{ marginBottom: 28, position: "relative", width: 90, height: 90, margin: "0 auto 28px" }}>
               <div style={{
-                width: 64,
-                height: 64,
+                width: 90,
+                height: 90,
                 borderRadius: "50%",
-                border: "5px solid #d1fae5",
-                borderTop: "5px solid #199c2e",
-                margin: "0 auto",
-                animation: "ccg-spin 0.9s linear infinite",
+                border: "7px solid #d1fae5",
+                borderTop: "7px solid #199c2e",
+                animation: "ccg-spin 0.85s linear infinite",
               }} />
+              <div style={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 32,
+              }}>📋</div>
             </div>
             <div style={{
-              fontSize: 26,
-              fontWeight: 700,
+              fontSize: 28,
+              fontWeight: 800,
               color: "#111827",
               fontFamily: "'Oswald', sans-serif",
-              marginBottom: 12,
+              marginBottom: 10,
               lineHeight: 1.2,
+              textTransform: "uppercase",
+              letterSpacing: "0.02em",
             }}>
-              Submitting Your Documents
+              Processing...
             </div>
             <div style={{
-              fontSize: 17,
+              fontSize: 16,
               color: "#4b5563",
               fontFamily: "'Nunito', sans-serif",
               fontWeight: 600,
-              lineHeight: 1.6,
-              marginBottom: 20,
+              lineHeight: 1.7,
+              marginBottom: 24,
             }}>
-              Please wait — we're saving your signature and sending your copies by email. This takes just a moment. ✉️
+              Saving your signature, generating your documents, and sending email copies. This takes about 15–30 seconds.
             </div>
             <div style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "10px 20px",
-              background: "#f0fdf4",
-              borderRadius: 999,
-              fontSize: 14,
+              background: "#fef9c3",
+              border: "1.5px solid #fde047",
+              borderRadius: 14,
+              padding: "12px 18px",
+              fontSize: 15,
               fontWeight: 700,
-              color: "#166534",
+              color: "#713f12",
               fontFamily: "'Nunito', sans-serif",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
             }}>
-              <span>⚠️</span> Please don't close this window
+              ⚠️ Please keep this screen open
             </div>
           </div>
         </div>
