@@ -7021,19 +7021,43 @@ if (!hasDamage) {
                               </button>
                             )}
                           </div>
+                          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                           <input
                             type="tel"
                             defaultValue={rep.phone || ""}
                             placeholder="Cell phone"
-                            onBlur={async (e) => {
-                              const phone = e.target.value.trim();
-                              if (phone !== (rep.phone || "")) {
-                                await supabase.from("sales_reps").update({ phone }).eq("id", rep.id);
-                                await loadReps();
-                              }
-                            }}
-                            style={{ height: 32, borderRadius: 8, border: "1px solid #d1d5db", padding: "0 8px", fontSize: 11, width: 130, fontFamily: "'Nunito', sans-serif" }}
+                            id={`phone-${rep.id}`}
+                            style={{ height: 32, borderRadius: 8, border: "1px solid #d1d5db", padding: "0 8px", fontSize: 11, width: 120, fontFamily: "'Nunito', sans-serif" }}
                           />
+                          <button type="button" onClick={async (e) => {
+                            const input = document.getElementById(`phone-${rep.id}`);
+                            const phone = input?.value?.trim() || "";
+                            const btn = e.currentTarget;
+                            btn.textContent = "...";
+                            btn.disabled = true;
+                            // Try update by jobnimbus_id first, then by id
+                            let result;
+                            if (rep.jobnimbus_id) {
+                              result = await supabase.from("sales_reps").update({ phone }).eq("jobnimbus_id", rep.jobnimbus_id);
+                            }
+                            if (!rep.jobnimbus_id || result?.error) {
+                              result = await supabase.from("sales_reps").update({ phone }).eq("id", rep.id);
+                            }
+                            if (result?.error) {
+                              btn.textContent = "❌";
+                              console.error("Phone save error:", result.error);
+                            } else {
+                              btn.textContent = "✓";
+                              btn.style.background = "#199c2e";
+                              btn.style.color = "#fff";
+                              setTimeout(() => { btn.textContent = "Save"; btn.style.background = ""; btn.style.color = ""; btn.disabled = false; }, 2000);
+                            }
+                            await loadReps();
+                          }}
+                            style={{ height: 32, padding: "0 10px", borderRadius: 8, border: "1px solid #d1d5db", background: "#fff", color: "#374151", fontSize: 11, cursor: "pointer", fontFamily: "'Nunito', sans-serif", fontWeight: 700, whiteSpace: "nowrap" }}>
+                            Save
+                          </button>
+                          </div>
                           <button type="button" onClick={() => toggleRepActive(rep.id, rep.active !== false)}
                             style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid #d1d5db", background: "#fff", color: "#374151", fontSize: 11, cursor: "pointer", fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}>
                             {rep.active === false ? "Activate" : "Deactivate"}
