@@ -3472,8 +3472,13 @@ const setNoDamageManagerSms = (v) => { setNoDamageManagerSmsRaw(v); saveSetting(
 
         await parseJsonResponse(emailResponse, "Signing email failed.");
         setIsSubmitting(false);
-        setView("input");
         setPendingSend(false);
+
+        // Show clear confirmation before resetting
+        const sentTo = data.signerEmail || "the homeowner";
+        alert(`✅ Signing link sent successfully!\n\nAn email with the signing link has been sent to:\n${sentTo}\n\nThey can sign from any phone, tablet, or computer.`);
+
+        setView("input");
         return;
       }
 
