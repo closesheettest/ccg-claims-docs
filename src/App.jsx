@@ -3362,6 +3362,7 @@ const setNoDamageManagerSms = (v) => { setNoDamageManagerSmsRaw(v); saveSetting(
       }
 
       // ── Job Nimbus sync ──────────────────────────────────────────────────
+      // Fire JN sync and capture job ID to update Supabase record
       fetch("/.netlify/functions/jobnimbus-sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -3384,6 +3385,16 @@ const setNoDamageManagerSms = (v) => { setNoDamageManagerSmsRaw(v); saveSetting(
       }).then(async r => {
         const d = await r.json().catch(() => ({}));
         console.log("JN sync (inspection):", d);
+        // Save jn_job_id and docs_signed back to Supabase so checker can match
+        if (d.jobId) {
+          const { error: updateErr } = await supabase
+            .from("inspections")
+            .update({ jn_job_id: d.jobId, docs_signed: "insp" })
+            .eq("client_name", inspData.clientName)
+            .eq("address", inspData.address);
+          if (updateErr) console.warn("Failed to save jn_job_id:", updateErr.message);
+          else console.log("Saved jn_job_id:", d.jobId);
+        }
       }).catch(e => console.warn("JN sync non-fatal:", e));
 
       // Reset inspection sig fields
