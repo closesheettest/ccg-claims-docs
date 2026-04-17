@@ -2881,6 +2881,16 @@ const setNoDamageManagerSms = (v) => { setNoDamageManagerSmsRaw(v); saveSetting(
   // Load reps on mount
   useEffect(() => { loadReps(); }, []);
 
+  // Auto-run damage check silently when view changes to manager
+  useEffect(() => {
+    if (view === "manager") {
+      fetch("/.netlify/functions/inspection-checker")
+        .then(r => r.json())
+        .then(d => console.log("Auto damage check:", d))
+        .catch(e => console.warn("Auto damage check failed:", e));
+    }
+  }, [view]);
+
   const checkForDuplicate = async () => {
     if (!data.address || !data.zip) return null;
     const addr = data.address.trim().toLowerCase();
@@ -7025,6 +7035,54 @@ if (!hasDamage) {
                     </div>
                   </Card>}
                   {managerSection === "lookup" && <Card style={{ padding: 20, background: "#f8fafc" }}>
+
+                    {/* ── Damage Alert Checker ── */}
+                    <div style={{ background: "#fff8f8", border: "1.5px solid #fecaca", borderRadius: 14, padding: "18px 20px", marginBottom: 20 }}>
+                      <div style={{ fontFamily: "'Oswald', sans-serif", fontSize: 16, fontWeight: 700, color: "#991b1b", marginBottom: 6 }}>
+                        🚨 Damage Inspection Alerts
+                      </div>
+                      <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 14, lineHeight: 1.5 }}>
+                        Checks JobNimbus for any inspection that changed to <strong>Damage</strong> where only the inspection form was signed. If found, the sales rep gets a text automatically.
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            const btn = document.getElementById("check-damage-btn");
+                            const status = document.getElementById("check-damage-status");
+                            btn.disabled = true;
+                            btn.textContent = "⏳ Checking...";
+                            status.textContent = "";
+                            const res = await fetch("/.netlify/functions/inspection-checker");
+                            const data = await res.json();
+                            if (data.results && data.results.length > 0) {
+                              const sent = data.results.filter(r => r.action === "sms_sent");
+                              const noPhone = data.results.filter(r => r.reason === "no_rep_phone");
+                              let msg = `✅ Check complete — ${data.checked} jobs scanned, ${data.damage_found} with damage.`;
+                              if (sent.length > 0) msg += `\n📱 SMS sent for: ${sent.map(r => r.client).join(", ")}`;
+                              if (noPhone.length > 0) msg += `\n⚠️ No phone on file for ${noPhone.length} rep(s) — add phone numbers in Sales Reps tab.`;
+                              status.style.color = "#166534";
+                              status.textContent = msg;
+                            } else {
+                              status.style.color = "#166534";
+                              status.textContent = `✅ Check complete — ${data.checked || 0} jobs scanned. No new damage alerts.`;
+                            }
+                          } catch(e) {
+                            document.getElementById("check-damage-status").style.color = "#dc2626";
+                            document.getElementById("check-damage-status").textContent = "❌ Error: " + e.message;
+                          } finally {
+                            const btn = document.getElementById("check-damage-btn");
+                            btn.disabled = false;
+                            btn.textContent = "🔍 Check Now";
+                          }
+                        }}
+                        id="check-damage-btn"
+                        style={{ padding: "10px 22px", borderRadius: 10, border: "none", background: "#dc2626", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase" }}
+                      >
+                        🔍 Check Now
+                      </button>
+                      <div id="check-damage-status" style={{ marginTop: 12, fontSize: 13, fontFamily: "'Nunito', sans-serif", whiteSpace: "pre-line", lineHeight: 1.6 }} />
+                    </div>
                     <SectionTitle>Record Lookup & Inspection Results</SectionTitle>
                     <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 16 }}>
                       Search for an inspection record by name, address, or ZIP — then record the result.
