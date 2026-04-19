@@ -237,20 +237,39 @@ async function fetchJobPhotos(jnJobId) {
     );
     if (!res.ok) { console.warn("Photo list failed:", res.status); return []; }
     const data = await res.json();
+    console.log("Photo API response keys:", Object.keys(data).join(", "));
+    console.log("Photo API sample:", JSON.stringify(data).slice(0, 500));
     const files = data.data || data.files || data.results || [];
     console.log("Photo files found:", files.length);
 
     const photoPromises = files.slice(0, 20).map(async (file) => {
       try {
-        const url = file.url || file.download_url || file.file_url;
-        if (!url) return null;
+        // Log the file object to see what URL fields are available
+        console.log("Photo file keys:", Object.keys(file).join(", "));
+        console.log("Photo file sample:", JSON.stringify(file).slice(0, 300));
+
+        // Try every possible URL field
+        const url = file.url || file.download_url || file.file_url
+          || file.thumb_url || file.original_url || file.src
+          || file.link || file.public_url || file.signed_url;
+
+        if (!url) {
+          console.warn("No URL found for photo:", file.jnid || file.id);
+          return null;
+        }
+
+        console.log("Downloading photo from:", url.slice(0, 80));
         const imgRes = await fetch(url);
-        if (!imgRes.ok) return null;
+        if (!imgRes.ok) {
+          console.warn("Photo download failed:", imgRes.status, url.slice(0, 80));
+          return null;
+        }
         const buffer = await imgRes.arrayBuffer();
         const base64 = Buffer.from(buffer).toString("base64");
         const contentType = imgRes.headers.get("content-type") || "image/jpeg";
+        console.log("Photo downloaded ok, size:", buffer.byteLength, "type:", contentType);
         return { base64, contentType };
-      } catch (e) { console.warn("Photo download failed:", e.message); return null; }
+      } catch (e) { console.warn("Photo download error:", e.message); return null; }
     });
 
     return (await Promise.all(photoPromises)).filter(Boolean);
