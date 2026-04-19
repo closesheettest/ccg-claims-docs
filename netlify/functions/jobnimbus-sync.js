@@ -234,10 +234,15 @@ exports.handler = async (event) => {
       // Clean city — strip any trailing ", ST" if address parsing bled over
       const cleanCity = (city || "").split(",")[0].trim();
 
+      // For test mode, append timestamp to avoid duplicate display_name error
+      const displayName = isTest
+        ? `${fullName} [TEST-${Date.now()}]`
+        : fullName;
+
       const contactPayload = {
         first_name: firstName,
         last_name: lastName,
-        display_name: fullName,
+        display_name: displayName,
         email: email || "",
         mobile_phone: phone || "",
         address_line1: address || "",
@@ -248,7 +253,19 @@ exports.handler = async (event) => {
       // Note: NOT setting sales_rep on contact — causes Couchbase key error
       // Rep is set on the job instead
 
-      const newContact = await createContact(apiKey, contactPayload);
+      let newContact;
+      try {
+        newContact = await createContact(apiKey, contactPayload);
+      } catch (createErr) {
+        // If duplicate, try with a unique display name suffix
+        if (createErr.message && createErr.message.toLowerCase().includes("duplicate")) {
+          console.log("Duplicate contact — retrying with unique display name");
+          contactPayload.display_name = `${fullName} [${Date.now()}]`;
+          newContact = await createContact(apiKey, contactPayload);
+        } else {
+          throw createErr;
+        }
+      }
       contactId = newContact.jnid || newContact.id;
       contactAction = "created";
       console.log("Contact created:", contactId);
