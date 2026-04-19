@@ -242,16 +242,19 @@ async function fetchJobPhotos(jnJobId) {
     const files = data.data || data.files || data.results || [];
     console.log("Photo files found:", files.length);
 
-    const photoPromises = files.slice(0, 20).map(async (file) => {
+    const imageFiles = files.filter(f => (f.content_type || "").startsWith("image/"));
+    console.log("Image files (non-PDF):", imageFiles.length);
+
+    const photoPromises = imageFiles.slice(0, 20).map(async (file) => {
       try {
         // Log the file object to see what URL fields are available
         console.log("Photo file keys:", Object.keys(file).join(", "));
         console.log("Photo file sample:", JSON.stringify(file).slice(0, 300));
 
         // Try every possible URL field
-        const url = file.url || file.download_url || file.file_url
-          || file.thumb_url || file.original_url || file.src
-          || file.link || file.public_url || file.signed_url;
+        const url = file.presigned_url || file.url || file.download_url
+          || file.file_url || file.thumbnail_url || file.original_url
+          || file.src || file.link || file.public_url || file.signed_url;
 
         if (!url) {
           console.warn("No URL found for photo:", file.jnid || file.id);
