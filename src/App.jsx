@@ -2334,6 +2334,8 @@ export default function App() {
   const [pendingSend, setPendingSend] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [testOverrideEmail, setTestOverrideEmail] = useState("");
+  const [testOverridePhone, setTestOverridePhone] = useState("");
 
   // ── Inspection form state ──
   const initialInspData = {
@@ -2853,6 +2855,22 @@ const setNoDamageManagerSms = (v) => { setNoDamageManagerSmsRaw(v); saveSetting(
 
   const hasSecond = Boolean(data.homeowner2?.trim());
 
+  // ── Test mode — triggered when last name contains "test" ────
+  const isTestMode = Boolean(
+    (data.homeowner1 || "").toLowerCase().split(" ").pop()?.includes("test") ||
+    (data.homeowner2 || "").toLowerCase().split(" ").pop()?.includes("test")
+  );
+
+  // Helper: redirect emails/SMS in test mode
+  const testEmail = (originalEmail) => {
+    if (isTestMode && testOverrideEmail) return testOverrideEmail;
+    return originalEmail;
+  };
+  const testPhone = (originalPhone) => {
+    if (isTestMode && testOverridePhone) return testOverridePhone;
+    return originalPhone;
+  };
+
   const propertyAddressText = [
     data.address,
     [data.city, data.state, data.zip].filter(Boolean).join(", "),
@@ -3326,8 +3344,8 @@ const setNoDamageManagerSms = (v) => { setNoDamageManagerSmsRaw(v); saveSetting(
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            to: [inspData.email],
-            subject: "Your Free Roof Inspection Agreement — U.S. Shingle & Metal",
+            to: [testEmail(inspData.email)],
+            subject: `${isTestMode ? "🧪 [TEST] " : ""}Your Free Roof Inspection Agreement — U.S. Shingle & Metal`,
             html: `
               <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                 <div style="background: #1a2e5a; padding: 24px 32px; border-radius: 12px 12px 0 0;">
@@ -3381,6 +3399,9 @@ const setNoDamageManagerSms = (v) => { setNoDamageManagerSmsRaw(v); saveSetting(
           salesRepId: data.salesRepId || "",
           pdfBase64: base64Content,
           pdfFilename: "Free-Roof-Inspection-Agreement.pdf",
+          isTest: isTestMode,
+          testOverrideEmail: isTestMode ? testOverrideEmail : undefined,
+          testOverridePhone: isTestMode ? testOverridePhone : undefined,
         }),
       }).then(async r => {
         const d = await r.json().catch(() => ({}));
@@ -3471,9 +3492,10 @@ const setNoDamageManagerSms = (v) => { setNoDamageManagerSmsRaw(v); saveSetting(
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            to: [data.signerEmail].filter(Boolean),
-            subject:
-              selectedDocs.length > 1
+            to: [testEmail(data.signerEmail)].filter(Boolean),
+            subject: isTestMode
+              ? `🧪 [TEST] Please Sign: ${selectedDocs.length > 1 ? "Claim Documents" : documentLabel(selectedDocs[0])}`
+              : selectedDocs.length > 1
                 ? "Please Sign: Claim Documents"
                 : `Please Sign: ${documentLabel(selectedDocs[0])}`,
             html: `
@@ -3645,9 +3667,9 @@ const setNoDamageManagerSms = (v) => { setNoDamageManagerSmsRaw(v); saveSetting(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          to: [data.signerEmail].filter(Boolean),
+          to: [testEmail(data.signerEmail)].filter(Boolean),
           bcc: activityEmail ? [activityEmail] : [],
-          subject: emailSubject,
+          subject: `${isTestMode ? "🧪 [TEST] " : ""}${emailSubject}`,
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
               <div style="background: ${emailHeaderBg}; padding: 28px 32px; border-radius: 12px 12px 0 0;">
@@ -3759,8 +3781,8 @@ const setNoDamageManagerSms = (v) => { setNoDamageManagerSmsRaw(v); saveSetting(
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            to: [data.paEmail],
-            subject: paSubject,
+            to: [testEmail(data.paEmail)],
+            subject: `${isTestMode ? "🧪 [TEST] " : ""}${paSubject}`,
             html: paHtml,
             attachments,
           }),
@@ -3779,13 +3801,14 @@ const setNoDamageManagerSms = (v) => { setNoDamageManagerSmsRaw(v); saveSetting(
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             to: [activityEmail],
-            subject: `📋 New Signing — ${homeownerName} (${repName})`,
+            subject: `${isTestMode ? "🧪 [TEST] " : ""}📋 New Signing — ${homeownerName} (${repName})`,
             html: `
               <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto;">
                 <div style="background: #199c2e; padding: 20px 28px; border-radius: 12px 12px 0 0;">
-                  <h2 style="color: #fff; margin: 0; font-size: 20px;">📋 New Signing Activity</h2>
+                  <h2 style="color: #fff; margin: 0; font-size: 20px;">📋 New Signing Activity${isTestMode ? " 🧪 TEST" : ""}</h2>
                 </div>
                 <div style="background: #f9fafb; padding: 24px 28px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb; border-top: none;">
+                  ${isTestMode ? `<div style="background:#fffbeb;border:1px solid #f59e0b;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:#92400e;font-weight:700;">🧪 TEST MODE — emails redirected to ${testOverrideEmail || "override"}</div>` : ""}
                   <table style="font-size: 14px; color: #374151; width: 100%; border-collapse: collapse;">
                     <tr><td style="padding: 5px 0; font-weight: 700; width: 130px;">Homeowner:</td><td>${homeownerName}</td></tr>
                     <tr><td style="padding: 5px 0; font-weight: 700;">Address:</td><td>${homeownerAddress}</td></tr>
@@ -3811,8 +3834,8 @@ const setNoDamageManagerSms = (v) => { setNoDamageManagerSmsRaw(v); saveSetting(
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            to: [data.salesRepEmail],
-            subject: `✅ Signed — ${homeownerName}`,
+            to: [testEmail(data.salesRepEmail)],
+            subject: `${isTestMode ? "🧪 [TEST] " : ""}✅ Signed — ${homeownerName}`,
             html: `
               <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto;">
                 <div style="background: #199c2e; padding: 20px 28px; border-radius: 12px 12px 0 0;">
@@ -3863,6 +3886,9 @@ const setNoDamageManagerSms = (v) => { setNoDamageManagerSmsRaw(v); saveSetting(
           salesRepId: data.salesRepId || "",
           pdfBase64: inspAttachment?.content || null,
           pdfFilename: inspAttachment?.filename || null,
+          isTest: isTestMode,
+          testOverrideEmail: isTestMode ? testOverrideEmail : undefined,
+          testOverridePhone: isTestMode ? testOverridePhone : undefined,
         }),
       }).then(async r => {
         const d = await r.json().catch(() => ({}));
@@ -4828,6 +4854,41 @@ if (!hasDamage) {
                         {data.leadSource === "NEED" ? "New lead — will create contact + job in JN" : "Existing lead — will search JN by address"}
                       </div>
                     </div>
+
+                    {/* ── TEST MODE BANNER ── */}
+                    {isTestMode && (
+                      <div style={{ background: "#fffbeb", border: "2px solid #f59e0b", borderRadius: 14, padding: "16px 18px" }}>
+                        <div style={{ fontFamily: "'Oswald', sans-serif", fontSize: 15, fontWeight: 700, color: "#92400e", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                          🧪 TEST MODE ACTIVE
+                          <span style={{ fontSize: 11, fontWeight: 400, color: "#b45309" }}>— last name contains "test"</span>
+                        </div>
+                        <div style={{ fontSize: 12, color: "#78350f", marginBottom: 12, fontFamily: "'Nunito', sans-serif", lineHeight: 1.5 }}>
+                          All emails and SMS will be redirected to the addresses below instead of the actual homeowner/rep.
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                          <div>
+                            <Label>Override Email (all emails go here)</Label>
+                            <input
+                              type="email"
+                              value={testOverrideEmail}
+                              onChange={e => setTestOverrideEmail(e.target.value)}
+                              placeholder="your@email.com"
+                              style={{ width: "100%", height: 40, borderRadius: 10, border: "1.5px solid #f59e0b", padding: "0 12px", fontSize: 14, fontFamily: "'Nunito', sans-serif", background: "#fffef7" }}
+                            />
+                          </div>
+                          <div>
+                            <Label>Override SMS Phone (all texts go here)</Label>
+                            <input
+                              type="tel"
+                              value={testOverridePhone}
+                              onChange={e => setTestOverridePhone(e.target.value)}
+                              placeholder="(727) 555-0000"
+                              style={{ width: "100%", height: 40, borderRadius: 10, border: "1.5px solid #f59e0b", padding: "0 12px", fontSize: 14, fontFamily: "'Nunito', sans-serif", background: "#fffef7" }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Sales Rep autocomplete typeahead */}
                     <div style={{ position: "relative" }}>

@@ -185,9 +185,11 @@ exports.handler = async (event) => {
     address, city, state, zip,
     salesRepName, salesRepId,
     pdfBase64, pdfFilename,
+    isTest, testOverrideEmail, testOverridePhone,
   } = body;
 
   console.log("=== JN Sync Start ===");
+  if (isTest) console.log("🧪 TEST MODE — overrides:", testOverrideEmail, testOverridePhone);
   console.log("Lead:", leadSource, "| Docs:", docsSignedList);
   console.log("Name:", homeowner1, "| Address:", address, city, state, zip);
   console.log("Rep:", salesRepName, salesRepId, "| Has PDF:", !!pdfBase64);
@@ -262,7 +264,7 @@ exports.handler = async (event) => {
     const statusId = hasPADocs ? 598 : 597;
 
     const jobPayload = {
-      name: `${fullName} - ${address}`.trim(),
+      name: `${isTest ? "[TEST] " : ""}${fullName} - ${address}`.trim(),
       record_type_name: "PA",
       status: statusId,
       primary: { id: contactId },
