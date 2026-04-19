@@ -45,13 +45,44 @@ exports.handler = async (event) => {
     const allJobs = jnData.results || jnData.jobs || [];
     console.log("JN jobs fetched:", allJobs.length);
 
-    const triggeredJobs = allJobs.filter(j => TRIGGER_RESULTS.includes(j.cf_string_34));
+    // Log first job to see what fields come back in the list
+    if (allJobs.length > 0) {
+      const sample = allJobs[0];
+      console.log("Sample job keys:", Object.keys(sample).join(", "));
+      console.log("Sample cf_string_34:", sample.cf_string_34, "| name:", sample.name);
+    }
+
+    // cf_string_34 may not appear in list endpoint — fetch each job individually
+    // to get custom fields. Only fetch jobs that are in PA workflow (record_type 45)
+    const paJobs = allJobs.filter(j => j.record_type === 45 || j.record_type_name === "Lead" || j.record_type_name === "PA");
+    console.log("PA/Lead jobs to check:", paJobs.length);
+
+    // Fetch full details for each job to get cf_string_34
+    const jobDetails = await Promise.all(
+      paJobs.slice(0, 50).map(async (j) => {
+        const jnid = j.jnid || j.id;
+        try {
+          const r = await fetch(`${JN_BASE}/jobs/${jnid}`, { headers: jnHeaders });
+          if (!r.ok) return null;
+          const d = await r.json();
+          return d;
+        } catch(e) { return null; }
+      })
+    );
+
+    const fullJobs = jobDetails.filter(Boolean);
+    console.log("Full job details fetched:", fullJobs.length);
+    fullJobs.forEach(j => {
+      if (j.cf_string_34) console.log("Job", j.jnid, j.name, "→ cf_string_34:", j.cf_string_34);
+    });
+
+    const triggeredJobs = fullJobs.filter(j => TRIGGER_RESULTS.includes(j.cf_string_34));
     console.log("Triggered jobs:", triggeredJobs.length);
 
     if (triggeredJobs.length === 0) {
       return {
         statusCode: 200,
-        body: JSON.stringify({ message: "No changed inspections found", checked: allJobs.length }),
+        body: JSON.stringify({ message: "No changed inspections found", checked: allJobs.length, pa_jobs: paJobs.length, full_details: fullJobs.length }),
       };
     }
 
@@ -63,15 +94,48 @@ exports.handler = async (event) => {
       console.log("Processing:", jnJobId, job.name, "→", newResult);
 
       // ── 2. Find Supabase record ──────────────────────────────
+      // Try by jn_job_id first, then fall back to name/address match
+      let record = null;
+
       const sbRes = await fetch(
         `${SB_URL}/rest/v1/inspections?jn_job_id=eq.${jnJobId}&select=id,client_name,address,city,state,zip,sales_rep_id,sales_rep_email,inspection_result,docs_signed&limit=1`,
         { headers: sbHeaders }
       );
-      if (!sbRes.ok) { console.warn("SB lookup failed:", jnJobId); continue; }
-      const sbData = await sbRes.json();
-      if (!sbData || sbData.length === 0) { console.log("No SB record for:", jnJobId); continue; }
+      if (sbRes.ok) {
+        const sbData = await sbRes.json();
+        if (sbData && sbData.length > 0) record = sbData[0];
+      }
 
-      const record = sbData[0];
+      // Fallback: match by job name which contains the homeowner name
+      if (!record && job.name) {
+        const jobNameParts = job.name.replace("[TEST] ", "").replace("[TEST-", "").split(" - ");
+        const nameFromJob = jobNameParts[0]?.trim();
+        const addrFromJob = jobNameParts[1]?.split("[")[0]?.trim();
+        console.log("Fallback search by name:", nameFromJob, "addr:", addrFromJob);
+
+        if (nameFromJob) {
+          const fbRes = await fetch(
+            `${SB_URL}/rest/v1/inspections?client_name=ilike.*${encodeURIComponent(nameFromJob)}*&select=id,client_name,address,city,state,zip,sales_rep_id,sales_rep_email,inspection_result,docs_signed&limit=1`,
+            { headers: sbHeaders }
+          );
+          if (fbRes.ok) {
+            const fbData = await fbRes.json();
+            if (fbData && fbData.length > 0) {
+              record = fbData[0];
+              console.log("Found by name fallback:", record.id, record.client_name);
+              // Save the jn_job_id so future lookups are faster
+              await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${record.id}`, {
+                method: "PATCH",
+                headers: { ...sbHeaders, Prefer: "return=minimal" },
+                body: JSON.stringify({ jn_job_id: jnJobId }),
+              });
+              console.log("Saved jn_job_id to record:", jnJobId);
+            }
+          }
+        }
+      }
+
+      if (!record) { console.log("No SB record found for:", jnJobId, job.name); continue; }
 
       // Skip if already processed this result
       if (record.inspection_result === newResult) {
