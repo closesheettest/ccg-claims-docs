@@ -184,6 +184,8 @@ exports.handler = async (event) => {
       console.log("Photos fetched:", photos.length);
 
       // ── 6. Send report email ─────────────────────────────────
+      const reportDate = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+
       const reportHtml = buildReportEmail({
         clientName: record.client_name || "Homeowner",
         address: [record.address, record.city, record.state, record.zip].filter(Boolean).join(", "),
@@ -192,6 +194,25 @@ exports.handler = async (event) => {
         photos,
       });
 
+      // For damage — generate a PDF attachment
+      let pdfBase64 = null;
+      let pdfFilename = null;
+      if (newResult === "Damage" && photos.length > 0) {
+        console.log("Generating damage PDF...");
+        pdfBase64 = await generateDamagePDF({
+          clientName: record.client_name || "Homeowner",
+          address: [record.address, record.city, record.state, record.zip].filter(Boolean).join(", "),
+          repName: repName || "—",
+          date: reportDate,
+          photos,
+        });
+        if (pdfBase64) {
+          const safeName = (record.client_name || "Homeowner").replace(/[^a-zA-Z0-9]/g, "-");
+          pdfFilename = `Damage-Report-${safeName}-${new Date().toISOString().slice(0,10)}.pdf`;
+          console.log("Damage PDF ready:", pdfFilename);
+        }
+      }
+
       const resultEmoji = newResult === "Damage" ? "🚨" : newResult === "No Damage" ? "✅" : "🏠";
       const subject = `${resultEmoji} Inspection Result: ${newResult} — ${record.client_name || "Homeowner"} at ${record.address || ""}`;
 
@@ -199,8 +220,8 @@ exports.handler = async (event) => {
       if (repEmail) emailTo.push(repEmail);
       if (!emailTo.includes(OFFICE_EMAIL)) emailTo.push(OFFICE_EMAIL);
 
-      const emailSent = await sendEmail(emailTo, subject, reportHtml);
-      console.log("Report email sent:", emailSent, "to:", emailTo);
+      const emailSent = await sendEmail(emailTo, subject, reportHtml, pdfBase64, pdfFilename);
+      console.log("Report email sent:", emailSent, "to:", emailTo, "| PDF attached:", !!pdfBase64);
 
       // ── 7. Update Supabase ───────────────────────────────────
       await updateInspectionResult(record.id, newResult, emailSent);
@@ -354,21 +375,30 @@ function buildReportEmail({ clientName, address, result, repName, photos }) {
   </div>`;
 }
 
-// ── Send email ───────────────────────────────────────────────────
-async function sendEmail(to, subject, html) {
+// ── Send email with optional PDF attachment ──────────────────────
+async function sendEmail(to, subject, html, pdfBase64, pdfFilename) {
   try {
+    const payload = {
+      from: `U.S. Shingle & Metal <${process.env.FROM_EMAIL || "noreply@inspectionforyou.com"}>`,
+      to,
+      subject,
+      html,
+    };
+
+    if (pdfBase64 && pdfFilename) {
+      payload.attachments = [{
+        filename: pdfFilename,
+        content: pdfBase64,
+      }];
+    }
+
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        from: `U.S. Shingle & Metal <${process.env.FROM_EMAIL || "noreply@inspectionforyou.com"}>`,
-        to,
-        subject,
-        html,
-      }),
+      body: JSON.stringify(payload),
     });
     const d = await res.json();
     console.log("Email result:", res.status, JSON.stringify(d).slice(0, 150));
@@ -378,6 +408,106 @@ async function sendEmail(to, subject, html) {
     return false;
   }
 }
+
+// ── Generate damage report PDF via PDFShift API ──────────────────
+async function generateDamagePDF({ clientName, address, repName, date, photos }) {
+  try {
+    const PDFSHIFT_KEY = process.env.PDFSHIFT_API_KEY;
+    if (!PDFSHIFT_KEY) {
+      console.warn("No PDFSHIFT_API_KEY — skipping PDF generation");
+      return null;
+    }
+
+    const photoRows = [];
+    for (let i = 0; i < photos.length; i += 2) {
+      const left  = photos[i];
+      const right = photos[i + 1];
+      photoRows.push(`
+        <tr>
+          <td style="padding:4px;">
+            <img src="data:${left.contentType};base64,${left.base64}"
+              style="width:100%;height:180px;object-fit:cover;border-radius:4px;" />
+          </td>
+          ${right ? `<td style="padding:4px;">
+            <img src="data:${right.contentType};base64,${right.base64}"
+              style="width:100%;height:180px;object-fit:cover;border-radius:4px;" />
+          </td>` : `<td></td>`}
+        </tr>`);
+    }
+
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 0; padding: 32px; color: #111; }
+      .header { background: #1a2e5a; color: white; padding: 24px 28px; border-radius: 8px; margin-bottom: 24px; }
+      .header h1 { margin: 0; font-size: 24px; }
+      .header p { margin: 4px 0 0; font-size: 13px; opacity: 0.7; }
+      .damage-banner { background: #fef2f2; border: 3px solid #dc2626; border-radius: 8px; padding: 20px; text-align: center; margin-bottom: 24px; }
+      .damage-banner h2 { color: #dc2626; font-size: 32px; margin: 0; }
+      .damage-banner p { color: #991b1b; font-size: 14px; margin: 8px 0 0; }
+      table.info { width: 100%; border-collapse: collapse; margin-bottom: 24px; font-size: 14px; }
+      table.info td { padding: 9px 14px; border: 1px solid #e5e7eb; }
+      table.info td:first-child { background: #f9fafb; font-weight: 700; color: #6b7280; text-transform: uppercase; font-size: 11px; letter-spacing: 0.06em; width: 30%; }
+      .photos h3 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em; color: #374151; margin-bottom: 12px; }
+      table.photos { width: 100%; border-collapse: collapse; }
+      .footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #9ca3af; text-align: center; }
+    </style></head><body>
+      <div class="header">
+        <h1>🚨 Damage Inspection Report</h1>
+        <p>U.S. Shingle &amp; Metal LLC · Generated ${date}</p>
+      </div>
+      <div class="damage-banner">
+        <h2>DAMAGE FOUND</h2>
+        <p>Contact homeowner immediately to schedule PA paperwork signing.</p>
+      </div>
+      <table class="info">
+        <tr><td>Homeowner</td><td>${clientName}</td></tr>
+        <tr><td>Address</td><td>${address}</td></tr>
+        <tr><td>Sales Rep</td><td>${repName}</td></tr>
+        <tr><td>Report Date</td><td>${date}</td></tr>
+      </table>
+      <div class="photos">
+        <h3>📷 Inspection Photos (${photos.length})</h3>
+        <table class="photos">${photoRows.join("")}</table>
+      </div>
+      <div class="footer">
+        U.S. Shingle &amp; Metal LLC · License #CCC1331960 · (727) 761-5200<br/>
+        This report was generated automatically from JobNimbus inspection data.
+      </div>
+    </body></html>`;
+
+    const res = await fetch("https://api.pdfshift.io/v3/convert/chromium", {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${Buffer.from(`api:${PDFSHIFT_KEY}`).toString("base64")}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        source: html,
+        landscape: false,
+        use_print: false,
+        margin: { top: "10mm", bottom: "10mm", left: "10mm", right: "10mm" },
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      console.warn("PDFShift failed:", res.status, err.slice(0, 200));
+      return null;
+    }
+
+    const buffer = await res.arrayBuffer();
+    const base64 = Buffer.from(buffer).toString("base64");
+    console.log("Damage PDF generated, size:", buffer.byteLength);
+    return base64;
+
+  } catch (e) {
+    console.warn("generateDamagePDF error:", e.message);
+    return null;
+  }
+}
+
+// ── Build damage PDF HTML helper (reused above) ───────────────────
+function buildDamagePDF() { return null; } // unused, kept for compat
 
 // ── Update Supabase ──────────────────────────────────────────────
 async function updateInspectionResult(recordId, result, notified) {
