@@ -475,7 +475,7 @@ async function generateDamagePDF({ clientName, address, repName, date, photos })
       </div>
     </body></html>`;
 
-    const res = await fetch("https://api.pdfshift.io/v3/convert/chromium", {
+    const res = await fetch("https://api.pdfshift.io/v2/convert/", {
       method: "POST",
       headers: {
         Authorization: `Basic ${Buffer.from(`api:${PDFSHIFT_KEY}`).toString("base64")}`,
@@ -483,9 +483,8 @@ async function generateDamagePDF({ clientName, address, repName, date, photos })
       },
       body: JSON.stringify({
         source: html,
-        landscape: false,
-        use_print: false,
-        margin: { top: "10mm", bottom: "10mm", left: "10mm", right: "10mm" },
+        format: "Letter",
+        margin: "10mm",
       }),
     });
 
