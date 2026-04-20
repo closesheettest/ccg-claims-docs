@@ -467,10 +467,10 @@ function escapeHtml(s) {
 }
 
 // ── Build the certificate HTML (page 1) — mirrors InspectionCertificatePDF in App.jsx
-function buildCertificateHTML({ record, inspectorName, inspectionDateISO, logoUrl }) {
+function buildCertificateHTML({ record, inspectorName, inspectionDateISO, logoUrl, signatureUrl }) {
   const today = inspectionDateISO || new Date().toISOString().split("T")[0];
   const certNo = genCertNo(today);
-  const inspector = inspectorName || "—";
+  const inspector = inspectorName || "Hank Smith";
   const rows = INSP_ROWS_DAMAGE;
 
   const addr = escapeHtml(record.address || "");
@@ -576,7 +576,9 @@ function buildCertificateHTML({ record, inspectorName, inspectionDateISO, logoUr
       <!-- Signature -->
       <div style="padding:7px 14px 9px;">
         <div style="border-top:1px solid #c8d4e8;padding-top:7px;">
-          <div style="border-bottom:1px solid #111827;height:32px;width:2.5in;margin-bottom:3px;"></div>
+          <div style="width:2.5in;height:40px;border-bottom:1px solid #111827;margin-bottom:3px;position:relative;">
+            <img src="${signatureUrl}" alt="Inspector Signature" style="height:40px;max-width:2.5in;object-fit:contain;display:block;" />
+          </div>
           <div style="font-size:9.5px;font-weight:700;color:#374151;">Inspector Signature</div>
           <div style="font-size:9.5px;color:#374151;margin-top:1px;">Name: ${escapeHtml(inspector)} &nbsp;&nbsp;&nbsp; License #: CCC1331960</div>
         </div>
@@ -626,7 +628,9 @@ async function generateDamagePDF({ clientName, address, repName, date, photos, r
     }
 
     // Build the certificate page using the shared helper
+    // Inspector is always Hank Smith for damage certs; signature lives in public/
     const logoUrl = `${BASE_URL}/uss-header.png`;
+    const signatureUrl = `${BASE_URL}/rep-signature.png`;
     const inspectionDateISO = new Date().toISOString().split("T")[0];
     const certRecord = record || {
       address: (address || "").split(",")[0] || "",
@@ -635,9 +639,10 @@ async function generateDamagePDF({ clientName, address, repName, date, photos, r
     };
     const certPageHtml = buildCertificateHTML({
       record: certRecord,
-      inspectorName: repName,
+      inspectorName: "Hank Smith",
       inspectionDateISO,
       logoUrl,
+      signatureUrl,
     });
 
     const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
