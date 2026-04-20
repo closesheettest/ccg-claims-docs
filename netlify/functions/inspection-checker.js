@@ -60,21 +60,31 @@ exports.handler = async (event) => {
   console.log("=== Inspection Checker Start ===");
 
   try {
-    // ── 1. Fetch recently updated JN jobs ──────────────────────
+    // ── 1. Fetch recently updated JN jobs (paged) ────────────────
     const since = Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60;
-    const jnRes = await fetch(
-      `${JN_BASE}/jobs?size=100&sort=-date_updated&date_updated_after=${since}`,
-      { headers: jnHeaders }
-    );
 
-    if (!jnRes.ok) {
-      const err = await jnRes.text();
-      console.error("JN fetch failed:", jnRes.status, err);
-      return { statusCode: 500, body: JSON.stringify({ error: "JN fetch failed" }) };
+    // JN paginated fetch — up to 5 pages of 100 = 500 jobs max per run.
+    // If you regularly exceed this volume, increase MAX_PAGES.
+    const MAX_PAGES = 5;
+    const allJobs = [];
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const from = page * 100;
+      const jnRes = await fetch(
+        `${JN_BASE}/jobs?size=100&from=${from}&sort=-date_updated&date_updated_after=${since}`,
+        { headers: jnHeaders }
+      );
+      if (!jnRes.ok) {
+        const err = await jnRes.text();
+        console.error(`JN fetch failed on page ${page}:`, jnRes.status, err);
+        if (page === 0) return { statusCode: 500, body: JSON.stringify({ error: "JN fetch failed" }) };
+        break; // stop paging on error, work with what we have
+      }
+      const jnData = await jnRes.json();
+      const pageJobs = jnData.results || jnData.jobs || [];
+      allJobs.push(...pageJobs);
+      console.log(`JN page ${page}: ${pageJobs.length} jobs (total: ${allJobs.length})`);
+      if (pageJobs.length < 100) break; // last page
     }
-
-    const jnData = await jnRes.json();
-    const allJobs = jnData.results || jnData.jobs || [];
     console.log("JN jobs fetched:", allJobs.length);
 
     // Log first job to see what fields come back in the list
@@ -89,18 +99,25 @@ exports.handler = async (event) => {
     const paJobs = allJobs.filter(j => j.record_type === 45 || j.record_type_name === "Lead" || j.record_type_name === "PA");
     console.log("PA/Lead jobs to check:", paJobs.length);
 
-    // Fetch full details for each job to get cf_string_34
-    const jobDetails = await Promise.all(
-      paJobs.slice(0, 50).map(async (j) => {
-        const jnid = j.jnid || j.id;
-        try {
-          const r = await fetch(`${JN_BASE}/jobs/${jnid}`, { headers: jnHeaders });
-          if (!r.ok) return null;
-          const d = await r.json();
-          return d;
-        } catch(e) { return null; }
-      })
-    );
+    // Fetch full details for ALL PA jobs in batches of 20 (polite on JN rate limits,
+    // but dramatically faster than sequential). Previously capped at 50 — that's
+    // why records past the top 50 most-recent kept getting skipped.
+    const BATCH_SIZE = 20;
+    const jobDetails = [];
+    for (let i = 0; i < paJobs.length; i += BATCH_SIZE) {
+      const batch = paJobs.slice(i, i + BATCH_SIZE);
+      const batchResults = await Promise.all(
+        batch.map(async (j) => {
+          const jnid = j.jnid || j.id;
+          try {
+            const r = await fetch(`${JN_BASE}/jobs/${jnid}`, { headers: jnHeaders });
+            if (!r.ok) return null;
+            return await r.json();
+          } catch (e) { return null; }
+        })
+      );
+      jobDetails.push(...batchResults);
+    }
 
     const fullJobs = jobDetails.filter(Boolean);
     console.log("Full job details fetched:", fullJobs.length);
