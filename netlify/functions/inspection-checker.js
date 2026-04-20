@@ -434,9 +434,8 @@ async function generateDamagePDF({ clientName, address, repName, date, photos })
       return null;
     }
 
-    // Use thumbnail URLs directly — let PDFShift fetch them
-    // Fall back to presigned_url if no thumbnail available
-    const pdfPhotoUrls = photos.slice(0, 6)
+    // Use all photos (up to 10) with direct URLs
+    const pdfPhotoUrls = photos.slice(0, 10)
       .map(p => p.thumbnailUrl || p.presignedUrl)
       .filter(Boolean);
     console.log("PDF photo URLs for PDF:", pdfPhotoUrls.length);
@@ -458,40 +457,186 @@ async function generateDamagePDF({ clientName, address, repName, date, photos })
 
     const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
     <style>
-      * { box-sizing: border-box; }
-      body { font-family: Arial, sans-serif; margin: 0; padding: 24px; color: #111; font-size: 13px; }
-      .header { background: #1a2e5a; color: white; padding: 18px 22px; border-radius: 6px; margin-bottom: 18px; }
-      .header h1 { margin: 0; font-size: 20px; }
-      .header p { margin: 3px 0 0; font-size: 12px; opacity: 0.7; }
-      .banner { background: #fef2f2; border: 2px solid #dc2626; border-radius: 6px; padding: 14px; text-align: center; margin-bottom: 18px; }
-      .banner h2 { color: #dc2626; font-size: 24px; margin: 0 0 4px; }
-      .banner p { color: #991b1b; font-size: 12px; margin: 0; }
-      table.info { width: 100%; border-collapse: collapse; margin-bottom: 18px; }
-      table.info td { padding: 7px 12px; border: 1px solid #e5e7eb; font-size: 12px; }
-      table.info td:first-child { background: #f9fafb; font-weight: 700; color: #6b7280; text-transform: uppercase; font-size: 10px; letter-spacing: 0.06em; width: 28%; }
-      .photos-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #374151; margin-bottom: 8px; }
-      table.photos { width: 100%; border-collapse: collapse; }
-      .footer { margin-top: 20px; padding-top: 12px; border-top: 1px solid #e5e7eb; font-size: 10px; color: #9ca3af; text-align: center; }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { font-family: Arial, sans-serif; color: #111; font-size: 13px; }
+
+      /* ── PAGE 1: CERTIFICATE ── */
+      .cert-page {
+        width: 100%;
+        min-height: 100vh;
+        page-break-after: always;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 48px 40px;
+        background: #fff;
+        text-align: center;
+      }
+      .cert-logo-bar {
+        background: #1a2e5a;
+        color: #fff;
+        width: 100%;
+        padding: 18px 28px;
+        border-radius: 8px;
+        margin-bottom: 32px;
+        text-align: left;
+      }
+      .cert-logo-bar h1 { font-size: 22px; margin: 0; }
+      .cert-logo-bar p { font-size: 12px; opacity: 0.7; margin: 3px 0 0; }
+      .cert-seal {
+        width: 100px; height: 100px;
+        border-radius: 50%;
+        background: #dc2626;
+        display: flex; align-items: center; justify-content: center;
+        margin: 0 auto 20px;
+        font-size: 48px;
+        border: 4px solid #fca5a5;
+      }
+      .cert-result {
+        font-size: 42px;
+        font-weight: 900;
+        color: #dc2626;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 8px;
+      }
+      .cert-subtitle {
+        font-size: 15px;
+        color: #6b7280;
+        margin-bottom: 36px;
+      }
+      .cert-table {
+        width: 100%;
+        max-width: 480px;
+        border-collapse: collapse;
+        margin: 0 auto 32px;
+        text-align: left;
+      }
+      .cert-table td {
+        padding: 10px 16px;
+        border: 1px solid #e5e7eb;
+        font-size: 13px;
+      }
+      .cert-table td:first-child {
+        background: #f9fafb;
+        font-weight: 700;
+        color: #6b7280;
+        text-transform: uppercase;
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        width: 35%;
+      }
+      .cert-action {
+        background: #fef2f2;
+        border: 2px solid #dc2626;
+        border-radius: 8px;
+        padding: 16px 24px;
+        max-width: 480px;
+        margin: 0 auto 28px;
+      }
+      .cert-action h3 { color: #dc2626; font-size: 15px; margin-bottom: 6px; }
+      .cert-action p { color: #7f1d1d; font-size: 13px; line-height: 1.5; }
+      .cert-footer {
+        font-size: 11px;
+        color: #9ca3af;
+        margin-top: auto;
+        padding-top: 24px;
+        border-top: 1px solid #e5e7eb;
+        width: 100%;
+      }
+
+      /* ── PAGE 2: PHOTOS ── */
+      .photos-page {
+        width: 100%;
+        padding: 32px 24px;
+        background: #fff;
+      }
+      .photos-header {
+        background: #1a2e5a;
+        color: #fff;
+        padding: 14px 20px;
+        border-radius: 6px;
+        margin-bottom: 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .photos-header h2 { font-size: 16px; margin: 0; }
+      .photos-header span { font-size: 12px; opacity: 0.7; }
+      .photos-subheader {
+        font-size: 12px;
+        color: #6b7280;
+        margin-bottom: 14px;
+      }
+      table.photo-grid { width: 100%; border-collapse: collapse; }
+      table.photo-grid td { padding: 4px; width: 50%; }
+      table.photo-grid img {
+        width: 100%;
+        height: 155px;
+        object-fit: cover;
+        border-radius: 4px;
+        display: block;
+        border: 1px solid #e5e7eb;
+      }
+      .photos-footer {
+        margin-top: 20px;
+        padding-top: 12px;
+        border-top: 1px solid #e5e7eb;
+        font-size: 10px;
+        color: #9ca3af;
+        text-align: center;
+      }
     </style></head><body>
-      <div class="header">
-        <h1>🚨 Damage Inspection Report</h1>
-        <p>U.S. Shingle &amp; Metal LLC · ${date}</p>
+
+      <!-- PAGE 1: CERTIFICATE -->
+      <div class="cert-page">
+        <div class="cert-logo-bar">
+          <h1>U.S. Shingle &amp; Metal LLC</h1>
+          <p>Licensed Roofing Contractor · CCC1331960 · (727) 761-5200</p>
+        </div>
+
+        <div class="cert-seal">🚨</div>
+        <div class="cert-result">Damage Found</div>
+        <div class="cert-subtitle">Roof Inspection Report · ${date}</div>
+
+        <table class="cert-table">
+          <tr><td>Homeowner</td><td><strong>${clientName}</strong></td></tr>
+          <tr><td>Property Address</td><td>${address}</td></tr>
+          <tr><td>Sales Representative</td><td>${repName}</td></tr>
+          <tr><td>Inspection Date</td><td>${date}</td></tr>
+          <tr><td>Photos Taken</td><td>${photos.length} photos documented</td></tr>
+        </table>
+
+        <div class="cert-action">
+          <h3>🚨 Immediate Action Required</h3>
+          <p>Storm or weather-related damage has been identified at this property.
+          The homeowner should be contacted immediately to proceed with filing a Public Adjuster claim.
+          PA paperwork must be signed to begin the claims process.</p>
+        </div>
+
+        <div class="cert-footer">
+          This report was generated automatically from JobNimbus inspection data.<br/>
+          U.S. Shingle &amp; Metal LLC · 3845 Gateway Centre Blvd Suite 300 · Pinellas Park, FL 33782<br/>
+          License #CCC1331960 · This report is for internal use only.
+        </div>
       </div>
-      <div class="banner">
-        <h2>DAMAGE FOUND</h2>
-        <p>Contact homeowner immediately to schedule PA paperwork signing.</p>
+
+      <!-- PAGE 2: PHOTOS -->
+      <div class="photos-page">
+        <div class="photos-header">
+          <h2>📷 Inspection Photos</h2>
+          <span>${clientName} · ${date}</span>
+        </div>
+        <div class="photos-subheader">${address} · ${pdfPhotoUrls.length} photos shown</div>
+        <table class="photo-grid">
+          ${photoRows.join("")}
+        </table>
+        <div class="photos-footer">
+          U.S. Shingle &amp; Metal LLC · License #CCC1331960 · Photos taken during roof inspection · ${date}
+        </div>
       </div>
-      <table class="info">
-        <tr><td>Homeowner</td><td>${clientName}</td></tr>
-        <tr><td>Address</td><td>${address}</td></tr>
-        <tr><td>Sales Rep</td><td>${repName}</td></tr>
-        <tr><td>Report Date</td><td>${date}</td></tr>
-      </table>
-      <div class="photos-title">📷 Inspection Photos (showing ${pdfPhotoUrls.length} of ${photos.length})</div>
-      <table class="photos">${photoRows.join("")}</table>
-      <div class="footer">
-        U.S. Shingle &amp; Metal LLC · License #CCC1331960 · (727) 761-5200 · Generated automatically from JobNimbus
-      </div>
+
     </body></html>`;
 
     console.log("PDF HTML size (chars):", html.length);
