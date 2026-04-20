@@ -3455,7 +3455,7 @@ const renderSmsTemplate = (key, vars) => {
       const base64Content = String(base64).split(",")[1];
 
       // Save to Supabase inspections table
-      const { error: inspSaveError } = await supabase.from("inspections").insert([{
+      const { data: insertedInsp, error: inspSaveError } = await supabase.from("inspections").insert([{
         client_name: inspData.clientName,
         mobile: inspData.mobile,
         email: inspData.email,
@@ -3468,11 +3468,12 @@ const renderSmsTemplate = (key, vars) => {
         sales_rep_id: data.salesRepId || "",
         sales_rep_email: data.salesRepEmail || "",
         lead_source: data.leadSource || "NEED",
-      }]);
+      }]).select("id").single();
       if (inspSaveError) {
         console.error("Inspection save error:", inspSaveError);
         alert("Warning: Could not save to database — " + inspSaveError.message);
       }
+      const newInspId = insertedInsp?.id || null;
 
       // Email to homeowner
       if (inspData.email) {
@@ -3553,15 +3554,26 @@ const renderSmsTemplate = (key, vars) => {
       }).then(async r => {
         const d = await r.json().catch(() => ({}));
         console.log("JN sync (inspection):", d);
-        // Save jn_job_id and docs_signed back to Supabase so checker can match
-        if (d.jobId) {
+        // Save jn_job_id and docs_signed back to Supabase so checker can match.
+        // Uses the captured Supabase record id from the insert above — much
+        // more reliable than re-matching by client_name+address, which used
+        // to silently fail on any whitespace or case mismatch.
+        if (d.jobId && newInspId) {
+          const { error: updateErr } = await supabase
+            .from("inspections")
+            .update({ jn_job_id: d.jobId, docs_signed: "insp" })
+            .eq("id", newInspId);
+          if (updateErr) console.warn("Failed to save jn_job_id:", updateErr.message);
+          else console.log("Saved jn_job_id:", d.jobId, "to record:", newInspId);
+        } else if (d.jobId && !newInspId) {
+          // Fallback — insert didn't return an id (rare). Try the old path.
           const { error: updateErr } = await supabase
             .from("inspections")
             .update({ jn_job_id: d.jobId, docs_signed: "insp" })
             .eq("client_name", inspData.clientName)
             .eq("address", inspData.address);
-          if (updateErr) console.warn("Failed to save jn_job_id:", updateErr.message);
-          else console.log("Saved jn_job_id:", d.jobId);
+          if (updateErr) console.warn("Fallback jn_job_id save failed:", updateErr.message);
+          else console.log("Saved jn_job_id via fallback:", d.jobId);
         }
       }).catch(e => console.warn("JN sync non-fatal:", e));
 
