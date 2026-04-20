@@ -167,15 +167,22 @@ exports.handler = async (event) => {
       let smsSent = false;
       if (newResult === "Damage") {
         const docsSigned = record.docs_signed || "";
-        if (!docsSigned.includes("lor") && !docsSigned.includes("pac") && repPhone) {
+        console.log("SMS check — repPhone:", repPhone, "| docs_signed:", docsSigned, "| sales_rep_id:", record.sales_rep_id);
+        if (!repPhone) {
+          console.warn("No rep phone found — SMS skipped. Check sales_reps table for this rep:", record.sales_rep_id);
+        } else if (docsSigned.includes("lor") || docsSigned.includes("pac")) {
+          console.log("LOR/PA already signed — SMS skipped");
+        } else {
           const msg = `🚨 ${record.client_name || "Homeowner"} at ${record.address || "their address"} has DAMAGE — call them immediately and get them to sign PA paperwork!`;
+          console.log("Sending SMS to:", repPhone, "via", `${BASE_URL}/.netlify/functions/ghl-sms`);
           const smsRes = await fetch(`${BASE_URL}/.netlify/functions/ghl-sms`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ to: repPhone, message: msg, name: repName || "Sales Rep" }),
           });
+          const smsText = await smsRes.text();
           smsSent = smsRes.ok;
-          console.log("SMS result:", smsRes.status, smsSent);
+          console.log("SMS result:", smsRes.status, smsText.slice(0, 300));
         }
       }
 
@@ -418,44 +425,49 @@ async function generateDamagePDF({ clientName, address, repName, date, photos })
       return null;
     }
 
+    // Limit to 6 photos for PDF to stay under 2MB limit
+    // Use thumbnail_url instead of full size if available
+    const pdfPhotos = photos.slice(0, 6);
+
     const photoRows = [];
-    for (let i = 0; i < photos.length; i += 2) {
-      const left  = photos[i];
-      const right = photos[i + 1];
+    for (let i = 0; i < pdfPhotos.length; i += 2) {
+      const left  = pdfPhotos[i];
+      const right = pdfPhotos[i + 1];
       photoRows.push(`
         <tr>
-          <td style="padding:4px;">
+          <td style="padding:4px;width:50%;">
             <img src="data:${left.contentType};base64,${left.base64}"
-              style="width:100%;height:180px;object-fit:cover;border-radius:4px;" />
+              style="width:100%;height:160px;object-fit:cover;border-radius:4px;" />
           </td>
-          ${right ? `<td style="padding:4px;">
+          ${right ? `<td style="padding:4px;width:50%;">
             <img src="data:${right.contentType};base64,${right.base64}"
-              style="width:100%;height:180px;object-fit:cover;border-radius:4px;" />
-          </td>` : `<td></td>`}
+              style="width:100%;height:160px;object-fit:cover;border-radius:4px;" />
+          </td>` : `<td style="width:50%;"></td>`}
         </tr>`);
     }
 
     const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
     <style>
-      body { font-family: Arial, sans-serif; margin: 0; padding: 32px; color: #111; }
-      .header { background: #1a2e5a; color: white; padding: 24px 28px; border-radius: 8px; margin-bottom: 24px; }
-      .header h1 { margin: 0; font-size: 24px; }
-      .header p { margin: 4px 0 0; font-size: 13px; opacity: 0.7; }
-      .damage-banner { background: #fef2f2; border: 3px solid #dc2626; border-radius: 8px; padding: 20px; text-align: center; margin-bottom: 24px; }
-      .damage-banner h2 { color: #dc2626; font-size: 32px; margin: 0; }
-      .damage-banner p { color: #991b1b; font-size: 14px; margin: 8px 0 0; }
-      table.info { width: 100%; border-collapse: collapse; margin-bottom: 24px; font-size: 14px; }
-      table.info td { padding: 9px 14px; border: 1px solid #e5e7eb; }
-      table.info td:first-child { background: #f9fafb; font-weight: 700; color: #6b7280; text-transform: uppercase; font-size: 11px; letter-spacing: 0.06em; width: 30%; }
-      .photos h3 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em; color: #374151; margin-bottom: 12px; }
+      * { box-sizing: border-box; }
+      body { font-family: Arial, sans-serif; margin: 0; padding: 24px; color: #111; font-size: 13px; }
+      .header { background: #1a2e5a; color: white; padding: 18px 22px; border-radius: 6px; margin-bottom: 18px; }
+      .header h1 { margin: 0; font-size: 20px; }
+      .header p { margin: 3px 0 0; font-size: 12px; opacity: 0.7; }
+      .banner { background: #fef2f2; border: 2px solid #dc2626; border-radius: 6px; padding: 14px; text-align: center; margin-bottom: 18px; }
+      .banner h2 { color: #dc2626; font-size: 24px; margin: 0 0 4px; }
+      .banner p { color: #991b1b; font-size: 12px; margin: 0; }
+      table.info { width: 100%; border-collapse: collapse; margin-bottom: 18px; }
+      table.info td { padding: 7px 12px; border: 1px solid #e5e7eb; font-size: 12px; }
+      table.info td:first-child { background: #f9fafb; font-weight: 700; color: #6b7280; text-transform: uppercase; font-size: 10px; letter-spacing: 0.06em; width: 28%; }
+      .photos-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #374151; margin-bottom: 8px; }
       table.photos { width: 100%; border-collapse: collapse; }
-      .footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #9ca3af; text-align: center; }
+      .footer { margin-top: 20px; padding-top: 12px; border-top: 1px solid #e5e7eb; font-size: 10px; color: #9ca3af; text-align: center; }
     </style></head><body>
       <div class="header">
         <h1>🚨 Damage Inspection Report</h1>
-        <p>U.S. Shingle &amp; Metal LLC · Generated ${date}</p>
+        <p>U.S. Shingle &amp; Metal LLC · ${date}</p>
       </div>
-      <div class="damage-banner">
+      <div class="banner">
         <h2>DAMAGE FOUND</h2>
         <p>Contact homeowner immediately to schedule PA paperwork signing.</p>
       </div>
@@ -465,15 +477,14 @@ async function generateDamagePDF({ clientName, address, repName, date, photos })
         <tr><td>Sales Rep</td><td>${repName}</td></tr>
         <tr><td>Report Date</td><td>${date}</td></tr>
       </table>
-      <div class="photos">
-        <h3>📷 Inspection Photos (${photos.length})</h3>
-        <table class="photos">${photoRows.join("")}</table>
-      </div>
+      <div class="photos-title">📷 Inspection Photos (showing ${pdfPhotos.length} of ${photos.length})</div>
+      <table class="photos">${photoRows.join("")}</table>
       <div class="footer">
-        U.S. Shingle &amp; Metal LLC · License #CCC1331960 · (727) 761-5200<br/>
-        This report was generated automatically from JobNimbus inspection data.
+        U.S. Shingle &amp; Metal LLC · License #CCC1331960 · (727) 761-5200 · Generated automatically from JobNimbus
       </div>
     </body></html>`;
+
+    console.log("PDF HTML size (chars):", html.length);
 
     const res = await fetch("https://api.pdfshift.io/v3/convert/pdf", {
       method: "POST",
@@ -496,7 +507,7 @@ async function generateDamagePDF({ clientName, address, repName, date, photos })
 
     const buffer = await res.arrayBuffer();
     const base64 = Buffer.from(buffer).toString("base64");
-    console.log("Damage PDF generated, size:", buffer.byteLength);
+    console.log("Damage PDF generated, size:", buffer.byteLength, "bytes");
     return base64;
 
   } catch (e) {
