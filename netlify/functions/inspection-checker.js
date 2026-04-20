@@ -24,6 +24,38 @@ const jnHeaders = {
 
 const TRIGGER_RESULTS = ["Damage", "No Damage", "Retail"];
 
+// ── SMS Templates — loaded once per invocation, cached in-module ──
+let _smsTemplatesCache = null;
+async function loadSmsTemplatesServer() {
+  if (_smsTemplatesCache) return _smsTemplatesCache;
+  try {
+    const r = await fetch(`${SB_URL}/rest/v1/sms_templates?select=key,body`, { headers: sbHeaders });
+    if (!r.ok) {
+      console.warn("SMS templates fetch failed:", r.status);
+      _smsTemplatesCache = {};
+      return _smsTemplatesCache;
+    }
+    const rows = await r.json();
+    const map = {};
+    (rows || []).forEach(row => { map[row.key] = row.body; });
+    _smsTemplatesCache = map;
+    console.log("SMS templates loaded:", Object.keys(map).length);
+    return map;
+  } catch (e) {
+    console.warn("SMS templates exception:", e.message);
+    _smsTemplatesCache = {};
+    return _smsTemplatesCache;
+  }
+}
+function renderTemplate(body, vars) {
+  return String(body || "")
+    .replace(/\{client\}/g,    vars.client    || "")
+    .replace(/\{address\}/g,   vars.address   || "")
+    .replace(/\{city\}/g,      vars.city      || "")
+    .replace(/\{rep\}/g,       vars.rep       || "")
+    .replace(/\{repPhone\}/g,  vars.repPhone  || "");
+}
+
 exports.handler = async (event) => {
   console.log("=== Inspection Checker Start ===");
 
@@ -98,7 +130,7 @@ exports.handler = async (event) => {
       let record = null;
 
       const sbRes = await fetch(
-        `${SB_URL}/rest/v1/inspections?jn_job_id=eq.${jnJobId}&select=id,client_name,address,city,state,zip,sales_rep_id,sales_rep_email,inspection_result,docs_signed&limit=1`,
+        `${SB_URL}/rest/v1/inspections?jn_job_id=eq.${jnJobId}&select=id,client_name,address,city,state,zip,mobile,email,sales_rep_id,sales_rep_email,inspection_result,docs_signed&limit=1`,
         { headers: sbHeaders }
       );
       if (sbRes.ok) {
@@ -115,7 +147,7 @@ exports.handler = async (event) => {
 
         if (nameFromJob) {
           const fbRes = await fetch(
-            `${SB_URL}/rest/v1/inspections?client_name=ilike.*${encodeURIComponent(nameFromJob)}*&select=id,client_name,address,city,state,zip,sales_rep_id,sales_rep_email,inspection_result,docs_signed&limit=1`,
+            `${SB_URL}/rest/v1/inspections?client_name=ilike.*${encodeURIComponent(nameFromJob)}*&select=id,client_name,address,city,state,zip,mobile,email,sales_rep_id,sales_rep_email,inspection_result,docs_signed&limit=1`,
             { headers: sbHeaders }
           );
           if (fbRes.ok) {
@@ -163,26 +195,74 @@ exports.handler = async (event) => {
         }
       }
 
-      // ── 4. SMS — Damage + insp only ─────────────────────────
+      // ── 4. SMS — Template-driven, covers Damage/No Damage/Retail + rep + homeowner
       let smsSent = false;
-      if (newResult === "Damage") {
+      {
         const docsSigned = record.docs_signed || "";
-        console.log("SMS check — repPhone:", repPhone, "| docs_signed:", docsSigned, "| sales_rep_id:", record.sales_rep_id);
-        if (!repPhone) {
-          console.warn("No rep phone found — SMS skipped. Check sales_reps table for this rep:", record.sales_rep_id);
-        } else if (docsSigned.includes("lor") || docsSigned.includes("pac")) {
-          console.log("LOR/PA already signed — SMS skipped");
+        const paIsSigned = docsSigned.includes("lor") || docsSigned.includes("pac");
+        const variant = paIsSigned ? "all" : "insp";
+
+        // Map JN result string → template key prefix
+        const resultKey = newResult === "Damage" ? "damage"
+                        : newResult === "No Damage" ? "nodamage"
+                        : newResult === "Retail" ? "retail"
+                        : null;
+
+        console.log("SMS check — result:", newResult, "| resultKey:", resultKey, "| variant:", variant, "| repPhone:", repPhone || "none", "| docs_signed:", docsSigned);
+
+        if (resultKey) {
+          const templates = await loadSmsTemplatesServer();
+          const vars = {
+            client:   record.client_name || "Homeowner",
+            address:  record.address || "",
+            city:     record.city || "",
+            rep:      repName || "your rep",
+            repPhone: repPhone || "",
+          };
+
+          // Send to rep
+          const repTemplate = templates[`${resultKey}_${variant}_rep`];
+          if (repPhone && repTemplate) {
+            const msg = renderTemplate(repTemplate, vars);
+            console.log("Sending rep SMS to:", repPhone, "| template:", `${resultKey}_${variant}_rep`);
+            try {
+              const r = await fetch(`${BASE_URL}/.netlify/functions/ghl-sms`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ to: repPhone, message: msg, name: repName || "Sales Rep" }),
+              });
+              const t = await r.text();
+              smsSent = r.ok;
+              console.log("Rep SMS result:", r.status, t.slice(0, 200));
+            } catch (e) { console.warn("Rep SMS error:", e.message); }
+          } else if (!repPhone) {
+            console.warn("No rep phone — rep SMS skipped");
+          } else {
+            console.warn(`No template body for ${resultKey}_${variant}_rep — rep SMS skipped`);
+          }
+
+          // Send to homeowner
+          const homeownerPhone = record.mobile || "";
+          const homeownerTemplate = templates[`${resultKey}_${variant}_homeowner`];
+          if (homeownerPhone && homeownerTemplate) {
+            const msg = renderTemplate(homeownerTemplate, vars);
+            console.log("Sending homeowner SMS to:", homeownerPhone, "| template:", `${resultKey}_${variant}_homeowner`);
+            try {
+              const r = await fetch(`${BASE_URL}/.netlify/functions/ghl-sms`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ to: homeownerPhone, message: msg, name: record.client_name || "Homeowner" }),
+              });
+              const t = await r.text();
+              console.log("Homeowner SMS result:", r.status, t.slice(0, 200));
+            } catch (e) { console.warn("Homeowner SMS error:", e.message); }
+          } else if (!homeownerPhone) {
+            console.warn("No homeowner phone — homeowner SMS skipped");
+          } else {
+            console.warn(`No template body for ${resultKey}_${variant}_homeowner — homeowner SMS skipped`);
+          }
         } else {
-          const msg = `🚨 ${record.client_name || "Homeowner"} at ${record.address || "their address"} has DAMAGE — call them immediately and get them to sign PA paperwork!`;
-          console.log("Sending SMS to:", repPhone, "via", `${BASE_URL}/.netlify/functions/ghl-sms`);
-          const smsRes = await fetch(`${BASE_URL}/.netlify/functions/ghl-sms`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ to: repPhone, message: msg, name: repName || "Sales Rep" }),
-          });
-          const smsText = await smsRes.text();
-          smsSent = smsRes.ok;
-          console.log("SMS result:", smsRes.status, smsText.slice(0, 300));
+          console.warn("Unknown result, no SMS sent:", newResult);
         }
       }
 

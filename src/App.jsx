@@ -2900,6 +2900,47 @@ export default function App() {
 const [noDamageManagerSms, setNoDamageManagerSmsRaw] = useState(() => loadSetting("noDamageManagerSms") || "✅ No damage found at {address} for {client}. Rep: {rep}. Inspection complete — no claim needed.");
 const setNoDamageManagerPhone = (v) => { setNoDamageManagerPhoneRaw(v); saveSetting("noDamageManagerPhone", v); };
 const setNoDamageManagerSms = (v) => { setNoDamageManagerSmsRaw(v); saveSetting("noDamageManagerSms", v); };
+
+// ── SMS Templates — 12 templates stored in Supabase sms_templates table ──
+// Keys: {damage,nodamage,retail}_{insp,all}_{rep,homeowner}
+// `insp` = only inspection was signed; `all` = insp + PA paperwork all signed
+// These override any other SMS rules in the system for result-based messages
+const SMS_TEMPLATE_KEYS = [
+  "damage_insp_rep", "damage_insp_homeowner",
+  "damage_all_rep", "damage_all_homeowner",
+  "nodamage_insp_rep", "nodamage_insp_homeowner",
+  "nodamage_all_rep", "nodamage_all_homeowner",
+  "retail_insp_rep", "retail_insp_homeowner",
+  "retail_all_rep", "retail_all_homeowner",
+];
+const [smsTemplates, setSmsTemplates] = useState({});
+const [smsTemplatesLoaded, setSmsTemplatesLoaded] = useState(false);
+const loadSmsTemplates = async () => {
+  try {
+    const { data, error } = await supabase.from("sms_templates").select("key, body");
+    if (error) { console.warn("SMS templates load error:", error.message); setSmsTemplatesLoaded(true); return; }
+    const map = {};
+    (data || []).forEach(row => { map[row.key] = row.body; });
+    setSmsTemplates(map);
+    setSmsTemplatesLoaded(true);
+  } catch (e) { console.warn("SMS templates load exception:", e.message); setSmsTemplatesLoaded(true); }
+};
+const saveSmsTemplate = async (key, body) => {
+  setSmsTemplates(prev => ({ ...prev, [key]: body }));
+  try {
+    await supabase.from("sms_templates").upsert({ key, body, updated_at: new Date().toISOString() }, { onConflict: "key" });
+  } catch (e) { console.warn("SMS template save error:", e.message); }
+};
+const renderSmsTemplate = (key, vars) => {
+  const body = smsTemplates[key] || "";
+  return body
+    .replace(/\{client\}/g,    vars.client    || "")
+    .replace(/\{address\}/g,   vars.address   || "")
+    .replace(/\{city\}/g,      vars.city      || "")
+    .replace(/\{rep\}/g,       vars.rep       || "")
+    .replace(/\{repPhone\}/g,  vars.repPhone  || "");
+};
+
   const setPreInspOpening  = (v) => { setPreInspOpeningRaw(v);  saveSetting("preInspOpening", v); };
   const setPreInspSteps    = (v) => { setPreInspStepsRaw(v);    saveSetting("preInspSteps", JSON.stringify(v)); };
   const setPreInspClosing  = (v) => { setPreInspClosingRaw(v);  saveSetting("preInspClosing", v); };
@@ -2981,6 +3022,20 @@ const setNoDamageManagerSms = (v) => { setNoDamageManagerSmsRaw(v); saveSetting(
 
   // Load reps on mount
   useEffect(() => { loadReps(); }, []);
+
+  // Load SMS templates when the manager opens the SMS section
+  useEffect(() => {
+    if (view === "manager" && managerSection === "sms" && !smsTemplatesLoaded) {
+      loadSmsTemplates();
+    }
+  }, [view, managerSection, smsTemplatesLoaded]);
+
+  // Also ensure templates are available for submitInspectionResult (Record Lookup)
+  useEffect(() => {
+    if (view === "manager" && managerSection === "lookup" && !smsTemplatesLoaded) {
+      loadSmsTemplates();
+    }
+  }, [view, managerSection, smsTemplatesLoaded]);
 
   // Auto-run damage check silently when view changes to manager
   useEffect(() => {
@@ -4066,8 +4121,34 @@ const setNoDamageManagerSms = (v) => { setNoDamageManagerSmsRaw(v); saveSetting(
         const { data: repData } = await supabase.from("sales_reps").select("phone").eq("id", repId).single();
         repPhone = repData?.phone || "";
       }
+      // Determine PA paperwork signed state (for choosing _insp vs _all templates)
+      const addr = (selectedInspRecord.address || "").trim().toLowerCase();
+      const zip = (selectedInspRecord.zip || "").trim();
+      let paIsSigned = false;
+      if (addr && zip) {
+        const { data: claimData } = await supabase.from("claims").select("id, docs_signed").ilike("address", addr).eq("zip", zip).order("signed_at", { ascending: false }).limit(1);
+        const c = claimData?.[0];
+        paIsSigned = c && ((c.docs_signed || "").includes("lor") || (c.docs_signed || "").includes("pac"));
+      }
+
+      // Resolve homeowner phone (for SMS)
+      const homeownerPhone = selectedInspRecord.mobile || selectedInspRecord.phone || "";
+
+      // Pick template variant: "all" if PA paperwork signed upfront, else "insp"
+      const variant = paIsSigned ? "all" : "insp";
+      const resultKey = hasDamage ? "damage" : "nodamage";  // manual flow doesn't produce "retail"
+
+      // Template vars used by {placeholders}
+      const tvars = {
+        client:   ownerName,
+        address:  selectedInspRecord.address || "",
+        city:     selectedInspRecord.city || "",
+        rep:      repName || "your rep",
+        repPhone: repPhone || "",
+      };
+
 if (!hasDamage) {
-        // NO DAMAGE — email homeowner certificate + SMS retail sales manager
+        // NO DAMAGE — email homeowner certificate (email stays as-is for rich HTML)
         if (homeownerEmail) {
           await fetch("/.netlify/functions/send-email", {
             method: "POST", headers: { "Content-Type": "application/json" },
@@ -4080,74 +4161,53 @@ if (!hasDamage) {
             }),
           }).catch(e => console.warn("No-damage email:", e));
         }
-
-        // SMS retail sales manager
-        if (noDamageManagerPhone) {
-          const smsText = (noDamageManagerSms || "")
-            .replace(/{address}/g, selectedInspRecord.address || "")
-            .replace(/{client}/g, ownerName)
-            .replace(/{rep}/g, repName || "Unknown rep")
-            .replace(/{city}/g, selectedInspRecord.city || "");
-          await fetch("/.netlify/functions/ghl-sms", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ to: noDamageManagerPhone, message: smsText, name: "Retail Sales Manager" }),
-          }).catch(e => console.warn("No-damage manager SMS:", e));
-        }
-
       } else {
-        // DAMAGE — check if PA paperwork is signed
-        const addr = (selectedInspRecord.address || "").trim().toLowerCase();
-        const zip = (selectedInspRecord.zip || "").trim();
-        let paIsSigned = false;
-        if (addr && zip) {
-          const { data: claimData } = await supabase.from("claims").select("id, docs_signed").ilike("address", addr).eq("zip", zip).order("signed_at", { ascending: false }).limit(1);
-          const c = claimData?.[0];
-          paIsSigned = c && ((c.docs_signed || "").includes("lor") || (c.docs_signed || "").includes("pac"));
-        }
-
-        if (paIsSigned) {
-          // PA already signed — email homeowner that CCG Claims is starting right away
-          if (homeownerEmail) {
-            await fetch("/.netlify/functions/send-email", {
-              method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                to: [homeownerEmail],
-                bcc: activityEmail ? [activityEmail] : [],
-                subject: "⚠️ Roof Damage Found — Your Claim Is Being Started",
-                html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto"><div style="background:#dc2626;padding:24px 32px;border-radius:12px 12px 0 0"><h1 style="color:#fff;margin:0">⚠️ Damage Found — CCG Claims Is On It</h1></div><div style="background:#f9fafb;padding:24px 32px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none"><p>Hi ${ownerName},</p><p>Our inspector has completed the roof inspection at <strong>${propertyAddr}</strong> and confirmed <strong>storm damage</strong>.</p><div style="background:#fef2f2;border:2px solid #dc2626;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#991b1b">🚀 Your Claim Is Already In Motion</p><p style="margin:8px 0 0;color:#991b1b;font-size:14px;line-height:1.6">Because you already have your paperwork signed with Capital Claims Group, <strong>your claim is being started right away.</strong> CCG Claims will be reaching out to you shortly to walk you through the next steps.</p></div><div style="background:#1a2e5a;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#fff">📞 Capital Claims Group</p><p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:14px">Phone: +1 (954) 571-3035 | Email: claims@capitalclaimgroup.com</p></div><p style="font-size:13px;color:#6b7280">Please do not repair or replace anything until your claim has been reviewed.</p></div></div>`,
-                attachments: certBase64 ? [{ filename: "Inspection-Certificate-Damage.pdf", content: certBase64 }] : [],
-              }),
-            }).catch(e => console.warn("Damage+PA email:", e));
-          }
-
-        } else {
-          // Inspection only — email homeowner + SMS rep immediately
-          if (homeownerEmail) {
-            await fetch("/.netlify/functions/send-email", {
-              method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                to: [homeownerEmail],
-                bcc: activityEmail ? [activityEmail] : [],
-                subject: "⚠️ Roof Inspection Results — Damage Found",
-                html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto"><div style="background:#dc2626;padding:24px 32px;border-radius:12px 12px 0 0"><h1 style="color:#fff;margin:0">⚠️ Damage Found — We're On It</h1></div><div style="background:#f9fafb;padding:24px 32px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none"><p>Hi ${ownerName},</p><p>Our inspector has completed the roof inspection at <strong>${propertyAddr}</strong> and identified <strong>storm damage</strong>.</p><div style="background:#fef2f2;border:2px solid #dc2626;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#991b1b">📋 What Happens Next</p><p style="margin:8px 0 0;color:#991b1b;font-size:14px;line-height:1.6">Your representative, <strong>${repName || "our team"}</strong>, will be contacting you soon to get the paperwork started so we can work with your insurance company on your behalf.</p></div><p style="font-size:14px;color:#374151">Your official inspection report is attached. Please do not repair or replace anything until your claim has been reviewed.</p><div style="background:#1a2e5a;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#fff">📞 U.S. Shingle &amp; Metal LLC</p><p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:14px">Phone: 727-761-5200 | Email: inspection@shingleusa.com</p></div></div></div>`,
-                attachments: certBase64 ? [{ filename: "Inspection-Certificate-Damage.pdf", content: certBase64 }] : [],
-              }),
-            }).catch(e => console.warn("Damage email:", e));
-          }
-
-          // SMS rep immediately
-          if (repPhone) {
-            await fetch("/.netlify/functions/ghl-sms", {
-              method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                to: repPhone,
-                name: repName || "Sales Rep",
-                message: `🚨 DAMAGE FOUND — ${selectedInspRecord.address}, ${selectedInspRecord.city || ""} — Homeowner: ${ownerName}. Storm damage confirmed. PA paperwork has NOT been signed. Contact homeowner ASAP to get LOR + PA Authorization signed! — USS Inspection System`,
-              }),
-            }).catch(e => console.warn("SMS to rep:", e));
-          }
+        // DAMAGE — email homeowner (content varies based on PA signed status)
+        if (homeownerEmail) {
+          const emailSubject = paIsSigned ? "⚠️ Roof Damage Found — Your Claim Is Being Started" : "⚠️ Roof Inspection Results — Damage Found";
+          const emailHtml = paIsSigned
+            ? `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto"><div style="background:#dc2626;padding:24px 32px;border-radius:12px 12px 0 0"><h1 style="color:#fff;margin:0">⚠️ Damage Found — CCG Claims Is On It</h1></div><div style="background:#f9fafb;padding:24px 32px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none"><p>Hi ${ownerName},</p><p>Our inspector has completed the roof inspection at <strong>${propertyAddr}</strong> and confirmed <strong>storm damage</strong>.</p><div style="background:#fef2f2;border:2px solid #dc2626;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#991b1b">🚀 Your Claim Is Already In Motion</p><p style="margin:8px 0 0;color:#991b1b;font-size:14px;line-height:1.6">Because you already have your paperwork signed with Capital Claims Group, <strong>your claim is being started right away.</strong> CCG Claims will be reaching out to you shortly to walk you through the next steps.</p></div><div style="background:#1a2e5a;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#fff">📞 Capital Claims Group</p><p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:14px">Phone: +1 (954) 571-3035 | Email: claims@capitalclaimgroup.com</p></div><p style="font-size:13px;color:#6b7280">Please do not repair or replace anything until your claim has been reviewed.</p></div></div>`
+            : `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto"><div style="background:#dc2626;padding:24px 32px;border-radius:12px 12px 0 0"><h1 style="color:#fff;margin:0">⚠️ Damage Found — We're On It</h1></div><div style="background:#f9fafb;padding:24px 32px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none"><p>Hi ${ownerName},</p><p>Our inspector has completed the roof inspection at <strong>${propertyAddr}</strong> and identified <strong>storm damage</strong>.</p><div style="background:#fef2f2;border:2px solid #dc2626;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#991b1b">📋 What Happens Next</p><p style="margin:8px 0 0;color:#991b1b;font-size:14px;line-height:1.6">Your representative, <strong>${repName || "our team"}</strong>, will be contacting you soon to get the paperwork started so we can work with your insurance company on your behalf.</p></div><p style="font-size:14px;color:#374151">Your official inspection report is attached. Please do not repair or replace anything until your claim has been reviewed.</p><div style="background:#1a2e5a;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#fff">📞 U.S. Shingle &amp; Metal LLC</p><p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:14px">Phone: 727-761-5200 | Email: inspection@shingleusa.com</p></div></div></div>`;
+          await fetch("/.netlify/functions/send-email", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              to: [homeownerEmail],
+              bcc: activityEmail ? [activityEmail] : [],
+              subject: emailSubject,
+              html: emailHtml,
+              attachments: certBase64 ? [{ filename: "Inspection-Certificate-Damage.pdf", content: certBase64 }] : [],
+            }),
+          }).catch(e => console.warn("Damage email:", e));
         }
       }
+
+      // ── SMS — ALWAYS driven by the SMS Templates table (overrides all other SMS rules)
+      // Send to rep
+      const repMsg = renderSmsTemplate(`${resultKey}_${variant}_rep`, tvars);
+      if (repPhone && repMsg) {
+        await fetch("/.netlify/functions/ghl-sms", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ to: repPhone, message: repMsg, name: repName || "Sales Rep" }),
+        }).catch(e => console.warn("Rep SMS failed:", e));
+      } else if (!repMsg) {
+        console.warn(`SMS template empty for key: ${resultKey}_${variant}_rep — skipped`);
+      } else if (!repPhone) {
+        console.warn("No rep phone on file — rep SMS skipped");
+      }
+
+      // Send to homeowner
+      const homeownerMsg = renderSmsTemplate(`${resultKey}_${variant}_homeowner`, tvars);
+      if (homeownerPhone && homeownerMsg) {
+        await fetch("/.netlify/functions/ghl-sms", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ to: homeownerPhone, message: homeownerMsg, name: ownerName }),
+        }).catch(e => console.warn("Homeowner SMS failed:", e));
+      } else if (!homeownerMsg) {
+        console.warn(`SMS template empty for key: ${resultKey}_${variant}_homeowner — skipped`);
+      } else if (!homeownerPhone) {
+        console.warn("No homeowner phone on file — homeowner SMS skipped");
+      }
+
       setResultDone(true);
     } catch(err) {
       alert(err?.message || "Something went wrong.");
@@ -6625,7 +6685,8 @@ if (!hasDamage) {
                   {managerSection === "home" ? (
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 8 }}>
                       {[
-                        { key: "security", emoji: "⚙️", label: "Security & Notifications", desc: "PIN, activity email, no-damage SMS" },
+                        { key: "security", emoji: "⚙️", label: "Security & Notifications", desc: "PIN, activity email" },
+                        { key: "sms", emoji: "💬", label: "SMS Templates", desc: "Auto-messages for each inspection result" },
                         { key: "review", emoji: "📝", label: "Review Page Text", desc: "Headlines, document descriptions" },
                         { key: "thankyou", emoji: "🎉", label: "Thank You Pages", desc: "Post-inspection, pre-inspection, USS" },
                         { key: "reps", emoji: "👥", label: "Sales Rep Manager", desc: "Add, import, activate reps" },
@@ -6717,6 +6778,62 @@ if (!hasDamage) {
                       </div>
                     </div>
                   </Card>}
+
+                  {managerSection === "sms" && <Card style={{ padding: 20, background: "#f8fafc" }}>
+                    <SectionTitle>SMS Templates</SectionTitle>
+                    <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#1e40af", fontFamily: "'Nunito', sans-serif", lineHeight: 1.6 }}>
+                      These messages are sent automatically after each inspection result. They override all other SMS rules.<br/>
+                      Available placeholders: <code>{"{client}"}</code> <code>{"{address}"}</code> <code>{"{city}"}</code> <code>{"{rep}"}</code> <code>{"{repPhone}"}</code>
+                    </div>
+                    {!smsTemplatesLoaded ? (
+                      <div style={{ textAlign: "center", padding: "32px 0", color: "#9ca3af", fontFamily: "'Nunito', sans-serif" }}>Loading templates...</div>
+                    ) : (
+                      <div style={{ display: "grid", gap: 16 }}>
+                        {[
+                          { key: "damage",   label: "Damage Found",         emoji: "🚨", bg: "#fef2f2", border: "#fca5a5", titleColor: "#991b1b" },
+                          { key: "nodamage", label: "No Damage",            emoji: "✅", bg: "#f0fdf4", border: "#bbf7d0", titleColor: "#166534" },
+                          { key: "retail",   label: "Retail (Wear & Tear)", emoji: "🏠", bg: "#fffbeb", border: "#fde68a", titleColor: "#92400e" },
+                        ].map(group => (
+                          <div key={group.key} style={{ background: group.bg, border: `2px solid ${group.border}`, borderRadius: 14, padding: "16px 18px" }}>
+                            <div style={{ fontSize: 16, fontWeight: 700, color: group.titleColor, fontFamily: "'Oswald', sans-serif", marginBottom: 14, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                              {group.emoji} {group.label}
+                            </div>
+                            {[
+                              { variant: "insp", label: "Inspection only signed (PA paperwork NOT signed upfront)" },
+                              { variant: "all",  label: "Inspection + PA paperwork all signed upfront" },
+                            ].map(v => (
+                              <div key={v.variant} style={{ marginBottom: 14 }}>
+                                <div style={{ fontSize: 12, fontWeight: 700, color: "#374151", fontFamily: "'Nunito', sans-serif", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                  {v.label}
+                                </div>
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                                  {[
+                                    { to: "rep",       toLabel: "To Sales Rep" },
+                                    { to: "homeowner", toLabel: "To Homeowner" },
+                                  ].map(r => {
+                                    const tKey = `${group.key}_${v.variant}_${r.to}`;
+                                    return (
+                                      <div key={r.to}>
+                                        <div style={{ fontSize: 11, fontWeight: 700, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 4 }}>{r.toLabel}</div>
+                                        <textarea
+                                          value={smsTemplates[tKey] || ""}
+                                          onChange={(e) => saveSmsTemplate(tKey, e.target.value)}
+                                          rows={3}
+                                          placeholder={`Enter SMS to ${r.to} for ${group.label} — ${v.variant === "insp" ? "insp only" : "all signed"}`}
+                                          style={{ width: "100%", borderRadius: 10, border: "1px solid #d1d5db", padding: "8px 10px", fontSize: 13, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit", background: "#fff" }}
+                                        />
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </Card>}
+
                   {managerSection === "review" && <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Review Page Text</SectionTitle>
                     <div style={{ display: "grid", gap: 16 }}>
