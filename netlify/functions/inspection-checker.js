@@ -840,7 +840,20 @@ function buildDamagePDF() { return null; } // unused, kept for compat
 
 // ── Update Supabase ──────────────────────────────────────────────
 async function updateInspectionResult(recordId, result, notified) {
-  const payload = { inspection_result: result };
+  // Normalize JN result ("Damage" / "No Damage" / "Retail") to the lowercase
+  // snake_case format the app UI expects in `result` column.
+  const resultMap = {
+    "Damage": "damage",
+    "No Damage": "no_damage",
+    "Retail": "retail",
+  };
+  const uiResult = resultMap[result] || null;
+
+  const payload = {
+    inspection_result: result,           // raw JN value (legacy)
+    result: uiResult,                    // UI-facing normalized value
+    result_at: new Date().toISOString(), // so it shows as non-pending in the UI
+  };
   if (notified) payload.inspection_notified_at = new Date().toISOString();
   await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${recordId}`, {
     method: "PATCH",
