@@ -32,7 +32,7 @@ const PA_ASSETS = {
 };
 
 const REP_FIXED = {
-  name: "Neal Scoppe",
+  name: "Hank Smith",
   signatureImage: "/rep-signature.png",
 };
 
