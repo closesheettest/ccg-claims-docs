@@ -475,16 +475,16 @@ async function generateDamagePDF({ clientName, address, repName, date, photos })
       </div>
     </body></html>`;
 
-    const res = await fetch("https://api.pdfshift.io/v2/convert/", {
+    const res = await fetch("https://api.pdfshift.io/v3/convert/pdf", {
       method: "POST",
       headers: {
-        Authorization: `Basic ${Buffer.from(`api:${PDFSHIFT_KEY}`).toString("base64")}`,
+        "X-API-Key": PDFSHIFT_KEY,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
         source: html,
-        format: "Letter",
-        margin: "10mm",
+        landscape: false,
+        use_print: false,
       }),
     });
 
