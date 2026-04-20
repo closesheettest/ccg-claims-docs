@@ -654,8 +654,6 @@ async function generateDamagePDF({ clientName, address, repName, date, photos, r
       /* ── PAGE 1: CERTIFICATE ── */
       .cert-page {
         width: 8.5in;
-        min-height: 11in;
-        page-break-after: always;
         background: #fff;
         box-sizing: border-box;
       }
@@ -665,6 +663,7 @@ async function generateDamagePDF({ clientName, address, repName, date, photos, r
         width: 100%;
         padding: 32px 24px;
         background: #fff;
+        page-break-before: always;
       }
       .photos-header {
         background: #1a2e5a;

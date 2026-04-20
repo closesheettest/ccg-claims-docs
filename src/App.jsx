@@ -2678,8 +2678,15 @@ export default function App() {
   const [showInactiveReps, setShowInactiveReps] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
   const today = new Date().toISOString().split("T")[0];
-  const weekAgo = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
-  const [reportStartDate, setReportStartDate] = useState(weekAgo);
+  // Default range = current Mon–Sun pay week
+  const _mondayStart = (() => {
+    const t = new Date();
+    const daysBack = (t.getDay() + 6) % 7; // 0 if Mon, 6 if Sun
+    const d = new Date(t);
+    d.setDate(t.getDate() - daysBack);
+    return d.toISOString().split("T")[0];
+  })();
+  const [reportStartDate, setReportStartDate] = useState(_mondayStart);
   const [reportEndDate, setReportEndDate] = useState(today);
 
   const fetchReport = async (startDate, endDate) => {
@@ -2689,73 +2696,149 @@ export default function App() {
       const start = startDate + "T00:00:00.000Z";
       const end = endDate + "T23:59:59.999Z";
 
-      const [claimsRes, inspRes] = await Promise.allSettled([
+      // We need ALL inspections (not just in-window) because a claim signed
+      // this week might reference an inspection signed weeks ago, and we
+      // need to know which week that insp was signed in to color it.
+      const [claimsRes, inspRes, allInspRes] = await Promise.allSettled([
         supabase.from("claims")
-          .select("id, homeowner1, homeowner2, address, city, state, signed_at, sign_method, representative_name_old, sales_rep_name, sales_rep_email, docs_signed")
+          .select("id, homeowner1, homeowner2, address, city, state, zip, signed_at, sign_method, representative_name_old, sales_rep_name, sales_rep_email, docs_signed")
           .gte("signed_at", start)
           .lte("signed_at", end)
           .order("signed_at", { ascending: false }),
         supabase.from("inspections")
-          .select("id, client_name, address, city, state, signed_at, sales_rep_name, sales_rep_email")
+          .select("id, client_name, address, city, state, zip, signed_at, sales_rep_name, sales_rep_email")
           .gte("signed_at", start)
           .lte("signed_at", end)
           .order("signed_at", { ascending: false }),
+        // All inspections ever — small table, used to backfill prior-period insp dates
+        supabase.from("inspections")
+          .select("id, client_name, address, city, state, zip, signed_at, sales_rep_name")
+          .not("signed_at", "is", null)
+          .order("signed_at", { ascending: false })
+          .limit(2000),
       ]);
 
-      const claims = claimsRes.status === "fulfilled" ? (claimsRes.value.data || []) : [];
-      const inspections = inspRes.status === "fulfilled" ? (inspRes.value.data || []) : [];
+      const claims       = claimsRes.status === "fulfilled" ? (claimsRes.value.data || []) : [];
+      const inspsInRange = inspRes.status === "fulfilled" ? (inspRes.value.data || []) : [];
+      const allInsps     = allInspRes.status === "fulfilled" ? (allInspRes.value.data || []) : [];
 
       const claimsError = claimsRes.value?.error?.message || (claimsRes.status === "rejected" ? claimsRes.reason : null);
-      const inspError = inspRes.value?.error?.message || (inspRes.status === "rejected" ? inspRes.reason : null);
+      const inspError   = inspRes.value?.error?.message || (inspRes.status === "rejected" ? inspRes.reason : null);
 
       console.log("Report range:", start, "to", end);
-      console.log("Claims:", claims.length, "error:", claimsError);
-      console.log("Inspections:", inspections.length, "error:", inspError);
+      console.log("Claims in range:", claims.length, "| Insps in range:", inspsInRange.length, "| Total insps:", allInsps.length);
 
-      const allSignings = [
-        ...claims.map(c => {
-          const docs = (c.docs_signed || "").split(",").filter(Boolean);
-          // If docs_signed not stored, infer from claim existing = lor+pac
-          const hasInsp = docs.includes("insp") || docs.length === 0 ? docs.includes("insp") : false;
-          const hasLor = docs.includes("lor") || docs.length === 0;
-          const hasPac = docs.includes("pac") || docs.length === 0;
-          return {
-            type: "claim",
-            name: [c.homeowner1, c.homeowner2].filter(Boolean).join(" & ") || "—",
-            address: [c.address, c.city, c.state].filter(Boolean).join(", "),
-            signedAt: c.signed_at,
-            signMethod: c.sign_method,
-            rep: c.sales_rep_name || c.representative_name_old || "Unassigned",
-            hasInsp,
-            hasLor,
-            hasPac,
-          };
-        }),
-        ...inspections.map(i => ({
-          type: "insp",
+      // Helper: normalize homeowner+address into a single lookup key
+      const normKey = (name, address) =>
+        `${(name || "").trim().toLowerCase()}|${(address || "").trim().toLowerCase()}`;
+
+      // Build lookup: key → most recent inspection record (any date)
+      const inspByKey = {};
+      for (const i of allInsps) {
+        const k = normKey(i.client_name, [i.address, i.city, i.state].filter(Boolean).join(", "));
+        if (!inspByKey[k] || new Date(i.signed_at) > new Date(inspByKey[k].signed_at)) {
+          inspByKey[k] = i;
+        }
+      }
+
+      const inRange = (ts) => ts && ts >= start && ts <= end;
+
+      // Build one merged row per homeowner+address.
+      // A row appears in the report only if SOMETHING was signed this period.
+      const merged = new Map();
+
+      // Start with claims in the period — each claim represents LOR/PAC (and
+      // sometimes insp) signed this period
+      for (const c of claims) {
+        const key = normKey(
+          [c.homeowner1, c.homeowner2].filter(Boolean).join(" & "),
+          [c.address, c.city, c.state].filter(Boolean).join(", ")
+        );
+        const docs = (c.docs_signed || "").split(",").filter(Boolean);
+        // If docs_signed is empty, assume the claim was all three signed at once
+        const assumedAll = docs.length === 0;
+        const inspOnClaim = assumedAll || docs.includes("insp");
+        const lorOnClaim  = assumedAll || docs.includes("lor");
+        const pacOnClaim  = assumedAll || docs.includes("pac");
+
+        // Determine insp status:
+        // - If this claim includes "insp" → signed this period via the claim flow
+        // - Else look up the prior inspection record for this homeowner
+        let inspStatus = "none";
+        let inspSignedAt = null;
+        if (inspOnClaim) {
+          inspStatus = "current";
+          inspSignedAt = c.signed_at;
+        } else {
+          const priorInsp = inspByKey[key];
+          if (priorInsp) {
+            inspSignedAt = priorInsp.signed_at;
+            inspStatus = inRange(priorInsp.signed_at) ? "current" : "prior";
+          }
+        }
+
+        merged.set(key, {
+          name: [c.homeowner1, c.homeowner2].filter(Boolean).join(" & ") || "—",
+          address: [c.address, c.city, c.state].filter(Boolean).join(", "),
+          rep: c.sales_rep_name || c.representative_name_old || "Unassigned",
+          signedAt: c.signed_at,
+          inspStatus,
+          inspSignedAt,
+          lorStatus: lorOnClaim ? "current" : "none",
+          pacStatus: pacOnClaim ? "current" : "none",
+        });
+      }
+
+      // Add insp-only rows for homeowners who signed insp this period but
+      // don't have a claim yet (no merged entry)
+      for (const i of inspsInRange) {
+        const key = normKey(i.client_name, [i.address, i.city, i.state].filter(Boolean).join(", "));
+        if (merged.has(key)) continue; // claim row already covers this
+        merged.set(key, {
           name: i.client_name || "—",
           address: [i.address, i.city, i.state].filter(Boolean).join(", "),
-          signedAt: i.signed_at,
-          signMethod: "sign_now",
           rep: i.sales_rep_name || "Unassigned",
-          hasInsp: true,
-          hasLor: false,
-          hasPac: false,
-        })),
-      ];
+          signedAt: i.signed_at,
+          inspStatus: "current",
+          inspSignedAt: i.signed_at,
+          lorStatus: "none",
+          pacStatus: "none",
+        });
+      }
 
+      // Compute earnings per row
+      // Only docs signed THIS PERIOD count toward the week's pay
+      const rows = [...merged.values()].map(r => {
+        const inspThisWeek = r.inspStatus === "current";
+        const lorThisWeek  = r.lorStatus === "current";
+        const pacThisWeek  = r.pacStatus === "current";
+        let earned = 0;
+        if (inspThisWeek && lorThisWeek && pacThisWeek) earned = 250;
+        else if (lorThisWeek && pacThisWeek)            earned = 150;
+        else if (inspThisWeek)                          earned = 100;
+        return { ...r, earned };
+      });
+
+      // Group by rep, sort rows newest-first within each rep
       const byRep = {};
-      allSignings.forEach(s => {
-        const key = s.rep || "Unassigned";
+      rows.forEach(r => {
+        const key = r.rep || "Unassigned";
         if (!byRep[key]) byRep[key] = [];
-        byRep[key].push(s);
+        byRep[key].push(r);
       });
       Object.values(byRep).forEach(arr => arr.sort((a, b) => new Date(b.signedAt) - new Date(a.signedAt)));
 
+      // Per-rep totals
+      const repTotals = {};
+      Object.keys(byRep).forEach(rep => {
+        repTotals[rep] = byRep[rep].reduce((sum, r) => sum + r.earned, 0);
+      });
+
       setReportData({
         byRep,
-        totalClaims: claims.length,
-        totalInspections: inspections.length,
+        repTotals,
+        totalRows: rows.length,
+        totalEarned: rows.reduce((sum, r) => sum + r.earned, 0),
         startDate, endDate,
         claimsError,
         inspError,
@@ -7313,8 +7396,21 @@ if (!hasDamage) {
                       </div>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         {[
-                          { label: "This Week", fn: () => { const t=new Date(); const d=new Date(t); d.setDate(t.getDate()-t.getDay()); setReportStartDate(d.toISOString().split("T")[0]); setReportEndDate(t.toISOString().split("T")[0]); } },
-                          { label: "Last Week", fn: () => { const t=new Date(); const s=new Date(t); s.setDate(t.getDate()-t.getDay()-7); const e=new Date(t); e.setDate(t.getDate()-t.getDay()-1); setReportStartDate(s.toISOString().split("T")[0]); setReportEndDate(e.toISOString().split("T")[0]); } },
+                          { label: "This Week", fn: () => {
+                            const t=new Date();
+                            const daysBack=(t.getDay()+6)%7;
+                            const s=new Date(t); s.setDate(t.getDate()-daysBack);
+                            setReportStartDate(s.toISOString().split("T")[0]);
+                            setReportEndDate(t.toISOString().split("T")[0]);
+                          } },
+                          { label: "Last Week", fn: () => {
+                            const t=new Date();
+                            const daysBack=(t.getDay()+6)%7;
+                            const s=new Date(t); s.setDate(t.getDate()-daysBack-7);
+                            const e=new Date(t); e.setDate(t.getDate()-daysBack-1);
+                            setReportStartDate(s.toISOString().split("T")[0]);
+                            setReportEndDate(e.toISOString().split("T")[0]);
+                          } },
                           { label: "Last 30 Days", fn: () => { const t=new Date(); const s=new Date(t); s.setDate(t.getDate()-30); setReportStartDate(s.toISOString().split("T")[0]); setReportEndDate(t.toISOString().split("T")[0]); } },
                           { label: "This Month", fn: () => { const t=new Date(); setReportStartDate(new Date(t.getFullYear(),t.getMonth(),1).toISOString().split("T")[0]); setReportEndDate(t.toISOString().split("T")[0]); } },
                         ].map(({ label, fn }) => (
@@ -7332,36 +7428,54 @@ if (!hasDamage) {
                     {reportData ? (
                       <div>
                         <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 12 }}>
-                          {reportData.startDate} → {reportData.endDate} &nbsp;|&nbsp; {reportData.totalClaims} PA signing{reportData.totalClaims !== 1 ? "s" : ""}, {reportData.totalInspections} inspection{reportData.totalInspections !== 1 ? "s" : ""}
+                          {reportData.startDate} → {reportData.endDate} &nbsp;|&nbsp; {reportData.totalRows} signing{reportData.totalRows !== 1 ? "s" : ""} &nbsp;|&nbsp; <strong style={{ color: "#166534" }}>${reportData.totalEarned.toLocaleString()} total</strong>
                         </div>
                         {reportData.claimsError ? <div style={{ color: "#ef4444", fontSize: 12, marginBottom: 8 }}>⚠️ Claims error: {reportData.claimsError}</div> : null}
                         {reportData.inspError ? <div style={{ color: "#ef4444", fontSize: 12, marginBottom: 8 }}>⚠️ Inspections error: {reportData.inspError}</div> : null}
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: 8, padding: "6px 12px", background: "#f3f4f6", borderRadius: 8, marginBottom: 8, fontSize: 11, fontWeight: 700, color: "#6b7280", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 40px 40px 40px 64px", gap: 8, padding: "6px 12px", background: "#f3f4f6", borderRadius: 8, marginBottom: 8, fontSize: 11, fontWeight: 700, color: "#6b7280", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.06em", textTransform: "uppercase" }}>
                           <div>Homeowner</div>
-                          <div style={{ textAlign: "center", width: 36 }}>Insp</div>
-                          <div style={{ textAlign: "center", width: 36 }}>LOR</div>
-                          <div style={{ textAlign: "center", width: 36 }}>PA</div>
+                          <div style={{ textAlign: "center" }}>Insp</div>
+                          <div style={{ textAlign: "center" }}>LOR</div>
+                          <div style={{ textAlign: "center" }}>PA</div>
+                          <div style={{ textAlign: "right" }}>Earned</div>
                         </div>
-                        {Object.keys(reportData.byRep).sort((a,b) => reportData.byRep[b].length - reportData.byRep[a].length).map(rep => (
+                        {Object.keys(reportData.byRep).sort((a,b) => reportData.repTotals[b] - reportData.repTotals[a]).map(rep => (
                           <div key={rep} style={{ marginBottom: 16 }}>
                             <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", padding: "8px 12px", background: "#e0f2fe", borderRadius: 10, marginBottom: 6, display: "flex", justifyContent: "space-between" }}>
                               <span>👤 {rep}</span>
-                              <span style={{ fontSize: 12, color: "#0369a1" }}>{reportData.byRep[rep].length} signing{reportData.byRep[rep].length !== 1 ? "s" : ""}</span>
+                              <span style={{ fontSize: 12, color: "#0369a1" }}>{reportData.byRep[rep].length} signing{reportData.byRep[rep].length !== 1 ? "s" : ""} · <strong>${reportData.repTotals[rep].toLocaleString()}</strong></span>
                             </div>
-                            {reportData.byRep[rep].map((s, i) => (
-                              <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: 8, padding: "8px 12px", background: i%2===0 ? "#fff" : "#f9fafb", borderRadius: 8, marginBottom: 4, alignItems: "center", border: "1px solid #f3f4f6" }}>
-                                <div>
-                                  <div style={{ fontSize: 13, fontWeight: 700, color: "#111827", fontFamily: "'Nunito', sans-serif" }}>{s.name}</div>
-                                  <div style={{ fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>{s.address}</div>
-                                  <div style={{ fontSize: 11, color: "#9ca3af", fontFamily: "'Nunito', sans-serif" }}>{s.signedAt ? new Date(s.signedAt).toLocaleString() : ""}</div>
+                            {reportData.byRep[rep].map((s, i) => {
+                              const renderCheck = (status, signedAtHint) => {
+                                if (status === "current") return <span style={{ color: "#16a34a", fontSize: 18, fontWeight: 700 }}>✅</span>;
+                                if (status === "prior")   return <span style={{ color: "#9ca3af", fontSize: 18 }} title={signedAtHint ? "Signed " + new Date(signedAtHint).toLocaleDateString() : "Signed previously"}>✅</span>;
+                                return <span style={{ color: "#d1d5db", fontSize: 16 }}>○</span>;
+                              };
+                              return (
+                                <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 40px 40px 40px 64px", gap: 8, padding: "8px 12px", background: i%2===0 ? "#fff" : "#f9fafb", borderRadius: 8, marginBottom: 4, alignItems: "center", border: "1px solid #f3f4f6" }}>
+                                  <div>
+                                    <div style={{ fontSize: 13, fontWeight: 700, color: "#111827", fontFamily: "'Nunito', sans-serif" }}>{s.name}</div>
+                                    <div style={{ fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>{s.address}</div>
+                                    <div style={{ fontSize: 11, color: "#9ca3af", fontFamily: "'Nunito', sans-serif" }}>
+                                      {s.signedAt ? new Date(s.signedAt).toLocaleString() : ""}
+                                      {s.inspStatus === "prior" && s.inspSignedAt ? ` · Insp signed ${new Date(s.inspSignedAt).toLocaleDateString()}` : ""}
+                                    </div>
+                                  </div>
+                                  <div style={{ textAlign: "center" }}>{renderCheck(s.inspStatus, s.inspSignedAt)}</div>
+                                  <div style={{ textAlign: "center" }}>{renderCheck(s.lorStatus)}</div>
+                                  <div style={{ textAlign: "center" }}>{renderCheck(s.pacStatus)}</div>
+                                  <div style={{ textAlign: "right", fontSize: 13, fontWeight: 700, color: s.earned > 0 ? "#166534" : "#9ca3af", fontFamily: "'Nunito', sans-serif" }}>${s.earned}</div>
                                 </div>
-                                <div style={{ textAlign: "center", width: 36, fontSize: 16 }}>{s.hasInsp ? "✅" : "○"}</div>
-                                <div style={{ textAlign: "center", width: 36, fontSize: 16 }}>{s.hasLor ? "✅" : "○"}</div>
-                                <div style={{ textAlign: "center", width: 36, fontSize: 16 }}>{s.hasPac ? "✅" : "○"}</div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         ))}
+                        <div style={{ marginTop: 12, padding: "10px 14px", background: "#f9fafb", borderRadius: 8, display: "flex", gap: 16, flexWrap: "wrap", fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>
+                          <div><span style={{ color: "#16a34a", fontWeight: 700 }}>✅</span> signed this period</div>
+                          <div><span style={{ color: "#9ca3af" }}>✅</span> signed previously (no pay)</div>
+                          <div><span style={{ color: "#d1d5db" }}>○</span> not yet signed</div>
+                          <div style={{ marginLeft: "auto" }}>Insp $100 · LOR+PA $150 · All 3 $250</div>
+                        </div>
                         {Object.keys(reportData.byRep).length === 0 ? (
                           <div style={{ textAlign: "center", padding: "24px 0", color: "#9ca3af", fontFamily: "'Nunito', sans-serif", fontSize: 15 }}>No signings recorded this period.</div>
                         ) : null}
