@@ -1,4 +1,4 @@
-// netlify/functions/inspection-checker.js
+\// netlify/functions/inspection-checker.js
 // Polls JN for inspection result changes (Damage, No Damage, Retail)
 // - Damage + insp only → SMS to sales rep
 // - All results → email report with photos to rep + office
@@ -308,7 +308,7 @@ async function fetchJobPhotos(jnJobId) {
           } catch(e) { /* ignore thumb errors */ }
         }
 
-        return { base64, contentType, thumbBase64 };
+        return { base64, contentType, thumbBase64, thumbnailUrl: file.thumbnail_url || null, presignedUrl: url };
       } catch (e) { console.warn("Photo download error:", e.message); return null; }
     });
 
@@ -434,22 +434,27 @@ async function generateDamagePDF({ clientName, address, repName, date, photos })
       return null;
     }
 
-    // Use only 2 full-size photos for PDF to stay under 2MB
-    // (thumbnails aren't available, full images are ~1-3MB each)
-    const pdfPhotos = photos.slice(0, 2).map(p => ({
-      base64: p.thumbBase64 || p.base64,
-      contentType: p.contentType,
-    }));
+    // Use thumbnail URLs directly — let PDFShift fetch them
+    // Fall back to presigned_url if no thumbnail available
+    const pdfPhotoUrls = photos.slice(0, 6)
+      .map(p => p.thumbnailUrl || p.presignedUrl)
+      .filter(Boolean);
+    console.log("PDF photo URLs for PDF:", pdfPhotoUrls.length);
 
     const photoRows = [];
-    for (let i = 0; i < pdfPhotos.length; i += 2) {
-      const left  = pdfPhotos[i];
-      const right = pdfPhotos[i + 1];
+    for (let i = 0; i < pdfPhotoUrls.length; i += 2) {
+      const left  = pdfPhotoUrls[i];
+      const right = pdfPhotoUrls[i + 1];
       photoRows.push(`
         <tr>
           <td style="padding:4px;width:50%;">
-            <img src="data:${left.contentType};base64,${left.base64}"
-              style="width:100%;height:160px;object-fit:cover;border-radius:4px;" />
+            <img src="${left}" style="width:100%;height:160px;object-fit:cover;border-radius:4px;" />
+          </td>
+          ${right ? `<td style="padding:4px;width:50%;">
+            <img src="${right}" style="width:100%;height:160px;object-fit:cover;border-radius:4px;" />
+          </td>` : `<td style="width:50%;"></td>`}
+        </tr>`);
+    }
           </td>
           ${right ? `<td style="padding:4px;width:50%;">
             <img src="data:${right.contentType};base64,${right.base64}"
@@ -489,7 +494,7 @@ async function generateDamagePDF({ clientName, address, repName, date, photos })
         <tr><td>Sales Rep</td><td>${repName}</td></tr>
         <tr><td>Report Date</td><td>${date}</td></tr>
       </table>
-      <div class="photos-title">📷 Inspection Photos (showing ${pdfPhotos.length} of ${photos.length})</div>
+      <div class="photos-title">📷 Inspection Photos (showing ${pdfPhotoUrls.length} of ${photos.length})</div>
       <table class="photos">${photoRows.join("")}</table>
       <div class="footer">
         U.S. Shingle &amp; Metal LLC · License #CCC1331960 · (727) 761-5200 · Generated automatically from JobNimbus
