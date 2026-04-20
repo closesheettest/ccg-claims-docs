@@ -434,9 +434,9 @@ async function generateDamagePDF({ clientName, address, repName, date, photos })
       return null;
     }
 
-    // Use thumbnails (much smaller) for PDF, limit to 6 photos
-    const pdfPhotos = photos.slice(0, 6).map(p => ({
-      // Use thumbnail if available, otherwise full image
+    // Use only 2 full-size photos for PDF to stay under 2MB
+    // (thumbnails aren't available, full images are ~1-3MB each)
+    const pdfPhotos = photos.slice(0, 2).map(p => ({
       base64: p.thumbBase64 || p.base64,
       contentType: p.contentType,
     }));
