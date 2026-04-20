@@ -275,13 +275,8 @@ async function fetchJobPhotos(jnJobId) {
 
     const photoPromises = imageFiles.slice(0, 20).map(async (file) => {
       try {
-        // Log the file object to see what URL fields are available
-        console.log("Photo file keys:", Object.keys(file).join(", "));
-        console.log("Photo file sample:", JSON.stringify(file).slice(0, 300));
-
-        // Try every possible URL field
         const url = file.presigned_url || file.url || file.download_url
-          || file.file_url || file.thumbnail_url || file.original_url
+          || file.file_url || file.original_url
           || file.src || file.link || file.public_url || file.signed_url;
 
         if (!url) {
@@ -299,7 +294,21 @@ async function fetchJobPhotos(jnJobId) {
         const base64 = Buffer.from(buffer).toString("base64");
         const contentType = imgRes.headers.get("content-type") || "image/jpeg";
         console.log("Photo downloaded ok, size:", buffer.byteLength, "type:", contentType);
-        return { base64, contentType };
+
+        // Also download thumbnail (much smaller) for PDF use
+        let thumbBase64 = null;
+        if (file.thumbnail_url) {
+          try {
+            const thumbRes = await fetch(file.thumbnail_url);
+            if (thumbRes.ok) {
+              const thumbBuf = await thumbRes.arrayBuffer();
+              thumbBase64 = Buffer.from(thumbBuf).toString("base64");
+              console.log("Thumbnail downloaded, size:", thumbBuf.byteLength);
+            }
+          } catch(e) { /* ignore thumb errors */ }
+        }
+
+        return { base64, contentType, thumbBase64 };
       } catch (e) { console.warn("Photo download error:", e.message); return null; }
     });
 
@@ -425,9 +434,12 @@ async function generateDamagePDF({ clientName, address, repName, date, photos })
       return null;
     }
 
-    // Limit to 6 photos for PDF to stay under 2MB limit
-    // Use thumbnail_url instead of full size if available
-    const pdfPhotos = photos.slice(0, 6);
+    // Use thumbnails (much smaller) for PDF, limit to 6 photos
+    const pdfPhotos = photos.slice(0, 6).map(p => ({
+      // Use thumbnail if available, otherwise full image
+      base64: p.thumbBase64 || p.base64,
+      contentType: p.contentType,
+    }));
 
     const photoRows = [];
     for (let i = 0; i < pdfPhotos.length; i += 2) {
