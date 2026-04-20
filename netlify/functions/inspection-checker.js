@@ -1,4 +1,4 @@
-\// netlify/functions/inspection-checker.js
+// netlify/functions/inspection-checker.js
 // Polls JN for inspection result changes (Damage, No Damage, Retail)
 // - Damage + insp only → SMS to sales rep
 // - All results → email report with photos to rep + office
@@ -452,13 +452,6 @@ async function generateDamagePDF({ clientName, address, repName, date, photos })
           </td>
           ${right ? `<td style="padding:4px;width:50%;">
             <img src="${right}" style="width:100%;height:160px;object-fit:cover;border-radius:4px;" />
-          </td>` : `<td style="width:50%;"></td>`}
-        </tr>`);
-    }
-          </td>
-          ${right ? `<td style="padding:4px;width:50%;">
-            <img src="data:${right.contentType};base64,${right.base64}"
-              style="width:100%;height:160px;object-fit:cover;border-radius:4px;" />
           </td>` : `<td style="width:50%;"></td>`}
         </tr>`);
     }
