@@ -2728,14 +2728,22 @@ export default function App() {
       console.log("Report range:", start, "to", end);
       console.log("Claims in range:", claims.length, "| Insps in range:", inspsInRange.length, "| Total insps:", allInsps.length);
 
-      // Helper: normalize homeowner+address into a single lookup key
-      const normKey = (name, address) =>
-        `${(name || "").trim().toLowerCase()}|${(address || "").trim().toLowerCase()}`;
+      // Helper: normalize homeowner + ZIP into a single lookup key.
+      // Using ZIP (not full address) because the same property often gets
+      // re-entered with different address spellings — ZIP stays consistent.
+      // Falls back to street (first comma piece of address) if zip is missing.
+      const normName = (n) => (n || "").trim().toLowerCase().replace(/\s+/g, " ");
+      const normKey = (name, zip, address) => {
+        const z = (zip || "").trim();
+        if (z) return `${normName(name)}|zip:${z}`;
+        const street = (address || "").split(",")[0].trim().toLowerCase().replace(/\s+/g, " ");
+        return `${normName(name)}|st:${street}`;
+      };
 
       // Build lookup: key → most recent inspection record (any date)
       const inspByKey = {};
       for (const i of allInsps) {
-        const k = normKey(i.client_name, [i.address, i.city, i.state].filter(Boolean).join(", "));
+        const k = normKey(i.client_name, i.zip, i.address);
         if (!inspByKey[k] || new Date(i.signed_at) > new Date(inspByKey[k].signed_at)) {
           inspByKey[k] = i;
         }
@@ -2743,7 +2751,7 @@ export default function App() {
 
       const inRange = (ts) => ts && ts >= start && ts <= end;
 
-      // Build one merged row per homeowner+address.
+      // Build one merged row per homeowner+zip.
       // A row appears in the report only if SOMETHING was signed this period.
       const merged = new Map();
 
@@ -2752,6 +2760,7 @@ export default function App() {
       for (const c of claims) {
         const key = normKey(
           [c.homeowner1, c.homeowner2].filter(Boolean).join(" & "),
+          c.zip,
           [c.address, c.city, c.state].filter(Boolean).join(", ")
         );
         const docs = (c.docs_signed || "").split(",").filter(Boolean);
@@ -2792,7 +2801,7 @@ export default function App() {
       // Add insp-only rows for homeowners who signed insp this period but
       // don't have a claim yet (no merged entry)
       for (const i of inspsInRange) {
-        const key = normKey(i.client_name, [i.address, i.city, i.state].filter(Boolean).join(", "));
+        const key = normKey(i.client_name, i.zip, [i.address, i.city, i.state].filter(Boolean).join(", "));
         if (merged.has(key)) continue; // claim row already covers this
         merged.set(key, {
           name: i.client_name || "—",
@@ -7395,7 +7404,28 @@ if (!hasDamage) {
           .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at")
           .is("result", null);
         if (!error) {
-          const sorted = (results || []).sort((a, b) => {
+          // Dedupe: keep one row per homeowner at a given ZIP. Using ZIP (not
+          // full address) because the same property often gets re-entered with
+          // different address spellings — but ZIP stays consistent.
+          // Falls back to street (first comma-separated piece) if zip is missing.
+          const normName = (n) => (n || "").trim().toLowerCase().replace(/\s+/g, " ");
+          const normKey = (n, zip, addr) => {
+            const z = (zip || "").trim();
+            if (z) return `${normName(n)}|zip:${z}`;
+            const street = (addr || "").split(",")[0].trim().toLowerCase().replace(/\s+/g, " ");
+            return `${normName(n)}|st:${street}`;
+          };
+          const bestByKey = new Map();
+          for (const r of results || []) {
+            const k = normKey(r.client_name, r.zip, r.address);
+            const existing = bestByKey.get(k);
+            if (!existing) { bestByKey.set(k, r); continue; }
+            const tNew = r.signed_at ? new Date(r.signed_at).getTime() : 0;
+            const tOld = existing.signed_at ? new Date(existing.signed_at).getTime() : 0;
+            if (tNew > tOld) bestByKey.set(k, r);
+          }
+          const deduped = [...bestByKey.values()];
+          const sorted = deduped.sort((a, b) => {
             const lastName = (name) => {
               const parts = (name || "").trim().split(" ");
               return parts[parts.length - 1].toLowerCase();
