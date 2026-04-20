@@ -212,6 +212,7 @@ exports.handler = async (event) => {
           repName: repName || "—",
           date: reportDate,
           photos,
+          record,
         });
         if (pdfBase64) {
           const safeName = (record.client_name || "Homeowner").replace(/[^a-zA-Z0-9]/g, "-");
@@ -425,8 +426,177 @@ async function sendEmail(to, subject, html, pdfBase64, pdfFilename) {
   }
 }
 
+// ── Inspection findings rows (mirrors App.jsx INSP_ROWS_DAMAGE) ───
+const INSP_ROWS_DAMAGE = [
+  { category: "Roofing Material Type",       finding: "Asphalt Shingle & Metal Roofing System",            result: "N/A"  },
+  { category: "Shingle Condition",            finding: "Storm damage observed — see inspection notes",       result: "FAIL" },
+  { category: "Metal Panel Condition",        finding: "N/A",                                                result: "N/A"  },
+  { category: "Flashing & Sealants",          finding: "N/A",                                                result: "N/A"  },
+  { category: "Gutters & Downspouts",         finding: "N/A",                                                result: "N/A"  },
+  { category: "Ridge & Hip Caps",             finding: "N/A",                                                result: "N/A"  },
+  { category: "Roof Deck (Visible)",          finding: "N/A",                                                result: "N/A"  },
+  { category: "Ventilation",                  finding: "N/A",                                                result: "N/A"  },
+  { category: "Water Intrusion / Leaks",      finding: "N/A",                                                result: "N/A"  },
+  { category: "Overall Structural Integrity", finding: "Structural damage confirmed — replacement required", result: "FAIL" },
+];
+
+// ── Date helpers (mirror App.jsx) ─────────────────────────────────
+function fmtDateLong(dateStr) {
+  if (!dateStr) return "";
+  return new Date(dateStr + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+}
+function fmtDateShort(dateStr) {
+  if (!dateStr) return "";
+  const d = new Date(dateStr + "T12:00:00");
+  return `${String(d.getMonth() + 1).padStart(2, "0")} / ${String(d.getDate()).padStart(2, "0")} / ${d.getFullYear()}`;
+}
+function addOneYearStr(dateStr) {
+  if (!dateStr) return "";
+  const d = new Date(dateStr + "T12:00:00");
+  d.setFullYear(d.getFullYear() + 1);
+  return d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+}
+function genCertNo(dateStr) {
+  const d = dateStr ? new Date(dateStr + "T12:00:00") : new Date();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const dy = String(d.getDate()).padStart(2, "0");
+  return `RC-${d.getFullYear()}-${m}${dy}-${Math.floor(Math.random() * 9000) + 1000}`;
+}
+function escapeHtml(s) {
+  return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+// ── Build the certificate HTML (page 1) — mirrors InspectionCertificatePDF in App.jsx
+function buildCertificateHTML({ record, inspectorName, inspectionDateISO, logoUrl }) {
+  const today = inspectionDateISO || new Date().toISOString().split("T")[0];
+  const certNo = genCertNo(today);
+  const inspector = inspectorName || "—";
+  const rows = INSP_ROWS_DAMAGE;
+
+  const addr = escapeHtml(record.address || "");
+  const cityLine = escapeHtml([record.city, record.state, record.zip].filter(Boolean).join(", "));
+  const owner = escapeHtml(record.client_name || "");
+
+  const rowsHtml = rows.map((row, i) => {
+    const isFail = row.result === "FAIL";
+    const isNA   = row.result === "N/A";
+    const bg     = i % 2 === 0 ? "#fff" : "#f8fafc";
+    const catColor = isFail ? "#dc2626" : "#1a2e5a";
+    const badgeBg  = isFail ? "#dc2626" : isNA ? "#6b7280" : "#199c2e";
+    return `<tr style="background:${bg};">
+      <td style="padding:4px 9px;border:1px solid #d1d5db;font-weight:700;color:${catColor};font-size:10px;">${escapeHtml(row.category)}</td>
+      <td style="padding:4px 9px;border:1px solid #d1d5db;color:#374151;font-size:10px;">${escapeHtml(row.finding)}</td>
+      <td style="padding:4px 9px;border:1px solid #d1d5db;text-align:center;">
+        <div style="background:${badgeBg};color:#fff;border-radius:3px;padding:2px 5px;font-size:9.5px;font-weight:700;display:inline-block;min-width:32px;">${row.result}</div>
+      </td>
+    </tr>`;
+  }).join("");
+
+  const tdL = `style="padding:6px 10px;font-size:10.5px;font-weight:700;color:#1a2e5a;background:#eef1f8;border:1px solid #c8d4e8;width:24%;"`;
+  const tdV = `style="padding:6px 10px;font-size:10.5px;color:#111827;background:#fff;border:1px solid #c8d4e8;"`;
+
+  return `
+  <div class="cert-page">
+    <div style="border:6px solid #1a2e5a;margin:0.3in 0.35in;">
+
+      <!-- Header -->
+      <div style="display:flex;align-items:stretch;border-bottom:4px solid #1a2e5a;">
+        <div style="width:1.9in;background:#fff;display:flex;align-items:center;justify-content:center;padding:12px 10px;border-right:3px solid #1a2e5a;flex-shrink:0;">
+          <img src="${logoUrl}" alt="U.S. Shingle & Metal" style="width:100%;max-height:1in;object-fit:contain;" />
+        </div>
+        <div style="flex:1;text-align:center;padding:12px 14px;">
+          <div style="font-size:20px;font-weight:700;color:#1a2e5a;text-transform:uppercase;">CERTIFIED ROOFING INSPECTION CERTIFICATE</div>
+          <div style="font-size:14px;font-weight:700;color:#c8392b;margin-top:3px;">U.S. Shingle and Metal LLC</div>
+          <div style="font-size:10.5px;color:#374151;margin-top:2px;">Residential &amp; Commercial Roofing Inspection</div>
+          <div style="font-size:10.5px;color:#374151;">Licensed • Insured • Roof Inspectors</div>
+          <div style="font-size:10.5px;font-weight:700;color:#c8392b;margin-top:2px;">ASPHALT SHINGLE | METAL ROOFING SYSTEMS</div>
+        </div>
+      </div>
+
+      <!-- Contact bar -->
+      <div style="background:#1a2e5a;color:#fff;text-align:center;padding:5px 14px;font-size:10.5px;border-bottom:3px solid #c8392b;">
+        Phone: 727-761-5200 &nbsp;|&nbsp; Email: inspection@shingleusa.com &nbsp;|&nbsp; www.shingleusa.com &nbsp;|&nbsp; License #: CCC1331960
+      </div>
+
+      <!-- Cert # / date -->
+      <div style="display:flex;justify-content:space-between;padding:6px 14px;font-size:10.5px;border-bottom:1px solid #c8d4e8;background:#f8fafc;">
+        <div><strong>Certificate No:</strong> ${certNo}</div>
+        <div><strong>Issue Date:</strong> ${fmtDateLong(today)}</div>
+      </div>
+
+      <!-- Property info -->
+      <div style="padding:10px 14px 6px;border-bottom:2px solid #1a2e5a;">
+        <div style="font-size:11px;font-weight:700;color:#1a2e5a;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:7px;">PROPERTY INFORMATION</div>
+        <table style="width:100%;border-collapse:collapse;margin-bottom:4px;"><tbody>
+          <tr><td ${tdL}>Property Address:</td><td ${tdV}>${addr}</td><td ${tdL}>Inspection Date:</td><td ${tdV}>${fmtDateLong(today)}</td></tr>
+          <tr><td ${tdL}>City, State, ZIP:</td><td ${tdV}>${cityLine}</td><td ${tdL}>Inspector Name:</td><td ${tdV}>${escapeHtml(inspector)}</td></tr>
+          <tr><td ${tdL}>Property Owner:</td><td ${tdV}>${owner}</td><td ${tdL}>License No.:</td><td ${tdV}>CCC1331960</td></tr>
+        </tbody></table>
+      </div>
+
+      <!-- Certification statement -->
+      <div style="margin:8px 14px;border:2px solid #1a2e5a;border-radius:4px;padding:9px 13px;background:#fff5f5;">
+        <div style="font-size:12px;font-weight:700;color:#1a2e5a;text-align:center;margin-bottom:5px;text-transform:uppercase;">OFFICIAL CERTIFICATION STATEMENT</div>
+        <div style="font-size:10.5px;line-height:1.65;color:#111827;text-align:center;">
+          This is to certify that a thorough roofing inspection was conducted by U.S. Shingle and Metal LLC on the above-referenced property. Based on the findings, the roof system has been evaluated and <strong>STORM DAMAGE HAS BEEN IDENTIFIED</strong>. The roof system requires immediate attention. A licensed Public Adjuster has been notified to assist with the insurance claims process.
+        </div>
+      </div>
+
+      <!-- Findings table -->
+      <div style="padding:0 14px 6px;">
+        <div style="font-size:11px;font-weight:700;color:#1a2e5a;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:5px;">INSPECTION FINDINGS</div>
+        <table style="width:100%;border-collapse:collapse;font-size:10px;">
+          <thead>
+            <tr style="background:#1a2e5a;color:#fff;">
+              <th style="padding:5px 9px;text-align:left;border:1px solid #1a2e5a;width:30%;">INSPECTION CATEGORY</th>
+              <th style="padding:5px 9px;text-align:left;border:1px solid #1a2e5a;">FINDINGS / OBSERVATIONS</th>
+              <th style="padding:5px 9px;text-align:center;border:1px solid #1a2e5a;width:72px;">RESULT</th>
+            </tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>
+
+      <!-- Status boxes -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;margin:6px 14px;border:2px solid #1a2e5a;border-radius:4px;overflow:hidden;">
+        <div style="background:#1a2e5a;padding:9px 13px;border-right:2px solid #fff;">
+          <div style="font-size:8.5px;color:#c8392b;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;">ESTIMATED REMAINING ROOF LIFE:</div>
+          <div style="font-size:14px;font-weight:700;color:#fff;">Needs Replacement</div>
+        </div>
+        <div style="background:#dc2626;padding:9px 13px;text-align:center;border-right:2px solid #fff;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+          <div style="font-size:9.5px;font-weight:700;color:rgba(255,255,255,0.85);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;">DAMAGE STATUS</div>
+          <div style="font-size:20px;font-weight:700;color:#fff;">DAMAGE FOUND</div>
+        </div>
+        <div style="background:#c8392b;padding:9px 13px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+          <div style="font-size:9.5px;font-weight:700;color:rgba(255,255,255,0.85);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;">CERT. INSPECTED ON</div>
+          <div style="font-size:16px;font-weight:700;color:#fff;">${fmtDateShort(today)}</div>
+        </div>
+      </div>
+
+      <!-- Signature -->
+      <div style="padding:7px 14px 9px;">
+        <div style="border-top:1px solid #c8d4e8;padding-top:7px;">
+          <div style="border-bottom:1px solid #111827;height:32px;width:2.5in;margin-bottom:3px;"></div>
+          <div style="font-size:9.5px;font-weight:700;color:#374151;">Inspector Signature</div>
+          <div style="font-size:9.5px;color:#374151;margin-top:1px;">Name: ${escapeHtml(inspector)} &nbsp;&nbsp;&nbsp; License #: CCC1331960</div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div style="background:#f8fafc;border-top:3px solid #1a2e5a;padding:7px 14px;display:flex;align-items:center;gap:12px;">
+        <img src="${logoUrl}" alt="USS" style="height:32px;object-fit:contain;flex-shrink:0;" />
+        <div>
+          <div style="font-size:9.5px;font-weight:700;color:#1a2e5a;">U.S. Shingle and Metal LLC — Residential &amp; Commercial Roofing Inspection</div>
+          <div style="font-size:8.5px;color:#6b7280;">This certificate is based on visual inspection only and does not constitute a warranty or guarantee.</div>
+          <div style="font-size:8.5px;color:#6b7280;">Cert No. ${certNo} | Issued: ${fmtDateLong(today)} | Valid Through: ${addOneYearStr(today)}</div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
 // ── Generate damage report PDF via PDFShift API ──────────────────
-async function generateDamagePDF({ clientName, address, repName, date, photos }) {
+async function generateDamagePDF({ clientName, address, repName, date, photos, record }) {
   try {
     const PDFSHIFT_KEY = process.env.PDFSHIFT_API_KEY;
     if (!PDFSHIFT_KEY) {
@@ -455,95 +625,34 @@ async function generateDamagePDF({ clientName, address, repName, date, photos })
         </tr>`);
     }
 
+    // Build the certificate page using the shared helper
+    const logoUrl = `${BASE_URL}/uss-header.png`;
+    const inspectionDateISO = new Date().toISOString().split("T")[0];
+    const certRecord = record || {
+      address: (address || "").split(",")[0] || "",
+      city: "", state: "", zip: "",
+      client_name: clientName,
+    };
+    const certPageHtml = buildCertificateHTML({
+      record: certRecord,
+      inspectorName: repName,
+      inspectionDateISO,
+      logoUrl,
+    });
+
     const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
     <style>
+      @page { size: Letter; margin: 0; }
       * { box-sizing: border-box; margin: 0; padding: 0; }
-      body { font-family: Arial, sans-serif; color: #111; font-size: 13px; }
+      body { font-family: Arial, Helvetica, sans-serif; color: #111; font-size: 13px; }
 
       /* ── PAGE 1: CERTIFICATE ── */
       .cert-page {
-        width: 100%;
-        min-height: 100vh;
+        width: 8.5in;
+        min-height: 11in;
         page-break-after: always;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: 48px 40px;
         background: #fff;
-        text-align: center;
-      }
-      .cert-logo-bar {
-        background: #1a2e5a;
-        color: #fff;
-        width: 100%;
-        padding: 18px 28px;
-        border-radius: 8px;
-        margin-bottom: 32px;
-        text-align: left;
-      }
-      .cert-logo-bar h1 { font-size: 22px; margin: 0; }
-      .cert-logo-bar p { font-size: 12px; opacity: 0.7; margin: 3px 0 0; }
-      .cert-seal {
-        width: 100px; height: 100px;
-        border-radius: 50%;
-        background: #dc2626;
-        display: flex; align-items: center; justify-content: center;
-        margin: 0 auto 20px;
-        font-size: 48px;
-        border: 4px solid #fca5a5;
-      }
-      .cert-result {
-        font-size: 42px;
-        font-weight: 900;
-        color: #dc2626;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        margin-bottom: 8px;
-      }
-      .cert-subtitle {
-        font-size: 15px;
-        color: #6b7280;
-        margin-bottom: 36px;
-      }
-      .cert-table {
-        width: 100%;
-        max-width: 480px;
-        border-collapse: collapse;
-        margin: 0 auto 32px;
-        text-align: left;
-      }
-      .cert-table td {
-        padding: 10px 16px;
-        border: 1px solid #e5e7eb;
-        font-size: 13px;
-      }
-      .cert-table td:first-child {
-        background: #f9fafb;
-        font-weight: 700;
-        color: #6b7280;
-        text-transform: uppercase;
-        font-size: 10px;
-        letter-spacing: 0.08em;
-        width: 35%;
-      }
-      .cert-action {
-        background: #fef2f2;
-        border: 2px solid #dc2626;
-        border-radius: 8px;
-        padding: 16px 24px;
-        max-width: 480px;
-        margin: 0 auto 28px;
-      }
-      .cert-action h3 { color: #dc2626; font-size: 15px; margin-bottom: 6px; }
-      .cert-action p { color: #7f1d1d; font-size: 13px; line-height: 1.5; }
-      .cert-footer {
-        font-size: 11px;
-        color: #9ca3af;
-        margin-top: auto;
-        padding-top: 24px;
-        border-top: 1px solid #e5e7eb;
-        width: 100%;
+        box-sizing: border-box;
       }
 
       /* ── PAGE 2: PHOTOS ── */
@@ -590,45 +699,15 @@ async function generateDamagePDF({ clientName, address, repName, date, photos })
     </style></head><body>
 
       <!-- PAGE 1: CERTIFICATE -->
-      <div class="cert-page">
-        <div class="cert-logo-bar">
-          <h1>U.S. Shingle &amp; Metal LLC</h1>
-          <p>Licensed Roofing Contractor · CCC1331960 · (727) 761-5200</p>
-        </div>
-
-        <div class="cert-seal">🚨</div>
-        <div class="cert-result">Damage Found</div>
-        <div class="cert-subtitle">Roof Inspection Report · ${date}</div>
-
-        <table class="cert-table">
-          <tr><td>Homeowner</td><td><strong>${clientName}</strong></td></tr>
-          <tr><td>Property Address</td><td>${address}</td></tr>
-          <tr><td>Sales Representative</td><td>${repName}</td></tr>
-          <tr><td>Inspection Date</td><td>${date}</td></tr>
-          <tr><td>Photos Taken</td><td>${photos.length} photos documented</td></tr>
-        </table>
-
-        <div class="cert-action">
-          <h3>🚨 Immediate Action Required</h3>
-          <p>Storm or weather-related damage has been identified at this property.
-          The homeowner should be contacted immediately to proceed with filing a Public Adjuster claim.
-          PA paperwork must be signed to begin the claims process.</p>
-        </div>
-
-        <div class="cert-footer">
-          This report was generated automatically from JobNimbus inspection data.<br/>
-          U.S. Shingle &amp; Metal LLC · 3845 Gateway Centre Blvd Suite 300 · Pinellas Park, FL 33782<br/>
-          License #CCC1331960 · This report is for internal use only.
-        </div>
-      </div>
+      ${certPageHtml}
 
       <!-- PAGE 2: PHOTOS -->
       <div class="photos-page">
         <div class="photos-header">
           <h2>📷 Inspection Photos</h2>
-          <span>${clientName} · ${date}</span>
+          <span>${escapeHtml(clientName)} · ${date}</span>
         </div>
-        <div class="photos-subheader">${address} · ${pdfPhotoUrls.length} photos shown</div>
+        <div class="photos-subheader">${escapeHtml(address)} · ${pdfPhotoUrls.length} photos shown</div>
         <table class="photo-grid">
           ${photoRows.join("")}
         </table>
@@ -651,6 +730,7 @@ async function generateDamagePDF({ clientName, address, repName, date, photos })
         source: html,
         landscape: false,
         use_print: false,
+        format: "Letter",
       }),
     });
 
