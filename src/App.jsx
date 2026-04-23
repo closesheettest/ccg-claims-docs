@@ -2744,6 +2744,10 @@ export default function App() {
       }
 
       const pct = (n) => total > 0 ? Math.round((n / total) * 100) : 0;
+      // Resulted count = everything that isn't pending. Used as denominator for
+      // damage/no_damage/retail percentages so pending records don't dilute them.
+      const resulted = counts.damage + counts.no_damage + counts.retail;
+      const pctOfResulted = (n) => resulted > 0 ? Math.round((n / resulted) * 100) : 0;
       const mean = daysList.length > 0 ? daysList.reduce((a, b) => a + b, 0) / daysList.length : null;
       const sortedDays = [...daysList].sort((a, b) => a - b);
       const median = sortedDays.length > 0
@@ -2778,12 +2782,15 @@ export default function App() {
           const med = s.length > 0
             ? (s.length % 2 === 1 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2)
             : null;
+          const repResulted = b.damage + b.no_damage + b.retail;
+          const pctR = (n) => repResulted > 0 ? Math.round((n / repResulted) * 100) : 0;
           return {
             rep: b.rep,
             total: b.total,
-            damage: b.damage, damagePct: Math.round((b.damage / b.total) * 100),
-            no_damage: b.no_damage, noDamagePct: Math.round((b.no_damage / b.total) * 100),
-            retail: b.retail, retailPct: Math.round((b.retail / b.total) * 100),
+            resulted: repResulted,
+            damage: b.damage, damagePct: pctR(b.damage),
+            no_damage: b.no_damage, noDamagePct: pctR(b.no_damage),
+            retail: b.retail, retailPct: pctR(b.retail),
             pending: b.pending, pendingPct: Math.round((b.pending / b.total) * 100),
             meanDays: m, medianDays: med,
           };
@@ -2793,8 +2800,9 @@ export default function App() {
       setAnalyticsData({
         startDate, endDate,
         total,
+        resulted,
         counts,
-        pct: { damage: pct(counts.damage), no_damage: pct(counts.no_damage), retail: pct(counts.retail), pending: pct(counts.pending) },
+        pct: { damage: pctOfResulted(counts.damage), no_damage: pctOfResulted(counts.no_damage), retail: pctOfResulted(counts.retail), pending: pct(counts.pending) },
         meanDays: mean,
         medianDays: median,
         byRep,
@@ -4324,7 +4332,25 @@ const renderSmsTemplate = (key, vars) => {
       const repName = row.sales_rep_name || "";
       let repPhone = "";
       if (row.sales_rep_id) {
-        const { data: repData } = await supabase.from("sales_reps").select("phone").eq("id", row.sales_rep_id).single();
+        // inspections.sales_rep_id stores the JobNimbus id for imported reps
+        // and a Supabase UUID for manually-added reps. Try matching on
+        // jobnimbus_id first, then fall back to matching on the primary id.
+        let repData = null;
+        const byJn = await supabase.from("sales_reps").select("phone").eq("jobnimbus_id", row.sales_rep_id).maybeSingle();
+        if (byJn?.data) repData = byJn.data;
+        if (!repData) {
+          const byId = await supabase.from("sales_reps").select("phone").eq("id", row.sales_rep_id).maybeSingle();
+          if (byId?.data) repData = byId.data;
+        }
+        // Last resort — match by name (covers cases where sales_rep_id drifted)
+        if (!repData && row.sales_rep_name) {
+          const byName = await supabase.from("sales_reps").select("phone").ilike("name", row.sales_rep_name).maybeSingle();
+          if (byName?.data) repData = byName.data;
+        }
+        repPhone = repData?.phone || "";
+      } else if (row.sales_rep_name) {
+        // No sales_rep_id at all — match by name
+        const { data: repData } = await supabase.from("sales_reps").select("phone").ilike("name", row.sales_rep_name).maybeSingle();
         repPhone = repData?.phone || "";
       }
 
@@ -4465,7 +4491,20 @@ const renderSmsTemplate = (key, vars) => {
 
       let repPhone = "";
       if (repId) {
-        const { data: repData } = await supabase.from("sales_reps").select("phone").eq("id", repId).single();
+        let repData = null;
+        const byJn = await supabase.from("sales_reps").select("phone").eq("jobnimbus_id", repId).maybeSingle();
+        if (byJn?.data) repData = byJn.data;
+        if (!repData) {
+          const byId = await supabase.from("sales_reps").select("phone").eq("id", repId).maybeSingle();
+          if (byId?.data) repData = byId.data;
+        }
+        if (!repData && repName) {
+          const byName = await supabase.from("sales_reps").select("phone").ilike("name", repName).maybeSingle();
+          if (byName?.data) repData = byName.data;
+        }
+        repPhone = repData?.phone || "";
+      } else if (repName) {
+        const { data: repData } = await supabase.from("sales_reps").select("phone").ilike("name", repName).maybeSingle();
         repPhone = repData?.phone || "";
       }
       // Determine PA paperwork signed state (for choosing _insp vs _all templates)
@@ -8337,17 +8376,20 @@ if (!hasDamage) {
                         {/* Company-wide summary card */}
                         <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14, padding: 16, marginBottom: 16 }}>
                           <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 10 }}>Company-wide</div>
+                          <div style={{ fontSize: 11, color: "#9ca3af", fontFamily: "'Nunito', sans-serif", marginBottom: 10 }}>
+                            Damage / No Damage / Retail percentages are of <strong>{analyticsData.resulted}</strong> resulted inspection{analyticsData.resulted !== 1 ? "s" : ""} · Pending is of <strong>{analyticsData.total}</strong> total submitted
+                          </div>
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 14 }}>
                             {[
-                              { label: "Damage",     count: analyticsData.counts.damage,    pct: analyticsData.pct.damage,    bg: "#fef2f2", color: "#dc2626" },
-                              { label: "No Damage",  count: analyticsData.counts.no_damage, pct: analyticsData.pct.no_damage, bg: "#f0fdf4", color: "#199c2e" },
-                              { label: "Retail",     count: analyticsData.counts.retail,    pct: analyticsData.pct.retail,    bg: "#fff7ed", color: "#d97706" },
-                              { label: "Pending",    count: analyticsData.counts.pending,   pct: analyticsData.pct.pending,   bg: "#f3f4f6", color: "#6b7280" },
+                              { label: "Damage",     count: analyticsData.counts.damage,    pct: analyticsData.pct.damage,    denom: analyticsData.resulted, bg: "#fef2f2", color: "#dc2626" },
+                              { label: "No Damage",  count: analyticsData.counts.no_damage, pct: analyticsData.pct.no_damage, denom: analyticsData.resulted, bg: "#f0fdf4", color: "#199c2e" },
+                              { label: "Retail",     count: analyticsData.counts.retail,    pct: analyticsData.pct.retail,    denom: analyticsData.resulted, bg: "#fff7ed", color: "#d97706" },
+                              { label: "Pending",    count: analyticsData.counts.pending,   pct: analyticsData.pct.pending,   denom: analyticsData.total,    bg: "#f3f4f6", color: "#6b7280" },
                             ].map(c => (
                               <div key={c.label} style={{ background: c.bg, borderRadius: 10, padding: "10px 12px", textAlign: "center" }}>
                                 <div style={{ fontSize: 22, fontWeight: 700, color: c.color, fontFamily: "'Oswald', sans-serif" }}>{c.pct}%</div>
                                 <div style={{ fontSize: 11, color: c.color, fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}>{c.label}</div>
-                                <div style={{ fontSize: 10, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>{c.count} of {analyticsData.total}</div>
+                                <div style={{ fontSize: 10, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>{c.count} of {c.denom}</div>
                               </div>
                             ))}
                           </div>
