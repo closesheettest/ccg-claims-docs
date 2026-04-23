@@ -96,7 +96,13 @@ exports.handler = async (event) => {
 
     // cf_string_34 may not appear in list endpoint — fetch each job individually
     // to get custom fields. Only fetch jobs that are in PA workflow (record_type 45)
-    const paJobs = allJobs.filter(j => j.record_type === 45 || j.record_type_name === "Lead" || j.record_type_name === "PA");
+    // Include all workflows that could have an inspection result:
+    // 37 = PA, 45 = Lead, 36 = Retail. Previously only PA/Lead were included
+    // which silently hid every Retail record from the cron.
+    const paJobs = allJobs.filter(j =>
+      j.record_type === 37 || j.record_type === 45 || j.record_type === 36 ||
+      j.record_type_name === "PA" || j.record_type_name === "Lead" || j.record_type_name === "Retail"
+    );
     console.log("PA/Lead jobs to check:", paJobs.length);
 
     // Fetch full details for ALL PA jobs in batches of 20 (polite on JN rate limits,
@@ -212,9 +218,12 @@ exports.handler = async (event) => {
         }
       }
 
-      // ── 4. SMS — Template-driven, covers Damage/No Damage/Retail + rep + homeowner
+      // ── 4. SMS — AUTO-NOTIFICATIONS DISABLED ──────────────────
+      // Manager sends rep + homeowner SMS manually from the Pending list.
+      // Set AUTO_NOTIFY to true to restore automatic sending.
+      const AUTO_NOTIFY = false;
       let smsSent = false;
-      {
+      if (AUTO_NOTIFY) {
         const docsSigned = record.docs_signed || "";
         const paIsSigned = docsSigned.includes("lor") || docsSigned.includes("pac");
         const variant = paIsSigned ? "all" : "insp";
@@ -281,6 +290,8 @@ exports.handler = async (event) => {
         } else {
           console.warn("Unknown result, no SMS sent:", newResult);
         }
+      } else {
+        console.log("AUTO_NOTIFY disabled — skipping SMS. Manager sends manually from Pending list.");
       }
 
       // ── 5. Fetch photos from JN ──────────────────────────────
@@ -325,8 +336,15 @@ exports.handler = async (event) => {
       if (repEmail) emailTo.push(repEmail);
       if (!emailTo.includes(OFFICE_EMAIL)) emailTo.push(OFFICE_EMAIL);
 
-      const emailSent = await sendEmail(emailTo, subject, reportHtml, pdfBase64, pdfFilename);
-      console.log("Report email sent:", emailSent, "to:", emailTo, "| PDF attached:", !!pdfBase64);
+      // AUTO_NOTIFY disabled — skip internal report email too.
+      // Manager sends notifications manually from the Pending list.
+      let emailSent = false;
+      if (AUTO_NOTIFY) {
+        emailSent = await sendEmail(emailTo, subject, reportHtml, pdfBase64, pdfFilename);
+        console.log("Report email sent:", emailSent, "to:", emailTo, "| PDF attached:", !!pdfBase64);
+      } else {
+        console.log("AUTO_NOTIFY disabled — skipping report email.");
+      }
 
       // ── 7. Update Supabase ───────────────────────────────────
       await updateInspectionResult(record.id, newResult, emailSent);

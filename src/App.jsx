@@ -2375,6 +2375,11 @@ export default function App() {
     return `RC-${d.getFullYear()}-${m}${dy}-${Math.floor(Math.random()*9000)+1000}`;
   });
 
+  // ── Check Now + per-row admin override + manual notification state ──
+  const [checkNowLoading, setCheckNowLoading] = useState(false);
+  const [checkNowSummary, setCheckNowSummary] = useState(null);
+  const [rowBusyId, setRowBusyId] = useState(null);  // id of the row currently being updated/notified
+
   const effectiveInspSig = inspSigMethod === "type"
     ? (inspTypedSig ? typedSignatureToDataUrl(inspTypedSig, inspSigFont) : "")
     : inspSig;
@@ -4106,6 +4111,110 @@ const renderSmsTemplate = (key, vars) => {
     return d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
   };
 
+  // ── Per-row admin override — manually set result without sending anything ──
+  const adminSetRowResult = async (rowId, choice) => {
+    if (!rowId || !choice) return;
+    setRowBusyId(rowId);
+    try {
+      const nowIso = new Date().toISOString();
+      // Map UI choice to inspection_result (JN format) for column-sync
+      const jnResultMap = { damage: "Damage", no_damage: "No Damage", retail: "Retail" };
+      const payload = {
+        result: choice,
+        result_at: nowIso,
+        inspection_result: jnResultMap[choice] || null,
+      };
+      const { error } = await supabase.from("inspections").update(payload).eq("id", rowId);
+      if (error) { alert("Update failed: " + error.message); return; }
+      // Reflect locally so UI updates without a reload
+      setRecordSearchResults(prev => prev.map(r => r.id === rowId ? { ...r, result: choice, result_at: nowIso, checkedStatus: null } : r));
+    } catch (e) {
+      alert("Update error: " + (e.message || e));
+    } finally {
+      setRowBusyId(null);
+    }
+  };
+
+  // ── Per-row manual notify — sends SMS (rep or homeowner) using templates ──
+  // target: "rep" or "homeowner". Uses the same template resolution logic as
+  // the old auto-send path. Does not send email — just SMS, per the owner's
+  // current "silent until owner decides" policy.
+  const adminNotifyRow = async (row, target) => {
+    if (!row || !target) return;
+    if (!row.result) { alert("Set a result for this record first."); return; }
+    const resultKey = row.result === "damage" ? "damage"
+                    : row.result === "no_damage" ? "nodamage"
+                    : row.result === "retail" ? "retail" : null;
+    if (!resultKey) { alert("Unknown result — cannot determine template."); return; }
+
+    setRowBusyId(row.id);
+    try {
+      // Figure out the template variant (insp vs all) the same way as
+      // submitInspectionResult does — check claims table for matching address+zip.
+      const addr = (row.address || "").trim().toLowerCase();
+      const zip  = (row.zip || "").trim();
+      let paIsSigned = false;
+      if (addr && zip) {
+        const { data: claimData } = await supabase
+          .from("claims")
+          .select("id, docs_signed")
+          .ilike("address", addr)
+          .eq("zip", zip)
+          .order("signed_at", { ascending: false })
+          .limit(1);
+        const c = claimData?.[0];
+        paIsSigned = c && ((c.docs_signed || "").includes("lor") || (c.docs_signed || "").includes("pac"));
+      }
+      const variant = paIsSigned ? "all" : "insp";
+
+      // Resolve rep + homeowner phones / names
+      const homeownerPhone = row.mobile || row.phone || "";
+      const homeownerName  = row.client_name || "Homeowner";
+      const repName = row.sales_rep_name || "";
+      let repPhone = "";
+      if (row.sales_rep_id) {
+        const { data: repData } = await supabase.from("sales_reps").select("phone").eq("id", row.sales_rep_id).single();
+        repPhone = repData?.phone || "";
+      }
+
+      const tvars = {
+        client:   homeownerName,
+        address:  row.address || "",
+        city:     row.city || "",
+        rep:      repName || "your rep",
+        repPhone: repPhone || "",
+      };
+
+      if (target === "rep") {
+        const msg = renderSmsTemplate(`${resultKey}_${variant}_rep`, tvars);
+        if (!msg) { alert("No rep template found for " + `${resultKey}_${variant}_rep` + ". Configure it in SMS Templates."); return; }
+        if (!repPhone) { alert("No rep phone on file — cannot send."); return; }
+        if (!window.confirm(`Send this SMS to ${repName || "the rep"} at ${repPhone}?\n\n${msg}`)) return;
+        const r = await fetch("/.netlify/functions/ghl-sms", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ to: repPhone, message: msg, name: repName || "Sales Rep" }),
+        });
+        if (r.ok) alert("✅ SMS sent to rep.");
+        else alert("❌ SMS send failed: " + (await r.text()).slice(0, 200));
+      } else if (target === "homeowner") {
+        const msg = renderSmsTemplate(`${resultKey}_${variant}_homeowner`, tvars);
+        if (!msg) { alert("No homeowner template found for " + `${resultKey}_${variant}_homeowner` + ". Configure it in SMS Templates."); return; }
+        if (!homeownerPhone) { alert("No homeowner phone on file — cannot send."); return; }
+        if (!window.confirm(`Send this SMS to ${homeownerName} at ${homeownerPhone}?\n\n${msg}`)) return;
+        const r = await fetch("/.netlify/functions/ghl-sms", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ to: homeownerPhone, message: msg, name: homeownerName }),
+        });
+        if (r.ok) alert("✅ SMS sent to homeowner.");
+        else alert("❌ SMS send failed: " + (await r.text()).slice(0, 200));
+      }
+    } catch (e) {
+      alert("Notify error: " + (e.message || e));
+    } finally {
+      setRowBusyId(null);
+    }
+  };
+
   const submitInspectionResult = async () => {
     if (!resultChoice || !resultInspectorName.trim() || !selectedInspRecord) return;
     setResultSubmitting(true);
@@ -4170,7 +4279,8 @@ const renderSmsTemplate = (key, vars) => {
 
 if (!hasDamage) {
         // NO DAMAGE — email homeowner certificate (email stays as-is for rich HTML)
-        if (homeownerEmail) {
+        // ── AUTO-NOTIFICATIONS DISABLED — manager sends manually from Pending list ──
+        if (false && homeownerEmail) {
           await fetch("/.netlify/functions/send-email", {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -4184,7 +4294,8 @@ if (!hasDamage) {
         }
       } else {
         // DAMAGE — email homeowner (content varies based on PA signed status)
-        if (homeownerEmail) {
+        // ── AUTO-NOTIFICATIONS DISABLED — manager sends manually from Pending list ──
+        if (false && homeownerEmail) {
           const emailSubject = paIsSigned ? "⚠️ Roof Damage Found — Your Claim Is Being Started" : "⚠️ Roof Inspection Results — Damage Found";
           const emailHtml = paIsSigned
             ? `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto"><div style="background:#dc2626;padding:24px 32px;border-radius:12px 12px 0 0"><h1 style="color:#fff;margin:0">⚠️ Damage Found — CCG Claims Is On It</h1></div><div style="background:#f9fafb;padding:24px 32px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none"><p>Hi ${ownerName},</p><p>Our inspector has completed the roof inspection at <strong>${propertyAddr}</strong> and confirmed <strong>storm damage</strong>.</p><div style="background:#fef2f2;border:2px solid #dc2626;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#991b1b">🚀 Your Claim Is Already In Motion</p><p style="margin:8px 0 0;color:#991b1b;font-size:14px;line-height:1.6">Because you already have your paperwork signed with Capital Claims Group, <strong>your claim is being started right away.</strong> CCG Claims will be reaching out to you shortly to walk you through the next steps.</p></div><div style="background:#1a2e5a;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#fff">📞 Capital Claims Group</p><p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:14px">Phone: +1 (954) 571-3035 | Email: claims@capitalclaimgroup.com</p></div><p style="font-size:13px;color:#6b7280">Please do not repair or replace anything until your claim has been reviewed.</p></div></div>`
@@ -4202,31 +4313,24 @@ if (!hasDamage) {
         }
       }
 
-      // ── SMS — ALWAYS driven by the SMS Templates table (overrides all other SMS rules)
-      // Send to rep
-      const repMsg = renderSmsTemplate(`${resultKey}_${variant}_rep`, tvars);
-      if (repPhone && repMsg) {
-        await fetch("/.netlify/functions/ghl-sms", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ to: repPhone, message: repMsg, name: repName || "Sales Rep" }),
-        }).catch(e => console.warn("Rep SMS failed:", e));
-      } else if (!repMsg) {
-        console.warn(`SMS template empty for key: ${resultKey}_${variant}_rep — skipped`);
-      } else if (!repPhone) {
-        console.warn("No rep phone on file — rep SMS skipped");
-      }
-
-      // Send to homeowner
-      const homeownerMsg = renderSmsTemplate(`${resultKey}_${variant}_homeowner`, tvars);
-      if (homeownerPhone && homeownerMsg) {
-        await fetch("/.netlify/functions/ghl-sms", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ to: homeownerPhone, message: homeownerMsg, name: ownerName }),
-        }).catch(e => console.warn("Homeowner SMS failed:", e));
-      } else if (!homeownerMsg) {
-        console.warn(`SMS template empty for key: ${resultKey}_${variant}_homeowner — skipped`);
-      } else if (!homeownerPhone) {
-        console.warn("No homeowner phone on file — homeowner SMS skipped");
+      // ── SMS — AUTO-NOTIFICATIONS DISABLED — manager sends manually from Pending list
+      // Rep + homeowner SMS are fired explicitly via "Notify Rep" / "Notify Homeowner"
+      // buttons in the Pending Inspections list. Flip `false` → `true` below to restore.
+      if (false) {
+        const repMsg = renderSmsTemplate(`${resultKey}_${variant}_rep`, tvars);
+        if (repPhone && repMsg) {
+          await fetch("/.netlify/functions/ghl-sms", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ to: repPhone, message: repMsg, name: repName || "Sales Rep" }),
+          }).catch(e => console.warn("Rep SMS failed:", e));
+        }
+        const homeownerMsg = renderSmsTemplate(`${resultKey}_${variant}_homeowner`, tvars);
+        if (homeownerPhone && homeownerMsg) {
+          await fetch("/.netlify/functions/ghl-sms", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ to: homeownerPhone, message: homeownerMsg, name: ownerName }),
+          }).catch(e => console.warn("Homeowner SMS failed:", e));
+        }
       }
 
       setResultDone(true);
@@ -7353,53 +7457,6 @@ if (!hasDamage) {
                   </Card>}
                   {managerSection === "lookup" && <Card style={{ padding: 20, background: "#f8fafc" }}>
 
-                    {/* ── Damage Alert Checker ── */}
-                    <div style={{ background: "#fff8f8", border: "1.5px solid #fecaca", borderRadius: 14, padding: "18px 20px", marginBottom: 20 }}>
-                      <div style={{ fontFamily: "'Oswald', sans-serif", fontSize: 16, fontWeight: 700, color: "#991b1b", marginBottom: 6 }}>
-                        🚨 Damage Inspection Alerts
-                      </div>
-                      <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 14, lineHeight: 1.5 }}>
-                        Checks JobNimbus for any inspection that changed to <strong>Damage</strong> where only the inspection form was signed. If found, the sales rep gets a text automatically.
-                      </div>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          try {
-                            const btn = document.getElementById("check-damage-btn");
-                            const status = document.getElementById("check-damage-status");
-                            btn.disabled = true;
-                            btn.textContent = "⏳ Checking...";
-                            status.textContent = "";
-                            const res = await fetch("/.netlify/functions/inspection-checker");
-                            const data = await res.json();
-                            if (data.results && data.results.length > 0) {
-                              const sent = data.results.filter(r => r.action === "sms_sent");
-                              const noPhone = data.results.filter(r => r.reason === "no_rep_phone");
-                              let msg = `✅ Check complete — ${data.checked} jobs scanned, ${data.damage_found} with damage.`;
-                              if (sent.length > 0) msg += `\n📱 SMS sent for: ${sent.map(r => r.client).join(", ")}`;
-                              if (noPhone.length > 0) msg += `\n⚠️ No phone on file for ${noPhone.length} rep(s) — add phone numbers in Sales Reps tab.`;
-                              status.style.color = "#166534";
-                              status.textContent = msg;
-                            } else {
-                              status.style.color = "#166534";
-                              status.textContent = `✅ Check complete — ${data.checked || 0} jobs scanned. No new damage alerts.`;
-                            }
-                          } catch(e) {
-                            document.getElementById("check-damage-status").style.color = "#dc2626";
-                            document.getElementById("check-damage-status").textContent = "❌ Error: " + e.message;
-                          } finally {
-                            const btn = document.getElementById("check-damage-btn");
-                            btn.disabled = false;
-                            btn.textContent = "🔍 Check Now";
-                          }
-                        }}
-                        id="check-damage-btn"
-                        style={{ padding: "10px 22px", borderRadius: 10, border: "none", background: "#dc2626", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase" }}
-                      >
-                        🔍 Check Now
-                      </button>
-                      <div id="check-damage-status" style={{ marginTop: 12, fontSize: 13, fontFamily: "'Nunito', sans-serif", whiteSpace: "pre-line", lineHeight: 1.6 }} />
-                    </div>
                     <SectionTitle>Record Lookup & Inspection Results</SectionTitle>
                     <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 16 }}>
                       Search for an inspection record by name, address, or ZIP — then record the result.
@@ -7467,24 +7524,171 @@ if (!hasDamage) {
                     </div>
 
                     {recordSearchResults.length > 0 ? (
-                      <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
-                        {recordSearchResults.map((rec) => (
-                          <div key={rec.id}
-                            onClick={() => { setSelectedInspRecord(rec); setResultDone(false); setResultChoice(""); setResultInspectorName(""); }}
-                            style={{ background: selectedInspRecord?.id === rec.id ? "#eef1f8" : "#fff", border: selectedInspRecord?.id === rec.id ? "2px solid #1a2e5a" : "1px solid #e5e7eb", borderRadius: 14, padding: "12px 16px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                      <>
+                        {/* ── Check Now button appears once the list is loaded ── */}
+                        {!recordSearch ? (
+                          <div style={{ background: "#fff8f8", border: "1.5px solid #fecaca", borderRadius: 14, padding: "14px 18px", marginBottom: 14, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                             <div>
-                              <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", fontFamily: "'Nunito', sans-serif" }}>{rec.client_name || "—"}</div>
-                              <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>{[rec.address, rec.city, rec.state, rec.zip].filter(Boolean).join(", ")}</div>
-                              <div style={{ fontSize: 11, color: "#9ca3af", fontFamily: "'Nunito', sans-serif" }}>Rep: {rec.sales_rep_name || "—"} | Signed: {rec.signed_at ? new Date(rec.signed_at).toLocaleDateString() : "—"}</div>
+                              <div style={{ fontFamily: "'Oswald', sans-serif", fontSize: 14, fontWeight: 700, color: "#991b1b", marginBottom: 2 }}>
+                                🔍 Check JobNimbus for Results
+                              </div>
+                              <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>
+                                Scans JN for any changes to these pending inspections. Updates the status inline.
+                              </div>
                             </div>
-                            <div style={{ flexShrink: 0 }}>
-                              {rec.result === "no_damage" ? <div style={{ background: "#199c2e", color: "#fff", borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>✅ No Damage</div>
-                                : rec.result === "damage" ? <div style={{ background: "#dc2626", color: "#fff", borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>⚠️ Damage</div>
-                                : <div style={{ background: "#f3f4f6", color: "#6b7280", borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>Pending</div>}
-                            </div>
+                            <button
+                              type="button"
+                              disabled={checkNowLoading}
+                              onClick={async () => {
+                                setCheckNowLoading(true);
+                                setCheckNowSummary(null);
+                                try {
+                                  // Capture "before" state keyed by id
+                                  const beforeById = {};
+                                  recordSearchResults.forEach(r => { beforeById[r.id] = r.result || null; });
+
+                                  // Trigger the inspection-checker cron function
+                                  const r = await fetch("/.netlify/functions/inspection-checker");
+                                  const d = await r.json().catch(() => ({}));
+                                  console.log("Check Now result:", d);
+
+                                  // Refetch the current state of ALL rows we just showed
+                                  const ids = recordSearchResults.map(r => r.id);
+                                  const { data: fresh } = await supabase
+                                    .from("inspections")
+                                    .select("id, result, result_at")
+                                    .in("id", ids);
+
+                                  const freshById = {};
+                                  (fresh || []).forEach(r => { freshById[r.id] = r; });
+
+                                  // Apply: for each row, compute checkedStatus
+                                  let changedCount = 0;
+                                  const updated = recordSearchResults.map(row => {
+                                    const before = beforeById[row.id];
+                                    const after = freshById[row.id]?.result || null;
+                                    let checkedStatus = "no_change";
+                                    if (!before && after === "damage")     { checkedStatus = "changed_damage";    changedCount++; }
+                                    else if (!before && after === "no_damage"){ checkedStatus = "changed_no_damage"; changedCount++; }
+                                    else if (!before && after === "retail") { checkedStatus = "changed_retail";    changedCount++; }
+                                    return { ...row, result: after, result_at: freshById[row.id]?.result_at || row.result_at, checkedStatus };
+                                  });
+
+                                  setRecordSearchResults(updated);
+                                  setCheckNowSummary({
+                                    total: recordSearchResults.length,
+                                    changed: changedCount,
+                                    unchanged: recordSearchResults.length - changedCount,
+                                  });
+                                } catch (e) {
+                                  console.error("Check Now error:", e);
+                                  setCheckNowSummary({ error: e.message || "Check failed" });
+                                } finally {
+                                  setCheckNowLoading(false);
+                                }
+                              }}
+                              style={{ padding: "10px 22px", borderRadius: 10, border: "none", background: checkNowLoading ? "#9ca3af" : "#dc2626", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: checkNowLoading ? "not-allowed" : "pointer", letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}
+                            >
+                              {checkNowLoading ? "⏳ Checking..." : "🔍 Check Now"}
+                            </button>
                           </div>
-                        ))}
-                      </div>
+                        ) : null}
+
+                        {/* ── Check summary banner ── */}
+                        {checkNowSummary ? (
+                          <div style={{ background: checkNowSummary.error ? "#fef2f2" : "#f0fdf4", border: `1px solid ${checkNowSummary.error ? "#fca5a5" : "#bbf7d0"}`, borderRadius: 10, padding: "10px 14px", marginBottom: 12, fontSize: 13, color: checkNowSummary.error ? "#991b1b" : "#166534", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
+                            {checkNowSummary.error ? (
+                              <>❌ {checkNowSummary.error}</>
+                            ) : (
+                              <>✅ Check complete · {checkNowSummary.total} reviewed · {checkNowSummary.changed > 0 ? <strong>{checkNowSummary.changed} changed</strong> : "0 changed"} · {checkNowSummary.unchanged} still pending</>
+                            )}
+                          </div>
+                        ) : null}
+
+                        <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
+                        {recordSearchResults.map((rec) => {
+                          // Render the status pill — prefer the just-checked status, else fall back to result
+                          let pill;
+                          if (rec.checkedStatus === "changed_damage") {
+                            pill = <div style={{ background: "#dc2626", color: "#fff", borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 700, fontFamily: "'Oswald', sans-serif", whiteSpace: "nowrap" }}>→ Damage</div>;
+                          } else if (rec.checkedStatus === "changed_no_damage") {
+                            pill = <div style={{ background: "#199c2e", color: "#fff", borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 700, fontFamily: "'Oswald', sans-serif", whiteSpace: "nowrap" }}>→ No Damage</div>;
+                          } else if (rec.checkedStatus === "changed_retail") {
+                            pill = <div style={{ background: "#d97706", color: "#fff", borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 700, fontFamily: "'Oswald', sans-serif", whiteSpace: "nowrap" }}>→ Retail</div>;
+                          } else if (rec.checkedStatus === "no_change") {
+                            pill = <div style={{ background: "#f3f4f6", color: "#6b7280", borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 700, fontFamily: "'Oswald', sans-serif", whiteSpace: "nowrap" }}>No change</div>;
+                          } else if (rec.result === "no_damage") {
+                            pill = <div style={{ background: "#199c2e", color: "#fff", borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 700, fontFamily: "'Oswald', sans-serif", whiteSpace: "nowrap" }}>✅ No Damage</div>;
+                          } else if (rec.result === "damage") {
+                            pill = <div style={{ background: "#dc2626", color: "#fff", borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 700, fontFamily: "'Oswald', sans-serif", whiteSpace: "nowrap" }}>⚠️ Damage</div>;
+                          } else if (rec.result === "retail") {
+                            pill = <div style={{ background: "#d97706", color: "#fff", borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 700, fontFamily: "'Oswald', sans-serif", whiteSpace: "nowrap" }}>🏠 Retail</div>;
+                          } else {
+                            pill = <div style={{ background: "#f3f4f6", color: "#6b7280", borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 700, fontFamily: "'Oswald', sans-serif", whiteSpace: "nowrap" }}>Pending</div>;
+                          }
+
+                          const signedDate = rec.signed_at ? new Date(rec.signed_at).toLocaleDateString() : "—";
+                          const isBusy = rowBusyId === rec.id;
+
+                          return (
+                            <div key={rec.id}
+                              style={{ background: selectedInspRecord?.id === rec.id ? "#eef1f8" : "#fff", border: selectedInspRecord?.id === rec.id ? "2px solid #1a2e5a" : "1px solid #e5e7eb", borderRadius: 14, padding: "12px 16px" }}>
+
+                              {/* Main row — name/addr, signed date, status pill */}
+                              <div
+                                onClick={() => { setSelectedInspRecord(rec); setResultDone(false); setResultChoice(""); setResultInspectorName(""); }}
+                                style={{ cursor: "pointer", display: "grid", gridTemplateColumns: "1fr auto auto", alignItems: "center", gap: 16 }}>
+                                <div style={{ minWidth: 0 }}>
+                                  <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", fontFamily: "'Nunito', sans-serif" }}>{rec.client_name || "—"}</div>
+                                  <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>{[rec.address, rec.city, rec.state, rec.zip].filter(Boolean).join(", ")}</div>
+                                  <div style={{ fontSize: 11, color: "#9ca3af", fontFamily: "'Nunito', sans-serif" }}>Rep: {rec.sales_rep_name || "—"}</div>
+                                </div>
+                                <div style={{ textAlign: "center", padding: "0 10px" }}>
+                                  <div style={{ fontSize: 10, color: "#9ca3af", fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>Signed</div>
+                                  <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", whiteSpace: "nowrap" }}>{signedDate}</div>
+                                </div>
+                                <div style={{ flexShrink: 0 }}>
+                                  {pill}
+                                </div>
+                              </div>
+
+                              {/* Admin actions — override result + manual notifications */}
+                              <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px dashed #e5e7eb", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                <div style={{ fontSize: 10, fontFamily: "'Oswald', sans-serif", color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>Admin:</div>
+                                <select
+                                  value={rec.result || ""}
+                                  disabled={isBusy}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={(e) => { e.stopPropagation(); adminSetRowResult(rec.id, e.target.value); }}
+                                  style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #d1d5db", fontSize: 12, fontFamily: "'Nunito', sans-serif", fontWeight: 600, background: isBusy ? "#f3f4f6" : "#fff", cursor: isBusy ? "not-allowed" : "pointer" }}>
+                                  <option value="">Set result…</option>
+                                  <option value="damage">⚠️ Damage</option>
+                                  <option value="no_damage">✅ No Damage</option>
+                                  <option value="retail">🏠 Retail</option>
+                                </select>
+                                <button
+                                  type="button"
+                                  disabled={isBusy || !rec.result}
+                                  onClick={(e) => { e.stopPropagation(); adminNotifyRow(rec, "rep"); }}
+                                  title={!rec.result ? "Set a result first" : "Send SMS to the sales rep using current template"}
+                                  style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #1a2e5a", background: (isBusy || !rec.result) ? "#f3f4f6" : "#fff", color: (isBusy || !rec.result) ? "#9ca3af" : "#1a2e5a", fontSize: 11, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: (isBusy || !rec.result) ? "not-allowed" : "pointer" }}>
+                                  📱 Notify Rep
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isBusy || !rec.result}
+                                  onClick={(e) => { e.stopPropagation(); adminNotifyRow(rec, "homeowner"); }}
+                                  title={!rec.result ? "Set a result first" : "Send SMS to the homeowner using current template"}
+                                  style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #1a2e5a", background: (isBusy || !rec.result) ? "#f3f4f6" : "#fff", color: (isBusy || !rec.result) ? "#9ca3af" : "#1a2e5a", fontSize: 11, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: (isBusy || !rec.result) ? "not-allowed" : "pointer" }}>
+                                  📱 Notify Homeowner
+                                </button>
+                                {isBusy ? <span style={{ fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>Working…</span> : null}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        </div>
+                      </>
                     ) : recordSearch.length >= 2 && !recordSearchLoading ? (
                       <div style={{ fontSize: 13, color: "#9ca3af", fontFamily: "'Nunito', sans-serif", marginBottom: 16 }}>No records found.</div>
                     ) : null}
