@@ -2379,6 +2379,8 @@ export default function App() {
   const [checkNowLoading, setCheckNowLoading] = useState(false);
   const [checkNowSummary, setCheckNowSummary] = useState(null);
   const [rowBusyId, setRowBusyId] = useState(null);  // id of the row currently being updated/notified
+  const [listMode, setListMode] = useState(null);     // null | "pending" | "last30"
+  const [resultFilter, setResultFilter] = useState("all"); // "all" | "damage" | "no_damage" | "retail" | "pending"
 
   const effectiveInspSig = inspSigMethod === "type"
     ? (inspTypedSig ? typedSignatureToDataUrl(inspTypedSig, inspSigFont) : "")
@@ -2939,11 +2941,49 @@ const loadSmsTemplates = async () => {
     setSmsTemplatesLoaded(true);
   } catch (e) { console.warn("SMS templates load exception:", e.message); setSmsTemplatesLoaded(true); }
 };
-const saveSmsTemplate = async (key, body) => {
+// Debounced save — waits 600ms after last keystroke before writing to Supabase.
+// Prevents flooding the DB with one upsert per character, and keeps error
+// alerts from firing on every keystroke if something's broken.
+const smsSaveTimersRef = useRef({});
+const smsSaveAlertedRef = useRef({}); // per-key dedupe for error alerts
+const saveSmsTemplate = (key, body) => {
+  // Optimistic local update so the textarea stays responsive
   setSmsTemplates(prev => ({ ...prev, [key]: body }));
-  try {
-    await supabase.from("sms_templates").upsert({ key, body, updated_at: new Date().toISOString() }, { onConflict: "key" });
-  } catch (e) { console.warn("SMS template save error:", e.message); }
+
+  // Clear any pending save for this key
+  if (smsSaveTimersRef.current[key]) clearTimeout(smsSaveTimersRef.current[key]);
+
+  // Schedule the actual DB write
+  smsSaveTimersRef.current[key] = setTimeout(async () => {
+    try {
+      const { data, error } = await supabase
+        .from("sms_templates")
+        .upsert({ key, body, updated_at: new Date().toISOString() }, { onConflict: "key" })
+        .select();
+      if (error) {
+        console.error("SMS template save ERROR:", error.message, error);
+        // Alert once per key per session — enough to know it's broken, not spammy
+        if (!smsSaveAlertedRef.current[key]) {
+          smsSaveAlertedRef.current[key] = true;
+          alert(`Could not save "${key}":\n${error.message}\n\nCheck browser console for details.`);
+        }
+        return;
+      }
+      // Clear the alert dedupe on success so the user gets re-notified if it breaks again
+      smsSaveAlertedRef.current[key] = false;
+      if (!data || data.length === 0) {
+        console.warn("SMS template save returned no rows for key:", key, "— upsert may have been blocked by RLS or unique-constraint missing");
+      } else {
+        console.log("SMS template saved:", key, "| body length:", body.length);
+      }
+    } catch (e) {
+      console.error("SMS template save exception:", e);
+      if (!smsSaveAlertedRef.current[key]) {
+        smsSaveAlertedRef.current[key] = true;
+        alert(`Exception saving "${key}":\n${e.message || e}`);
+      }
+    }
+  }, 600);
 };
 const renderSmsTemplate = (key, vars) => {
   const body = smsTemplates[key] || "";
@@ -4194,8 +4234,14 @@ const renderSmsTemplate = (key, vars) => {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ to: repPhone, message: msg, name: repName || "Sales Rep" }),
         });
-        if (r.ok) alert("✅ SMS sent to rep.");
-        else alert("❌ SMS send failed: " + (await r.text()).slice(0, 200));
+        if (r.ok) {
+          const nowIso = new Date().toISOString();
+          await supabase.from("inspections").update({ last_notified_rep_at: nowIso }).eq("id", row.id);
+          setRecordSearchResults(prev => prev.map(rr => rr.id === row.id ? { ...rr, last_notified_rep_at: nowIso } : rr));
+          alert("✅ SMS sent to rep.");
+        } else {
+          alert("❌ SMS send failed: " + (await r.text()).slice(0, 200));
+        }
       } else if (target === "homeowner") {
         const msg = renderSmsTemplate(`${resultKey}_${variant}_homeowner`, tvars);
         if (!msg) { alert("No homeowner template found for " + `${resultKey}_${variant}_homeowner` + ". Configure it in SMS Templates."); return; }
@@ -4205,11 +4251,71 @@ const renderSmsTemplate = (key, vars) => {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ to: homeownerPhone, message: msg, name: homeownerName }),
         });
-        if (r.ok) alert("✅ SMS sent to homeowner.");
-        else alert("❌ SMS send failed: " + (await r.text()).slice(0, 200));
+        if (r.ok) {
+          const nowIso = new Date().toISOString();
+          await supabase.from("inspections").update({ last_notified_homeowner_at: nowIso }).eq("id", row.id);
+          setRecordSearchResults(prev => prev.map(rr => rr.id === row.id ? { ...rr, last_notified_homeowner_at: nowIso } : rr));
+          alert("✅ SMS sent to homeowner.");
+        } else {
+          alert("❌ SMS send failed: " + (await r.text()).slice(0, 200));
+        }
       }
     } catch (e) {
       alert("Notify error: " + (e.message || e));
+    } finally {
+      setRowBusyId(null);
+    }
+  };
+
+  // ── Per-row PA email — sends damage confirmation + photos to claims@ ──
+  // Only works for damage results where all 3 docs are signed (insp + LOR + PAC).
+  // Calls the send-pa-email Netlify function which pulls photos from JN.
+  const adminNotifyPA = async (row) => {
+    if (!row) return;
+    if (row.result !== "damage") { alert("PA notification is only for damage results."); return; }
+
+    // Check all 3 docs are signed (via claims table)
+    const addr = (row.address || "").trim().toLowerCase();
+    const zip  = (row.zip || "").trim();
+    let allSigned = false;
+    if (addr && zip) {
+      const { data: claimData } = await supabase
+        .from("claims")
+        .select("docs_signed")
+        .ilike("address", addr)
+        .eq("zip", zip)
+        .order("signed_at", { ascending: false })
+        .limit(1);
+      const c = claimData?.[0];
+      const docs = (c?.docs_signed || "");
+      allSigned = docs.includes("insp") && docs.includes("lor") && docs.includes("pac");
+    }
+    if (!allSigned) {
+      alert("Cannot notify PA — all 3 documents (Inspection + LOR + PA) must be signed for this property. Verify in Supabase or re-enter signing.");
+      return;
+    }
+
+    const clientName = row.client_name || "Homeowner";
+    const propAddr = [row.address, row.city, row.state, row.zip].filter(Boolean).join(", ");
+    if (!window.confirm(`Send damage confirmation email to the PA (claims@capitalclaimgroup.com)?\n\nHomeowner: ${clientName}\nProperty: ${propAddr}\n\nThis will include inspection photos from JobNimbus.`)) return;
+
+    setRowBusyId(row.id);
+    try {
+      const r = await fetch("/.netlify/functions/send-pa-email", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inspectionId: row.id }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.ok) {
+        const nowIso = new Date().toISOString();
+        await supabase.from("inspections").update({ last_notified_pa_at: nowIso }).eq("id", row.id);
+        setRecordSearchResults(prev => prev.map(rr => rr.id === row.id ? { ...rr, last_notified_pa_at: nowIso } : rr));
+        alert(`✅ Email sent to PA. Photos: ${d.photoCount}`);
+      } else {
+        alert("❌ PA email failed: " + (d.error || (await r.text()).slice(0, 200)));
+      }
+    } catch (e) {
+      alert("PA email error: " + (e.message || e));
     } finally {
       setRowBusyId(null);
     }
@@ -7461,16 +7567,19 @@ if (!hasDamage) {
                     <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 16 }}>
                       Search for an inspection record by name, address, or ZIP — then record the result.
                     </div>
-                    <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
   <button
     type="button"
     onClick={async () => {
+      setListMode("pending");
+      setResultFilter("all");
+      setCheckNowSummary(null);
       setRecordSearchLoading(true);
       setRecordSearch("");
       try {
         const { data: results, error } = await supabase
           .from("inspections")
-          .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at")
+          .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at")
           .is("result", null);
         if (!error) {
           // Dedupe: keep one row per homeowner at a given ZIP. Using ZIP (not
@@ -7506,16 +7615,103 @@ if (!hasDamage) {
       } catch (e) { console.error("Load pending error:", e); }
       finally { setRecordSearchLoading(false); }
     }}
-    style={{ padding: "10px 20px", borderRadius: 12, border: "1.5px solid #1a2e5a", background: "#fff", color: "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}
+    style={{ padding: "10px 20px", borderRadius: 12, border: listMode === "pending" ? "1.5px solid #1a2e5a" : "1.5px solid #1a2e5a", background: listMode === "pending" ? "#1a2e5a" : "#fff", color: listMode === "pending" ? "#fff" : "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}
   >
     📋 Load Pending Inspections
   </button>
+  <button
+    type="button"
+    onClick={async () => {
+      setListMode("last30");
+      setResultFilter("all");
+      setCheckNowSummary(null);
+      setRecordSearchLoading(true);
+      setRecordSearch("");
+      try {
+        const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+        const { data: results, error } = await supabase
+          .from("inspections")
+          .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at")
+          .gte("signed_at", thirtyDaysAgo)
+          .order("result_at", { ascending: false, nullsFirst: false });
+        if (error) throw error;
+
+        // Dedupe by name+zip (same as pending loader)
+        const normName = (n) => (n || "").trim().toLowerCase().replace(/\s+/g, " ");
+        const normKey = (n, zip, addr) => {
+          const z = (zip || "").trim();
+          if (z) return `${normName(n)}|zip:${z}`;
+          const street = (addr || "").split(",")[0].trim().toLowerCase().replace(/\s+/g, " ");
+          return `${normName(n)}|st:${street}`;
+        };
+        const bestByKey = new Map();
+        for (const r of results || []) {
+          const k = normKey(r.client_name, r.zip, r.address);
+          const existing = bestByKey.get(k);
+          if (!existing) { bestByKey.set(k, r); continue; }
+          // Prefer the record that has a result set; if both do, keep most recent result_at
+          const existingHasResult = !!existing.result;
+          const currentHasResult = !!r.result;
+          if (currentHasResult && !existingHasResult) { bestByKey.set(k, r); continue; }
+          if (existingHasResult && !currentHasResult) continue;
+          const tNew = r.result_at ? new Date(r.result_at).getTime() : (r.signed_at ? new Date(r.signed_at).getTime() : 0);
+          const tOld = existing.result_at ? new Date(existing.result_at).getTime() : (existing.signed_at ? new Date(existing.signed_at).getTime() : 0);
+          if (tNew > tOld) bestByKey.set(k, r);
+        }
+        // Sort: records with results first (most recent result_at on top), then pending by signed_at desc
+        const sorted = [...bestByKey.values()].sort((a, b) => {
+          const aHas = !!a.result; const bHas = !!b.result;
+          if (aHas && !bHas) return -1;
+          if (bHas && !aHas) return 1;
+          if (aHas && bHas) {
+            const ta = a.result_at ? new Date(a.result_at).getTime() : 0;
+            const tb = b.result_at ? new Date(b.result_at).getTime() : 0;
+            return tb - ta;
+          }
+          const sa = a.signed_at ? new Date(a.signed_at).getTime() : 0;
+          const sb = b.signed_at ? new Date(b.signed_at).getTime() : 0;
+          return sb - sa;
+        });
+        setRecordSearchResults(sorted);
+      } catch (e) {
+        console.error("Load last 30 days error:", e);
+        alert("Could not load 30-day records: " + (e.message || e));
+      }
+      finally { setRecordSearchLoading(false); }
+    }}
+    style={{ padding: "10px 20px", borderRadius: 12, border: "1.5px solid #1a2e5a", background: listMode === "last30" ? "#1a2e5a" : "#fff", color: listMode === "last30" ? "#fff" : "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}
+  >
+    📂 Load Last 30 Days
+  </button>
   {recordSearchResults.length > 0 && !recordSearch ? (
     <span style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
-      {recordSearchResults.length} pending — sorted A→Z by last name
+      {listMode === "pending" ? `${recordSearchResults.length} pending — sorted A→Z by last name` : `${recordSearchResults.length} records (last 30 days)`}
     </span>
   ) : null}
 </div>
+
+{/* ── Filter chips — only shown in Last-30 mode to narrow by result ── */}
+{listMode === "last30" && recordSearchResults.length > 0 ? (
+  <div style={{ marginBottom: 14, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+    <span style={{ fontSize: 11, fontFamily: "'Oswald', sans-serif", color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>Filter:</span>
+    {[
+      { key: "all",        label: "All",         bg: "#1a2e5a", color: "#fff" },
+      { key: "damage",     label: "⚠️ Damage",    bg: "#dc2626", color: "#fff" },
+      { key: "no_damage",  label: "✅ No Damage", bg: "#199c2e", color: "#fff" },
+      { key: "retail",     label: "🏠 Retail",    bg: "#d97706", color: "#fff" },
+      { key: "pending",    label: "Pending",     bg: "#6b7280", color: "#fff" },
+    ].map(f => (
+      <button
+        key={f.key}
+        type="button"
+        onClick={() => setResultFilter(f.key)}
+        style={{ padding: "5px 12px", borderRadius: 16, border: "none", background: resultFilter === f.key ? f.bg : "#e5e7eb", color: resultFilter === f.key ? f.color : "#374151", fontSize: 11, fontFamily: "'Oswald', sans-serif", fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}
+      >
+        {f.label}
+      </button>
+    ))}
+  </div>
+) : null}
                     <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
                       <input type="text" value={recordSearch} onChange={(e) => { setRecordSearch(e.target.value); searchInspectionRecords(e.target.value); }}
                         placeholder="Search by name, address, or ZIP..."
@@ -7606,7 +7802,13 @@ if (!hasDamage) {
                         ) : null}
 
                         <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
-                        {recordSearchResults.map((rec) => {
+                        {recordSearchResults
+                          .filter(rec => {
+                            if (listMode !== "last30" || resultFilter === "all") return true;
+                            if (resultFilter === "pending") return !rec.result;
+                            return rec.result === resultFilter;
+                          })
+                          .map((rec) => {
                           // Render the status pill — prefer the just-checked status, else fall back to result
                           let pill;
                           if (rec.checkedStatus === "changed_damage") {
@@ -7630,6 +7832,24 @@ if (!hasDamage) {
                           const signedDate = rec.signed_at ? new Date(rec.signed_at).toLocaleDateString() : "—";
                           const isBusy = rowBusyId === rec.id;
 
+                          // Friendly "last sent" formatter for notify buttons
+                          const formatAgo = (iso) => {
+                            if (!iso) return "Never sent";
+                            const diff = Math.max(0, Date.now() - new Date(iso).getTime());
+                            const mins = Math.floor(diff / 60000);
+                            if (mins < 1) return "Just now";
+                            if (mins < 60) return `${mins}m ago`;
+                            const hrs = Math.floor(mins / 60);
+                            if (hrs < 24) return `${hrs}h ago`;
+                            const days = Math.floor(hrs / 24);
+                            if (days < 7) return `${days}d ago`;
+                            return new Date(iso).toLocaleDateString();
+                          };
+                          const resultedLine = rec.result_at
+                            ? `Resulted: ${new Date(rec.result_at).toLocaleString("en-US", { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true })}`
+                            : null;
+                          const showPaButton = rec.result === "damage";
+
                           return (
                             <div key={rec.id}
                               style={{ background: selectedInspRecord?.id === rec.id ? "#eef1f8" : "#fff", border: selectedInspRecord?.id === rec.id ? "2px solid #1a2e5a" : "1px solid #e5e7eb", borderRadius: 14, padding: "12px 16px" }}>
@@ -7641,7 +7861,10 @@ if (!hasDamage) {
                                 <div style={{ minWidth: 0 }}>
                                   <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", fontFamily: "'Nunito', sans-serif" }}>{rec.client_name || "—"}</div>
                                   <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>{[rec.address, rec.city, rec.state, rec.zip].filter(Boolean).join(", ")}</div>
-                                  <div style={{ fontSize: 11, color: "#9ca3af", fontFamily: "'Nunito', sans-serif" }}>Rep: {rec.sales_rep_name || "—"}</div>
+                                  <div style={{ fontSize: 11, color: "#9ca3af", fontFamily: "'Nunito', sans-serif" }}>
+                                    Rep: {rec.sales_rep_name || "—"}
+                                    {resultedLine ? <span style={{ marginLeft: 8, color: "#059669", fontWeight: 600 }}>· {resultedLine}</span> : null}
+                                  </div>
                                 </div>
                                 <div style={{ textAlign: "center", padding: "0 10px" }}>
                                   <div style={{ fontSize: 10, color: "#9ca3af", fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>Signed</div>
@@ -7666,22 +7889,41 @@ if (!hasDamage) {
                                   <option value="no_damage">✅ No Damage</option>
                                   <option value="retail">🏠 Retail</option>
                                 </select>
-                                <button
-                                  type="button"
-                                  disabled={isBusy || !rec.result}
-                                  onClick={(e) => { e.stopPropagation(); adminNotifyRow(rec, "rep"); }}
-                                  title={!rec.result ? "Set a result first" : "Send SMS to the sales rep using current template"}
-                                  style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #1a2e5a", background: (isBusy || !rec.result) ? "#f3f4f6" : "#fff", color: (isBusy || !rec.result) ? "#9ca3af" : "#1a2e5a", fontSize: 11, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: (isBusy || !rec.result) ? "not-allowed" : "pointer" }}>
-                                  📱 Notify Rep
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={isBusy || !rec.result}
-                                  onClick={(e) => { e.stopPropagation(); adminNotifyRow(rec, "homeowner"); }}
-                                  title={!rec.result ? "Set a result first" : "Send SMS to the homeowner using current template"}
-                                  style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #1a2e5a", background: (isBusy || !rec.result) ? "#f3f4f6" : "#fff", color: (isBusy || !rec.result) ? "#9ca3af" : "#1a2e5a", fontSize: 11, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: (isBusy || !rec.result) ? "not-allowed" : "pointer" }}>
-                                  📱 Notify Homeowner
-                                </button>
+                                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                                  <button
+                                    type="button"
+                                    disabled={isBusy || !rec.result}
+                                    onClick={(e) => { e.stopPropagation(); adminNotifyRow(rec, "rep"); }}
+                                    title={!rec.result ? "Set a result first" : "Send SMS to the sales rep using current template"}
+                                    style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #1a2e5a", background: (isBusy || !rec.result) ? "#f3f4f6" : "#fff", color: (isBusy || !rec.result) ? "#9ca3af" : "#1a2e5a", fontSize: 11, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: (isBusy || !rec.result) ? "not-allowed" : "pointer" }}>
+                                    📱 Notify Rep
+                                  </button>
+                                  <div style={{ fontSize: 9, color: rec.last_notified_rep_at ? "#059669" : "#9ca3af", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>{formatAgo(rec.last_notified_rep_at)}</div>
+                                </div>
+                                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                                  <button
+                                    type="button"
+                                    disabled={isBusy || !rec.result}
+                                    onClick={(e) => { e.stopPropagation(); adminNotifyRow(rec, "homeowner"); }}
+                                    title={!rec.result ? "Set a result first" : "Send SMS to the homeowner using current template"}
+                                    style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #1a2e5a", background: (isBusy || !rec.result) ? "#f3f4f6" : "#fff", color: (isBusy || !rec.result) ? "#9ca3af" : "#1a2e5a", fontSize: 11, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: (isBusy || !rec.result) ? "not-allowed" : "pointer" }}>
+                                    📱 Notify Homeowner
+                                  </button>
+                                  <div style={{ fontSize: 9, color: rec.last_notified_homeowner_at ? "#059669" : "#9ca3af", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>{formatAgo(rec.last_notified_homeowner_at)}</div>
+                                </div>
+                                {showPaButton ? (
+                                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                                    <button
+                                      type="button"
+                                      disabled={isBusy}
+                                      onClick={(e) => { e.stopPropagation(); adminNotifyPA(rec); }}
+                                      title="Email claims@capitalclaimgroup.com with photos (requires all 3 docs signed)"
+                                      style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #dc2626", background: isBusy ? "#f3f4f6" : "#fff", color: isBusy ? "#9ca3af" : "#dc2626", fontSize: 11, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: isBusy ? "not-allowed" : "pointer" }}>
+                                      📧 Notify PA
+                                    </button>
+                                    <div style={{ fontSize: 9, color: rec.last_notified_pa_at ? "#059669" : "#9ca3af", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>{formatAgo(rec.last_notified_pa_at)}</div>
+                                  </div>
+                                ) : null}
                                 {isBusy ? <span style={{ fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>Working…</span> : null}
                               </div>
                             </div>
