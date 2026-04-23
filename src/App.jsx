@@ -2696,6 +2696,117 @@ export default function App() {
   const [reportStartDate, setReportStartDate] = useState(_mondayStart);
   const [reportEndDate, setReportEndDate] = useState(today);
 
+  // ── Submission Analytics state ──────────────────────────────────
+  // Defaults to last 30 days (signed_at window).
+  const _thirtyDaysAgo = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().split("T")[0];
+  })();
+  const [analyticsStart, setAnalyticsStart] = useState(_thirtyDaysAgo);
+  const [analyticsEnd, setAnalyticsEnd] = useState(today);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsData, setAnalyticsData] = useState(null);
+
+  const fetchAnalytics = async (startDate, endDate) => {
+    setAnalyticsLoading(true);
+    setAnalyticsData(null);
+    try {
+      const start = startDate + "T00:00:00.000Z";
+      const end   = endDate   + "T23:59:59.999Z";
+
+      const { data: insps, error } = await supabase
+        .from("inspections")
+        .select("id, sales_rep_name, signed_at, result, result_at")
+        .gte("signed_at", start)
+        .lte("signed_at", end)
+        .order("signed_at", { ascending: false });
+      if (error) throw error;
+
+      const rows = insps || [];
+
+      // Company-wide totals
+      const total = rows.length;
+      const counts = { damage: 0, no_damage: 0, retail: 0, pending: 0 };
+      const daysList = []; // days-to-inspection for resulted records (any rep)
+
+      for (const r of rows) {
+        if (r.result === "damage") counts.damage++;
+        else if (r.result === "no_damage") counts.no_damage++;
+        else if (r.result === "retail") counts.retail++;
+        else counts.pending++;
+
+        if (r.result_at && r.signed_at) {
+          const diffMs = new Date(r.result_at).getTime() - new Date(r.signed_at).getTime();
+          const days = diffMs / (1000 * 60 * 60 * 24);
+          if (isFinite(days) && days >= 0) daysList.push(days);
+        }
+      }
+
+      const pct = (n) => total > 0 ? Math.round((n / total) * 100) : 0;
+      const mean = daysList.length > 0 ? daysList.reduce((a, b) => a + b, 0) / daysList.length : null;
+      const sortedDays = [...daysList].sort((a, b) => a - b);
+      const median = sortedDays.length > 0
+        ? (sortedDays.length % 2 === 1
+            ? sortedDays[(sortedDays.length - 1) / 2]
+            : (sortedDays[sortedDays.length / 2 - 1] + sortedDays[sortedDays.length / 2]) / 2)
+        : null;
+
+      // Per-rep breakdown
+      const byRepMap = new Map();
+      for (const r of rows) {
+        const rep = r.sales_rep_name || "Unassigned";
+        if (!byRepMap.has(rep)) {
+          byRepMap.set(rep, { rep, total: 0, damage: 0, no_damage: 0, retail: 0, pending: 0, days: [] });
+        }
+        const b = byRepMap.get(rep);
+        b.total++;
+        if (r.result === "damage") b.damage++;
+        else if (r.result === "no_damage") b.no_damage++;
+        else if (r.result === "retail") b.retail++;
+        else b.pending++;
+        if (r.result_at && r.signed_at) {
+          const d = (new Date(r.result_at).getTime() - new Date(r.signed_at).getTime()) / (1000 * 60 * 60 * 24);
+          if (isFinite(d) && d >= 0) b.days.push(d);
+        }
+      }
+      const byRep = [...byRepMap.values()]
+        .filter(b => b.total > 0)
+        .map(b => {
+          const m = b.days.length > 0 ? b.days.reduce((a, c) => a + c, 0) / b.days.length : null;
+          const s = [...b.days].sort((a, c) => a - c);
+          const med = s.length > 0
+            ? (s.length % 2 === 1 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2)
+            : null;
+          return {
+            rep: b.rep,
+            total: b.total,
+            damage: b.damage, damagePct: Math.round((b.damage / b.total) * 100),
+            no_damage: b.no_damage, noDamagePct: Math.round((b.no_damage / b.total) * 100),
+            retail: b.retail, retailPct: Math.round((b.retail / b.total) * 100),
+            pending: b.pending, pendingPct: Math.round((b.pending / b.total) * 100),
+            meanDays: m, medianDays: med,
+          };
+        })
+        .sort((a, b) => b.total - a.total); // most-active rep first
+
+      setAnalyticsData({
+        startDate, endDate,
+        total,
+        counts,
+        pct: { damage: pct(counts.damage), no_damage: pct(counts.no_damage), retail: pct(counts.retail), pending: pct(counts.pending) },
+        meanDays: mean,
+        medianDays: median,
+        byRep,
+      });
+    } catch (e) {
+      console.error("Analytics fetch error:", e);
+      setAnalyticsData({ error: e.message || String(e) });
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  };
+
   const fetchReport = async (startDate, endDate) => {
     setReportLoading(true);
     setReportData(null);
@@ -6923,6 +7034,7 @@ if (!hasDamage) {
                         { key: "reps", emoji: "👥", label: "Sales Rep Manager", desc: "Add, import, activate reps" },
                         { key: "lookup", emoji: "🔍", label: "Record Lookup & Results", desc: "Find inspections, record damage/no damage" },
                         { key: "report", emoji: "📊", label: "Weekly Report", desc: "View signings by rep and date range" },
+                        { key: "analytics", emoji: "📈", label: "Submission Analytics", desc: "Totals, category % and avg days per rep" },
                       ].map(item => (
                         <button key={item.key} type="button" onClick={() => setManagerSection(item.key)}
                           style={{ padding: "24px 20px", borderRadius: 20, border: "2px solid #e5e7eb", background: "#fff", textAlign: "left", cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
@@ -7579,7 +7691,7 @@ if (!hasDamage) {
       try {
         const { data: results, error } = await supabase
           .from("inspections")
-          .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at")
+          .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed")
           .is("result", null);
         if (!error) {
           // Dedupe: keep one row per homeowner at a given ZIP. Using ZIP (not
@@ -7603,7 +7715,32 @@ if (!hasDamage) {
             if (tNew > tOld) bestByKey.set(k, r);
           }
           const deduped = [...bestByKey.values()];
-          const sorted = deduped.sort((a, b) => {
+
+          // Enrich with docs_signed (pending list only: lookup all claims that
+          // match these zip+street combos so we can show doc badges)
+          const zips = [...new Set(deduped.map(r => (r.zip || "").trim()).filter(Boolean))];
+          const claimsByZipStreet = new Map();
+          if (zips.length > 0) {
+            const { data: claimsRows } = await supabase
+              .from("claims")
+              .select("address, zip, docs_signed")
+              .in("zip", zips);
+            for (const c of claimsRows || []) {
+              const z = (c.zip || "").trim();
+              const street = (c.address || "").split(",")[0].trim().toLowerCase().replace(/\s+/g, " ");
+              claimsByZipStreet.set(`${z}|${street}`, c.docs_signed || "");
+            }
+          }
+          const enriched = deduped.map(r => {
+            const z = (r.zip || "").trim();
+            const street = (r.address || "").split(",")[0].trim().toLowerCase().replace(/\s+/g, " ");
+            const claimDocs = claimsByZipStreet.get(`${z}|${street}`) || "";
+            const combined = [r.docs_signed || "", claimDocs].join(",").toLowerCase();
+            const has = (d) => combined.includes(d);
+            return { ...r, _docs: { insp: has("insp"), lor: has("lor"), pac: has("pac") } };
+          });
+
+          const sorted = enriched.sort((a, b) => {
             const lastName = (name) => {
               const parts = (name || "").trim().split(" ");
               return parts[parts.length - 1].toLowerCase();
@@ -7631,7 +7768,7 @@ if (!hasDamage) {
         const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
         const { data: results, error } = await supabase
           .from("inspections")
-          .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at")
+          .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed")
           .gte("signed_at", thirtyDaysAgo)
           .order("result_at", { ascending: false, nullsFirst: false });
         if (error) throw error;
@@ -7658,8 +7795,37 @@ if (!hasDamage) {
           const tOld = existing.result_at ? new Date(existing.result_at).getTime() : (existing.signed_at ? new Date(existing.signed_at).getTime() : 0);
           if (tNew > tOld) bestByKey.set(k, r);
         }
+
+        // ── Pull claims in the same window to enrich each row with docs_signed
+        // One lookup for the whole list beats per-row queries.
+        const { data: claimsRows } = await supabase
+          .from("claims")
+          .select("homeowner1, homeowner2, address, zip, docs_signed")
+          .gte("signed_at", thirtyDaysAgo);
+        const claimsByZipStreet = new Map();
+        for (const c of claimsRows || []) {
+          const z = (c.zip || "").trim();
+          const street = (c.address || "").split(",")[0].trim().toLowerCase().replace(/\s+/g, " ");
+          const key = `${z}|${street}`;
+          claimsByZipStreet.set(key, c.docs_signed || "");
+        }
+
+        // Merge docs_signed onto each inspection.
+        // Priority: inspection's own docs_signed column (set at signing) → fallback to claims lookup.
+        // If insp record was created standalone (no claim), docs_signed usually = "insp".
+        const enriched = [...bestByKey.values()].map(r => {
+          const z = (r.zip || "").trim();
+          const street = (r.address || "").split(",")[0].trim().toLowerCase().replace(/\s+/g, " ");
+          const key = `${z}|${street}`;
+          const claimDocs = claimsByZipStreet.get(key) || "";
+          // Combine both sides — if either source lists a doc, count it as signed
+          const combined = [r.docs_signed || "", claimDocs].join(",").toLowerCase();
+          const has = (d) => combined.includes(d);
+          return { ...r, _docs: { insp: has("insp"), lor: has("lor"), pac: has("pac") } };
+        });
+
         // Sort: records with results first (most recent result_at on top), then pending by signed_at desc
-        const sorted = [...bestByKey.values()].sort((a, b) => {
+        const sorted = enriched.sort((a, b) => {
           const aHas = !!a.result; const bHas = !!b.result;
           if (aHas && !bHas) return -1;
           if (bHas && !aHas) return 1;
@@ -7849,6 +8015,13 @@ if (!hasDamage) {
                             ? `Resulted: ${new Date(rec.result_at).toLocaleString("en-US", { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true })}`
                             : null;
                           const showPaButton = rec.result === "damage";
+                          const paAllSigned = rec._docs && rec._docs.insp && rec._docs.lor && rec._docs.pac;
+                          const paButtonReady = showPaButton && paAllSigned;
+                          const paButtonTooltip = !showPaButton
+                            ? ""
+                            : paAllSigned
+                              ? "Email claims@capitalclaimgroup.com with photos"
+                              : "All 3 docs (Insp + LOR + PA) must be signed before PA is notified";
 
                           return (
                             <div key={rec.id}
@@ -7861,9 +8034,25 @@ if (!hasDamage) {
                                 <div style={{ minWidth: 0 }}>
                                   <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", fontFamily: "'Nunito', sans-serif" }}>{rec.client_name || "—"}</div>
                                   <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>{[rec.address, rec.city, rec.state, rec.zip].filter(Boolean).join(", ")}</div>
-                                  <div style={{ fontSize: 11, color: "#9ca3af", fontFamily: "'Nunito', sans-serif" }}>
-                                    Rep: {rec.sales_rep_name || "—"}
-                                    {resultedLine ? <span style={{ marginLeft: 8, color: "#059669", fontWeight: 600 }}>· {resultedLine}</span> : null}
+                                  <div style={{ fontSize: 11, color: "#9ca3af", fontFamily: "'Nunito', sans-serif", display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+                                    <span>Rep: {rec.sales_rep_name || "—"}</span>
+                                    {rec._docs ? (
+                                      <span style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
+                                        <span style={{ background: rec._docs.insp ? "#dbeafe" : "#f3f4f6", color: rec._docs.insp ? "#1e40af" : "#9ca3af", borderRadius: 6, padding: "1px 6px", fontWeight: 700, fontSize: 10, letterSpacing: "0.03em" }}>
+                                          {rec._docs.insp ? "✓" : "·"} INSP
+                                        </span>
+                                        <span style={{ background: rec._docs.lor ? "#dbeafe" : "#f3f4f6", color: rec._docs.lor ? "#1e40af" : "#9ca3af", borderRadius: 6, padding: "1px 6px", fontWeight: 700, fontSize: 10, letterSpacing: "0.03em" }}>
+                                          {rec._docs.lor ? "✓" : "·"} LOR
+                                        </span>
+                                        <span style={{ background: rec._docs.pac ? "#dbeafe" : "#f3f4f6", color: rec._docs.pac ? "#1e40af" : "#9ca3af", borderRadius: 6, padding: "1px 6px", fontWeight: 700, fontSize: 10, letterSpacing: "0.03em" }}>
+                                          {rec._docs.pac ? "✓" : "·"} PA
+                                        </span>
+                                        {rec._docs.insp && rec._docs.lor && rec._docs.pac ? (
+                                          <span style={{ background: "#059669", color: "#fff", borderRadius: 6, padding: "1px 6px", fontWeight: 700, fontSize: 10, letterSpacing: "0.03em" }}>ALL SIGNED</span>
+                                        ) : null}
+                                      </span>
+                                    ) : null}
+                                    {resultedLine ? <span style={{ color: "#059669", fontWeight: 600 }}>· {resultedLine}</span> : null}
                                   </div>
                                 </div>
                                 <div style={{ textAlign: "center", padding: "0 10px" }}>
@@ -7915,10 +8104,10 @@ if (!hasDamage) {
                                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
                                     <button
                                       type="button"
-                                      disabled={isBusy}
+                                      disabled={isBusy || !paButtonReady}
                                       onClick={(e) => { e.stopPropagation(); adminNotifyPA(rec); }}
-                                      title="Email claims@capitalclaimgroup.com with photos (requires all 3 docs signed)"
-                                      style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #dc2626", background: isBusy ? "#f3f4f6" : "#fff", color: isBusy ? "#9ca3af" : "#dc2626", fontSize: 11, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: isBusy ? "not-allowed" : "pointer" }}>
+                                      title={paButtonTooltip}
+                                      style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #dc2626", background: (isBusy || !paButtonReady) ? "#f3f4f6" : "#fff", color: (isBusy || !paButtonReady) ? "#9ca3af" : "#dc2626", fontSize: 11, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: (isBusy || !paButtonReady) ? "not-allowed" : "pointer" }}>
                                       📧 Notify PA
                                     </button>
                                     <div style={{ fontSize: 9, color: rec.last_notified_pa_at ? "#059669" : "#9ca3af", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>{formatAgo(rec.last_notified_pa_at)}</div>
@@ -8084,6 +8273,137 @@ if (!hasDamage) {
                         {Object.keys(reportData.byRep).length === 0 ? (
                           <div style={{ textAlign: "center", padding: "24px 0", color: "#9ca3af", fontFamily: "'Nunito', sans-serif", fontSize: 15 }}>No signings recorded this period.</div>
                         ) : null}
+                      </div>
+                    ) : null}
+                  </Card>}
+                  {managerSection === "analytics" && <Card style={{ padding: 20, background: "#f8fafc" }}>
+                    <SectionTitle>Submission Analytics</SectionTitle>
+                    <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 16 }}>
+                      Inspection submissions by sales rep, based on when the homeowner signed. Avg days measures time from signing to inspection result.
+                    </div>
+                    <div style={{ display: "grid", gap: 12, marginBottom: 16 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                        <div>
+                          <Label>From (signed date)</Label>
+                          <input type="date" value={analyticsStart} onChange={e => setAnalyticsStart(e.target.value)}
+                            style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                        </div>
+                        <div>
+                          <Label>To (signed date)</Label>
+                          <input type="date" value={analyticsEnd} onChange={e => setAnalyticsEnd(e.target.value)}
+                            style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {[
+                          { label: "Last 7 Days", fn: () => { const t=new Date(); const s=new Date(t); s.setDate(t.getDate()-7); setAnalyticsStart(s.toISOString().split("T")[0]); setAnalyticsEnd(t.toISOString().split("T")[0]); } },
+                          { label: "Last 30 Days", fn: () => { const t=new Date(); const s=new Date(t); s.setDate(t.getDate()-30); setAnalyticsStart(s.toISOString().split("T")[0]); setAnalyticsEnd(t.toISOString().split("T")[0]); } },
+                          { label: "This Month", fn: () => { const t=new Date(); setAnalyticsStart(new Date(t.getFullYear(),t.getMonth(),1).toISOString().split("T")[0]); setAnalyticsEnd(t.toISOString().split("T")[0]); } },
+                          { label: "Last Month", fn: () => { const t=new Date(); const s=new Date(t.getFullYear(),t.getMonth()-1,1); const e=new Date(t.getFullYear(),t.getMonth(),0); setAnalyticsStart(s.toISOString().split("T")[0]); setAnalyticsEnd(e.toISOString().split("T")[0]); } },
+                          { label: "All Time", fn: () => { setAnalyticsStart("2024-01-01"); setAnalyticsEnd(new Date().toISOString().split("T")[0]); } },
+                        ].map(({ label, fn }) => (
+                          <button key={label} type="button" onClick={fn}
+                            style={{ padding: "6px 14px", borderRadius: 20, border: "1px solid #d1d5db", background: "#fff", color: "#374151", fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                      <button type="button" onClick={() => fetchAnalytics(analyticsStart, analyticsEnd)} disabled={analyticsLoading}
+                        style={{ padding: "10px 24px", borderRadius: 14, border: "none", background: "#1a2e5a", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", width: "fit-content" }}>
+                        {analyticsLoading ? "Loading..." : "📈 Generate Analytics"}
+                      </button>
+                    </div>
+
+                    {analyticsData?.error ? (
+                      <div style={{ padding: 14, background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 10, color: "#991b1b", fontSize: 13, fontFamily: "'Nunito', sans-serif" }}>
+                        ❌ {analyticsData.error}
+                      </div>
+                    ) : null}
+
+                    {analyticsData && !analyticsData.error ? (
+                      <div>
+                        <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 12 }}>
+                          {analyticsData.startDate} → {analyticsData.endDate} &nbsp;|&nbsp; <strong style={{ color: "#111827" }}>{analyticsData.total} submission{analyticsData.total !== 1 ? "s" : ""}</strong>
+                        </div>
+
+                        {/* Company-wide summary card */}
+                        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14, padding: 16, marginBottom: 16 }}>
+                          <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 10 }}>Company-wide</div>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 14 }}>
+                            {[
+                              { label: "Damage",     count: analyticsData.counts.damage,    pct: analyticsData.pct.damage,    bg: "#fef2f2", color: "#dc2626" },
+                              { label: "No Damage",  count: analyticsData.counts.no_damage, pct: analyticsData.pct.no_damage, bg: "#f0fdf4", color: "#199c2e" },
+                              { label: "Retail",     count: analyticsData.counts.retail,    pct: analyticsData.pct.retail,    bg: "#fff7ed", color: "#d97706" },
+                              { label: "Pending",    count: analyticsData.counts.pending,   pct: analyticsData.pct.pending,   bg: "#f3f4f6", color: "#6b7280" },
+                            ].map(c => (
+                              <div key={c.label} style={{ background: c.bg, borderRadius: 10, padding: "10px 12px", textAlign: "center" }}>
+                                <div style={{ fontSize: 22, fontWeight: 700, color: c.color, fontFamily: "'Oswald', sans-serif" }}>{c.pct}%</div>
+                                <div style={{ fontSize: 11, color: c.color, fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}>{c.label}</div>
+                                <div style={{ fontSize: 10, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>{c.count} of {analyticsData.total}</div>
+                              </div>
+                            ))}
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                            <div style={{ background: "#eef2ff", borderRadius: 10, padding: "10px 12px", textAlign: "center" }}>
+                              <div style={{ fontSize: 22, fontWeight: 700, color: "#1a2e5a", fontFamily: "'Oswald', sans-serif" }}>{analyticsData.meanDays !== null ? analyticsData.meanDays.toFixed(1) : "—"}</div>
+                              <div style={{ fontSize: 11, color: "#1a2e5a", fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}>Avg Days to Inspection</div>
+                              <div style={{ fontSize: 10, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>mean</div>
+                            </div>
+                            <div style={{ background: "#eef2ff", borderRadius: 10, padding: "10px 12px", textAlign: "center" }}>
+                              <div style={{ fontSize: 22, fontWeight: 700, color: "#1a2e5a", fontFamily: "'Oswald', sans-serif" }}>{analyticsData.medianDays !== null ? analyticsData.medianDays.toFixed(1) : "—"}</div>
+                              <div style={{ fontSize: 11, color: "#1a2e5a", fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}>Median Days</div>
+                              <div style={{ fontSize: 10, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>half above, half below</div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Per-rep breakdown */}
+                        <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 8 }}>By Rep (active only)</div>
+                        {analyticsData.byRep.length === 0 ? (
+                          <div style={{ padding: "24px 0", textAlign: "center", color: "#9ca3af", fontFamily: "'Nunito', sans-serif", fontSize: 15 }}>No submissions in this date range.</div>
+                        ) : (
+                          <div style={{ display: "grid", gap: 8 }}>
+                            {/* Header row */}
+                            <div style={{ display: "grid", gridTemplateColumns: "2fr 0.7fr 0.9fr 0.9fr 0.9fr 0.9fr 0.9fr 0.9fr", gap: 8, padding: "8px 12px", background: "#f3f4f6", borderRadius: 8, fontSize: 11, fontWeight: 700, color: "#6b7280", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                              <div>Rep</div>
+                              <div style={{ textAlign: "right" }}>Total</div>
+                              <div style={{ textAlign: "center" }}>Damage</div>
+                              <div style={{ textAlign: "center" }}>No Dmg</div>
+                              <div style={{ textAlign: "center" }}>Retail</div>
+                              <div style={{ textAlign: "center" }}>Pending</div>
+                              <div style={{ textAlign: "right" }}>Avg Days</div>
+                              <div style={{ textAlign: "right" }}>Median</div>
+                            </div>
+                            {analyticsData.byRep.map(b => (
+                              <div key={b.rep} style={{ display: "grid", gridTemplateColumns: "2fr 0.7fr 0.9fr 0.9fr 0.9fr 0.9fr 0.9fr 0.9fr", gap: 8, padding: "10px 12px", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, alignItems: "center", fontSize: 13, fontFamily: "'Nunito', sans-serif" }}>
+                                <div style={{ fontWeight: 700, color: "#111827" }}>{b.rep}</div>
+                                <div style={{ textAlign: "right", fontWeight: 700, color: "#111827" }}>{b.total}</div>
+                                <div style={{ textAlign: "center" }}>
+                                  <div style={{ color: "#dc2626", fontWeight: 700 }}>{b.damagePct}%</div>
+                                  <div style={{ fontSize: 10, color: "#9ca3af" }}>{b.damage}</div>
+                                </div>
+                                <div style={{ textAlign: "center" }}>
+                                  <div style={{ color: "#199c2e", fontWeight: 700 }}>{b.noDamagePct}%</div>
+                                  <div style={{ fontSize: 10, color: "#9ca3af" }}>{b.no_damage}</div>
+                                </div>
+                                <div style={{ textAlign: "center" }}>
+                                  <div style={{ color: "#d97706", fontWeight: 700 }}>{b.retailPct}%</div>
+                                  <div style={{ fontSize: 10, color: "#9ca3af" }}>{b.retail}</div>
+                                </div>
+                                <div style={{ textAlign: "center" }}>
+                                  <div style={{ color: "#6b7280", fontWeight: 700 }}>{b.pendingPct}%</div>
+                                  <div style={{ fontSize: 10, color: "#9ca3af" }}>{b.pending}</div>
+                                </div>
+                                <div style={{ textAlign: "right", color: "#1a2e5a", fontWeight: 700 }}>
+                                  {b.meanDays !== null ? b.meanDays.toFixed(1) : "—"}
+                                </div>
+                                <div style={{ textAlign: "right", color: "#1a2e5a", fontWeight: 700 }}>
+                                  {b.medianDays !== null ? b.medianDays.toFixed(1) : "—"}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     ) : null}
                   </Card>}
