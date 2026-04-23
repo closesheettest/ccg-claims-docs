@@ -7639,17 +7639,25 @@ if (!hasDamage) {
                             const btn = e.currentTarget;
                             btn.textContent = "...";
                             btn.disabled = true;
-                            // Try update by jobnimbus_id first, then by id
+                            // Try update by jobnimbus_id first, then by id. Use .select()
+                            // so we can actually see whether any rows were affected —
+                            // without it, RLS-blocked writes silently report success.
                             let result;
                             if (rep.jobnimbus_id) {
-                              result = await supabase.from("sales_reps").update({ phone }).eq("jobnimbus_id", rep.jobnimbus_id);
+                              result = await supabase.from("sales_reps").update({ phone }).eq("jobnimbus_id", rep.jobnimbus_id).select();
                             }
-                            if (!rep.jobnimbus_id || result?.error) {
-                              result = await supabase.from("sales_reps").update({ phone }).eq("id", rep.id);
+                            if (!rep.jobnimbus_id || result?.error || !result?.data || result.data.length === 0) {
+                              result = await supabase.from("sales_reps").update({ phone }).eq("id", rep.id).select();
                             }
                             if (result?.error) {
                               btn.textContent = "❌";
                               console.error("Phone save error:", result.error);
+                              alert(`Could not save phone: ${result.error.message}`);
+                            } else if (!result?.data || result.data.length === 0) {
+                              // HTTP 200 but 0 rows updated — usually means RLS blocked the write
+                              btn.textContent = "❌";
+                              console.warn("Phone save: 0 rows affected (likely RLS blocking writes on sales_reps)");
+                              alert("Save appeared successful but wrote 0 rows. This usually means Row-Level Security is blocking writes on sales_reps.\n\nFix in Supabase SQL Editor:\nALTER TABLE sales_reps DISABLE ROW LEVEL SECURITY;");
                             } else {
                               btn.textContent = "✓";
                               btn.style.background = "#199c2e";
