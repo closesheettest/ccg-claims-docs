@@ -2464,6 +2464,7 @@ export default function App() {
   const [managerTYTab, setManagerTYTab] = useState("post_inspection");
   const [managerSection, setManagerSection] = useState("home");
   const [reportData, setReportData] = useState(null);
+  const [reportPdfLoading, setReportPdfLoading] = useState(false);
 
   // Sales rep manager
 
@@ -4453,6 +4454,37 @@ const renderSmsTemplate = (key, vars) => {
       }
     } catch (e) {
       alert("PA email error: " + (e.message || e));
+    } finally {
+      setRowBusyId(null);
+    }
+  };
+
+  // ── Retry JN sync for orphaned inspections ──────────────────────────
+  // When homeowner signs, we fire a JN sync async. If JN's API times out
+  // or errors, the sync fails silently and we get an orphan (no jn_job_id).
+  // This admin-only button calls retry-jn-sync which re-pushes the record.
+  const adminRetryJnSync = async (row) => {
+    if (!row) return;
+    if (row.jn_job_id) { alert("This record is already synced to JobNimbus."); return; }
+    if (!window.confirm(`Push this record to JobNimbus?\n\n${row.client_name}\n${row.address}, ${row.city} ${row.zip}\n\nA new JN job will be created. This cannot be undone.`)) return;
+
+    setRowBusyId(row.id);
+    try {
+      const r = await fetch("/.netlify/functions/retry-jn-sync", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inspectionId: row.id }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.ok) {
+        setRecordSearchResults(prev => prev.map(rr => rr.id === row.id
+          ? { ...rr, jn_job_id: d.jobId, docs_signed: d.docsSigned || rr.docs_signed }
+          : rr));
+        alert(`✅ Synced to JN — job id: ${d.jobId}`);
+      } else {
+        alert("❌ JN sync failed: " + (d.error || (await r.text()).slice(0, 200)) + (d.detail ? "\n\n" + JSON.stringify(d.detail).slice(0, 300) : ""));
+      }
+    } catch (e) {
+      alert("JN sync error: " + (e.message || e));
     } finally {
       setRowBusyId(null);
     }
@@ -7738,7 +7770,7 @@ if (!hasDamage) {
       try {
         const { data: results, error } = await supabase
           .from("inspections")
-          .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed")
+          .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed, jn_job_id")
           .is("result", null);
         if (!error) {
           // Dedupe: keep one row per homeowner at a given ZIP. Using ZIP (not
@@ -7815,7 +7847,7 @@ if (!hasDamage) {
         const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
         const { data: results, error } = await supabase
           .from("inspections")
-          .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed")
+          .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed, jn_job_id")
           .gte("signed_at", thirtyDaysAgo)
           .order("result_at", { ascending: false, nullsFirst: false });
         if (error) throw error;
@@ -8160,6 +8192,22 @@ if (!hasDamage) {
                                     <div style={{ fontSize: 9, color: rec.last_notified_pa_at ? "#059669" : "#9ca3af", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>{formatAgo(rec.last_notified_pa_at)}</div>
                                   </div>
                                 ) : null}
+
+                                {/* Orphan detector — only show if record is missing jn_job_id. Lets admin retry JN sync in one click. */}
+                                {!rec.jn_job_id ? (
+                                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                                    <button
+                                      type="button"
+                                      disabled={isBusy}
+                                      onClick={(e) => { e.stopPropagation(); adminRetryJnSync(rec); }}
+                                      title="This record isn't in JobNimbus. Click to create the JN job now."
+                                      style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #ea580c", background: isBusy ? "#f3f4f6" : "#fff7ed", color: isBusy ? "#9ca3af" : "#ea580c", fontSize: 11, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: isBusy ? "not-allowed" : "pointer" }}>
+                                      🔄 Sync to JN
+                                    </button>
+                                    <div style={{ fontSize: 9, color: "#ea580c", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>Not in JN</div>
+                                  </div>
+                                ) : null}
+
                                 {isBusy ? <span style={{ fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>Working…</span> : null}
                               </div>
                             </div>
@@ -8268,8 +8316,48 @@ if (!hasDamage) {
                     </div>
                     {reportData ? (
                       <div>
-                        <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginBottom: 12 }}>
-                          {reportData.startDate} → {reportData.endDate} &nbsp;|&nbsp; {reportData.totalRows} signing{reportData.totalRows !== 1 ? "s" : ""} &nbsp;|&nbsp; <strong style={{ color: "#166534" }}>${reportData.totalEarned.toLocaleString()} total</strong>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+                          <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>
+                            {reportData.startDate} → {reportData.endDate} &nbsp;|&nbsp; {reportData.totalRows} signing{reportData.totalRows !== 1 ? "s" : ""} &nbsp;|&nbsp; <strong style={{ color: "#166534" }}>${reportData.totalEarned.toLocaleString()} total</strong>
+                          </div>
+                          <button
+                            type="button"
+                            disabled={reportPdfLoading || reportData.totalRows === 0}
+                            onClick={async () => {
+                              setReportPdfLoading(true);
+                              try {
+                                const r = await fetch("/.netlify/functions/generate-weekly-report-pdf", {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ reportData }),
+                                });
+                                const d = await r.json();
+                                if (!r.ok || !d.ok || !d.base64) {
+                                  alert("PDF generation failed: " + (d.error || "unknown error") + (d.detail ? "\n\n" + d.detail : ""));
+                                  return;
+                                }
+                                // Convert base64 to blob and trigger download
+                                const binaryString = atob(d.base64);
+                                const bytes = new Uint8Array(binaryString.length);
+                                for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+                                const blob = new Blob([bytes], { type: "application/pdf" });
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement("a");
+                                a.href = url;
+                                a.download = `weekly-report-${reportData.startDate}-to-${reportData.endDate}.pdf`;
+                                document.body.appendChild(a);
+                                a.click();
+                                document.body.removeChild(a);
+                                URL.revokeObjectURL(url);
+                              } catch (e) {
+                                alert("PDF download error: " + (e.message || e));
+                              } finally {
+                                setReportPdfLoading(false);
+                              }
+                            }}
+                            style={{ padding: "8px 18px", borderRadius: 10, border: (reportPdfLoading || reportData.totalRows === 0) ? "1px solid #d1d5db" : "1px solid #1a2e5a", background: (reportPdfLoading || reportData.totalRows === 0) ? "#f3f4f6" : "#1a2e5a", color: (reportPdfLoading || reportData.totalRows === 0) ? "#9ca3af" : "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, cursor: (reportPdfLoading || reportData.totalRows === 0) ? "not-allowed" : "pointer", letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
+                            {reportPdfLoading ? "Generating..." : "📄 Download PDF"}
+                          </button>
                         </div>
                         {reportData.claimsError ? <div style={{ color: "#ef4444", fontSize: 12, marginBottom: 8 }}>⚠️ Claims error: {reportData.claimsError}</div> : null}
                         {reportData.inspError ? <div style={{ color: "#ef4444", fontSize: 12, marginBottom: 8 }}>⚠️ Inspections error: {reportData.inspError}</div> : null}
