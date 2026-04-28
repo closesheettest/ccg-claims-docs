@@ -2470,7 +2470,7 @@ export default function App() {
   // Lets admin re-send archived PDFs to any email address (PA, office,
   // homeowner, or a typed-in custom address). For records that haven't
   // been archived yet, the resend function regenerates them on the fly.
-  const [resendModal, setResendModal] = useState(null); // null | { rec, to, cc, recipientType, customTo }
+  const [resendModal, setResendModal] = useState(null); // null | { rec, to, cc, recipientType, customTo, forceRegen }
   const [resendLoading, setResendLoading] = useState(false);
 
   // Sales rep manager
@@ -8744,6 +8744,19 @@ if (!hasDamage) {
                 />
               </div>
 
+              {/* Force regenerate — only useful if there are already archived PDFs we'd otherwise reuse */}
+              {resendModal.rec.signed_pdfs?.insp ? (
+                <div style={{ marginBottom: 18, fontSize: 13, color: "#374151", fontFamily: "'Nunito', sans-serif" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                    <input type="checkbox"
+                      checked={!!resendModal.forceRegen}
+                      onChange={(e) => setResendModal(m => ({ ...m, forceRegen: e.target.checked }))}
+                      style={{ width: 16, height: 16, cursor: "pointer" }} />
+                    <span>Re-generate fresh PDFs from current data (overwrites archive)</span>
+                  </label>
+                </div>
+              ) : null}
+
               <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
                 <button type="button" onClick={() => !resendLoading && setResendModal(null)}
                   disabled={resendLoading}
@@ -8762,6 +8775,7 @@ if (!hasDamage) {
                           inspectionId: resendModal.rec.id,
                           to: resendModal.to,
                           cc: resendModal.cc || undefined,
+                          forceRegen: !!resendModal.forceRegen,
                         }),
                       });
                       const d = await r.json().catch(() => ({}));

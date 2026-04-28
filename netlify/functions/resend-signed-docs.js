@@ -28,13 +28,14 @@ exports.handler = async (event) => {
     return { statusCode: 405, body: JSON.stringify({ error: "Method not allowed" }) };
   }
 
-  let inspectionId, to, cc, subject;
+  let inspectionId, to, cc, subject, forceRegen;
   try {
     const body = JSON.parse(event.body || "{}");
     inspectionId = body.inspectionId;
     to = body.to;
     cc = body.cc;
     subject = body.subject;
+    forceRegen = !!body.forceRegen;
   } catch {
     return { statusCode: 400, body: JSON.stringify({ error: "Invalid JSON body" }) };
   }
@@ -42,7 +43,7 @@ exports.handler = async (event) => {
     return { statusCode: 400, body: JSON.stringify({ error: "inspectionId and to are required" }) };
   }
 
-  console.log("=== resend-signed-docs START for:", inspectionId, "to:", to);
+  console.log("=== resend-signed-docs START for:", inspectionId, "to:", to, "forceRegen:", forceRegen);
 
   // 1. Fetch the inspection record (with signed_pdfs paths)
   const sbRes = await fetch(
@@ -58,10 +59,10 @@ exports.handler = async (event) => {
     return { statusCode: 404, body: JSON.stringify({ error: "Inspection not found" }) };
   }
 
-  // 2. If not yet archived, regenerate from records first
+  // 2. If not yet archived, OR if caller asked for forceRegen, regenerate fresh
   let signed = rec.signed_pdfs;
-  if (!signed || !signed.insp) {
-    console.log("Not yet archived — calling regenerate-old-pdfs first");
+  if (forceRegen || !signed || !signed.insp) {
+    console.log(forceRegen ? "Force-regen requested" : "Not yet archived — calling regenerate-old-pdfs first");
     const base = process.env.URL || process.env.BASE_URL || "";
     const regenRes = await fetch(`${base}/.netlify/functions/regenerate-old-pdfs`, {
       method: "POST",

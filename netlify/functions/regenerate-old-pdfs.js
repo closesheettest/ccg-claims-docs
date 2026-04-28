@@ -165,11 +165,10 @@ const esc = (s) => String(s == null ? "" : s)
   .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
 function regenStamp(claim) {
-  return `
-    <div style="background:#fffbeb;border:2px solid #f59e0b;border-radius:8px;padding:10px 14px;margin:14px 0;font-size:11px;color:#92400e">
-      <strong>📄 REGENERATED FROM RECORDS</strong> · This document was reconstructed on ${new Date().toLocaleDateString()} from signing data on file. Originally signed on <strong>${claim.signed_at ? new Date(claim.signed_at).toLocaleString() : "(date unknown)"}</strong>${claim.signed_ip ? ` from IP ${esc(claim.signed_ip)}` : ""}.
-    </div>
-  `;
+  // Stamp removed by request — regenerated PDFs render cleanly without
+  // a "regenerated" disclaimer banner. The data, signature, signing date
+  // and IP are all faithful copies pulled from the original signing event.
+  return "";
 }
 
 function signatureBlock(claim) {
@@ -239,33 +238,94 @@ function buildInspectionHtml(claim, insp) {
 }
 
 function buildLorHtml(claim) {
-  const homeownerName = [claim.homeowner1, claim.homeowner2].filter(Boolean).join(" & ");
+  const homeownerName = [claim.homeowner1, claim.homeowner2].filter(Boolean).join(", ");
   const propertyAddress = [claim.address, claim.city, claim.state, claim.zip].filter(Boolean).join(", ");
+  const dateStr = claim.signed_at ? esc(new Date(claim.signed_at).toLocaleDateString()) : "";
+  const lossLocation = claim.loss_location || propertyAddress;
+
+  const fieldRow = (label, value) => `
+    <div>
+      <div style="font-size:10px;font-weight:700;color:#1a2e5a;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:3px">${esc(label)}</div>
+      <div style="border:1px solid #d1d5db;border-radius:6px;padding:8px 10px;font-size:13px;color:#111827;min-height:32px;background:#fff">${esc(value || "")}</div>
+    </div>
+  `;
+
   return `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
-  <body style="margin:0;padding:30px;font-family:Arial,Helvetica,sans-serif;color:#111827">
-    ${pageHeader("Letter of Representation", "#199c2e")}
-    ${regenStamp(claim)}
-    <div style="margin-bottom:20px">
-      <table style="width:100%;font-size:13px;border-collapse:collapse">
-        <tr><td style="padding:4px 0;width:140px;font-weight:700">Date:</td><td>${claim.signed_at ? esc(new Date(claim.signed_at).toLocaleDateString()) : ""}</td></tr>
-        <tr><td style="padding:4px 0;font-weight:700">Insured / Homeowner:</td><td>${esc(homeownerName)}</td></tr>
-        <tr><td style="padding:4px 0;font-weight:700">Property Address:</td><td>${esc(propertyAddress)}</td></tr>
-        <tr><td style="padding:4px 0;font-weight:700">Phone:</td><td>${esc(claim.phone || "")}</td></tr>
-        <tr><td style="padding:4px 0;font-weight:700">Email:</td><td>${esc(claim.signed_by_email || claim.homeowner_email || "")}</td></tr>
-      </table>
+  <body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;color:#111827;background:#fff">
+    <div style="padding:30px 40px">
+
+      <!-- Title bar -->
+      <div style="background:#199c2e;padding:14px 20px;border-radius:10px;margin-bottom:18px">
+        <div style="font-size:22px;font-weight:700;color:#fff;letter-spacing:0.04em;text-transform:uppercase">Letter of Representation</div>
+      </div>
+
+      <!-- 2-column data grid (matches original layout) -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px">
+        ${fieldRow("Date", dateStr)}
+        ${fieldRow("Insurance Company", claim.insurance_company)}
+        ${fieldRow("Address", propertyAddress)}
+        ${fieldRow("State", claim.state)}
+        ${fieldRow("Claim #", claim.claim_number)}
+        ${fieldRow("Client / Insured", homeownerName)}
+        ${fieldRow("Loss Location", lossLocation)}
+        ${fieldRow("Policy #", claim.policy_number)}
+        ${fieldRow("Date of Loss", claim.date_of_loss)}
+        ${fieldRow("Signer Email", claim.signed_by_email || claim.homeowner_email)}
+      </div>
+
+      <hr style="border:none;border-top:1px solid #d1d5db;margin:0 0 16px" />
+
+      <div style="font-size:13px;line-height:1.6;color:#374151">
+        <p style="margin:0 0 10px">Dear Claims Manager:</p>
+
+        <p style="margin:0 0 10px">This correspondence will serve to inform you and the Insurance Company that your insured has formally retained our services to assist them in evaluating and presenting their above-referenced claim. We have enclosed a copy of our signed representation notice, which we request that you record in your claim file and properly provide us with a written acknowledgment of our involvement.</p>
+
+        <p style="margin:0 0 10px">Additionally, we request that all further contact and communication involving this claim&rsquo;s processing from the Insurance Company be directed exclusively through our offices. This also extends to your representative contractor/claims agents and/or any other claims agents you may be using in the processing of this claim.</p>
+
+        <p style="margin:0 0 10px">Further, as the policy sets forth the duties, rights, and parameters of coverage, it is critical that we have expedited access to this information, we hereby request a true and complete certified copy of the applicable policy contract including the declarations page, all policy endorsements, and the original policy application. Please expedite these documents to our attention.</p>
+      </div>
+
+      <!-- Page break -->
+      <div style="page-break-before:always"></div>
+
+      <div style="font-size:13px;line-height:1.6;color:#374151;margin-top:20px">
+        <p style="margin:0 0 14px;font-style:italic">Also, please note that Capital Claims Group Inc. should be named as an additional payee on all insurance drafts and/or payments, pursuant to the enclosed Notice of Loss/Notice of Representation signed by the Insured(s). The insured(s) hereby reserve all rights to make claims under the policy for replacement cost benefits as set forth in the policy and likewise invoke their rights to repair, rebuild or replace the damaged property.</p>
+
+        <p style="margin:0 0 10px">Surely, you understand the Assured&rsquo;s need to have this claim processed as quickly as possible, and as such, we will be undertaking all necessary steps to document and prepare their claim for submission. We look forward to working cooperatively with you to reach a fair and prompt resolution to this claim. Please feel free to contact us at 954-874-3563 to discuss the current status of this claim and to coordinate our efforts in the loss investigation and valuation process.</p>
+
+        <p style="margin:0 0 18px;font-style:italic">The Assureds hereby reserve all of their rights under the policy and the laws of this State and nothing contained herein is intended to waive or prejudice said rights.</p>
+      </div>
+
+      <div style="margin-top:24px">
+        <div style="font-size:12px;font-weight:700;margin-bottom:8px;color:#1a2e5a;text-transform:uppercase;letter-spacing:0.04em">Insured Signature</div>
+        <div style="border:1px dashed #cbd5e1;border-radius:12px;min-height:120px;display:flex;align-items:center;justify-content:center;padding:14px;background:#fff">
+          ${(() => {
+            const sig1 = claim.signature1;
+            const sig2 = claim.signature2;
+            const renderSig = (val) => {
+              if (!val) return "";
+              const isImg = String(val).startsWith("data:image");
+              return isImg
+                ? `<img src="${val}" style="max-width:100%;max-height:90px;object-fit:contain" />`
+                : `<span style="font-family:'Brush Script MT',cursive;font-size:30px;color:#1a2e5a">${esc(val)}</span>`;
+            };
+            if (sig1 && sig2) {
+              return `<div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;width:100%;text-align:center"><div>${renderSig(sig1)}</div><div>${renderSig(sig2)}</div></div>`;
+            }
+            return `<div style="text-align:center;width:100%">${renderSig(sig1 || sig2 || "")}</div>`;
+          })()}
+        </div>
+        <div style="font-size:10px;color:#6b7280;margin-top:8px">
+          Signed: ${dateStr}${claim.signed_ip ? ` &middot; IP: ${esc(claim.signed_ip)}` : ""}${claim.signed_by_email ? ` &middot; ${esc(claim.signed_by_email)}` : ""}
+        </div>
+      </div>
+
+      <div style="margin-top:28px;background:#f0fdf4;border:1px solid #199c2e;border-radius:10px;padding:14px 18px">
+        <div style="font-weight:700;color:#166534;margin-bottom:4px">Capital Claims Group Inc.</div>
+        <div style="font-size:12px;color:#166534">License No: G240595 &middot; claims@capitalclaimgroup.com &middot; +1 (954) 571-3035 &middot; www.ccgclaims.com</div>
+      </div>
+
     </div>
-    <div style="font-size:13px;line-height:1.6;color:#374151;margin:20px 0">
-      <p>To Whom It May Concern:</p>
-      <p>The undersigned homeowner(s) hereby formally authorize <strong>Capital Claims Group Inc.</strong> ("CCG") to act as the public adjuster of record for any and all property damage claims pertaining to the property listed above.</p>
-      <p>This Letter of Representation grants CCG full authority to communicate with our insurance carrier, file claims, request information, and negotiate settlements on our behalf.</p>
-      <p>All correspondence regarding the claim should be directed to CCG using the contact information below.</p>
-      <p>This authorization remains in effect until revoked in writing by the undersigned.</p>
-    </div>
-    <div style="background:#f0fdf4;border:1px solid #199c2e;border-radius:8px;padding:14px 18px;margin:20px 0">
-      <div style="font-weight:700;color:#166534;margin-bottom:4px">Capital Claims Group Inc.</div>
-      <div style="font-size:13px;color:#166534">License No: G240595 · claims@capitalclaimgroup.com · +1 (954) 571-3035 · www.ccgclaims.com</div>
-    </div>
-    ${signatureBlock(claim)}
   </body></html>`;
 }
 
