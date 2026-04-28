@@ -7830,24 +7830,45 @@ if (!hasDamage) {
           const deduped = [...bestByKey.values()];
 
           // Enrich with docs_signed (pending list only: lookup all claims that
-          // match these zip+street combos so we can show doc badges)
+          // match these zip+street combos so we can show doc badges).
+          // Multi-key matching catches address-spelling differences between
+          // inspections and claims tables.
           const zips = [...new Set(deduped.map(r => (r.zip || "").trim()).filter(Boolean))];
           const claimsByZipStreet = new Map();
           if (zips.length > 0) {
             const { data: claimsRows } = await supabase
               .from("claims")
-              .select("address, zip, docs_signed")
+              .select("homeowner1, address, zip, docs_signed")
               .in("zip", zips);
             for (const c of claimsRows || []) {
               const z = (c.zip || "").trim();
-              const street = (c.address || "").split(",")[0].trim().toLowerCase().replace(/\s+/g, " ");
-              claimsByZipStreet.set(`${z}|${street}`, c.docs_signed || "");
+              if (!z) continue;
+              const fullAddrLower = (c.address || "").toLowerCase().trim();
+              const streetCanonical = fullAddrLower.split(",")[0].replace(/\s+/g, " ").trim();
+              const streetNumber = (streetCanonical.match(/^\d+/) || [""])[0];
+              const docs = c.docs_signed || "";
+              claimsByZipStreet.set(`${z}|${streetCanonical}`, docs);
+              if (streetNumber) {
+                const numKey = `${z}|num:${streetNumber}`;
+                if (!claimsByZipStreet.has(numKey)) claimsByZipStreet.set(numKey, docs);
+              }
+              const lastName = ((c.homeowner1 || "").trim().split(/\s+/).pop() || "").toLowerCase();
+              if (lastName) {
+                const nameKey = `${z}|name:${lastName}`;
+                if (!claimsByZipStreet.has(nameKey)) claimsByZipStreet.set(nameKey, docs);
+              }
             }
           }
           const enriched = deduped.map(r => {
             const z = (r.zip || "").trim();
-            const street = (r.address || "").split(",")[0].trim().toLowerCase().replace(/\s+/g, " ");
-            const claimDocs = claimsByZipStreet.get(`${z}|${street}`) || "";
+            const fullAddrLower = (r.address || "").toLowerCase().trim();
+            const streetCanonical = fullAddrLower.split(",")[0].replace(/\s+/g, " ").trim();
+            const streetNumber = (streetCanonical.match(/^\d+/) || [""])[0];
+            const lastName = ((r.client_name || "").trim().split(/\s+/).pop() || "").toLowerCase();
+            let claimDocs = claimsByZipStreet.get(`${z}|${streetCanonical}`);
+            if (!claimDocs && streetNumber) claimDocs = claimsByZipStreet.get(`${z}|num:${streetNumber}`);
+            if (!claimDocs && lastName)     claimDocs = claimsByZipStreet.get(`${z}|name:${lastName}`);
+            claimDocs = claimDocs || "";
             const combined = [r.docs_signed || "", claimDocs].join(",").toLowerCase();
             const has = (d) => combined.includes(d);
             return { ...r, _docs: { insp: has("insp"), lor: has("lor"), pac: has("pac") } };
@@ -7915,12 +7936,30 @@ if (!hasDamage) {
           .from("claims")
           .select("homeowner1, homeowner2, address, zip, docs_signed")
           .gte("signed_at", thirtyDaysAgo);
+        // Build a multi-key map so we can find matches even when address strings
+        // differ slightly between inspections and claims tables.
+        // Keys we store: zip|street (full street), zip|streetNumber (just the number),
+        // and zip+homeowner-last-name as a final fallback.
         const claimsByZipStreet = new Map();
         for (const c of claimsRows || []) {
           const z = (c.zip || "").trim();
-          const street = (c.address || "").split(",")[0].trim().toLowerCase().replace(/\s+/g, " ");
-          const key = `${z}|${street}`;
-          claimsByZipStreet.set(key, c.docs_signed || "");
+          if (!z) continue;
+          const fullAddrLower = (c.address || "").toLowerCase().trim();
+          const streetCanonical = fullAddrLower.split(",")[0].replace(/\s+/g, " ").trim();
+          const streetNumber = (streetCanonical.match(/^\d+/) || [""])[0];
+          const docs = c.docs_signed || "";
+          // Multiple keys point to the same docs value — first match wins
+          claimsByZipStreet.set(`${z}|${streetCanonical}`, docs);
+          if (streetNumber) {
+            const numKey = `${z}|num:${streetNumber}`;
+            if (!claimsByZipStreet.has(numKey)) claimsByZipStreet.set(numKey, docs);
+          }
+          // Fallback by zip + last-name token from homeowner1
+          const lastName = ((c.homeowner1 || "").trim().split(/\s+/).pop() || "").toLowerCase();
+          if (lastName) {
+            const nameKey = `${z}|name:${lastName}`;
+            if (!claimsByZipStreet.has(nameKey)) claimsByZipStreet.set(nameKey, docs);
+          }
         }
 
         // Merge docs_signed onto each inspection.
@@ -7928,9 +7967,15 @@ if (!hasDamage) {
         // If insp record was created standalone (no claim), docs_signed usually = "insp".
         const enriched = [...bestByKey.values()].map(r => {
           const z = (r.zip || "").trim();
-          const street = (r.address || "").split(",")[0].trim().toLowerCase().replace(/\s+/g, " ");
-          const key = `${z}|${street}`;
-          const claimDocs = claimsByZipStreet.get(key) || "";
+          const fullAddrLower = (r.address || "").toLowerCase().trim();
+          const streetCanonical = fullAddrLower.split(",")[0].replace(/\s+/g, " ").trim();
+          const streetNumber = (streetCanonical.match(/^\d+/) || [""])[0];
+          const lastName = ((r.client_name || "").trim().split(/\s+/).pop() || "").toLowerCase();
+          // Try keys in order of specificity
+          let claimDocs = claimsByZipStreet.get(`${z}|${streetCanonical}`);
+          if (!claimDocs && streetNumber) claimDocs = claimsByZipStreet.get(`${z}|num:${streetNumber}`);
+          if (!claimDocs && lastName)     claimDocs = claimsByZipStreet.get(`${z}|name:${lastName}`);
+          claimDocs = claimDocs || "";
           // Combine both sides — if either source lists a doc, count it as signed
           const combined = [r.docs_signed || "", claimDocs].join(",").toLowerCase();
           const has = (d) => combined.includes(d);
@@ -8238,11 +8283,11 @@ if (!hasDamage) {
                                   </div>
                                 ) : null}
 
-                                {/* Re-send signed documents to any email — works on rows with all 3 docs OR rows with archived PDFs */}
+                                {/* Re-send signed documents to any email — works when ANY PA-related doc is signed OR PDFs are already archived */}
                                 {(() => {
                                   const hasArchive = !!(rec.signed_pdfs && rec.signed_pdfs.insp);
-                                  const allDocs = rec._docs && rec._docs.insp && rec._docs.lor && rec._docs.pac;
-                                  const showButton = hasArchive || allDocs;
+                                  const hasPaDocs = rec._docs && (rec._docs.lor || rec._docs.pac);
+                                  const showButton = hasArchive || hasPaDocs;
                                   if (!showButton) return null;
                                   return (
                                     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
