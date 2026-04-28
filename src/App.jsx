@@ -7932,10 +7932,17 @@ if (!hasDamage) {
 
         // ── Pull claims in the same window to enrich each row with docs_signed
         // One lookup for the whole list beats per-row queries.
-        const { data: claimsRows } = await supabase
-          .from("claims")
-          .select("homeowner1, homeowner2, address, zip, docs_signed")
-          .gte("signed_at", thirtyDaysAgo);
+        // Filter by the zips we care about (claims.signed_at can be text type
+        // in some installs, so date-based filtering is unreliable. Zip is more reliable.)
+        const inspZips = [...new Set([...bestByKey.values()].map(r => (r.zip || "").trim()).filter(Boolean))];
+        let claimsRows = [];
+        if (inspZips.length > 0) {
+          const { data: cr } = await supabase
+            .from("claims")
+            .select("homeowner1, homeowner2, address, zip, docs_signed")
+            .in("zip", inspZips);
+          claimsRows = cr || [];
+        }
         // Build a multi-key map so we can find matches even when address strings
         // differ slightly between inspections and claims tables.
         // Keys we store: zip|street (full street), zip|streetNumber (just the number),
@@ -7979,8 +7986,11 @@ if (!hasDamage) {
           // Combine both sides — if either source lists a doc, count it as signed
           const combined = [r.docs_signed || "", claimDocs].join(",").toLowerCase();
           const has = (d) => combined.includes(d);
-          return { ...r, _docs: { insp: has("insp"), lor: has("lor"), pac: has("pac") } };
+          return { ...r, _docs: { insp: has("insp"), lor: has("lor"), pac: has("pac") }, _claimDocsRaw: claimDocs };
         });
+
+        // Expose to window for debugging — open dev console and run window.__lastInspections
+        if (typeof window !== "undefined") window.__lastInspections = enriched;
 
         // Sort: records with results first (most recent result_at on top), then pending by signed_at desc
         const sorted = enriched.sort((a, b) => {
