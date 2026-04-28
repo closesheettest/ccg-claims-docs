@@ -4265,20 +4265,14 @@ const renderSmsTemplate = (key, vars) => {
     }
   };
 
+  // Search filters the currently-loaded list in-memory rather than running
+  // a fresh DB query. This preserves the docs_signed enrichment, jn_job_id,
+  // signed_pdfs, etc. that the loader sets up. Empty query restores the full list.
   const searchInspectionRecords = async (query) => {
-    if (!query || query.trim().length < 2) { setRecordSearchResults([]); return; }
-    setRecordSearchLoading(true);
-    try {
-      const q = query.trim();
-      const { data: results, error } = await supabase
-        .from("inspections")
-        .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at")
-        .or(`address.ilike.%${q}%,client_name.ilike.%${q}%,zip.ilike.%${q}%`)
-        .order("signed_at", { ascending: false })
-        .limit(10);
-      if (!error) setRecordSearchResults(results || []);
-    } catch (e) { console.error("Record search error:", e); }
-    finally { setRecordSearchLoading(false); }
+    // Note: this fn is called on every keystroke. We don't actually need to do
+    // anything async here anymore — the filter happens in the rendered map via
+    // recordSearch state. We keep the function signature so existing wiring works.
+    return;
   };
 
   const genCertNo = (dateStr) => {
@@ -8139,6 +8133,12 @@ if (!hasDamage) {
                         <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
                         {recordSearchResults
                           .filter(rec => {
+                            // Apply free-text search filter (in-memory, preserves _docs enrichment)
+                            if (recordSearch && recordSearch.trim().length >= 2) {
+                              const q = recordSearch.trim().toLowerCase();
+                              const haystack = [rec.client_name, rec.address, rec.city, rec.zip, rec.sales_rep_name].filter(Boolean).join(" ").toLowerCase();
+                              if (!haystack.includes(q)) return false;
+                            }
                             if (listMode !== "last30") return true;
                             if (resultFilter === "all") return !rec.cancelled_at; // hide cancelled from "all" by default
                             if (resultFilter === "cancelled") return !!rec.cancelled_at;
