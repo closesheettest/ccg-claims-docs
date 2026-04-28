@@ -2379,7 +2379,10 @@ export default function App() {
   const [checkNowLoading, setCheckNowLoading] = useState(false);
   const [checkNowSummary, setCheckNowSummary] = useState(null);
   const [rowBusyId, setRowBusyId] = useState(null);  // id of the row currently being updated/notified
-  const [listMode, setListMode] = useState(null);     // null | "pending" | "last30"
+  const [listMode, setListMode] = useState(null);     // null | "pending" | "last30" | "dateLookup"
+  // Date used for the "Load by Date" lookup. Defaults to today.
+  // Format: YYYY-MM-DD (matches the HTML date input value).
+  const [lookupDate, setLookupDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [resultFilter, setResultFilter] = useState("all"); // "all" | "damage" | "no_damage" | "retail" | "pending"
 
   const effectiveInspSig = inspSigMethod === "type"
@@ -8011,15 +8014,134 @@ if (!hasDamage) {
   >
     📂 Load Last 30 Days
   </button>
+
+  {/* ── Load by single date — useful for finding records by signing date ── */}
+  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+    <input
+      type="date"
+      value={lookupDate}
+      onChange={(e) => setLookupDate(e.target.value)}
+      style={{ height: 40, borderRadius: 10, border: "1.5px solid #1a2e5a", padding: "0 10px", fontSize: 13, fontFamily: "'Nunito', sans-serif", color: "#1a2e5a", boxSizing: "border-box" }}
+    />
+    <button
+      type="button"
+      onClick={async () => {
+        setListMode("dateLookup");
+        setResultFilter("all");
+        setCheckNowSummary(null);
+        setRecordSearchLoading(true);
+        setRecordSearch("");
+        try {
+          // Build the start/end of the selected day in ISO format. Inspections.signed_at
+          // is timestamptz, so we want everything from 00:00:00 to 23:59:59 of that local day.
+          // Use the user's local timezone offset so a record signed at 11pm shows up under
+          // its correct local date instead of the next UTC day.
+          const dayStart = new Date(`${lookupDate}T00:00:00`).toISOString();
+          const dayEnd   = new Date(`${lookupDate}T23:59:59.999`).toISOString();
+          const { data: results, error } = await supabase
+            .from("inspections")
+            .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed, jn_job_id, cancelled_at, signed_pdfs")
+            .gte("signed_at", dayStart)
+            .lte("signed_at", dayEnd)
+            .order("signed_at", { ascending: false });
+          if (error) throw error;
+
+          // Same dedup logic as Last 30 Days
+          const normName = (n) => (n || "").trim().toLowerCase().replace(/\s+/g, " ");
+          const normKey = (n, zip, addr) => {
+            const z = (zip || "").trim();
+            if (z) return `${normName(n)}|zip:${z}`;
+            const street = (addr || "").split(",")[0].trim().toLowerCase().replace(/\s+/g, " ");
+            return `${normName(n)}|st:${street}`;
+          };
+          const bestByKey = new Map();
+          for (const r of results || []) {
+            const k = normKey(r.client_name, r.zip, r.address);
+            const existing = bestByKey.get(k);
+            if (!existing) { bestByKey.set(k, r); continue; }
+            const existingHasResult = !!existing.result;
+            const currentHasResult = !!r.result;
+            if (currentHasResult && !existingHasResult) { bestByKey.set(k, r); continue; }
+            if (existingHasResult && !currentHasResult) continue;
+            const tNew = r.result_at ? new Date(r.result_at).getTime() : (r.signed_at ? new Date(r.signed_at).getTime() : 0);
+            const tOld = existing.result_at ? new Date(existing.result_at).getTime() : (existing.signed_at ? new Date(existing.signed_at).getTime() : 0);
+            if (tNew > tOld) bestByKey.set(k, r);
+          }
+
+          // Same multi-key claims-table enrichment as Last 30 Days so doc badges work
+          const inspZips = [...new Set([...bestByKey.values()].map(r => (r.zip || "").trim()).filter(Boolean))];
+          let claimsRows = [];
+          if (inspZips.length > 0) {
+            const { data: cr } = await supabase
+              .from("claims")
+              .select("homeowner1, homeowner2, address, zip, docs_signed")
+              .in("zip", inspZips);
+            claimsRows = cr || [];
+          }
+          const claimsByZipStreet = new Map();
+          for (const c of claimsRows) {
+            const z = (c.zip || "").trim();
+            if (!z) continue;
+            const fullAddrLower = (c.address || "").toLowerCase().trim();
+            const streetCanonical = fullAddrLower.split(",")[0].replace(/\s+/g, " ").trim();
+            const streetNumber = (streetCanonical.match(/^\d+/) || [""])[0];
+            const docs = c.docs_signed || "";
+            claimsByZipStreet.set(`${z}|${streetCanonical}`, docs);
+            if (streetNumber) {
+              const numKey = `${z}|num:${streetNumber}`;
+              if (!claimsByZipStreet.has(numKey)) claimsByZipStreet.set(numKey, docs);
+            }
+            const lastName = ((c.homeowner1 || "").trim().split(/\s+/).pop() || "").toLowerCase();
+            if (lastName) {
+              const nameKey = `${z}|name:${lastName}`;
+              if (!claimsByZipStreet.has(nameKey)) claimsByZipStreet.set(nameKey, docs);
+            }
+          }
+          const enriched = [...bestByKey.values()].map(r => {
+            const z = (r.zip || "").trim();
+            const fullAddrLower = (r.address || "").toLowerCase().trim();
+            const streetCanonical = fullAddrLower.split(",")[0].replace(/\s+/g, " ").trim();
+            const streetNumber = (streetCanonical.match(/^\d+/) || [""])[0];
+            const lastName = ((r.client_name || "").trim().split(/\s+/).pop() || "").toLowerCase();
+            let claimDocs = claimsByZipStreet.get(`${z}|${streetCanonical}`);
+            if (!claimDocs && streetNumber) claimDocs = claimsByZipStreet.get(`${z}|num:${streetNumber}`);
+            if (!claimDocs && lastName)     claimDocs = claimsByZipStreet.get(`${z}|name:${lastName}`);
+            claimDocs = claimDocs || "";
+            const combined = [r.docs_signed || "", claimDocs].join(",").toLowerCase();
+            const has = (d) => combined.includes(d);
+            return { ...r, _docs: { insp: has("insp"), lor: has("lor"), pac: has("pac") } };
+          });
+
+          // Sort by signed_at desc
+          enriched.sort((a, b) => {
+            const ta = a.signed_at ? new Date(a.signed_at).getTime() : 0;
+            const tb = b.signed_at ? new Date(b.signed_at).getTime() : 0;
+            return tb - ta;
+          });
+          if (typeof window !== "undefined") window.__lastInspections = enriched;
+          setRecordSearchResults(enriched);
+        } catch (e) {
+          console.error("Load by date error:", e);
+          alert("Could not load records for that date: " + (e.message || e));
+        }
+        finally { setRecordSearchLoading(false); }
+      }}
+      style={{ padding: "10px 20px", borderRadius: 12, border: "1.5px solid #1a2e5a", background: listMode === "dateLookup" ? "#1a2e5a" : "#fff", color: listMode === "dateLookup" ? "#fff" : "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}
+    >
+      📅 Load by Date
+    </button>
+  </div>
   {recordSearchResults.length > 0 && !recordSearch ? (
     <span style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
-      {listMode === "pending" ? `${recordSearchResults.length} pending — sorted A→Z by last name` : `${recordSearchResults.length} records (last 30 days)`}
+      {listMode === "pending" ? `${recordSearchResults.length} pending — sorted A→Z by last name`
+       : listMode === "dateLookup" ? `${recordSearchResults.length} records on ${new Date(`${lookupDate}T12:00:00`).toLocaleDateString()}`
+       : `${recordSearchResults.length} records (last 30 days)`}
     </span>
   ) : null}
 </div>
 
-{/* ── Filter chips — only shown in Last-30 mode to narrow by result ── */}
-{listMode === "last30" && recordSearchResults.length > 0 ? (
+{/* ── Filter chips — shown in Last-30 and Date-Lookup modes to narrow by result ── */}
+{(listMode === "last30" || listMode === "dateLookup") && recordSearchResults.length > 0 ? (
   <div style={{ marginBottom: 14, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
     <span style={{ fontSize: 11, fontFamily: "'Oswald', sans-serif", color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>Filter:</span>
     {[
@@ -8139,7 +8261,8 @@ if (!hasDamage) {
                               const haystack = [rec.client_name, rec.address, rec.city, rec.zip, rec.sales_rep_name].filter(Boolean).join(" ").toLowerCase();
                               if (!haystack.includes(q)) return false;
                             }
-                            if (listMode !== "last30") return true;
+                            // Apply result filter for Last-30 and Date-Lookup modes
+                            if (listMode !== "last30" && listMode !== "dateLookup") return true;
                             if (resultFilter === "all") return !rec.cancelled_at; // hide cancelled from "all" by default
                             if (resultFilter === "cancelled") return !!rec.cancelled_at;
                             if (resultFilter === "pending") return !rec.result && !rec.cancelled_at;
