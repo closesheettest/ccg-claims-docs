@@ -131,13 +131,79 @@ exports.handler = async (event) => {
       if (j.cf_string_34) console.log("Job", j.jnid, j.name, "→ cf_string_34:", j.cf_string_34);
     });
 
+    // ── Detect cancellations ──────────────────────────────────────
+    // Any job whose status_name === "Lost" should cause us to mark the matching
+    // inspection as cancelled in our DB. This runs BEFORE the result-change
+    // filter because a Lost job doesn't have a cf_string_34 result — it's
+    // purely status-based.
+    const lostJobs = fullJobs.filter(j => {
+      const status = (j.status_name || "").trim().toLowerCase();
+      return status === "lost";
+    });
+    console.log("Lost jobs detected:", lostJobs.length);
+
+    const cancellationResults = [];
+    for (const job of lostJobs) {
+      const jnJobId = job.jnid || job.id;
+      // Find the inspection record linked to this job
+      const sbRes = await fetch(
+        `${SB_URL}/rest/v1/inspections?jn_job_id=eq.${jnJobId}&select=id,client_name,address,cancelled_at,jn_status&limit=1`,
+        { headers: sbHeaders }
+      );
+      if (!sbRes.ok) continue;
+      const rows = await sbRes.json();
+      const rec = rows?.[0];
+      if (!rec) continue;
+      // Skip if already cancelled
+      if (rec.cancelled_at) {
+        console.log("Already cancelled, skipping:", rec.client_name);
+        continue;
+      }
+      // Mark cancelled
+      const updateRes = await fetch(
+        `${SB_URL}/rest/v1/inspections?id=eq.${rec.id}`,
+        {
+          method: "PATCH",
+          headers: { ...sbHeaders, Prefer: "return=minimal" },
+          body: JSON.stringify({
+            cancelled_at: new Date().toISOString(),
+            cancel_reason: "JN status changed to Lost",
+            jn_status: "Lost",
+          }),
+        }
+      );
+      if (!updateRes.ok) {
+        console.warn("Failed to mark cancelled:", rec.client_name, await updateRes.text());
+        continue;
+      }
+      console.log("Marked cancelled:", rec.client_name, "at", rec.address);
+      cancellationResults.push({ client: rec.client_name, address: rec.address });
+
+      // Email office about the cancellation
+      if (process.env.OFFICE_EMAIL) {
+        const html = `<div style="font-family:Arial,sans-serif;max-width:600px">
+          <div style="background:#6b7280;padding:20px 28px;border-radius:10px 10px 0 0">
+            <h2 style="color:#fff;margin:0;font-size:18px">❌ Job Cancelled in JobNimbus</h2>
+          </div>
+          <div style="background:#f9fafb;padding:20px 28px;border-radius:0 0 10px 10px;border:1px solid #e5e7eb;border-top:none">
+            <p>A JobNimbus job was marked <strong>Lost</strong> and has been auto-cancelled in the CCG app.</p>
+            <p><strong>Homeowner:</strong> ${rec.client_name}<br>
+            <strong>Property:</strong> ${rec.address}<br>
+            <strong>JN Job ID:</strong> ${jnJobId}</p>
+            <p style="color:#6b7280;font-size:12px">This record has been removed from pending lists and reports, but is still visible in Record Lookup with a cancelled status.</p>
+          </div>
+        </div>`;
+        await sendEmail(process.env.OFFICE_EMAIL, `❌ Job Cancelled: ${rec.client_name}`, html);
+      }
+    }
+
     const triggeredJobs = fullJobs.filter(j => TRIGGER_RESULTS.includes(j.cf_string_34));
     console.log("Triggered jobs:", triggeredJobs.length);
 
-    if (triggeredJobs.length === 0) {
+    if (triggeredJobs.length === 0 && cancellationResults.length === 0) {
       return {
         statusCode: 200,
-        body: JSON.stringify({ message: "No changed inspections found", checked: allJobs.length, pa_jobs: paJobs.length, full_details: fullJobs.length }),
+        body: JSON.stringify({ message: "No changed inspections or cancellations found", checked: allJobs.length, pa_jobs: paJobs.length, full_details: fullJobs.length }),
       };
     }
 
@@ -360,10 +426,10 @@ exports.handler = async (event) => {
       });
     }
 
-    console.log("=== Inspection Checker Complete ===", JSON.stringify(results));
+    console.log("=== Inspection Checker Complete ===", JSON.stringify(results), "cancellations:", cancellationResults.length);
     return {
       statusCode: 200,
-      body: JSON.stringify({ message: "Check complete", checked: allJobs.length, processed: results.length, results }),
+      body: JSON.stringify({ message: "Check complete", checked: allJobs.length, processed: results.length, results, cancellations: cancellationResults }),
     };
 
   } catch (err) {

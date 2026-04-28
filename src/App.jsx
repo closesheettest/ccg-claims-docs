@@ -76,7 +76,7 @@ const initialData = {
   lossLocation: "",
   lossLocationSameAsAddress: true,
   signerEmail: "",
-  paEmail: "claims@iambenitopaul.com",
+  paEmail: "claims@capitalclaimgroup.com",
   representativeName: "",
   leadSource: "NEED",  // "NEED" | "INS"
   salesRepId: "",
@@ -2466,6 +2466,13 @@ export default function App() {
   const [reportData, setReportData] = useState(null);
   const [reportPdfLoading, setReportPdfLoading] = useState(false);
 
+  // ── Resend Signed Documents modal state ────────────────────────
+  // Lets admin re-send archived PDFs to any email address (PA, office,
+  // homeowner, or a typed-in custom address). For records that haven't
+  // been archived yet, the resend function regenerates them on the fly.
+  const [resendModal, setResendModal] = useState(null); // null | { rec, to, cc, recipientType, customTo }
+  const [resendLoading, setResendLoading] = useState(false);
+
   // Sales rep manager
 
   // Sales rep manager
@@ -2721,6 +2728,7 @@ export default function App() {
         .select("id, sales_rep_name, signed_at, result, result_at")
         .gte("signed_at", start)
         .lte("signed_at", end)
+        .is("cancelled_at", null)
         .order("signed_at", { ascending: false });
       if (error) throw error;
 
@@ -2836,11 +2844,13 @@ export default function App() {
           .select("id, client_name, address, city, state, zip, signed_at, sales_rep_name, sales_rep_email")
           .gte("signed_at", start)
           .lte("signed_at", end)
+          .is("cancelled_at", null)
           .order("signed_at", { ascending: false }),
         // All inspections ever — small table, used to backfill prior-period insp dates
         supabase.from("inspections")
           .select("id, client_name, address, city, state, zip, signed_at, sales_rep_name")
           .not("signed_at", "is", null)
+          .is("cancelled_at", null)
           .order("signed_at", { ascending: false })
           .limit(2000),
       ]);
@@ -4021,6 +4031,29 @@ const renderSmsTemplate = (key, vars) => {
 
       try { await parseJsonResponse(finalEmailResponse, "Homeowner email failed."); }
       catch(emailErr) { console.warn("Homeowner email error (non-fatal):", emailErr); }
+
+      // ── Archive signed PDFs to Supabase Storage (non-blocking, runs in background) ──
+      // Convert attachments array → keyed object for archive function consumption.
+      // Skips if we don't have an inspection id (which would be a setup issue).
+      if (newInspId && attachments.length > 0) {
+        const pdfsToArchive = {};
+        attachments.forEach(att => {
+          const fn = (att.filename || "").toLowerCase();
+          let key = "other";
+          if (fn.includes("inspection-agreement"))     key = "insp";
+          else if (fn.includes("letter-of-rep") || fn.includes("lor")) key = "lor";
+          else if (fn.includes("public-adjuster") || fn.includes("pac")) key = "pac";
+          else if (fn.includes("welcome"))             key = "welcome";
+          pdfsToArchive[key] = { filename: att.filename, base64: att.content };
+        });
+        // Fire and forget — don't block signing on archive success
+        fetch("/.netlify/functions/archive-signed-docs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ inspectionId: newInspId, pdfs: pdfsToArchive }),
+        }).then(r => r.ok ? console.log("📁 Signed docs archived to storage") : console.warn("Archive call returned not-ok"))
+          .catch(e => console.warn("Archive call failed (non-fatal):", e));
+      }
 
       // ── PA notification email — different content based on claim stage ──
       const isPostInspection = data.claimStage === "post_inspection";
@@ -7770,8 +7803,9 @@ if (!hasDamage) {
       try {
         const { data: results, error } = await supabase
           .from("inspections")
-          .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed, jn_job_id")
-          .is("result", null);
+          .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed, jn_job_id, cancelled_at, signed_pdfs")
+          .is("result", null)
+          .is("cancelled_at", null);
         if (!error) {
           // Dedupe: keep one row per homeowner at a given ZIP. Using ZIP (not
           // full address) because the same property often gets re-entered with
@@ -7847,7 +7881,7 @@ if (!hasDamage) {
         const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
         const { data: results, error } = await supabase
           .from("inspections")
-          .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed, jn_job_id")
+          .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed, jn_job_id, cancelled_at, signed_pdfs")
           .gte("signed_at", thirtyDaysAgo)
           .order("result_at", { ascending: false, nullsFirst: false });
         if (error) throw error;
@@ -7945,6 +7979,7 @@ if (!hasDamage) {
       { key: "no_damage",  label: "✅ No Damage", bg: "#199c2e", color: "#fff" },
       { key: "retail",     label: "🏠 Retail",    bg: "#d97706", color: "#fff" },
       { key: "pending",    label: "Pending",     bg: "#6b7280", color: "#fff" },
+      { key: "cancelled",  label: "❌ Cancelled", bg: "#991b1b", color: "#fff" },
     ].map(f => (
       <button
         key={f.key}
@@ -8049,14 +8084,19 @@ if (!hasDamage) {
                         <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
                         {recordSearchResults
                           .filter(rec => {
-                            if (listMode !== "last30" || resultFilter === "all") return true;
-                            if (resultFilter === "pending") return !rec.result;
-                            return rec.result === resultFilter;
+                            if (listMode !== "last30") return true;
+                            if (resultFilter === "all") return !rec.cancelled_at; // hide cancelled from "all" by default
+                            if (resultFilter === "cancelled") return !!rec.cancelled_at;
+                            if (resultFilter === "pending") return !rec.result && !rec.cancelled_at;
+                            return rec.result === resultFilter && !rec.cancelled_at;
                           })
                           .map((rec) => {
-                          // Render the status pill — prefer the just-checked status, else fall back to result
+                          // Render the status pill — cancelled overrides everything.
+                          // Otherwise prefer the just-checked status, else fall back to result.
                           let pill;
-                          if (rec.checkedStatus === "changed_damage") {
+                          if (rec.cancelled_at) {
+                            pill = <div style={{ background: "#991b1b", color: "#fff", borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 700, fontFamily: "'Oswald', sans-serif", whiteSpace: "nowrap" }}>❌ Cancelled</div>;
+                          } else if (rec.checkedStatus === "changed_damage") {
                             pill = <div style={{ background: "#dc2626", color: "#fff", borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 700, fontFamily: "'Oswald', sans-serif", whiteSpace: "nowrap" }}>→ Damage</div>;
                           } else if (rec.checkedStatus === "changed_no_damage") {
                             pill = <div style={{ background: "#199c2e", color: "#fff", borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 700, fontFamily: "'Oswald', sans-serif", whiteSpace: "nowrap" }}>→ No Damage</div>;
@@ -8143,7 +8183,12 @@ if (!hasDamage) {
                                 </div>
                               </div>
 
-                              {/* Admin actions — override result + manual notifications */}
+                              {/* Admin actions — override result + manual notifications. Hidden for cancelled rows. */}
+                              {rec.cancelled_at ? (
+                                <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px dashed #e5e7eb", fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>
+                                  Cancelled {new Date(rec.cancelled_at).toLocaleDateString()} — removed from pending lists &amp; reports.
+                                </div>
+                              ) : (
                               <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px dashed #e5e7eb", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                                 <div style={{ fontSize: 10, fontFamily: "'Oswald', sans-serif", color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>Admin:</div>
                                 <select
@@ -8193,6 +8238,29 @@ if (!hasDamage) {
                                   </div>
                                 ) : null}
 
+                                {/* Re-send signed documents to any email — works on rows with all 3 docs OR rows with archived PDFs */}
+                                {(() => {
+                                  const hasArchive = !!(rec.signed_pdfs && rec.signed_pdfs.insp);
+                                  const allDocs = rec._docs && rec._docs.insp && rec._docs.lor && rec._docs.pac;
+                                  const showButton = hasArchive || allDocs;
+                                  if (!showButton) return null;
+                                  return (
+                                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                                      <button
+                                        type="button"
+                                        disabled={isBusy}
+                                        onClick={(e) => { e.stopPropagation(); setResendModal({ rec, to: "", cc: "", recipientType: "pa", customTo: "" }); }}
+                                        title={hasArchive ? "Resend archived signed documents to a custom email" : "Regenerate and send signed documents (no archive on file yet — will rebuild from records)"}
+                                        style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #0891b2", background: isBusy ? "#f3f4f6" : "#fff", color: isBusy ? "#9ca3af" : "#0891b2", fontSize: 11, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: isBusy ? "not-allowed" : "pointer" }}>
+                                        📤 Re-send Docs
+                                      </button>
+                                      <div style={{ fontSize: 9, color: hasArchive ? "#059669" : "#9ca3af", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
+                                        {hasArchive ? "📁 Archived" : "Will regenerate"}
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
+
                                 {/* Orphan detector — only show if record is missing jn_job_id. Lets admin retry JN sync in one click. */}
                                 {!rec.jn_job_id ? (
                                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
@@ -8210,6 +8278,7 @@ if (!hasDamage) {
 
                                 {isBusy ? <span style={{ fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>Working…</span> : null}
                               </div>
+                              )}
                             </div>
                           );
                         })}
@@ -8556,6 +8625,116 @@ if (!hasDamage) {
               )}
             </CardContent>
           </Card>
+        ) : null}
+
+        {/* ── Resend Signed Documents Modal ────────────────────────────── */}
+        {resendModal ? (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 20 }}
+               onClick={() => !resendLoading && setResendModal(null)}>
+            <div style={{ background: "#fff", borderRadius: 14, padding: "24px 28px", maxWidth: 540, width: "100%", maxHeight: "90vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#0c4a6e", marginBottom: 6, fontFamily: "'Oswald', sans-serif" }}>📤 Re-send Signed Documents</div>
+              <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 16, fontFamily: "'Nunito', sans-serif" }}>
+                {resendModal.rec.client_name} · {[resendModal.rec.address, resendModal.rec.city, resendModal.rec.state, resendModal.rec.zip].filter(Boolean).join(", ")}
+              </div>
+
+              {!resendModal.rec.signed_pdfs?.insp ? (
+                <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: "#92400e", fontFamily: "'Nunito', sans-serif" }}>
+                  ⚠️ This record has no archived PDFs yet. Sending will <strong>regenerate them from claim data</strong>. The regenerated PDFs will include a "REGENERATED FROM RECORDS" stamp showing the original signing date.
+                </div>
+              ) : (
+                <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: "#166534", fontFamily: "'Nunito', sans-serif" }}>
+                  📁 Archived PDFs available: {Object.keys(resendModal.rec.signed_pdfs).filter(k => k !== "uploaded_at").join(", ")}
+                </div>
+              )}
+
+              <div style={{ marginBottom: 12 }}>
+                <Label>Send to</Label>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                  {[
+                    { key: "pa",        label: "PA",        email: "claims@capitalclaimgroup.com" },
+                    { key: "homeowner", label: "Homeowner", email: resendModal.rec.email || "" },
+                    { key: "office",    label: "Office",    email: "" /* user types */ },
+                    { key: "custom",    label: "Custom",    email: "" },
+                  ].map(opt => (
+                    <button key={opt.key} type="button"
+                      onClick={() => setResendModal(m => ({ ...m, recipientType: opt.key, to: opt.email || m.customTo || "", customTo: opt.key === "custom" ? m.customTo : "" }))}
+                      style={{ padding: "6px 14px", borderRadius: 18, border: "1.5px solid #0891b2", background: resendModal.recipientType === opt.key ? "#0891b2" : "#fff", color: resendModal.recipientType === opt.key ? "#fff" : "#0891b2", fontSize: 12, fontFamily: "'Oswald', sans-serif", fontWeight: 700, cursor: "pointer", letterSpacing: "0.03em" }}>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  type="email"
+                  value={resendModal.recipientType === "custom" ? resendModal.customTo : resendModal.to}
+                  onChange={(e) => {
+                    if (resendModal.recipientType === "custom") {
+                      setResendModal(m => ({ ...m, customTo: e.target.value, to: e.target.value }));
+                    } else {
+                      setResendModal(m => ({ ...m, to: e.target.value }));
+                    }
+                  }}
+                  placeholder={resendModal.recipientType === "custom" ? "Type email address..." : "Recipient email"}
+                  style={{ width: "100%", height: 42, borderRadius: 10, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", fontFamily: "'Nunito', sans-serif" }}
+                />
+              </div>
+
+              <div style={{ marginBottom: 18 }}>
+                <Label>CC (optional)</Label>
+                <input
+                  type="email"
+                  value={resendModal.cc}
+                  onChange={(e) => setResendModal(m => ({ ...m, cc: e.target.value }))}
+                  placeholder="cc@example.com"
+                  style={{ width: "100%", height: 42, borderRadius: 10, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", fontFamily: "'Nunito', sans-serif" }}
+                />
+              </div>
+
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <button type="button" onClick={() => !resendLoading && setResendModal(null)}
+                  disabled={resendLoading}
+                  style={{ padding: "10px 20px", borderRadius: 10, border: "1px solid #d1d5db", background: "#fff", color: "#374151", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: resendLoading ? "not-allowed" : "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  Cancel
+                </button>
+                <button type="button"
+                  disabled={resendLoading || !resendModal.to}
+                  onClick={async () => {
+                    setResendLoading(true);
+                    try {
+                      const r = await fetch("/.netlify/functions/resend-signed-docs", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          inspectionId: resendModal.rec.id,
+                          to: resendModal.to,
+                          cc: resendModal.cc || undefined,
+                        }),
+                      });
+                      const d = await r.json().catch(() => ({}));
+                      if (r.ok && d.ok) {
+                        alert(`✅ Sent to ${d.to}${d.cc ? ` (cc: ${d.cc})` : ""}\n\nDocuments: ${d.attachments.join(", ")}`);
+                        // Refresh row to show the archive indicator if regenerated
+                        if (resendModal.rec.id) {
+                          const { data: refreshed } = await supabase.from("inspections").select("signed_pdfs").eq("id", resendModal.rec.id).maybeSingle();
+                          if (refreshed?.signed_pdfs) {
+                            setRecordSearchResults(prev => prev.map(rr => rr.id === resendModal.rec.id ? { ...rr, signed_pdfs: refreshed.signed_pdfs } : rr));
+                          }
+                        }
+                        setResendModal(null);
+                      } else {
+                        alert("❌ Send failed: " + (d.error || (await r.text()).slice(0, 200)) + (d.detail ? "\n\n" + JSON.stringify(d.detail).slice(0, 300) : ""));
+                      }
+                    } catch (e) {
+                      alert("Send error: " + (e.message || e));
+                    } finally {
+                      setResendLoading(false);
+                    }
+                  }}
+                  style={{ padding: "10px 22px", borderRadius: 10, border: "none", background: (resendLoading || !resendModal.to) ? "#9ca3af" : "#0891b2", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: (resendLoading || !resendModal.to) ? "not-allowed" : "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  {resendLoading ? "Sending..." : "📤 Send Documents"}
+                </button>
+              </div>
+            </div>
+          </div>
         ) : null}
 
       </div>
