@@ -3705,6 +3705,21 @@ const renderSmsTemplate = (key, vars) => {
         }).catch(e => console.warn("Homeowner email non-fatal:", e));
       }
 
+      // ── Archive signed inspection PDF to Supabase Storage ──────────────────
+      // Free-Inspection-only flow: archive the signed insp PDF so it can be
+      // re-sent later via the admin Re-send Docs button.
+      if (newInspId && base64Content) {
+        const pdfsToArchive = {
+          insp: { filename: "Free-Roof-Inspection-Agreement.pdf", base64: base64Content },
+        };
+        fetch("/.netlify/functions/archive-signed-docs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ inspectionId: newInspId, pdfs: pdfsToArchive }),
+        }).then(r => r.ok ? console.log("📁 Inspection PDF archived") : console.warn("Archive returned not-ok"))
+          .catch(e => console.warn("Archive call failed (non-fatal):", e));
+      }
+
       // ── Job Nimbus sync ──────────────────────────────────────────────────
       // Fire JN sync and capture job ID to update Supabase record
       fetch("/.netlify/functions/jobnimbus-sync", {
@@ -3913,9 +3928,12 @@ const renderSmsTemplate = (key, vars) => {
 
       const attachments = [];
 
+      // Track the inspection id we created (if any) so we can archive PDFs against it
+      let archiveInspectionId = null;
+
       if (selectedDocs.includes("insp")) {
         // Save to inspections table
-        await supabase.from("inspections").insert([{
+        const { data: insertedInsp, error: inspInsertErr } = await supabase.from("inspections").insert([{
           client_name: [data.homeowner1, data.homeowner2].filter(Boolean).join(" & "),
           mobile: data.phone,
           email: data.signerEmail,
@@ -3928,9 +3946,9 @@ const renderSmsTemplate = (key, vars) => {
           sales_rep_id: data.salesRepId || "",
           sales_rep_email: data.salesRepEmail || "",
           lead_source: data.leadSource || "NEED",
-        }]).then(({ error }) => {
-          if (error) console.error("Inspection insert error:", error);
-        });
+        }]).select("id").single();
+        if (inspInsertErr) console.error("Inspection insert error:", inspInsertErr);
+        archiveInspectionId = insertedInsp?.id || null;
 
         try {
           const inspBlob = await generatePDF(
@@ -4037,8 +4055,8 @@ const renderSmsTemplate = (key, vars) => {
 
       // ── Archive signed PDFs to Supabase Storage (non-blocking, runs in background) ──
       // Convert attachments array → keyed object for archive function consumption.
-      // Skips if we don't have an inspection id (which would be a setup issue).
-      if (newInspId && attachments.length > 0) {
+      // Skips if we don't have an inspection id (e.g. if user signed PA docs only without insp).
+      if (archiveInspectionId && attachments.length > 0) {
         const pdfsToArchive = {};
         attachments.forEach(att => {
           const fn = (att.filename || "").toLowerCase();
@@ -4053,7 +4071,7 @@ const renderSmsTemplate = (key, vars) => {
         fetch("/.netlify/functions/archive-signed-docs", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ inspectionId: newInspId, pdfs: pdfsToArchive }),
+          body: JSON.stringify({ inspectionId: archiveInspectionId, pdfs: pdfsToArchive }),
         }).then(r => r.ok ? console.log("📁 Signed docs archived to storage") : console.warn("Archive call returned not-ok"))
           .catch(e => console.warn("Archive call failed (non-fatal):", e));
       }
