@@ -100,36 +100,64 @@ exports.handler = async (event) => {
 
   console.log("Regenerating PDFs:", pdfsToBuild.map(p => p.key).join(", "));
 
-  // 4. Render each via PDFShift in parallel
+  // 4. Render each via PDFShift in parallel, tracking failures
   const renderedPdfs = {};
+  const renderErrors = [];
   const renders = pdfsToBuild.map(async (item) => {
-    const pdfRes = await fetch("https://api.pdfshift.io/v3/convert/pdf", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": "Basic " + Buffer.from(`api:${PDFSHIFT_KEY}`).toString("base64"),
-      },
-      body: JSON.stringify({
-        source: item.html,
-        format: "Letter",
-        margin: "0.5in",
-      }),
-    });
-    if (!pdfRes.ok) {
-      console.error("PDFShift failed for", item.key, ":", await pdfRes.text());
+    try {
+      const pdfRes = await fetch("https://api.pdfshift.io/v3/convert/pdf", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Basic " + Buffer.from(`api:${PDFSHIFT_KEY}`).toString("base64"),
+        },
+        body: JSON.stringify({
+          source: item.html,
+          format: "Letter",
+          margin: "0.5in",
+        }),
+      });
+      if (!pdfRes.ok) {
+        const errText = await pdfRes.text();
+        const msg = `PDFShift ${pdfRes.status} for ${item.key}: ${errText.slice(0, 200)}`;
+        console.error(msg);
+        renderErrors.push({ key: item.key, status: pdfRes.status, error: errText.slice(0, 500) });
+        return null;
+      }
+      const buffer = await pdfRes.arrayBuffer();
+      // Sanity check — PDFs start with "%PDF-" magic bytes
+      const head = Buffer.from(buffer).slice(0, 5).toString();
+      if (head !== "%PDF-") {
+        console.error("PDFShift returned non-PDF for", item.key, "head:", head);
+        renderErrors.push({ key: item.key, error: "PDFShift returned non-PDF response" });
+        return null;
+      }
+      renderedPdfs[item.key] = {
+        filename: item.filename,
+        base64: Buffer.from(buffer).toString("base64"),
+      };
+      return item.key;
+    } catch (e) {
+      console.error("Render exception for", item.key, ":", e.message);
+      renderErrors.push({ key: item.key, error: e.message });
       return null;
     }
-    const buffer = await pdfRes.arrayBuffer();
-    renderedPdfs[item.key] = {
-      filename: item.filename,
-      base64: Buffer.from(buffer).toString("base64"),
-    };
-    return item.key;
   });
   await Promise.all(renders);
 
   if (Object.keys(renderedPdfs).length === 0) {
-    return { statusCode: 500, body: JSON.stringify({ error: "All PDF renders failed" }) };
+    return {
+      statusCode: 500,
+      body: JSON.stringify({
+        error: "All PDF renders failed",
+        renderErrors,
+      }),
+    };
+  }
+
+  // If some succeeded but others failed, log clearly — but proceed with what we have
+  if (renderErrors.length > 0) {
+    console.warn("Partial render — failed:", renderErrors.map(e => e.key).join(", "), "succeeded:", Object.keys(renderedPdfs).join(", "));
   }
 
   // 5. Pass to archive-signed-docs to upload + persist
@@ -153,6 +181,7 @@ exports.handler = async (event) => {
       ok: true,
       paths: { ...archiveJson.paths, uploaded_at: new Date().toISOString() },
       regenerated: Object.keys(renderedPdfs),
+      renderErrors: renderErrors.length > 0 ? renderErrors : undefined,
     }),
   };
 };

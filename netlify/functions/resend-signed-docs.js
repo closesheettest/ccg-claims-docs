@@ -79,8 +79,11 @@ exports.handler = async (event) => {
     signed = regenJson.paths;
   }
 
-  // 3. Download each PDF from Supabase Storage and base64-encode for email attachment
+  // 3. Download each PDF from Supabase Storage and base64-encode for email attachment.
+  //    Validate the magic bytes (%PDF-) before attaching, so we never send a non-PDF
+  //    masquerading as a PDF (e.g. if a file was somehow corrupted in storage).
   const attachments = [];
+  const downloadErrors = [];
   for (const [key, path] of Object.entries(signed)) {
     if (key === "uploaded_at" || !path) continue;
     const dlRes = await fetch(`${SB_URL}/storage/v1/object/${BUCKET}/${path}`, {
@@ -88,9 +91,16 @@ exports.handler = async (event) => {
     });
     if (!dlRes.ok) {
       console.warn("Could not download:", path, dlRes.status);
+      downloadErrors.push({ key, error: `download ${dlRes.status}` });
       continue;
     }
     const buffer = await dlRes.arrayBuffer();
+    const head = Buffer.from(buffer).slice(0, 5).toString();
+    if (head !== "%PDF-") {
+      console.warn("Storage object is not a PDF:", path, "head:", head);
+      downloadErrors.push({ key, error: "stored file is not a PDF (corrupted archive)" });
+      continue;
+    }
     const base64 = Buffer.from(buffer).toString("base64");
     // Use the original filename from path (everything after the timestamp prefix)
     const filename = path.split("/").pop().replace(/^[\d-T:.Z_]+_/, "");
@@ -98,7 +108,13 @@ exports.handler = async (event) => {
   }
 
   if (attachments.length === 0) {
-    return { statusCode: 500, body: JSON.stringify({ error: "No PDFs available to send" }) };
+    return {
+      statusCode: 500,
+      body: JSON.stringify({
+        error: "No valid PDFs available to send",
+        detail: { downloadErrors },
+      }),
+    };
   }
 
   // 4. Build email
