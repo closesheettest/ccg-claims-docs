@@ -2728,14 +2728,53 @@ export default function App() {
 
       const { data: insps, error } = await supabase
         .from("inspections")
-        .select("id, sales_rep_name, signed_at, result, result_at")
+        .select("id, sales_rep_name, signed_at, result, result_at, client_name, address, zip, jn_status")
         .gte("signed_at", start)
         .lte("signed_at", end)
         .is("cancelled_at", null)
         .order("signed_at", { ascending: false });
       if (error) throw error;
 
-      const rows = insps || [];
+      // ── Match the Pending list's definition of "pending" ────────────────
+      // 1) Dedupe by homeowner+zip — duplicate inspection rows for the same
+      //    person should count as one submission, not multiple.
+      // 2) Within a dedupe group, prefer the resolved row (one with result set)
+      //    over orphans without results. This means if Stahley has 3 rows and
+      //    1 has result=retail, the group counts as 1 retail (not 1 retail + 2 pending).
+      // 3) For active-pending inclusion, the JN status must be in the
+      //    "Needs Inspection" / "New Lead" / null / empty set — anything else
+      //    (Lost, Sold, In Progress, etc.) is excluded.
+      const normName = (n) => (n || "").trim().toLowerCase().replace(/\s+/g, " ");
+      const normKey = (n, zip, addr) => {
+        const z = (zip || "").trim();
+        if (z) return `${normName(n)}|zip:${z}`;
+        const street = (addr || "").split(",")[0].trim().toLowerCase().replace(/\s+/g, " ");
+        return `${normName(n)}|st:${street}`;
+      };
+      const PENDING_STATUSES = new Set(["", "needs inspection", "new lead"]);
+      const isActivePending = (r) => {
+        const st = (r.jn_status || "").trim().toLowerCase();
+        return !r.result && PENDING_STATUSES.has(st);
+      };
+
+      const groupByKey = new Map();
+      for (const r of insps || []) {
+        const k = normKey(r.client_name, r.zip, r.address);
+        const existing = groupByKey.get(k);
+        if (!existing) { groupByKey.set(k, r); continue; }
+        const existingHasResult = !!existing.result;
+        const currentHasResult  = !!r.result;
+        // Prefer the row that has a result. If both do, keep the more recent
+        // result_at (or signed_at as tiebreaker).
+        if (currentHasResult && !existingHasResult) { groupByKey.set(k, r); continue; }
+        if (existingHasResult && !currentHasResult) continue;
+        const tNew = r.result_at ? new Date(r.result_at).getTime() : (r.signed_at ? new Date(r.signed_at).getTime() : 0);
+        const tOld = existing.result_at ? new Date(existing.result_at).getTime() : (existing.signed_at ? new Date(existing.signed_at).getTime() : 0);
+        if (tNew > tOld) groupByKey.set(k, r);
+      }
+      // Any group with all-pending rows that AREN'T in active-pending statuses
+      // (e.g. all jn_status="Lost") should be excluded entirely from the report.
+      const rows = [...groupByKey.values()].filter(r => r.result || isActivePending(r));
 
       // Company-wide totals
       const total = rows.length;
