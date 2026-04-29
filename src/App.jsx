@@ -7818,9 +7818,10 @@ if (!hasDamage) {
       try {
         const { data: results, error } = await supabase
           .from("inspections")
-          .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed, jn_job_id, cancelled_at, signed_pdfs")
+          .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed, jn_job_id, cancelled_at, signed_pdfs, jn_status")
           .is("result", null)
-          .is("cancelled_at", null);
+          .is("cancelled_at", null)
+          .or("jn_status.is.null,jn_status.eq.Needs Inspection,jn_status.eq.New Lead,jn_status.eq.");
         if (!error) {
           // Dedupe: keep one row per homeowner at a given ZIP. Using ZIP (not
           // full address) because the same property often gets re-entered with
@@ -8456,6 +8457,46 @@ if (!hasDamage) {
                                     </div>
                                   );
                                 })()}
+
+                                {/* Manual Mark Lost — for cases when the JN-sync cron didn't catch a Lost status,
+                                    or when an admin needs to immediately remove a record from Pending. Marks the
+                                    inspection cancelled, hides it from Pending, and shows it under the Cancelled
+                                    filter in Last 30 Days / Date Lookup. Only shown for records without a result
+                                    set (already-resulted records don't belong as Lost). */}
+                                {!rec.result && !rec.cancelled_at ? (
+                                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                                    <button
+                                      type="button"
+                                      disabled={isBusy}
+                                      onClick={async (e) => {
+                                        e.stopPropagation();
+                                        const reason = window.prompt(`Mark "${rec.client_name}" as Lost?\n\nReason (optional, e.g. "homeowner cancelled", "no longer needed"):`, "");
+                                        if (reason === null) return; // user clicked Cancel on the prompt
+                                        try {
+                                          const { error } = await supabase
+                                            .from("inspections")
+                                            .update({
+                                              cancelled_at: new Date().toISOString(),
+                                              cancel_reason: reason || "Manually marked Lost by admin",
+                                              jn_status: "Lost",
+                                            })
+                                            .eq("id", rec.id);
+                                          if (error) {
+                                            alert("Could not mark Lost: " + error.message);
+                                            return;
+                                          }
+                                          // Remove from current view immediately
+                                          setRecordSearchResults(prev => prev.filter(r => r.id !== rec.id));
+                                        } catch (err) {
+                                          alert("Error: " + (err.message || err));
+                                        }
+                                      }}
+                                      title="Manually mark this inspection as Lost (homeowner cancelled, etc.). Removes it from Pending."
+                                      style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #991b1b", background: isBusy ? "#f3f4f6" : "#fff", color: isBusy ? "#9ca3af" : "#991b1b", fontSize: 11, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: isBusy ? "not-allowed" : "pointer" }}>
+                                      ❌ Mark Lost
+                                    </button>
+                                  </div>
+                                ) : null}
 
                                 {/* Orphan detector — only show if record is missing jn_job_id. Lets admin retry JN sync in one click. */}
                                 {!rec.jn_job_id ? (
