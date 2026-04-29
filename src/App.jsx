@@ -9162,13 +9162,13 @@ if (!hasDamage) {
                   value={editModal.draft.sales_rep_id || ""}
                   onChange={(e) => {
                     const repId = e.target.value;
-                    const rep = salesReps.find(r => String(r.id) === repId || String(r.jobnimbus_id) === repId);
+                    const rep = reps.find(r => String(r.id) === repId || String(r.jobnimbus_id) === repId);
                     setEditModal(m => ({ ...m, draft: { ...m.draft, sales_rep_id: repId, sales_rep_name: rep?.name || "" } }));
                   }}
                   style={{ width: "100%", height: 40, borderRadius: 10, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", fontFamily: "'Nunito', sans-serif", background: "#fff" }}
                 >
                   <option value="">— Select rep —</option>
-                  {[...salesReps].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(r => (
+                  {[...reps].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(r => (
                     <option key={r.id} value={r.jobnimbus_id || r.id}>{r.name}</option>
                   ))}
                 </select>
