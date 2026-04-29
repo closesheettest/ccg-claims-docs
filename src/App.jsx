@@ -2329,6 +2329,21 @@ function PublicAdjusterContract({
 export default function App() {
   const [view, setView] = useState("input");
   const [selectedDocs, setSelectedDocs] = useState(["insp", "lor", "pac"]);
+
+  // ── My Homeowners (existing-homeowner add-on signing) ──────────────
+  // When set, we're signing additional docs for an existing homeowner.
+  // alreadySignedDocs is a set of doc keys ("insp","lor","pac") already
+  // on file. The doc selector disables those checkboxes and shows
+  // "✓ Already signed" badges. existingClaim/existingInsp hold the source
+  // records so we can update them in place rather than creating duplicates.
+  const [existingClaim, setExistingClaim] = useState(null);
+  const [existingInsp, setExistingInsp] = useState(null);
+  const [alreadySignedDocs, setAlreadySignedDocs] = useState([]);
+  // My Homeowners modal
+  const [myHomeownersOpen, setMyHomeownersOpen] = useState(false);
+  const [myHomeownersList, setMyHomeownersList] = useState([]);
+  const [myHomeownersLoading, setMyHomeownersLoading] = useState(false);
+  const [myHomeownersSearch, setMyHomeownersSearch] = useState("");
   const [signMode, setSignMode] = useState("now");
   const [data, setData] = useState(initialData);
   const [pendingSend, setPendingSend] = useState(false);
@@ -3436,6 +3451,8 @@ const renderSmsTemplate = (key, vars) => {
   };
 
   const toggleDocSelection = (doc) => {
+    // Disallow toggling docs that are already signed for an existing homeowner
+    if (alreadySignedDocs.includes(doc)) return;
     setSelectedDocs((prev) => {
       if (prev.includes(doc)) {
         const next = prev.filter((item) => item !== doc);
@@ -3610,6 +3627,14 @@ const renderSmsTemplate = (key, vars) => {
     });
 
   const saveClaimToSupabase = async (audit = null) => {
+    // When adding docs to an existing homeowner, preserve the previously-signed
+    // docs in docs_signed (so the column reflects the cumulative state, not just
+    // this session's docs). The merged set is the union of already-signed + this session.
+    const mergedDocs = (() => {
+      const set = new Set(selectedDocs);
+      for (const d of alreadySignedDocs) set.add(d);
+      return [...set].join(",");
+    })();
     const payload = {
       date: data.date,
       insurance_company: data.insuranceCompany,
@@ -3618,7 +3643,7 @@ const renderSmsTemplate = (key, vars) => {
       sales_rep_name: data.salesRepName || "",
       sales_rep_email: data.salesRepEmail || "",
       sales_rep_id: data.salesRepId || "",
-      docs_signed: selectedDocs.join(","),
+      docs_signed: mergedDocs,
       homeowner1: data.homeowner1,
       homeowner2: data.homeowner2,
       phone: data.phone,
@@ -5672,6 +5697,129 @@ if (!hasDamage) {
                       ) : null}
                     </div>
                   </div>
+
+                  {/* ── My Homeowners — only shown after rep selects themselves ─────── */}
+                  {/* Lets a rep look up homeowners they've already signed up so they can
+                      add additional docs (e.g. LOR/PAC after a Free Inspection found damage)
+                      without creating a duplicate inspection record. */}
+                  {data.salesRepId ? (
+                    <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px dashed #d1d5db" }}>
+                      {existingClaim ? (
+                        <div style={{ background: "#f0fdf4", border: "2px solid #199c2e", borderRadius: 12, padding: "12px 14px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                            <div>
+                              <div style={{ fontSize: 13, fontWeight: 700, color: "#166534", fontFamily: "'Oswald', sans-serif" }}>
+                                ✏️ Adding docs for: {data.homeowner1}{data.homeowner2 ? ` & ${data.homeowner2}` : ""}
+                              </div>
+                              <div style={{ fontSize: 11, color: "#166534", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>
+                                Already signed: {alreadySignedDocs.length > 0 ? alreadySignedDocs.map(d => d.toUpperCase()).join(", ") : "none"}
+                              </div>
+                            </div>
+                            <button type="button"
+                              onClick={() => {
+                                // Clear existing-homeowner mode and reset form
+                                setExistingClaim(null);
+                                setExistingInsp(null);
+                                setAlreadySignedDocs([]);
+                                setSelectedDocs(["insp", "lor", "pac"]);
+                              }}
+                              style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #166534", background: "#fff", color: "#166534", fontSize: 11, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", cursor: "pointer" }}>
+                              ✕ Clear
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button type="button"
+                          onClick={async () => {
+                            setMyHomeownersOpen(true);
+                            setMyHomeownersLoading(true);
+                            setMyHomeownersSearch("");
+                            try {
+                              // Load this rep's homeowners by sales_rep_id (jn id) OR sales_rep_name
+                              // We pull from inspections AND claims to catch every signing path.
+                              const repId = data.salesRepId;
+                              const repName = data.salesRepName;
+                              const orFilter = `sales_rep_id.eq.${repId},sales_rep_name.eq.${repName}`;
+
+                              // Fetch claims for this rep (signed docs source)
+                              const { data: claims } = await supabase
+                                .from("claims")
+                                .select("id, homeowner1, homeowner2, address, city, state, zip, phone, signed_by_email, homeowner_email, signed_at, docs_signed, sales_rep_id, sales_rep_name")
+                                .or(orFilter)
+                                .order("signed_at", { ascending: false })
+                                .limit(200);
+
+                              // Fetch inspections for this rep (some inspections-only signings don't have claim rows)
+                              const { data: insps } = await supabase
+                                .from("inspections")
+                                .select("id, client_name, address, city, state, zip, mobile, email, signed_at, docs_signed, sales_rep_id, sales_rep_name, result, cancelled_at")
+                                .or(orFilter)
+                                .is("cancelled_at", null)
+                                .order("signed_at", { ascending: false })
+                                .limit(200);
+
+                              // Merge by name+zip key — claim row wins (has more data including docs_signed truth)
+                              const norm = (s) => (s || "").trim().toLowerCase().replace(/\s+/g, " ");
+                              const byKey = new Map();
+                              for (const c of claims || []) {
+                                const name = [c.homeowner1, c.homeowner2].filter(Boolean).join(" & ");
+                                const key = `${norm(name.split("&")[0].trim())}|${(c.zip || "").trim()}`;
+                                byKey.set(key, {
+                                  source: "claim",
+                                  claim_id: c.id,
+                                  name,
+                                  address: c.address || "",
+                                  city: c.city || "",
+                                  state: c.state || "",
+                                  zip: c.zip || "",
+                                  phone: c.phone || "",
+                                  email: c.signed_by_email || c.homeowner_email || "",
+                                  signed_at: c.signed_at,
+                                  docs_signed: c.docs_signed || "",
+                                  raw_claim: c,
+                                });
+                              }
+                              for (const i of insps || []) {
+                                const key = `${norm((i.client_name || "").split("&")[0].trim())}|${(i.zip || "").trim()}`;
+                                if (!byKey.has(key)) {
+                                  byKey.set(key, {
+                                    source: "insp",
+                                    insp_id: i.id,
+                                    name: i.client_name || "",
+                                    address: i.address || "",
+                                    city: i.city || "",
+                                    state: i.state || "",
+                                    zip: i.zip || "",
+                                    phone: i.mobile || "",
+                                    email: i.email || "",
+                                    signed_at: i.signed_at,
+                                    docs_signed: i.docs_signed || "insp",
+                                    raw_insp: i,
+                                  });
+                                } else {
+                                  // Both exist — attach the inspection id to the existing entry
+                                  byKey.get(key).insp_id = i.id;
+                                  byKey.get(key).raw_insp = i;
+                                }
+                              }
+                              const merged = [...byKey.values()].sort((a, b) => {
+                                const ta = a.signed_at ? new Date(a.signed_at).getTime() : 0;
+                                const tb = b.signed_at ? new Date(b.signed_at).getTime() : 0;
+                                return tb - ta;
+                              });
+                              setMyHomeownersList(merged);
+                            } catch (e) {
+                              alert("Could not load homeowners: " + (e.message || e));
+                            } finally {
+                              setMyHomeownersLoading(false);
+                            }
+                          }}
+                          style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #1a2e5a", background: "#fff", color: "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                          📋 My Homeowners — Add Docs to Existing Customer
+                        </button>
+                      )}
+                    </div>
+                  ) : null}
                 </Card>
 
                 {/* Claim Stage selector */}
@@ -5787,13 +5935,15 @@ if (!hasDamage) {
 
                   {/* Free Roof Inspection — U.S. Shingle branding */}
                   <button type="button" onClick={() => toggleDocSelection("insp")}
+                    disabled={alreadySignedDocs.includes("insp")}
                     style={{
-                      padding: 0, borderRadius: 16, textAlign: "left", cursor: "pointer",
-                      border: selectedDocs.includes("insp") ? "3px solid #1a2e5a" : "2px solid #d1d5db",
+                      padding: 0, borderRadius: 16, textAlign: "left", cursor: alreadySignedDocs.includes("insp") ? "not-allowed" : "pointer",
+                      border: alreadySignedDocs.includes("insp") ? "2px solid #199c2e" : selectedDocs.includes("insp") ? "3px solid #1a2e5a" : "2px solid #d1d5db",
                       background: "#fff",
                       boxShadow: selectedDocs.includes("insp") ? "0 4px 16px rgba(26,46,90,0.25)" : "0 2px 6px rgba(0,0,0,0.06)",
                       transition: "all 0.15s",
                       overflow: "hidden",
+                      opacity: alreadySignedDocs.includes("insp") ? 0.6 : 1,
                     }}>
                     {/* Top third — Navy */}
                     <div style={{ background: "#1a2e5a", padding: "10px 14px" }}>
@@ -5811,7 +5961,9 @@ if (!hasDamage) {
                       <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827" }}>
                         🏠 Free Roof Inspection
                       </div>
-                      {selectedDocs.includes("insp") ? (
+                      {alreadySignedDocs.includes("insp") ? (
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "#199c2e", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>✓ Already signed</div>
+                      ) : selectedDocs.includes("insp") ? (
                         <div style={{ fontSize: 11, fontWeight: 700, color: "#1a2e5a", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>✓ Selected</div>
                       ) : null}
                     </div>
@@ -5825,15 +5977,18 @@ if (!hasDamage) {
 
                   {/* Letter of Representation — CCG branding */}
                   <button type="button" onClick={() => toggleDocSelection("lor")}
+                    disabled={alreadySignedDocs.includes("lor")}
                     style={{
-                      padding: "16px 14px", borderRadius: 16, textAlign: "left", cursor: "pointer",
-                      border: "none",
-                      background: selectedDocs.includes("lor")
-                        ? "linear-gradient(135deg, #199c2e 0%, #14752a 100%)"
-                        : "linear-gradient(135deg, #22b535 0%, #199c2e 100%)",
+                      padding: "16px 14px", borderRadius: 16, textAlign: "left", cursor: alreadySignedDocs.includes("lor") ? "not-allowed" : "pointer",
+                      border: alreadySignedDocs.includes("lor") ? "2px solid #fff" : "none",
+                      background: alreadySignedDocs.includes("lor")
+                        ? "linear-gradient(135deg, #6ee7b7 0%, #34d399 100%)"
+                        : selectedDocs.includes("lor")
+                          ? "linear-gradient(135deg, #199c2e 0%, #14752a 100%)"
+                          : "linear-gradient(135deg, #22b535 0%, #199c2e 100%)",
                       boxShadow: selectedDocs.includes("lor") ? "0 4px 16px rgba(25,156,46,0.35)" : "0 2px 8px rgba(25,156,46,0.18)",
                       transition: "all 0.15s",
-                      opacity: selectedDocs.includes("lor") ? 1 : 0.82,
+                      opacity: alreadySignedDocs.includes("lor") ? 0.7 : selectedDocs.includes("lor") ? 1 : 0.82,
                     }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
                       <div style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.7)", flexShrink: 0 }} />
@@ -5847,22 +6002,27 @@ if (!hasDamage) {
                     <div style={{ fontSize: 12, color: "rgba(255,255,255,0.8)", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>
                       Authorizes CCG to represent the client
                     </div>
-                    {selectedDocs.includes("lor") ? (
+                    {alreadySignedDocs.includes("lor") ? (
+                      <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#fff", fontFamily: "'Nunito', sans-serif" }}>✓ Already signed</div>
+                    ) : selectedDocs.includes("lor") ? (
                       <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#fff", fontFamily: "'Nunito', sans-serif" }}>✓ Selected</div>
                     ) : null}
                   </button>
 
                   {/* PA Authorization — CCG branding */}
                   <button type="button" onClick={() => toggleDocSelection("pac")}
+                    disabled={alreadySignedDocs.includes("pac")}
                     style={{
-                      padding: "16px 14px", borderRadius: 16, textAlign: "left", cursor: "pointer",
-                      border: "none",
-                      background: selectedDocs.includes("pac")
-                        ? "linear-gradient(135deg, #14752a 0%, #199c2e 100%)"
-                        : "linear-gradient(135deg, #199c2e 0%, #22b535 100%)",
+                      padding: "16px 14px", borderRadius: 16, textAlign: "left", cursor: alreadySignedDocs.includes("pac") ? "not-allowed" : "pointer",
+                      border: alreadySignedDocs.includes("pac") ? "2px solid #fff" : "none",
+                      background: alreadySignedDocs.includes("pac")
+                        ? "linear-gradient(135deg, #6ee7b7 0%, #34d399 100%)"
+                        : selectedDocs.includes("pac")
+                          ? "linear-gradient(135deg, #14752a 0%, #199c2e 100%)"
+                          : "linear-gradient(135deg, #199c2e 0%, #22b535 100%)",
                       boxShadow: selectedDocs.includes("pac") ? "0 4px 16px rgba(25,156,46,0.35)" : "0 2px 8px rgba(25,156,46,0.18)",
                       transition: "all 0.15s",
-                      opacity: selectedDocs.includes("pac") ? 1 : 0.82,
+                      opacity: alreadySignedDocs.includes("pac") ? 0.7 : selectedDocs.includes("pac") ? 1 : 0.82,
                     }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
                       <div style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.7)", flexShrink: 0 }} />
@@ -5876,7 +6036,9 @@ if (!hasDamage) {
                     <div style={{ fontSize: 12, color: "rgba(255,255,255,0.8)", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>
                       Public Adjuster Contract
                     </div>
-                    {selectedDocs.includes("pac") ? (
+                    {alreadySignedDocs.includes("pac") ? (
+                      <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#fff", fontFamily: "'Nunito', sans-serif" }}>✓ Already signed</div>
+                    ) : selectedDocs.includes("pac") ? (
                       <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#fff", fontFamily: "'Nunito', sans-serif" }}>✓ Selected</div>
                     ) : null}
                   </button>
@@ -8958,6 +9120,117 @@ if (!hasDamage) {
               )}
             </CardContent>
           </Card>
+        ) : null}
+
+        {/* ── My Homeowners Modal — rep picks an existing homeowner to add docs to ── */}
+        {myHomeownersOpen ? (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 20, overflow: "auto" }}
+               onClick={() => !myHomeownersLoading && setMyHomeownersOpen(false)}>
+            <div style={{ background: "#fff", borderRadius: 14, padding: "24px 28px", maxWidth: 720, width: "100%", maxHeight: "90vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#1a2e5a", marginBottom: 6, fontFamily: "'Oswald', sans-serif" }}>
+                📋 My Homeowners
+              </div>
+              <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 14, fontFamily: "'Nunito', sans-serif" }}>
+                Pick an existing homeowner to add additional documents (e.g. LOR/PAC after a damage finding). The system will skip docs already on file and avoid creating duplicates.
+              </div>
+
+              {/* Search */}
+              <input type="text" value={myHomeownersSearch}
+                onChange={(e) => setMyHomeownersSearch(e.target.value)}
+                placeholder="Search by name, address, or zip..."
+                style={{ width: "100%", height: 40, borderRadius: 10, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", fontFamily: "'Nunito', sans-serif", marginBottom: 14 }}
+              />
+
+              {myHomeownersLoading ? (
+                <div style={{ textAlign: "center", padding: "40px 0", color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>Loading your homeowners...</div>
+              ) : myHomeownersList.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "40px 0", color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>No homeowners found for your account yet.</div>
+              ) : (
+                <div style={{ display: "grid", gap: 8 }}>
+                  {myHomeownersList
+                    .filter(h => {
+                      if (!myHomeownersSearch || myHomeownersSearch.length < 2) return true;
+                      const q = myHomeownersSearch.toLowerCase();
+                      const hay = [h.name, h.address, h.city, h.zip].filter(Boolean).join(" ").toLowerCase();
+                      return hay.includes(q);
+                    })
+                    .map((h, idx) => {
+                      const docsList = (h.docs_signed || "").split(",").map(s => s.trim().toLowerCase());
+                      const hasInsp = docsList.includes("insp");
+                      const hasLor  = docsList.includes("lor");
+                      const hasPac  = docsList.includes("pac");
+                      const allDone = hasInsp && hasLor && hasPac;
+                      return (
+                        <div key={`${h.claim_id || h.insp_id}-${idx}`}
+                             style={{ padding: "12px 14px", borderRadius: 12, border: allDone ? "1px solid #d1d5db" : "1.5px solid #1a2e5a", background: allDone ? "#fafafa" : "#fff", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                          <div style={{ flex: 1, minWidth: 220 }}>
+                            <div style={{ fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827", fontSize: 14 }}>{h.name || "(no name)"}</div>
+                            <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>
+                              {[h.address, h.city, h.state, h.zip].filter(Boolean).join(", ")}
+                            </div>
+                            <div style={{ marginTop: 6, display: "flex", gap: 5, flexWrap: "wrap" }}>
+                              <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 6, fontWeight: 700, background: hasInsp ? "#dbeafe" : "#f3f4f6", color: hasInsp ? "#1e40af" : "#9ca3af", fontFamily: "'Oswald', sans-serif" }}>{hasInsp ? "✓" : "○"} INSP</span>
+                              <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 6, fontWeight: 700, background: hasLor ? "#dcfce7" : "#f3f4f6", color: hasLor ? "#166534" : "#9ca3af", fontFamily: "'Oswald', sans-serif" }}>{hasLor ? "✓" : "○"} LOR</span>
+                              <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 6, fontWeight: 700, background: hasPac ? "#dcfce7" : "#f3f4f6", color: hasPac ? "#166534" : "#9ca3af", fontFamily: "'Oswald', sans-serif" }}>{hasPac ? "✓" : "○"} PA</span>
+                              {h.signed_at ? <span style={{ fontSize: 10, color: "#9ca3af", fontFamily: "'Nunito', sans-serif" }}>· {new Date(h.signed_at).toLocaleDateString()}</span> : null}
+                            </div>
+                          </div>
+                          <button type="button"
+                            disabled={allDone}
+                            onClick={() => {
+                              // Prefill the signing form with this homeowner's data
+                              const c = h.raw_claim;
+                              const parts = (h.name || "").split("&").map(s => s.trim());
+                              update("homeowner1", c?.homeowner1 || parts[0] || h.name || "");
+                              update("homeowner2", c?.homeowner2 || parts[1] || "");
+                              update("address", h.address || "");
+                              update("city", h.city || "");
+                              update("state", h.state || "");
+                              update("zip", h.zip || "");
+                              update("phone", h.phone || "");
+                              update("signerEmail", h.email || "");
+                              if (c) {
+                                update("insuranceCompany", c.insurance_company || "");
+                                update("policyNumber", c.policy_number || "");
+                                update("claimNumber", c.claim_number || "");
+                                update("dateOfLoss", c.date_of_loss || "");
+                                update("lossLocation", c.loss_location || "");
+                                update("lossDescription", c.loss_description || "");
+                                update("claimType", c.claim_type || "");
+                                update("situation", c.situation || "");
+                                update("paEmail", c.pa_email || "claims@capitalclaimgroup.com");
+                              }
+                              // Set existing-mode flags so docs already signed are disabled
+                              setExistingClaim(c || null);
+                              setExistingInsp(h.raw_insp || null);
+                              setAlreadySignedDocs(docsList.filter(d => ["insp","lor","pac"].includes(d)));
+                              // Set currentClaimId so saveClaimToSupabase UPDATES the existing
+                              // row instead of creating a new one.
+                              if (c?.id) setCurrentClaimId(c.id);
+                              // Auto-select only the missing docs
+                              const remaining = ["insp","lor","pac"].filter(d => !docsList.includes(d));
+                              setSelectedDocs(remaining.length ? remaining : ["lor","pac"]);
+                              setMyHomeownersOpen(false);
+                              // Scroll up to the form
+                              setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 100);
+                            }}
+                            style={{ padding: "8px 14px", borderRadius: 10, border: allDone ? "1px solid #d1d5db" : "2px solid #1a2e5a", background: allDone ? "#f3f4f6" : "#1a2e5a", color: allDone ? "#9ca3af" : "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, cursor: allDone ? "not-allowed" : "pointer", textTransform: "uppercase", letterSpacing: "0.04em", whiteSpace: "nowrap" }}>
+                            {allDone ? "✓ All Signed" : "Add Docs →"}
+                          </button>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+                <button type="button" onClick={() => setMyHomeownersOpen(false)}
+                  style={{ padding: "10px 20px", borderRadius: 10, border: "1px solid #d1d5db", background: "#fff", color: "#374151", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
         ) : null}
 
         {/* ── Resend Signed Documents Modal ────────────────────────────── */}
