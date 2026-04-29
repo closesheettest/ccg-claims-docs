@@ -2476,6 +2476,13 @@ export default function App() {
   const [resendModal, setResendModal] = useState(null); // null | { rec, to, cc, recipientType, customTo, forceRegen }
   const [resendLoading, setResendLoading] = useState(false);
 
+  // ── Edit Record modal ──────────────────────────────────────────────
+  // Lets admin correct errors on any inspection record: name typos, wrong
+  // address, missing JN link, bad result, etc. Shows a danger zone at the
+  // bottom for cancellation / deletion.
+  const [editModal, setEditModal] = useState(null); // null | { rec, draft }
+  const [editLoading, setEditLoading] = useState(false);
+
   // Sales rep manager
 
   // Sales rep manager
@@ -8570,8 +8577,37 @@ if (!hasDamage) {
                                       🔄 Sync to JN
                                     </button>
                                     <div style={{ fontSize: 9, color: "#ea580c", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>Not in JN</div>
-                                  </div>
-                                ) : null}
+                                  </div>                                ) : null}
+
+                                {/* Edit Record — opens a modal to fix client name, address, sales rep, JN link, result, etc. */}
+                                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                                  <button
+                                    type="button"
+                                    disabled={isBusy}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setEditModal({
+                                        rec,
+                                        draft: {
+                                          client_name: rec.client_name || "",
+                                          address: rec.address || "",
+                                          city: rec.city || "",
+                                          state: rec.state || "",
+                                          zip: rec.zip || "",
+                                          mobile: rec.mobile || "",
+                                          email: rec.email || "",
+                                          sales_rep_name: rec.sales_rep_name || "",
+                                          sales_rep_id: rec.sales_rep_id || "",
+                                          jn_job_id: rec.jn_job_id || "",
+                                          result: rec.result || "",
+                                        },
+                                      });
+                                    }}
+                                    title="Edit this record's details — name, address, sales rep, JN link, result, etc."
+                                    style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #6b7280", background: isBusy ? "#f3f4f6" : "#fff", color: isBusy ? "#9ca3af" : "#374151", fontSize: 11, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: isBusy ? "not-allowed" : "pointer" }}>
+                                    ✏️ Edit
+                                  </button>
+                                </div>
 
                                 {isBusy ? <span style={{ fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>Working…</span> : null}
                               </div>
@@ -9043,6 +9079,219 @@ if (!hasDamage) {
                   style={{ padding: "10px 22px", borderRadius: 10, border: "none", background: (resendLoading || !resendModal.to) ? "#9ca3af" : "#0891b2", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: (resendLoading || !resendModal.to) ? "not-allowed" : "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
                   {resendLoading ? "Sending..." : "📤 Send Documents"}
                 </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {/* ── Edit Record Modal ─────────────────────────────────────────── */}
+        {editModal ? (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 20, overflow: "auto" }}
+               onClick={() => !editLoading && setEditModal(null)}>
+            <div style={{ background: "#fff", borderRadius: 14, padding: "24px 28px", maxWidth: 620, width: "100%", maxHeight: "90vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#1a2e5a", marginBottom: 6, fontFamily: "'Oswald', sans-serif" }}>✏️ Edit Record</div>
+              <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 16, fontFamily: "'Nunito', sans-serif", wordBreak: "break-all" }}>
+                Record ID: {editModal.rec.id}
+              </div>
+
+              {/* Client name */}
+              <div style={{ marginBottom: 12 }}>
+                <Label>Client Name</Label>
+                <input type="text" value={editModal.draft.client_name}
+                  onChange={(e) => setEditModal(m => ({ ...m, draft: { ...m.draft, client_name: e.target.value } }))}
+                  style={{ width: "100%", height: 40, borderRadius: 10, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", fontFamily: "'Nunito', sans-serif" }}
+                />
+              </div>
+
+              {/* Address - 2 col */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10, marginBottom: 12 }}>
+                <div>
+                  <Label>Street Address</Label>
+                  <input type="text" value={editModal.draft.address}
+                    onChange={(e) => setEditModal(m => ({ ...m, draft: { ...m.draft, address: e.target.value } }))}
+                    style={{ width: "100%", height: 40, borderRadius: 10, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", fontFamily: "'Nunito', sans-serif" }}
+                  />
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 10, marginBottom: 12 }}>
+                <div>
+                  <Label>City</Label>
+                  <input type="text" value={editModal.draft.city}
+                    onChange={(e) => setEditModal(m => ({ ...m, draft: { ...m.draft, city: e.target.value } }))}
+                    style={{ width: "100%", height: 40, borderRadius: 10, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", fontFamily: "'Nunito', sans-serif" }}
+                  />
+                </div>
+                <div>
+                  <Label>State</Label>
+                  <input type="text" value={editModal.draft.state}
+                    onChange={(e) => setEditModal(m => ({ ...m, draft: { ...m.draft, state: e.target.value } }))}
+                    style={{ width: "100%", height: 40, borderRadius: 10, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", fontFamily: "'Nunito', sans-serif" }}
+                  />
+                </div>
+                <div>
+                  <Label>ZIP</Label>
+                  <input type="text" value={editModal.draft.zip}
+                    onChange={(e) => setEditModal(m => ({ ...m, draft: { ...m.draft, zip: e.target.value } }))}
+                    style={{ width: "100%", height: 40, borderRadius: 10, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", fontFamily: "'Nunito', sans-serif" }}
+                  />
+                </div>
+              </div>
+
+              {/* Phone + email */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+                <div>
+                  <Label>Mobile</Label>
+                  <input type="tel" value={editModal.draft.mobile}
+                    onChange={(e) => setEditModal(m => ({ ...m, draft: { ...m.draft, mobile: e.target.value } }))}
+                    style={{ width: "100%", height: 40, borderRadius: 10, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", fontFamily: "'Nunito', sans-serif" }}
+                  />
+                </div>
+                <div>
+                  <Label>Email</Label>
+                  <input type="email" value={editModal.draft.email}
+                    onChange={(e) => setEditModal(m => ({ ...m, draft: { ...m.draft, email: e.target.value } }))}
+                    style={{ width: "100%", height: 40, borderRadius: 10, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", fontFamily: "'Nunito', sans-serif" }}
+                  />
+                </div>
+              </div>
+
+              {/* Sales rep dropdown — uses existing rep list */}
+              <div style={{ marginBottom: 12 }}>
+                <Label>Sales Rep</Label>
+                <select
+                  value={editModal.draft.sales_rep_id || ""}
+                  onChange={(e) => {
+                    const repId = e.target.value;
+                    const rep = salesReps.find(r => String(r.id) === repId || String(r.jobnimbus_id) === repId);
+                    setEditModal(m => ({ ...m, draft: { ...m.draft, sales_rep_id: repId, sales_rep_name: rep?.name || "" } }));
+                  }}
+                  style={{ width: "100%", height: 40, borderRadius: 10, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", fontFamily: "'Nunito', sans-serif", background: "#fff" }}
+                >
+                  <option value="">— Select rep —</option>
+                  {[...salesReps].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(r => (
+                    <option key={r.id} value={r.jobnimbus_id || r.id}>{r.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* JN Job ID */}
+              <div style={{ marginBottom: 12 }}>
+                <Label>JobNimbus Job ID <span style={{ fontWeight: 400, color: "#6b7280" }}>(re-link to a different JN job)</span></Label>
+                <input type="text" value={editModal.draft.jn_job_id}
+                  onChange={(e) => setEditModal(m => ({ ...m, draft: { ...m.draft, jn_job_id: e.target.value } }))}
+                  placeholder="e.g. moajpcaqeztbdyttcymfsdj"
+                  style={{ width: "100%", height: 40, borderRadius: 10, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 13, boxSizing: "border-box", fontFamily: "monospace" }}
+                />
+              </div>
+
+              {/* Result override */}
+              <div style={{ marginBottom: 18 }}>
+                <Label>Result <span style={{ fontWeight: 400, color: "#6b7280" }}>(blank = pending)</span></Label>
+                <select value={editModal.draft.result || ""}
+                  onChange={(e) => setEditModal(m => ({ ...m, draft: { ...m.draft, result: e.target.value } }))}
+                  style={{ width: "100%", height: 40, borderRadius: 10, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", fontFamily: "'Nunito', sans-serif", background: "#fff" }}
+                >
+                  <option value="">— Pending —</option>
+                  <option value="damage">⚠️ Damage Found</option>
+                  <option value="no_damage">✅ No Damage</option>
+                  <option value="retail">🏠 Retail</option>
+                </select>
+              </div>
+
+              {/* Save & Cancel buttons */}
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginBottom: 22 }}>
+                <button type="button" onClick={() => !editLoading && setEditModal(null)} disabled={editLoading}
+                  style={{ padding: "10px 20px", borderRadius: 10, border: "1px solid #d1d5db", background: "#fff", color: "#374151", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: editLoading ? "not-allowed" : "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  Cancel
+                </button>
+                <button type="button" disabled={editLoading}
+                  onClick={async () => {
+                    setEditLoading(true);
+                    try {
+                      const updates = { ...editModal.draft };
+                      // Empty strings → null (so DB has clean values, not empty strings)
+                      Object.keys(updates).forEach(k => { if (updates[k] === "") updates[k] = null; });
+                      // If result was changed FROM null TO something, set result_at
+                      if (updates.result && !editModal.rec.result) updates.result_at = new Date().toISOString();
+                      // If result was cleared, clear result_at too
+                      if (!updates.result && editModal.rec.result) updates.result_at = null;
+
+                      const { error } = await supabase.from("inspections").update(updates).eq("id", editModal.rec.id);
+                      if (error) {
+                        alert("Save failed: " + error.message);
+                        return;
+                      }
+                      // Update the row in-place in the displayed list
+                      setRecordSearchResults(prev => prev.map(rr => rr.id === editModal.rec.id ? { ...rr, ...updates } : rr));
+                      setEditModal(null);
+                    } catch (e) {
+                      alert("Error: " + (e.message || e));
+                    } finally {
+                      setEditLoading(false);
+                    }
+                  }}
+                  style={{ padding: "10px 22px", borderRadius: 10, border: "none", background: editLoading ? "#9ca3af" : "#1a2e5a", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: editLoading ? "not-allowed" : "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  {editLoading ? "Saving..." : "Save Changes"}
+                </button>
+              </div>
+
+              {/* Danger zone — destructive operations */}
+              <div style={{ borderTop: "2px solid #fecaca", paddingTop: 14, marginTop: 6 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#991b1b", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10, fontFamily: "'Oswald', sans-serif" }}>⚠️ Danger Zone</div>
+
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {/* Toggle cancelled */}
+                  <button type="button" disabled={editLoading}
+                    onClick={async () => {
+                      const isCancelled = !!editModal.rec.cancelled_at;
+                      const action = isCancelled ? "un-cancel" : "cancel";
+                      if (!confirm(`${action.toUpperCase()} this record?`)) return;
+                      const reason = isCancelled ? null : (window.prompt("Cancellation reason (optional):", "") || "Cancelled by admin");
+                      const updates = isCancelled
+                        ? { cancelled_at: null, cancel_reason: null, jn_status: null }
+                        : { cancelled_at: new Date().toISOString(), cancel_reason: reason, jn_status: "Lost" };
+                      setEditLoading(true);
+                      try {
+                        const { error } = await supabase.from("inspections").update(updates).eq("id", editModal.rec.id);
+                        if (error) { alert("Failed: " + error.message); return; }
+                        setRecordSearchResults(prev => isCancelled
+                          ? prev.map(rr => rr.id === editModal.rec.id ? { ...rr, ...updates } : rr)
+                          : prev.filter(rr => rr.id !== editModal.rec.id) // remove from view if newly cancelled
+                        );
+                        setEditModal(null);
+                      } finally {
+                        setEditLoading(false);
+                      }
+                    }}
+                    style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #991b1b", background: "#fff", color: "#991b1b", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 11, cursor: editLoading ? "not-allowed" : "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                    {editModal.rec.cancelled_at ? "↩️ Un-cancel" : "❌ Cancel Record"}
+                  </button>
+
+                  {/* Permanent delete */}
+                  <button type="button" disabled={editLoading}
+                    onClick={async () => {
+                      const confirmed = window.prompt(`PERMANENTLY DELETE this record?\n\nThis cannot be undone. To confirm, type the client name exactly:\n${editModal.rec.client_name}`);
+                      if (confirmed !== editModal.rec.client_name) {
+                        if (confirmed !== null) alert("Name didn't match — delete cancelled.");
+                        return;
+                      }
+                      setEditLoading(true);
+                      try {
+                        const { error } = await supabase.from("inspections").delete().eq("id", editModal.rec.id);
+                        if (error) { alert("Delete failed: " + error.message); return; }
+                        setRecordSearchResults(prev => prev.filter(rr => rr.id !== editModal.rec.id));
+                        setEditModal(null);
+                      } finally {
+                        setEditLoading(false);
+                      }
+                    }}
+                    style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #7f1d1d", background: "#7f1d1d", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 11, cursor: editLoading ? "not-allowed" : "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                    🗑️ Delete Record
+                  </button>
+                </div>
+                <div style={{ fontSize: 10, color: "#6b7280", marginTop: 8, fontFamily: "'Nunito', sans-serif" }}>
+                  Cancel removes the record from Pending/active views. Delete is permanent and removes all trace of the inspection record (claim records and JN data are NOT deleted).
+                </div>
               </div>
             </div>
           </div>
