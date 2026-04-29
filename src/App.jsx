@@ -7816,6 +7816,11 @@ if (!hasDamage) {
       setRecordSearchLoading(true);
       setRecordSearch("");
       try {
+        // Pull all candidates for the Pending list. We filter for null result
+        // and null cancelled_at, but ALSO need to check that no SIBLING row
+        // (same name+zip) elsewhere already has a result — otherwise duplicate
+        // inspection records cause the same homeowner to show up as Pending
+        // even after one of their rows was resolved.
         const { data: results, error } = await supabase
           .from("inspections")
           .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed, jn_job_id, cancelled_at, signed_pdfs, jn_status")
@@ -7823,10 +7828,8 @@ if (!hasDamage) {
           .is("cancelled_at", null)
           .or("jn_status.is.null,jn_status.eq.Needs Inspection,jn_status.eq.New Lead,jn_status.eq.");
         if (!error) {
-          // Dedupe: keep one row per homeowner at a given ZIP. Using ZIP (not
-          // full address) because the same property often gets re-entered with
-          // different address spellings — but ZIP stays consistent.
-          // Falls back to street (first comma-separated piece) if zip is missing.
+          // Find homeowner+zip combos that have ANY sibling row already resolved
+          // (result set OR cancelled). If so, exclude from Pending.
           const normName = (n) => (n || "").trim().toLowerCase().replace(/\s+/g, " ");
           const normKey = (n, zip, addr) => {
             const z = (zip || "").trim();
@@ -7834,8 +7837,26 @@ if (!hasDamage) {
             const street = (addr || "").split(",")[0].trim().toLowerCase().replace(/\s+/g, " ");
             return `${normName(n)}|st:${street}`;
           };
+
+          // Look up sibling rows for these candidates that ARE resolved.
+          // If a candidate's name+zip key is in the resolvedKeys set, we drop it.
+          const candidateZips = [...new Set((results || []).map(r => (r.zip || "").trim()).filter(Boolean))];
+          const resolvedKeys = new Set();
+          if (candidateZips.length > 0) {
+            const { data: resolvedSiblings } = await supabase
+              .from("inspections")
+              .select("client_name, zip, address")
+              .in("zip", candidateZips)
+              .or("result.not.is.null,cancelled_at.not.is.null");
+            for (const sib of resolvedSiblings || []) {
+              resolvedKeys.add(normKey(sib.client_name, sib.zip, sib.address));
+            }
+          }
+
+          // Drop any candidate whose name+zip already has a resolved sibling
+          const filteredResults = (results || []).filter(r => !resolvedKeys.has(normKey(r.client_name, r.zip, r.address)));
           const bestByKey = new Map();
-          for (const r of results || []) {
+          for (const r of filteredResults) {
             const k = normKey(r.client_name, r.zip, r.address);
             const existing = bestByKey.get(k);
             if (!existing) { bestByKey.set(k, r); continue; }
