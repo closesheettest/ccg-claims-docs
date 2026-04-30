@@ -9565,7 +9565,62 @@ if (!hasDamage) {
                               Showing {startIdx + 1}–{Math.min(startIdx + browseAllPageSize, filtered.length)} of {filtered.length}
                               {browseAllSearch || browseAllStatus !== "all" ? ` (filtered from ${browseAllRows.length} total)` : ""}
                             </div>
-                            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                            <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                              {/* Download as CSV — exports whatever is currently filtered + sorted (not paginated — full filtered set) */}
+                              <button type="button"
+                                onClick={() => {
+                                  // Build CSV with all the columns a manager would want for an audit
+                                  const headers = [
+                                    "id", "client_name", "address", "city", "state", "zip",
+                                    "mobile", "email",
+                                    "sales_rep_name", "signed_at",
+                                    "result", "result_at",
+                                    "jn_job_id", "jn_status",
+                                    "cancelled_at", "cancel_reason",
+                                    "insp_signed", "lor_signed", "pa_signed",
+                                    "pdfs_archived",
+                                  ];
+                                  // CSV-escape — wrap in quotes and double up internal quotes; convert null to empty string
+                                  const csvCell = (v) => {
+                                    if (v == null) return "";
+                                    const s = String(v);
+                                    if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+                                    return s;
+                                  };
+                                  const rows = filtered.map(r => {
+                                    const docs = r._docs || {};
+                                    return [
+                                      r.id, r.client_name, r.address, r.city, r.state, r.zip,
+                                      r.mobile, r.email,
+                                      r.sales_rep_name, r.signed_at,
+                                      r.result, r.result_at,
+                                      r.jn_job_id, r.jn_status,
+                                      r.cancelled_at, r.cancel_reason,
+                                      docs.insp ? "yes" : "no",
+                                      docs.lor ? "yes" : "no",
+                                      docs.pac ? "yes" : "no",
+                                      r.signed_pdfs?.insp ? "yes" : "no",
+                                    ].map(csvCell).join(",");
+                                  });
+                                  const csv = [headers.join(","), ...rows].join("\n");
+
+                                  // Trigger download via blob URL
+                                  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+                                  const url = URL.createObjectURL(blob);
+                                  const a = document.createElement("a");
+                                  a.href = url;
+                                  // Filename includes today's date + the active filter so multiple exports don't overwrite
+                                  const dateStr = new Date().toISOString().split("T")[0];
+                                  const filterLabel = browseAllStatus === "all" ? "all" : browseAllStatus;
+                                  a.download = `inspections-${filterLabel}-${dateStr}.csv`;
+                                  document.body.appendChild(a);
+                                  a.click();
+                                  document.body.removeChild(a);
+                                  URL.revokeObjectURL(url);
+                                }}
+                                style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #166534", background: "#f0fdf4", color: "#166534", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                📥 Download CSV ({filtered.length})
+                              </button>
                               <button type="button" disabled={page === 0} onClick={() => setBrowseAllPage(p => Math.max(0, p - 1))}
                                 style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #d1d5db", background: page === 0 ? "#f3f4f6" : "#fff", color: page === 0 ? "#9ca3af" : "#374151", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, cursor: page === 0 ? "not-allowed" : "pointer" }}>← Prev</button>
                               <span style={{ fontSize: 13, color: "#374151", fontFamily: "'Nunito', sans-serif", padding: "0 8px" }}>Page {page + 1} of {totalPages}</span>
