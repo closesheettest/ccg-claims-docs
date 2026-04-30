@@ -2344,6 +2344,15 @@ export default function App() {
   const [myHomeownersList, setMyHomeownersList] = useState([]);
   const [myHomeownersLoading, setMyHomeownersLoading] = useState(false);
   const [myHomeownersSearch, setMyHomeownersSearch] = useState("");
+
+  // ── My Stats modal ──────────────────────────────────────────────────
+  // Shows the rep's own performance for this/last week + their leaderboard rank.
+  // The summary banner uses the same data computed for "this week".
+  const [myStatsOpen, setMyStatsOpen] = useState(false);
+  const [myStatsLoading, setMyStatsLoading] = useState(false);
+  const [myStatsData, setMyStatsData] = useState(null); // { thisWeek, lastWeek, leaderboard }
+  const [myStatsRange, setMyStatsRange] = useState("thisWeek"); // "thisWeek" | "lastWeek"
+  const [bannerStats, setBannerStats] = useState(null); // small banner that always shows once loaded
   const [signMode, setSignMode] = useState("now");
   const [data, setData] = useState(initialData);
   const [pendingSend, setPendingSend] = useState(false);
@@ -2740,6 +2749,126 @@ export default function App() {
   const [analyticsEnd, setAnalyticsEnd] = useState(today);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsData, setAnalyticsData] = useState(null);
+
+  // ── My Stats fetcher ─────────────────────────────────────────────────
+  // Loads this week + last week stats for a single rep, plus computes
+  // their rank on the company-wide leaderboard for this week.
+  // Week = Monday 00:00 → Sunday 23:59 (US convention; tweak if needed).
+  const fetchMyStats = async (repIdOrName, repName) => {
+    setMyStatsLoading(true);
+    try {
+      // Compute Monday-of-this-week and Monday-of-last-week
+      const now = new Date();
+      const dayOfWeek = (now.getDay() + 6) % 7; // 0 = Mon, 6 = Sun
+      const thisMon = new Date(now); thisMon.setDate(now.getDate() - dayOfWeek); thisMon.setHours(0,0,0,0);
+      const thisSun = new Date(thisMon); thisSun.setDate(thisMon.getDate() + 6); thisSun.setHours(23,59,59,999);
+      const lastMon = new Date(thisMon); lastMon.setDate(thisMon.getDate() - 7);
+      const lastSun = new Date(thisMon); lastSun.setDate(thisMon.getDate() - 1); lastSun.setHours(23,59,59,999);
+
+      // Fetch ALL inspections within last week → this week range so we can
+      // build the leaderboard AND filter for this rep in one query.
+      const { data: rows, error } = await supabase
+        .from("inspections")
+        .select("id, sales_rep_id, sales_rep_name, signed_at, result, result_at, client_name, address, zip, jn_status, cancelled_at")
+        .gte("signed_at", lastMon.toISOString())
+        .lte("signed_at", thisSun.toISOString())
+        .is("cancelled_at", null);
+      if (error) throw error;
+
+      // Apply the same dedup logic as Submission Analytics so a rep with
+      // duplicate rows doesn't get double-counted.
+      const normName = (n) => (n || "").trim().toLowerCase().replace(/\s+/g, " ");
+      const normKey = (n, zip, addr) => {
+        const z = (zip || "").trim();
+        if (z) return `${normName(n)}|zip:${z}`;
+        return `${normName(n)}|st:${(addr || "").split(",")[0].trim().toLowerCase().replace(/\s+/g, " ")}`;
+      };
+      const PENDING_STATUSES = new Set(["", "needs inspection", "new lead"]);
+      const isActivePending = (r) => {
+        const st = (r.jn_status || "").trim().toLowerCase();
+        return !r.result && PENDING_STATUSES.has(st);
+      };
+
+      // Bucket rows by week first, then dedup within each week
+      const inWeek = (r, mon, sun) => {
+        const t = r.signed_at ? new Date(r.signed_at).getTime() : 0;
+        return t >= mon.getTime() && t <= sun.getTime();
+      };
+
+      const dedupAndCount = (rowsForWeek, repFilter) => {
+        const groupByKey = new Map();
+        for (const r of rowsForWeek) {
+          const k = normKey(r.client_name, r.zip, r.address);
+          const ex = groupByKey.get(k);
+          if (!ex) { groupByKey.set(k, r); continue; }
+          if (r.result && !ex.result) { groupByKey.set(k, r); continue; }
+          if (ex.result && !r.result) continue;
+          const tNew = r.result_at ? new Date(r.result_at).getTime() : (r.signed_at ? new Date(r.signed_at).getTime() : 0);
+          const tOld = ex.result_at ? new Date(ex.result_at).getTime() : (ex.signed_at ? new Date(ex.signed_at).getTime() : 0);
+          if (tNew > tOld) groupByKey.set(k, r);
+        }
+        const deduped = [...groupByKey.values()].filter(r => r.result || isActivePending(r));
+        // Filter to a specific rep if requested
+        const filtered = repFilter ? deduped.filter(r =>
+          (r.sales_rep_id && r.sales_rep_id === repFilter.id) ||
+          (r.sales_rep_name && r.sales_rep_name === repFilter.name)
+        ) : deduped;
+
+        const counts = { submissions: filtered.length, damage: 0, no_damage: 0, retail: 0, pending: 0 };
+        for (const r of filtered) {
+          if (r.result === "damage") counts.damage++;
+          else if (r.result === "no_damage") counts.no_damage++;
+          else if (r.result === "retail") counts.retail++;
+          else counts.pending++;
+        }
+        const resulted = counts.damage + counts.no_damage + counts.retail;
+        counts.resulted = resulted;
+        counts.damagePct = resulted > 0 ? Math.round((counts.damage / resulted) * 100) : 0;
+        counts.noDamagePct = resulted > 0 ? Math.round((counts.no_damage / resulted) * 100) : 0;
+        counts.retailPct = resulted > 0 ? Math.round((counts.retail / resulted) * 100) : 0;
+        counts.pendingPct = counts.submissions > 0 ? Math.round((counts.pending / counts.submissions) * 100) : 0;
+        return { counts, rows: filtered };
+      };
+
+      const repFilter = { id: repIdOrName, name: repName };
+      const thisWeekRows = (rows || []).filter(r => inWeek(r, thisMon, thisSun));
+      const lastWeekRows = (rows || []).filter(r => inWeek(r, lastMon, lastSun));
+
+      const thisWeek = dedupAndCount(thisWeekRows, repFilter);
+      const lastWeek = dedupAndCount(lastWeekRows, repFilter);
+
+      // Build company-wide leaderboard for THIS WEEK
+      const allDeduped = dedupAndCount(thisWeekRows, null).rows;
+      const byRep = new Map();
+      for (const r of allDeduped) {
+        const key = r.sales_rep_id || r.sales_rep_name || "unknown";
+        const name = r.sales_rep_name || "(no rep)";
+        if (!byRep.has(key)) byRep.set(key, { id: key, name, submissions: 0, damage: 0, no_damage: 0, retail: 0 });
+        const e = byRep.get(key);
+        e.submissions++;
+        if (r.result === "damage") e.damage++;
+        else if (r.result === "no_damage") e.no_damage++;
+        else if (r.result === "retail") e.retail++;
+      }
+      const leaderboard = [...byRep.values()].sort((a, b) => b.submissions - a.submissions);
+      const myRank = leaderboard.findIndex(x =>
+        x.id === repFilter.id || x.name === repFilter.name
+      );
+      const rankInfo = {
+        rank: myRank >= 0 ? myRank + 1 : null,
+        totalReps: leaderboard.length,
+        topFive: leaderboard.slice(0, 5),
+      };
+
+      const result = { thisWeek, lastWeek, leaderboard: rankInfo };
+      setMyStatsData(result);
+      setBannerStats({ submissions: thisWeek.counts.submissions, resulted: thisWeek.counts.resulted, rank: rankInfo.rank, totalReps: rankInfo.totalReps });
+    } catch (e) {
+      alert("Could not load stats: " + (e.message || e));
+    } finally {
+      setMyStatsLoading(false);
+    }
+  };
 
   const fetchAnalytics = async (startDate, endDate) => {
     setAnalyticsLoading(true);
@@ -3431,6 +3560,18 @@ const renderSmsTemplate = (key, vars) => {
   const update = (key, value) => {
     setData((prev) => ({ ...prev, [key]: value }));
   };
+
+  // Auto-load this-week stats banner when a rep selects themselves.
+  // We refresh once per session per rep so the banner shows up promptly
+  // but we don't repeatedly hit the DB on every keystroke.
+  useEffect(() => {
+    if (!data.salesRepId || !data.salesRepName) {
+      setBannerStats(null);
+      return;
+    }
+    fetchMyStats(data.salesRepId, data.salesRepName);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.salesRepId, data.salesRepName]);
 
   const parseJsonResponse = async (response, fallbackMessage) => {
     const rawText = await response.text();
@@ -5697,6 +5838,35 @@ if (!hasDamage) {
                       ) : null}
                     </div>
                   </div>
+
+                  {/* ── My Stats Banner — shows once a rep is selected ───────────── */}
+                  {data.salesRepId && bannerStats ? (
+                    <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px dashed #d1d5db" }}>
+                      <div style={{ background: "linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%)", borderRadius: 12, padding: "14px 16px", color: "#fff", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                        <div>
+                          <div style={{ fontSize: 11, opacity: 0.85, letterSpacing: "0.06em", textTransform: "uppercase", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>This Week (so far)</div>
+                          <div style={{ fontSize: 20, fontWeight: 700, fontFamily: "'Oswald', sans-serif", lineHeight: 1.1 }}>
+                            {bannerStats.submissions} {bannerStats.submissions === 1 ? "submission" : "submissions"}
+                            {bannerStats.resulted > 0 ? <span style={{ fontSize: 13, fontWeight: 400, opacity: 0.85, marginLeft: 8 }}>· {bannerStats.resulted} resulted</span> : null}
+                          </div>
+                          {bannerStats.rank ? (
+                            <div style={{ fontSize: 12, opacity: 0.9, marginTop: 4, fontFamily: "'Nunito', sans-serif" }}>
+                              🏆 Rank #{bannerStats.rank} of {bannerStats.totalReps} active reps
+                            </div>
+                          ) : (
+                            <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4, fontFamily: "'Nunito', sans-serif", fontStyle: "italic" }}>
+                              No submissions this week yet
+                            </div>
+                          )}
+                        </div>
+                        <button type="button"
+                          onClick={() => setMyStatsOpen(true)}
+                          style={{ padding: "8px 16px", borderRadius: 10, border: "1.5px solid rgba(255,255,255,0.4)", background: "rgba(255,255,255,0.15)", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em", whiteSpace: "nowrap" }}>
+                          📊 View Full Stats
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
 
                   {/* ── My Homeowners — only shown after rep selects themselves ─────── */}
                   {/* Lets a rep look up homeowners they've already signed up so they can
@@ -9120,6 +9290,128 @@ if (!hasDamage) {
               )}
             </CardContent>
           </Card>
+        ) : null}
+
+        {/* ── My Stats Modal — rep's own performance + leaderboard rank ─── */}
+        {myStatsOpen ? (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 20, overflow: "auto" }}
+               onClick={() => setMyStatsOpen(false)}>
+            <div style={{ background: "#fff", borderRadius: 14, padding: "24px 28px", maxWidth: 600, width: "100%", maxHeight: "90vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#1a2e5a", marginBottom: 4, fontFamily: "'Oswald', sans-serif" }}>
+                📊 My Stats
+              </div>
+              <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 16, fontFamily: "'Nunito', sans-serif" }}>
+                {data.salesRepName} · Submissions and results breakdown
+              </div>
+
+              {/* Toggle: This Week / Last Week */}
+              <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+                <button type="button" onClick={() => setMyStatsRange("thisWeek")}
+                  style={{ flex: 1, padding: "10px 16px", borderRadius: 10, border: "1.5px solid #1a2e5a", background: myStatsRange === "thisWeek" ? "#1a2e5a" : "#fff", color: myStatsRange === "thisWeek" ? "#fff" : "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  This Week
+                </button>
+                <button type="button" onClick={() => setMyStatsRange("lastWeek")}
+                  style={{ flex: 1, padding: "10px 16px", borderRadius: 10, border: "1.5px solid #1a2e5a", background: myStatsRange === "lastWeek" ? "#1a2e5a" : "#fff", color: myStatsRange === "lastWeek" ? "#fff" : "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  Last Week
+                </button>
+              </div>
+
+              {myStatsLoading ? (
+                <div style={{ textAlign: "center", padding: "40px 0", color: "#6b7280" }}>Loading...</div>
+              ) : !myStatsData ? (
+                <div style={{ textAlign: "center", padding: "40px 0", color: "#6b7280" }}>No data</div>
+              ) : (() => {
+                const period = myStatsRange === "thisWeek" ? myStatsData.thisWeek : myStatsData.lastWeek;
+                const c = period.counts;
+                return (
+                  <>
+                    {/* Top row — submissions count */}
+                    <div style={{ background: "#1a2e5a", borderRadius: 12, padding: "16px 20px", color: "#fff", marginBottom: 14, textAlign: "center" }}>
+                      <div style={{ fontSize: 11, opacity: 0.8, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>Total Submissions</div>
+                      <div style={{ fontSize: 36, fontWeight: 700, fontFamily: "'Oswald', sans-serif", lineHeight: 1 }}>{c.submissions}</div>
+                    </div>
+
+                    {/* 4-stat grid */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 18 }}>
+                      <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, padding: "12px 14px", textAlign: "center" }}>
+                        <div style={{ fontSize: 22, fontWeight: 700, color: "#dc2626", fontFamily: "'Oswald', sans-serif" }}>{c.damage}</div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "#991b1b", textTransform: "uppercase", letterSpacing: "0.05em", fontFamily: "'Oswald', sans-serif", marginTop: 2 }}>⚠️ Damage</div>
+                        {c.resulted > 0 ? <div style={{ fontSize: 10, color: "#7f1d1d", marginTop: 2, fontFamily: "'Nunito', sans-serif" }}>{c.damagePct}% of resulted</div> : null}
+                      </div>
+                      <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10, padding: "12px 14px", textAlign: "center" }}>
+                        <div style={{ fontSize: 22, fontWeight: 700, color: "#16a34a", fontFamily: "'Oswald', sans-serif" }}>{c.no_damage}</div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "#166534", textTransform: "uppercase", letterSpacing: "0.05em", fontFamily: "'Oswald', sans-serif", marginTop: 2 }}>✅ No Damage</div>
+                        {c.resulted > 0 ? <div style={{ fontSize: 10, color: "#14532d", marginTop: 2, fontFamily: "'Nunito', sans-serif" }}>{c.noDamagePct}% of resulted</div> : null}
+                      </div>
+                      <div style={{ background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 10, padding: "12px 14px", textAlign: "center" }}>
+                        <div style={{ fontSize: 22, fontWeight: 700, color: "#ea580c", fontFamily: "'Oswald', sans-serif" }}>{c.retail}</div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "#9a3412", textTransform: "uppercase", letterSpacing: "0.05em", fontFamily: "'Oswald', sans-serif", marginTop: 2 }}>🏠 Retail</div>
+                        {c.resulted > 0 ? <div style={{ fontSize: 10, color: "#7c2d12", marginTop: 2, fontFamily: "'Nunito', sans-serif" }}>{c.retailPct}% of resulted</div> : null}
+                      </div>
+                      <div style={{ background: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: 10, padding: "12px 14px", textAlign: "center" }}>
+                        <div style={{ fontSize: 22, fontWeight: 700, color: "#6b7280", fontFamily: "'Oswald', sans-serif" }}>{c.pending}</div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.05em", fontFamily: "'Oswald', sans-serif", marginTop: 2 }}>⏳ Pending</div>
+                        {c.submissions > 0 ? <div style={{ fontSize: 10, color: "#1f2937", marginTop: 2, fontFamily: "'Nunito', sans-serif" }}>{c.pendingPct}% of total</div> : null}
+                      </div>
+                    </div>
+
+                    {/* Leaderboard — only show on This Week tab since rank is computed for current week */}
+                    {myStatsRange === "thisWeek" ? (
+                      <>
+                        <div style={{ borderTop: "1px solid #e5e7eb", paddingTop: 16, marginBottom: 12 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: "#1a2e5a", textTransform: "uppercase", letterSpacing: "0.05em", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>
+                            🏆 Your Rank This Week
+                          </div>
+                          {myStatsData.leaderboard.rank ? (
+                            <div style={{ fontSize: 14, color: "#374151", fontFamily: "'Nunito', sans-serif" }}>
+                              You're <strong>#{myStatsData.leaderboard.rank}</strong> of <strong>{myStatsData.leaderboard.totalReps}</strong> active reps this week.
+                            </div>
+                          ) : (
+                            <div style={{ fontSize: 14, color: "#9ca3af", fontFamily: "'Nunito', sans-serif", fontStyle: "italic" }}>
+                              No submissions this week yet — get started!
+                            </div>
+                          )}
+                        </div>
+
+                        {myStatsData.leaderboard.topFive.length > 0 ? (
+                          <div style={{ background: "#f8fafc", borderRadius: 10, padding: "14px 16px" }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.05em", fontFamily: "'Oswald', sans-serif", marginBottom: 10 }}>
+                              Top 5 Reps This Week
+                            </div>
+                            {myStatsData.leaderboard.topFive.map((r, i) => {
+                              const isMe = r.id === data.salesRepId || r.name === data.salesRepName;
+                              return (
+                                <div key={r.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderTop: i === 0 ? "none" : "1px solid #e5e7eb" }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                    <div style={{ width: 28, height: 28, borderRadius: "50%", background: i === 0 ? "#fbbf24" : i === 1 ? "#94a3b8" : i === 2 ? "#d97706" : "#e5e7eb", color: i < 3 ? "#fff" : "#6b7280", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>
+                                      {i + 1}
+                                    </div>
+                                    <div style={{ fontSize: 14, fontWeight: isMe ? 700 : 500, color: isMe ? "#1a2e5a" : "#111827", fontFamily: "'Nunito', sans-serif" }}>
+                                      {r.name} {isMe ? <span style={{ fontSize: 10, color: "#1a2e5a", marginLeft: 6, fontWeight: 700 }}>← YOU</span> : null}
+                                    </div>
+                                  </div>
+                                  <div style={{ fontSize: 14, fontWeight: 700, color: "#1a2e5a", fontFamily: "'Oswald', sans-serif" }}>
+                                    {r.submissions}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : null}
+                      </>
+                    ) : null}
+                  </>
+                );
+              })()}
+
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 18 }}>
+                <button type="button" onClick={() => setMyStatsOpen(false)}
+                  style={{ padding: "10px 20px", borderRadius: 10, border: "1px solid #d1d5db", background: "#fff", color: "#374151", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
         ) : null}
 
         {/* ── My Homeowners Modal — rep picks an existing homeowner to add docs to ── */}
