@@ -2353,6 +2353,9 @@ export default function App() {
   const [myStatsData, setMyStatsData] = useState(null); // { thisWeek, lastWeek, leaderboard }
   const [myStatsRange, setMyStatsRange] = useState("thisWeek"); // "thisWeek" | "lastWeek"
   const [bannerStats, setBannerStats] = useState(null); // small banner that always shows once loaded
+  // Drilldown — when a stat tile is clicked, show the homeowners contributing to that stat
+  // null | "damage" | "no_damage" | "retail" | "pending"
+  const [myStatsDrilldown, setMyStatsDrilldown] = useState(null);
   const [signMode, setSignMode] = useState("now");
   const [data, setData] = useState(initialData);
   const [pendingSend, setPendingSend] = useState(false);
@@ -2769,7 +2772,7 @@ export default function App() {
       // build the leaderboard AND filter for this rep in one query.
       const { data: rows, error } = await supabase
         .from("inspections")
-        .select("id, sales_rep_id, sales_rep_name, signed_at, result, result_at, client_name, address, zip, jn_status, cancelled_at")
+        .select("id, sales_rep_id, sales_rep_name, signed_at, result, result_at, client_name, address, city, state, zip, mobile, jn_status, cancelled_at, docs_signed")
         .gte("signed_at", lastMon.toISOString())
         .lte("signed_at", thisSun.toISOString())
         .is("cancelled_at", null);
@@ -2836,6 +2839,54 @@ export default function App() {
 
       const thisWeek = dedupAndCount(thisWeekRows, repFilter);
       const lastWeek = dedupAndCount(lastWeekRows, repFilter);
+
+      // Enrich the rep's own rows with docs_signed from the claims table.
+      // Claims table is the truth source for what was signed; inspections
+      // table only shows "insp" for inspection-only signings.
+      // We do this once per call rather than during dedup so the count math stays simple.
+      const allMyRows = [...thisWeek.rows, ...lastWeek.rows];
+      const myZips = [...new Set(allMyRows.map(r => (r.zip || "").trim()).filter(Boolean))];
+      if (myZips.length > 0) {
+        const { data: claimsForRep } = await supabase
+          .from("claims")
+          .select("homeowner1, address, zip, docs_signed")
+          .in("zip", myZips);
+        const byZipStreet = new Map();
+        for (const c of claimsForRep || []) {
+          const z = (c.zip || "").trim();
+          if (!z) continue;
+          const street = (c.address || "").toLowerCase().trim().split(",")[0].replace(/\s+/g, " ").trim();
+          const num = (street.match(/^\d+/) || [""])[0];
+          byZipStreet.set(`${z}|${street}`, c.docs_signed || "");
+          if (num) {
+            const numKey = `${z}|num:${num}`;
+            if (!byZipStreet.has(numKey)) byZipStreet.set(numKey, c.docs_signed || "");
+          }
+          const lastName = ((c.homeowner1 || "").trim().split(/\s+/).pop() || "").toLowerCase();
+          if (lastName) {
+            const nameKey = `${z}|name:${lastName}`;
+            if (!byZipStreet.has(nameKey)) byZipStreet.set(nameKey, c.docs_signed || "");
+          }
+        }
+        const attach = (r) => {
+          const z = (r.zip || "").trim();
+          const street = (r.address || "").toLowerCase().trim().split(",")[0].replace(/\s+/g, " ").trim();
+          const num = (street.match(/^\d+/) || [""])[0];
+          const lastName = ((r.client_name || "").trim().split(/\s+/).pop() || "").toLowerCase();
+          let claimDocs = byZipStreet.get(`${z}|${street}`);
+          if (!claimDocs && num)      claimDocs = byZipStreet.get(`${z}|num:${num}`);
+          if (!claimDocs && lastName) claimDocs = byZipStreet.get(`${z}|name:${lastName}`);
+          // Combine — inspection's docs_signed (just "insp") OR claim's docs_signed
+          const combined = [r.docs_signed || "", claimDocs || ""].join(",").toLowerCase();
+          r._docsSigned = {
+            insp: combined.includes("insp"),
+            lor:  combined.includes("lor"),
+            pac:  combined.includes("pac"),
+          };
+        };
+        thisWeek.rows.forEach(attach);
+        lastWeek.rows.forEach(attach);
+      }
 
       // Build company-wide leaderboard for THIS WEEK
       const allDeduped = dedupAndCount(thisWeekRows, null).rows;
@@ -9306,11 +9357,11 @@ if (!hasDamage) {
 
               {/* Toggle: This Week / Last Week */}
               <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
-                <button type="button" onClick={() => setMyStatsRange("thisWeek")}
+                <button type="button" onClick={() => { setMyStatsRange("thisWeek"); setMyStatsDrilldown(null); }}
                   style={{ flex: 1, padding: "10px 16px", borderRadius: 10, border: "1.5px solid #1a2e5a", background: myStatsRange === "thisWeek" ? "#1a2e5a" : "#fff", color: myStatsRange === "thisWeek" ? "#fff" : "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
                   This Week
                 </button>
-                <button type="button" onClick={() => setMyStatsRange("lastWeek")}
+                <button type="button" onClick={() => { setMyStatsRange("lastWeek"); setMyStatsDrilldown(null); }}
                   style={{ flex: 1, padding: "10px 16px", borderRadius: 10, border: "1.5px solid #1a2e5a", background: myStatsRange === "lastWeek" ? "#1a2e5a" : "#fff", color: myStatsRange === "lastWeek" ? "#fff" : "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
                   Last Week
                 </button>
@@ -9331,29 +9382,102 @@ if (!hasDamage) {
                       <div style={{ fontSize: 36, fontWeight: 700, fontFamily: "'Oswald', sans-serif", lineHeight: 1 }}>{c.submissions}</div>
                     </div>
 
-                    {/* 4-stat grid */}
+                    {/* 4-stat grid — each tile is clickable to drill down to the homeowner list */}
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 18 }}>
-                      <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, padding: "12px 14px", textAlign: "center" }}>
+                      <button type="button" onClick={() => setMyStatsDrilldown(myStatsDrilldown === "damage" ? null : "damage")}
+                        style={{ background: "#fef2f2", border: myStatsDrilldown === "damage" ? "2px solid #dc2626" : "1px solid #fecaca", borderRadius: 10, padding: "12px 14px", textAlign: "center", cursor: c.damage > 0 ? "pointer" : "default", boxShadow: myStatsDrilldown === "damage" ? "0 2px 8px rgba(220,38,38,0.2)" : "none" }}>
                         <div style={{ fontSize: 22, fontWeight: 700, color: "#dc2626", fontFamily: "'Oswald', sans-serif" }}>{c.damage}</div>
                         <div style={{ fontSize: 11, fontWeight: 700, color: "#991b1b", textTransform: "uppercase", letterSpacing: "0.05em", fontFamily: "'Oswald', sans-serif", marginTop: 2 }}>⚠️ Damage</div>
-                        {c.resulted > 0 ? <div style={{ fontSize: 10, color: "#7f1d1d", marginTop: 2, fontFamily: "'Nunito', sans-serif" }}>{c.damagePct}% of resulted</div> : null}
-                      </div>
-                      <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10, padding: "12px 14px", textAlign: "center" }}>
+                        {c.resulted > 0 ? <div style={{ fontSize: 10, color: "#7f1d1d", marginTop: 2, fontFamily: "'Nunito', sans-serif" }}>{c.damagePct}% of resulted{c.damage > 0 ? " · tap to view" : ""}</div> : null}
+                      </button>
+                      <button type="button" onClick={() => setMyStatsDrilldown(myStatsDrilldown === "no_damage" ? null : "no_damage")}
+                        style={{ background: "#f0fdf4", border: myStatsDrilldown === "no_damage" ? "2px solid #16a34a" : "1px solid #bbf7d0", borderRadius: 10, padding: "12px 14px", textAlign: "center", cursor: c.no_damage > 0 ? "pointer" : "default", boxShadow: myStatsDrilldown === "no_damage" ? "0 2px 8px rgba(22,163,74,0.2)" : "none" }}>
                         <div style={{ fontSize: 22, fontWeight: 700, color: "#16a34a", fontFamily: "'Oswald', sans-serif" }}>{c.no_damage}</div>
                         <div style={{ fontSize: 11, fontWeight: 700, color: "#166534", textTransform: "uppercase", letterSpacing: "0.05em", fontFamily: "'Oswald', sans-serif", marginTop: 2 }}>✅ No Damage</div>
-                        {c.resulted > 0 ? <div style={{ fontSize: 10, color: "#14532d", marginTop: 2, fontFamily: "'Nunito', sans-serif" }}>{c.noDamagePct}% of resulted</div> : null}
-                      </div>
-                      <div style={{ background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 10, padding: "12px 14px", textAlign: "center" }}>
+                        {c.resulted > 0 ? <div style={{ fontSize: 10, color: "#14532d", marginTop: 2, fontFamily: "'Nunito', sans-serif" }}>{c.noDamagePct}% of resulted{c.no_damage > 0 ? " · tap to view" : ""}</div> : null}
+                      </button>
+                      <button type="button" onClick={() => setMyStatsDrilldown(myStatsDrilldown === "retail" ? null : "retail")}
+                        style={{ background: "#fff7ed", border: myStatsDrilldown === "retail" ? "2px solid #ea580c" : "1px solid #fed7aa", borderRadius: 10, padding: "12px 14px", textAlign: "center", cursor: c.retail > 0 ? "pointer" : "default", boxShadow: myStatsDrilldown === "retail" ? "0 2px 8px rgba(234,88,12,0.2)" : "none" }}>
                         <div style={{ fontSize: 22, fontWeight: 700, color: "#ea580c", fontFamily: "'Oswald', sans-serif" }}>{c.retail}</div>
                         <div style={{ fontSize: 11, fontWeight: 700, color: "#9a3412", textTransform: "uppercase", letterSpacing: "0.05em", fontFamily: "'Oswald', sans-serif", marginTop: 2 }}>🏠 Retail</div>
-                        {c.resulted > 0 ? <div style={{ fontSize: 10, color: "#7c2d12", marginTop: 2, fontFamily: "'Nunito', sans-serif" }}>{c.retailPct}% of resulted</div> : null}
-                      </div>
-                      <div style={{ background: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: 10, padding: "12px 14px", textAlign: "center" }}>
+                        {c.resulted > 0 ? <div style={{ fontSize: 10, color: "#7c2d12", marginTop: 2, fontFamily: "'Nunito', sans-serif" }}>{c.retailPct}% of resulted{c.retail > 0 ? " · tap to view" : ""}</div> : null}
+                      </button>
+                      <button type="button" onClick={() => setMyStatsDrilldown(myStatsDrilldown === "pending" ? null : "pending")}
+                        style={{ background: "#f3f4f6", border: myStatsDrilldown === "pending" ? "2px solid #6b7280" : "1px solid #e5e7eb", borderRadius: 10, padding: "12px 14px", textAlign: "center", cursor: c.pending > 0 ? "pointer" : "default", boxShadow: myStatsDrilldown === "pending" ? "0 2px 8px rgba(107,114,128,0.2)" : "none" }}>
                         <div style={{ fontSize: 22, fontWeight: 700, color: "#6b7280", fontFamily: "'Oswald', sans-serif" }}>{c.pending}</div>
                         <div style={{ fontSize: 11, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.05em", fontFamily: "'Oswald', sans-serif", marginTop: 2 }}>⏳ Pending</div>
-                        {c.submissions > 0 ? <div style={{ fontSize: 10, color: "#1f2937", marginTop: 2, fontFamily: "'Nunito', sans-serif" }}>{c.pendingPct}% of total</div> : null}
-                      </div>
+                        {c.submissions > 0 ? <div style={{ fontSize: 10, color: "#1f2937", marginTop: 2, fontFamily: "'Nunito', sans-serif" }}>{c.pendingPct}% of total{c.pending > 0 ? " · tap to view" : ""}</div> : null}
+                      </button>
                     </div>
+
+                    {/* ── Drilldown panel — shows homeowners contributing to the selected stat ── */}
+                    {myStatsDrilldown ? (() => {
+                      const filtered = (period.rows || []).filter(r => {
+                        if (myStatsDrilldown === "pending") return !r.result;
+                        return r.result === myStatsDrilldown;
+                      });
+                      const labels = { damage: "⚠️ Damage", no_damage: "✅ No Damage", retail: "🏠 Retail", pending: "⏳ Pending" };
+                      const colors = {
+                        damage: { bg: "#fef2f2", border: "#fecaca", text: "#991b1b" },
+                        no_damage: { bg: "#f0fdf4", border: "#bbf7d0", text: "#166534" },
+                        retail: { bg: "#fff7ed", border: "#fed7aa", text: "#9a3412" },
+                        pending: { bg: "#f3f4f6", border: "#e5e7eb", text: "#374151" },
+                      };
+                      const color = colors[myStatsDrilldown];
+                      return (
+                        <div style={{ background: color.bg, border: `1px solid ${color.border}`, borderRadius: 10, padding: "14px 16px", marginBottom: 18 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: color.text, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                              {labels[myStatsDrilldown]} · {filtered.length} {filtered.length === 1 ? "homeowner" : "homeowners"}
+                            </div>
+                            <button type="button" onClick={() => setMyStatsDrilldown(null)}
+                              style={{ background: "none", border: "none", color: color.text, fontSize: 18, cursor: "pointer", padding: 0, lineHeight: 1 }}>×</button>
+                          </div>
+
+                          {filtered.length === 0 ? (
+                            <div style={{ fontSize: 12, color: color.text, fontFamily: "'Nunito', sans-serif", fontStyle: "italic", textAlign: "center", padding: "10px 0" }}>
+                              No homeowners in this category for this period.
+                            </div>
+                          ) : (
+                            <div style={{ display: "grid", gap: 6 }}>
+                              {filtered.map(r => {
+                                const docs = r._docsSigned || { insp: false, lor: false, pac: false };
+                                const allSigned = docs.insp && docs.lor && docs.pac;
+                                const needsLorPac = !docs.lor || !docs.pac;
+                                return (
+                                  <div key={r.id} style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: `1px solid ${color.border}` }}>
+                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
+                                      <div style={{ flex: 1, minWidth: 200 }}>
+                                        <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827" }}>{r.client_name || "(no name)"}</div>
+                                        <div style={{ fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginTop: 1 }}>
+                                          {[r.address, r.city, r.zip].filter(Boolean).join(", ")}
+                                        </div>
+                                      </div>
+                                      <div style={{ display: "flex", gap: 4, flexShrink: 0, alignItems: "center" }}>
+                                        <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 5, fontWeight: 700, background: docs.insp ? "#dbeafe" : "#f3f4f6", color: docs.insp ? "#1e40af" : "#9ca3af", fontFamily: "'Oswald', sans-serif" }}>{docs.insp ? "✓" : "○"} INSP</span>
+                                        <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 5, fontWeight: 700, background: docs.lor ? "#dcfce7" : "#f3f4f6", color: docs.lor ? "#166534" : "#9ca3af", fontFamily: "'Oswald', sans-serif" }}>{docs.lor ? "✓" : "○"} LOR</span>
+                                        <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 5, fontWeight: 700, background: docs.pac ? "#dcfce7" : "#f3f4f6", color: docs.pac ? "#166534" : "#9ca3af", fontFamily: "'Oswald', sans-serif" }}>{docs.pac ? "✓" : "○"} PA</span>
+                                      </div>
+                                    </div>
+                                    {/* Action prompt — for damage records missing LOR/PAC, nudge the rep to get them signed */}
+                                    {myStatsDrilldown === "damage" && needsLorPac ? (
+                                      <div style={{ marginTop: 8, padding: "6px 10px", background: "#fef2f2", borderRadius: 6, fontSize: 11, color: "#991b1b", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
+                                        ⚠️ Needs PA paperwork — go to <strong>📋 My Homeowners</strong> to add {!docs.lor ? "LOR" : ""}{!docs.lor && !docs.pac ? " + " : ""}{!docs.pac ? "PA" : ""}
+                                      </div>
+                                    ) : null}
+                                    {myStatsDrilldown === "damage" && allSigned ? (
+                                      <div style={{ marginTop: 8, padding: "6px 10px", background: "#f0fdf4", borderRadius: 6, fontSize: 11, color: "#166534", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
+                                        ✅ All paperwork signed — claim is in motion
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })() : null}
 
                     {/* Leaderboard — only show on This Week tab since rank is computed for current week */}
                     {myStatsRange === "thisWeek" ? (
