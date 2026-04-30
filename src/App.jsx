@@ -46,11 +46,226 @@ const INSPECTION_COMPANY = {
 
 const VALID_DOCS = ["insp", "lor", "pac"];
 
+// ── US states for the State dropdown ─────────────────────────────────
+// Used in every form that captures a property/billing state. Locking it
+// down to a fixed list means we never get "fl" / "FL" / "Florida" / " fl"
+// inconsistencies in the data.
+const US_STATES = [
+  ["AL", "Alabama"], ["AK", "Alaska"], ["AZ", "Arizona"], ["AR", "Arkansas"],
+  ["CA", "California"], ["CO", "Colorado"], ["CT", "Connecticut"], ["DE", "Delaware"],
+  ["DC", "District of Columbia"],
+  ["FL", "Florida"], ["GA", "Georgia"], ["HI", "Hawaii"], ["ID", "Idaho"],
+  ["IL", "Illinois"], ["IN", "Indiana"], ["IA", "Iowa"], ["KS", "Kansas"],
+  ["KY", "Kentucky"], ["LA", "Louisiana"], ["ME", "Maine"], ["MD", "Maryland"],
+  ["MA", "Massachusetts"], ["MI", "Michigan"], ["MN", "Minnesota"], ["MS", "Mississippi"],
+  ["MO", "Missouri"], ["MT", "Montana"], ["NE", "Nebraska"], ["NV", "Nevada"],
+  ["NH", "New Hampshire"], ["NJ", "New Jersey"], ["NM", "New Mexico"], ["NY", "New York"],
+  ["NC", "North Carolina"], ["ND", "North Dakota"], ["OH", "Ohio"], ["OK", "Oklahoma"],
+  ["OR", "Oregon"], ["PA", "Pennsylvania"], ["RI", "Rhode Island"], ["SC", "South Carolina"],
+  ["SD", "South Dakota"], ["TN", "Tennessee"], ["TX", "Texas"], ["UT", "Utah"],
+  ["VT", "Vermont"], ["VA", "Virginia"], ["WA", "Washington"], ["WV", "West Virginia"],
+  ["WI", "Wisconsin"], ["WY", "Wyoming"],
+];
+// Normalize any existing free-text state value to the 2-letter code.
+// Accepts "fl", "FL", " fl ", "Florida", "florida" → "FL".
+const normalizeStateValue = (raw) => {
+  if (!raw) return "";
+  const trimmed = String(raw).trim();
+  if (trimmed.length === 2) return trimmed.toUpperCase(); // already a code
+  // Try matching the full name (case-insensitive)
+  const lower = trimmed.toLowerCase();
+  const match = US_STATES.find(([_, name]) => name.toLowerCase() === lower);
+  if (match) return match[0];
+  // Last resort — if it's longer than 2 chars but matches the start of a state name
+  const partial = US_STATES.find(([_, name]) => name.toLowerCase().startsWith(lower));
+  return partial ? partial[0] : trimmed.toUpperCase().slice(0, 2);
+};
+
 const SIGNATURE_FONTS = [
   `"Brush Script MT", cursive`,
   `"Segoe Script", cursive`,
   `"Lucida Handwriting", cursive`,
 ];
+
+// ── Google Places Autocomplete ────────────────────────────────────────
+// Loads the Maps JavaScript API once (idempotently) and exposes a small
+// React component that wraps the legacy Autocomplete widget. Locked down
+// to "must pick a suggestion" — see component implementation below for
+// how we enforce that.
+const GOOGLE_API_KEY = import.meta.env.VITE_GOOGLE_PLACES_API_KEY || "";
+let googlePlacesLoadPromise = null;
+const loadGooglePlaces = () => {
+  if (typeof window === "undefined") return Promise.reject(new Error("not in browser"));
+  if (window.google?.maps?.places) return Promise.resolve(window.google);
+  if (googlePlacesLoadPromise) return googlePlacesLoadPromise;
+  if (!GOOGLE_API_KEY) {
+    return Promise.reject(new Error("VITE_GOOGLE_PLACES_API_KEY is not set in environment variables"));
+  }
+  googlePlacesLoadPromise = new Promise((resolve, reject) => {
+    // Reuse existing script if already on the page
+    const existing = document.querySelector("script[data-google-places]");
+    if (existing) {
+      existing.addEventListener("load", () => resolve(window.google));
+      existing.addEventListener("error", reject);
+      return;
+    }
+    const s = document.createElement("script");
+    s.async = true;
+    s.defer = true;
+    s.dataset.googlePlaces = "1";
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GOOGLE_API_KEY)}&libraries=places&v=weekly`;
+    s.onload = () => resolve(window.google);
+    s.onerror = () => reject(new Error("Failed to load Google Maps script"));
+    document.head.appendChild(s);
+  });
+  return googlePlacesLoadPromise;
+};
+
+// AddressAutocomplete — a controlled input that uses Google Places to
+// suggest US addresses (Florida-biased). When the user picks a suggestion,
+// `onPlaceSelected({ address, city, state, zip })` fires with the parsed
+// components. The `value` prop controls what's displayed; pair it with
+// the parent's address state.
+//
+// Lock-down behavior:
+// - Anything typed but not picked is treated as "unverified". The input
+//   border turns yellow/amber as a visual cue. The parent component sees
+//   `verified=false` until a suggestion is selected.
+// - On blur, if no suggestion was picked, we auto-clear the input to
+//   force the rep to actually use the dropdown.
+function AddressAutocomplete({ value, onChange, onPlaceSelected, placeholder, style, errorBorder, id }) {
+  const inputRef = React.useRef(null);
+  const autocompleteRef = React.useRef(null);
+  const justPickedRef = React.useRef(false);
+  const [verified, setVerified] = React.useState(false);
+  const [loadError, setLoadError] = React.useState(null);
+
+  React.useEffect(() => {
+    let mounted = true;
+    loadGooglePlaces()
+      .then((google) => {
+        if (!mounted || !inputRef.current) return;
+        // Use the legacy Autocomplete widget (still supported, simpler API than the new one)
+        const ac = new google.maps.places.Autocomplete(inputRef.current, {
+          types: ["address"],
+          componentRestrictions: { country: "us" },
+          fields: ["address_components", "formatted_address"],
+        });
+        // Florida bias — bound suggestions toward FL but still allow any US
+        const flBounds = new google.maps.LatLngBounds(
+          new google.maps.LatLng(24.396308, -87.634938),  // SW corner of FL
+          new google.maps.LatLng(31.000888, -79.974307)   // NE corner of FL
+        );
+        ac.setBounds(flBounds);
+
+        ac.addListener("place_changed", () => {
+          const place = ac.getPlace();
+          if (!place || !place.address_components) return;
+          // Parse the components into our four fields
+          let streetNum = "", route = "", city = "", state = "", zip = "";
+          for (const c of place.address_components) {
+            if (c.types.includes("street_number")) streetNum = c.long_name;
+            else if (c.types.includes("route")) route = c.long_name;
+            else if (c.types.includes("locality")) city = c.long_name;
+            else if (c.types.includes("sublocality") && !city) city = c.long_name;
+            else if (c.types.includes("administrative_area_level_3") && !city) city = c.long_name;
+            else if (c.types.includes("administrative_area_level_1")) state = c.short_name;
+            else if (c.types.includes("postal_code")) zip = c.long_name;
+          }
+          const fullAddr = [streetNum, route].filter(Boolean).join(" ");
+          justPickedRef.current = true;
+          setVerified(true);
+          onPlaceSelected?.({ address: fullAddr, city, state, zip, formatted: place.formatted_address || fullAddr });
+        });
+        autocompleteRef.current = ac;
+      })
+      .catch((e) => {
+        if (mounted) setLoadError(e.message || "Could not load address autocomplete");
+      });
+    return () => { mounted = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // If parent clears or sets the value externally, reset verified state
+  React.useEffect(() => {
+    if (!value) setVerified(false);
+  }, [value]);
+
+  const handleInputChange = (e) => {
+    setVerified(false);
+    onChange?.(e.target.value);
+  };
+
+  // On blur, if nothing was picked from the dropdown, clear the input
+  // to enforce the "must pick" requirement. (This fires AFTER place_changed
+  // when a suggestion is clicked, so we use justPickedRef to skip clearing
+  // in that case.)
+  const handleBlur = () => {
+    setTimeout(() => {
+      if (justPickedRef.current) {
+        justPickedRef.current = false;
+        return;
+      }
+      if (!verified && value) {
+        // Inform the rep clearly — don't silently wipe their typing
+        // We delay slightly so the dropdown click has a chance to register
+        const stillUnverified = !justPickedRef.current && !verified;
+        if (stillUnverified) {
+          // Let parent handle the clear via onChange
+          onChange?.("");
+        }
+      }
+    }, 250);
+  };
+
+  return (
+    <div style={{ position: "relative" }}>
+      <input
+        id={id}
+        ref={inputRef}
+        type="text"
+        value={value || ""}
+        onChange={handleInputChange}
+        onBlur={handleBlur}
+        placeholder={loadError ? "Address autocomplete unavailable" : (placeholder || "Start typing an address...")}
+        autoComplete="off"
+        style={{
+          width: "100%",
+          height: 44,
+          borderRadius: 14,
+          padding: "0 12px",
+          fontSize: 14,
+          boxSizing: "border-box",
+          fontFamily: "'Nunito', sans-serif",
+          background: "#fff",
+          // Border priority: error red > verified green > typing-but-unverified amber > default
+          border: errorBorder
+            ? "2px solid #ef4444"
+            : verified && value
+              ? "2px solid #199c2e"
+              : value
+                ? "2px solid #f59e0b"
+                : "1px solid #d1d5db",
+          ...(style || {}),
+        }}
+      />
+      {/* Status hint below the input */}
+      {loadError ? (
+        <div style={{ fontSize: 11, color: "#dc2626", marginTop: 4, fontFamily: "'Nunito', sans-serif" }}>
+          ⚠️ {loadError}
+        </div>
+      ) : value && !verified ? (
+        <div style={{ fontSize: 11, color: "#b45309", marginTop: 4, fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
+          ⚠️ Pick an address from the dropdown — typing alone won't save
+        </div>
+      ) : value && verified ? (
+        <div style={{ fontSize: 11, color: "#166534", marginTop: 4, fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
+          ✓ Verified address
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 const PDF_LAYOUT = {
   headerHeight: "1.28in",
@@ -5694,10 +5909,18 @@ if (!hasDamage) {
                       onChange={(v) => update("signerEmail", v)}
                     />
                     <div style={{ gridColumn: "1 / -1" }}>
-                      <FormField
-                        label="Address"
+                      <Label>Address</Label>
+                      <AddressAutocomplete
                         value={data.address}
                         onChange={(v) => update("address", v)}
+                        onPlaceSelected={({ address, city, state, zip }) => {
+                          // Fill all 4 fields atomically
+                          update("address", address);
+                          update("city", city);
+                          update("state", normalizeStateValue(state));
+                          update("zip", zip);
+                        }}
+                        placeholder="Start typing the property address..."
                       />
                     </div>
                     <FormField
@@ -5705,11 +5928,20 @@ if (!hasDamage) {
                       value={data.city}
                       onChange={(v) => update("city", v)}
                     />
-                    <FormField
-                      label="State"
-                      value={data.state}
-                      onChange={(v) => update("state", v)}
-                    />
+                    {/* State — dropdown so we never get "fl"/"FL"/"Florida" inconsistencies */}
+                    <div>
+                      <Label>State</Label>
+                      <select
+                        value={normalizeStateValue(data.state)}
+                        onChange={(e) => update("state", e.target.value)}
+                        style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", fontFamily: "'Nunito', sans-serif", background: "#fff" }}
+                      >
+                        <option value="">— Select state —</option>
+                        {US_STATES.map(([code, name]) => (
+                          <option key={code} value={code}>{code} — {name}</option>
+                        ))}
+                      </select>
+                    </div>
                     <FormField
                       label="ZIP"
                       value={data.zip}
@@ -7408,9 +7640,18 @@ if (!hasDamage) {
                     </div>
                     <div>
                       <Label>Address *</Label>
-                      <input type="text" value={inspData.address} onChange={e => updateInsp("address", e.target.value)}
-                        placeholder="Street address"
-                        style={{ width: "100%", height: 44, borderRadius: 14, border: inspSubmitAttempted && !inspData.address ? "2px solid #ef4444" : "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                      <AddressAutocomplete
+                        value={inspData.address}
+                        onChange={(v) => updateInsp("address", v)}
+                        onPlaceSelected={({ address, city, state, zip }) => {
+                          updateInsp("address", address);
+                          updateInsp("city", city);
+                          updateInsp("state", normalizeStateValue(state));
+                          updateInsp("zip", zip);
+                        }}
+                        placeholder="Start typing the property address..."
+                        errorBorder={inspSubmitAttempted && !inspData.address}
+                      />
                     </div>
                     <div>
                       <Label>City</Label>
@@ -7420,9 +7661,13 @@ if (!hasDamage) {
                     </div>
                     <div>
                       <Label>State</Label>
-                      <input type="text" value={inspData.state} onChange={e => updateInsp("state", e.target.value)}
-                        placeholder="FL"
-                        style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                      <select value={normalizeStateValue(inspData.state)} onChange={e => updateInsp("state", e.target.value)}
+                        style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", background: "#fff" }}>
+                        <option value="">— Select —</option>
+                        {US_STATES.map(([code, name]) => (
+                          <option key={code} value={code}>{code} — {name}</option>
+                        ))}
+                      </select>
                     </div>
                     <div>
                       <Label>Zip</Label>
@@ -10172,13 +10417,18 @@ if (!hasDamage) {
                 />
               </div>
 
-              {/* Address - 2 col */}
+              {/* Address - autocomplete */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10, marginBottom: 12 }}>
                 <div>
                   <Label>Street Address</Label>
-                  <input type="text" value={editModal.draft.address}
-                    onChange={(e) => setEditModal(m => ({ ...m, draft: { ...m.draft, address: e.target.value } }))}
-                    style={{ width: "100%", height: 40, borderRadius: 10, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", fontFamily: "'Nunito', sans-serif" }}
+                  <AddressAutocomplete
+                    value={editModal.draft.address}
+                    onChange={(v) => setEditModal(m => ({ ...m, draft: { ...m.draft, address: v } }))}
+                    onPlaceSelected={({ address, city, state, zip }) => {
+                      setEditModal(m => ({ ...m, draft: { ...m.draft, address, city, state: normalizeStateValue(state), zip } }));
+                    }}
+                    placeholder="Start typing the property address..."
+                    style={{ height: 40, borderRadius: 10 }}
                   />
                 </div>
               </div>
@@ -10192,10 +10442,15 @@ if (!hasDamage) {
                 </div>
                 <div>
                   <Label>State</Label>
-                  <input type="text" value={editModal.draft.state}
+                  <select value={normalizeStateValue(editModal.draft.state)}
                     onChange={(e) => setEditModal(m => ({ ...m, draft: { ...m.draft, state: e.target.value } }))}
-                    style={{ width: "100%", height: 40, borderRadius: 10, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", fontFamily: "'Nunito', sans-serif" }}
-                  />
+                    style={{ width: "100%", height: 40, borderRadius: 10, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", fontFamily: "'Nunito', sans-serif", background: "#fff" }}
+                  >
+                    <option value="">— Select —</option>
+                    {US_STATES.map(([code, name]) => (
+                      <option key={code} value={code}>{code} — {name}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <Label>ZIP</Label>
