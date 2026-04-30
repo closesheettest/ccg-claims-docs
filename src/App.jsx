@@ -2493,6 +2493,17 @@ export default function App() {
   const [managerUnlocked, setManagerUnlocked] = useState(false);
   const [managerTYTab, setManagerTYTab] = useState("post_inspection");
   const [managerSection, setManagerSection] = useState("home");
+
+  // ── Browse All Records — paginated full-list audit tool for managers ──
+  // Shows every inspection in the system in chronological order. Each row
+  // links to the existing edit modal so issues can be fixed in place.
+  const [browseAllRows, setBrowseAllRows] = useState([]);
+  const [browseAllLoading, setBrowseAllLoading] = useState(false);
+  const [browseAllPage, setBrowseAllPage] = useState(0);
+  const [browseAllPageSize] = useState(50);
+  const [browseAllSort, setBrowseAllSort] = useState("signed_at_desc"); // signed_at_desc | signed_at_asc | name_asc
+  const [browseAllSearch, setBrowseAllSearch] = useState("");
+  const [browseAllStatus, setBrowseAllStatus] = useState("all"); // all | pending | resulted | cancelled | no_jn | no_result
   const [reportData, setReportData] = useState(null);
   const [reportPdfLoading, setReportPdfLoading] = useState(false);
 
@@ -7583,6 +7594,7 @@ if (!hasDamage) {
                         { key: "lookup", emoji: "🔍", label: "Record Lookup & Results", desc: "Find inspections, record damage/no damage" },
                         { key: "report", emoji: "📊", label: "Weekly Report", desc: "View signings by rep and date range" },
                         { key: "analytics", emoji: "📈", label: "Submission Analytics", desc: "Totals, category % and avg days per rep" },
+                        { key: "browseall", emoji: "📚", label: "Browse All Records", desc: "Step through every record one-by-one to verify accuracy" },
                       ].map(item => (
                         <button key={item.key} type="button" onClick={() => setManagerSection(item.key)}
                           style={{ padding: "24px 20px", borderRadius: 20, border: "2px solid #e5e7eb", background: "#fff", textAlign: "left", cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
@@ -9330,6 +9342,229 @@ if (!hasDamage) {
                       </div>
                     ) : null}
                   </Card>}
+
+                  {/* ── Browse All Records — paginated full-list audit tool ─────── */}
+                  {managerSection === "browseall" && <Card style={{ padding: 20, background: "#f8fafc" }}>
+                    <SectionTitle>Browse All Records</SectionTitle>
+                    <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 14, fontFamily: "'Nunito', sans-serif" }}>
+                      Step through every inspection in the system. Click ✏️ Edit on any record to fix data. Use filters to narrow what you see.
+                    </div>
+
+                    {/* Top controls: load / status filter / sort / search */}
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+                      <button type="button"
+                        onClick={async () => {
+                          setBrowseAllLoading(true);
+                          setBrowseAllPage(0);
+                          try {
+                            const { data, error } = await supabase
+                              .from("inspections")
+                              .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, docs_signed, jn_job_id, cancelled_at, jn_status, signed_pdfs")
+                              .order("signed_at", { ascending: false })
+                              .limit(2000);
+                            if (error) throw error;
+
+                            // Enrich with claim docs_signed via zip lookup
+                            const zips = [...new Set((data || []).map(r => (r.zip || "").trim()).filter(Boolean))];
+                            const claimsByKey = new Map();
+                            if (zips.length > 0) {
+                              const { data: claims } = await supabase
+                                .from("claims")
+                                .select("homeowner1, address, zip, docs_signed")
+                                .in("zip", zips);
+                              for (const c of claims || []) {
+                                const z = (c.zip || "").trim();
+                                if (!z) continue;
+                                const street = (c.address || "").toLowerCase().trim().split(",")[0].replace(/\s+/g, " ").trim();
+                                const num = (street.match(/^\d+/) || [""])[0];
+                                claimsByKey.set(`${z}|${street}`, c.docs_signed || "");
+                                if (num) {
+                                  const numKey = `${z}|num:${num}`;
+                                  if (!claimsByKey.has(numKey)) claimsByKey.set(numKey, c.docs_signed || "");
+                                }
+                                const ln = ((c.homeowner1 || "").trim().split(/\s+/).pop() || "").toLowerCase();
+                                if (ln) {
+                                  const nk = `${z}|name:${ln}`;
+                                  if (!claimsByKey.has(nk)) claimsByKey.set(nk, c.docs_signed || "");
+                                }
+                              }
+                            }
+                            const enriched = (data || []).map(r => {
+                              const z = (r.zip || "").trim();
+                              const street = (r.address || "").toLowerCase().trim().split(",")[0].replace(/\s+/g, " ").trim();
+                              const num = (street.match(/^\d+/) || [""])[0];
+                              const ln = ((r.client_name || "").trim().split(/\s+/).pop() || "").toLowerCase();
+                              let claimDocs = claimsByKey.get(`${z}|${street}`);
+                              if (!claimDocs && num) claimDocs = claimsByKey.get(`${z}|num:${num}`);
+                              if (!claimDocs && ln)  claimDocs = claimsByKey.get(`${z}|name:${ln}`);
+                              const combined = [r.docs_signed || "", claimDocs || ""].join(",").toLowerCase();
+                              return { ...r, _docs: { insp: combined.includes("insp"), lor: combined.includes("lor"), pac: combined.includes("pac") } };
+                            });
+                            setBrowseAllRows(enriched);
+                          } catch (e) {
+                            alert("Could not load: " + (e.message || e));
+                          } finally {
+                            setBrowseAllLoading(false);
+                          }
+                        }}
+                        style={{ padding: "10px 18px", borderRadius: 12, border: "2px solid #1a2e5a", background: "#1a2e5a", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                        🔄 {browseAllRows.length > 0 ? "Reload All" : "Load All Records"}
+                      </button>
+
+                      <select value={browseAllStatus} onChange={(e) => { setBrowseAllStatus(e.target.value); setBrowseAllPage(0); }}
+                        style={{ height: 40, padding: "0 12px", borderRadius: 12, border: "1.5px solid #d1d5db", fontSize: 13, fontFamily: "'Nunito', sans-serif", background: "#fff" }}>
+                        <option value="all">All statuses</option>
+                        <option value="pending">⏳ Pending only</option>
+                        <option value="resulted">✓ Resulted only</option>
+                        <option value="cancelled">❌ Cancelled only</option>
+                        <option value="no_jn">⚠️ Missing JN link</option>
+                        <option value="no_result">⏳ No result + no cancel</option>
+                      </select>
+
+                      <select value={browseAllSort} onChange={(e) => { setBrowseAllSort(e.target.value); setBrowseAllPage(0); }}
+                        style={{ height: 40, padding: "0 12px", borderRadius: 12, border: "1.5px solid #d1d5db", fontSize: 13, fontFamily: "'Nunito', sans-serif", background: "#fff" }}>
+                        <option value="signed_at_desc">Newest first</option>
+                        <option value="signed_at_asc">Oldest first</option>
+                        <option value="name_asc">Name A→Z</option>
+                      </select>
+
+                      <input type="text" value={browseAllSearch} onChange={(e) => { setBrowseAllSearch(e.target.value); setBrowseAllPage(0); }}
+                        placeholder="Search name, address, zip, rep..."
+                        style={{ flex: 1, minWidth: 200, height: 40, padding: "0 12px", borderRadius: 12, border: "1.5px solid #d1d5db", fontSize: 13, fontFamily: "'Nunito', sans-serif" }} />
+                    </div>
+
+                    {browseAllLoading ? (
+                      <div style={{ textAlign: "center", padding: "40px 0", color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>Loading all records...</div>
+                    ) : browseAllRows.length === 0 ? (
+                      <div style={{ textAlign: "center", padding: "40px 0", color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>
+                        Click "Load All Records" to begin.
+                      </div>
+                    ) : (() => {
+                      // Apply filters in-memory
+                      let filtered = browseAllRows.filter(r => {
+                        if (browseAllStatus === "pending") return !r.result && !r.cancelled_at;
+                        if (browseAllStatus === "resulted") return !!r.result;
+                        if (browseAllStatus === "cancelled") return !!r.cancelled_at;
+                        if (browseAllStatus === "no_jn") return !r.jn_job_id;
+                        if (browseAllStatus === "no_result") return !r.result && !r.cancelled_at;
+                        return true;
+                      });
+                      if (browseAllSearch && browseAllSearch.length >= 2) {
+                        const q = browseAllSearch.toLowerCase();
+                        filtered = filtered.filter(r => {
+                          const hay = [r.client_name, r.address, r.city, r.zip, r.sales_rep_name].filter(Boolean).join(" ").toLowerCase();
+                          return hay.includes(q);
+                        });
+                      }
+                      filtered = [...filtered].sort((a, b) => {
+                        if (browseAllSort === "name_asc") return (a.client_name || "").localeCompare(b.client_name || "");
+                        const ta = a.signed_at ? new Date(a.signed_at).getTime() : 0;
+                        const tb = b.signed_at ? new Date(b.signed_at).getTime() : 0;
+                        return browseAllSort === "signed_at_asc" ? ta - tb : tb - ta;
+                      });
+
+                      const totalPages = Math.max(1, Math.ceil(filtered.length / browseAllPageSize));
+                      const page = Math.min(browseAllPage, totalPages - 1);
+                      const startIdx = page * browseAllPageSize;
+                      const pageRows = filtered.slice(startIdx, startIdx + browseAllPageSize);
+
+                      return (
+                        <>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 10 }}>
+                            <div style={{ fontSize: 13, color: "#374151", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
+                              Showing {startIdx + 1}–{Math.min(startIdx + browseAllPageSize, filtered.length)} of {filtered.length}
+                              {browseAllSearch || browseAllStatus !== "all" ? ` (filtered from ${browseAllRows.length} total)` : ""}
+                            </div>
+                            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                              <button type="button" disabled={page === 0} onClick={() => setBrowseAllPage(p => Math.max(0, p - 1))}
+                                style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #d1d5db", background: page === 0 ? "#f3f4f6" : "#fff", color: page === 0 ? "#9ca3af" : "#374151", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, cursor: page === 0 ? "not-allowed" : "pointer" }}>← Prev</button>
+                              <span style={{ fontSize: 13, color: "#374151", fontFamily: "'Nunito', sans-serif", padding: "0 8px" }}>Page {page + 1} of {totalPages}</span>
+                              <button type="button" disabled={page >= totalPages - 1} onClick={() => setBrowseAllPage(p => Math.min(totalPages - 1, p + 1))}
+                                style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #d1d5db", background: page >= totalPages - 1 ? "#f3f4f6" : "#fff", color: page >= totalPages - 1 ? "#9ca3af" : "#374151", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, cursor: page >= totalPages - 1 ? "not-allowed" : "pointer" }}>Next →</button>
+                            </div>
+                          </div>
+
+                          <div style={{ display: "grid", gap: 6 }}>
+                            {pageRows.map((rec, idx) => {
+                              const docs = rec._docs || { insp: false, lor: false, pac: false };
+                              let pill = null;
+                              if (rec.cancelled_at) {
+                                pill = <span style={{ background: "#fef2f2", color: "#991b1b", borderRadius: 12, padding: "2px 9px", fontSize: 10, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>❌ CANCELLED</span>;
+                              } else if (rec.result === "damage") {
+                                pill = <span style={{ background: "#fef2f2", color: "#dc2626", borderRadius: 12, padding: "2px 9px", fontSize: 10, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>⚠️ DAMAGE</span>;
+                              } else if (rec.result === "no_damage") {
+                                pill = <span style={{ background: "#f0fdf4", color: "#166534", borderRadius: 12, padding: "2px 9px", fontSize: 10, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>✅ NO DAMAGE</span>;
+                              } else if (rec.result === "retail") {
+                                pill = <span style={{ background: "#fff7ed", color: "#9a3412", borderRadius: 12, padding: "2px 9px", fontSize: 10, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>🏠 RETAIL</span>;
+                              } else {
+                                pill = <span style={{ background: "#f3f4f6", color: "#374151", borderRadius: 12, padding: "2px 9px", fontSize: 10, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>⏳ PENDING</span>;
+                              }
+                              return (
+                                <div key={rec.id} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: "10px 14px" }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+                                    <div style={{ flex: 1, minWidth: 240 }}>
+                                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 2 }}>
+                                        <span style={{ fontSize: 11, color: "#9ca3af", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>#{startIdx + idx + 1}</span>
+                                        <span style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827" }}>{rec.client_name || "(no name)"}</span>
+                                        {pill}
+                                      </div>
+                                      <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>
+                                        {[rec.address, rec.city, rec.state, rec.zip].filter(Boolean).join(", ")}
+                                      </div>
+                                      <div style={{ fontSize: 11, color: "#9ca3af", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>
+                                        Rep: {rec.sales_rep_name || "—"} · Signed: {rec.signed_at ? new Date(rec.signed_at).toLocaleDateString() : "—"}
+                                        {rec.jn_job_id ? <span style={{ color: "#16a34a" }}> · ✓ JN</span> : <span style={{ color: "#dc2626" }}> · ⚠️ NO JN</span>}
+                                      </div>
+                                      <div style={{ marginTop: 4, display: "flex", gap: 4, flexWrap: "wrap" }}>
+                                        <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 5, fontWeight: 700, background: docs.insp ? "#dbeafe" : "#f3f4f6", color: docs.insp ? "#1e40af" : "#9ca3af", fontFamily: "'Oswald', sans-serif" }}>{docs.insp ? "✓" : "○"} INSP</span>
+                                        <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 5, fontWeight: 700, background: docs.lor ? "#dcfce7" : "#f3f4f6", color: docs.lor ? "#166534" : "#9ca3af", fontFamily: "'Oswald', sans-serif" }}>{docs.lor ? "✓" : "○"} LOR</span>
+                                        <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 5, fontWeight: 700, background: docs.pac ? "#dcfce7" : "#f3f4f6", color: docs.pac ? "#166534" : "#9ca3af", fontFamily: "'Oswald', sans-serif" }}>{docs.pac ? "✓" : "○"} PA</span>
+                                        {rec.signed_pdfs?.insp ? <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 5, fontWeight: 700, background: "#dcfce7", color: "#166534", fontFamily: "'Oswald', sans-serif" }}>📁 ARCHIVED</span> : null}
+                                        {rec.jn_status && rec.jn_status !== "Needs Inspection" && rec.jn_status !== "New Lead" ? <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 5, fontWeight: 700, background: "#fef2f2", color: "#991b1b", fontFamily: "'Oswald', sans-serif" }}>JN: {rec.jn_status}</span> : null}
+                                      </div>
+                                    </div>
+                                    <button type="button"
+                                      onClick={() => {
+                                        setEditModal({
+                                          rec,
+                                          draft: {
+                                            client_name: rec.client_name || "",
+                                            address: rec.address || "",
+                                            city: rec.city || "",
+                                            state: rec.state || "",
+                                            zip: rec.zip || "",
+                                            mobile: rec.mobile || "",
+                                            email: rec.email || "",
+                                            sales_rep_name: rec.sales_rep_name || "",
+                                            sales_rep_id: rec.sales_rep_id || "",
+                                            jn_job_id: rec.jn_job_id || "",
+                                            result: rec.result || "",
+                                          },
+                                        });
+                                      }}
+                                      style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #6b7280", background: "#fff", color: "#374151", fontSize: 11, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: "pointer", whiteSpace: "nowrap" }}>
+                                      ✏️ Edit
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {totalPages > 1 ? (
+                            <div style={{ display: "flex", justifyContent: "center", gap: 6, alignItems: "center", marginTop: 16 }}>
+                              <button type="button" disabled={page === 0} onClick={() => setBrowseAllPage(p => Math.max(0, p - 1))}
+                                style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #d1d5db", background: page === 0 ? "#f3f4f6" : "#fff", color: page === 0 ? "#9ca3af" : "#374151", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, cursor: page === 0 ? "not-allowed" : "pointer" }}>← Prev</button>
+                              <span style={{ fontSize: 13, color: "#374151", fontFamily: "'Nunito', sans-serif", padding: "0 12px" }}>Page {page + 1} of {totalPages}</span>
+                              <button type="button" disabled={page >= totalPages - 1} onClick={() => setBrowseAllPage(p => Math.min(totalPages - 1, p + 1))}
+                                style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #d1d5db", background: page >= totalPages - 1 ? "#f3f4f6" : "#fff", color: page >= totalPages - 1 ? "#9ca3af" : "#374151", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, cursor: page >= totalPages - 1 ? "not-allowed" : "pointer" }}>Next →</button>
+                            </div>
+                          ) : null}
+                        </>
+                      );
+                    })()}
+                  </Card>}
+
                       <div style={{ marginTop: 24 }}>
                         <Button onClick={() => { setManagerUnlocked(false); setManagerSection("home"); setView("input"); }}>
                           Save & Close
