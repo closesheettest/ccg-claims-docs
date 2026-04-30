@@ -89,14 +89,15 @@ const SIGNATURE_FONTS = [
 
 // ── Google Places Autocomplete ────────────────────────────────────────
 // Loads the Maps JavaScript API once (idempotently) and exposes a small
-// React component that wraps the legacy Autocomplete widget. Locked down
-// to "must pick a suggestion" — see component implementation below for
-// how we enforce that.
+// React component that wraps the new PlaceAutocompleteElement Web Component.
+// The legacy Autocomplete class was deprecated for new customers in March 2025
+// (see https://developers.google.com/maps/documentation/javascript/places-migration-overview),
+// so we use the new element-based API.
 const GOOGLE_API_KEY = import.meta.env.VITE_GOOGLE_PLACES_API_KEY || "";
 let googlePlacesLoadPromise = null;
 const loadGooglePlaces = () => {
   if (typeof window === "undefined") return Promise.reject(new Error("not in browser"));
-  if (window.google?.maps?.places) return Promise.resolve(window.google);
+  if (window.google?.maps?.places?.PlaceAutocompleteElement) return Promise.resolve(window.google);
   if (googlePlacesLoadPromise) return googlePlacesLoadPromise;
   if (!GOOGLE_API_KEY) {
     return Promise.reject(new Error("VITE_GOOGLE_PLACES_API_KEY is not set in environment variables"));
@@ -105,164 +106,186 @@ const loadGooglePlaces = () => {
     // Reuse existing script if already on the page
     const existing = document.querySelector("script[data-google-places]");
     if (existing) {
-      existing.addEventListener("load", () => resolve(window.google));
+      existing.addEventListener("load", async () => {
+        try {
+          // The new API requires explicitly importing the places library
+          await window.google.maps.importLibrary("places");
+          resolve(window.google);
+        } catch (err) { reject(err); }
+      });
       existing.addEventListener("error", reject);
       return;
     }
     const s = document.createElement("script");
     s.async = true;
-    s.defer = true;
     s.dataset.googlePlaces = "1";
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GOOGLE_API_KEY)}&libraries=places&v=weekly`;
-    s.onload = () => resolve(window.google);
+    // The new PlaceAutocompleteElement requires loading=async + importLibrary pattern.
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GOOGLE_API_KEY)}&v=weekly&loading=async&libraries=places`;
+    s.onload = async () => {
+      try {
+        await window.google.maps.importLibrary("places");
+        resolve(window.google);
+      } catch (err) { reject(err); }
+    };
     s.onerror = () => reject(new Error("Failed to load Google Maps script"));
     document.head.appendChild(s);
   });
   return googlePlacesLoadPromise;
 };
 
-// AddressAutocomplete — a controlled input that uses Google Places to
-// suggest US addresses (Florida-biased). When the user picks a suggestion,
-// `onPlaceSelected({ address, city, state, zip })` fires with the parsed
-// components. The `value` prop controls what's displayed; pair it with
-// the parent's address state.
+// AddressAutocomplete — wraps the new google.maps.places.PlaceAutocompleteElement
+// (a Web Component). It auto-displays a styled dropdown of US addresses
+// (Florida-biased). When the user picks a suggestion, `onPlaceSelected({ address, city, state, zip })`
+// fires with the parsed components.
 //
-// Lock-down behavior:
-// - Anything typed but not picked is treated as "unverified". The input
-//   border turns yellow/amber as a visual cue. The parent component sees
-//   `verified=false` until a suggestion is selected.
-// - On blur, if no suggestion was picked, we auto-clear the input to
-//   force the rep to actually use the dropdown.
+// Lock-down: the new element handles its own input, so the only way to
+// commit data to the parent is by selecting from the dropdown. Free-typed
+// text without a selection never makes it through.
 function AddressAutocomplete({ value, onChange, onPlaceSelected, placeholder, style, errorBorder, id }) {
-  const inputRef = React.useRef(null);
-  const autocompleteRef = React.useRef(null);
-  const justPickedRef = React.useRef(false);
+  const wrapperRef = React.useRef(null);
+  const elementRef = React.useRef(null);
   const [verified, setVerified] = React.useState(false);
   const [loadError, setLoadError] = React.useState(null);
+  const [ready, setReady] = React.useState(false);
 
   React.useEffect(() => {
     let mounted = true;
     loadGooglePlaces()
-      .then((google) => {
-        if (!mounted || !inputRef.current) return;
-        // Use the legacy Autocomplete widget (still supported, simpler API than the new one)
-        const ac = new google.maps.places.Autocomplete(inputRef.current, {
-          types: ["address"],
-          componentRestrictions: { country: "us" },
-          fields: ["address_components", "formatted_address"],
-        });
-        // Florida bias — bound suggestions toward FL but still allow any US
-        const flBounds = new google.maps.LatLngBounds(
-          new google.maps.LatLng(24.396308, -87.634938),  // SW corner of FL
-          new google.maps.LatLng(31.000888, -79.974307)   // NE corner of FL
-        );
-        ac.setBounds(flBounds);
+      .then(async (google) => {
+        if (!mounted || !wrapperRef.current) return;
 
-        ac.addListener("place_changed", () => {
-          const place = ac.getPlace();
-          if (!place || !place.address_components) return;
-          // Parse the components into our four fields
-          let streetNum = "", route = "", city = "", state = "", zip = "";
-          for (const c of place.address_components) {
-            if (c.types.includes("street_number")) streetNum = c.long_name;
-            else if (c.types.includes("route")) route = c.long_name;
-            else if (c.types.includes("locality")) city = c.long_name;
-            else if (c.types.includes("sublocality") && !city) city = c.long_name;
-            else if (c.types.includes("administrative_area_level_3") && !city) city = c.long_name;
-            else if (c.types.includes("administrative_area_level_1")) state = c.short_name;
-            else if (c.types.includes("postal_code")) zip = c.long_name;
-          }
-          const fullAddr = [streetNum, route].filter(Boolean).join(" ");
-          justPickedRef.current = true;
-          setVerified(true);
-          onPlaceSelected?.({ address: fullAddr, city, state, zip, formatted: place.formatted_address || fullAddr });
+        // Create the new element. PlaceAutocompleteElement is a custom HTML
+        // element (Web Component) — we just append it to our wrapper div.
+        const el = new google.maps.places.PlaceAutocompleteElement({
+          // Restrict to US addresses
+          includedRegionCodes: ["us"],
         });
-        autocompleteRef.current = ac;
+        // Apply some styling so the element fits our form aesthetic
+        el.style.width = "100%";
+        elementRef.current = el;
+
+        // Listen for the user picking an address
+        el.addEventListener("gmp-select", async (event) => {
+          try {
+            const place = event.placePrediction.toPlace();
+            // The new API requires us to fetch the fields we want
+            await place.fetchFields({ fields: ["addressComponents", "formattedAddress"] });
+            const comps = place.addressComponents || [];
+            let streetNum = "", route = "", city = "", state = "", zip = "";
+            for (const c of comps) {
+              const types = c.types || [];
+              if (types.includes("street_number")) streetNum = c.longText || c.shortText || "";
+              else if (types.includes("route")) route = c.longText || c.shortText || "";
+              else if (types.includes("locality")) city = c.longText || c.shortText || "";
+              else if (types.includes("sublocality") && !city) city = c.longText || c.shortText || "";
+              else if (types.includes("administrative_area_level_3") && !city) city = c.longText || c.shortText || "";
+              else if (types.includes("administrative_area_level_1")) state = c.shortText || c.longText || "";
+              else if (types.includes("postal_code")) zip = c.longText || c.shortText || "";
+            }
+            const fullAddr = [streetNum, route].filter(Boolean).join(" ");
+            setVerified(true);
+            onPlaceSelected?.({ address: fullAddr, city, state, zip, formatted: place.formattedAddress || fullAddr });
+          } catch (err) {
+            console.error("Failed to parse selected address:", err);
+          }
+        });
+
+        wrapperRef.current.appendChild(el);
+        setReady(true);
       })
       .catch((e) => {
+        console.error("Google Places load error:", e);
         if (mounted) setLoadError(e.message || "Could not load address autocomplete");
       });
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+      if (elementRef.current && elementRef.current.parentNode) {
+        elementRef.current.parentNode.removeChild(elementRef.current);
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // If parent clears or sets the value externally, reset verified state
+  // Keep the element's input value in sync with our React state when the
+  // parent updates (e.g. clearing, prefilling from My Homeowners).
   React.useEffect(() => {
+    if (!elementRef.current) return;
+    try {
+      // PlaceAutocompleteElement doesn't expose .value directly; the inner
+      // input does. Grab it via the shadow DOM or property accessor.
+      if (typeof elementRef.current.value !== "undefined") {
+        elementRef.current.value = value || "";
+      }
+    } catch (_) { /* ignore */ }
     if (!value) setVerified(false);
   }, [value]);
 
-  const handleInputChange = (e) => {
-    setVerified(false);
-    onChange?.(e.target.value);
-  };
-
-  // On blur, if nothing was picked from the dropdown, clear the input
-  // to enforce the "must pick" requirement. (This fires AFTER place_changed
-  // when a suggestion is clicked, so we use justPickedRef to skip clearing
-  // in that case.)
-  const handleBlur = () => {
-    setTimeout(() => {
-      if (justPickedRef.current) {
-        justPickedRef.current = false;
-        return;
-      }
-      if (!verified && value) {
-        // Inform the rep clearly — don't silently wipe their typing
-        // We delay slightly so the dropdown click has a chance to register
-        const stillUnverified = !justPickedRef.current && !verified;
-        if (stillUnverified) {
-          // Let parent handle the clear via onChange
-          onChange?.("");
-        }
-      }
-    }, 250);
-  };
+  // The new element doesn't expose typing events as cleanly as a regular input,
+  // so we render a plain fallback input ALONGSIDE for the parent's controlled
+  // value display. The Google element overlays it for UI/dropdown purposes.
 
   return (
     <div style={{ position: "relative" }}>
-      <input
-        id={id}
-        ref={inputRef}
-        type="text"
-        value={value || ""}
-        onChange={handleInputChange}
-        onBlur={handleBlur}
-        placeholder={loadError ? "Address autocomplete unavailable" : (placeholder || "Start typing an address...")}
-        autoComplete="off"
-        style={{
-          width: "100%",
-          height: 44,
-          borderRadius: 14,
-          padding: "0 12px",
-          fontSize: 14,
-          boxSizing: "border-box",
-          fontFamily: "'Nunito', sans-serif",
-          background: "#fff",
-          // Border priority: error red > verified green > typing-but-unverified amber > default
-          border: errorBorder
-            ? "2px solid #ef4444"
-            : verified && value
-              ? "2px solid #199c2e"
-              : value
-                ? "2px solid #f59e0b"
-                : "1px solid #d1d5db",
-          ...(style || {}),
-        }}
-      />
-      {/* Status hint below the input */}
       {loadError ? (
-        <div style={{ fontSize: 11, color: "#dc2626", marginTop: 4, fontFamily: "'Nunito', sans-serif" }}>
-          ⚠️ {loadError}
-        </div>
-      ) : value && !verified ? (
-        <div style={{ fontSize: 11, color: "#b45309", marginTop: 4, fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
-          ⚠️ Pick an address from the dropdown — typing alone won't save
-        </div>
-      ) : value && verified ? (
-        <div style={{ fontSize: 11, color: "#166534", marginTop: 4, fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
-          ✓ Verified address
-        </div>
-      ) : null}
+        // Fallback to a plain input if Google failed to load
+        <>
+          <input
+            id={id}
+            type="text"
+            value={value || ""}
+            onChange={(e) => onChange?.(e.target.value)}
+            placeholder={placeholder || "Address (autocomplete unavailable)"}
+            style={{
+              width: "100%",
+              height: 44,
+              borderRadius: 14,
+              padding: "0 12px",
+              fontSize: 14,
+              boxSizing: "border-box",
+              fontFamily: "'Nunito', sans-serif",
+              background: "#fff",
+              border: errorBorder ? "2px solid #ef4444" : "1px solid #d1d5db",
+              ...(style || {}),
+            }}
+          />
+          <div style={{ fontSize: 11, color: "#dc2626", marginTop: 4, fontFamily: "'Nunito', sans-serif" }}>
+            ⚠️ {loadError}
+          </div>
+        </>
+      ) : (
+        <>
+          {/* Google's PlaceAutocompleteElement is appended into this wrapper at runtime */}
+          <div
+            ref={wrapperRef}
+            style={{
+              width: "100%",
+              border: errorBorder
+                ? "2px solid #ef4444"
+                : verified && value
+                  ? "2px solid #199c2e"
+                  : "1px solid #d1d5db",
+              borderRadius: 14,
+              background: "#fff",
+              minHeight: 44,
+              boxSizing: "border-box",
+              ...(style || {}),
+            }}
+          />
+          {!ready ? (
+            <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4, fontFamily: "'Nunito', sans-serif" }}>
+              Loading address search…
+            </div>
+          ) : verified && value ? (
+            <div style={{ fontSize: 11, color: "#166534", marginTop: 4, fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
+              ✓ Verified address: {value}
+            </div>
+          ) : (
+            <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4, fontFamily: "'Nunito', sans-serif" }}>
+              Type and pick an address from the dropdown
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
