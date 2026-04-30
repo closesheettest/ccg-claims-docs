@@ -103,32 +103,25 @@ const loadGooglePlaces = () => {
     return Promise.reject(new Error("VITE_GOOGLE_PLACES_API_KEY is not set in environment variables"));
   }
   googlePlacesLoadPromise = new Promise((resolve, reject) => {
-    // Reuse existing script if already on the page
-    const existing = document.querySelector("script[data-google-places]");
-    if (existing) {
-      existing.addEventListener("load", async () => {
-        try {
-          // The new API requires explicitly importing the places library
-          await window.google.maps.importLibrary("places");
-          resolve(window.google);
-        } catch (err) { reject(err); }
-      });
-      existing.addEventListener("error", reject);
-      return;
+    // Remove any cached old-format script that doesn't support importLibrary
+    document.querySelectorAll('script[src*="maps.googleapis.com/maps/api/js"]').forEach(s => s.remove());
+    if (window.google?.maps && !window.google.maps.importLibrary) {
+      // Wipe the partially-loaded older API so we can reload with the new bootstrap
+      try { delete window.google.maps; } catch (_) { window.google.maps = undefined; }
     }
-    const s = document.createElement("script");
-    s.async = true;
-    s.dataset.googlePlaces = "1";
-    // The new PlaceAutocompleteElement requires loading=async + importLibrary pattern.
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GOOGLE_API_KEY)}&v=weekly&loading=async&libraries=places`;
-    s.onload = async () => {
-      try {
-        await window.google.maps.importLibrary("places");
-        resolve(window.google);
-      } catch (err) { reject(err); }
-    };
-    s.onerror = () => reject(new Error("Failed to load Google Maps script"));
-    document.head.appendChild(s);
+
+    // Use the official bootstrap loader pattern from Google docs.
+    // This always exposes window.google.maps.importLibrary regardless of script version.
+    // Reference: https://developers.google.com/maps/documentation/javascript/load-maps-js-api
+    (g => { var h, a, k, p = "The Google Maps JavaScript API", c = "google", l = "importLibrary", q = "__ib__", m = document, b = window; b = b[c] || (b[c] = {}); var d = b.maps || (b.maps = {}), r = new Set, e = new URLSearchParams, u = () => h || (h = new Promise(async (f, n) => { await (a = m.createElement("script")); e.set("libraries", [...r] + ""); for (k in g) e.set(k.replace(/[A-Z]/g, t => "_" + t[0].toLowerCase()), g[k]); e.set("callback", c + ".maps." + q); a.src = `https://maps.${c}apis.com/maps/api/js?` + e; d[q] = f; a.onerror = () => h = n(Error(p + " could not load.")); a.nonce = m.querySelector("script[nonce]")?.nonce || ""; m.head.append(a) })); d[l] ? console.warn(p + " only loads once. Ignoring:", g) : d[l] = (f, ...n) => r.add(f) && u().then(() => d[l](f, ...n)) })({
+      key: GOOGLE_API_KEY,
+      v: "weekly",
+    });
+
+    // Now use importLibrary to load just what we need
+    window.google.maps.importLibrary("places")
+      .then(() => resolve(window.google))
+      .catch(reject);
   });
   return googlePlacesLoadPromise;
 };
