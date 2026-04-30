@@ -3619,6 +3619,61 @@ const renderSmsTemplate = (key, vars) => {
     }
   }, [view, reviewReady]);
 
+  // ── Pre-flight duplicate check ──────────────────────────────────────
+  // Backend has a trigger that blocks duplicate inspection inserts within a
+  // 5-minute window for the same address+zip. This helper checks BEFORE the
+  // insert so the rep sees a friendly explanation + path forward (use My
+  // Homeowners) instead of a raw SQL error.
+  // Uses ADDRESS+ZIP as the duplicate key — not name — because a single
+  // homeowner can legitimately own multiple properties with separate jobs.
+  // Returns true if the rep wants to proceed anyway, false if they cancelled.
+  const checkForExistingByAddress = async (address, zip) => {
+    const a = (address || "").trim();
+    const z = (zip || "").trim();
+    if (!a) return true; // nothing to check — let the submit proceed
+
+    try {
+      // Look back 90 days for any inspection at this address+zip.
+      // Address match is case-insensitive (ilike) and tolerant of leading/trailing
+      // whitespace differences. Whitespace inside the string still matters somewhat
+      // but ilike with the exact address handles most real-world cases.
+      const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+      let query = supabase
+        .from("inspections")
+        .select("id, client_name, address, zip, signed_at, jn_job_id, sales_rep_name, docs_signed, cancelled_at")
+        .ilike("address", a)
+        .gte("signed_at", since)
+        .is("cancelled_at", null);
+      if (z) query = query.eq("zip", z);
+      const { data: matches } = await query;
+
+      if (!matches || matches.length === 0) return true; // no duplicate, safe to proceed
+
+      // Build a friendly confirm message. Show the rep WHO it was and HOW LONG ago.
+      const recent = matches[0];
+      const daysAgo = recent.signed_at
+        ? Math.floor((Date.now() - new Date(recent.signed_at).getTime()) / (24 * 60 * 60 * 1000))
+        : null;
+      const ageStr = daysAgo === 0 ? "today" : daysAgo === 1 ? "yesterday" : `${daysAgo} days ago`;
+
+      const msg =
+        `⚠️ DUPLICATE WARNING\n\n` +
+        `An inspection for ${recent.address} (zip ${recent.zip || "—"}) was already created ${ageStr}` +
+        ` by ${recent.sales_rep_name || "(unknown rep)"}.\n\n` +
+        `Homeowner on file: ${recent.client_name}\n\n` +
+        `To AVOID a duplicate, cancel here and instead use:\n` +
+        `📋 My Homeowners → find this property → click "Add Docs"\n\n` +
+        `Click OK to create a new record anyway, or Cancel to go back.`;
+
+      return window.confirm(msg);
+    } catch (e) {
+      // If the check itself fails for some reason, don't block the rep — let them proceed.
+      // The DB trigger is the safety net.
+      console.warn("Duplicate check failed (non-blocking):", e);
+      return true;
+    }
+  };
+
   const update = (key, value) => {
     setData((prev) => ({ ...prev, [key]: value }));
   };
@@ -3899,6 +3954,10 @@ const renderSmsTemplate = (key, vars) => {
     if (!effectiveInspSig || !inspData.clientName || !inspData.address) {
       return;
     }
+    // Pre-flight duplicate check by address+zip. If a recent inspection exists
+    // for the same property, warn the rep and let them cancel.
+    const okToProceed = await checkForExistingByAddress(inspData.address, inspData.zip);
+    if (!okToProceed) return;
     setInspSubmitting(true);
     try {
       // Generate PDF
@@ -3923,6 +3982,17 @@ const renderSmsTemplate = (key, vars) => {
       }]).select("id").single();
       if (inspSaveError) {
         console.error("Inspection save error:", inspSaveError);
+        // Detect the trigger's duplicate-block error and show a friendly message
+        // routing the rep to My Homeowners instead of the raw SQL exception.
+        if (inspSaveError.message && inspSaveError.message.includes("DUPLICATE_INSPECTION")) {
+          alert(
+            "⚠️ This address was already submitted within the last 5 minutes.\n\n" +
+            "If you're adding more documents to an existing record, please use:\n" +
+            "📋 My Homeowners → find this property → click \"Add Docs\""
+          );
+          setInspSubmitting(false);
+          return;
+        }
         alert("Warning: Could not save to database — " + inspSaveError.message);
       }
       const newInspId = insertedInsp?.id || null;
@@ -4097,6 +4167,15 @@ const renderSmsTemplate = (key, vars) => {
       if (!pendingSend && !isSigningComplete) {
         return;
       }
+
+      // Pre-flight duplicate check — only matters when this is creating a NEW
+      // claim record. If we're updating an existing one (existingClaim or
+      // currentClaimId is set, e.g. from My Homeowners flow), skip the check.
+      if (!currentClaimId && !existingClaim) {
+        const okToProceed = await checkForExistingByAddress(data.address, data.zip);
+        if (!okToProceed) return;
+      }
+
       setIsSubmitting(true);
 
       if (pendingSend) {
@@ -4221,7 +4300,18 @@ const renderSmsTemplate = (key, vars) => {
           sales_rep_email: data.salesRepEmail || "",
           lead_source: data.leadSource || "NEED",
         }]).select("id").single();
-        if (inspInsertErr) console.error("Inspection insert error:", inspInsertErr);
+        if (inspInsertErr) {
+          console.error("Inspection insert error:", inspInsertErr);
+          if (inspInsertErr.message && inspInsertErr.message.includes("DUPLICATE_INSPECTION")) {
+            alert(
+              "⚠️ This address was already submitted within the last 5 minutes.\n\n" +
+              "If you're adding more documents to an existing record, please use:\n" +
+              "📋 My Homeowners → find this property → click \"Add Docs\""
+            );
+            setIsSubmitting(false);
+            return;
+          }
+        }
         archiveInspectionId = insertedInsp?.id || null;
 
         try {
