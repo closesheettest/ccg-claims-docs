@@ -45,7 +45,12 @@ const renderCheck = (status) => {
 
 // Build a single signing row for a rep section.
 const renderSigningRow = (s, idx) => {
-  const stripe = idx % 2 === 0 ? "#ffffff" : "#f9fafb";
+  // Cancelled rows get a faded red background, a CANCELLED tag, and $0
+  // earned. They stay in the report so the rep sees what was lost — totals
+  // already excluded them via earned=0 at calc time.
+  const stripe = s.cancelled
+    ? (idx % 2 === 0 ? "#fef2f2" : "#fee2e2")
+    : (idx % 2 === 0 ? "#ffffff" : "#f9fafb");
   const earnedColor = (s.earned || 0) > 0 ? "#166534" : "#9ca3af";
   const signedAt = s.signedAt ? new Date(s.signedAt).toLocaleString("en-US") : "";
   // If the inspection was already signed in a prior period, surface that
@@ -53,12 +58,21 @@ const renderSigningRow = (s, idx) => {
   const inspHint = (s.inspStatus === "prior" && s.inspSignedAt)
     ? ` · Insp signed ${new Date(s.inspSignedAt).toLocaleDateString("en-US")}`
     : "";
+  const cancelHint = (s.cancelled && s.cancelledAt)
+    ? ` · Cancelled ${new Date(s.cancelledAt).toLocaleDateString("en-US")}`
+    : "";
+  const nameStyle = s.cancelled
+    ? `font-size:11px;font-weight:700;color:#6b7280;text-decoration:line-through`
+    : `font-size:11px;font-weight:700;color:#111827`;
+  const cancelTag = s.cancelled
+    ? `<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:4px;background:#dc2626;color:#fff;font-size:8px;font-weight:700;letter-spacing:0.04em;vertical-align:middle">CANCELLED</span>`
+    : "";
   return `
     <tr style="background:${stripe}">
       <td style="padding:6px 10px;border-top:1px solid #f3f4f6">
-        <div style="font-size:11px;font-weight:700;color:#111827">${esc(s.name)}</div>
+        <div style="${nameStyle}">${esc(s.name)}${cancelTag}</div>
         <div style="font-size:10px;color:#6b7280">${esc(s.address)}</div>
-        <div style="font-size:9px;color:#9ca3af">${esc(signedAt + inspHint)}</div>
+        <div style="font-size:9px;color:#9ca3af">${esc(signedAt + inspHint + cancelHint)}</div>
       </td>
       <td style="padding:6px 4px;border-top:1px solid #f3f4f6;text-align:center;font-size:14px">${renderCheck(s.inspStatus)}</td>
       <td style="padding:6px 4px;border-top:1px solid #f3f4f6;text-align:center;font-size:14px">${renderCheck(s.lorStatus)}</td>

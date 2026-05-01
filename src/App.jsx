@@ -3385,7 +3385,11 @@ export default function App() {
       // We need ALL inspections (not just in-window) because a claim signed
       // this week might reference an inspection signed weeks ago, and we
       // need to know which week that insp was signed in to color it.
-      const [claimsRes, inspRes, allInspRes] = await Promise.allSettled([
+      // We also fetch cancelled inspections (a separate query) so claims
+      // rows can be flagged with "CANCELLED" when their matching inspection
+      // got Marked Lost. The report itself shows cancelled rows with $0
+      // earned — transparent without distorting the totals.
+      const [claimsRes, inspRes, allInspRes, cancelledInspRes] = await Promise.allSettled([
         supabase.from("claims")
           .select("id, homeowner1, homeowner2, address, city, state, zip, signed_at, sign_method, representative_name_old, sales_rep_name, sales_rep_email, docs_signed")
           .gte("signed_at", start)
@@ -3404,17 +3408,28 @@ export default function App() {
           .is("cancelled_at", null)
           .order("signed_at", { ascending: false })
           .limit(2000),
+        // Cancelled inspections — used purely for matching claims rows to
+        // a cancelled state. We don't show inspections-table cancellations
+        // directly here (they're already filtered by date+cancelled_at above);
+        // this is so a claim signed this period can detect that its sibling
+        // inspection got Marked Lost.
+        supabase.from("inspections")
+          .select("id, client_name, address, zip, cancelled_at")
+          .not("cancelled_at", "is", null)
+          .order("cancelled_at", { ascending: false })
+          .limit(2000),
       ]);
 
       const claims       = claimsRes.status === "fulfilled" ? (claimsRes.value.data || []) : [];
       const inspsInRange = inspRes.status === "fulfilled" ? (inspRes.value.data || []) : [];
       const allInsps     = allInspRes.status === "fulfilled" ? (allInspRes.value.data || []) : [];
+      const cancelledInsps = cancelledInspRes.status === "fulfilled" ? (cancelledInspRes.value.data || []) : [];
 
       const claimsError = claimsRes.value?.error?.message || (claimsRes.status === "rejected" ? claimsRes.reason : null);
       const inspError   = inspRes.value?.error?.message || (inspRes.status === "rejected" ? inspRes.reason : null);
 
       console.log("Report range:", start, "to", end);
-      console.log("Claims in range:", claims.length, "| Insps in range:", inspsInRange.length, "| Total insps:", allInsps.length);
+      console.log("Claims in range:", claims.length, "| Insps in range:", inspsInRange.length, "| Total insps:", allInsps.length, "| Cancelled insps:", cancelledInsps.length);
 
       // Helper: normalize homeowner + ZIP into a single lookup key.
       // Using ZIP (not full address) because the same property often gets
@@ -3434,6 +3449,16 @@ export default function App() {
         const k = normKey(i.client_name, i.zip, i.address);
         if (!inspByKey[k] || new Date(i.signed_at) > new Date(inspByKey[k].signed_at)) {
           inspByKey[k] = i;
+        }
+      }
+
+      // Build lookup: key → cancelled inspection (most recent cancellation if multiple).
+      // Used to flag claims rows whose sibling inspection got Marked Lost.
+      const cancelledByKey = {};
+      for (const i of cancelledInsps) {
+        const k = normKey(i.client_name, i.zip, i.address);
+        if (!cancelledByKey[k] || new Date(i.cancelled_at) > new Date(cancelledByKey[k].cancelled_at)) {
+          cancelledByKey[k] = i;
         }
       }
 
@@ -3483,11 +3508,17 @@ export default function App() {
           inspSignedAt,
           lorStatus: lorOnClaim ? "current" : "none",
           pacStatus: pacOnClaim ? "current" : "none",
+          // If the matching inspection got Marked Lost, flag the row. The earnings
+          // calculation downstream reads this flag and forces earned = 0.
+          cancelled: !!cancelledByKey[key],
+          cancelledAt: cancelledByKey[key]?.cancelled_at || null,
         });
       }
 
       // Add insp-only rows for homeowners who signed insp this period but
-      // don't have a claim yet (no merged entry)
+      // don't have a claim yet (no merged entry).
+      // Note: inspsInRange is already filtered to non-cancelled, so these
+      // rows are inherently active. cancelled stays false.
       for (const i of inspsInRange) {
         const key = normKey(i.client_name, i.zip, [i.address, i.city, i.state].filter(Boolean).join(", "));
         if (merged.has(key)) continue; // claim row already covers this
@@ -3500,12 +3531,17 @@ export default function App() {
           inspSignedAt: i.signed_at,
           lorStatus: "none",
           pacStatus: "none",
+          cancelled: false,
+          cancelledAt: null,
         });
       }
 
-      // Compute earnings per row
-      // Only docs signed THIS PERIOD count toward the week's pay
+      // Compute earnings per row.
+      // Only docs signed THIS PERIOD count toward the week's pay.
+      // Cancelled rows always earn $0 — we still display them for transparency
+      // (the rep can see what got Lost) but they don't affect totals.
       const rows = [...merged.values()].map(r => {
+        if (r.cancelled) return { ...r, earned: 0 };
         const inspThisWeek = r.inspStatus === "current";
         const lorThisWeek  = r.lorStatus === "current";
         const pacThisWeek  = r.pacStatus === "current";
@@ -9628,14 +9664,26 @@ if (!hasDamage) {
                                 if (status === "prior")   return <span style={{ color: "#9ca3af", fontSize: 18 }} title={signedAtHint ? "Signed " + new Date(signedAtHint).toLocaleDateString() : "Signed previously"}>✅</span>;
                                 return <span style={{ color: "#d1d5db", fontSize: 16 }}>○</span>;
                               };
+                              // Cancelled rows get a faded look, a red CANCELLED tag,
+                              // and $0 in the earned column. The row stays visible so
+                              // the rep can see what was lost — totals already excluded
+                              // it via earned=0 at calc time, so this is purely visual.
+                              const rowBg = s.cancelled
+                                ? (i % 2 === 0 ? "#fef2f2" : "#fee2e2")
+                                : (i % 2 === 0 ? "#fff" : "#f9fafb");
+                              const rowOpacity = s.cancelled ? 0.78 : 1;
                               return (
-                                <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 40px 40px 40px 64px", gap: 8, padding: "8px 12px", background: i%2===0 ? "#fff" : "#f9fafb", borderRadius: 8, marginBottom: 4, alignItems: "center", border: "1px solid #f3f4f6" }}>
+                                <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 40px 40px 40px 64px", gap: 8, padding: "8px 12px", background: rowBg, opacity: rowOpacity, borderRadius: 8, marginBottom: 4, alignItems: "center", border: s.cancelled ? "1px solid #fecaca" : "1px solid #f3f4f6" }}>
                                   <div>
-                                    <div style={{ fontSize: 13, fontWeight: 700, color: "#111827", fontFamily: "'Nunito', sans-serif" }}>{s.name}</div>
+                                    <div style={{ fontSize: 13, fontWeight: 700, color: "#111827", fontFamily: "'Nunito', sans-serif", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                      <span style={s.cancelled ? { textDecoration: "line-through", color: "#6b7280" } : null}>{s.name}</span>
+                                      {s.cancelled ? <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 5, fontWeight: 700, background: "#dc2626", color: "#fff", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.04em" }}>CANCELLED</span> : null}
+                                    </div>
                                     <div style={{ fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>{s.address}</div>
                                     <div style={{ fontSize: 11, color: "#9ca3af", fontFamily: "'Nunito', sans-serif" }}>
                                       {s.signedAt ? new Date(s.signedAt).toLocaleString() : ""}
                                       {s.inspStatus === "prior" && s.inspSignedAt ? ` · Insp signed ${new Date(s.inspSignedAt).toLocaleDateString()}` : ""}
+                                      {s.cancelled && s.cancelledAt ? ` · Cancelled ${new Date(s.cancelledAt).toLocaleDateString()}` : ""}
                                     </div>
                                   </div>
                                   <div style={{ textAlign: "center" }}>{renderCheck(s.inspStatus, s.inspSignedAt)}</div>
