@@ -10039,13 +10039,19 @@ if (!hasDamage) {
                           // tool (UI rendering, scoring, merge logic) doesn't need to
                           // care which table a row came from. Any claims-only fields
                           // we want to preserve are stashed under _claim.* for the merge step.
+                          // Normalize id to string up front. inspections.id is uuid
+                          // (string) but claims.id may be bigint (number) — Supabase
+                          // delivers it as a JS number. Coercing here means every
+                          // downstream consumer (rendering, .slice, === comparisons,
+                          // React keys) sees a uniform string type.
                           const inspRows = (inspRes.data || []).map(r => ({
                             ...r,
+                            id: String(r.id),
                             _table: "inspections",
                           }));
                           const claimRows = (claimRes.data || []).map(r => ({
                             _table: "claims",
-                            id: r.id,
+                            id: String(r.id),
                             // Project claims fields onto the unified shape used by the UI:
                             client_name: [r.homeowner1, r.homeowner2].filter(Boolean).join(" & ") || r.homeowner1 || "",
                             address: r.address,
@@ -10216,7 +10222,7 @@ if (!hasDamage) {
                                             {rec.jn_job_id ? ` · JN: ${rec.jn_job_id.slice(0, 12)}...` : ""}
                                           </div>
                                           <div style={{ fontSize: 10, color: "#9ca3af", fontFamily: "'Nunito', sans-serif", marginTop: 1 }}>
-                                            ID: {rec.id.slice(0, 8)}… · Score: {rec._score}
+                                            ID: {String(rec.id).slice(0, 8)}… · Score: {rec._score}
                                           </div>
                                         </div>
                                       </label>
