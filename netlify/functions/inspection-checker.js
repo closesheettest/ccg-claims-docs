@@ -61,7 +61,14 @@ exports.handler = async (event) => {
 
   try {
     // ── 1. Fetch recently updated JN jobs (paged) ────────────────
-    const since = Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60;
+    // 60-day lookback. We use date_updated_after on the JN list endpoint
+    // to limit traffic, but if a JN result is set and then nothing else on
+    // the job changes, the job's date_updated stops moving forward. A short
+    // window (we used to run with 7 days) silently drops these jobs and the
+    // result change never makes it into Supabase. 60 days is wide enough to
+    // catch the slowest inspection-to-resolution timelines we've seen, while
+    // keeping the request volume bounded.
+    const since = Math.floor(Date.now() / 1000) - 60 * 24 * 60 * 60;
 
     // JN paginated fetch — up to 5 pages of 100 = 500 jobs max per run.
     // If you regularly exceed this volume, increase MAX_PAGES.

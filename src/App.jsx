@@ -2744,6 +2744,10 @@ export default function App() {
   const [dupeBusy, setDupeBusy] = useState(false);
   const [reportData, setReportData] = useState(null);
   const [reportPdfLoading, setReportPdfLoading] = useState(false);
+  // Email-the-Report modal state. null = closed. Manager types an email and
+  // hits send; the PDF is generated fresh on send rather than precomputed.
+  const [reportEmailModal, setReportEmailModal] = useState(null); // null | { to: string }
+  const [reportEmailSending, setReportEmailSending] = useState(false);
 
   // ── Resend Signed Documents modal state ────────────────────────
   // Lets admin re-send archived PDFs to any email address (PA, office,
@@ -9494,44 +9498,54 @@ if (!hasDamage) {
                           <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>
                             {reportData.startDate} → {reportData.endDate} &nbsp;|&nbsp; {reportData.totalRows} signing{reportData.totalRows !== 1 ? "s" : ""} &nbsp;|&nbsp; <strong style={{ color: "#166534" }}>${reportData.totalEarned.toLocaleString()} total</strong>
                           </div>
-                          <button
-                            type="button"
-                            disabled={reportPdfLoading || reportData.totalRows === 0}
-                            onClick={async () => {
-                              setReportPdfLoading(true);
-                              try {
-                                const r = await fetch("/.netlify/functions/generate-weekly-report-pdf", {
-                                  method: "POST",
-                                  headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({ reportData }),
-                                });
-                                const d = await r.json();
-                                if (!r.ok || !d.ok || !d.base64) {
-                                  alert("PDF generation failed: " + (d.error || "unknown error") + (d.detail ? "\n\n" + d.detail : ""));
-                                  return;
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <button
+                              type="button"
+                              disabled={reportPdfLoading || reportData.totalRows === 0}
+                              onClick={async () => {
+                                setReportPdfLoading(true);
+                                try {
+                                  const r = await fetch("/.netlify/functions/generate-weekly-report-pdf", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ reportData }),
+                                  });
+                                  const d = await r.json();
+                                  if (!r.ok || !d.ok || !d.base64) {
+                                    alert("PDF generation failed: " + (d.error || "unknown error") + (d.detail ? "\n\n" + d.detail : ""));
+                                    return;
+                                  }
+                                  // Convert base64 to blob and trigger download
+                                  const binaryString = atob(d.base64);
+                                  const bytes = new Uint8Array(binaryString.length);
+                                  for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+                                  const blob = new Blob([bytes], { type: "application/pdf" });
+                                  const url = URL.createObjectURL(blob);
+                                  const a = document.createElement("a");
+                                  a.href = url;
+                                  a.download = `weekly-report-${reportData.startDate}-to-${reportData.endDate}.pdf`;
+                                  document.body.appendChild(a);
+                                  a.click();
+                                  document.body.removeChild(a);
+                                  URL.revokeObjectURL(url);
+                                } catch (e) {
+                                  alert("PDF download error: " + (e.message || e));
+                                } finally {
+                                  setReportPdfLoading(false);
                                 }
-                                // Convert base64 to blob and trigger download
-                                const binaryString = atob(d.base64);
-                                const bytes = new Uint8Array(binaryString.length);
-                                for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
-                                const blob = new Blob([bytes], { type: "application/pdf" });
-                                const url = URL.createObjectURL(blob);
-                                const a = document.createElement("a");
-                                a.href = url;
-                                a.download = `weekly-report-${reportData.startDate}-to-${reportData.endDate}.pdf`;
-                                document.body.appendChild(a);
-                                a.click();
-                                document.body.removeChild(a);
-                                URL.revokeObjectURL(url);
-                              } catch (e) {
-                                alert("PDF download error: " + (e.message || e));
-                              } finally {
-                                setReportPdfLoading(false);
-                              }
-                            }}
-                            style={{ padding: "8px 18px", borderRadius: 10, border: (reportPdfLoading || reportData.totalRows === 0) ? "1px solid #d1d5db" : "1px solid #1a2e5a", background: (reportPdfLoading || reportData.totalRows === 0) ? "#f3f4f6" : "#1a2e5a", color: (reportPdfLoading || reportData.totalRows === 0) ? "#9ca3af" : "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, cursor: (reportPdfLoading || reportData.totalRows === 0) ? "not-allowed" : "pointer", letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
-                            {reportPdfLoading ? "Generating..." : "📄 Download PDF"}
-                          </button>
+                              }}
+                              style={{ padding: "8px 18px", borderRadius: 10, border: (reportPdfLoading || reportData.totalRows === 0) ? "1px solid #d1d5db" : "1px solid #1a2e5a", background: (reportPdfLoading || reportData.totalRows === 0) ? "#f3f4f6" : "#1a2e5a", color: (reportPdfLoading || reportData.totalRows === 0) ? "#9ca3af" : "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, cursor: (reportPdfLoading || reportData.totalRows === 0) ? "not-allowed" : "pointer", letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
+                              {reportPdfLoading ? "Generating..." : "📄 Download PDF"}
+                            </button>
+                            {/* Email PDF — opens a small modal with recipient picker (office or custom). */}
+                            <button
+                              type="button"
+                              disabled={reportPdfLoading || reportData.totalRows === 0}
+                              onClick={() => setReportEmailModal({ to: "" })}
+                              style={{ padding: "8px 18px", borderRadius: 10, border: (reportPdfLoading || reportData.totalRows === 0) ? "1px solid #d1d5db" : "1px solid #166534", background: (reportPdfLoading || reportData.totalRows === 0) ? "#f3f4f6" : "#fff", color: (reportPdfLoading || reportData.totalRows === 0) ? "#9ca3af" : "#166534", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, cursor: (reportPdfLoading || reportData.totalRows === 0) ? "not-allowed" : "pointer", letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
+                              📧 Email PDF
+                            </button>
+                          </div>
                         </div>
                         {reportData.claimsError ? <div style={{ color: "#ef4444", fontSize: 12, marginBottom: 8 }}>⚠️ Claims error: {reportData.claimsError}</div> : null}
                         {reportData.inspError ? <div style={{ color: "#ef4444", fontSize: 12, marginBottom: 8 }}>⚠️ Inspections error: {reportData.inspError}</div> : null}
@@ -10919,6 +10933,100 @@ if (!hasDamage) {
                   }}
                   style={{ padding: "10px 22px", borderRadius: 10, border: "none", background: (resendLoading || !resendModal.to) ? "#9ca3af" : "#0891b2", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: (resendLoading || !resendModal.to) ? "not-allowed" : "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
                   {resendLoading ? "Sending..." : "📤 Send Documents"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {/* ── Email Weekly Report Modal ────────────────────────────────────
+            Type an email, click send. PDF is generated fresh on send via the
+            same /generate-weekly-report-pdf function the Download button uses,
+            then sent as an attachment via /send-email. */}
+        {reportEmailModal && reportData ? (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 20 }}
+               onClick={() => !reportEmailSending && setReportEmailModal(null)}>
+            <div style={{ background: "#fff", borderRadius: 14, padding: "24px 28px", maxWidth: 460, width: "100%" }} onClick={e => e.stopPropagation()}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#1a2e5a", marginBottom: 6, fontFamily: "'Oswald', sans-serif" }}>📧 Email Weekly Report</div>
+              <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 16, fontFamily: "'Nunito', sans-serif" }}>
+                {reportData.startDate} → {reportData.endDate} · {reportData.totalRows} signing{reportData.totalRows !== 1 ? "s" : ""} · ${reportData.totalEarned.toLocaleString()}
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <Label>Send to</Label>
+                <input type="email" autoFocus
+                  value={reportEmailModal.to}
+                  onChange={(e) => setReportEmailModal(m => ({ ...m, to: e.target.value }))}
+                  placeholder="recipient@example.com"
+                  disabled={reportEmailSending}
+                  style={{ width: "100%", height: 40, borderRadius: 10, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", fontFamily: "'Nunito', sans-serif" }}
+                />
+              </div>
+
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button type="button"
+                  disabled={reportEmailSending}
+                  onClick={() => setReportEmailModal(null)}
+                  style={{ padding: "10px 18px", borderRadius: 10, border: "1px solid #d1d5db", background: "#fff", color: "#374151", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: reportEmailSending ? "not-allowed" : "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  Cancel
+                </button>
+                <button type="button"
+                  // Basic validation: trim + simple pattern. Keeps the user from
+                  // hitting send on an obviously-bad address.
+                  disabled={reportEmailSending || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((reportEmailModal.to || "").trim())}
+                  onClick={async () => {
+                    const to = (reportEmailModal.to || "").trim();
+                    setReportEmailSending(true);
+                    try {
+                      // 1) Generate the PDF using the same function as Download.
+                      const pdfRes = await fetch("/.netlify/functions/generate-weekly-report-pdf", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ reportData }),
+                      });
+                      const pdfData = await pdfRes.json();
+                      if (!pdfRes.ok || !pdfData.ok || !pdfData.base64) {
+                        alert("PDF generation failed: " + (pdfData.error || "unknown error") + (pdfData.detail ? "\n\n" + pdfData.detail : ""));
+                        return;
+                      }
+
+                      // 2) Send via the existing send-email function. Attachment
+                      //    shape matches what other parts of the app use:
+                      //    { filename, content } where content is raw base64.
+                      const filename = `weekly-report-${reportData.startDate}-to-${reportData.endDate}.pdf`;
+                      const subject = `Weekly Report — ${reportData.startDate} to ${reportData.endDate}`;
+                      const html = `
+                        <p>Attached is the weekly report for <strong>${reportData.startDate}</strong> through <strong>${reportData.endDate}</strong>.</p>
+                        <ul>
+                          <li><strong>${reportData.totalRows}</strong> signing${reportData.totalRows !== 1 ? "s" : ""}</li>
+                          <li><strong>$${reportData.totalEarned.toLocaleString()}</strong> total earned</li>
+                        </ul>
+                      `;
+                      const sendRes = await fetch("/.netlify/functions/send-email", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          to: [to],
+                          subject,
+                          html,
+                          attachments: [{ filename, content: pdfData.base64 }],
+                        }),
+                      });
+                      if (!sendRes.ok) {
+                        const txt = (await sendRes.text()).slice(0, 300);
+                        alert("Email send failed: " + txt);
+                        return;
+                      }
+                      alert(`✅ Report sent to ${to}.`);
+                      setReportEmailModal(null);
+                    } catch (e) {
+                      alert("Email error: " + (e.message || e));
+                    } finally {
+                      setReportEmailSending(false);
+                    }
+                  }}
+                  style={{ padding: "10px 22px", borderRadius: 10, border: "none", background: reportEmailSending ? "#9ca3af" : "#166534", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: reportEmailSending ? "not-allowed" : "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  {reportEmailSending ? "Sending..." : "📧 Send Email"}
                 </button>
               </div>
             </div>
