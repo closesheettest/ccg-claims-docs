@@ -3452,13 +3452,49 @@ export default function App() {
         }
       }
 
-      // Build lookup: key → cancelled inspection (most recent cancellation if multiple).
-      // Used to flag claims rows whose sibling inspection got Marked Lost.
-      const cancelledByKey = {};
+      // Address-based cancellation lookup. We deliberately key on
+      // street+zip (NOT homeowner name) because typos in the homeowner
+      // name across inspections vs claims would otherwise hide the link.
+      // Real example: an inspection saved as "Jerry Maertz" got cancelled,
+      // but the claim was signed as "Jerry & Maerz" — same property, same
+      // zip, different name spellings. With name in the key the cancelled
+      // status was invisible to the claim row. Keying on address+zip means
+      // any cancellation at a property propagates to every claim there.
+      // We also expand common street suffix abbreviations so "St" and
+      // "Street" bucket together.
+      const STREET_SUFFIXES = [
+        ["st","street"],["ave","avenue"],["av","avenue"],["rd","road"],
+        ["blvd","boulevard"],["dr","drive"],["ln","lane"],["ct","court"],
+        ["pl","place"],["ter","terrace"],["pkwy","parkway"],["hwy","highway"],
+        ["cir","circle"],["trl","trail"],
+      ];
+      const normStreet = (street) => {
+        let v = (street || "").toLowerCase().trim().replace(/[.,]/g, "").replace(/\s+/g, " ");
+        // Drop unit designators so "123 Main St Apt 4" matches "123 Main St"
+        const unitMatch = v.match(/\s+(apt|apartment|unit|ste|suite|#\S*)\b.*$/);
+        if (unitMatch) v = v.slice(0, unitMatch.index).trim();
+        // Expand the trailing token if it's a known abbreviation
+        const tokens = v.split(" ");
+        if (tokens.length >= 2) {
+          const last = tokens[tokens.length - 1];
+          const hit = STREET_SUFFIXES.find(([abbr]) => abbr === last);
+          if (hit) tokens[tokens.length - 1] = hit[1];
+        }
+        return tokens.join(" ").trim();
+      };
+      const addrKey = (address, zip) => {
+        const street = (address || "").split(",")[0];
+        const z = (zip || "").trim();
+        return `${normStreet(street)}|${z}`;
+      };
+
+      // Build lookup: addrKey → cancelled inspection (most recent cancellation if multiple).
+      const cancelledByAddr = {};
       for (const i of cancelledInsps) {
-        const k = normKey(i.client_name, i.zip, i.address);
-        if (!cancelledByKey[k] || new Date(i.cancelled_at) > new Date(cancelledByKey[k].cancelled_at)) {
-          cancelledByKey[k] = i;
+        const k = addrKey(i.address, i.zip);
+        if (!k || k === "|") continue;
+        if (!cancelledByAddr[k] || new Date(i.cancelled_at) > new Date(cancelledByAddr[k].cancelled_at)) {
+          cancelledByAddr[k] = i;
         }
       }
 
@@ -3499,6 +3535,7 @@ export default function App() {
           }
         }
 
+        const cancelledMatch = cancelledByAddr[addrKey(c.address, c.zip)];
         merged.set(key, {
           name: [c.homeowner1, c.homeowner2].filter(Boolean).join(" & ") || "—",
           address: [c.address, c.city, c.state].filter(Boolean).join(", "),
@@ -3510,8 +3547,8 @@ export default function App() {
           pacStatus: pacOnClaim ? "current" : "none",
           // If the matching inspection got Marked Lost, flag the row. The earnings
           // calculation downstream reads this flag and forces earned = 0.
-          cancelled: !!cancelledByKey[key],
-          cancelledAt: cancelledByKey[key]?.cancelled_at || null,
+          cancelled: !!cancelledMatch,
+          cancelledAt: cancelledMatch?.cancelled_at || null,
         });
       }
 
