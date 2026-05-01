@@ -9861,20 +9861,12 @@ if (!hasDamage) {
                               {browseAllSearch || browseAllStatus !== "all" ? ` (filtered from ${browseAllRows.length} total)` : ""}
                             </div>
                             <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                              {/* Download as CSV — exports whatever is currently filtered + sorted (not paginated — full filtered set) */}
+                              {/* Download as CSV — exports a JN-reconciliation snapshot. Pulls fresh data from
+                                  BOTH inspections and claims tables (the on-screen list only shows inspections,
+                                  but for JN reconciliation the manager needs to see claim-only properties too).
+                                  Cancelled rows are kept so they can be verified as cancelled in JN as well. */}
                               <button type="button"
-                                onClick={() => {
-                                  // Build CSV with all the columns a manager would want for an audit
-                                  const headers = [
-                                    "id", "client_name", "address", "city", "state", "zip",
-                                    "mobile", "email",
-                                    "sales_rep_name", "signed_at",
-                                    "result", "result_at",
-                                    "jn_job_id", "jn_status",
-                                    "cancelled_at", "cancel_reason",
-                                    "insp_signed", "lor_signed", "pa_signed",
-                                    "pdfs_archived",
-                                  ];
+                                onClick={async () => {
                                   // CSV-escape — wrap in quotes and double up internal quotes; convert null to empty string
                                   const csvCell = (v) => {
                                     if (v == null) return "";
@@ -9882,39 +9874,121 @@ if (!hasDamage) {
                                     if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
                                     return s;
                                   };
-                                  const rows = filtered.map(r => {
-                                    const docs = r._docs || {};
-                                    return [
-                                      r.id, r.client_name, r.address, r.city, r.state, r.zip,
-                                      r.mobile, r.email,
-                                      r.sales_rep_name, r.signed_at,
-                                      r.result, r.result_at,
-                                      r.jn_job_id, r.jn_status,
-                                      r.cancelled_at, r.cancel_reason,
-                                      docs.insp ? "yes" : "no",
-                                      docs.lor ? "yes" : "no",
-                                      docs.pac ? "yes" : "no",
-                                      r.signed_pdfs?.insp ? "yes" : "no",
-                                    ].map(csvCell).join(",");
-                                  });
-                                  const csv = [headers.join(","), ...rows].join("\n");
+                                  // Combine optional address parts so the column is paste-ready for JN search.
+                                  const fullAddress = (street, city, state, zip) =>
+                                    [street, city, state, zip].filter(Boolean).join(", ");
 
-                                  // Trigger download via blob URL
-                                  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-                                  const url = URL.createObjectURL(blob);
-                                  const a = document.createElement("a");
-                                  a.href = url;
-                                  // Filename includes today's date + the active filter so multiple exports don't overwrite
-                                  const dateStr = new Date().toISOString().split("T")[0];
-                                  const filterLabel = browseAllStatus === "all" ? "all" : browseAllStatus;
-                                  a.download = `inspections-${filterLabel}-${dateStr}.csv`;
-                                  document.body.appendChild(a);
-                                  a.click();
-                                  document.body.removeChild(a);
-                                  URL.revokeObjectURL(url);
+                                  try {
+                                    // Pull fresh data from both tables in parallel — don't rely on the
+                                    // currently-loaded browseAllRows (which is inspections-only).
+                                    const [inspRes, claimRes] = await Promise.all([
+                                      supabase
+                                        .from("inspections")
+                                        .select("client_name, address, city, state, zip, sales_rep_name, signed_at, result, cancelled_at, docs_signed, signed_pdfs")
+                                        .order("signed_at", { ascending: false })
+                                        .limit(5000),
+                                      supabase
+                                        .from("claims")
+                                        .select("homeowner1, homeowner2, address, city, state, zip, sales_rep_name, signed_at, docs_signed")
+                                        .order("signed_at", { ascending: false })
+                                        .limit(5000),
+                                    ]);
+                                    if (inspRes.error) throw inspRes.error;
+                                    if (claimRes.error) throw claimRes.error;
+
+                                    // Project both shapes onto a unified CSV row.
+                                    // Status derivation matches the on-screen pill logic.
+                                    const inspectionStatus = (r) => {
+                                      if (r.cancelled_at) return "cancelled";
+                                      if (r.result === "damage") return "damage";
+                                      if (r.result === "no_damage") return "no damage";
+                                      if (r.result === "retail") return "retail";
+                                      return "pending";
+                                    };
+                                    // For inspections, signed_pdfs is authoritative (an archived PDF means
+                                    // it was signed even if docs_signed wasn't populated on older rows).
+                                    const inspDocs = (r) => {
+                                      const ds = (r.docs_signed || "").toLowerCase();
+                                      const sp = r.signed_pdfs || {};
+                                      return {
+                                        insp: ds.includes("insp") || !!sp.insp,
+                                        lor:  ds.includes("lor")  || !!sp.lor,
+                                        pac:  ds.includes("pac")  || !!sp.pac || !!sp.pa,
+                                      };
+                                    };
+                                    // Claims has no signed_pdfs / cancelled_at columns — read straight from docs_signed.
+                                    const claimDocs = (r) => {
+                                      const ds = (r.docs_signed || "").toLowerCase();
+                                      return {
+                                        insp: ds.includes("insp"),
+                                        lor:  ds.includes("lor"),
+                                        pac:  ds.includes("pac") || ds.includes("pa"),
+                                      };
+                                    };
+
+                                    const inspRows = (inspRes.data || []).map(r => {
+                                      const d = inspDocs(r);
+                                      return {
+                                        source: "inspection",
+                                        homeowner: r.client_name || "",
+                                        address: fullAddress(r.address, r.city, r.state, r.zip),
+                                        rep: r.sales_rep_name || "",
+                                        status: inspectionStatus(r),
+                                        signed_at: r.signed_at,
+                                        insp: d.insp ? "yes" : "no",
+                                        lor:  d.lor  ? "yes" : "no",
+                                        pac:  d.pac  ? "yes" : "no",
+                                      };
+                                    });
+                                    const claimRows = (claimRes.data || []).map(r => {
+                                      const d = claimDocs(r);
+                                      // Claims uses homeowner1 + optional homeowner2 (joint signers).
+                                      const homeowner = [r.homeowner1, r.homeowner2].filter(Boolean).join(" & ") || r.homeowner1 || "";
+                                      return {
+                                        source: "claim",
+                                        homeowner,
+                                        address: fullAddress(r.address, r.city, r.state, r.zip),
+                                        rep: r.sales_rep_name || "",
+                                        status: "signed", // claims rows don't carry a result/cancellation lifecycle
+                                        signed_at: r.signed_at,
+                                        insp: d.insp ? "yes" : "no",
+                                        lor:  d.lor  ? "yes" : "no",
+                                        pac:  d.pac  ? "yes" : "no",
+                                      };
+                                    });
+
+                                    // Combine and sort by signed_at desc so the most recent records are at the top —
+                                    // matches the default UI ordering. Empty signed_at (rare) sorts to the bottom.
+                                    const combined = [...inspRows, ...claimRows].sort((a, b) => {
+                                      const ta = a.signed_at ? Date.parse(a.signed_at) : 0;
+                                      const tb = b.signed_at ? Date.parse(b.signed_at) : 0;
+                                      return tb - ta;
+                                    });
+
+                                    const headers = ["source", "homeowner", "address", "rep", "status", "insp", "lor", "pac"];
+                                    const lines = combined.map(r => [
+                                      r.source, r.homeowner, r.address, r.rep, r.status,
+                                      r.insp, r.lor, r.pac,
+                                    ].map(csvCell).join(","));
+                                    const csv = [headers.join(","), ...lines].join("\n");
+
+                                    // Trigger download via blob URL
+                                    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+                                    const url = URL.createObjectURL(blob);
+                                    const a = document.createElement("a");
+                                    a.href = url;
+                                    const dateStr = new Date().toISOString().split("T")[0];
+                                    a.download = `jn-reconcile-${dateStr}.csv`;
+                                    document.body.appendChild(a);
+                                    a.click();
+                                    document.body.removeChild(a);
+                                    URL.revokeObjectURL(url);
+                                  } catch (e) {
+                                    alert("Could not export CSV: " + (e.message || e));
+                                  }
                                 }}
                                 style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #166534", background: "#f0fdf4", color: "#166534", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                                📥 Download CSV ({filtered.length})
+                                📥 Download CSV (JN Reconcile)
                               </button>
                               <button type="button" disabled={page === 0} onClick={() => setBrowseAllPage(p => Math.max(0, p - 1))}
                                 style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #d1d5db", background: page === 0 ? "#f3f4f6" : "#fff", color: page === 0 ? "#9ca3af" : "#374151", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, cursor: page === 0 ? "not-allowed" : "pointer" }}>← Prev</button>
