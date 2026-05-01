@@ -10009,24 +10009,107 @@ if (!hasDamage) {
                   {managerSection === "dupes" && <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Find Duplicates</SectionTitle>
                     <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 14, fontFamily: "'Nunito', sans-serif" }}>
-                      Groups inspection records by property address + zip. Any group with multiple rows is a likely duplicate. Pick which one to KEEP — the others will be permanently deleted. The "best" row is preselected automatically (one with JN sync + most complete data).
+                      Scans BOTH the inspections and claims tables and groups records by property address + zip. Any group with multiple rows is a likely duplicate. Pick which one to KEEP — the others will be permanently deleted. The "best" row is preselected automatically (inspection rows preferred over claim rows; JN-linked rows preferred over un-linked).
                     </div>
 
                     <button type="button"
                       onClick={async () => {
                         setDupeLoading(true);
                         try {
-                          const { data, error } = await supabase
-                            .from("inspections")
-                            .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, jn_job_id, signed_pdfs, docs_signed, jn_status")
-                            .is("cancelled_at", null)
-                            .order("signed_at", { ascending: false })
-                            .limit(5000);
-                          if (error) throw error;
+                          // Pull both tables in parallel. Each row gets tagged with
+                          // _table so the merge step knows where to route updates/deletes.
+                          // Note: claims has no cancelled_at column — every claim row counts.
+                          const [inspRes, claimRes] = await Promise.all([
+                            supabase
+                              .from("inspections")
+                              .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, jn_job_id, signed_pdfs, docs_signed, jn_status")
+                              .is("cancelled_at", null)
+                              .order("signed_at", { ascending: false })
+                              .limit(5000),
+                            supabase
+                              .from("claims")
+                              .select("id, homeowner1, homeowner2, phone, homeowner_email, address, city, state, zip, signed_at, sales_rep_name, sales_rep_id, sales_rep_email, docs_signed")
+                              .order("signed_at", { ascending: false })
+                              .limit(5000),
+                          ]);
+                          if (inspRes.error) throw inspRes.error;
+                          if (claimRes.error) throw claimRes.error;
 
-                          const norm = (s) => (s || "").toLowerCase().trim().replace(/\s+/g, " ").replace(/[.,]/g, "");
+                          // Normalize claims to a unified row shape so the rest of the
+                          // tool (UI rendering, scoring, merge logic) doesn't need to
+                          // care which table a row came from. Any claims-only fields
+                          // we want to preserve are stashed under _claim.* for the merge step.
+                          const inspRows = (inspRes.data || []).map(r => ({
+                            ...r,
+                            _table: "inspections",
+                          }));
+                          const claimRows = (claimRes.data || []).map(r => ({
+                            _table: "claims",
+                            id: r.id,
+                            // Project claims fields onto the unified shape used by the UI:
+                            client_name: [r.homeowner1, r.homeowner2].filter(Boolean).join(" & ") || r.homeowner1 || "",
+                            address: r.address,
+                            city: r.city,
+                            state: r.state,
+                            zip: r.zip,
+                            mobile: r.phone || "",
+                            email: r.homeowner_email || "",
+                            sales_rep_name: r.sales_rep_name,
+                            sales_rep_id: r.sales_rep_id,
+                            signed_at: r.signed_at,
+                            docs_signed: r.docs_signed,
+                            // claims has no jn_job_id / signed_pdfs / result — leave undefined
+                            // so badges & scoring naturally treat them as missing.
+                            _claim: {
+                              homeowner1: r.homeowner1,
+                              homeowner2: r.homeowner2,
+                              phone: r.phone,
+                              homeowner_email: r.homeowner_email,
+                              sales_rep_email: r.sales_rep_email,
+                            },
+                          }));
+
+                          // Normalize aggressively so "2529 Clematis Street" and
+                          // "2529 Clematis St" bucket together. Expand a known street-
+                          // suffix abbreviation only when it appears as the LAST token
+                          // of the street portion — this avoids mangling addresses
+                          // like "St James Ave" or "Ave of the Americas". A trailing
+                          // unit designator (Apt 5, #3, Unit B, Ste 200) is split off
+                          // first so it doesn't hide the real suffix.
+                          const SUFFIXES = [
+                            ["st",   "street"],
+                            ["ave",  "avenue"],
+                            ["av",   "avenue"],
+                            ["rd",   "road"],
+                            ["blvd", "boulevard"],
+                            ["dr",   "drive"],
+                            ["ln",   "lane"],
+                            ["ct",   "court"],
+                            ["pl",   "place"],
+                            ["ter",  "terrace"],
+                            ["pkwy", "parkway"],
+                            ["hwy",  "highway"],
+                            ["cir",  "circle"],
+                            ["trl",  "trail"],
+                          ];
+                          const norm = (s) => {
+                            let v = (s || "").toLowerCase().trim().replace(/[.,]/g, "").replace(/\s+/g, " ");
+                            const unitMatch = v.match(/\s+(apt|apartment|unit|ste|suite|#\S*)\b.*$/);
+                            let unitPart = "";
+                            if (unitMatch) {
+                              unitPart = " " + v.slice(unitMatch.index).trim();
+                              v = v.slice(0, unitMatch.index).trim();
+                            }
+                            const tokens = v.split(" ");
+                            if (tokens.length >= 2) {
+                              const last = tokens[tokens.length - 1];
+                              const hit = SUFFIXES.find(([abbr]) => abbr === last);
+                              if (hit) tokens[tokens.length - 1] = hit[1];
+                            }
+                            return (tokens.join(" ") + unitPart).trim();
+                          };
                           const byKey = new Map();
-                          for (const r of data || []) {
+                          for (const r of [...inspRows, ...claimRows]) {
                             const a = norm(r.address);
                             const z = (r.zip || "").trim();
                             if (!a) continue;
@@ -10038,11 +10121,15 @@ if (!hasDamage) {
                           const groups = [...byKey.entries()]
                             .filter(([_, rows]) => rows.length >= 2)
                             .map(([key, rows]) => {
-                              // Score each row to pick the master:
-                              // JN-linked rows are HEAVILY favored since they are the JN source of truth
+                              // Score each row to pick the master. Inspections strongly
+                              // preferred over claims when both exist for an address —
+                              // inspections is the JN-synced table and carries the
+                              // richer field set (jn_job_id, signed_pdfs, result).
+                              // A claims master is only chosen when the group is claims-only.
                               const scored = rows.map(r => {
                                 let score = 0;
-                                if (r.jn_job_id) score += 100;       // master MUST be JN-linked if any sibling is
+                                if (r._table === "inspections") score += 50;  // table preference
+                                if (r.jn_job_id) score += 100;                // JN link is decisive
                                 if (r.result) score += 5;
                                 if (r.signed_pdfs?.insp) score += 3;
                                 if (r.email) score += 2;
@@ -10068,7 +10155,7 @@ if (!hasDamage) {
 
                     {dupeGroups.length === 0 && !dupeLoading ? (
                       <div style={{ textAlign: "center", padding: "40px 0", color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>
-                        Click "Scan for Duplicates" to find inspection records sharing the same address.
+                        Click "Scan for Duplicates" to find inspection and claim records sharing the same address.
                       </div>
                     ) : null}
 
@@ -10100,7 +10187,7 @@ if (!hasDamage) {
                                   {group.rows.map((rec) => {
                                     const isMaster = group.masterId === rec.id;
                                     return (
-                                      <label key={rec.id}
+                                      <label key={`${rec._table}-${rec.id}`}
                                         style={{
                                           display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px",
                                           borderRadius: 8,
@@ -10114,8 +10201,11 @@ if (!hasDamage) {
                                         <div style={{ flex: 1 }}>
                                           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                                             <span style={{ fontSize: 13, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827" }}>{rec.client_name || "(no name)"}</span>
+                                            {rec._table === "inspections"
+                                              ? <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 5, fontWeight: 700, background: "#e0e7ff", color: "#3730a3", fontFamily: "'Oswald', sans-serif" }}>INSP</span>
+                                              : <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 5, fontWeight: 700, background: "#fce7f3", color: "#9d174d", fontFamily: "'Oswald', sans-serif" }}>CLAIM</span>}
                                             {isMaster ? <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 5, fontWeight: 700, background: "#dbeafe", color: "#1e40af", fontFamily: "'Oswald', sans-serif" }}>🌟 MASTER</span> : <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 5, fontWeight: 700, background: "#fef3c7", color: "#92400e", fontFamily: "'Oswald', sans-serif" }}>⮕ MERGE INTO MASTER</span>}
-                                            {rec.jn_job_id ? <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 5, fontWeight: 700, background: "#dcfce7", color: "#166534", fontFamily: "'Oswald', sans-serif" }}>JN ✓</span> : <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 5, fontWeight: 700, background: "#fef2f2", color: "#991b1b", fontFamily: "'Oswald', sans-serif" }}>NO JN</span>}
+                                            {rec.jn_job_id ? <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 5, fontWeight: 700, background: "#dcfce7", color: "#166534", fontFamily: "'Oswald', sans-serif" }}>JN ✓</span> : (rec._table === "inspections" ? <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 5, fontWeight: 700, background: "#fef2f2", color: "#991b1b", fontFamily: "'Oswald', sans-serif" }}>NO JN</span> : null)}
                                             {rec.result ? <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 5, fontWeight: 700, background: "#fff7ed", color: "#9a3412", fontFamily: "'Oswald', sans-serif" }}>{rec.result.toUpperCase()}</span> : null}
                                             {rec.signed_pdfs?.insp ? <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 5, fontWeight: 700, background: "#dcfce7", color: "#166534", fontFamily: "'Oswald', sans-serif" }}>📁 INSP</span> : null}
                                             {rec.signed_pdfs?.lor ? <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 5, fontWeight: 700, background: "#dcfce7", color: "#166534", fontFamily: "'Oswald', sans-serif" }}>📁 LOR</span> : null}
@@ -10151,66 +10241,102 @@ if (!hasDamage) {
                                 let deletedCount = 0;
 
                                 for (const g of dupeGroups) {
+                                  // Master is identified by id alone in our state. UUID
+                                  // collisions between tables are astronomically unlikely,
+                                  // but we still match on (id + _table) at delete time.
                                   const master = g.rows.find(r => r.id === g.masterId);
                                   if (!master) continue;
                                   const siblings = g.rows.filter(r => r.id !== g.masterId);
 
                                   // ── Build the merged payload ────────────────────────
-                                  // Master values are preserved; siblings only fill in gaps
-                                  // or contribute to union fields (signed_pdfs, docs_signed).
+                                  // Column shape depends on the master's table:
+                                  //   inspections: client_name, email, mobile, signed_pdfs, result, etc.
+                                  //   claims:      homeowner1, homeowner2, homeowner_email, phone, etc.
+                                  // We only write columns that exist on the master's table.
                                   const merged = {};
+                                  const masterIsInsp = master._table === "inspections";
 
-                                  // signed_pdfs — UNION of all rows. If master has insp PDF and a sibling has LOR PDF, master gets both.
-                                  const sigPdfs = { ...(master.signed_pdfs || {}) };
-                                  for (const sib of siblings) {
-                                    if (sib.signed_pdfs) {
-                                      for (const [docKey, val] of Object.entries(sib.signed_pdfs)) {
-                                        if (val && !sigPdfs[docKey]) sigPdfs[docKey] = val;
-                                      }
-                                    }
-                                  }
-                                  if (Object.keys(sigPdfs).length > 0) merged.signed_pdfs = sigPdfs;
-
-                                  // docs_signed — UNION of all comma-separated values
+                                  // ── Union fields (apply to both tables) ─────────────
+                                  // docs_signed — UNION across all rows.
                                   const docsSet = new Set();
                                   for (const r of g.rows) {
                                     (r.docs_signed || "").split(",").map(s => s.trim().toLowerCase()).filter(Boolean).forEach(d => docsSet.add(d));
                                   }
                                   if (docsSet.size > 0) merged.docs_signed = [...docsSet].join(",");
 
-                                  // result + result_at — keep master's. If master has no result but a sibling does, take the sibling's.
-                                  if (!master.result) {
-                                    const sibWithResult = siblings.find(s => s.result);
-                                    if (sibWithResult) {
-                                      merged.result = sibWithResult.result;
-                                      merged.result_at = sibWithResult.result_at;
-                                    }
-                                  }
-
-                                  // Contact info — fill in if master is blank
-                                  if (!master.email) {
-                                    const sibWithEmail = siblings.find(s => s.email);
-                                    if (sibWithEmail) merged.email = sibWithEmail.email;
-                                  }
-                                  if (!master.mobile) {
-                                    const sibWithMobile = siblings.find(s => s.mobile);
-                                    if (sibWithMobile) merged.mobile = sibWithMobile.mobile;
-                                  }
-                                  if (!master.client_name) {
-                                    const sibWithName = siblings.find(s => s.client_name);
-                                    if (sibWithName) merged.client_name = sibWithName.client_name;
-                                  }
-
-                                  // signed_at — keep the EARLIEST date (preserves the original signing event)
+                                  // signed_at — keep the EARLIEST date.
                                   const allDates = g.rows.map(r => r.signed_at).filter(Boolean).sort();
                                   if (allDates.length > 0 && allDates[0] !== master.signed_at) {
                                     merged.signed_at = allDates[0];
                                   }
 
+                                  if (masterIsInsp) {
+                                    // ── Master = inspection ──────────────────────────
+                                    // signed_pdfs only exists on inspections, but only
+                                    // inspection siblings will have one. claims siblings
+                                    // contribute via docs_signed only.
+                                    const sigPdfs = { ...(master.signed_pdfs || {}) };
+                                    for (const sib of siblings) {
+                                      if (sib._table === "inspections" && sib.signed_pdfs) {
+                                        for (const [docKey, val] of Object.entries(sib.signed_pdfs)) {
+                                          if (val && !sigPdfs[docKey]) sigPdfs[docKey] = val;
+                                        }
+                                      }
+                                    }
+                                    if (Object.keys(sigPdfs).length > 0) merged.signed_pdfs = sigPdfs;
+
+                                    // result / result_at — only inspections have these.
+                                    if (!master.result) {
+                                      const sibWithResult = siblings.find(s => s._table === "inspections" && s.result);
+                                      if (sibWithResult) {
+                                        merged.result = sibWithResult.result;
+                                        merged.result_at = sibWithResult.result_at;
+                                      }
+                                    }
+
+                                    // Contact info — fill master's blanks. Inspection
+                                    // siblings carry email/mobile; claim siblings carry
+                                    // homeowner_email/phone (already projected into
+                                    // .email/.mobile by the scanner).
+                                    if (!master.email) {
+                                      const sibWithEmail = siblings.find(s => s.email);
+                                      if (sibWithEmail) merged.email = sibWithEmail.email;
+                                    }
+                                    if (!master.mobile) {
+                                      const sibWithMobile = siblings.find(s => s.mobile);
+                                      if (sibWithMobile) merged.mobile = sibWithMobile.mobile;
+                                    }
+                                    if (!master.client_name) {
+                                      const sibWithName = siblings.find(s => s.client_name);
+                                      if (sibWithName) merged.client_name = sibWithName.client_name;
+                                    }
+                                  } else {
+                                    // ── Master = claim (group is claims-only) ────────
+                                    // Fill homeowner1/2/phone/homeowner_email from sibling
+                                    // claims using the original column names stashed in _claim.
+                                    const masterClaim = master._claim || {};
+                                    if (!masterClaim.homeowner1) {
+                                      const sib = siblings.find(s => s._claim?.homeowner1);
+                                      if (sib) merged.homeowner1 = sib._claim.homeowner1;
+                                    }
+                                    if (!masterClaim.homeowner2) {
+                                      const sib = siblings.find(s => s._claim?.homeowner2);
+                                      if (sib) merged.homeowner2 = sib._claim.homeowner2;
+                                    }
+                                    if (!masterClaim.phone) {
+                                      const sib = siblings.find(s => s._claim?.phone);
+                                      if (sib) merged.phone = sib._claim.phone;
+                                    }
+                                    if (!masterClaim.homeowner_email) {
+                                      const sib = siblings.find(s => s._claim?.homeowner_email);
+                                      if (sib) merged.homeowner_email = sib._claim.homeowner_email;
+                                    }
+                                  }
+
                                   // Apply the merge update if anything changed
                                   if (Object.keys(merged).length > 0) {
                                     const { error: updateErr } = await supabase
-                                      .from("inspections")
+                                      .from(master._table)
                                       .update(merged)
                                       .eq("id", master.id);
                                     if (updateErr) {
@@ -10220,15 +10346,19 @@ if (!hasDamage) {
                                     mergedCount++;
                                   }
 
-                                  // Delete the siblings
-                                  const sibIds = siblings.map(s => s.id);
-                                  if (sibIds.length > 0) {
+                                  // Delete the siblings — partitioned by their source table.
+                                  const sibsByTable = siblings.reduce((acc, s) => {
+                                    (acc[s._table] = acc[s._table] || []).push(s.id);
+                                    return acc;
+                                  }, {});
+                                  for (const [tbl, ids] of Object.entries(sibsByTable)) {
+                                    if (ids.length === 0) continue;
                                     const { error: deleteErr } = await supabase
-                                      .from("inspections")
+                                      .from(tbl)
                                       .delete()
-                                      .in("id", sibIds);
-                                    if (deleteErr) throw new Error(`Delete failed for ${master.address}: ${deleteErr.message}`);
-                                    deletedCount += sibIds.length;
+                                      .in("id", ids);
+                                    if (deleteErr) throw new Error(`Delete failed for ${master.address} (${tbl}): ${deleteErr.message}`);
+                                    deletedCount += ids.length;
                                   }
                                 }
 
