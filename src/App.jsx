@@ -11039,12 +11039,27 @@ if (!hasDamage) {
                     setReportEmailSending(true);
                     try {
                       // 1) Generate the PDF using the same function as Download.
+                      // We read the response as text first so we can give a useful
+                      // error if the function returns an empty body (Netlify
+                      // timeout, gateway error, etc.) instead of crashing inside
+                      // .json() with "Unexpected end of JSON input".
                       const pdfRes = await fetch("/.netlify/functions/generate-weekly-report-pdf", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ reportData }),
                       });
-                      const pdfData = await pdfRes.json();
+                      const pdfText = await pdfRes.text();
+                      if (!pdfText) {
+                        alert(
+                          "PDF generation failed (empty response, status " + pdfRes.status + ").\n\n" +
+                          "This usually means the PDF function timed out. Try again in a moment, " +
+                          "or use the Download PDF button first to confirm PDF generation is working."
+                        );
+                        return;
+                      }
+                      let pdfData;
+                      try { pdfData = JSON.parse(pdfText); }
+                      catch { pdfData = { ok: false, error: "Non-JSON response: " + pdfText.slice(0, 200) }; }
                       if (!pdfRes.ok || !pdfData.ok || !pdfData.base64) {
                         alert("PDF generation failed: " + (pdfData.error || "unknown error") + (pdfData.detail ? "\n\n" + pdfData.detail : ""));
                         return;
