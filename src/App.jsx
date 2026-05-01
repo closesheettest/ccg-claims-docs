@@ -81,6 +81,20 @@ const normalizeStateValue = (raw) => {
   return partial ? partial[0] : trimmed.toUpperCase().slice(0, 2);
 };
 
+// ── Email validation ──────────────────────────────────────────────
+// Empty strings are considered valid (so optional email fields don't
+// throw errors when blank). Non-empty values must match a basic
+// "user@host.tld" shape: at least one char before @, at least one char
+// before the dot, and at least 2 chars after the dot. This is the same
+// lightweight shape JN, Resend, and most APIs expect — strict enough to
+// catch typos like "ppumphrey" but loose enough not to reject anything
+// real (no full RFC-5322 nightmare regex).
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const isValidEmail = (v) => {
+  const s = (v || "").trim();
+  return s === "" || EMAIL_RE.test(s);
+};
+
 const SIGNATURE_FONTS = [
   `"Brush Script MT", cursive`,
   `"Segoe Script", cursive`,
@@ -802,7 +816,18 @@ function FormField({
   type = "text",
   placeholder = "",
   disabled = false,
+  // When type="email", showError can be passed by parent to force the error
+  // visible (e.g. when the form is submitted and the field is invalid).
+  // Otherwise the error appears only after the field has been blurred once,
+  // so the user isn't yelled at while they're still typing.
+  showError = false,
 }) {
+  const [touched, setTouched] = useState(false);
+  const isEmail = type === "email";
+  const trimmed = (value || "").toString().trim();
+  const isInvalidEmail = isEmail && trimmed.length > 0 && !EMAIL_RE.test(trimmed);
+  const showErrorState = isInvalidEmail && (touched || showError);
+
   return (
     <div>
       <Label>{label}</Label>
@@ -812,17 +837,28 @@ function FormField({
         placeholder={placeholder}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
+        onBlur={() => setTouched(true)}
+        // Hint to mobile browsers + password managers that this is an email field
+        autoCapitalize={isEmail ? "off" : undefined}
+        autoCorrect={isEmail ? "off" : undefined}
+        spellCheck={isEmail ? false : undefined}
+        inputMode={isEmail ? "email" : undefined}
         style={{
           width: "100%",
           height: 44,
           borderRadius: 14,
-          border: "1px solid #d1d5db",
+          border: showErrorState ? "1.5px solid #dc2626" : "1px solid #d1d5db",
           padding: "0 12px",
           fontSize: 14,
           boxSizing: "border-box",
-          background: disabled ? "#f3f4f6" : "#fff",
+          background: disabled ? "#f3f4f6" : (showErrorState ? "#fef2f2" : "#fff"),
         }}
       />
+      {showErrorState ? (
+        <div style={{ color: "#dc2626", fontSize: 11, marginTop: 4, fontFamily: "'Nunito', sans-serif" }}>
+          Please enter a valid email address (e.g. name@example.com).
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -4214,6 +4250,14 @@ const renderSmsTemplate = (key, vars) => {
     if (!effectiveInspSig || !inspData.clientName || !inspData.address) {
       return;
     }
+    // Block submit if a non-empty email is malformed. JN's API rejects the
+    // create-contact call with a 400 if the email field doesn't pass its own
+    // validator (e.g. "ppumphrey" with no @domain), which silently orphans
+    // the record. Catch this at intake instead.
+    if (!isValidEmail(inspData.email)) {
+      alert("The email address is not valid. Please correct it (e.g. name@example.com) or clear the field.");
+      return;
+    }
     // Pre-flight duplicate check by address+zip. If a recent inspection exists
     // for the same property, warn the rep and let them cancel.
     const okToProceed = await checkForExistingByAddress(inspData.address, inspData.zip);
@@ -4425,6 +4469,18 @@ const renderSmsTemplate = (key, vars) => {
     try {
       setSubmitAttempted(true);
       if (!pendingSend && !isSigningComplete) {
+        return;
+      }
+
+      // Block submit if any email field is non-empty but malformed. JN's
+      // create-contact API rejects bad emails with a 400, silently orphaning
+      // the record. Same problem as the inspection flow — catch at intake.
+      if (!isValidEmail(data.signerEmail)) {
+        alert("The homeowner email is not valid. Please correct it (e.g. name@example.com) or clear the field.");
+        return;
+      }
+      if (!isValidEmail(data.paEmail)) {
+        alert("The PA email is not valid. Please correct it (e.g. name@example.com) or clear the field.");
         return;
       }
 
@@ -5952,6 +6008,7 @@ if (!hasDamage) {
                       type="email"
                       value={data.signerEmail}
                       onChange={(v) => update("signerEmail", v)}
+                      showError={submitAttempted}
                     />
                     <div style={{ gridColumn: "1 / -1" }}>
                       <Label>Address</Label>
@@ -6066,6 +6123,7 @@ if (!hasDamage) {
                       type="email"
                       value={data.paEmail}
                       onChange={(v) => update("paEmail", v)}
+                      showError={submitAttempted}
                     />
 
                     {/* Lead Source */}
@@ -7677,12 +7735,14 @@ if (!hasDamage) {
                         placeholder="(727) 000-0000"
                         style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
                     </div>
-                    <div>
-                      <Label>Email</Label>
-                      <input type="email" value={inspData.email} onChange={e => updateInsp("email", e.target.value)}
-                        placeholder="client@email.com"
-                        style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
-                    </div>
+                    <FormField
+                      label="Email"
+                      type="email"
+                      value={inspData.email}
+                      onChange={(v) => updateInsp("email", v)}
+                      placeholder="client@email.com"
+                      showError={inspSubmitAttempted}
+                    />
                     <div>
                       <Label>Address *</Label>
                       <AddressAutocomplete
