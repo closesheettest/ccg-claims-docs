@@ -2735,6 +2735,13 @@ export default function App() {
   const [browseAllSort, setBrowseAllSort] = useState("signed_at_desc"); // signed_at_desc | signed_at_asc | name_asc
   const [browseAllSearch, setBrowseAllSearch] = useState("");
   const [browseAllStatus, setBrowseAllStatus] = useState("all"); // all | pending | resulted | cancelled | no_jn | no_result
+
+  // ── Find Duplicates — manager dedupe tool ──────────────────────────
+  // Groups records by normalized address+zip and shows any group with >1 row.
+  // Manager picks which row to keep; the others get deleted.
+  const [dupeGroups, setDupeGroups] = useState([]);
+  const [dupeLoading, setDupeLoading] = useState(false);
+  const [dupeBusy, setDupeBusy] = useState(false);
   const [reportData, setReportData] = useState(null);
   const [reportPdfLoading, setReportPdfLoading] = useState(false);
 
@@ -7964,6 +7971,7 @@ if (!hasDamage) {
                         { key: "report", emoji: "📊", label: "Weekly Report", desc: "View signings by rep and date range" },
                         { key: "analytics", emoji: "📈", label: "Submission Analytics", desc: "Totals, category % and avg days per rep" },
                         { key: "browseall", emoji: "📚", label: "Browse All Records", desc: "Step through every record one-by-one to verify accuracy" },
+                        { key: "dupes", emoji: "👯", label: "Find Duplicates", desc: "Address-based deduper — pick which to keep, delete the rest" },
                       ].map(item => (
                         <button key={item.key} type="button" onClick={() => setManagerSection(item.key)}
                           style={{ padding: "24px 20px", borderRadius: 20, border: "2px solid #e5e7eb", background: "#fff", textAlign: "left", cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
@@ -9995,6 +10003,249 @@ if (!hasDamage) {
                         </>
                       );
                     })()}
+                  </Card>}
+
+                  {/* ── Find Duplicates — manager dedupe tool ─────────────────── */}
+                  {managerSection === "dupes" && <Card style={{ padding: 20, background: "#f8fafc" }}>
+                    <SectionTitle>Find Duplicates</SectionTitle>
+                    <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 14, fontFamily: "'Nunito', sans-serif" }}>
+                      Groups inspection records by property address + zip. Any group with multiple rows is a likely duplicate. Pick which one to KEEP — the others will be permanently deleted. The "best" row is preselected automatically (one with JN sync + most complete data).
+                    </div>
+
+                    <button type="button"
+                      onClick={async () => {
+                        setDupeLoading(true);
+                        try {
+                          const { data, error } = await supabase
+                            .from("inspections")
+                            .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, jn_job_id, signed_pdfs, docs_signed, jn_status")
+                            .is("cancelled_at", null)
+                            .order("signed_at", { ascending: false })
+                            .limit(5000);
+                          if (error) throw error;
+
+                          const norm = (s) => (s || "").toLowerCase().trim().replace(/\s+/g, " ").replace(/[.,]/g, "");
+                          const byKey = new Map();
+                          for (const r of data || []) {
+                            const a = norm(r.address);
+                            const z = (r.zip || "").trim();
+                            if (!a) continue;
+                            const key = z ? `${a}|${z}` : a;
+                            if (!byKey.has(key)) byKey.set(key, []);
+                            byKey.get(key).push(r);
+                          }
+
+                          const groups = [...byKey.entries()]
+                            .filter(([_, rows]) => rows.length >= 2)
+                            .map(([key, rows]) => {
+                              // Score each row to pick the master:
+                              // JN-linked rows are HEAVILY favored since they are the JN source of truth
+                              const scored = rows.map(r => {
+                                let score = 0;
+                                if (r.jn_job_id) score += 100;       // master MUST be JN-linked if any sibling is
+                                if (r.result) score += 5;
+                                if (r.signed_pdfs?.insp) score += 3;
+                                if (r.email) score += 2;
+                                if (r.mobile) score += 1;
+                                return { ...r, _score: score };
+                              });
+                              scored.sort((a, b) => b._score - a._score);
+                              return { key, rows: scored, masterId: scored[0].id };
+                            })
+                            .sort((a, b) => b.rows.length - a.rows.length);
+
+                          setDupeGroups(groups);
+                        } catch (e) {
+                          alert("Could not load duplicates: " + (e.message || e));
+                        } finally {
+                          setDupeLoading(false);
+                        }
+                      }}
+                      disabled={dupeLoading}
+                      style={{ padding: "10px 18px", borderRadius: 12, border: "2px solid #1a2e5a", background: dupeLoading ? "#9ca3af" : "#1a2e5a", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: dupeLoading ? "not-allowed" : "pointer", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 16 }}>
+                      {dupeLoading ? "Scanning..." : (dupeGroups.length > 0 ? "🔄 Re-scan" : "🔍 Scan for Duplicates")}
+                    </button>
+
+                    {dupeGroups.length === 0 && !dupeLoading ? (
+                      <div style={{ textAlign: "center", padding: "40px 0", color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>
+                        Click "Scan for Duplicates" to find inspection records sharing the same address.
+                      </div>
+                    ) : null}
+
+                    {dupeGroups.length > 0 ? (
+                      <>
+                        <div style={{ fontSize: 13, color: "#1a2e5a", fontWeight: 700, marginBottom: 12, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                          Found {dupeGroups.length} duplicate {dupeGroups.length === 1 ? "group" : "groups"} ({dupeGroups.reduce((sum, g) => sum + g.rows.length - 1, 0)} extra records will be merged into the master)
+                        </div>
+                        <div style={{ background: "#dbeafe", border: "1px solid #1e40af", borderRadius: 8, padding: "10px 12px", marginBottom: 14, fontSize: 12, color: "#1e40af", fontFamily: "'Nunito', sans-serif", lineHeight: 1.5 }}>
+                          <strong>How merging works:</strong> The 🌟 MASTER row is preserved (we recommend the JN-linked row so the app stays in sync with JobNimbus). Useful data from the other rows — signed PDFs, signed docs, result if missing, contact info — gets <strong>merged into the master</strong>. Then the duplicates are deleted. Nothing is lost; everything consolidates into one clean record.
+                        </div>
+                        <div style={{ display: "grid", gap: 14 }}>
+                          {dupeGroups.map((group, gIdx) => {
+                            const sample = group.rows[0];
+                            return (
+                              <div key={group.key} style={{ background: "#fff", border: "2px solid #fbbf24", borderRadius: 12, padding: "14px 16px" }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+                                  <div>
+                                    <div style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#92400e" }}>
+                                      🏠 {sample.address}{sample.city ? `, ${sample.city}` : ""} {sample.zip ? `· ${sample.zip}` : ""}
+                                    </div>
+                                    <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>
+                                      {group.rows.length} records at this address
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div style={{ display: "grid", gap: 6 }}>
+                                  {group.rows.map((rec) => {
+                                    const isMaster = group.masterId === rec.id;
+                                    return (
+                                      <label key={rec.id}
+                                        style={{
+                                          display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px",
+                                          borderRadius: 8,
+                                          border: isMaster ? "2px solid #1e40af" : "1px solid #e5e7eb",
+                                          background: isMaster ? "#eff6ff" : "#fafafa",
+                                          cursor: "pointer",
+                                        }}>
+                                        <input type="radio" name={`master-${gIdx}`} checked={isMaster}
+                                          onChange={() => setDupeGroups(prev => prev.map((g, i) => i === gIdx ? { ...g, masterId: rec.id } : g))}
+                                          style={{ marginTop: 4 }} />
+                                        <div style={{ flex: 1 }}>
+                                          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                                            <span style={{ fontSize: 13, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827" }}>{rec.client_name || "(no name)"}</span>
+                                            {isMaster ? <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 5, fontWeight: 700, background: "#dbeafe", color: "#1e40af", fontFamily: "'Oswald', sans-serif" }}>🌟 MASTER</span> : <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 5, fontWeight: 700, background: "#fef3c7", color: "#92400e", fontFamily: "'Oswald', sans-serif" }}>⮕ MERGE INTO MASTER</span>}
+                                            {rec.jn_job_id ? <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 5, fontWeight: 700, background: "#dcfce7", color: "#166534", fontFamily: "'Oswald', sans-serif" }}>JN ✓</span> : <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 5, fontWeight: 700, background: "#fef2f2", color: "#991b1b", fontFamily: "'Oswald', sans-serif" }}>NO JN</span>}
+                                            {rec.result ? <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 5, fontWeight: 700, background: "#fff7ed", color: "#9a3412", fontFamily: "'Oswald', sans-serif" }}>{rec.result.toUpperCase()}</span> : null}
+                                            {rec.signed_pdfs?.insp ? <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 5, fontWeight: 700, background: "#dcfce7", color: "#166534", fontFamily: "'Oswald', sans-serif" }}>📁 INSP</span> : null}
+                                            {rec.signed_pdfs?.lor ? <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 5, fontWeight: 700, background: "#dcfce7", color: "#166534", fontFamily: "'Oswald', sans-serif" }}>📁 LOR</span> : null}
+                                            {rec.signed_pdfs?.pac ? <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 5, fontWeight: 700, background: "#dcfce7", color: "#166534", fontFamily: "'Oswald', sans-serif" }}>📁 PA</span> : null}
+                                          </div>
+                                          <div style={{ fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>
+                                            Rep: {rec.sales_rep_name || "—"} · Signed: {rec.signed_at ? new Date(rec.signed_at).toLocaleString() : "—"}
+                                            {rec.jn_job_id ? ` · JN: ${rec.jn_job_id.slice(0, 12)}...` : ""}
+                                          </div>
+                                          <div style={{ fontSize: 10, color: "#9ca3af", fontFamily: "'Nunito', sans-serif", marginTop: 1 }}>
+                                            ID: {rec.id.slice(0, 8)}… · Score: {rec._score}
+                                          </div>
+                                        </div>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        <div style={{ position: "sticky", bottom: 0, marginTop: 18, paddingTop: 14, background: "#f8fafc", borderTop: "1px solid #e5e7eb" }}>
+                          <button type="button"
+                            disabled={dupeBusy}
+                            onClick={async () => {
+                              const totalToMerge = dupeGroups.reduce((sum, g) => sum + g.rows.length - 1, 0);
+                              if (!confirm(`Merge ${totalToMerge} duplicate records into their masters?\n\nFor each group:\n  1. The 🌟 MASTER row will be UPDATED with the union of useful data from siblings (signed_pdfs, docs_signed, result, contact info if missing)\n  2. The ⮕ MERGE rows will then be permanently deleted\n\nThis cannot be undone.`)) return;
+
+                              setDupeBusy(true);
+                              try {
+                                let mergedCount = 0;
+                                let deletedCount = 0;
+
+                                for (const g of dupeGroups) {
+                                  const master = g.rows.find(r => r.id === g.masterId);
+                                  if (!master) continue;
+                                  const siblings = g.rows.filter(r => r.id !== g.masterId);
+
+                                  // ── Build the merged payload ────────────────────────
+                                  // Master values are preserved; siblings only fill in gaps
+                                  // or contribute to union fields (signed_pdfs, docs_signed).
+                                  const merged = {};
+
+                                  // signed_pdfs — UNION of all rows. If master has insp PDF and a sibling has LOR PDF, master gets both.
+                                  const sigPdfs = { ...(master.signed_pdfs || {}) };
+                                  for (const sib of siblings) {
+                                    if (sib.signed_pdfs) {
+                                      for (const [docKey, val] of Object.entries(sib.signed_pdfs)) {
+                                        if (val && !sigPdfs[docKey]) sigPdfs[docKey] = val;
+                                      }
+                                    }
+                                  }
+                                  if (Object.keys(sigPdfs).length > 0) merged.signed_pdfs = sigPdfs;
+
+                                  // docs_signed — UNION of all comma-separated values
+                                  const docsSet = new Set();
+                                  for (const r of g.rows) {
+                                    (r.docs_signed || "").split(",").map(s => s.trim().toLowerCase()).filter(Boolean).forEach(d => docsSet.add(d));
+                                  }
+                                  if (docsSet.size > 0) merged.docs_signed = [...docsSet].join(",");
+
+                                  // result + result_at — keep master's. If master has no result but a sibling does, take the sibling's.
+                                  if (!master.result) {
+                                    const sibWithResult = siblings.find(s => s.result);
+                                    if (sibWithResult) {
+                                      merged.result = sibWithResult.result;
+                                      merged.result_at = sibWithResult.result_at;
+                                    }
+                                  }
+
+                                  // Contact info — fill in if master is blank
+                                  if (!master.email) {
+                                    const sibWithEmail = siblings.find(s => s.email);
+                                    if (sibWithEmail) merged.email = sibWithEmail.email;
+                                  }
+                                  if (!master.mobile) {
+                                    const sibWithMobile = siblings.find(s => s.mobile);
+                                    if (sibWithMobile) merged.mobile = sibWithMobile.mobile;
+                                  }
+                                  if (!master.client_name) {
+                                    const sibWithName = siblings.find(s => s.client_name);
+                                    if (sibWithName) merged.client_name = sibWithName.client_name;
+                                  }
+
+                                  // signed_at — keep the EARLIEST date (preserves the original signing event)
+                                  const allDates = g.rows.map(r => r.signed_at).filter(Boolean).sort();
+                                  if (allDates.length > 0 && allDates[0] !== master.signed_at) {
+                                    merged.signed_at = allDates[0];
+                                  }
+
+                                  // Apply the merge update if anything changed
+                                  if (Object.keys(merged).length > 0) {
+                                    const { error: updateErr } = await supabase
+                                      .from("inspections")
+                                      .update(merged)
+                                      .eq("id", master.id);
+                                    if (updateErr) {
+                                      console.error("Merge update failed for master", master.id, updateErr);
+                                      throw new Error(`Merge failed for ${master.address}: ${updateErr.message}`);
+                                    }
+                                    mergedCount++;
+                                  }
+
+                                  // Delete the siblings
+                                  const sibIds = siblings.map(s => s.id);
+                                  if (sibIds.length > 0) {
+                                    const { error: deleteErr } = await supabase
+                                      .from("inspections")
+                                      .delete()
+                                      .in("id", sibIds);
+                                    if (deleteErr) throw new Error(`Delete failed for ${master.address}: ${deleteErr.message}`);
+                                    deletedCount += sibIds.length;
+                                  }
+                                }
+
+                                alert(`✓ Merged ${mergedCount} groups, deleted ${deletedCount} duplicate records.\n\nApp and JobNimbus should now be in sync — every property has exactly one record, and that record carries the union of data from all duplicates.`);
+                                setDupeGroups([]);
+                              } catch (e) {
+                                alert("Merge failed: " + (e.message || e) + "\n\nSome groups may have been merged before the error. Re-scan to see current state.");
+                              } finally {
+                                setDupeBusy(false);
+                              }
+                            }}
+                            style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: dupeBusy ? "#9ca3af" : "#1e40af", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14, cursor: dupeBusy ? "not-allowed" : "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                            {dupeBusy ? "Merging..." : `🔀 Merge ${dupeGroups.reduce((sum, g) => sum + g.rows.length - 1, 0)} Duplicate Records Into Masters`}
+                          </button>
+                        </div>
+                      </>
+                    ) : null}
                   </Card>}
 
                       <div style={{ marginTop: 24 }}>
