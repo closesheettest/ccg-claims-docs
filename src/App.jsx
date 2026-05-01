@@ -10039,19 +10039,23 @@ if (!hasDamage) {
                           // tool (UI rendering, scoring, merge logic) doesn't need to
                           // care which table a row came from. Any claims-only fields
                           // we want to preserve are stashed under _claim.* for the merge step.
-                          // Normalize id to string up front. inspections.id is uuid
-                          // (string) but claims.id may be bigint (number) — Supabase
-                          // delivers it as a JS number. Coercing here means every
-                          // downstream consumer (rendering, .slice, === comparisons,
-                          // React keys) sees a uniform string type.
+                          // Normalize id to string for app-side use (rendering,
+                          // .slice, === comparisons, React keys) but keep the raw
+                          // DB-typed value under _rawId so merge-step DB calls send
+                          // the right wire type. inspections.id is uuid (string),
+                          // claims.id is bigint (JS number) — supabase-js's .in()
+                          // filter against a bigint column doesn't reliably accept
+                          // string-coerced numbers, so we hand it back its native type.
                           const inspRows = (inspRes.data || []).map(r => ({
                             ...r,
                             id: String(r.id),
+                            _rawId: r.id,
                             _table: "inspections",
                           }));
                           const claimRows = (claimRes.data || []).map(r => ({
                             _table: "claims",
                             id: String(r.id),
+                            _rawId: r.id,
                             // Project claims fields onto the unified shape used by the UI:
                             client_name: [r.homeowner1, r.homeowner2].filter(Boolean).join(" & ") || r.homeowner1 || "",
                             address: r.address,
@@ -10339,12 +10343,14 @@ if (!hasDamage) {
                                     }
                                   }
 
-                                  // Apply the merge update if anything changed
+                                  // Apply the merge update if anything changed.
+                                  // Use _rawId (DB-typed) for the .eq filter so a
+                                  // bigint claims.id is sent as a number, not a string.
                                   if (Object.keys(merged).length > 0) {
                                     const { error: updateErr } = await supabase
                                       .from(master._table)
                                       .update(merged)
-                                      .eq("id", master.id);
+                                      .eq("id", master._rawId);
                                     if (updateErr) {
                                       console.error("Merge update failed for master", master.id, updateErr);
                                       throw new Error(`Merge failed for ${master.address}: ${updateErr.message}`);
@@ -10352,19 +10358,31 @@ if (!hasDamage) {
                                     mergedCount++;
                                   }
 
-                                  // Delete the siblings — partitioned by their source table.
+                                  // Delete the siblings — partitioned by their source
+                                  // table. Use _rawId so .in() sends each value with
+                                  // the wire type the DB column expects. We request
+                                  // count: 'exact' so we can verify rows were actually
+                                  // removed — RLS policies that block DELETE will
+                                  // otherwise silently return 0 rows with no error.
                                   const sibsByTable = siblings.reduce((acc, s) => {
-                                    (acc[s._table] = acc[s._table] || []).push(s.id);
+                                    (acc[s._table] = acc[s._table] || []).push(s._rawId);
                                     return acc;
                                   }, {});
                                   for (const [tbl, ids] of Object.entries(sibsByTable)) {
                                     if (ids.length === 0) continue;
-                                    const { error: deleteErr } = await supabase
+                                    const { error: deleteErr, count } = await supabase
                                       .from(tbl)
-                                      .delete()
+                                      .delete({ count: "exact" })
                                       .in("id", ids);
                                     if (deleteErr) throw new Error(`Delete failed for ${master.address} (${tbl}): ${deleteErr.message}`);
-                                    deletedCount += ids.length;
+                                    if ((count ?? 0) < ids.length) {
+                                      throw new Error(
+                                        `Delete returned ${count ?? 0} rows but expected ${ids.length} for ${master.address} (${tbl}).\n\n` +
+                                        `This usually means a Row Level Security policy on the "${tbl}" table is blocking DELETE for the current user. ` +
+                                        `Check Supabase → Authentication → Policies → ${tbl} and confirm a DELETE policy exists.`
+                                      );
+                                    }
+                                    deletedCount += count ?? ids.length;
                                   }
                                 }
 
