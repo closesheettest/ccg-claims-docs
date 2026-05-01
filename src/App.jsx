@@ -3014,7 +3014,7 @@ export default function App() {
       // build the leaderboard AND filter for this rep in one query.
       const { data: rows, error } = await supabase
         .from("inspections")
-        .select("id, sales_rep_id, sales_rep_name, signed_at, result, result_at, client_name, address, city, state, zip, mobile, jn_status, cancelled_at, docs_signed")
+        .select("id, sales_rep_id, sales_rep_name, signed_at, result, result_at, client_name, address, city, state, zip, mobile, jn_status, cancelled_at, docs_signed, signed_pdfs")
         .gte("signed_at", lastMon.toISOString())
         .lte("signed_at", thisSun.toISOString())
         .is("cancelled_at", null);
@@ -3082,11 +3082,26 @@ export default function App() {
       const thisWeek = dedupAndCount(thisWeekRows, repFilter);
       const lastWeek = dedupAndCount(lastWeekRows, repFilter);
 
+      // ── All-time stats for this rep ──────────────────────────────────
+      // Pull the rep's full submission history so they can see lifetime
+      // damage / no_damage / retail / pending breakdown. We don't compute
+      // a leaderboard for all-time since rankings shift over time and
+      // people who have left the company would distort the picture.
+      const orFilter = `sales_rep_id.eq.${repIdOrName},sales_rep_name.eq.${repName}`;
+      const { data: allTimeRaw } = await supabase
+        .from("inspections")
+        .select("id, sales_rep_id, sales_rep_name, signed_at, result, result_at, client_name, address, city, state, zip, mobile, jn_status, cancelled_at, docs_signed, signed_pdfs")
+        .or(orFilter)
+        .is("cancelled_at", null)
+        .order("signed_at", { ascending: false })
+        .limit(1000);
+      const allTime = dedupAndCount(allTimeRaw || [], repFilter);
+
       // Enrich the rep's own rows with docs_signed from the claims table.
       // Claims table is the truth source for what was signed; inspections
       // table only shows "insp" for inspection-only signings.
       // We do this once per call rather than during dedup so the count math stays simple.
-      const allMyRows = [...thisWeek.rows, ...lastWeek.rows];
+      const allMyRows = [...thisWeek.rows, ...lastWeek.rows, ...allTime.rows];
       const myZips = [...new Set(allMyRows.map(r => (r.zip || "").trim()).filter(Boolean))];
       if (myZips.length > 0) {
         const { data: claimsForRep } = await supabase
@@ -3118,16 +3133,19 @@ export default function App() {
           let claimDocs = byZipStreet.get(`${z}|${street}`);
           if (!claimDocs && num)      claimDocs = byZipStreet.get(`${z}|num:${num}`);
           if (!claimDocs && lastName) claimDocs = byZipStreet.get(`${z}|name:${lastName}`);
-          // Combine — inspection's docs_signed (just "insp") OR claim's docs_signed
+          // Combine — inspection's docs_signed OR claim's docs_signed OR signed_pdfs.
+          // signed_pdfs is authoritative since archive only happens after a successful sign.
           const combined = [r.docs_signed || "", claimDocs || ""].join(",").toLowerCase();
+          const sp = r.signed_pdfs || {};
           r._docsSigned = {
-            insp: combined.includes("insp"),
-            lor:  combined.includes("lor"),
-            pac:  combined.includes("pac"),
+            insp: combined.includes("insp") || !!sp.insp,
+            lor:  combined.includes("lor")  || !!sp.lor,
+            pac:  combined.includes("pac")  || !!sp.pac || !!sp.pa,
           };
         };
         thisWeek.rows.forEach(attach);
         lastWeek.rows.forEach(attach);
+        allTime.rows.forEach(attach);
       }
 
       // Build company-wide leaderboard for THIS WEEK
@@ -3153,7 +3171,7 @@ export default function App() {
         topFive: leaderboard.slice(0, 5),
       };
 
-      const result = { thisWeek, lastWeek, leaderboard: rankInfo };
+      const result = { thisWeek, lastWeek, allTime, leaderboard: rankInfo };
       setMyStatsData(result);
       setBannerStats({ submissions: thisWeek.counts.submissions, resulted: thisWeek.counts.resulted, rank: rankInfo.rank, totalReps: rankInfo.totalReps });
     } catch (e) {
@@ -9749,7 +9767,15 @@ if (!hasDamage) {
                               if (!claimDocs && num) claimDocs = claimsByKey.get(`${z}|num:${num}`);
                               if (!claimDocs && ln)  claimDocs = claimsByKey.get(`${z}|name:${ln}`);
                               const combined = [r.docs_signed || "", claimDocs || ""].join(",").toLowerCase();
-                              return { ...r, _docs: { insp: combined.includes("insp"), lor: combined.includes("lor"), pac: combined.includes("pac") } };
+                              // signed_pdfs is authoritative — if a PDF was archived for this doc type,
+                              // then it was signed (regardless of what docs_signed columns say).
+                              // This handles older rows where docs_signed may not have been populated reliably.
+                              const sp = r.signed_pdfs || {};
+                              return { ...r, _docs: {
+                                insp: combined.includes("insp") || !!sp.insp,
+                                lor:  combined.includes("lor")  || !!sp.lor,
+                                pac:  combined.includes("pac")  || !!sp.pac || !!sp.pa,
+                              } };
                             });
                             setBrowseAllRows(enriched);
                           } catch (e) {
@@ -9996,15 +10022,19 @@ if (!hasDamage) {
                 {data.salesRepName} · Submissions and results breakdown
               </div>
 
-              {/* Toggle: This Week / Last Week */}
-              <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+              {/* Toggle: This Week / Last Week / All Time */}
+              <div style={{ display: "flex", gap: 6, marginBottom: 18 }}>
                 <button type="button" onClick={() => { setMyStatsRange("thisWeek"); setMyStatsDrilldown(null); }}
-                  style={{ flex: 1, padding: "10px 16px", borderRadius: 10, border: "1.5px solid #1a2e5a", background: myStatsRange === "thisWeek" ? "#1a2e5a" : "#fff", color: myStatsRange === "thisWeek" ? "#fff" : "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  style={{ flex: 1, padding: "10px 12px", borderRadius: 10, border: "1.5px solid #1a2e5a", background: myStatsRange === "thisWeek" ? "#1a2e5a" : "#fff", color: myStatsRange === "thisWeek" ? "#fff" : "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
                   This Week
                 </button>
                 <button type="button" onClick={() => { setMyStatsRange("lastWeek"); setMyStatsDrilldown(null); }}
-                  style={{ flex: 1, padding: "10px 16px", borderRadius: 10, border: "1.5px solid #1a2e5a", background: myStatsRange === "lastWeek" ? "#1a2e5a" : "#fff", color: myStatsRange === "lastWeek" ? "#fff" : "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  style={{ flex: 1, padding: "10px 12px", borderRadius: 10, border: "1.5px solid #1a2e5a", background: myStatsRange === "lastWeek" ? "#1a2e5a" : "#fff", color: myStatsRange === "lastWeek" ? "#fff" : "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
                   Last Week
+                </button>
+                <button type="button" onClick={() => { setMyStatsRange("allTime"); setMyStatsDrilldown(null); }}
+                  style={{ flex: 1, padding: "10px 12px", borderRadius: 10, border: "1.5px solid #1a2e5a", background: myStatsRange === "allTime" ? "#1a2e5a" : "#fff", color: myStatsRange === "allTime" ? "#fff" : "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  All Time
                 </button>
               </div>
 
@@ -10013,13 +10043,15 @@ if (!hasDamage) {
               ) : !myStatsData ? (
                 <div style={{ textAlign: "center", padding: "40px 0", color: "#6b7280" }}>No data</div>
               ) : (() => {
-                const period = myStatsRange === "thisWeek" ? myStatsData.thisWeek : myStatsData.lastWeek;
+                const period = myStatsRange === "thisWeek" ? myStatsData.thisWeek : myStatsRange === "lastWeek" ? myStatsData.lastWeek : myStatsData.allTime;
                 const c = period.counts;
                 return (
                   <>
                     {/* Top row — submissions count */}
                     <div style={{ background: "#1a2e5a", borderRadius: 12, padding: "16px 20px", color: "#fff", marginBottom: 14, textAlign: "center" }}>
-                      <div style={{ fontSize: 11, opacity: 0.8, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>Total Submissions</div>
+                      <div style={{ fontSize: 11, opacity: 0.8, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>
+                        {myStatsRange === "allTime" ? "Lifetime Submissions" : "Total Submissions"}
+                      </div>
                       <div style={{ fontSize: 36, fontWeight: 700, fontFamily: "'Oswald', sans-serif", lineHeight: 1 }}>{c.submissions}</div>
                     </div>
 
