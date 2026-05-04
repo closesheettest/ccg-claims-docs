@@ -2785,6 +2785,13 @@ export default function App() {
   const [reportEmailModal, setReportEmailModal] = useState(null); // null | { to: string }
   const [reportEmailSending, setReportEmailSending] = useState(false);
 
+  // ── JN Inspection Report state ──────────────────────────────────
+  // For homeowners that exist in JN but never went through the app's
+  // signing flow. Admin enters the JN job ID, the function pulls the
+  // job + photos and uploads a report PDF back to JN's documents tab.
+  const [jnReportJnid, setJnReportJnid] = useState("");
+  const [jnReportSending, setJnReportSending] = useState(false);
+
   // ── Resend Signed Documents modal state ────────────────────────
   // Lets admin re-send archived PDFs to any email address (PA, office,
   // homeowner, or a typed-in custom address). For records that haven't
@@ -8109,6 +8116,7 @@ if (!hasDamage) {
                         { key: "analytics", emoji: "📈", label: "Submission Analytics", desc: "Totals, category % and avg days per rep" },
                         { key: "browseall", emoji: "📚", label: "Browse All Records", desc: "Step through every record one-by-one to verify accuracy" },
                         { key: "dupes", emoji: "👯", label: "Find Duplicates", desc: "Address-based deduper — pick which to keep, delete the rest" },
+                        { key: "jnreport", emoji: "📄", label: "JN Inspection Report", desc: "Generate insp report PDF with photos and upload to JN" },
                       ].map(item => (
                         <button key={item.key} type="button" onClick={() => setManagerSection(item.key)}
                           style={{ padding: "24px 20px", borderRadius: 20, border: "2px solid #e5e7eb", background: "#fff", textAlign: "left", cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
@@ -10633,6 +10641,87 @@ if (!hasDamage) {
                         </div>
                       </>
                     ) : null}
+                  </Card>}
+
+                  {/* JN Inspection Report — manual generator + JN documents upload.
+                      For homeowners pre-existing in JN that never went through the
+                      app's signing flow but want to see the inspection report
+                      before signing PA paperwork. */}
+                  {managerSection === "jnreport" && <Card style={{ padding: 20, background: "#f8fafc" }}>
+                    <SectionTitle>JN Inspection Report</SectionTitle>
+                    <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 14, fontFamily: "'Nunito', sans-serif", lineHeight: 1.5 }}>
+                      Generates an inspection report PDF (with photos pulled from JN) and uploads it directly to the JN job's <strong>Documents</strong> tab. Use this for homeowners who already exist in JN with an inspection result set, but never went through the app's signing flow. The rep can then send the PDF to the homeowner from inside JN.
+                    </div>
+                    <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 12, color: "#92400e", fontFamily: "'Nunito', sans-serif" }}>
+                      ⚠️ Requires the JN job to have an <strong>inspection result</strong> set (Damage / No Damage / Retail) and at least one photo attached. Otherwise the function will refuse.
+                    </div>
+
+                    <Label>JN Job ID</Label>
+                    <input
+                      type="text"
+                      value={jnReportJnid}
+                      onChange={(e) => setJnReportJnid(e.target.value)}
+                      placeholder="e.g. mobwvrx48cjft7ah6t9a1nv"
+                      disabled={jnReportSending}
+                      autoCapitalize="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", fontFamily: "monospace", marginBottom: 6 }}
+                    />
+                    <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 16, fontFamily: "'Nunito', sans-serif" }}>
+                      Find the JN job ID in the JN URL when viewing the job — the long string after <code>/jobs/</code>.
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={jnReportSending || !jnReportJnid.trim()}
+                      onClick={async () => {
+                        const jnid = jnReportJnid.trim();
+                        if (!jnid) return;
+                        if (!window.confirm(`Generate inspection report PDF and upload it to JN job ${jnid}?\n\nThis will pull photos from JN, render the report, and post it to the job's Documents tab.`)) return;
+                        setJnReportSending(true);
+                        try {
+                          const r = await fetch("/.netlify/functions/generate-and-upload-insp-report", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ jnid }),
+                          });
+                          const txt = await r.text();
+                          let d;
+                          try { d = JSON.parse(txt); }
+                          catch { d = { ok: false, error: "Non-JSON response: " + txt.slice(0, 200) }; }
+
+                          if (!r.ok || !d.ok) {
+                            alert("Report generation failed: " + (d.error || "unknown error") + (d.detail ? "\n\n" + d.detail : ""));
+                            return;
+                          }
+                          alert(
+                            `✅ Report uploaded to JN.\n\n` +
+                            `Job: ${d.jobName || "—"}\n` +
+                            `Homeowner: ${d.clientName || "—"}\n` +
+                            `Result: ${d.result || "—"}\n` +
+                            `Photos: ${d.photoCount}\n` +
+                            `Filename: ${d.filename}\n\n` +
+                            `Open the JN job's Documents tab to see it.`
+                          );
+                          setJnReportJnid("");
+                        } catch (e) {
+                          alert("Report generation error: " + (e.message || e));
+                        } finally {
+                          setJnReportSending(false);
+                        }
+                      }}
+                      style={{
+                        padding: "12px 24px", borderRadius: 12,
+                        border: "none",
+                        background: (jnReportSending || !jnReportJnid.trim()) ? "#9ca3af" : "#1a2e5a",
+                        color: "#fff",
+                        fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14,
+                        cursor: (jnReportSending || !jnReportJnid.trim()) ? "not-allowed" : "pointer",
+                        textTransform: "uppercase", letterSpacing: "0.04em",
+                      }}>
+                      {jnReportSending ? "Generating & uploading..." : "📄 Generate & Upload to JN"}
+                    </button>
                   </Card>}
 
                       <div style={{ marginTop: 24 }}>
