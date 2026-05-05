@@ -11742,20 +11742,41 @@ if (!hasDamage) {
                                   No JN jobs match those filters.
                                 </div>
                               ) : (
-                                <div style={{ maxHeight: 320, overflowY: "auto", border: "1px solid #e5e7eb", borderRadius: 10, background: "#fff" }}>
-                                  {bulkCandidates.map((c) => {
-                                    const isEligible = c.photoCount > 0 && !c.hasExistingReport;
-                                    return (
-                                      <div key={c.jnid} style={{ padding: "10px 14px", borderBottom: "1px solid #f3f4f6", fontFamily: "'Nunito', sans-serif", display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", opacity: isEligible ? 1 : 0.55 }}>
-                                        <div style={{ flex: 1, minWidth: 0 }}>
-                                          <div style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{c.clientName}</div>
-                                          <div style={{ fontSize: 11, color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.address}</div>
-                                          <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 2 }}>Rep: {c.repName} · Photos: {c.photoCount}{c.hasExistingReport ? " · ✓ already has report" : ""}</div>
+                                <div style={{ maxHeight: 360, overflowY: "auto", border: "1px solid #e5e7eb", borderRadius: 10, background: "#fff" }}>
+                                  {/* Sort eligible first, then no-photos, then already-done so
+                                      the rep can scan top-down. Each row carries an explicit
+                                      status pill so there's no guessing why a row is skipped. */}
+                                  {[...bulkCandidates]
+                                    .map(c => ({
+                                      ...c,
+                                      _status: c.photoCount === 0 ? "no_photos"
+                                             : c.hasExistingReport ? "already_done"
+                                             : "eligible",
+                                    }))
+                                    .sort((a, b) => {
+                                      const order = { eligible: 0, no_photos: 1, already_done: 2 };
+                                      return order[a._status] - order[b._status];
+                                    })
+                                    .map((c) => {
+                                      const pill = c._status === "eligible"
+                                        ? { bg: "#dbeafe", fg: "#1e40af", label: "ELIGIBLE" }
+                                        : c._status === "no_photos"
+                                        ? { bg: "#fef3c7", fg: "#92400e", label: "⊘ NO PHOTOS" }
+                                        : { bg: "#dcfce7", fg: "#15803d", label: "✓ DONE" };
+                                      return (
+                                        <div key={c.jnid} style={{ padding: "10px 14px", borderBottom: "1px solid #f3f4f6", fontFamily: "'Nunito', sans-serif", display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", opacity: c._status === "eligible" ? 1 : 0.7 }}>
+                                          <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{c.clientName}</div>
+                                            <div style={{ fontSize: 11, color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.address}</div>
+                                            <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 2 }}>Rep: {c.repName} · Photos: {c.photoCount}</div>
+                                          </div>
+                                          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                                            <div style={{ padding: "3px 8px", borderRadius: 6, background: pill.bg, color: pill.fg, fontSize: 10, fontWeight: 700, fontFamily: "'Oswald', sans-serif", letterSpacing: "0.04em", whiteSpace: "nowrap" }}>{pill.label}</div>
+                                            <div style={{ fontSize: 10, color: "#9ca3af", fontFamily: "monospace" }}>{c.jnid.slice(0, 8)}…</div>
+                                          </div>
                                         </div>
-                                        <div style={{ fontSize: 10, color: "#9ca3af", fontFamily: "monospace" }}>{c.jnid.slice(0, 8)}…</div>
-                                      </div>
-                                    );
-                                  })}
+                                      );
+                                    })}
                                 </div>
                               )}
 
