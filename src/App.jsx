@@ -2661,24 +2661,47 @@ function GuidedIntakeFlow({
     return null;
   };
 
-  // Common style helpers — kept inline so this component is self-contained
-  const stepCard = { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: 28, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" };
+  // Common style helpers — kept inline so this component is self-contained.
+  // Color palette pulled from the rest of the app's USS branding:
+  //   Navy  #1a2e5a — primary
+  //   Red   #c8392b — accent / active CTA
+  //   Green #16a34a — success / "Selected" badges
+  const stepCard = {
+    background: "linear-gradient(180deg, #f8fafc 0%, #ffffff 60%)",
+    border: "1px solid #c8d4e8",
+    borderRadius: 16,
+    padding: 0,
+    boxShadow: "0 4px 16px rgba(26, 46, 90, 0.08)",
+    overflow: "hidden",
+  };
   const bigChoice = (active) => ({
     width: "100%", padding: "20px 22px", borderRadius: 14,
-    border: active ? "2px solid #1a2e5a" : "2px solid #e5e7eb",
-    background: active ? "#eff6ff" : "#fff",
+    border: active ? "3px solid #1a2e5a" : "2px solid #d1d5db",
+    background: active
+      ? "linear-gradient(135deg, #1a2e5a 0%, #2d4373 100%)"
+      : "#fff",
+    color: active ? "#fff" : "#111827",
     cursor: "pointer", textAlign: "left", fontFamily: "'Nunito', sans-serif",
     transition: "all 0.15s",
+    boxShadow: active ? "0 6px 20px rgba(26, 46, 90, 0.25)" : "0 1px 3px rgba(0,0,0,0.05)",
+    position: "relative",
+    overflow: "hidden",
   });
-  const bigChoiceTitle = { fontSize: 17, fontWeight: 700, color: "#111827", marginBottom: 4 };
-  const bigChoiceSub = { fontSize: 13, color: "#6b7280" };
+  const bigChoiceTitle = { fontSize: 17, fontWeight: 700, marginBottom: 4 };
+  const bigChoiceSub = { fontSize: 13, opacity: 0.85 };
   const navBtn = (primary, disabled) => ({
-    padding: "12px 24px", borderRadius: 12, border: "none",
-    background: disabled ? "#9ca3af" : (primary ? "#1a2e5a" : "transparent"),
-    color: primary ? "#fff" : "#6b7280",
+    padding: "12px 26px", borderRadius: 12, border: "none",
+    background: disabled
+      ? "#cbd5e1"
+      : (primary
+          ? "linear-gradient(135deg, #c8392b 0%, #a02b1f 100%)"
+          : "transparent"),
+    color: primary ? "#fff" : "#1a2e5a",
     fontFamily: "'Oswald', sans-serif", fontSize: 14, fontWeight: 700,
-    letterSpacing: "0.04em", textTransform: "uppercase",
+    letterSpacing: "0.06em", textTransform: "uppercase",
     cursor: disabled ? "not-allowed" : "pointer",
+    boxShadow: primary && !disabled ? "0 4px 12px rgba(200, 57, 43, 0.3)" : "none",
+    transition: "all 0.15s",
   });
 
   // ── Step content ─────────────────────────────────────────────
@@ -2752,7 +2775,7 @@ function GuidedIntakeFlow({
             <div style={checkBox}>{active ? "✓" : ""}</div>
             <div style={{ flex: 1 }}>
               <div style={{ ...bigChoiceTitle, color: active ? "#15803d" : "#111827" }}>{emoji} {label}</div>
-              <div style={bigChoiceSub}>{sub}</div>
+              <div style={{ ...bigChoiceSub, color: "#6b7280" }}>{sub}</div>
             </div>
           </div>
         </button>
@@ -2960,56 +2983,97 @@ function GuidedIntakeFlow({
 
   return (
     <div style={stepCard}>
-      {/* Progress dots — purely visual, not clickable */}
-      <div style={{ display: "flex", gap: 6, justifyContent: "center", marginBottom: 24 }}>
-        {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
-          <div key={i} style={{
-            width: i === step ? 28 : 8, height: 8, borderRadius: 4,
-            background: i <= step ? "#1a2e5a" : "#e5e7eb",
-            transition: "all 0.2s",
-          }} />
-        ))}
-      </div>
-
-      <div style={{ marginBottom: 6, fontSize: 12, color: "#9ca3af", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.05em", textTransform: "uppercase" }}>
-        Step {step + 1} of {TOTAL_STEPS}
-      </div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.02em", marginBottom: 8 }}>
-        {title}
-      </div>
-      <div style={{ fontSize: 14, color: "#6b7280", marginBottom: 24, fontFamily: "'Nunito', sans-serif" }}>
-        {subtitle}
-      </div>
-
-      <div>{body}</div>
-
-      {err ? (
-        <div style={{ marginTop: 16, padding: "10px 14px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, fontSize: 13, color: "#991b1b" }}>
-          ⚠️ {err}
+      {/* Navy banner header — progress dots + step counter + title.
+          Mirrors the certificate-template aesthetic the rest of the app
+          uses so Guided feels like part of the family rather than bolted
+          on. The thin red rule under the banner is the USS accent. */}
+      <div style={{
+        background: "linear-gradient(135deg, #1a2e5a 0%, #2d4373 100%)",
+        padding: "20px 28px 22px",
+        position: "relative",
+      }}>
+        {/* Progress dots */}
+        <div style={{ display: "flex", gap: 6, justifyContent: "center", marginBottom: 14 }}>
+          {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
+            <div key={i} style={{
+              width: i === step ? 28 : 8, height: 8, borderRadius: 4,
+              background: i < step ? "#c8392b" : i === step ? "#fff" : "rgba(255,255,255,0.3)",
+              transition: "all 0.2s",
+            }} />
+          ))}
         </div>
-      ) : null}
+        <div style={{
+          textAlign: "center", fontSize: 11,
+          color: "rgba(255,255,255,0.7)",
+          fontFamily: "'Oswald', sans-serif",
+          letterSpacing: "0.12em", textTransform: "uppercase",
+          marginBottom: 6,
+        }}>
+          Step {step + 1} of {TOTAL_STEPS}
+        </div>
+        <div style={{
+          textAlign: "center",
+          fontSize: 22, fontWeight: 700, color: "#fff",
+          fontFamily: "'Oswald', sans-serif",
+          letterSpacing: "0.02em",
+          lineHeight: 1.25,
+        }}>
+          {title}
+        </div>
+      </div>
 
-      {/* Navigation — Back, Cancel, Next/Finish */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 28, gap: 10, flexWrap: "wrap" }}>
-        <div style={{ display: "flex", gap: 8 }}>
-          {step > 0 ? (
-            <button type="button" style={navBtn(false, false)} onClick={back}>
-              ← Back
+      {/* Red accent rule */}
+      <div style={{ height: 4, background: "#c8392b" }} />
+
+      {/* Content area */}
+      <div style={{ padding: "24px 28px 28px" }}>
+        <div style={{
+          fontSize: 14, color: "#475569",
+          marginBottom: 22, fontFamily: "'Nunito', sans-serif",
+          textAlign: "center",
+        }}>
+          {subtitle}
+        </div>
+
+        <div>{body}</div>
+
+        {err ? (
+          <div style={{
+            marginTop: 18, padding: "12px 16px",
+            background: "#fef2f2", border: "1px solid #fecaca",
+            borderRadius: 10, fontSize: 13, color: "#991b1b",
+            fontFamily: "'Nunito', sans-serif", fontWeight: 600,
+          }}>
+            ⚠️ {err}
+          </div>
+        ) : null}
+
+        {/* Navigation — Back, Cancel, Next/Finish */}
+        <div style={{
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+          marginTop: 28, gap: 10, flexWrap: "wrap",
+          paddingTop: 22, borderTop: "1px solid #e5e7eb",
+        }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            {step > 0 ? (
+              <button type="button" style={navBtn(false, false)} onClick={back}>
+                ← Back
+              </button>
+            ) : null}
+            <button type="button" style={{ ...navBtn(false, false), color: "#94a3b8" }} onClick={onCancel}>
+              Cancel
             </button>
-          ) : null}
-          <button type="button" style={{ ...navBtn(false, false), color: "#9ca3af" }} onClick={onCancel}>
-            Cancel
-          </button>
+          </div>
+          {!onLastStep ? (
+            <button type="button" style={navBtn(true, !!err)} disabled={!!err} onClick={() => { if (!err) next(); }}>
+              Next →
+            </button>
+          ) : (
+            <button type="button" style={navBtn(true, !!err)} disabled={!!err} onClick={() => { if (!err) onFinishToSign(); }}>
+              ✓ Continue to Sign
+            </button>
+          )}
         </div>
-        {!onLastStep ? (
-          <button type="button" style={navBtn(true, !!err)} disabled={!!err} onClick={() => { if (!err) next(); }}>
-            Next →
-          </button>
-        ) : (
-          <button type="button" style={navBtn(true, !!err)} disabled={!!err} onClick={() => { if (!err) onFinishToSign(); }}>
-            ✓ Continue to Sign
-          </button>
-        )}
       </div>
     </div>
   );
