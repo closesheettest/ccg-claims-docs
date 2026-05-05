@@ -165,34 +165,62 @@ exports.handler = async (event) => {
 };
 
 // ── Fetch photos from JN ─────────────────────────────────────────────
-// Copied from inspection-checker.js. Returns presigned URLs for each
-// image so the PDF renderer can pull them directly from the source.
+// JN's /files?related=<jnid> list endpoint returns file metadata only —
+// no download URL fields. To get the actual image bytes you have to make
+// a SECOND request per file: GET /files/{file-jnid} returns the raw bytes
+// directly in the response body. (Confirmed by inspecting the JN API
+// response — the response body's first bytes are the JPEG magic header.)
+//
+// We download up to 10 photos in parallel and base64-encode them so the
+// PDF renderer (PDFShift) can embed them via `data:image/jpeg;base64,...`
+// inline URIs without needing public URLs.
 async function fetchJobPhotos(jnJobId) {
   try {
-    const res = await fetch(
+    const listRes = await fetch(
       `${JN_BASE}/files?related=${jnJobId}&type=2&size=30`,
       { headers: jnHeaders }
     );
-    if (!res.ok) { console.warn("Photo list failed:", res.status); return []; }
-    const data = await res.json();
-    const files = data.data || data.files || data.results || [];
+    if (!listRes.ok) {
+      console.warn("Photo list failed:", listRes.status);
+      return [];
+    }
+    const data = await listRes.json();
+    const files = data.files || data.data || data.results || [];
     const imageFiles = files.filter(f => (f.content_type || "").startsWith("image/"));
 
-    const photoPromises = imageFiles.slice(0, 20).map(async (file) => {
+    // Limit to 10 photos — the certificate template's photo grid is
+    // designed for 10 max. More than that won't fit on one page anyway.
+    const downloads = imageFiles.slice(0, 10).map(async (file) => {
+      const fileJnid = file.jnid || file.id;
+      if (!fileJnid) return null;
       try {
-        const url = file.presigned_url || file.url || file.download_url
-          || file.file_url || file.original_url
-          || file.src || file.link || file.public_url || file.signed_url;
-        if (!url) return null;
-        // Test that the URL is reachable, then return it for the PDF
-        // renderer (no need to download bytes — PDFShift will fetch them).
+        const dlRes = await fetch(`${JN_BASE}/files/${fileJnid}`, { headers: jnHeaders });
+        if (!dlRes.ok) {
+          console.warn("Photo download failed for", fileJnid, ":", dlRes.status);
+          return null;
+        }
+        const buffer = await dlRes.arrayBuffer();
+        // Sanity check — make sure we got binary data, not a JSON error
+        // payload. JPEG starts with FFD8FF, PNG with 89504E47.
+        const bytes = new Uint8Array(buffer);
+        const head = bytes[0]?.toString(16) + bytes[1]?.toString(16);
+        if (!head || head.length < 2) return null;
+        const base64 = Buffer.from(buffer).toString("base64");
+        const contentType = (file.content_type || "image/jpeg");
         return {
-          presignedUrl: url,
-          thumbnailUrl: file.thumbnail_url || null,
+          base64,
+          contentType,
+          // Build a data URI the PDF renderer can use directly as an <img src>.
+          dataUri: `data:${contentType};base64,${base64}`,
         };
-      } catch { return null; }
+      } catch (e) {
+        console.warn("Photo download error for", fileJnid, ":", e.message);
+        return null;
+      }
     });
-    return (await Promise.all(photoPromises)).filter(Boolean);
+
+    const results = await Promise.all(downloads);
+    return results.filter(Boolean);
   } catch (e) {
     console.warn("fetchJobPhotos error:", e.message);
     return [];
@@ -391,12 +419,14 @@ async function renderPdfFromHtml(html) {
   return Buffer.from(buffer).toString("base64");
 }
 
-// Build a 2-row photo grid from a list of photos.
+// Build a 2-row photo grid from a list of photos. Each photo is embedded
+// as a base64 data URI so PDFShift doesn't need to fetch them from a URL
+// (which wouldn't work anyway since JN's /files endpoint requires auth).
 function renderPhotoRows(photos) {
-  const urls = photos.slice(0, 10).map(p => p.thumbnailUrl || p.presignedUrl).filter(Boolean);
+  const items = photos.slice(0, 10).map(p => p.dataUri).filter(Boolean);
   const rows = [];
-  for (let i = 0; i < urls.length; i += 2) {
-    const left = urls[i], right = urls[i + 1];
+  for (let i = 0; i < items.length; i += 2) {
+    const left = items[i], right = items[i + 1];
     rows.push(`
       <tr>
         <td style="padding:4px;width:50%;">
