@@ -2895,23 +2895,33 @@ function GuidedIntakeFlow({
       : [];
     body = (
       <div style={{ display: "grid", gap: 14 }}>
-        {/* Prominent in-your-face prompt */}
+        {/* Big in-your-face prompt — USS red palette, large type, can't
+            be skimmed past. New reps tend to glance at the screen and
+            type a customer name; this stops them cold. */}
         <div style={{
-          padding: "16px 20px",
-          background: "linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)",
-          border: "2px solid #f59e0b",
-          borderRadius: 12,
-          fontFamily: "'Nunito', sans-serif",
-          color: "#78350f",
+          padding: "24px 28px",
+          background: "linear-gradient(135deg, #c8392b 0%, #a02b1f 100%)",
+          borderRadius: 14,
+          fontFamily: "'Oswald', sans-serif",
+          color: "#fff",
+          textAlign: "center",
+          boxShadow: "0 6px 20px rgba(200, 57, 43, 0.35)",
+          border: "3px solid #fff",
+          outline: "3px solid #c8392b",
         }}>
           <div style={{
-            fontSize: 16, fontWeight: 800, marginBottom: 4,
-            fontFamily: "'Oswald', sans-serif", letterSpacing: "0.02em",
+            fontSize: 28, fontWeight: 800,
+            letterSpacing: "0.04em", textTransform: "uppercase",
+            marginBottom: 8, lineHeight: 1.15,
           }}>
-            ⚠️ Pick yourself
+            👇 Pick YOUR name
           </div>
-          <div style={{ fontSize: 13, lineHeight: 1.5 }}>
-            Or the rep this signing is being done for. Searches by name — start typing below to see results.
+          <div style={{
+            fontSize: 16, fontWeight: 600, lineHeight: 1.4,
+            fontFamily: "'Nunito', sans-serif",
+            opacity: 0.95,
+          }}>
+            Search by typing <strong>YOUR</strong> name below — not the customer's.
           </div>
         </div>
 
