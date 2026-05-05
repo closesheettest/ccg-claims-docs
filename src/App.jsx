@@ -2886,41 +2886,106 @@ function GuidedIntakeFlow({
 
   if (step === 2) {
     title = "Who's the sales rep?";
-    subtitle = "Pick yourself (or the rep this signing is being done for).";
-    const filtered = (reps || []).filter(m =>
-      !repSearch || m.name.toLowerCase().includes(repSearch.toLowerCase())
-    );
+    // Subtitle is intentionally short — the prominent prompt below the
+    // search field is what we want the rep to read.
+    subtitle = "";
+    const trimmedSearch = (repSearch || "").trim();
+    const filtered = trimmedSearch
+      ? (reps || []).filter(m => m.name.toLowerCase().includes(trimmedSearch.toLowerCase()))
+      : [];
     body = (
-      <div style={{ display: "grid", gap: 12 }}>
+      <div style={{ display: "grid", gap: 14 }}>
+        {/* Prominent in-your-face prompt */}
+        <div style={{
+          padding: "16px 20px",
+          background: "linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)",
+          border: "2px solid #f59e0b",
+          borderRadius: 12,
+          fontFamily: "'Nunito', sans-serif",
+          color: "#78350f",
+        }}>
+          <div style={{
+            fontSize: 16, fontWeight: 800, marginBottom: 4,
+            fontFamily: "'Oswald', sans-serif", letterSpacing: "0.02em",
+          }}>
+            ⚠️ Pick yourself
+          </div>
+          <div style={{ fontSize: 13, lineHeight: 1.5 }}>
+            Or the rep this signing is being done for. Searches by name — start typing below to see results.
+          </div>
+        </div>
+
         <input
           type="text"
-          placeholder="Search reps..."
+          placeholder="🔍 Type rep's name..."
           value={repSearch || ""}
           onChange={(e) => setRepSearch(e.target.value)}
-          style={{ width: "100%", height: 44, borderRadius: 12, border: "1px solid #d1d5db", padding: "0 14px", fontSize: 14, fontFamily: "'Nunito', sans-serif", boxSizing: "border-box" }}
+          autoFocus
+          style={{
+            width: "100%", height: 48, borderRadius: 12,
+            border: "2px solid #1a2e5a",
+            padding: "0 16px", fontSize: 15,
+            fontFamily: "'Nunito', sans-serif",
+            boxSizing: "border-box",
+            outline: "none",
+          }}
         />
-        <div style={{ display: "grid", gap: 8, maxHeight: 320, overflowY: "auto" }}>
-          {filtered.map(m => {
-            const active = data.salesRepName === m.name;
-            return (
-              <button key={m.jobnimbus_id || m.name} type="button"
-                style={{ ...bigChoice(active), padding: "12px 14px" }}
-                onClick={() => update({
-                  salesRepName: m.name,
-                  salesRepEmail: m.email || "",
-                  salesRepId: m.jobnimbus_id || "",
-                })}>
-                <div style={{ ...bigChoiceTitle, fontSize: 15 }}>{m.name}</div>
-                {m.email ? <div style={{ ...bigChoiceSub, fontSize: 12 }}>{m.email}</div> : null}
-              </button>
-            );
-          })}
-          {filtered.length === 0 ? (
-            <div style={{ padding: 14, color: "#9ca3af", fontSize: 13, textAlign: "center" }}>
-              No reps match "{repSearch}".
-            </div>
-          ) : null}
-        </div>
+
+        {/* Result list — only renders after rep types something. Avoids
+            the overwhelming wall-of-200-reps that was here before. */}
+        {trimmedSearch ? (
+          <div style={{ display: "grid", gap: 8, maxHeight: 360, overflowY: "auto" }}>
+            {filtered.map(m => {
+              const active = data.salesRepName === m.name;
+              return (
+                <button key={m.jobnimbus_id || m.name} type="button"
+                  style={{
+                    ...bigChoice(active),
+                    padding: "14px 18px",
+                    minHeight: "auto",
+                  }}
+                  onClick={() => update({
+                    salesRepName: m.name,
+                    salesRepEmail: m.email || "",
+                    salesRepId: m.jobnimbus_id || "",
+                  })}>
+                  <div style={{
+                    fontSize: 15, fontWeight: 700,
+                    lineHeight: 1.3, marginBottom: m.email ? 3 : 0,
+                    whiteSpace: "normal",
+                  }}>
+                    {m.name}
+                  </div>
+                  {m.email ? (
+                    <div style={{
+                      fontSize: 12, opacity: 0.85,
+                      lineHeight: 1.3, whiteSpace: "normal",
+                      wordBreak: "break-all",
+                    }}>
+                      {m.email}
+                    </div>
+                  ) : null}
+                </button>
+              );
+            })}
+            {filtered.length === 0 ? (
+              <div style={{ padding: 18, color: "#9ca3af", fontSize: 13, textAlign: "center", fontFamily: "'Nunito', sans-serif" }}>
+                No reps match "{trimmedSearch}". Try a shorter search.
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <div style={{
+            padding: "20px 16px",
+            color: "#9ca3af",
+            fontSize: 13,
+            textAlign: "center",
+            fontFamily: "'Nunito', sans-serif",
+            fontStyle: "italic",
+          }}>
+            👆 Type a name above to see matching reps.
+          </div>
+        )}
       </div>
     );
   }
@@ -3165,13 +3230,15 @@ function GuidedIntakeFlow({
 
       {/* Content area */}
       <div style={{ padding: "24px 28px 28px" }}>
-        <div style={{
-          fontSize: 14, color: "#475569",
-          marginBottom: 22, fontFamily: "'Nunito', sans-serif",
-          textAlign: "center",
-        }}>
-          {subtitle}
-        </div>
+        {subtitle ? (
+          <div style={{
+            fontSize: 14, color: "#475569",
+            marginBottom: 22, fontFamily: "'Nunito', sans-serif",
+            textAlign: "center",
+          }}>
+            {subtitle}
+          </div>
+        ) : null}
 
         <div>{body}</div>
 
