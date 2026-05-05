@@ -4737,6 +4737,101 @@ const renderSmsTemplate = (key, vars) => {
   // Uses ADDRESS+ZIP as the duplicate key — not name — because a single
   // homeowner can legitimately own multiple properties with separate jobs.
   // Returns true if the rep wants to proceed anyway, false if they cancelled.
+  // ── Load + open the My Homeowners modal ─────────────────────────
+  // Extracted from the Quick-mode button so the Guided flow can call the
+  // same fetch logic (the original lived inline in the Quick button's
+  // onClick, which meant Guided opening the modal saw an empty list).
+  // Loads inspections + claims for the current rep, merges by name+zip,
+  // and shows the result in the modal.
+  const loadAndOpenMyHomeowners = async () => {
+    setMyHomeownersOpen(true);
+    setMyHomeownersLoading(true);
+    setMyHomeownersSearch("");
+    try {
+      const repId = data.salesRepId;
+      const repName = data.salesRepName;
+      if (!repId && !repName) {
+        setMyHomeownersList([]);
+        return;
+      }
+      // Build the OR filter — only include parts that have a value to
+      // avoid generating a malformed `sales_rep_id.eq.,sales_rep_name.eq.X`
+      // query that some Postgrest versions reject.
+      const orParts = [];
+      if (repId) orParts.push(`sales_rep_id.eq.${repId}`);
+      if (repName) orParts.push(`sales_rep_name.eq.${repName}`);
+      const orFilter = orParts.join(",");
+
+      const { data: claims } = await supabase
+        .from("claims")
+        .select("id, homeowner1, homeowner2, address, city, state, zip, phone, signed_by_email, homeowner_email, signed_at, docs_signed, sales_rep_id, sales_rep_name")
+        .or(orFilter)
+        .order("signed_at", { ascending: false })
+        .limit(200);
+
+      const { data: insps } = await supabase
+        .from("inspections")
+        .select("id, client_name, address, city, state, zip, mobile, email, signed_at, docs_signed, sales_rep_id, sales_rep_name, result, cancelled_at")
+        .or(orFilter)
+        .is("cancelled_at", null)
+        .order("signed_at", { ascending: false })
+        .limit(200);
+
+      const norm = (s) => (s || "").trim().toLowerCase().replace(/\s+/g, " ");
+      const byKey = new Map();
+      for (const c of claims || []) {
+        const name = [c.homeowner1, c.homeowner2].filter(Boolean).join(" & ");
+        const key = `${norm(name.split("&")[0].trim())}|${(c.zip || "").trim()}`;
+        byKey.set(key, {
+          source: "claim",
+          claim_id: c.id,
+          name,
+          address: c.address || "",
+          city: c.city || "",
+          state: c.state || "",
+          zip: c.zip || "",
+          phone: c.phone || "",
+          email: c.signed_by_email || c.homeowner_email || "",
+          signed_at: c.signed_at,
+          docs_signed: c.docs_signed || "",
+          raw_claim: c,
+        });
+      }
+      for (const i of insps || []) {
+        const key = `${norm((i.client_name || "").split("&")[0].trim())}|${(i.zip || "").trim()}`;
+        if (!byKey.has(key)) {
+          byKey.set(key, {
+            source: "insp",
+            insp_id: i.id,
+            name: i.client_name || "",
+            address: i.address || "",
+            city: i.city || "",
+            state: i.state || "",
+            zip: i.zip || "",
+            phone: i.mobile || "",
+            email: i.email || "",
+            signed_at: i.signed_at,
+            docs_signed: i.docs_signed || "insp",
+            raw_insp: i,
+          });
+        } else {
+          byKey.get(key).insp_id = i.id;
+          byKey.get(key).raw_insp = i;
+        }
+      }
+      const merged = [...byKey.values()].sort((a, b) => {
+        const ta = a.signed_at ? new Date(a.signed_at).getTime() : 0;
+        const tb = b.signed_at ? new Date(b.signed_at).getTime() : 0;
+        return tb - ta;
+      });
+      setMyHomeownersList(merged);
+    } catch (e) {
+      alert("Could not load homeowners: " + (e.message || e));
+    } finally {
+      setMyHomeownersLoading(false);
+    }
+  };
+
   const checkForExistingByAddress = async (address, zip) => {
     const a = (address || "").trim();
     const z = (zip || "").trim();
@@ -7247,90 +7342,7 @@ if (!hasDamage) {
                         </div>
                       ) : (
                         <button type="button"
-                          onClick={async () => {
-                            setMyHomeownersOpen(true);
-                            setMyHomeownersLoading(true);
-                            setMyHomeownersSearch("");
-                            try {
-                              // Load this rep's homeowners by sales_rep_id (jn id) OR sales_rep_name
-                              // We pull from inspections AND claims to catch every signing path.
-                              const repId = data.salesRepId;
-                              const repName = data.salesRepName;
-                              const orFilter = `sales_rep_id.eq.${repId},sales_rep_name.eq.${repName}`;
-
-                              // Fetch claims for this rep (signed docs source)
-                              const { data: claims } = await supabase
-                                .from("claims")
-                                .select("id, homeowner1, homeowner2, address, city, state, zip, phone, signed_by_email, homeowner_email, signed_at, docs_signed, sales_rep_id, sales_rep_name")
-                                .or(orFilter)
-                                .order("signed_at", { ascending: false })
-                                .limit(200);
-
-                              // Fetch inspections for this rep (some inspections-only signings don't have claim rows)
-                              const { data: insps } = await supabase
-                                .from("inspections")
-                                .select("id, client_name, address, city, state, zip, mobile, email, signed_at, docs_signed, sales_rep_id, sales_rep_name, result, cancelled_at")
-                                .or(orFilter)
-                                .is("cancelled_at", null)
-                                .order("signed_at", { ascending: false })
-                                .limit(200);
-
-                              // Merge by name+zip key — claim row wins (has more data including docs_signed truth)
-                              const norm = (s) => (s || "").trim().toLowerCase().replace(/\s+/g, " ");
-                              const byKey = new Map();
-                              for (const c of claims || []) {
-                                const name = [c.homeowner1, c.homeowner2].filter(Boolean).join(" & ");
-                                const key = `${norm(name.split("&")[0].trim())}|${(c.zip || "").trim()}`;
-                                byKey.set(key, {
-                                  source: "claim",
-                                  claim_id: c.id,
-                                  name,
-                                  address: c.address || "",
-                                  city: c.city || "",
-                                  state: c.state || "",
-                                  zip: c.zip || "",
-                                  phone: c.phone || "",
-                                  email: c.signed_by_email || c.homeowner_email || "",
-                                  signed_at: c.signed_at,
-                                  docs_signed: c.docs_signed || "",
-                                  raw_claim: c,
-                                });
-                              }
-                              for (const i of insps || []) {
-                                const key = `${norm((i.client_name || "").split("&")[0].trim())}|${(i.zip || "").trim()}`;
-                                if (!byKey.has(key)) {
-                                  byKey.set(key, {
-                                    source: "insp",
-                                    insp_id: i.id,
-                                    name: i.client_name || "",
-                                    address: i.address || "",
-                                    city: i.city || "",
-                                    state: i.state || "",
-                                    zip: i.zip || "",
-                                    phone: i.mobile || "",
-                                    email: i.email || "",
-                                    signed_at: i.signed_at,
-                                    docs_signed: i.docs_signed || "insp",
-                                    raw_insp: i,
-                                  });
-                                } else {
-                                  // Both exist — attach the inspection id to the existing entry
-                                  byKey.get(key).insp_id = i.id;
-                                  byKey.get(key).raw_insp = i;
-                                }
-                              }
-                              const merged = [...byKey.values()].sort((a, b) => {
-                                const ta = a.signed_at ? new Date(a.signed_at).getTime() : 0;
-                                const tb = b.signed_at ? new Date(b.signed_at).getTime() : 0;
-                                return tb - ta;
-                              });
-                              setMyHomeownersList(merged);
-                            } catch (e) {
-                              alert("Could not load homeowners: " + (e.message || e));
-                            } finally {
-                              setMyHomeownersLoading(false);
-                            }
-                          }}
+                          onClick={() => loadAndOpenMyHomeowners()}
                           style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #1a2e5a", background: "#fff", color: "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
                           📋 My Homeowners — Add Docs to Existing Customer
                         </button>
@@ -7601,7 +7613,7 @@ if (!hasDamage) {
                   setRepSearch={setRepSearch}
                   existingInsp={existingInsp}
                   alreadySignedDocs={alreadySignedDocs}
-                  openMyHomeowners={() => setMyHomeownersOpen(true)}
+                  openMyHomeowners={() => loadAndOpenMyHomeowners()}
                   myHomeownersOpen={myHomeownersOpen}
                   onFinishToSign={() => {
                     // Hand off to the Quick-mode signing flow with the data
