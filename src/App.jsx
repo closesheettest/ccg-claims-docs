@@ -11757,18 +11757,49 @@ if (!hasDamage) {
           <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 20, overflow: "auto" }}
                onClick={() => !myHomeownersLoading && setMyHomeownersOpen(false)}>
             <div style={{ background: "#fff", borderRadius: 14, padding: "24px 28px", maxWidth: 720, width: "100%", maxHeight: "90vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: "#1a2e5a", marginBottom: 6, fontFamily: "'Oswald', sans-serif" }}>
-                📋 My Homeowners
-              </div>
-              <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 14, fontFamily: "'Nunito', sans-serif" }}>
-                Pick an existing homeowner to add additional documents (e.g. LOR/PAC after a damage finding). The system will skip docs already on file and avoid creating duplicates.
+              {/* Big in-your-face prompt — matches the "Pick yourself" card on
+                  the Sales Rep step so the visual language is consistent across
+                  the Existing-customer flow. */}
+              <div style={{
+                padding: "24px 28px",
+                background: "linear-gradient(135deg, #c8392b 0%, #a02b1f 100%)",
+                borderRadius: 14,
+                fontFamily: "'Oswald', sans-serif",
+                color: "#fff",
+                textAlign: "center",
+                boxShadow: "0 6px 20px rgba(200, 57, 43, 0.35)",
+                border: "3px solid #fff",
+                outline: "3px solid #c8392b",
+                marginBottom: 20,
+              }}>
+                <div style={{
+                  fontSize: 28, fontWeight: 800,
+                  letterSpacing: "0.04em", textTransform: "uppercase",
+                  marginBottom: 8, lineHeight: 1.15,
+                }}>
+                  👇 Pick the homeowner
+                </div>
+                <div style={{
+                  fontSize: 16, fontWeight: 600, lineHeight: 1.4,
+                  fontFamily: "'Nunito', sans-serif",
+                  opacity: 0.95,
+                }}>
+                  Search the customer's name or address. Click <strong>ADD DOCS</strong> on the right row to load them.
+                </div>
               </div>
 
               {/* Search */}
               <input type="text" value={myHomeownersSearch}
                 onChange={(e) => setMyHomeownersSearch(e.target.value)}
-                placeholder="Search by name, address, or zip..."
-                style={{ width: "100%", height: 40, borderRadius: 10, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", fontFamily: "'Nunito', sans-serif", marginBottom: 14 }}
+                placeholder="🔍 Type customer's name or address..."
+                autoFocus
+                style={{
+                  width: "100%", height: 48, borderRadius: 12,
+                  border: "2px solid #1a2e5a",
+                  padding: "0 16px", fontSize: 15, boxSizing: "border-box",
+                  fontFamily: "'Nunito', sans-serif", marginBottom: 16,
+                  outline: "none",
+                }}
               />
 
               {myHomeownersLoading ? (
