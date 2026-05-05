@@ -2615,6 +2615,8 @@ function GuidedIntakeFlow({
   data, setData,
   selectedDocs, setSelectedDocs,
   reps, repSearch, setRepSearch,
+  existingInsp, alreadySignedDocs,
+  openMyHomeowners, myHomeownersOpen,
   onFinishToSign, onCancel,
 }) {
   // Helper to update one or more fields on `data` at once
@@ -2627,18 +2629,47 @@ function GuidedIntakeFlow({
     });
   };
 
+  // When the rep is on the New/Existing step and they picked an existing
+  // homeowner via the My Homeowners modal, auto-advance to the existing-
+  // customer summary step. We watch `existingInsp` because it gets set
+  // by the modal's "Add Docs" handler (along with all the other prefill
+  // state we depend on). The modal closes itself when picked, so this is
+  // the cleanest signal that selection happened.
+  useEffect(() => {
+    if (newVsExisting === "existing" && existingInsp && step === 0) {
+      // Skip past New-customer-only steps (1 forms, 2 rep, 3 lead source,
+      // 4 homeowner, 5 address) and land on the new "existing summary"
+      // step which we anchor at index 6. Review remains the last step.
+      setStep(6);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [existingInsp, newVsExisting]);
+
   // Determine which step indices count for the progress dots. We always
   // show 7 logical steps even though some may be auto-filled depending
   // on the New vs Existing branch.
   const TOTAL_STEPS = 7;
 
   const next = () => setStep(s => Math.min(s + 1, TOTAL_STEPS - 1));
-  const back = () => setStep(s => Math.max(s - 1, 0));
+  // Back skips the New-customer steps when we're on the Existing path.
+  // The Existing flow only ever sees steps 0 and 6, so back from 6 should
+  // go straight to 0 — going to 5 would land the rep on an empty address
+  // form they have no business filling out.
+  const back = () => setStep(s => {
+    if (newVsExisting === "existing" && existingInsp && s === 6) return 0;
+    return Math.max(s - 1, 0);
+  });
 
   // ── Validation gate per step — returns null when the step is good
   //    to advance, or a user-facing message string when it's not.
   const stepError = () => {
-    if (step === 0) return newVsExisting ? null : "Pick New or Existing to continue.";
+    if (step === 0) {
+      if (!newVsExisting) return "Pick New or Existing to continue.";
+      if (newVsExisting === "existing" && !existingInsp) {
+        return "Pick a homeowner from the My Homeowners list to continue.";
+      }
+      return null;
+    }
     if (step === 1) {
       // Need at least one doc box checked
       const anyDoc = (selectedDocs || []).length > 0;
@@ -2722,10 +2753,29 @@ function GuidedIntakeFlow({
         </button>
         <button type="button"
           style={bigChoice(newVsExisting === "existing")}
-          onClick={() => setNewVsExisting("existing")}>
+          onClick={() => {
+            // Existing customer flow piggybacks on the My Homeowners modal
+            // that Quick mode already uses — that modal handles search,
+            // selection, prefilling all the homeowner data, locking already-
+            // signed forms, and setting the right currentClaimId so the
+            // submit UPDATEs the existing record instead of creating a dupe.
+            // Once the rep picks someone, our useEffect above advances to
+            // the review step automatically.
+            setNewVsExisting("existing");
+            openMyHomeowners();
+          }}>
           <div style={bigChoiceTitle}>↩️ Existing Customer</div>
-          <div style={bigChoiceSub}>They've signed before — usually inspection done, now back for LOR/PA forms.</div>
+          <div style={bigChoiceSub}>They've signed before — we'll look them up and add new forms.</div>
         </button>
+        {newVsExisting === "existing" && !existingInsp ? (
+          <div style={{ marginTop: 4, padding: "12px 16px", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, fontSize: 13, color: "#1e40af", fontFamily: "'Nunito', sans-serif" }}>
+            👉 Pick the homeowner from the My Homeowners list that just opened. Once you click <strong>Add Docs</strong>, we'll skip ahead to review their info.
+            <button type="button" onClick={openMyHomeowners}
+              style={{ marginLeft: 10, padding: "4px 10px", borderRadius: 8, border: "1px solid #1e40af", background: "#fff", color: "#1e40af", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+              Open List
+            </button>
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -2937,21 +2987,24 @@ function GuidedIntakeFlow({
   }
 
   if (step === 6) {
-    title = "Ready to sign?";
-    subtitle = "Review everything below. Tap any field to jump back and fix it.";
+    const isExisting = newVsExisting === "existing" && existingInsp;
+    title = isExisting ? "Returning customer — ready to sign?" : "Ready to sign?";
+    subtitle = isExisting
+      ? "We found this homeowner on file. Review what's already done and what we'll sign today."
+      : "Review everything below. Tap any field to jump back and fix it.";
     const row = (label, value, gotoStep) => (
-      <button type="button" onClick={() => setStep(gotoStep)}
+      <button type="button" onClick={() => gotoStep != null && setStep(gotoStep)}
         style={{
           width: "100%", textAlign: "left", padding: "12px 16px",
           background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 10,
-          cursor: "pointer", fontFamily: "'Nunito', sans-serif",
+          cursor: gotoStep != null ? "pointer" : "default", fontFamily: "'Nunito', sans-serif",
           display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12,
         }}>
         <div>
           <div style={{ fontSize: 11, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700 }}>{label}</div>
           <div style={{ fontSize: 14, color: "#111827", marginTop: 2, fontWeight: 600 }}>{value || "—"}</div>
         </div>
-        <div style={{ fontSize: 11, color: "#1a2e5a", fontWeight: 700 }}>EDIT</div>
+        {gotoStep != null ? <div style={{ fontSize: 11, color: "#1a2e5a", fontWeight: 700 }}>EDIT</div> : null}
       </button>
     );
     const docsList = (selectedDocs || []).map(d => {
@@ -2960,21 +3013,65 @@ function GuidedIntakeFlow({
       if (d === "pac") return "PA";
       return d;
     }).join(", ");
-    body = (
-      <div style={{ display: "grid", gap: 10 }}>
-        {row("Customer type", newVsExisting === "new" ? "New" : "Existing", 0)}
-        {row("Forms today", docsList, 1)}
-        {row("Sales rep", data.salesRepName, 2)}
-        {row("Lead source", data.leadSource, 3)}
-        {row("Homeowner", [data.homeowner1, data.homeowner2].filter(Boolean).join(" & "), 4)}
-        {row("Phone", data.phone, 4)}
-        {row("Email", data.signerEmail, 4)}
-        {row("Address", [data.address, data.city, data.state, data.zip].filter(Boolean).join(", "), 5)}
-        <div style={{ marginTop: 12, padding: "12px 16px", background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: 10, fontSize: 13, color: "#065f46" }}>
-          ✅ Looks good? Hit <strong>Continue to Sign</strong> below — that'll take you to the signing screen with all this info pre-filled.
+
+    if (isExisting) {
+      // Existing-customer path — homeowner data already populated by the
+      // My Homeowners modal, alreadySignedDocs lists what's on file. We
+      // show the homeowner read-only and call out what's done vs what's
+      // being signed today, so the rep can sanity-check before continuing.
+      const docPill = (key, label) => {
+        const already = (alreadySignedDocs || []).includes(key);
+        const today = !already && (selectedDocs || []).includes(key);
+        const bg = already ? "#dcfce7" : today ? "#dbeafe" : "#f3f4f6";
+        const color = already ? "#15803d" : today ? "#1e40af" : "#9ca3af";
+        const icon = already ? "✓" : today ? "✎" : "○";
+        const status = already ? "ALREADY SIGNED" : today ? "SIGNING TODAY" : "—";
+        return (
+          <div style={{ padding: "12px 14px", background: bg, borderRadius: 10, display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color, width: 22, textAlign: "center" }}>{icon}</div>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>{label}</div>
+              <div style={{ fontSize: 11, color, fontWeight: 700, letterSpacing: "0.05em", fontFamily: "'Oswald', sans-serif" }}>{status}</div>
+            </div>
+          </div>
+        );
+      };
+      body = (
+        <div style={{ display: "grid", gap: 10 }}>
+          {row("Homeowner", [data.homeowner1, data.homeowner2].filter(Boolean).join(" & "), null)}
+          {row("Address", [data.address, data.city, data.state, data.zip].filter(Boolean).join(", "), null)}
+          {row("Sales rep", data.salesRepName, null)}
+          <div style={{ marginTop: 4, padding: "14px 16px", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10 }}>
+            <div style={{ fontSize: 11, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700, marginBottom: 10 }}>Forms</div>
+            <div style={{ display: "grid", gap: 8 }}>
+              {docPill("insp", "Free Roof Inspection")}
+              {docPill("lor",  "Letter of Representation")}
+              {docPill("pac",  "PA Authorization")}
+            </div>
+          </div>
+          <div style={{ marginTop: 8, padding: "12px 16px", background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: 10, fontSize: 13, color: "#065f46" }}>
+            ✅ Hit <strong>Continue to Sign</strong> to sign the highlighted forms with this customer.
+          </div>
         </div>
-      </div>
-    );
+      );
+    } else {
+      // New-customer path — full review with all collected fields
+      body = (
+        <div style={{ display: "grid", gap: 10 }}>
+          {row("Customer type", "New", 0)}
+          {row("Forms today", docsList, 1)}
+          {row("Sales rep", data.salesRepName, 2)}
+          {row("Lead source", data.leadSource, 3)}
+          {row("Homeowner", [data.homeowner1, data.homeowner2].filter(Boolean).join(" & "), 4)}
+          {row("Phone", data.phone, 4)}
+          {row("Email", data.signerEmail, 4)}
+          {row("Address", [data.address, data.city, data.state, data.zip].filter(Boolean).join(", "), 5)}
+          <div style={{ marginTop: 12, padding: "12px 16px", background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: 10, fontSize: 13, color: "#065f46" }}>
+            ✅ Looks good? Hit <strong>Continue to Sign</strong> below — that'll take you to the signing screen with all this info pre-filled.
+          </div>
+        </div>
+      );
+    }
   }
 
   // ── Render frame ─────────────────────────────────────────────
@@ -7384,6 +7481,10 @@ if (!hasDamage) {
                   reps={reps}
                   repSearch={repSearch}
                   setRepSearch={setRepSearch}
+                  existingInsp={existingInsp}
+                  alreadySignedDocs={alreadySignedDocs}
+                  openMyHomeowners={() => setMyHomeownersOpen(true)}
+                  myHomeownersOpen={myHomeownersOpen}
                   onFinishToSign={() => {
                     // Hand off to the Quick-mode signing flow with the data
                     // already populated. Quick mode is what currently knows
