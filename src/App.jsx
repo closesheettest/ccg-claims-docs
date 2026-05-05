@@ -757,8 +757,8 @@ function CardDescription({ children }) {
   );
 }
 
-function CardContent({ children }) {
-  return <div style={{ padding: 24, paddingTop: 12 }}>{children}</div>;
+function CardContent({ children, style }) {
+  return <div style={{ padding: 24, paddingTop: 12, ...(style || {}) }}>{children}</div>;
 }
 
 function Label({ children }) {
