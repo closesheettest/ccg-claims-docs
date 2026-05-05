@@ -3403,14 +3403,17 @@ export default function App() {
           .lte("signed_at", end)
           .order("signed_at", { ascending: false }),
         supabase.from("inspections")
-          .select("id, client_name, address, city, state, zip, signed_at, sales_rep_name, sales_rep_email")
+          .select("id, client_name, address, city, state, zip, signed_at, sales_rep_name, sales_rep_email, docs_signed")
           .gte("signed_at", start)
           .lte("signed_at", end)
           .is("cancelled_at", null)
           .order("signed_at", { ascending: false }),
         // All inspections ever — small table, used to backfill prior-period insp dates
+        // and (critically) to read docs_signed when the matching claim has been
+        // dedup'd away. Find Duplicates merges claim docs_signed into the inspection
+        // master, so without docs_signed here the report would undercount LOR/PAC.
         supabase.from("inspections")
-          .select("id, client_name, address, city, state, zip, signed_at, sales_rep_name")
+          .select("id, client_name, address, city, state, zip, signed_at, sales_rep_name, docs_signed")
           .not("signed_at", "is", null)
           .is("cancelled_at", null)
           .order("signed_at", { ascending: false })
@@ -3519,12 +3522,22 @@ export default function App() {
           c.zip,
           [c.address, c.city, c.state].filter(Boolean).join(", ")
         );
-        const docs = (c.docs_signed || "").split(",").filter(Boolean);
-        // If docs_signed is empty, assume the claim was all three signed at once
-        const assumedAll = docs.length === 0;
-        const inspOnClaim = assumedAll || docs.includes("insp");
-        const lorOnClaim  = assumedAll || docs.includes("lor");
-        const pacOnClaim  = assumedAll || docs.includes("pac");
+        // Pull docs_signed from BOTH the claim AND any matching inspection.
+        // Find Duplicates merges sibling claims into the inspection master and
+        // moves docs_signed there — so a claim row signed in this period might
+        // genuinely be missing LOR/PAC entries that were rolled into the
+        // inspection during a previous dedup pass. Union both sources.
+        const inspMatch = inspByKey[key];
+        const claimDocs = (c.docs_signed || "").split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+        const inspDocs  = (inspMatch?.docs_signed || "").split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+        const unionedDocs = [...new Set([...claimDocs, ...inspDocs])];
+        // If both sources are empty, fall back to "all three" (legacy claims
+        // sometimes wrote a row with no docs_signed value when everything
+        // was signed in one shot).
+        const assumedAll = unionedDocs.length === 0;
+        const inspOnClaim = assumedAll || unionedDocs.includes("insp");
+        const lorOnClaim  = assumedAll || unionedDocs.includes("lor");
+        const pacOnClaim  = assumedAll || unionedDocs.includes("pac");
 
         // Determine insp status:
         // - If this claim includes "insp" → signed this period via the claim flow
@@ -3563,9 +3576,19 @@ export default function App() {
       // don't have a claim yet (no merged entry).
       // Note: inspsInRange is already filtered to non-cancelled, so these
       // rows are inherently active. cancelled stays false.
+      //
+      // Critically, we now also read docs_signed from the inspection record
+      // here — Find Duplicates merges sibling claim docs_signed into the
+      // inspection master and deletes the claim, so an "insp-only" row may
+      // still legitimately have LOR/PAC if the dedup tool moved them over.
+      // If we ignored docs_signed here, those signings would silently drop
+      // off the pay report and reps would be undercompensated.
       for (const i of inspsInRange) {
         const key = normKey(i.client_name, i.zip, [i.address, i.city, i.state].filter(Boolean).join(", "));
         if (merged.has(key)) continue; // claim row already covers this
+        const inspDocs = (i.docs_signed || "").split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+        const lorOnInsp = inspDocs.includes("lor");
+        const pacOnInsp = inspDocs.includes("pac");
         merged.set(key, {
           name: i.client_name || "—",
           address: [i.address, i.city, i.state].filter(Boolean).join(", "),
@@ -3573,8 +3596,8 @@ export default function App() {
           signedAt: i.signed_at,
           inspStatus: "current",
           inspSignedAt: i.signed_at,
-          lorStatus: "none",
-          pacStatus: "none",
+          lorStatus: lorOnInsp ? "current" : "none",
+          pacStatus: pacOnInsp ? "current" : "none",
           cancelled: false,
           cancelledAt: null,
         });
