@@ -21,45 +21,46 @@ exports.handler = async (event) => {
     return { statusCode: 400, body: JSON.stringify({ error: "Pass ?jnid=jobid" }) };
   }
 
-  const out = { jnid, queries: {} };
+  const out = { jnid };
 
-  // Try several variants of the files query so we can see what works
-  const variants = [
-    { name: "type=2 (image)", url: `${JN_BASE}/files?related=${jnid}&type=2&size=50` },
-    { name: "type=1 (document)", url: `${JN_BASE}/files?related=${jnid}&type=1&size=50` },
-    { name: "no type filter", url: `${JN_BASE}/files?related=${jnid}&size=50` },
-    { name: "no params", url: `${JN_BASE}/files?related=${jnid}` },
-  ];
+  // 1) List files for the job — same as before
+  try {
+    const r = await fetch(`${JN_BASE}/files?related=${jnid}&type=2&size=50`, { headers: jnHeaders });
+    const data = await r.json();
+    const files = data.files || data.data || data.results || [];
+    out.listEndpoint = {
+      status: r.status,
+      fileCount: files.length,
+      firstFile: files[0] || null,
+    };
 
-  for (const v of variants) {
-    try {
-      const r = await fetch(v.url, { headers: jnHeaders });
-      const text = await r.text();
-      let parsed;
-      try { parsed = JSON.parse(text); }
-      catch { parsed = { raw: text.slice(0, 500) }; }
-
-      const files = parsed.data || parsed.files || parsed.results || [];
-      out.queries[v.name] = {
-        url: v.url,
-        status: r.status,
-        topLevelKeys: Object.keys(parsed),
-        fileCount: Array.isArray(files) ? files.length : "not-array",
-        firstThreeFiles: Array.isArray(files) ? files.slice(0, 3).map(f => ({
-          jnid: f.jnid || f.id,
-          filename: f.filename || f.name,
-          content_type: f.content_type,
-          type: f.type,
-          // Show every URL-ish field so we can see what's available
-          urlFields: Object.keys(f).filter(k =>
-            k.toLowerCase().includes("url") || k === "src" || k === "link"
-          ).reduce((acc, k) => { acc[k] = f[k]; return acc; }, {}),
-          allKeys: Object.keys(f),
-        })) : null,
-      };
-    } catch (e) {
-      out.queries[v.name] = { error: e.message };
+    // 2) If there's at least one file, hit GET /files/{jnid} on it to see
+    //    the full detail shape (with download URL fields)
+    if (files[0]?.jnid) {
+      try {
+        const fileJnid = files[0].jnid;
+        const dr = await fetch(`${JN_BASE}/files/${fileJnid}`, { headers: jnHeaders });
+        const dtext = await dr.text();
+        let dparsed;
+        try { dparsed = JSON.parse(dtext); }
+        catch { dparsed = { raw: dtext.slice(0, 500) }; }
+        out.detailEndpoint = {
+          url: `${JN_BASE}/files/${fileJnid}`,
+          status: dr.status,
+          allKeys: dparsed && typeof dparsed === "object" ? Object.keys(dparsed) : null,
+          urlFields: dparsed && typeof dparsed === "object"
+            ? Object.keys(dparsed).filter(k =>
+                k.toLowerCase().includes("url") || k === "src" || k === "link" || k === "data"
+              ).reduce((acc, k) => { acc[k] = dparsed[k]; return acc; }, {})
+            : null,
+          fullResponse: dparsed,
+        };
+      } catch (e) {
+        out.detailEndpoint = { error: e.message };
+      }
     }
+  } catch (e) {
+    out.listEndpoint = { error: e.message };
   }
 
   return {
