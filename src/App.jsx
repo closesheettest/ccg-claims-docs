@@ -2712,19 +2712,46 @@ function GuidedIntakeFlow({
     subtitle = "You can pick more than one if multiple forms are being signed at the same visit.";
     const opt = (key, emoji, label, sub) => {
       const active = (selectedDocs || []).includes(key);
+      // Make the selected state unmistakable: thick green border, light green
+      // background, drop shadow, and an explicit "SELECTED" pill in the corner.
+      // Unselected stays calm/neutral so the active one stands out by contrast.
+      const cardStyle = active
+        ? {
+            width: "100%", padding: "20px 22px", borderRadius: 14,
+            border: "3px solid #16a34a",
+            background: "#f0fdf4",
+            cursor: "pointer", textAlign: "left", fontFamily: "'Nunito', sans-serif",
+            boxShadow: "0 4px 12px rgba(22, 163, 74, 0.18)",
+            transition: "all 0.15s",
+            position: "relative",
+          }
+        : {
+            width: "100%", padding: "20px 22px", borderRadius: 14,
+            border: "2px solid #e5e7eb",
+            background: "#fff",
+            cursor: "pointer", textAlign: "left", fontFamily: "'Nunito', sans-serif",
+            opacity: 0.85,
+            transition: "all 0.15s",
+            position: "relative",
+          };
+      const checkBox = active
+        ? { width: 32, height: 32, borderRadius: 8, background: "#16a34a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0, fontWeight: 800 }
+        : { width: 32, height: 32, borderRadius: 8, background: "#fff", border: "2px solid #d1d5db", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 };
       return (
-        <button type="button"
-          style={bigChoice(active)}
-          onClick={() => toggleDoc(key)}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{
-              width: 28, height: 28, borderRadius: 8,
-              background: active ? "#1a2e5a" : "#f3f4f6",
-              color: "#fff", display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 16, flexShrink: 0,
-            }}>{active ? "✓" : ""}</div>
+        <button type="button" style={cardStyle} onClick={() => toggleDoc(key)}>
+          {active ? (
+            <span style={{
+              position: "absolute", top: 10, right: 12,
+              padding: "2px 8px", borderRadius: 6,
+              background: "#16a34a", color: "#fff",
+              fontSize: 10, fontWeight: 700, letterSpacing: "0.06em",
+              fontFamily: "'Oswald', sans-serif",
+            }}>✓ SELECTED</span>
+          ) : null}
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <div style={checkBox}>{active ? "✓" : ""}</div>
             <div style={{ flex: 1 }}>
-              <div style={bigChoiceTitle}>{emoji} {label}</div>
+              <div style={{ ...bigChoiceTitle, color: active ? "#15803d" : "#111827" }}>{emoji} {label}</div>
               <div style={bigChoiceSub}>{sub}</div>
             </div>
           </div>
@@ -6473,7 +6500,17 @@ if (!hasDamage) {
                 >⚡ Quick</button>
                 <button
                   type="button"
-                  onClick={() => { setIntakeMode("guided"); setGuidedStep(0); setGuidedNewVsExisting(null); }}
+                  onClick={() => {
+                    setIntakeMode("guided");
+                    setGuidedStep(0);
+                    setGuidedNewVsExisting(null);
+                    // Start the interview with inspection-only selected.
+                    // The rep explicitly opts into LOR/PA on step 1 — that
+                    // matches the most common signing pattern (insp first
+                    // visit, LOR/PA later) and avoids the rep accidentally
+                    // signing more forms than the homeowner agreed to.
+                    setSelectedDocs(["insp"]);
+                  }}
                   style={{
                     padding: "8px 18px", borderRadius: 999, border: "none",
                     background: intakeMode === "guided" ? "#1a2e5a" : "transparent",
