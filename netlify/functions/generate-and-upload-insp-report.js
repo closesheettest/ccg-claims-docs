@@ -112,10 +112,10 @@ exports.handler = async (event) => {
   }
 
   // ── 5. Build the PDF ─────────────────────────────────────────────
-  // For Damage we generate the full 2-page certificate (page 1 cert with FAIL
-  // findings, page 2 photo grid). For No Damage / Retail there's no FAIL'ed
-  // findings template, so we generate a 1-page photo report with a header
-  // tailored to the result.
+  // Damage and Retail both get the full 2-page certificate (page 1 cert
+  // with findings table, page 2 photo grid) — they just use different
+  // findings rows and damage-status copy. No Damage falls back to the
+  // simpler 1-page photo report since there's nothing to certify.
   const reportDate = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
   const record = {
     address: job.address_line1 || "",
@@ -129,6 +129,8 @@ exports.handler = async (event) => {
   try {
     if (resultLabel === "Damage") {
       pdfBase64 = await generateDamagePDF({ clientName, address, repName, date: reportDate, photos, record });
+    } else if (resultLabel === "Retail") {
+      pdfBase64 = await generateRetailPDF({ clientName, address, repName, date: reportDate, photos, record });
     } else {
       pdfBase64 = await generatePhotoReportPDF({ clientName, address, repName, date: reportDate, photos, resultLabel });
     }
@@ -188,9 +190,16 @@ async function fetchJobPhotos(jnJobId) {
     const files = data.files || data.data || data.results || [];
     const imageFiles = files.filter(f => (f.content_type || "").startsWith("image/"));
 
+    // Sort newest-first so the LAST 10 uploaded photos (the actual inspection
+    // photos) win out over older photos like lead-source pictures. JN file
+    // objects expose `date_created` as a Unix timestamp; fall back to other
+    // common date fields, and to original list order if no dates are present.
+    const ts = (f) => Number(f.date_created || f.date_uploaded || f.date_added || 0);
+    const sorted = [...imageFiles].sort((a, b) => ts(b) - ts(a));
+
     // Limit to 10 photos — the certificate template's photo grid is
     // designed for 10 max. More than that won't fit on one page anyway.
-    const downloads = imageFiles.slice(0, 10).map(async (file) => {
+    const downloads = sorted.slice(0, 10).map(async (file) => {
       const fileJnid = file.jnid || file.id;
       if (!fileJnid) return null;
       try {
@@ -241,6 +250,22 @@ const INSP_ROWS_DAMAGE = [
   { category: "Overall Structural Integrity", finding: "Structural damage confirmed — replacement required", result: "FAIL" },
 ];
 
+// Retail variant — roof needs replacement but no storm damage was found,
+// so the homeowner is a retail (non-insurance) sale. Findings call out
+// age/wear-driven failures rather than storm damage.
+const INSP_ROWS_RETAIL = [
+  { category: "Roofing Material Type",       finding: "Asphalt Shingle",                                    result: "N/A"  },
+  { category: "Shingle Condition",            finding: "Significant granular loss, extremely brittle, seal failures.", result: "FAIL" },
+  { category: "Metal Panel Condition",        finding: "N/A",                                                result: "N/A"  },
+  { category: "Flashing & Sealants",          finding: "Sun and temperature erosion",                        result: "FAIL" },
+  { category: "Gutters & Downspouts",         finding: "N/A",                                                result: "N/A"  },
+  { category: "Ridge & Hip Caps",             finding: "Significant granular loss, extremely brittle.",      result: "FAIL" },
+  { category: "Roof Deck (Visible)",          finding: "Unknown",                                            result: "N/A"  },
+  { category: "Ventilation",                  finding: "Painted over soffit vents",                          result: "FAIL" },
+  { category: "Water Intrusion / Leaks",      finding: "Not assessed at enrollment.",                        result: "N/A"  },
+  { category: "Overall Structural Integrity", finding: "Poor",                                               result: "FAIL" },
+];
+
 // ── Date helpers ─────────────────────────────────────────────────────
 function fmtDateLong(dateStr) {
   if (!dateStr) return "";
@@ -267,14 +292,19 @@ function escapeHtml(s) {
   return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-// ── Build certificate HTML (page 1 of the Damage PDF) ────────────────
+// ── Build certificate HTML (page 1 of the Damage/Retail PDF) ─────────
 // Copied from inspection-checker.js. Renders the formal certificate page
 // with company logo, findings table, signature, etc.
-function buildCertificateHTML({ record, inspectorName, inspectionDateISO, logoUrl, signatureUrl }) {
+//
+// `variant` controls findings rows, the certification statement, and the
+// damage-status banner — "damage" calls out storm damage and PA notification,
+// "retail" calls out a failed inspection without storm damage (retail sale).
+function buildCertificateHTML({ record, inspectorName, inspectionDateISO, logoUrl, signatureUrl, variant = "damage" }) {
   const today = inspectionDateISO || new Date().toISOString().split("T")[0];
   const certNo = genCertNo(today);
   const inspector = inspectorName || "Hank Smith";
-  const rows = INSP_ROWS_DAMAGE;
+  const isRetail = variant === "retail";
+  const rows = isRetail ? INSP_ROWS_RETAIL : INSP_ROWS_DAMAGE;
 
   const addr = escapeHtml(record.address || "");
   const cityLine = escapeHtml([record.city, record.state, record.zip].filter(Boolean).join(", "));
@@ -335,7 +365,9 @@ function buildCertificateHTML({ record, inspectorName, inspectionDateISO, logoUr
       <div style="margin:8px 14px;border:2px solid #1a2e5a;border-radius:4px;padding:9px 13px;background:#fff5f5;">
         <div style="font-size:12px;font-weight:700;color:#1a2e5a;text-align:center;margin-bottom:5px;text-transform:uppercase;">OFFICIAL CERTIFICATION STATEMENT</div>
         <div style="font-size:10.5px;line-height:1.65;color:#111827;text-align:center;">
-          This is to certify that a thorough roofing inspection was conducted by U.S. Shingle and Metal LLC on the above-referenced property. Based on the findings, the roof system has been evaluated and <strong>STORM DAMAGE HAS BEEN IDENTIFIED</strong>. The roof system requires immediate attention. A licensed Public Adjuster has been notified to assist with the insurance claims process.
+          ${isRetail
+            ? `This is to certify that a thorough roofing inspection was conducted by U.S. Shingle and Metal LLC on the above-referenced property. Based on the findings, the roof system has been evaluated. The roof system requires immediate attention. It has <strong>FAILED INSPECTION</strong> in multiple areas.`
+            : `This is to certify that a thorough roofing inspection was conducted by U.S. Shingle and Metal LLC on the above-referenced property. Based on the findings, the roof system has been evaluated and <strong>STORM DAMAGE HAS BEEN IDENTIFIED</strong>. The roof system requires immediate attention. A licensed Public Adjuster has been notified to assist with the insurance claims process.`}
         </div>
       </div>
 
@@ -358,9 +390,9 @@ function buildCertificateHTML({ record, inspectorName, inspectionDateISO, logoUr
           <div style="font-size:8.5px;color:#c8392b;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;">ESTIMATED REMAINING ROOF LIFE:</div>
           <div style="font-size:14px;font-weight:700;color:#fff;">Needs Replacement</div>
         </div>
-        <div style="background:#dc2626;padding:9px 13px;text-align:center;border-right:2px solid #fff;display:flex;flex-direction:column;align-items:center;justify-content:center;">
-          <div style="font-size:9.5px;font-weight:700;color:rgba(255,255,255,0.85);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;">DAMAGE STATUS</div>
-          <div style="font-size:20px;font-weight:700;color:#fff;">DAMAGE FOUND</div>
+        <div style="background:${isRetail ? "#6b7280" : "#dc2626"};padding:9px 13px;text-align:center;border-right:2px solid #fff;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+          <div style="font-size:9.5px;font-weight:700;color:rgba(255,255,255,0.85);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;">${isRetail ? "STORM DAMAGE STATUS" : "DAMAGE STATUS"}</div>
+          <div style="font-size:20px;font-weight:700;color:#fff;">${isRetail ? "NONE FOUND" : "DAMAGE FOUND"}</div>
         </div>
         <div style="background:#c8392b;padding:9px 13px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;">
           <div style="font-size:9.5px;font-weight:700;color:rgba(255,255,255,0.85);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;">CERT. INSPECTED ON</div>
@@ -442,6 +474,18 @@ function renderPhotoRows(photos) {
 
 // ── Damage PDF: 2 pages (certificate + photo grid) ───────────────────
 async function generateDamagePDF({ clientName, address, repName, date, photos, record }) {
+  return buildCertificatePdf({ clientName, address, date, photos, record, variant: "damage" });
+}
+
+// ── Retail PDF: 2 pages (certificate + photo grid) ───────────────────
+// Same layout as Damage but with retail-specific findings rows and a
+// "STORM DAMAGE STATUS: NONE FOUND" banner — the roof needs replacement
+// but no storm damage was identified, so the customer is a retail sale.
+async function generateRetailPDF({ clientName, address, repName, date, photos, record }) {
+  return buildCertificatePdf({ clientName, address, date, photos, record, variant: "retail" });
+}
+
+async function buildCertificatePdf({ clientName, address, date, photos, record, variant }) {
   const logoUrl = `${BASE_URL}/uss-header.png`;
   const signatureUrl = `${BASE_URL}/rep-signature.png`;
   const inspectionDateISO = new Date().toISOString().split("T")[0];
@@ -451,6 +495,7 @@ async function generateDamagePDF({ clientName, address, repName, date, photos, r
     inspectionDateISO,
     logoUrl,
     signatureUrl,
+    variant,
   });
 
   const photoRows = renderPhotoRows(photos);
