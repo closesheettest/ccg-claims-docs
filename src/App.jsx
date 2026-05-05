@@ -3197,8 +3197,31 @@ function GuidedIntakeFlow({
               {docPill("pac",  "PA Authorization")}
             </div>
           </div>
-          <div style={{ marginTop: 8, padding: "14px 18px", background: "#ecfdf5", border: "2px solid #a7f3d0", borderRadius: 12, fontSize: 14, color: "#065f46", fontFamily: "'Nunito', sans-serif", fontWeight: 600, textAlign: "center" }}>
-            ✅ Hit <strong>Continue to Sign</strong> below to sign the highlighted forms with this customer.
+          <div style={{
+            marginTop: 12, padding: "20px 24px",
+            background: "linear-gradient(135deg, #c8392b 0%, #a02b1f 100%)",
+            borderRadius: 14,
+            border: "3px solid #fff",
+            outline: "3px solid #c8392b",
+            boxShadow: "0 6px 20px rgba(200, 57, 43, 0.35)",
+            color: "#fff",
+            textAlign: "center",
+            fontFamily: "'Oswald', sans-serif",
+          }}>
+            <div style={{
+              fontSize: 22, fontWeight: 800,
+              letterSpacing: "0.04em", textTransform: "uppercase",
+              marginBottom: 6, lineHeight: 1.2,
+            }}>
+              👇 Tap Continue to Sign
+            </div>
+            <div style={{
+              fontSize: 14, fontWeight: 600, lineHeight: 1.4,
+              fontFamily: "'Nunito', sans-serif",
+              opacity: 0.95,
+            }}>
+              Sign the highlighted forms with this customer.
+            </div>
           </div>
         </div>
       );
@@ -3316,7 +3339,17 @@ function GuidedIntakeFlow({
               Next →
             </button>
           ) : (
-            <button type="button" style={navBtn(true, !!err)} disabled={!!err} onClick={() => { if (!err) onFinishToSign(); }}>
+            <button type="button"
+              disabled={!!err}
+              onClick={() => { if (!err) onFinishToSign(); }}
+              style={{
+                ...navBtn(true, !!err),
+                padding: "16px 36px",
+                fontSize: 17,
+                letterSpacing: "0.08em",
+                boxShadow: !err ? "0 8px 24px rgba(200, 57, 43, 0.4), 0 0 0 4px rgba(200, 57, 43, 0.15)" : "none",
+                transform: !err ? "scale(1.02)" : "none",
+              }}>
               ✓ Continue to Sign
             </button>
           )}
