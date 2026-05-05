@@ -2636,7 +2636,7 @@ function GuidedIntakeFlow({
   // state we depend on). The modal closes itself when picked, so this is
   // the cleanest signal that selection happened.
   useEffect(() => {
-    if (newVsExisting === "existing" && existingInsp && step === 0) {
+    if (newVsExisting === "existing" && existingInsp && step !== 6) {
       // Skip past New-customer-only steps (1 forms, 2 rep, 3 lead source,
       // 4 homeowner, 5 address) and land on the new "existing summary"
       // step which we anchor at index 6. Review remains the last step.
@@ -2645,12 +2645,35 @@ function GuidedIntakeFlow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [existingInsp, newVsExisting]);
 
+  // For the Existing-customer path: if the rep arrived at the Sales Rep
+  // step because they didn't have a rep set when clicking Existing, open
+  // the My Homeowners modal automatically once they pick one. The modal
+  // filters by rep, so it can't be opened until rep is known.
+  useEffect(() => {
+    if (
+      newVsExisting === "existing" &&
+      step === 2 &&
+      (data.salesRepName || data.salesRepId) &&
+      !existingInsp &&
+      !myHomeownersOpen
+    ) {
+      openMyHomeowners();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.salesRepName, data.salesRepId, step, newVsExisting]);
+
   // Determine which step indices count for the progress dots. We always
   // show 7 logical steps even though some may be auto-filled depending
   // on the New vs Existing branch.
   const TOTAL_STEPS = 7;
 
-  const next = () => setStep(s => Math.min(s + 1, TOTAL_STEPS - 1));
+  const next = () => setStep(s => {
+    // Existing path on step 0 jumps to the rep selection (step 2). The
+    // forms step (1) doesn't apply because the My Homeowners modal sets
+    // selectedDocs to whichever forms are still unsigned for that customer.
+    if (s === 0 && newVsExisting === "existing" && !existingInsp) return 2;
+    return Math.min(s + 1, TOTAL_STEPS - 1);
+  });
   // Back skips the New-customer steps when we're on the Existing path.
   // The Existing flow only ever sees steps 0 and 6, so back from 6 should
   // go straight to 0 — going to 5 would land the rep on an empty address
@@ -2665,9 +2688,11 @@ function GuidedIntakeFlow({
   const stepError = () => {
     if (step === 0) {
       if (!newVsExisting) return "Pick New or Existing to continue.";
-      if (newVsExisting === "existing" && !existingInsp) {
+      if (newVsExisting === "existing" && !existingInsp && (data.salesRepName || data.salesRepId)) {
+        // Rep is set, so they should have picked a homeowner from the modal
         return "Pick a homeowner from the My Homeowners list to continue.";
       }
+      // Otherwise (rep not set yet) Next routes them through the rep step
       return null;
     }
     if (step === 1) {
@@ -2759,21 +2784,37 @@ function GuidedIntakeFlow({
             // selection, prefilling all the homeowner data, locking already-
             // signed forms, and setting the right currentClaimId so the
             // submit UPDATEs the existing record instead of creating a dupe.
-            // Once the rep picks someone, our useEffect above advances to
-            // the review step automatically.
+            //
+            // BUT — the My Homeowners modal filters by the current rep's
+            // sales_rep_id/sales_rep_name. If we don't know who the rep is,
+            // the list is empty. So when rep isn't set, route through the
+            // rep-selection step first; the useEffect below will reopen the
+            // modal once the rep gets picked.
             setNewVsExisting("existing");
-            openMyHomeowners();
+            if (data.salesRepName || data.salesRepId) {
+              openMyHomeowners();
+            } else {
+              // Jump to the rep step (index 2). The auto-open useEffect
+              // catches the rep being set and opens the modal then.
+              setStep(2);
+            }
           }}>
           <div style={bigChoiceTitle}>↩️ Existing Customer</div>
           <div style={bigChoiceSub}>They've signed before — we'll look them up and add new forms.</div>
         </button>
         {newVsExisting === "existing" && !existingInsp ? (
           <div style={{ marginTop: 4, padding: "12px 16px", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, fontSize: 13, color: "#1e40af", fontFamily: "'Nunito', sans-serif" }}>
-            👉 Pick the homeowner from the My Homeowners list that just opened. Once you click <strong>Add Docs</strong>, we'll skip ahead to review their info.
-            <button type="button" onClick={openMyHomeowners}
-              style={{ marginLeft: 10, padding: "4px 10px", borderRadius: 8, border: "1px solid #1e40af", background: "#fff", color: "#1e40af", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-              Open List
-            </button>
+            {data.salesRepName || data.salesRepId ? (
+              <>
+                👉 Pick the homeowner from the My Homeowners list that just opened. Once you click <strong>Add Docs</strong>, we'll skip ahead to review.
+                <button type="button" onClick={openMyHomeowners}
+                  style={{ marginLeft: 10, padding: "4px 10px", borderRadius: 8, border: "1px solid #1e40af", background: "#fff", color: "#1e40af", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  Open List
+                </button>
+              </>
+            ) : (
+              <>👉 First we need to know who the sales rep is — we'll look up customers under that rep's name. Click <strong>Next</strong>.</>
+            )}
           </div>
         ) : null}
       </div>
