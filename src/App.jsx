@@ -3568,6 +3568,19 @@ export default function App() {
   const [jnReportJnid, setJnReportJnid] = useState("");
   const [jnReportSending, setJnReportSending] = useState(false);
 
+  // ── Bulk Inspection Reports state ──────────────────────────────
+  // Manager picks a status (Damage / No Damage / Retail) and runs the
+  // per-job insp report generator across every matching JN job. The
+  // candidates list is fetched first so the user can review what will
+  // be processed; the actual run is a background function that returns
+  // immediately and writes progress to Netlify logs.
+  const [bulkResult, setBulkResult] = useState("Retail");
+  const [bulkSinceDays, setBulkSinceDays] = useState(30);
+  const [bulkSkipExisting, setBulkSkipExisting] = useState(true);
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkRunning, setBulkRunning] = useState(false);
+  const [bulkCandidates, setBulkCandidates] = useState(null); // null = not loaded; [] = loaded empty
+
   // ── Resend Signed Documents modal state ────────────────────────
   // Lets admin re-send archived PDFs to any email address (PA, office,
   // homeowner, or a typed-in custom address). For records that haven't
@@ -9008,6 +9021,7 @@ if (!hasDamage) {
                         { key: "browseall", emoji: "📚", label: "Browse All Records", desc: "Step through every record one-by-one to verify accuracy" },
                         { key: "dupes", emoji: "👯", label: "Find Duplicates", desc: "Address-based deduper — pick which to keep, delete the rest" },
                         { key: "jnreport", emoji: "📄", label: "JN Inspection Report", desc: "Generate insp report PDF with photos and upload to JN" },
+                        { key: "bulkreport", emoji: "📦", label: "Bulk Inspection Reports", desc: "Run insp reports across every JN job with a chosen status" },
                       ].map(item => (
                         <button key={item.key} type="button" onClick={() => setManagerSection(item.key)}
                           style={{ padding: "24px 20px", borderRadius: 20, border: "2px solid #e5e7eb", background: "#fff", textAlign: "left", cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
@@ -11613,6 +11627,179 @@ if (!hasDamage) {
                       }}>
                       {jnReportSending ? "Generating & uploading..." : "📄 Generate & Upload to JN"}
                     </button>
+                  </Card>}
+
+                  {/* Bulk Inspection Reports — runs the per-job report
+                      generator across every JN job with a chosen status.
+                      Two-step UX: load candidates (fast list) → review →
+                      kick off the background run. */}
+                  {managerSection === "bulkreport" && <Card style={{ padding: 20, background: "#f8fafc" }}>
+                    <SectionTitle>Bulk Inspection Reports</SectionTitle>
+                    <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 14, fontFamily: "'Nunito', sans-serif", lineHeight: 1.5 }}>
+                      Pick a status and we'll find every JN job with that inspection result. Click <strong>Load Candidates</strong> first to review the list before running anything. The real run uploads a PDF to each job's <strong>Documents</strong> tab in JN.
+                    </div>
+                    <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 12, color: "#92400e", fontFamily: "'Nunito', sans-serif" }}>
+                      ⚠️ Each report takes ~10–20 seconds. The bulk run uses a background job so you can close this page after starting — progress shows up in JN as PDFs get attached. Check back here and reload candidates to see how many remain.
+                    </div>
+
+                    <Label>Status</Label>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 14 }}>
+                      {[
+                        { key: "Damage", emoji: "⚠️", color: "#dc2626" },
+                        { key: "No Damage", emoji: "✅", color: "#16a34a" },
+                        { key: "Retail", emoji: "🏠", color: "#d97706" },
+                      ].map(s => {
+                        const active = bulkResult === s.key;
+                        return (
+                          <button key={s.key} type="button" onClick={() => { setBulkResult(s.key); setBulkCandidates(null); }}
+                            style={{
+                              padding: "12px 10px", borderRadius: 12,
+                              border: active ? `3px solid ${s.color}` : "1.5px solid #d1d5db",
+                              background: active ? "#fff" : "#fff",
+                              boxShadow: active ? `0 4px 12px ${s.color}33` : "none",
+                              cursor: "pointer", fontFamily: "'Oswald', sans-serif",
+                              fontWeight: 700, fontSize: 13, color: active ? s.color : "#374151",
+                              textTransform: "uppercase", letterSpacing: "0.04em",
+                            }}>
+                            {s.emoji} {s.key}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+                      <div>
+                        <Label>Date range</Label>
+                        <select value={bulkSinceDays} onChange={(e) => { setBulkSinceDays(+e.target.value); setBulkCandidates(null); }}
+                          style={{ width: "100%", height: 44, borderRadius: 12, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, background: "#fff" }}>
+                          <option value={7}>Last 7 days</option>
+                          <option value={30}>Last 30 days</option>
+                          <option value={90}>Last 90 days</option>
+                          <option value={365}>Last year</option>
+                          <option value={0}>All time</option>
+                        </select>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "flex-end", paddingBottom: 8 }}>
+                        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#374151", fontFamily: "'Nunito', sans-serif", cursor: "pointer" }}>
+                          <input type="checkbox" checked={bulkSkipExisting}
+                            onChange={(e) => { setBulkSkipExisting(e.target.checked); setBulkCandidates(null); }} />
+                          Skip jobs that already have an Inspection-Report-*.pdf
+                        </label>
+                      </div>
+                    </div>
+
+                    <button type="button"
+                      disabled={bulkLoading}
+                      onClick={async () => {
+                        setBulkLoading(true);
+                        setBulkCandidates(null);
+                        try {
+                          const r = await fetch("/.netlify/functions/bulk-list-insp-report-candidates", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ result: bulkResult, sinceDays: bulkSinceDays, skipExisting: bulkSkipExisting }),
+                          });
+                          const txt = await r.text();
+                          let d;
+                          try { d = JSON.parse(txt); } catch { d = { ok: false, error: "Non-JSON: " + txt.slice(0, 200) }; }
+                          if (!r.ok || !d.ok) {
+                            alert("Could not load candidates: " + (d.error || "unknown"));
+                            return;
+                          }
+                          setBulkCandidates(d.candidates || []);
+                        } catch (e) {
+                          alert("Could not load candidates: " + (e.message || e));
+                        } finally {
+                          setBulkLoading(false);
+                        }
+                      }}
+                      style={{
+                        padding: "12px 24px", borderRadius: 12, border: "none",
+                        background: bulkLoading ? "#9ca3af" : "#1a2e5a",
+                        color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14,
+                        cursor: bulkLoading ? "not-allowed" : "pointer",
+                        textTransform: "uppercase", letterSpacing: "0.04em",
+                      }}>
+                      {bulkLoading ? "Loading..." : "🔍 Load Candidates"}
+                    </button>
+
+                    {bulkCandidates !== null ? (
+                      <div style={{ marginTop: 18 }}>
+                        {(() => {
+                          const eligible = bulkCandidates.filter(c => c.photoCount > 0 && !c.hasExistingReport);
+                          const noPhotos = bulkCandidates.filter(c => c.photoCount === 0);
+                          const existing = bulkCandidates.filter(c => c.photoCount > 0 && c.hasExistingReport);
+                          return (
+                            <>
+                              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12, fontFamily: "'Nunito', sans-serif", fontSize: 13 }}>
+                                <div style={{ padding: "6px 12px", borderRadius: 8, background: "#dbeafe", color: "#1e40af", fontWeight: 700 }}>{eligible.length} eligible</div>
+                                {noPhotos.length > 0 ? <div style={{ padding: "6px 12px", borderRadius: 8, background: "#f3f4f6", color: "#6b7280" }}>{noPhotos.length} skipped (no photos)</div> : null}
+                                {existing.length > 0 ? <div style={{ padding: "6px 12px", borderRadius: 8, background: "#dcfce7", color: "#15803d" }}>{existing.length} already done</div> : null}
+                              </div>
+
+                              {bulkCandidates.length === 0 ? (
+                                <div style={{ padding: 14, fontSize: 13, color: "#6b7280", fontStyle: "italic", textAlign: "center" }}>
+                                  No JN jobs match those filters.
+                                </div>
+                              ) : (
+                                <div style={{ maxHeight: 320, overflowY: "auto", border: "1px solid #e5e7eb", borderRadius: 10, background: "#fff" }}>
+                                  {bulkCandidates.map((c) => {
+                                    const isEligible = c.photoCount > 0 && !c.hasExistingReport;
+                                    return (
+                                      <div key={c.jnid} style={{ padding: "10px 14px", borderBottom: "1px solid #f3f4f6", fontFamily: "'Nunito', sans-serif", display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", opacity: isEligible ? 1 : 0.55 }}>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                          <div style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{c.clientName}</div>
+                                          <div style={{ fontSize: 11, color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.address}</div>
+                                          <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 2 }}>Rep: {c.repName} · Photos: {c.photoCount}{c.hasExistingReport ? " · ✓ already has report" : ""}</div>
+                                        </div>
+                                        <div style={{ fontSize: 10, color: "#9ca3af", fontFamily: "monospace" }}>{c.jnid.slice(0, 8)}…</div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+
+                              {eligible.length > 0 ? (
+                                <button type="button"
+                                  disabled={bulkRunning}
+                                  onClick={async () => {
+                                    if (!window.confirm(`Generate inspection reports for all ${eligible.length} eligible ${bulkResult} jobs and upload them to JN?\n\nThis will run in the background and can take ${Math.ceil(eligible.length * 15 / 60)} minutes or so to complete. PDFs appear in each job's Documents tab as they finish.`)) return;
+                                    setBulkRunning(true);
+                                    try {
+                                      const r = await fetch("/.netlify/functions/bulk-generate-insp-reports-background", {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ result: bulkResult, sinceDays: bulkSinceDays, skipExisting: bulkSkipExisting }),
+                                      });
+                                      // Background functions return 202 Accepted with no body —
+                                      // we just need to know it was accepted by Netlify.
+                                      if (r.status === 202 || r.ok) {
+                                        alert(`✅ Started generating ${eligible.length} reports in the background.\n\nReload the candidates list in a few minutes to see progress (completed jobs disappear from "eligible").`);
+                                      } else {
+                                        const txt = await r.text();
+                                        alert("Could not start bulk run: " + r.status + " " + txt.slice(0, 200));
+                                      }
+                                    } catch (e) {
+                                      alert("Could not start bulk run: " + (e.message || e));
+                                    } finally {
+                                      setBulkRunning(false);
+                                    }
+                                  }}
+                                  style={{
+                                    marginTop: 14, padding: "14px 26px", borderRadius: 12, border: "none",
+                                    background: bulkRunning ? "#9ca3af" : "#c8392b",
+                                    color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14,
+                                    cursor: bulkRunning ? "not-allowed" : "pointer",
+                                    textTransform: "uppercase", letterSpacing: "0.04em",
+                                  }}>
+                                  {bulkRunning ? "Starting..." : `🚀 Run ${eligible.length} Reports for ${bulkResult}`}
+                                </button>
+                              ) : null}
+                            </>
+                          );
+                        })()}
+                      </div>
+                    ) : null}
                   </Card>}
 
                       <div style={{ marginTop: 24 }}>
