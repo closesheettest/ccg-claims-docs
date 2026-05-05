@@ -3105,8 +3105,11 @@ function GuidedIntakeFlow({
   if (step === 6) {
     const isExisting = newVsExisting === "existing" && existingInsp;
     title = isExisting ? "Returning customer — ready to sign?" : "Ready to sign?";
+    // For Existing path the subtitle is replaced with a big red callout
+    // inside the body (same pattern as Pick Yourself / Pick the Homeowner).
+    // For New path we keep the small subtitle.
     subtitle = isExisting
-      ? "We found this homeowner on file. Review what's already done and what we'll sign today."
+      ? ""
       : "Review everything below. Tap any field to jump back and fix it.";
     const row = (label, value, gotoStep) => (
       <button type="button" onClick={() => gotoStep != null && setStep(gotoStep)}
@@ -3154,6 +3157,35 @@ function GuidedIntakeFlow({
       };
       body = (
         <div style={{ display: "grid", gap: 10 }}>
+          {/* Big red callout — same pattern as Pick Yourself / Pick the
+              Homeowner so the Existing flow has consistent visual language. */}
+          <div style={{
+            padding: "24px 28px",
+            background: "linear-gradient(135deg, #c8392b 0%, #a02b1f 100%)",
+            borderRadius: 14,
+            fontFamily: "'Oswald', sans-serif",
+            color: "#fff",
+            textAlign: "center",
+            boxShadow: "0 6px 20px rgba(200, 57, 43, 0.35)",
+            border: "3px solid #fff",
+            outline: "3px solid #c8392b",
+            marginBottom: 8,
+          }}>
+            <div style={{
+              fontSize: 28, fontWeight: 800,
+              letterSpacing: "0.04em", textTransform: "uppercase",
+              marginBottom: 8, lineHeight: 1.15,
+            }}>
+              ✓ Returning Customer
+            </div>
+            <div style={{
+              fontSize: 16, fontWeight: 600, lineHeight: 1.4,
+              fontFamily: "'Nunito', sans-serif",
+              opacity: 0.95,
+            }}>
+              We found this homeowner on file. Review what's already done and the forms we'll sign today.
+            </div>
+          </div>
           {row("Homeowner", [data.homeowner1, data.homeowner2].filter(Boolean).join(" & "), null)}
           {row("Address", [data.address, data.city, data.state, data.zip].filter(Boolean).join(", "), null)}
           {row("Sales rep", data.salesRepName, null)}
@@ -3165,8 +3197,8 @@ function GuidedIntakeFlow({
               {docPill("pac",  "PA Authorization")}
             </div>
           </div>
-          <div style={{ marginTop: 8, padding: "12px 16px", background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: 10, fontSize: 13, color: "#065f46" }}>
-            ✅ Hit <strong>Continue to Sign</strong> to sign the highlighted forms with this customer.
+          <div style={{ marginTop: 8, padding: "14px 18px", background: "#ecfdf5", border: "2px solid #a7f3d0", borderRadius: 12, fontSize: 14, color: "#065f46", fontFamily: "'Nunito', sans-serif", fontWeight: 600, textAlign: "center" }}>
+            ✅ Hit <strong>Continue to Sign</strong> below to sign the highlighted forms with this customer.
           </div>
         </div>
       );
