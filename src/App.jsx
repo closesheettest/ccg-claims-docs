@@ -2593,8 +2593,413 @@ function PublicAdjusterContract({
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// GuidedIntakeFlow — interview-style wrapper around the intake form.
+// New reps clicked through one question at a time; veteran reps stick
+// with the Quick form. This component reads/writes the same `data`
+// state the Quick form uses, so on the final step we can hand off to
+// the existing Quick-mode signing pipeline without translating fields.
+//
+// Steps:
+//   0  → New vs Existing customer
+//   1  → Which forms today (insp / lor+pa / all three)
+//   2  → Sales rep
+//   3  → Lead source (new only — existing customers already have one)
+//   4  → Homeowner name + phone + email
+//   5  → Property address
+//   6  → Review and "Continue to Sign"
+// ─────────────────────────────────────────────────────────────────────
+function GuidedIntakeFlow({
+  step, setStep,
+  newVsExisting, setNewVsExisting,
+  data, setData,
+  selectedDocs, setSelectedDocs,
+  reps, repSearch, setRepSearch,
+  onFinishToSign, onCancel,
+}) {
+  // Helper to update one or more fields on `data` at once
+  const update = (patch) => setData(prev => ({ ...prev, ...patch }));
+  // Helper to toggle a doc in/out of the selectedDocs array
+  const toggleDoc = (key) => {
+    setSelectedDocs(prev => {
+      const has = prev.includes(key);
+      return has ? prev.filter(d => d !== key) : [...prev, key];
+    });
+  };
+
+  // Determine which step indices count for the progress dots. We always
+  // show 7 logical steps even though some may be auto-filled depending
+  // on the New vs Existing branch.
+  const TOTAL_STEPS = 7;
+
+  const next = () => setStep(s => Math.min(s + 1, TOTAL_STEPS - 1));
+  const back = () => setStep(s => Math.max(s - 1, 0));
+
+  // ── Validation gate per step — returns null when the step is good
+  //    to advance, or a user-facing message string when it's not.
+  const stepError = () => {
+    if (step === 0) return newVsExisting ? null : "Pick New or Existing to continue.";
+    if (step === 1) {
+      // Need at least one doc box checked
+      const anyDoc = (selectedDocs || []).length > 0;
+      return anyDoc ? null : "Pick at least one form.";
+    }
+    if (step === 2) return data.salesRepName ? null : "Choose a sales rep.";
+    if (step === 3) return data.leadSource ? null : "Pick a lead source.";
+    if (step === 4) {
+      if (!data.homeowner1) return "Homeowner name is required.";
+      if (!data.phone) return "Phone is required.";
+      if (data.signerEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(data.signerEmail)) {
+        return "That doesn't look like a valid email.";
+      }
+      return null;
+    }
+    if (step === 5) {
+      if (!data.address) return "Property address is required.";
+      return null;
+    }
+    return null;
+  };
+
+  // Common style helpers — kept inline so this component is self-contained
+  const stepCard = { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: 28, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" };
+  const bigChoice = (active) => ({
+    width: "100%", padding: "20px 22px", borderRadius: 14,
+    border: active ? "2px solid #1a2e5a" : "2px solid #e5e7eb",
+    background: active ? "#eff6ff" : "#fff",
+    cursor: "pointer", textAlign: "left", fontFamily: "'Nunito', sans-serif",
+    transition: "all 0.15s",
+  });
+  const bigChoiceTitle = { fontSize: 17, fontWeight: 700, color: "#111827", marginBottom: 4 };
+  const bigChoiceSub = { fontSize: 13, color: "#6b7280" };
+  const navBtn = (primary, disabled) => ({
+    padding: "12px 24px", borderRadius: 12, border: "none",
+    background: disabled ? "#9ca3af" : (primary ? "#1a2e5a" : "transparent"),
+    color: primary ? "#fff" : "#6b7280",
+    fontFamily: "'Oswald', sans-serif", fontSize: 14, fontWeight: 700,
+    letterSpacing: "0.04em", textTransform: "uppercase",
+    cursor: disabled ? "not-allowed" : "pointer",
+  });
+
+  // ── Step content ─────────────────────────────────────────────
+  let title = "";
+  let subtitle = "";
+  let body = null;
+
+  if (step === 0) {
+    title = "Has this homeowner signed anything with us before?";
+    subtitle = "If they've signed forms with our app already, pick Existing. Otherwise pick New.";
+    body = (
+      <div style={{ display: "grid", gap: 14 }}>
+        <button type="button"
+          style={bigChoice(newVsExisting === "new")}
+          onClick={() => setNewVsExisting("new")}>
+          <div style={bigChoiceTitle}>🆕 New Customer</div>
+          <div style={bigChoiceSub}>First time signing anything with us. We'll collect their info.</div>
+        </button>
+        <button type="button"
+          style={bigChoice(newVsExisting === "existing")}
+          onClick={() => setNewVsExisting("existing")}>
+          <div style={bigChoiceTitle}>↩️ Existing Customer</div>
+          <div style={bigChoiceSub}>They've signed before — usually inspection done, now back for LOR/PA forms.</div>
+        </button>
+      </div>
+    );
+  }
+
+  if (step === 1) {
+    title = "Which forms is the homeowner signing today?";
+    subtitle = "You can pick more than one if multiple forms are being signed at the same visit.";
+    const opt = (key, emoji, label, sub) => {
+      const active = (selectedDocs || []).includes(key);
+      return (
+        <button type="button"
+          style={bigChoice(active)}
+          onClick={() => toggleDoc(key)}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{
+              width: 28, height: 28, borderRadius: 8,
+              background: active ? "#1a2e5a" : "#f3f4f6",
+              color: "#fff", display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 16, flexShrink: 0,
+            }}>{active ? "✓" : ""}</div>
+            <div style={{ flex: 1 }}>
+              <div style={bigChoiceTitle}>{emoji} {label}</div>
+              <div style={bigChoiceSub}>{sub}</div>
+            </div>
+          </div>
+        </button>
+      );
+    };
+    body = (
+      <div style={{ display: "grid", gap: 12 }}>
+        {opt("insp", "🔍", "Free Roof Inspection Agreement", "First-visit inspection signoff")}
+        {opt("lor",  "📝", "Letter of Representation", "Authorizes us to talk to insurance")}
+        {opt("pac",  "📜", "Public Adjuster Contract", "Storm damage confirmed — claim paperwork")}
+        <div style={{ marginTop: 8, padding: "10px 14px", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, fontSize: 12, color: "#92400e" }}>
+          💡 Common combos: <strong>Inspection only</strong> on first visit. <strong>LOR + PA</strong> on second visit when damage is confirmed. <strong>All three</strong> when everything happens at once.
+        </div>
+      </div>
+    );
+  }
+
+  if (step === 2) {
+    title = "Who's the sales rep?";
+    subtitle = "Pick yourself (or the rep this signing is being done for).";
+    const filtered = (reps || []).filter(m =>
+      !repSearch || m.name.toLowerCase().includes(repSearch.toLowerCase())
+    );
+    body = (
+      <div style={{ display: "grid", gap: 12 }}>
+        <input
+          type="text"
+          placeholder="Search reps..."
+          value={repSearch || ""}
+          onChange={(e) => setRepSearch(e.target.value)}
+          style={{ width: "100%", height: 44, borderRadius: 12, border: "1px solid #d1d5db", padding: "0 14px", fontSize: 14, fontFamily: "'Nunito', sans-serif", boxSizing: "border-box" }}
+        />
+        <div style={{ display: "grid", gap: 8, maxHeight: 320, overflowY: "auto" }}>
+          {filtered.map(m => {
+            const active = data.salesRepName === m.name;
+            return (
+              <button key={m.jobnimbus_id || m.name} type="button"
+                style={{ ...bigChoice(active), padding: "12px 14px" }}
+                onClick={() => update({
+                  salesRepName: m.name,
+                  salesRepEmail: m.email || "",
+                  salesRepId: m.jobnimbus_id || "",
+                })}>
+                <div style={{ ...bigChoiceTitle, fontSize: 15 }}>{m.name}</div>
+                {m.email ? <div style={{ ...bigChoiceSub, fontSize: 12 }}>{m.email}</div> : null}
+              </button>
+            );
+          })}
+          {filtered.length === 0 ? (
+            <div style={{ padding: 14, color: "#9ca3af", fontSize: 13, textAlign: "center" }}>
+              No reps match "{repSearch}".
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  if (step === 3) {
+    title = "How did they come to us?";
+    subtitle = "This is the lead source — where the customer originated.";
+    const sources = [
+      { code: "INS",  label: "INS",  desc: "Insurance lead" },
+      { code: "NEED", label: "NEED", desc: "NEED lead" },
+      { code: "Door Knock", label: "Door Knock", desc: "Walked the neighborhood" },
+      { code: "Referral", label: "Referral",  desc: "Referred by another customer" },
+    ];
+    body = (
+      <div style={{ display: "grid", gap: 10 }}>
+        {sources.map(s => (
+          <button key={s.code} type="button"
+            style={{ ...bigChoice(data.leadSource === s.code), padding: "14px 16px" }}
+            onClick={() => update({ leadSource: s.code })}>
+            <div style={{ ...bigChoiceTitle, fontSize: 15 }}>{s.label}</div>
+            <div style={bigChoiceSub}>{s.desc}</div>
+          </button>
+        ))}
+      </div>
+    );
+  }
+
+  if (step === 4) {
+    title = "Who's the homeowner?";
+    subtitle = "Their name, phone, and email — for signing notifications and welcome emails.";
+    const fld = { width: "100%", height: 44, borderRadius: 12, border: "1px solid #d1d5db", padding: "0 14px", fontSize: 14, fontFamily: "'Nunito', sans-serif", boxSizing: "border-box" };
+    body = (
+      <div style={{ display: "grid", gap: 14 }}>
+        <div>
+          <Label>Homeowner 1 *</Label>
+          <input type="text" style={fld} placeholder="Jane Doe"
+            value={data.homeowner1 || ""}
+            onChange={(e) => update({ homeowner1: e.target.value })}
+            autoCapitalize="words" />
+        </div>
+        <div>
+          <Label>Homeowner 2 <span style={{ color: "#9ca3af", fontWeight: 400 }}>(optional — co-signer)</span></Label>
+          <input type="text" style={fld} placeholder="John Doe"
+            value={data.homeowner2 || ""}
+            onChange={(e) => update({ homeowner2: e.target.value })}
+            autoCapitalize="words" />
+        </div>
+        <div>
+          <Label>Phone *</Label>
+          <input type="tel" style={fld} placeholder="555-555-5555"
+            value={data.phone || ""}
+            onChange={(e) => update({ phone: e.target.value })} />
+        </div>
+        <div>
+          <Label>Email <span style={{ color: "#9ca3af", fontWeight: 400 }}>(optional but recommended)</span></Label>
+          <input type="email" style={fld} placeholder="jane@example.com"
+            value={data.signerEmail || ""}
+            onChange={(e) => update({ signerEmail: e.target.value })}
+            autoCapitalize="off" autoCorrect="off" />
+        </div>
+      </div>
+    );
+  }
+
+  if (step === 5) {
+    title = "What's the property address?";
+    subtitle = "Where is the home being inspected?";
+    const fld = { width: "100%", height: 44, borderRadius: 12, border: "1px solid #d1d5db", padding: "0 14px", fontSize: 14, fontFamily: "'Nunito', sans-serif", boxSizing: "border-box" };
+    body = (
+      <div style={{ display: "grid", gap: 14 }}>
+        <div>
+          <Label>Street Address *</Label>
+          <input type="text" style={fld} placeholder="123 Main Street"
+            value={data.address || ""}
+            onChange={(e) => update({ address: e.target.value })}
+            autoCapitalize="words" />
+          <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>
+            💡 Tip: Use the Quick form for full address autocomplete with city/state/zip auto-fill.
+          </div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 10 }}>
+          <div>
+            <Label>City</Label>
+            <input type="text" style={fld} placeholder="Sarasota"
+              value={data.city || ""}
+              onChange={(e) => update({ city: e.target.value })}
+              autoCapitalize="words" />
+          </div>
+          <div>
+            <Label>State</Label>
+            <input type="text" style={fld} placeholder="FL" maxLength={2}
+              value={data.state || ""}
+              onChange={(e) => update({ state: e.target.value.toUpperCase() })}
+              autoCapitalize="characters" />
+          </div>
+          <div>
+            <Label>ZIP</Label>
+            <input type="text" style={fld} placeholder="34239"
+              value={data.zip || ""}
+              onChange={(e) => update({ zip: e.target.value })} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === 6) {
+    title = "Ready to sign?";
+    subtitle = "Review everything below. Tap any field to jump back and fix it.";
+    const row = (label, value, gotoStep) => (
+      <button type="button" onClick={() => setStep(gotoStep)}
+        style={{
+          width: "100%", textAlign: "left", padding: "12px 16px",
+          background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 10,
+          cursor: "pointer", fontFamily: "'Nunito', sans-serif",
+          display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12,
+        }}>
+        <div>
+          <div style={{ fontSize: 11, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700 }}>{label}</div>
+          <div style={{ fontSize: 14, color: "#111827", marginTop: 2, fontWeight: 600 }}>{value || "—"}</div>
+        </div>
+        <div style={{ fontSize: 11, color: "#1a2e5a", fontWeight: 700 }}>EDIT</div>
+      </button>
+    );
+    const docsList = (selectedDocs || []).map(d => {
+      if (d === "insp") return "Inspection";
+      if (d === "lor") return "LOR";
+      if (d === "pac") return "PA";
+      return d;
+    }).join(", ");
+    body = (
+      <div style={{ display: "grid", gap: 10 }}>
+        {row("Customer type", newVsExisting === "new" ? "New" : "Existing", 0)}
+        {row("Forms today", docsList, 1)}
+        {row("Sales rep", data.salesRepName, 2)}
+        {row("Lead source", data.leadSource, 3)}
+        {row("Homeowner", [data.homeowner1, data.homeowner2].filter(Boolean).join(" & "), 4)}
+        {row("Phone", data.phone, 4)}
+        {row("Email", data.signerEmail, 4)}
+        {row("Address", [data.address, data.city, data.state, data.zip].filter(Boolean).join(", "), 5)}
+        <div style={{ marginTop: 12, padding: "12px 16px", background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: 10, fontSize: 13, color: "#065f46" }}>
+          ✅ Looks good? Hit <strong>Continue to Sign</strong> below — that'll take you to the signing screen with all this info pre-filled.
+        </div>
+      </div>
+    );
+  }
+
+  // ── Render frame ─────────────────────────────────────────────
+  const err = stepError();
+  const onLastStep = step === TOTAL_STEPS - 1;
+
+  return (
+    <div style={stepCard}>
+      {/* Progress dots — purely visual, not clickable */}
+      <div style={{ display: "flex", gap: 6, justifyContent: "center", marginBottom: 24 }}>
+        {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
+          <div key={i} style={{
+            width: i === step ? 28 : 8, height: 8, borderRadius: 4,
+            background: i <= step ? "#1a2e5a" : "#e5e7eb",
+            transition: "all 0.2s",
+          }} />
+        ))}
+      </div>
+
+      <div style={{ marginBottom: 6, fontSize: 12, color: "#9ca3af", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.05em", textTransform: "uppercase" }}>
+        Step {step + 1} of {TOTAL_STEPS}
+      </div>
+      <div style={{ fontSize: 22, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.02em", marginBottom: 8 }}>
+        {title}
+      </div>
+      <div style={{ fontSize: 14, color: "#6b7280", marginBottom: 24, fontFamily: "'Nunito', sans-serif" }}>
+        {subtitle}
+      </div>
+
+      <div>{body}</div>
+
+      {err ? (
+        <div style={{ marginTop: 16, padding: "10px 14px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, fontSize: 13, color: "#991b1b" }}>
+          ⚠️ {err}
+        </div>
+      ) : null}
+
+      {/* Navigation — Back, Cancel, Next/Finish */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 28, gap: 10, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 8 }}>
+          {step > 0 ? (
+            <button type="button" style={navBtn(false, false)} onClick={back}>
+              ← Back
+            </button>
+          ) : null}
+          <button type="button" style={{ ...navBtn(false, false), color: "#9ca3af" }} onClick={onCancel}>
+            Cancel
+          </button>
+        </div>
+        {!onLastStep ? (
+          <button type="button" style={navBtn(true, !!err)} disabled={!!err} onClick={() => { if (!err) next(); }}>
+            Next →
+          </button>
+        ) : (
+          <button type="button" style={navBtn(true, !!err)} disabled={!!err} onClick={() => { if (!err) onFinishToSign(); }}>
+            ✓ Continue to Sign
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [view, setView] = useState("input");
+  // ── Guided intake mode ──────────────────────────────────────────
+  // When true, the intake screen replaces the all-at-once form with a
+  // step-by-step interview flow for new reps. Quick mode (the original
+  // form) is the default; reps opt into Guided via a toggle.
+  // intakeMode: "quick" | "guided"
+  // guidedStep: 0..N — index into the GUIDED_STEPS array below
+  // guidedNewVsExisting: "new" | "existing" | null — answer to step 1
+  const [intakeMode, setIntakeMode] = useState("quick");
+  const [guidedStep, setGuidedStep] = useState(0);
+  const [guidedNewVsExisting, setGuidedNewVsExisting] = useState(null);
   const [selectedDocs, setSelectedDocs] = useState(["insp", "lor", "pac"]);
 
   // ── My Homeowners (existing-homeowner add-on signing) ──────────────
@@ -6048,7 +6453,43 @@ if (!hasDamage) {
               </div>
             </CardHeader>
 
-            <CardContent>
+            {/* Mode toggle — Quick (current form) vs Guided (interview).
+                Quick is the default for veteran reps; Guided opens an
+                overlay-style step-by-step flow for new reps. The Quick
+                form stays mounted underneath so falling back is instant. */}
+            <div style={{ padding: "0 16px 16px", display: "flex", justifyContent: "center" }}>
+              <div style={{ display: "inline-flex", background: "#f1f5f9", borderRadius: 999, padding: 4, gap: 4 }}>
+                <button
+                  type="button"
+                  onClick={() => setIntakeMode("quick")}
+                  style={{
+                    padding: "8px 18px", borderRadius: 999, border: "none",
+                    background: intakeMode === "quick" ? "#1a2e5a" : "transparent",
+                    color: intakeMode === "quick" ? "#fff" : "#6b7280",
+                    fontSize: 13, fontWeight: 700, fontFamily: "'Oswald', sans-serif",
+                    letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer",
+                    transition: "all 0.15s",
+                  }}
+                >⚡ Quick</button>
+                <button
+                  type="button"
+                  onClick={() => { setIntakeMode("guided"); setGuidedStep(0); setGuidedNewVsExisting(null); }}
+                  style={{
+                    padding: "8px 18px", borderRadius: 999, border: "none",
+                    background: intakeMode === "guided" ? "#1a2e5a" : "transparent",
+                    color: intakeMode === "guided" ? "#fff" : "#6b7280",
+                    fontSize: 13, fontWeight: 700, fontFamily: "'Oswald', sans-serif",
+                    letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer",
+                    transition: "all 0.15s",
+                  }}
+                >🧭 Guided</button>
+              </div>
+            </div>
+
+            {/* Quick form — hidden but still mounted when Guided mode is
+                active. Keeping it mounted means any in-progress fields
+                survive a toggle back to Quick. */}
+            <CardContent style={intakeMode === "guided" ? { display: "none" } : {}}>
               <div style={{ display: "grid", gap: 24 }}>
                 <Card style={{ padding: 20, background: "#f8fafc" }}>
                   <SectionTitle>Homeowner Info</SectionTitle>
@@ -6823,6 +7264,36 @@ if (!hasDamage) {
                 </Button>
               </div>
             </CardContent>
+
+            {/* GUIDED OVERLAY — when active, sits above the Quick form's
+                CardContent (which is hidden via display:none below). This is
+                a sibling rather than a wrap to avoid unbalancing the existing
+                Card markup. */}
+            {intakeMode === "guided" ? (
+              <div style={{ padding: 16 }}>
+                <GuidedIntakeFlow
+                  step={guidedStep}
+                  setStep={setGuidedStep}
+                  newVsExisting={guidedNewVsExisting}
+                  setNewVsExisting={setGuidedNewVsExisting}
+                  data={data}
+                  setData={setData}
+                  selectedDocs={selectedDocs}
+                  setSelectedDocs={setSelectedDocs}
+                  reps={reps}
+                  repSearch={repSearch}
+                  setRepSearch={setRepSearch}
+                  onFinishToSign={() => {
+                    // Hand off to the Quick-mode signing flow with the data
+                    // already populated. Quick mode is what currently knows
+                    // how to render dialogs and run the submit pipeline.
+                    setIntakeMode("quick");
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  onCancel={() => setIntakeMode("quick")}
+                />
+              </div>
+            ) : null}
           </Card>
         ) : null}
 
