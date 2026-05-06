@@ -12,7 +12,7 @@
 //       insp:    { filename: "Free-Roof-Inspection-Agreement.pdf", base64: "..." },
 //       lor:     { filename: "Letter-of-Representation.pdf",       base64: "..." },
 //       pac:     { filename: "Public-Adjuster-Contract.pdf",       base64: "..." },
-//       welcome: { filename: "CCG-Welcome-Package.pdf",            base64: "..." },
+//       welcome: { filename: "HealthyHomes-Welcome-Package.pdf",   base64: "..." },
 //     }
 //   }
 //

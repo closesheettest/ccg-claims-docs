@@ -287,8 +287,25 @@ function buildLorHtml(claim, baseUrl) {
   const fieldBoxStyle = "min-height:46px; border:1px solid #d1d5db; border-radius:12px; padding:10px 12px; background:#fff; font-size:12px; line-height:1.35; color:#111827; box-sizing:border-box;";
   const bodyText = "font-size:14px; line-height:1.5; color:#111827;";
 
-  const headerImg = `<img src="${baseUrl}/pa-header.png" alt="Capital Claims Group header" style="width:100%; display:block;" />`;
-  const footerImg = `<img src="${baseUrl}/pa-footer.png" alt="Capital Claims Group footer" style="width:100%; display:block;" />`;
+  // HTML-rendered header/footer — Healthy Homes doesn't have branded
+  // PNG assets yet, so we draw both in code with the company's black/gold
+  // theme. Sized to fit the page wrapper's 1.28in / 0.82in slots so
+  // the body content flows the same as before.
+  const headerImg = `
+    <div style="width:100%; height:1.28in; box-sizing:border-box; background:#000; color:#fff; border-bottom:3px solid #c9a35c; padding:0.18in 0.4in; display:flex; flex-direction:column; justify-content:center; font-family:'Oswald', Arial, sans-serif;">
+      <div style="font-size:16px; font-weight:700; color:#c9a35c; letter-spacing:0.04em; text-align:center;">KORT CO, LLC d/b/a HEALTHY HOMES PUBLIC ADJUSTING</div>
+      <div style="font-size:10.5px; color:#d4af6c; margin-top:4px; text-align:center; font-family:Arial, sans-serif;">Public Adjusting · Property Claim Documentation · Roof / Wind / Water Support</div>
+      <div style="font-size:10.5px; color:#fff; margin-top:3px; text-align:center; font-family:Arial, sans-serif;">Kortni Keckler &nbsp;|&nbsp; Public Adjuster &nbsp;|&nbsp; FL License W435195</div>
+      <div style="font-size:10.5px; color:#fff; margin-top:1px; text-align:center; font-family:Arial, sans-serif;">Phone: 561-283-5674 &nbsp;|&nbsp; Email: Kkeckleradj@gmail.com</div>
+    </div>
+  `;
+  const footerImg = `
+    <div style="width:100%; height:0.82in; box-sizing:border-box; background:#000; color:#fff; border-top:3px solid #c9a35c; padding:0.08in 0.4in; display:flex; flex-direction:column; justify-content:center; font-family:Arial, sans-serif;">
+      <div style="font-size:9px; font-weight:700; color:#c9a35c; text-align:center; text-transform:uppercase; letter-spacing:0.06em;">Confidential / For Intended Recipient Only</div>
+      <div style="font-size:7.5px; color:#d1d5db; text-align:center; line-height:1.3; margin-top:3px;">This document is for claim-documentation and operational coordination purposes only. No coverage determination, engineering opinion, construction guarantee, or legal advice is being provided. All claim decisions remain subject to policy terms, carrier review, applicable Florida law, and licensed public adjuster review.</div>
+      <div style="font-size:8.5px; color:#c9a35c; font-weight:700; text-align:center; margin-top:4px;">Kort Co, LLC d/b/a Healthy Homes Public Adjusting &nbsp;|&nbsp; FL PA License: W435195</div>
+    </div>
+  `;
 
   const lorTitleBar = `
     <div style="margin:10px 0 12px; background:#199c2e; color:#fff; text-align:center; font-weight:700; font-size:20px; letter-spacing:1px; padding:11px 16px; text-transform:uppercase; font-family:'Oswald', Arial, sans-serif;">
@@ -298,9 +315,9 @@ function buildLorHtml(claim, baseUrl) {
 
   const footerBlock = `
     <div style="border-top:3px solid #7c3aed; margin-top:14px; padding-top:10px; font-size:12px; color:#111827; line-height:1.35;">
-      <div style="font-weight:700;">3600 Red Rd suite Ste 601B</div>
-      <div>Miramar, FL 33025 &bull; claims@capitalclaimgroup.com &bull; +1 (954) 571-3035 &bull; www.ccgclaims.com</div>
-      <div style="margin-top:6px; font-weight:700; color:#6d28d9;">License No: G240595</div>
+      <div style="font-weight:700;">3570 S Ocean Blvd</div>
+      <div>South Palm Beach, FL 33480 &bull; Kkeckleradj@gmail.com &bull; 561-283-5674 &bull; propertydamageinspection.com</div>
+      <div style="margin-top:6px; font-weight:700; color:#6d28d9;">License No: W435195</div>
     </div>
   `;
 
@@ -349,7 +366,7 @@ function buildLorHtml(claim, baseUrl) {
 
   const page2 = page(`
     <div style="${bodyText} margin-top:10px;">
-      <p style="margin:0 0 14px; font-style:italic;">Also, please note that Capital Claims Group Inc. should be named as an additional payee on all insurance drafts and/or payments, pursuant to the enclosed Notice of Loss/Notice of Representation signed by the Insured(s). The insured(s) hereby reserve all rights to make claims under the policy for replacement cost benefits as set forth in the policy and likewise invoke their rights to repair, rebuild or replace the damaged property.</p>
+      <p style="margin:0 0 14px; font-style:italic;">Also, please note that Kort Co, LLC d/b/a Healthy Homes Public Adjusting should be named as an additional payee on all insurance drafts and/or payments, pursuant to the enclosed Notice of Loss/Notice of Representation signed by the Insured(s). The insured(s) hereby reserve all rights to make claims under the policy for replacement cost benefits as set forth in the policy and likewise invoke their rights to repair, rebuild or replace the damaged property.</p>
       <p style="margin:0 0 10px;">Surely, you understand the Assured&rsquo;s need to have this claim processed as quickly as possible, and as such, we will be undertaking all necessary steps to document and prepare their claim for submission. We look forward to working cooperatively with you to reach a fair and prompt resolution to this claim. Please feel free to contact us at 954-874-3563 to discuss the current status of this claim and to coordinate our efforts in the loss investigation and valuation process.</p>
       <p style="margin:0 0 18px; font-style:italic;">The Assureds hereby reserve all of their rights under the policy and the laws of this State and nothing contained herein is intended to waive or prejudice said rights.</p>
 
@@ -457,12 +474,12 @@ function buildPacHtml(claim, baseUrl) {
     ${titleBarImg}
     <div style="${bodyText}">
       <p style="margin:0 0 6px;">1. <span style="${sectionHead}">Service Fee:</span></p>
-      <p style="margin:0 0 6px;">The insured(s) hereby retains Capital Claims Group to be its public adjuster and hereby appoints Capital Claims Group to be its independent appraiser to appraise, advise, negotiate, and/or settle the above-referenced claim.</p>
-      <p style="margin:0 0 6px; font-weight:700; font-size:18px; line-height:1.5;">The insured(s) agrees to pay and hereby assigns to Capital Claims Group <strong>10%</strong> of all payments made by the insurance company related to this claim.</p>
+      <p style="margin:0 0 6px;">The insured(s) hereby retains Healthy Homes Public Adjusting to be its public adjuster and hereby appoints Healthy Homes Public Adjusting to be its independent appraiser to appraise, advise, negotiate, and/or settle the above-referenced claim.</p>
+      <p style="margin:0 0 6px; font-weight:700; font-size:18px; line-height:1.5;">The insured(s) agrees to pay and hereby assigns to Healthy Homes Public Adjusting <strong>10%</strong> of all payments made by the insurance company related to this claim.</p>
       <p style="margin:0 0 10px;">In the event appraisal, mediation is demanded, or a lawsuit ensues regarding the above-mentioned claim, there will be an additional charge of five percent. The total contractual percentage shall not exceed the maximum allowed by law.</p>
 
       <p style="margin:0 0 6px;">2. <span style="${sectionHead}">Additional Payee:</span></p>
-      <p style="margin:0 0 10px;">The insured authorizes and requests the insurer and the insured&rsquo;s mortgage carrier to have Capital Claims Group appear as an additional payee on all checks issued regarding the above-mentioned claim. The insured hereby grants Capital Claims Group a lien on recovered proceeds received by the insurer to the extent of the fee due to Capital Claims Group pursuant to this agreement.</p>
+      <p style="margin:0 0 10px;">The insured authorizes and requests the insurer and the insured&rsquo;s mortgage carrier to have Healthy Homes Public Adjusting appear as an additional payee on all checks issued regarding the above-mentioned claim. The insured hereby grants Healthy Homes Public Adjusting a lien on recovered proceeds received by the insurer to the extent of the fee due to Healthy Homes Public Adjusting pursuant to this agreement.</p>
 
       <p style="margin:0 0 6px;">3. <span style="${sectionHead}">Third-Party Fees:</span></p>
       <p style="margin:0;">The insured understands it may be necessary to incur professional fees on the insured&rsquo;s behalf to properly adjust the claim. These fees may include, but are not limited to, a General Contractor, Engineer, Claim Appraiser, Plumber, Roofer, and Environmental Hygienist. The insured understands that no professional fees will be incurred without the insured&rsquo;s written or verbal authorization, and that the insured may then be responsible for such fees.</p>
@@ -480,15 +497,15 @@ function buildPacHtml(claim, baseUrl) {
       <p style="margin:0 0 10px;">I, <span style="display:inline-block; min-width:250px; border-bottom:1px solid #111827; font-weight:600;">${esc(insuredNames || "____________________________")}</span>, a named insured under the above-mentioned policy, hereby swear and attest that I have the authority to enter into this contract and settle all claims issued on behalf of all named insureds. Insured acknowledges, understands, and agrees that under section 626.8796, Florida Statutes, an agreement with a public adjuster must be signed by all named insureds.</p>
 
       <p style="margin:0 0 6px;">6. <span style="${sectionHead}">Legal:</span></p>
-      <p style="margin:0 0 10px;">Capital Claims Group is not a law firm and does not offer legal advice, and there will be no attorney-client relationship with the insured(s). The insured is hereby advised of the right to counsel and may consult with an attorney regarding their claim independently of Capital Claims Group.</p>
+      <p style="margin:0 0 10px;">Healthy Homes Public Adjusting is not a law firm and does not offer legal advice, and there will be no attorney-client relationship with the insured(s). The insured is hereby advised of the right to counsel and may consult with an attorney regarding their claim independently of Healthy Homes Public Adjusting.</p>
 
       <p style="margin:0 0 6px;">7. <span style="${sectionHead}">Letter of Protection:</span></p>
-      <p style="margin:0 0 10px;">The insured understands and agrees that if it becomes necessary to retain an attorney, the insured authorizes and agrees to a Letter of Protection for Capital Claims Group.</p>
+      <p style="margin:0 0 10px;">The insured understands and agrees that if it becomes necessary to retain an attorney, the insured authorizes and agrees to a Letter of Protection for Healthy Homes Public Adjusting.</p>
 
       <p style="margin:0 0 6px;">8. <span style="${sectionHead}">Representation:</span></p>
       <p style="margin:0 0 10px;">The insured hereby affirms that no other claim(s) have been filed in reference to the same peril and that no other legal representation is involved with the claim other than:</p>
 
-      <div style="border-bottom:1px solid #111827; width:320px; margin-bottom:12px; min-height:18px; font-weight:600;">Capital Claims Group</div>
+      <div style="border-bottom:1px solid #111827; width:320px; margin-bottom:12px; min-height:18px; font-weight:600;">Healthy Homes Public Adjusting</div>
 
       <p style="margin:0 0 6px;">9. <span style="${sectionHead}">Severability:</span></p>
       <p style="margin:0;">Unenforceability or invalidity of one or more clauses in this Agreement shall not affect any other clause.</p>
@@ -511,7 +528,7 @@ function buildPacHtml(claim, baseUrl) {
 
       <p style="margin:0 0 10px; font-weight:700; font-size:18px; line-height:1.5;">If this contract was entered into based on events that are the subject of a declaration of a state of emergency by the Governor, you may cancel this contract for any reason without penalty or obligation to you within 30 days after the date of loss or 10 days after the date on which the contract is executed, whichever is longer. You may also cancel this contract without penalty or obligation to you if I, as your public adjuster, fail to provide you and your insurer a copy of a written estimate within 60 days of the execution of the contract, unless the failure to provide the estimate within 60 days is caused by factors beyond my control.</p>
 
-      <p style="margin:0 0 10px; font-weight:700; font-size:18px; line-height:1.5;">The notice of cancellation shall be provided to Capital Claims Group, submitted in writing, and sent by certified mail, return receipt requested, or another form of mailing that provides proof thereof, at the address specified in the contract.</p>
+      <p style="margin:0 0 10px; font-weight:700; font-size:18px; line-height:1.5;">The notice of cancellation shall be provided to Healthy Homes Public Adjusting, submitted in writing, and sent by certified mail, return receipt requested, or another form of mailing that provides proof thereof, at the address specified in the contract.</p>
 
       <p style="margin:0 0 10px; font-weight:700; font-size:18px; line-height:1.5;">Pursuant to s. 817.234, Florida Statutes, any person who, with the intent to injure, defraud, or deceive any insurer or insured, prepares, presents, or causes to be presented a proof of loss or estimate of cost or repair of damaged property in support of a claim under an insurance policy, knowing that the proof of loss or estimate of claim or repairs contains any false, incomplete, or misleading information concerning any fact or thing material to the claim, commits a felony of the third degree, punishable as provided in s. 775.082, s. 775.803, or s. 775.084, Florida Statutes.</p>
 

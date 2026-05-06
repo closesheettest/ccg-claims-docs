@@ -1,7 +1,7 @@
 // netlify/functions/send-pa-email.js
 //
 // Sends a damage-confirmation email to the PA (public adjuster) at
-// claims@capitalclaimgroup.com with inspection photos from JobNimbus.
+// Kkeckleradj@gmail.com with inspection photos from JobNimbus.
 //
 // USAGE (from App.jsx):
 //   POST /.netlify/functions/send-pa-email
@@ -24,7 +24,7 @@ const JN_FILES = "https://app.jobnimbus.com/api1";
 const JN_KEY   = process.env.JOBNIMBUS_API_KEY;
 const SB_URL   = process.env.VITE_SUPABASE_URL;
 const SB_KEY   = process.env.VITE_SUPABASE_ANON_KEY;
-const PA_EMAIL = "claims@capitalclaimgroup.com";
+const PA_EMAIL = "Kkeckleradj@gmail.com";
 
 const sbHeaders = {
   apikey: SB_KEY,

@@ -193,7 +193,7 @@ exports.handler = async (event) => {
             <h2 style="color:#fff;margin:0;font-size:18px">❌ Job Cancelled in JobNimbus</h2>
           </div>
           <div style="background:#f9fafb;padding:20px 28px;border-radius:0 0 10px 10px;border:1px solid #e5e7eb;border-top:none">
-            <p>A JobNimbus job was marked <strong>Lost</strong> and has been auto-cancelled in the CCG app.</p>
+            <p>A JobNimbus job was marked <strong>Lost</strong> and has been auto-cancelled in the app.</p>
             <p><strong>Homeowner:</strong> ${rec.client_name}<br>
             <strong>Property:</strong> ${rec.address}<br>
             <strong>JN Job ID:</strong> ${jnJobId}</p>

@@ -321,7 +321,7 @@ const initialData = {
   lossLocation: "",
   lossLocationSameAsAddress: true,
   signerEmail: "",
-  paEmail: "claims@capitalclaimgroup.com",
+  paEmail: "Kkeckleradj@gmail.com",
   representativeName: "",
   leadSource: "NEED",  // "NEED" | "INS"
   salesRepId: "",
@@ -1677,20 +1677,53 @@ function LetterOfRepresentation({
     ? fullAddress
     : data.lossLocation;
 
+  // HTML-rendered header/footer — Healthy Homes doesn't have a branded
+  // PNG header/footer yet, so we draw them in code with the company's
+  // black/gold theme. Built to fit within the page wrapper's reserved
+  // 1.28in / 0.82in slots so the body content doesn't shift.
   const HeaderImg = () => (
-    <img
-      src={PA_ASSETS.header}
-      alt="Capital Claims Group header"
-      style={{ width: "100%", display: "block" }}
-    />
+    <div style={{
+      width: "100%", height: "1.28in", boxSizing: "border-box",
+      background: "#000", color: "#fff",
+      borderBottom: "3px solid #c9a35c",
+      padding: "0.18in 0.4in",
+      display: "flex", flexDirection: "column", justifyContent: "center",
+      fontFamily: "'Oswald', Arial, sans-serif",
+    }}>
+      <div style={{ fontSize: 16, fontWeight: 700, color: "#c9a35c", letterSpacing: "0.04em", textAlign: "center" }}>
+        KORT CO, LLC d/b/a HEALTHY HOMES PUBLIC ADJUSTING
+      </div>
+      <div style={{ fontSize: 10.5, color: "#d4af6c", marginTop: 4, textAlign: "center", fontFamily: "Arial, sans-serif" }}>
+        Public Adjusting · Property Claim Documentation · Roof / Wind / Water Support
+      </div>
+      <div style={{ fontSize: 10.5, color: "#fff", marginTop: 3, textAlign: "center", fontFamily: "Arial, sans-serif" }}>
+        Kortni Keckler &nbsp;|&nbsp; Public Adjuster &nbsp;|&nbsp; FL License W435195
+      </div>
+      <div style={{ fontSize: 10.5, color: "#fff", marginTop: 1, textAlign: "center", fontFamily: "Arial, sans-serif" }}>
+        Phone: 561-283-5674 &nbsp;|&nbsp; Email: Kkeckleradj@gmail.com
+      </div>
+    </div>
   );
 
   const FooterImg = () => (
-    <img
-      src={PA_ASSETS.footer}
-      alt="Capital Claims Group footer"
-      style={{ width: "100%", display: "block" }}
-    />
+    <div style={{
+      width: "100%", height: "0.82in", boxSizing: "border-box",
+      background: "#000", color: "#fff",
+      borderTop: "3px solid #c9a35c",
+      padding: "0.08in 0.4in",
+      display: "flex", flexDirection: "column", justifyContent: "center",
+      fontFamily: "Arial, sans-serif",
+    }}>
+      <div style={{ fontSize: 9, fontWeight: 700, color: "#c9a35c", textAlign: "center", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+        Confidential / For Intended Recipient Only
+      </div>
+      <div style={{ fontSize: 7.5, color: "#d1d5db", textAlign: "center", lineHeight: 1.3, marginTop: 3 }}>
+        This document is for claim-documentation and operational coordination purposes only. No coverage determination, engineering opinion, construction guarantee, or legal advice is being provided. All claim decisions remain subject to policy terms, carrier review, applicable Florida law, and licensed public adjuster review.
+      </div>
+      <div style={{ fontSize: 8.5, color: "#c9a35c", fontWeight: 700, textAlign: "center", marginTop: 4 }}>
+        Kort Co, LLC d/b/a Healthy Homes Public Adjusting &nbsp;|&nbsp; FL PA License: W435195
+      </div>
+    </div>
   );
 
   const LorTitleBar = () => (
@@ -1749,13 +1782,13 @@ function LetterOfRepresentation({
         lineHeight: 1.35,
       }}
     >
-      <div style={{ fontWeight: 700 }}>3600 Red Rd suite Ste 601B</div>
+      <div style={{ fontWeight: 700 }}>3570 S Ocean Blvd</div>
       <div>
-        Miramar, FL 33025 • claims@capitalclaimgroup.com • +1 (954) 571-3035 •
-        www.ccgclaims.com
+        South Palm Beach, FL 33480 • Kkeckleradj@gmail.com • 561-283-5674 •
+        propertydamageinspection.com
       </div>
       <div style={{ marginTop: 6, fontWeight: 700, color: "#6d28d9" }}>
-        License No: G240595
+        License No: W435195
       </div>
     </div>
   );
@@ -1886,7 +1919,7 @@ function LetterOfRepresentation({
       >
         <div style={{ ...bodyText, marginTop: 10 }}>
           <p style={{ margin: "0 0 14px", fontStyle: "italic" }}>
-            Also, please note that Capital Claims Group Inc. should be named as
+            Also, please note that Kort Co, LLC d/b/a Healthy Homes Public Adjusting should be named as
             an additional payee on all insurance drafts and/or payments,
             pursuant to the enclosed Notice of Loss/Notice of Representation
             signed by the Insured(s). The insured(s) hereby reserve all rights
@@ -2031,20 +2064,52 @@ function PublicAdjusterContract({
     textTransform: "uppercase",
   };
 
+  // Mirrors the LorPdf HeaderImg/FooterImg above — see comments there
+  // for design rationale. Kept inline in each component for now since
+  // they're scoped to their respective PDF previews.
   const HeaderImg = () => (
-    <img
-      src={PA_ASSETS.header}
-      alt="header"
-      style={{ width: "100%", display: "block" }}
-    />
+    <div style={{
+      width: "100%", height: "1.28in", boxSizing: "border-box",
+      background: "#000", color: "#fff",
+      borderBottom: "3px solid #c9a35c",
+      padding: "0.18in 0.4in",
+      display: "flex", flexDirection: "column", justifyContent: "center",
+      fontFamily: "'Oswald', Arial, sans-serif",
+    }}>
+      <div style={{ fontSize: 16, fontWeight: 700, color: "#c9a35c", letterSpacing: "0.04em", textAlign: "center" }}>
+        KORT CO, LLC d/b/a HEALTHY HOMES PUBLIC ADJUSTING
+      </div>
+      <div style={{ fontSize: 10.5, color: "#d4af6c", marginTop: 4, textAlign: "center", fontFamily: "Arial, sans-serif" }}>
+        Public Adjusting · Property Claim Documentation · Roof / Wind / Water Support
+      </div>
+      <div style={{ fontSize: 10.5, color: "#fff", marginTop: 3, textAlign: "center", fontFamily: "Arial, sans-serif" }}>
+        Kortni Keckler &nbsp;|&nbsp; Public Adjuster &nbsp;|&nbsp; FL License W435195
+      </div>
+      <div style={{ fontSize: 10.5, color: "#fff", marginTop: 1, textAlign: "center", fontFamily: "Arial, sans-serif" }}>
+        Phone: 561-283-5674 &nbsp;|&nbsp; Email: Kkeckleradj@gmail.com
+      </div>
+    </div>
   );
 
   const FooterImg = () => (
-    <img
-      src={PA_ASSETS.footer}
-      alt="footer"
-      style={{ width: "100%", display: "block" }}
-    />
+    <div style={{
+      width: "100%", height: "0.82in", boxSizing: "border-box",
+      background: "#000", color: "#fff",
+      borderTop: "3px solid #c9a35c",
+      padding: "0.08in 0.4in",
+      display: "flex", flexDirection: "column", justifyContent: "center",
+      fontFamily: "Arial, sans-serif",
+    }}>
+      <div style={{ fontSize: 9, fontWeight: 700, color: "#c9a35c", textAlign: "center", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+        Confidential / For Intended Recipient Only
+      </div>
+      <div style={{ fontSize: 7.5, color: "#d1d5db", textAlign: "center", lineHeight: 1.3, marginTop: 3 }}>
+        This document is for claim-documentation and operational coordination purposes only. No coverage determination, engineering opinion, construction guarantee, or legal advice is being provided. All claim decisions remain subject to policy terms, carrier review, applicable Florida law, and licensed public adjuster review.
+      </div>
+      <div style={{ fontSize: 8.5, color: "#c9a35c", fontWeight: 700, textAlign: "center", marginTop: 4 }}>
+        Kort Co, LLC d/b/a Healthy Homes Public Adjusting &nbsp;|&nbsp; FL PA License: W435195
+      </div>
+    </div>
   );
 
   const TitleBarImg = () => (
@@ -2246,13 +2311,13 @@ function PublicAdjusterContract({
             1. <span style={sectionHead}>Service Fee:</span>
           </p>
           <p style={{ margin: "0 0 6px" }}>
-            The insured(s) hereby retains Capital Claims Group to be its public
-            adjuster and hereby appoints Capital Claims Group to be its
+            The insured(s) hereby retains Healthy Homes Public Adjusting to be its public
+            adjuster and hereby appoints Healthy Homes Public Adjusting to be its
             independent appraiser to appraise, advise, negotiate, and/or settle
             the above-referenced claim.
           </p>
           <p style={{ margin: "0 0 6px", fontWeight: 700, fontSize: 18, lineHeight: 1.5 }}>
-            The insured(s) agrees to pay and hereby assigns to Capital Claims Group <strong>10%</strong> of all payments made by the insurance company related to this claim.
+            The insured(s) agrees to pay and hereby assigns to Healthy Homes Public Adjusting <strong>10%</strong> of all payments made by the insurance company related to this claim.
           </p>
           <p style={{ margin: "0 0 10px" }}>
             In the event appraisal, mediation is demanded, or a lawsuit ensues regarding the
@@ -2266,11 +2331,11 @@ function PublicAdjusterContract({
           </p>
           <p style={{ margin: "0 0 10px" }}>
             The insured authorizes and requests the insurer and the insured’s
-            mortgage carrier to have Capital Claims Group appear as an
+            mortgage carrier to have Healthy Homes Public Adjusting appear as an
             additional payee on all checks issued regarding the above-mentioned
-            claim. The insured hereby grants Capital Claims Group a lien on
+            claim. The insured hereby grants Healthy Homes Public Adjusting a lien on
             recovered proceeds received by the insurer to the extent of the fee
-            due to Capital Claims Group pursuant to this agreement.
+            due to Healthy Homes Public Adjusting pursuant to this agreement.
           </p>
 
           <p style={{ margin: "0 0 6px" }}>
@@ -2333,11 +2398,11 @@ function PublicAdjusterContract({
             6. <span style={sectionHead}>Legal:</span>
           </p>
           <p style={{ margin: "0 0 10px" }}>
-            Capital Claims Group is not a law firm and does not offer legal
+            Healthy Homes Public Adjusting is not a law firm and does not offer legal
             advice, and there will be no attorney-client relationship with the
             insured(s). The insured is hereby advised of the right to counsel
             and may consult with an attorney regarding their claim independently
-            of Capital Claims Group.
+            of Healthy Homes Public Adjusting.
           </p>
 
           <p style={{ margin: "0 0 6px" }}>
@@ -2346,7 +2411,7 @@ function PublicAdjusterContract({
           <p style={{ margin: "0 0 10px" }}>
             The insured understands and agrees that if it becomes necessary to
             retain an attorney, the insured authorizes and agrees to a Letter of
-            Protection for Capital Claims Group.
+            Protection for Healthy Homes Public Adjusting.
           </p>
 
           <p style={{ margin: "0 0 6px" }}>
@@ -2367,7 +2432,7 @@ function PublicAdjusterContract({
               fontWeight: 600,
             }}
           >
-            Capital Claims Group
+            Healthy Homes Public Adjusting
           </div>
 
           <p style={{ margin: "0 0 6px" }}>
@@ -3467,7 +3532,7 @@ export default function App() {
   // Manager-editable content — persisted to localStorage
   const DEFAULTS = {
     reviewHeadline: "We're fighting for you — just two quick steps and we can get your claim moving. It's fast, easy, and completely secure.",
-    reviewLorText: "This simply lets your insurance company know that Capital Claims Group is in your corner, handling all the back-and-forth on your behalf. You won't have to deal with them directly at all.",
+    reviewLorText: "This simply lets your insurance company know that Healthy Homes Public Adjusting is in your corner, handling all the back-and-forth on your behalf. You won't have to deal with them directly at all.",
     reviewPacText: "This is our working agreement — it outlines how we get paid (only when you get paid) and confirms that we're fully committed to maximizing your claim. No upfront costs, ever.",
     reviewHelpText: "You can tap 'Preview' to read any document first. When you're ready, hit 'Looks Good!' on each one and scroll down to sign.",
     thankYouHeadline: "You're All Set — Let's Get Your Money! 🚀",
@@ -3479,7 +3544,7 @@ export default function App() {
       "💰 We negotiate hard to maximize your settlement — you don't pay us unless you get paid.",
       "🎉 You receive your settlement and we handle all the paperwork. Sit back and let us do the work!",
     ]),
-    thankYouClosing: "We're so glad you chose Capital Claims Group. You made the right call. Talk soon! 💚",
+    thankYouClosing: "We're so glad you chose Healthy Homes Public Adjusting. You made the right call. Talk soon! 💚",
     preInspHeadline: "Inspection Booked — We're On It! 🏠",
     preInspOpening: "You're all signed up! Your free roof inspection is next. Here's what to expect:",
     preInspSteps: JSON.stringify([
@@ -3489,7 +3554,7 @@ export default function App() {
       "✅ If damage is found, we'll have you sign the PA paperwork and get to work immediately.",
       "💚 No damage found? No problem — the inspection is completely free, no strings attached.",
     ]),
-    preInspClosing: "We'll be in touch soon to schedule your inspection. Thank you for trusting Capital Claims Group! 💚",
+    preInspClosing: "We'll be in touch soon to schedule your inspection. Thank you for trusting Healthy Homes Public Adjusting! 💚",
     inspOnlyHeadline: "Inspection Booked — We'll Be In Touch! 🏠",
     inspOnlyOpening: "Thank you for signing your Free Roof Inspection Agreement with U.S. Shingle & Metal LLC. Your inspector will be in touch shortly to schedule a visit.",
     inspOnlySteps: JSON.stringify([
@@ -5660,7 +5725,7 @@ const renderSmsTemplate = (key, vars) => {
       const isInspOnly = selectedDocs.includes("insp") && !selectedDocs.includes("lor") && !selectedDocs.includes("pac");
       try {
         const welcomeSelector = isInspOnly ? "#uss-welcome-printable" : "#ty-summary-printable";
-        const welcomeFilename = isInspOnly ? "USS-Welcome-Package.pdf" : "CCG-Welcome-Package.pdf";
+        const welcomeFilename = isInspOnly ? "USS-Welcome-Package.pdf" : "HealthyHomes-Welcome-Package.pdf";
         const welcomeBlob = await generatePDF(welcomeSelector, welcomeFilename);
         const welcomeBase64 = await blobToBase64(welcomeBlob);
         attachments.push({ filename: welcomeFilename, content: String(welcomeBase64).split(",")[1] });
@@ -5670,7 +5735,7 @@ const renderSmsTemplate = (key, vars) => {
 
       const emailSubject = isInspOnly
         ? "Your Free Roof Inspection Agreement — U.S. Shingle & Metal"
-        : "Your Signed Documents — Capital Claims Group";
+        : "Your Signed Documents — Healthy Homes Public Adjusting";
       const emailHeaderBg = isInspOnly ? "#1a2e5a" : "#199c2e";
       const emailHeaderText = isInspOnly ? "🏠 Your Inspection Agreement" : "🎉 You're All Set!";
       const emailWelcomeLine = isInspOnly
@@ -5678,12 +5743,12 @@ const renderSmsTemplate = (key, vars) => {
         : `Your documents are signed and we're officially on the case. <strong>We've attached everything to this email</strong> for your records:`;
       const emailDocList = isInspOnly
         ? `<li><strong>Free Roof Inspection Agreement</strong> — your signed copy</li><li><strong>USS Welcome Package</strong> — what to expect next</li>`
-        : `${selectedDocs.map(d => `<li><strong>${documentLabel(d)}</strong> — your signed copy</li>`).join("")}<li><strong>CCG Welcome Package</strong> — what to expect next &amp; our contact info</li>`;
+        : `${selectedDocs.map(d => `<li><strong>${documentLabel(d)}</strong> — your signed copy</li>`).join("")}<li><strong>Healthy Homes Welcome Package</strong> — what to expect next &amp; our contact info</li>`;
       const emailContactBg = isInspOnly ? "#1a2e5a" : "#f0fdf4";
       const emailContactColor = isInspOnly ? "#fff" : "#166534";
       const emailContactInfo = isInspOnly
         ? `Phone: ${ussContactPhone}<br/>Email: ${ussContactEmail}`
-        : `Phone: +1 (954) 571-3035<br/>Email: claims@capitalclaimgroup.com<br/>Website: www.ccgclaims.com`;
+        : `Phone: 561-283-5674<br/>Email: Kkeckleradj@gmail.com<br/>Website: propertydamageinspection.com`;
 
       const finalEmailResponse = await fetch("/.netlify/functions/send-email", {
         method: "POST",
@@ -6150,7 +6215,7 @@ const renderSmsTemplate = (key, vars) => {
 
     const clientName = row.client_name || "Homeowner";
     const propAddr = [row.address, row.city, row.state, row.zip].filter(Boolean).join(", ");
-    if (!window.confirm(`Send damage confirmation email to the PA (claims@capitalclaimgroup.com)?\n\nHomeowner: ${clientName}\nProperty: ${propAddr}\n\nThis will include inspection photos from JobNimbus.`)) return;
+    if (!window.confirm(`Send damage confirmation email to the PA (Kkeckleradj@gmail.com)?\n\nHomeowner: ${clientName}\nProperty: ${propAddr}\n\nThis will include inspection photos from JobNimbus.`)) return;
 
     setRowBusyId(row.id);
     try {
@@ -6301,7 +6366,7 @@ if (!hasDamage) {
         if (false && homeownerEmail) {
           const emailSubject = paIsSigned ? "⚠️ Roof Damage Found — Your Claim Is Being Started" : "⚠️ Roof Inspection Results — Damage Found";
           const emailHtml = paIsSigned
-            ? `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto"><div style="background:#dc2626;padding:24px 32px;border-radius:12px 12px 0 0"><h1 style="color:#fff;margin:0">⚠️ Damage Found — CCG Claims Is On It</h1></div><div style="background:#f9fafb;padding:24px 32px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none"><p>Hi ${ownerName},</p><p>Our inspector has completed the roof inspection at <strong>${propertyAddr}</strong> and confirmed <strong>storm damage</strong>.</p><div style="background:#fef2f2;border:2px solid #dc2626;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#991b1b">🚀 Your Claim Is Already In Motion</p><p style="margin:8px 0 0;color:#991b1b;font-size:14px;line-height:1.6">Because you already have your paperwork signed with Capital Claims Group, <strong>your claim is being started right away.</strong> CCG Claims will be reaching out to you shortly to walk you through the next steps.</p></div><div style="background:#1a2e5a;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#fff">📞 Capital Claims Group</p><p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:14px">Phone: +1 (954) 571-3035 | Email: claims@capitalclaimgroup.com</p></div><p style="font-size:13px;color:#6b7280">Please do not repair or replace anything until your claim has been reviewed.</p></div></div>`
+            ? `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto"><div style="background:#dc2626;padding:24px 32px;border-radius:12px 12px 0 0"><h1 style="color:#fff;margin:0">⚠️ Damage Found — Healthy Homes Is On It</h1></div><div style="background:#f9fafb;padding:24px 32px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none"><p>Hi ${ownerName},</p><p>Our inspector has completed the roof inspection at <strong>${propertyAddr}</strong> and confirmed <strong>storm damage</strong>.</p><div style="background:#fef2f2;border:2px solid #dc2626;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#991b1b">🚀 Your Claim Is Already In Motion</p><p style="margin:8px 0 0;color:#991b1b;font-size:14px;line-height:1.6">Because you already have your paperwork signed with Healthy Homes Public Adjusting, <strong>your claim is being started right away.</strong> Healthy Homes will be reaching out to you shortly to walk you through the next steps.</p></div><div style="background:#1a2e5a;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#fff">📞 Healthy Homes Public Adjusting</p><p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:14px">Phone: 561-283-5674 | Email: Kkeckleradj@gmail.com</p></div><p style="font-size:13px;color:#6b7280">Please do not repair or replace anything until your claim has been reviewed.</p></div></div>`
             : `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto"><div style="background:#dc2626;padding:24px 32px;border-radius:12px 12px 0 0"><h1 style="color:#fff;margin:0">⚠️ Damage Found — We're On It</h1></div><div style="background:#f9fafb;padding:24px 32px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none"><p>Hi ${ownerName},</p><p>Our inspector has completed the roof inspection at <strong>${propertyAddr}</strong> and identified <strong>storm damage</strong>.</p><div style="background:#fef2f2;border:2px solid #dc2626;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#991b1b">📋 What Happens Next</p><p style="margin:8px 0 0;color:#991b1b;font-size:14px;line-height:1.6">Your representative, <strong>${repName || "our team"}</strong>, will be contacting you soon to get the paperwork started so we can work with your insurance company on your behalf.</p></div><p style="font-size:14px;color:#374151">Your official inspection report is attached. Please do not repair or replace anything until your claim has been reviewed.</p><div style="background:#1a2e5a;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#fff">📞 U.S. Shingle &amp; Metal LLC</p><p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:14px">Phone: 727-761-5200 | Email: inspection@shingleusa.com</p></div></div></div>`;
           await fetch("/.netlify/functions/send-email", {
             method: "POST", headers: { "Content-Type": "application/json" },
@@ -7582,7 +7647,7 @@ if (!hasDamage) {
                     </div>
                   </button>
 
-                  {/* Letter of Representation — CCG branding */}
+                  {/* Letter of Representation — Healthy Homes branding */}
                   <button type="button" onClick={() => toggleDocSelection("lor")}
                     disabled={alreadySignedDocs.includes("lor")}
                     style={{
@@ -7600,14 +7665,14 @@ if (!hasDamage) {
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
                       <div style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.7)", flexShrink: 0 }} />
                       <span style={{ fontSize: 10, fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "rgba(255,255,255,0.85)", letterSpacing: "0.06em", textTransform: "uppercase", marginLeft: 4 }}>
-                        Capital Claims Group
+                        Healthy Homes Public Adjusting
                       </span>
                     </div>
                     <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#fff", marginBottom: 2 }}>
                       📋 Letter of Representation
                     </div>
                     <div style={{ fontSize: 12, color: "rgba(255,255,255,0.8)", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>
-                      Authorizes CCG to represent the client
+                      Authorizes Healthy Homes to represent the client
                     </div>
                     {alreadySignedDocs.includes("lor") ? (
                       <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#fff", fontFamily: "'Nunito', sans-serif" }}>✓ Already signed</div>
@@ -7616,7 +7681,7 @@ if (!hasDamage) {
                     ) : null}
                   </button>
 
-                  {/* PA Authorization — CCG branding */}
+                  {/* PA Authorization — Healthy Homes branding */}
                   <button type="button" onClick={() => toggleDocSelection("pac")}
                     disabled={alreadySignedDocs.includes("pac")}
                     style={{
@@ -7634,7 +7699,7 @@ if (!hasDamage) {
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
                       <div style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.7)", flexShrink: 0 }} />
                       <span style={{ fontSize: 10, fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "rgba(255,255,255,0.85)", letterSpacing: "0.06em", textTransform: "uppercase", marginLeft: 4 }}>
-                        Capital Claims Group
+                        Healthy Homes Public Adjusting
                       </span>
                     </div>
                     <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#fff", marginBottom: 2 }}>
@@ -8647,7 +8712,7 @@ if (!hasDamage) {
                   </div>
                 </div>
                 <div style={{ textAlign: "center" }}>
-                  <img src="/pa-header.png" alt="Capital Claims Group" style={{ maxWidth: 260, opacity: 0.85 }} />
+                  <img src="/pa-header.png" alt="Healthy Homes Public Adjusting" style={{ maxWidth: 260, opacity: 0.85 }} />
                 </div>
               </>
             ) : null}
@@ -10225,7 +10290,7 @@ if (!hasDamage) {
                           const paButtonTooltip = !showPaButton
                             ? ""
                             : paAllSigned
-                              ? "Email claims@capitalclaimgroup.com with photos"
+                              ? "Email Kkeckleradj@gmail.com with photos"
                               : "All 3 docs (Insp + LOR + PA) must be signed before PA is notified";
 
                           return (
@@ -12185,7 +12250,7 @@ if (!hasDamage) {
                                 update("lossDescription", c.loss_description || "");
                                 update("claimType", c.claim_type || "");
                                 update("situation", c.situation || "");
-                                update("paEmail", c.pa_email || "claims@capitalclaimgroup.com");
+                                update("paEmail", c.pa_email || "Kkeckleradj@gmail.com");
                               }
                               // Set existing-mode flags so docs already signed are disabled
                               setExistingClaim(c || null);
@@ -12244,7 +12309,7 @@ if (!hasDamage) {
                 <Label>Send to</Label>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
                   {[
-                    { key: "pa",        label: "PA",        email: "claims@capitalclaimgroup.com" },
+                    { key: "pa",        label: "PA",        email: "Kkeckleradj@gmail.com" },
                     { key: "homeowner", label: "Homeowner", email: resendModal.rec.email || "" },
                     { key: "office",    label: "Office",    email: "" /* user types */ },
                     { key: "custom",    label: "Custom",    email: "" },
@@ -12776,9 +12841,9 @@ if (!hasDamage) {
             padding: "0.5in 0.6in 0.4in",
             color: "#fff",
           }}>
-            <img src="/pa-header.png" alt="Capital Claims Group" style={{ height: 60, marginBottom: 20, filter: "brightness(0) invert(1)" }} />
+            <img src="/pa-header.png" alt="Healthy Homes Public Adjusting" style={{ height: 60, marginBottom: 20, filter: "brightness(0) invert(1)" }} />
             <div style={{ fontSize: 32, fontWeight: 700, marginBottom: 8, lineHeight: 1.1 }}>
-              Welcome to Capital Claims Group!
+              Welcome to Healthy Homes Public Adjusting!
             </div>
             <div style={{ fontSize: 16, opacity: 0.9, lineHeight: 1.5 }}>
               {thankYouOpening}
@@ -12798,12 +12863,12 @@ if (!hasDamage) {
                 Your Point of Contact
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, fontSize: 12 }}>
-                <div><strong>Company:</strong> Capital Claims Group</div>
-                <div><strong>License:</strong> G240595</div>
-                <div><strong>Phone:</strong> +1 (954) 571-3035</div>
-                <div><strong>Email:</strong> claims@capitalclaimgroup.com</div>
-                <div><strong>Website:</strong> www.ccgclaims.com</div>
-                <div><strong>Address:</strong> 3600 Red Rd Ste 601B, Miramar, FL 33025</div>
+                <div><strong>Company:</strong> Healthy Homes Public Adjusting</div>
+                <div><strong>License:</strong> W435195</div>
+                <div><strong>Phone:</strong> 561-283-5674</div>
+                <div><strong>Email:</strong> Kkeckleradj@gmail.com</div>
+                <div><strong>Website:</strong> propertydamageinspection.com</div>
+                <div><strong>Address:</strong> 3570 S Ocean Blvd, South Palm Beach, FL 33480</div>
               </div>
             </div>
 
@@ -12880,7 +12945,7 @@ if (!hasDamage) {
               color: "#6b7280",
               textAlign: "center",
             }}>
-              Capital Claims Group Inc. • License No: G240595 • claims@capitalclaimgroup.com • +1 (954) 571-3035 • www.ccgclaims.com
+              Kort Co, LLC d/b/a Healthy Homes Public Adjusting • License No: W435195 • Kkeckleradj@gmail.com • 561-283-5674 • propertydamageinspection.com
             </div>
           </div>
         </div>

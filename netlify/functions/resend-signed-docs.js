@@ -134,7 +134,7 @@ exports.handler = async (event) => {
           <tr><td style="padding:5px 0;font-weight:700">Originally signed:</td><td>${rec.signed_at ? new Date(rec.signed_at).toLocaleDateString() : "—"}</td></tr>
           <tr><td style="padding:5px 0;font-weight:700">Documents:</td><td>${attachments.map(a => a.filename).join(", ")}</td></tr>
         </table>
-        <p style="font-size:12px;color:#6b7280">Sent from CCG Claims Docs admin panel.</p>
+        <p style="font-size:12px;color:#6b7280">Sent from Healthy Homes Claims Docs admin panel.</p>
       </div>
     </div>
   `;
