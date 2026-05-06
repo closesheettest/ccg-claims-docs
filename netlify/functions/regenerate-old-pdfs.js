@@ -293,7 +293,7 @@ function buildLorHtml(claim, baseUrl) {
   // column layouts collapse onto a single line in some PDF renderers.
   const headerImg = `
     <div style="width:100%; height:1.28in; box-sizing:border-box; background:#0a0a0a; color:#fff; border-bottom:3px solid #c9a35c; padding:0.16in 0.4in 0; text-align:center; font-family:'Oswald', Arial, sans-serif;">
-      <div style="font-size:15px; font-weight:700; color:#c9a35c; letter-spacing:0.05em; line-height:1.2;">KORT CO, LLC d/b/a HEALTHY HOMES PUBLIC ADJUSTING</div>
+      <div style="font-size:15px; font-weight:700; color:#c9a35c; letter-spacing:0.05em; line-height:1.2;">HEALTHY HOMES PUBLIC ADJUSTING</div>
       <div style="font-size:9.5px; color:#d4af6c; margin-top:4px; line-height:1.25; font-family:Georgia, 'Times New Roman', serif; font-style:italic;">Public Adjusting &nbsp;·&nbsp; Property Claim Documentation &nbsp;·&nbsp; Roof / Wind / Water Support</div>
       <div style="font-size:9.5px; color:#fff; margin-top:4px; line-height:1.25; font-family:Georgia, 'Times New Roman', serif;">Kortni Keckler &nbsp;|&nbsp; Public Adjuster &nbsp;|&nbsp; FL License W435195</div>
       <div style="font-size:9.5px; color:#fff; margin-top:2px; line-height:1.25; font-family:Georgia, 'Times New Roman', serif;">Phone: 561-283-5674 &nbsp;|&nbsp; Email: Kkeckleradj@gmail.com</div>
@@ -303,7 +303,7 @@ function buildLorHtml(claim, baseUrl) {
     <div style="width:100%; height:0.82in; box-sizing:border-box; background:#0a0a0a; color:#fff; border-top:3px solid #c9a35c; padding:0.08in 0.4in 0; text-align:center; font-family:Georgia, 'Times New Roman', serif;">
       <div style="font-size:8.5px; font-weight:700; color:#c9a35c; text-transform:uppercase; letter-spacing:0.08em; line-height:1.2; font-family:'Oswald', Arial, sans-serif;">Confidential &nbsp;·&nbsp; For Intended Recipient Only</div>
       <div style="font-size:7px; color:#d1d5db; line-height:1.35; margin-top:3px; font-style:italic;">This document is for claim-documentation and operational coordination purposes only. No coverage determination, engineering opinion, construction guarantee, or legal advice is being provided. All claim decisions remain subject to policy terms, carrier review, applicable Florida law, and licensed public adjuster review.</div>
-      <div style="font-size:8px; color:#c9a35c; font-weight:700; margin-top:3px; line-height:1.2; font-family:'Oswald', Arial, sans-serif; letter-spacing:0.04em;">Kort Co, LLC d/b/a Healthy Homes Public Adjusting &nbsp;|&nbsp; FL PA License: W435195</div>
+      <div style="font-size:8px; color:#c9a35c; font-weight:700; margin-top:3px; line-height:1.2; font-family:'Oswald', Arial, sans-serif; letter-spacing:0.04em;">Healthy Homes Public Adjusting &nbsp;|&nbsp; FL PA License: W435195</div>
     </div>
   `;
 
@@ -366,7 +366,7 @@ function buildLorHtml(claim, baseUrl) {
 
   const page2 = page(`
     <div style="${bodyText} margin-top:10px;">
-      <p style="margin:0 0 14px; font-style:italic;">Also, please note that Kort Co, LLC d/b/a Healthy Homes Public Adjusting should be named as an additional payee on all insurance drafts and/or payments, pursuant to the enclosed Notice of Loss/Notice of Representation signed by the Insured(s). The insured(s) hereby reserve all rights to make claims under the policy for replacement cost benefits as set forth in the policy and likewise invoke their rights to repair, rebuild or replace the damaged property.</p>
+      <p style="margin:0 0 14px; font-style:italic;">Also, please note that Healthy Homes Public Adjusting should be named as an additional payee on all insurance drafts and/or payments, pursuant to the enclosed Notice of Loss/Notice of Representation signed by the Insured(s). The insured(s) hereby reserve all rights to make claims under the policy for replacement cost benefits as set forth in the policy and likewise invoke their rights to repair, rebuild or replace the damaged property.</p>
       <p style="margin:0 0 10px;">Surely, you understand the Assured&rsquo;s need to have this claim processed as quickly as possible, and as such, we will be undertaking all necessary steps to document and prepare their claim for submission. We look forward to working cooperatively with you to reach a fair and prompt resolution to this claim. Please feel free to contact us at 954-874-3563 to discuss the current status of this claim and to coordinate our efforts in the loss investigation and valuation process.</p>
       <p style="margin:0 0 18px; font-style:italic;">The Assureds hereby reserve all of their rights under the policy and the laws of this State and nothing contained herein is intended to waive or prejudice said rights.</p>
 

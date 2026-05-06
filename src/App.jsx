@@ -1694,7 +1694,7 @@ function LetterOfRepresentation({
       fontFamily: "'Oswald', Arial, sans-serif",
     }}>
       <div style={{ fontSize: 15, fontWeight: 700, color: "#c9a35c", letterSpacing: "0.05em", lineHeight: 1.2 }}>
-        KORT CO, LLC d/b/a HEALTHY HOMES PUBLIC ADJUSTING
+        HEALTHY HOMES PUBLIC ADJUSTING
       </div>
       <div style={{ fontSize: 9.5, color: "#d4af6c", marginTop: 4, lineHeight: 1.25, fontFamily: "Georgia, 'Times New Roman', serif", fontStyle: "italic" }}>
         Public Adjusting &nbsp;·&nbsp; Property Claim Documentation &nbsp;·&nbsp; Roof / Wind / Water Support
@@ -1724,7 +1724,7 @@ function LetterOfRepresentation({
         This document is for claim-documentation and operational coordination purposes only. No coverage determination, engineering opinion, construction guarantee, or legal advice is being provided. All claim decisions remain subject to policy terms, carrier review, applicable Florida law, and licensed public adjuster review.
       </div>
       <div style={{ fontSize: 8, color: "#c9a35c", fontWeight: 700, marginTop: 3, lineHeight: 1.2, fontFamily: "'Oswald', Arial, sans-serif", letterSpacing: "0.04em" }}>
-        Kort Co, LLC d/b/a Healthy Homes Public Adjusting &nbsp;|&nbsp; FL PA License: W435195
+        Healthy Homes Public Adjusting &nbsp;|&nbsp; FL PA License: W435195
       </div>
     </div>
   );
@@ -1923,7 +1923,7 @@ function LetterOfRepresentation({
       >
         <div style={{ ...bodyText, marginTop: 10 }}>
           <p style={{ margin: "0 0 14px", fontStyle: "italic" }}>
-            Also, please note that Kort Co, LLC d/b/a Healthy Homes Public Adjusting should be named as
+            Also, please note that Healthy Homes Public Adjusting should be named as
             an additional payee on all insurance drafts and/or payments,
             pursuant to the enclosed Notice of Loss/Notice of Representation
             signed by the Insured(s). The insured(s) hereby reserve all rights
@@ -2080,7 +2080,7 @@ function PublicAdjusterContract({
       fontFamily: "'Oswald', Arial, sans-serif",
     }}>
       <div style={{ fontSize: 15, fontWeight: 700, color: "#c9a35c", letterSpacing: "0.05em", lineHeight: 1.2 }}>
-        KORT CO, LLC d/b/a HEALTHY HOMES PUBLIC ADJUSTING
+        HEALTHY HOMES PUBLIC ADJUSTING
       </div>
       <div style={{ fontSize: 9.5, color: "#d4af6c", marginTop: 4, lineHeight: 1.25, fontFamily: "Georgia, 'Times New Roman', serif", fontStyle: "italic" }}>
         Public Adjusting &nbsp;·&nbsp; Property Claim Documentation &nbsp;·&nbsp; Roof / Wind / Water Support
@@ -2110,7 +2110,7 @@ function PublicAdjusterContract({
         This document is for claim-documentation and operational coordination purposes only. No coverage determination, engineering opinion, construction guarantee, or legal advice is being provided. All claim decisions remain subject to policy terms, carrier review, applicable Florida law, and licensed public adjuster review.
       </div>
       <div style={{ fontSize: 8, color: "#c9a35c", fontWeight: 700, marginTop: 3, lineHeight: 1.2, fontFamily: "'Oswald', Arial, sans-serif", letterSpacing: "0.04em" }}>
-        Kort Co, LLC d/b/a Healthy Homes Public Adjusting &nbsp;|&nbsp; FL PA License: W435195
+        Healthy Homes Public Adjusting &nbsp;|&nbsp; FL PA License: W435195
       </div>
     </div>
   );
@@ -12972,7 +12972,7 @@ if (!hasDamage) {
               color: "#6b7280",
               textAlign: "center",
             }}>
-              Kort Co, LLC d/b/a Healthy Homes Public Adjusting • License No: W435195 • Kkeckleradj@gmail.com • 561-283-5674 • propertydamageinspection.com
+              Healthy Homes Public Adjusting • License No: W435195 • Kkeckleradj@gmail.com • 561-283-5674 • propertydamageinspection.com
             </div>
           </div>
         </div>
