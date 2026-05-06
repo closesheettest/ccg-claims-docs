@@ -438,7 +438,7 @@ function InspectionCertificatePDF({ record, result, inspectorName, certNumber, i
   const today = inspectionDate || new Date().toISOString().split("T")[0];
   const certNo = certNumber || `RC-${today.replace(/-/g,"").slice(0,8)}-0001`;
   const inspector = inspectorName || "—";
-  const tdL = { padding: "6px 10px", fontSize: 10.5, fontWeight: 700, color: "#1a2e5a", background: "#eef1f8", border: "1px solid #c8d4e8", width: "24%" };
+  const tdL = { padding: "6px 10px", fontSize: 10.5, fontWeight: 700, color: "#0a0a0a", background: "#eef1f8", border: "1px solid #c8d4e8", width: "24%" };
   const tdV = { padding: "6px 10px", fontSize: 10.5, color: "#111827", background: "#fff", border: "1px solid #c8d4e8" };
 
   return (
@@ -571,7 +571,7 @@ function DuplicateScreen({ duplicateRecord, signMode, signerEmail, onGoBack, onP
     <div style={{ maxWidth: 520, margin: "0 auto", padding: "40px 20px" }}>
       {/* Banner */}
       <div style={{
-        background: isSigned ? "linear-gradient(135deg, #1a2e5a 0%, #0f1e3d 100%)" : "linear-gradient(135deg, #d97706 0%, #b45309 100%)",
+        background: isSigned ? "linear-gradient(135deg, #0a0a0a 0%, #0f1e3d 100%)" : "linear-gradient(135deg, #d97706 0%, #b45309 100%)",
         borderRadius: 24, padding: "32px 28px", textAlign: "center", color: "#fff", marginBottom: 20,
       }}>
         <div style={{ fontSize: 52, marginBottom: 10 }}>{isSigned ? "⚠️" : "📨"}</div>
@@ -1730,8 +1730,8 @@ function LetterOfRepresentation({
     <div
       style={{
         margin: "10px 0 12px",
-        background: "#199c2e",
-        color: "#fff",
+        background: "#0a0a0a",
+        color: "#c9a35c",
         textAlign: "center",
         fontWeight: 700,
         fontSize: 20,
@@ -1739,6 +1739,7 @@ function LetterOfRepresentation({
         padding: "11px 16px",
         textTransform: "uppercase",
         fontFamily: "'Oswald', Arial, sans-serif",
+        border: "2px solid #c9a35c",
       }}
     >
       Letter of Representation
@@ -1774,7 +1775,7 @@ function LetterOfRepresentation({
   const footerBlock = (
     <div
       style={{
-        borderTop: "3px solid #7c3aed",
+        borderTop: "3px solid #c9a35c",
         marginTop: 14,
         paddingTop: 10,
         fontSize: 12,
@@ -1787,7 +1788,7 @@ function LetterOfRepresentation({
         South Palm Beach, FL 33480 • Kkeckleradj@gmail.com • 561-283-5674 •
         propertydamageinspection.com
       </div>
-      <div style={{ marginTop: 6, fontWeight: 700, color: "#6d28d9" }}>
+      <div style={{ marginTop: 6, fontWeight: 700, color: "#a17e3f" }}>
         License No: W435195
       </div>
     </div>
@@ -2118,8 +2119,8 @@ function PublicAdjusterContract({
         width: "100%",
         display: "block",
         margin: "10px 0 12px",
-        background: "#199c2e",
-        color: "#fff",
+        background: "#0a0a0a",
+        color: "#c9a35c",
         textAlign: "center",
         fontWeight: 700,
         fontSize: 20,
@@ -2128,6 +2129,7 @@ function PublicAdjusterContract({
         textTransform: "uppercase",
         fontFamily: "'Oswald', Arial, sans-serif",
         boxSizing: "border-box",
+        border: "2px solid #c9a35c",
       }}
     >
       Public Adjuster Contract
@@ -2503,8 +2505,8 @@ function PublicAdjusterContract({
           </p>
 
           <p style={{ margin: "0 0 10px", fontWeight: 700, fontSize: 18, lineHeight: 1.5 }}>
-            The notice of cancellation shall be provided to Capital Claims
-            Group, submitted in writing, and sent by certified mail, return
+            The notice of cancellation shall be provided to Healthy Homes
+            Public Adjusting, submitted in writing, and sent by certified mail, return
             receipt requested, or another form of mailing that provides proof
             thereof, at the address specified in the contract.
           </p>
@@ -2555,7 +2557,7 @@ function PublicAdjusterContract({
               marginBottom: 14,
             }}
           >
-            CAPITAL CLAIMS GROUP
+            HEALTHY HOMES PUBLIC ADJUSTING
           </div>
 
           <div
@@ -2784,8 +2786,8 @@ function GuidedIntakeFlow({
 
   // Common style helpers — kept inline so this component is self-contained.
   // Color palette pulled from the rest of the app's USS branding:
-  //   Navy  #1a2e5a — primary
-  //   Red   #c8392b — accent / active CTA
+  //   Navy  #0a0a0a — primary
+  //   Red   #c9a35c — accent / active CTA
   //   Green #16a34a — success / "Selected" badges
   const stepCard = {
     background: "linear-gradient(180deg, #f8fafc 0%, #ffffff 60%)",
@@ -2797,9 +2799,9 @@ function GuidedIntakeFlow({
   };
   const bigChoice = (active) => ({
     width: "100%", padding: "20px 22px", borderRadius: 14,
-    border: active ? "3px solid #1a2e5a" : "2px solid #d1d5db",
+    border: active ? "3px solid #0a0a0a" : "2px solid #d1d5db",
     background: active
-      ? "linear-gradient(135deg, #1a2e5a 0%, #2d4373 100%)"
+      ? "linear-gradient(135deg, #0a0a0a 0%, #1f1f1f 100%)"
       : "#fff",
     color: active ? "#fff" : "#111827",
     cursor: "pointer", textAlign: "left", fontFamily: "'Nunito', sans-serif",
@@ -2815,9 +2817,9 @@ function GuidedIntakeFlow({
     background: disabled
       ? "#cbd5e1"
       : (primary
-          ? "linear-gradient(135deg, #c8392b 0%, #a02b1f 100%)"
+          ? "linear-gradient(135deg, #c9a35c 0%, #a17e3f 100%)"
           : "transparent"),
-    color: primary ? "#fff" : "#1a2e5a",
+    color: primary ? "#fff" : "#0a0a0a",
     fontFamily: "'Oswald', sans-serif", fontSize: 14, fontWeight: 700,
     letterSpacing: "0.06em", textTransform: "uppercase",
     cursor: disabled ? "not-allowed" : "pointer",
@@ -2965,14 +2967,14 @@ function GuidedIntakeFlow({
             type a customer name; this stops them cold. */}
         <div style={{
           padding: "24px 28px",
-          background: "linear-gradient(135deg, #c8392b 0%, #a02b1f 100%)",
+          background: "linear-gradient(135deg, #c9a35c 0%, #a17e3f 100%)",
           borderRadius: 14,
           fontFamily: "'Oswald', sans-serif",
           color: "#fff",
           textAlign: "center",
           boxShadow: "0 6px 20px rgba(200, 57, 43, 0.35)",
           border: "3px solid #fff",
-          outline: "3px solid #c8392b",
+          outline: "3px solid #c9a35c",
         }}>
           <div style={{
             fontSize: 28, fontWeight: 800,
@@ -2998,7 +3000,7 @@ function GuidedIntakeFlow({
           autoFocus
           style={{
             width: "100%", height: 48, borderRadius: 12,
-            border: "2px solid #1a2e5a",
+            border: "2px solid #0a0a0a",
             padding: "0 16px", fontSize: 15,
             fontFamily: "'Nunito', sans-serif",
             boxSizing: "border-box",
@@ -3188,7 +3190,7 @@ function GuidedIntakeFlow({
           <div style={{ fontSize: 11, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700 }}>{label}</div>
           <div style={{ fontSize: 14, color: "#111827", marginTop: 2, fontWeight: 600 }}>{value || "—"}</div>
         </div>
-        {gotoStep != null ? <div style={{ fontSize: 11, color: "#1a2e5a", fontWeight: 700 }}>EDIT</div> : null}
+        {gotoStep != null ? <div style={{ fontSize: 11, color: "#0a0a0a", fontWeight: 700 }}>EDIT</div> : null}
       </button>
     );
     const docsList = (selectedDocs || []).map(d => {
@@ -3226,14 +3228,14 @@ function GuidedIntakeFlow({
               Homeowner so the Existing flow has consistent visual language. */}
           <div style={{
             padding: "24px 28px",
-            background: "linear-gradient(135deg, #c8392b 0%, #a02b1f 100%)",
+            background: "linear-gradient(135deg, #c9a35c 0%, #a17e3f 100%)",
             borderRadius: 14,
             fontFamily: "'Oswald', sans-serif",
             color: "#fff",
             textAlign: "center",
             boxShadow: "0 6px 20px rgba(200, 57, 43, 0.35)",
             border: "3px solid #fff",
-            outline: "3px solid #c8392b",
+            outline: "3px solid #c9a35c",
             marginBottom: 8,
           }}>
             <div style={{
@@ -3264,10 +3266,10 @@ function GuidedIntakeFlow({
           </div>
           <div style={{
             marginTop: 12, padding: "20px 24px",
-            background: "linear-gradient(135deg, #c8392b 0%, #a02b1f 100%)",
+            background: "linear-gradient(135deg, #c9a35c 0%, #a17e3f 100%)",
             borderRadius: 14,
             border: "3px solid #fff",
-            outline: "3px solid #c8392b",
+            outline: "3px solid #c9a35c",
             boxShadow: "0 6px 20px rgba(200, 57, 43, 0.35)",
             color: "#fff",
             textAlign: "center",
@@ -3321,7 +3323,7 @@ function GuidedIntakeFlow({
           uses so Guided feels like part of the family rather than bolted
           on. The thin red rule under the banner is the USS accent. */}
       <div style={{
-        background: "linear-gradient(135deg, #1a2e5a 0%, #2d4373 100%)",
+        background: "linear-gradient(135deg, #0a0a0a 0%, #1f1f1f 100%)",
         padding: "20px 28px 22px",
         position: "relative",
       }}>
@@ -3330,7 +3332,7 @@ function GuidedIntakeFlow({
           {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
             <div key={i} style={{
               width: i === step ? 28 : 8, height: 8, borderRadius: 4,
-              background: i < step ? "#c8392b" : i === step ? "#fff" : "rgba(255,255,255,0.3)",
+              background: i < step ? "#c9a35c" : i === step ? "#fff" : "rgba(255,255,255,0.3)",
               transition: "all 0.2s",
             }} />
           ))}
@@ -3356,7 +3358,7 @@ function GuidedIntakeFlow({
       </div>
 
       {/* Red accent rule */}
-      <div style={{ height: 4, background: "#c8392b" }} />
+      <div style={{ height: 4, background: "#c9a35c" }} />
 
       {/* Content area */}
       <div style={{ padding: "24px 28px 28px" }}>
@@ -5374,7 +5376,7 @@ const renderSmsTemplate = (key, vars) => {
             subject: `${isTestMode ? "🧪 [TEST] " : ""}Your Free Roof Inspection Agreement — U.S. Shingle & Metal`,
             html: `
               <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <div style="background: #1a2e5a; padding: 24px 32px; border-radius: 12px 12px 0 0;">
+                <div style="background: #0a0a0a; padding: 24px 32px; border-radius: 12px 12px 0 0;">
                   <h1 style="color: #fff; margin: 0; font-size: 22px;">🏠 Your Inspection Agreement</h1>
                 </div>
                 <div style="background: #f9fafb; padding: 24px 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb; border-top: none;">
@@ -5384,13 +5386,13 @@ const renderSmsTemplate = (key, vars) => {
                     Your signed agreement and welcome package are attached. We will be in touch shortly to schedule your inspection.
                   </p>
                   <div style="background: #eef1f8; border: 1px solid #bfdbfe; border-radius: 10px; padding: 16px 20px; margin: 16px 0;">
-                    <p style="margin: 0; font-weight: 700; color: #1a2e5a;">📎 Attached:</p>
+                    <p style="margin: 0; font-weight: 700; color: #0a0a0a;">📎 Attached:</p>
                     <ul style="margin: 8px 0 0; padding-left: 18px; color: #374151; font-size: 14px; line-height: 1.8;">
                       <li>Free Roof Inspection Agreement (signed copy)</li>
                       <li>USS Welcome Package — what to expect next</li>
                     </ul>
                   </div>
-                  <div style="background: #1a2e5a; border-radius: 10px; padding: 16px 20px; margin: 16px 0;">
+                  <div style="background: #0a0a0a; border-radius: 10px; padding: 16px 20px; margin: 16px 0;">
                     <p style="margin: 0; font-weight: 700; color: #fff;">📞 Questions? Contact us:</p>
                     <p style="margin: 6px 0 0; color: rgba(255,255,255,0.85); font-size: 14px;">
                       Phone: ${ussContactPhone}<br/>Email: ${ussContactEmail}
@@ -5486,7 +5488,7 @@ const renderSmsTemplate = (key, vars) => {
             subject: `🏠 New Inspection — ${inspData.clientName} (${repName})`,
             html: `
               <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto;">
-                <div style="background: #1a2e5a; padding: 20px 28px; border-radius: 12px 12px 0 0;">
+                <div style="background: #0a0a0a; padding: 20px 28px; border-radius: 12px 12px 0 0;">
                   <h2 style="color: #fff; margin: 0; font-size: 20px;">🏠 New Inspection Signed</h2>
                 </div>
                 <div style="background: #f9fafb; padding: 24px 28px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb; border-top: none;">
@@ -5736,7 +5738,7 @@ const renderSmsTemplate = (key, vars) => {
       const emailSubject = isInspOnly
         ? "Your Free Roof Inspection Agreement — U.S. Shingle & Metal"
         : "Your Signed Documents — Healthy Homes Public Adjusting";
-      const emailHeaderBg = isInspOnly ? "#1a2e5a" : "#199c2e";
+      const emailHeaderBg = isInspOnly ? "#0a0a0a" : "#199c2e";
       const emailHeaderText = isInspOnly ? "🏠 Your Inspection Agreement" : "🎉 You're All Set!";
       const emailWelcomeLine = isInspOnly
         ? `Your signed inspection agreement and USS welcome package are attached.`
@@ -5744,7 +5746,7 @@ const renderSmsTemplate = (key, vars) => {
       const emailDocList = isInspOnly
         ? `<li><strong>Free Roof Inspection Agreement</strong> — your signed copy</li><li><strong>USS Welcome Package</strong> — what to expect next</li>`
         : `${selectedDocs.map(d => `<li><strong>${documentLabel(d)}</strong> — your signed copy</li>`).join("")}<li><strong>Healthy Homes Welcome Package</strong> — what to expect next &amp; our contact info</li>`;
-      const emailContactBg = isInspOnly ? "#1a2e5a" : "#f0fdf4";
+      const emailContactBg = isInspOnly ? "#0a0a0a" : "#f0fdf4";
       const emailContactColor = isInspOnly ? "#fff" : "#166534";
       const emailContactInfo = isInspOnly
         ? `Phone: ${ussContactPhone}<br/>Email: ${ussContactEmail}`
@@ -6355,7 +6357,7 @@ if (!hasDamage) {
               to: [homeownerEmail],
               bcc: activityEmail ? [activityEmail] : [],
               subject: "Your Roof Inspection Certificate — No Damage Found ✅",
-              html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto"><div style="background:#199c2e;padding:24px 32px;border-radius:12px 12px 0 0"><h1 style="color:#fff;margin:0">✅ Good News — No Damage Found!</h1></div><div style="background:#f9fafb;padding:24px 32px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none"><p>Hi ${ownerName},</p><p>Our inspector completed the roof inspection at <strong>${propertyAddr}</strong> and found <strong>no structural damage</strong>.</p><div style="background:#f0fdf4;border:2px solid #199c2e;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#166534">📄 Keep This Certificate Safe!</p><p style="margin:8px 0 0;color:#166534;font-size:14px;line-height:1.6">Your official inspection certificate is attached. <strong>If your insurance company ever sends a notice requiring roof replacement, submit this certified inspection report as evidence that your roof was professionally inspected and found to be in good condition.</strong></p></div><div style="background:#1a2e5a;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#fff">📞 U.S. Shingle &amp; Metal LLC</p><p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:14px">Phone: 727-761-5200 | Email: inspection@shingleusa.com</p></div></div></div>`,
+              html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto"><div style="background:#199c2e;padding:24px 32px;border-radius:12px 12px 0 0"><h1 style="color:#fff;margin:0">✅ Good News — No Damage Found!</h1></div><div style="background:#f9fafb;padding:24px 32px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none"><p>Hi ${ownerName},</p><p>Our inspector completed the roof inspection at <strong>${propertyAddr}</strong> and found <strong>no structural damage</strong>.</p><div style="background:#f0fdf4;border:2px solid #199c2e;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#166534">📄 Keep This Certificate Safe!</p><p style="margin:8px 0 0;color:#166534;font-size:14px;line-height:1.6">Your official inspection certificate is attached. <strong>If your insurance company ever sends a notice requiring roof replacement, submit this certified inspection report as evidence that your roof was professionally inspected and found to be in good condition.</strong></p></div><div style="background:#0a0a0a;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#fff">📞 U.S. Shingle &amp; Metal LLC</p><p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:14px">Phone: 727-761-5200 | Email: inspection@shingleusa.com</p></div></div></div>`,
               attachments: certBase64 ? [{ filename: "Inspection-Certificate-No-Damage.pdf", content: certBase64 }] : [],
             }),
           }).catch(e => console.warn("No-damage email:", e));
@@ -6366,8 +6368,8 @@ if (!hasDamage) {
         if (false && homeownerEmail) {
           const emailSubject = paIsSigned ? "⚠️ Roof Damage Found — Your Claim Is Being Started" : "⚠️ Roof Inspection Results — Damage Found";
           const emailHtml = paIsSigned
-            ? `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto"><div style="background:#dc2626;padding:24px 32px;border-radius:12px 12px 0 0"><h1 style="color:#fff;margin:0">⚠️ Damage Found — Healthy Homes Is On It</h1></div><div style="background:#f9fafb;padding:24px 32px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none"><p>Hi ${ownerName},</p><p>Our inspector has completed the roof inspection at <strong>${propertyAddr}</strong> and confirmed <strong>storm damage</strong>.</p><div style="background:#fef2f2;border:2px solid #dc2626;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#991b1b">🚀 Your Claim Is Already In Motion</p><p style="margin:8px 0 0;color:#991b1b;font-size:14px;line-height:1.6">Because you already have your paperwork signed with Healthy Homes Public Adjusting, <strong>your claim is being started right away.</strong> Healthy Homes will be reaching out to you shortly to walk you through the next steps.</p></div><div style="background:#1a2e5a;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#fff">📞 Healthy Homes Public Adjusting</p><p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:14px">Phone: 561-283-5674 | Email: Kkeckleradj@gmail.com</p></div><p style="font-size:13px;color:#6b7280">Please do not repair or replace anything until your claim has been reviewed.</p></div></div>`
-            : `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto"><div style="background:#dc2626;padding:24px 32px;border-radius:12px 12px 0 0"><h1 style="color:#fff;margin:0">⚠️ Damage Found — We're On It</h1></div><div style="background:#f9fafb;padding:24px 32px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none"><p>Hi ${ownerName},</p><p>Our inspector has completed the roof inspection at <strong>${propertyAddr}</strong> and identified <strong>storm damage</strong>.</p><div style="background:#fef2f2;border:2px solid #dc2626;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#991b1b">📋 What Happens Next</p><p style="margin:8px 0 0;color:#991b1b;font-size:14px;line-height:1.6">Your representative, <strong>${repName || "our team"}</strong>, will be contacting you soon to get the paperwork started so we can work with your insurance company on your behalf.</p></div><p style="font-size:14px;color:#374151">Your official inspection report is attached. Please do not repair or replace anything until your claim has been reviewed.</p><div style="background:#1a2e5a;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#fff">📞 U.S. Shingle &amp; Metal LLC</p><p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:14px">Phone: 727-761-5200 | Email: inspection@shingleusa.com</p></div></div></div>`;
+            ? `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto"><div style="background:#dc2626;padding:24px 32px;border-radius:12px 12px 0 0"><h1 style="color:#fff;margin:0">⚠️ Damage Found — Healthy Homes Is On It</h1></div><div style="background:#f9fafb;padding:24px 32px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none"><p>Hi ${ownerName},</p><p>Our inspector has completed the roof inspection at <strong>${propertyAddr}</strong> and confirmed <strong>storm damage</strong>.</p><div style="background:#fef2f2;border:2px solid #dc2626;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#991b1b">🚀 Your Claim Is Already In Motion</p><p style="margin:8px 0 0;color:#991b1b;font-size:14px;line-height:1.6">Because you already have your paperwork signed with Healthy Homes Public Adjusting, <strong>your claim is being started right away.</strong> Healthy Homes will be reaching out to you shortly to walk you through the next steps.</p></div><div style="background:#0a0a0a;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#fff">📞 Healthy Homes Public Adjusting</p><p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:14px">Phone: 561-283-5674 | Email: Kkeckleradj@gmail.com</p></div><p style="font-size:13px;color:#6b7280">Please do not repair or replace anything until your claim has been reviewed.</p></div></div>`
+            : `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto"><div style="background:#dc2626;padding:24px 32px;border-radius:12px 12px 0 0"><h1 style="color:#fff;margin:0">⚠️ Damage Found — We're On It</h1></div><div style="background:#f9fafb;padding:24px 32px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none"><p>Hi ${ownerName},</p><p>Our inspector has completed the roof inspection at <strong>${propertyAddr}</strong> and identified <strong>storm damage</strong>.</p><div style="background:#fef2f2;border:2px solid #dc2626;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#991b1b">📋 What Happens Next</p><p style="margin:8px 0 0;color:#991b1b;font-size:14px;line-height:1.6">Your representative, <strong>${repName || "our team"}</strong>, will be contacting you soon to get the paperwork started so we can work with your insurance company on your behalf.</p></div><p style="font-size:14px;color:#374151">Your official inspection report is attached. Please do not repair or replace anything until your claim has been reviewed.</p><div style="background:#0a0a0a;border-radius:10px;padding:16px 20px;margin:16px 0"><p style="margin:0;font-weight:700;color:#fff">📞 U.S. Shingle &amp; Metal LLC</p><p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:14px">Phone: 727-761-5200 | Email: inspection@shingleusa.com</p></div></div></div>`;
           await fetch("/.netlify/functions/send-email", {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -6874,7 +6876,7 @@ if (!hasDamage) {
           <div style={{ width: "8.5in", boxSizing: "border-box", padding: "0", background: "#fff", position: "relative" }}>
 
             {/* Navy header */}
-           <div style={{ background: "#1a2e5a", padding: "0.5in 0.6in 0.4in", color: "#fff" }}>
+           <div style={{ background: "#0a0a0a", padding: "0.5in 0.6in 0.4in", color: "#fff" }}>
               <img src="/uss-header.png" alt="U.S. Shingle & Metal" style={{ height: 56, objectFit: "contain", marginBottom: 18, filter: "brightness(0) invert(1)" }} />
               <div style={{ fontSize: 32, fontWeight: 700, marginBottom: 8, lineHeight: 1.1 }}>
                 Welcome to U.S. Shingle & Metal LLC!
@@ -6887,8 +6889,8 @@ if (!hasDamage) {
             <div style={{ padding: "0.2in 0.5in 0.2in" }}>
 
               {/* Contact info box */}
-              <div style={{ background: "#eef1f8", border: "2px solid #1a2e5a", borderRadius: 12, padding: "20px 24px", marginBottom: 24 }}>
-                <div style={{ fontSize: 16, fontWeight: 700, color: "#1a2e5a", marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>
+              <div style={{ background: "#eef1f8", border: "2px solid #0a0a0a", borderRadius: 12, padding: "20px 24px", marginBottom: 24 }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#0a0a0a", marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>
                   Your Point of Contact
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, fontSize: 12 }}>
@@ -6921,7 +6923,7 @@ if (!hasDamage) {
               </div>
               {inspOnlySteps.map((step, i) => (
                 <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 6, padding: "7px 10px", background: "#eef1f8", borderRadius: 8, border: "1px solid #bfdbfe" }}>
-                  <div style={{ width: 20, height: 20, borderRadius: "50%", background: "#1a2e5a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 11, flexShrink: 0 }}>{i + 1}</div>
+                  <div style={{ width: 20, height: 20, borderRadius: "50%", background: "#0a0a0a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 11, flexShrink: 0 }}>{i + 1}</div>
                   <div style={{ fontSize: 12, color: "#1e3a5f", lineHeight: 1.45 }}>{step}</div>
                 </div>
               ))}
@@ -6932,7 +6934,7 @@ if (!hasDamage) {
               </div>
 
               {/* Footer */}
-              <div style={{ marginTop: 28, borderTop: "2px solid #1a2e5a", paddingTop: 14, fontSize: 11, color: "#6b7280", textAlign: "center" }}>
+              <div style={{ marginTop: 28, borderTop: "2px solid #0a0a0a", paddingTop: 14, fontSize: 11, color: "#6b7280", textAlign: "center" }}>
                 U.S. Shingle & Metal LLC • License No: CCC1331960 • {ussContactEmail} • {ussContactPhone} • 3845 Gateway Centre Blvd Suite 300, Pinellas Park, FL 33782
               </div>
             </div>
@@ -7008,7 +7010,7 @@ if (!hasDamage) {
                   onClick={() => setIntakeMode("quick")}
                   style={{
                     padding: "8px 18px", borderRadius: 999, border: "none",
-                    background: intakeMode === "quick" ? "#1a2e5a" : "transparent",
+                    background: intakeMode === "quick" ? "#0a0a0a" : "transparent",
                     color: intakeMode === "quick" ? "#fff" : "#6b7280",
                     fontSize: 13, fontWeight: 700, fontFamily: "'Oswald', sans-serif",
                     letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer",
@@ -7030,7 +7032,7 @@ if (!hasDamage) {
                   }}
                   style={{
                     padding: "8px 18px", borderRadius: 999, border: "none",
-                    background: intakeMode === "guided" ? "#1a2e5a" : "transparent",
+                    background: intakeMode === "guided" ? "#0a0a0a" : "transparent",
                     color: intakeMode === "guided" ? "#fff" : "#6b7280",
                     fontSize: 13, fontWeight: 700, fontFamily: "'Oswald', sans-serif",
                     letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer",
@@ -7486,7 +7488,7 @@ if (!hasDamage) {
                       ) : (
                         <button type="button"
                           onClick={() => loadAndOpenMyHomeowners()}
-                          style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #1a2e5a", background: "#fff", color: "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                          style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #0a0a0a", background: "#fff", color: "#0a0a0a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
                           📋 My Homeowners — Add Docs to Existing Customer
                         </button>
                       )}
@@ -7610,7 +7612,7 @@ if (!hasDamage) {
                     disabled={alreadySignedDocs.includes("insp")}
                     style={{
                       padding: 0, borderRadius: 16, textAlign: "left", cursor: alreadySignedDocs.includes("insp") ? "not-allowed" : "pointer",
-                      border: alreadySignedDocs.includes("insp") ? "2px solid #199c2e" : selectedDocs.includes("insp") ? "3px solid #1a2e5a" : "2px solid #d1d5db",
+                      border: alreadySignedDocs.includes("insp") ? "2px solid #199c2e" : selectedDocs.includes("insp") ? "3px solid #0a0a0a" : "2px solid #d1d5db",
                       background: "#fff",
                       boxShadow: selectedDocs.includes("insp") ? "0 4px 16px rgba(26,46,90,0.25)" : "0 2px 6px rgba(0,0,0,0.06)",
                       transition: "all 0.15s",
@@ -7618,7 +7620,7 @@ if (!hasDamage) {
                       opacity: alreadySignedDocs.includes("insp") ? 0.6 : 1,
                     }}>
                     {/* Top third — Navy */}
-                    <div style={{ background: "#1a2e5a", padding: "10px 14px" }}>
+                    <div style={{ background: "#0a0a0a", padding: "10px 14px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <div style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.5)", flexShrink: 0 }} />
                         <div style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.8)", flexShrink: 0 }} />
@@ -7636,11 +7638,11 @@ if (!hasDamage) {
                       {alreadySignedDocs.includes("insp") ? (
                         <div style={{ fontSize: 11, fontWeight: 700, color: "#199c2e", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>✓ Already signed</div>
                       ) : selectedDocs.includes("insp") ? (
-                        <div style={{ fontSize: 11, fontWeight: 700, color: "#1a2e5a", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>✓ Selected</div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "#0a0a0a", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>✓ Selected</div>
                       ) : null}
                     </div>
                     {/* Bottom third — Red */}
-                    <div style={{ background: "#c8392b", padding: "8px 14px" }}>
+                    <div style={{ background: "#c9a35c", padding: "8px 14px" }}>
                       <div style={{ fontSize: 12, color: "#fff", fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.3 }}>
                         Homeowner signs inspection agreement
                       </div>
@@ -7878,7 +7880,7 @@ if (!hasDamage) {
               {selectedDocs.includes("insp") ? (
                 <div style={{
                   borderRadius: 24,
-                  border: inspAgreed ? "3px solid #1a2e5a" : "2px solid #e5e7eb",
+                  border: inspAgreed ? "3px solid #0a0a0a" : "2px solid #e5e7eb",
                   background: inspAgreed ? "#eef1f8" : "#fff",
                   padding: "0",
                   transition: "border-color 0.3s, background 0.3s",
@@ -7887,22 +7889,22 @@ if (!hasDamage) {
                 }}>
                   {/* USS tricolor stripe */}
                   <div style={{ display: "flex", height: 6 }}>
-                    <div style={{ flex: 1, background: "#1a2e5a" }} />
+                    <div style={{ flex: 1, background: "#0a0a0a" }} />
                     <div style={{ flex: 1, background: "#e5e7eb" }} />
-                    <div style={{ flex: 1, background: "#c8392b" }} />
+                    <div style={{ flex: 1, background: "#c9a35c" }} />
                   </div>
                   <div style={{ padding: "24px 28px 20px" }}>
                     <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 16 }}>
                       <div style={{
                         width: 52, height: 52, borderRadius: 16,
-                        background: inspAgreed ? "#1a2e5a" : "#f3f4f6",
+                        background: inspAgreed ? "#0a0a0a" : "#f3f4f6",
                         display: "flex", alignItems: "center", justifyContent: "center",
                         fontSize: 24, flexShrink: 0, transition: "background 0.3s",
                       }}>
                         {inspAgreed ? "✅" : "🏠"}
                       </div>
                       <div>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: "#1a2e5a", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "#0a0a0a", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>
                           U.S. Shingle & Metal LLC — Document 1 of {selectedDocs.length}
                         </div>
                         <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827", lineHeight: 1.2 }}>
@@ -7927,8 +7929,8 @@ if (!hasDamage) {
                             }}
                             style={{
                               padding: "12px 8px", borderRadius: 12,
-                              border: "2px solid #1a2e5a", background: "#fff",
-                              color: "#1a2e5a", fontFamily: "'Oswald', sans-serif",
+                              border: "2px solid #0a0a0a", background: "#fff",
+                              color: "#0a0a0a", fontFamily: "'Oswald', sans-serif",
                               fontWeight: 700, fontSize: 13, cursor: "pointer",
                               letterSpacing: "0.04em", textTransform: "uppercase",
                             }}>
@@ -7941,23 +7943,23 @@ if (!hasDamage) {
                             overflow: "hidden", display: "flex", flexDirection: "column",
                             animation: "ccg-pulse 2s infinite",
                           }}>
-                          <div style={{ background: "#c8392b", padding: "8px 24px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                          <div style={{ background: "#c9a35c", padding: "8px 24px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
                             <span style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#fff", letterSpacing: "0.04em", textTransform: "uppercase" }}>👍 Tap Here</span>
                           </div>
                           <div style={{ background: "#fff", padding: "8px 24px", display: "flex", alignItems: "center", justifyContent: "center", borderTop: "1px solid #e5e7eb", borderBottom: "1px solid #e5e7eb" }}>
-                            <span style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#1a2e5a", letterSpacing: "0.04em", textTransform: "uppercase" }}>Looks Good!</span>
+                            <span style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#0a0a0a", letterSpacing: "0.04em", textTransform: "uppercase" }}>Looks Good!</span>
                           </div>
-                          <div style={{ background: "#1a2e5a", padding: "8px 24px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <div style={{ background: "#0a0a0a", padding: "8px 24px", display: "flex", alignItems: "center", justifyContent: "center" }}>
                             <span style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#fff", letterSpacing: "0.04em", textTransform: "uppercase" }}>✅ Authorized</span>
                           </div>
                         </button>
                         </div>
-                        <div style={{ textAlign: "center", marginTop: 10, fontSize: 13, color: "#1a2e5a", fontWeight: 600, fontFamily: "'Nunito', sans-serif" }}>
+                        <div style={{ textAlign: "center", marginTop: 10, fontSize: 13, color: "#0a0a0a", fontWeight: 600, fontFamily: "'Nunito', sans-serif" }}>
                           ☝️ Please tap the button above to continue
                         </div>
                       </div>
                     ) : (
-                      <div style={{ background: "#1a2e5a", borderRadius: 14, padding: "14px 20px", textAlign: "center" }}>
+                      <div style={{ background: "#0a0a0a", borderRadius: 14, padding: "14px 20px", textAlign: "center" }}>
                         <span style={{ fontSize: 20, fontWeight: 700, color: "#fff", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.04em" }}>
                           ✅ Authorized!
                         </span>
@@ -8563,7 +8565,7 @@ if (!hasDamage) {
             {inspectionOnly && !isSigningFromLink ? (
               <>
                 <div style={{
-                  background: "linear-gradient(135deg, #1a2e5a 0%, #0f1e3d 100%)",
+                  background: "linear-gradient(135deg, #0a0a0a 0%, #0f1e3d 100%)",
                   borderRadius: 28, padding: "40px 36px", textAlign: "center",
                   marginBottom: 24, color: "#fff",
                 }}>
@@ -8615,11 +8617,11 @@ if (!hasDamage) {
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                   <button type="button" onClick={() => { setView("input"); setRepSearch(""); window.scrollTo({ top: 0 }); }}
-                    style={{ padding: "14px", borderRadius: 14, border: "2px solid #1a2e5a", background: "#fff", color: "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
+                    style={{ padding: "14px", borderRadius: 14, border: "2px solid #0a0a0a", background: "#fff", color: "#0a0a0a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
                     ✚ New Client
                   </button>
                   <button type="button" onClick={() => { setView("input"); setRepSearch(""); window.scrollTo({ top: 0 }); }}
-                    style={{ padding: "14px", borderRadius: 14, border: "none", background: "#1a2e5a", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
+                    style={{ padding: "14px", borderRadius: 14, border: "none", background: "#0a0a0a", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
                     ← Back to Intake
                   </button>
                 </div>
@@ -8630,7 +8632,7 @@ if (!hasDamage) {
             {inspectionOnly && isSigningFromLink ? (
               <>
                 <div style={{
-                  background: "linear-gradient(135deg, #1a2e5a 0%, #0f1e3d 100%)",
+                  background: "linear-gradient(135deg, #0a0a0a 0%, #0f1e3d 100%)",
                   borderRadius: 28, padding: "40px 36px", textAlign: "center",
                   marginBottom: 24, color: "#fff",
                 }}>
@@ -8643,13 +8645,13 @@ if (!hasDamage) {
                   </div>
                 </div>
                 <div style={{ background: "#fff", borderRadius: 24, border: "1px solid #e5e7eb", padding: "28px 28px 24px", marginBottom: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: "#1a2e5a", fontFamily: "'Oswald', sans-serif", marginBottom: 16 }}>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: "#0a0a0a", fontFamily: "'Oswald', sans-serif", marginBottom: 16 }}>
                     📋 What Happens Next
                   </div>
                   <div style={{ display: "grid", gap: 12 }}>
                     {activeTYSteps.map((step, i) => (
                       <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 14, padding: "12px 16px", background: "#eef1f8", borderRadius: 14, border: "1px solid #bfdbfe" }}>
-                        <div style={{ width: 26, height: 26, borderRadius: "50%", background: "#1a2e5a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 12, flexShrink: 0 }}>{i + 1}</div>
+                        <div style={{ width: 26, height: 26, borderRadius: "50%", background: "#0a0a0a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 12, flexShrink: 0 }}>{i + 1}</div>
                         <div style={{ fontSize: 15, color: "#1e3a5f", fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.5 }}>{step}</div>
                       </div>
                     ))}
@@ -8658,7 +8660,7 @@ if (!hasDamage) {
                 <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 20, padding: "18px 24px", textAlign: "center", marginBottom: 24 }}>
                   <div style={{ fontSize: 16, color: "#92400e", fontFamily: "'Nunito', sans-serif", fontWeight: 700, lineHeight: 1.6 }}>{activeTYClosing}</div>
                 </div>
-                <div style={{ background: "#1a2e5a", borderRadius: 20, padding: "20px 24px", color: "#fff", marginBottom: 24, textAlign: "center" }}>
+                <div style={{ background: "#0a0a0a", borderRadius: 20, padding: "20px 24px", color: "#fff", marginBottom: 24, textAlign: "center" }}>
                   <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 8, fontFamily: "'Oswald', sans-serif" }}>📞 Contact U.S. Shingle & Metal LLC</div>
                   <div style={{ fontSize: 14, fontFamily: "'Nunito', sans-serif", lineHeight: 1.8, opacity: 0.9 }}>
                     {ussContactPhone} &nbsp;|&nbsp; {ussContactEmail}
@@ -8732,7 +8734,7 @@ if (!hasDamage) {
 
             {/* Hero banner */}
             <div style={{
-              background: "linear-gradient(135deg, #1a2e5a 0%, #0f1e3d 100%)",
+              background: "linear-gradient(135deg, #0a0a0a 0%, #0f1e3d 100%)",
               borderRadius: 24,
               padding: "32px 28px",
               color: "#fff",
@@ -8745,7 +8747,7 @@ if (!hasDamage) {
               <div style={{ fontSize: 30, fontWeight: 700, fontFamily: "'Oswald', sans-serif", marginBottom: 8 }}>
                 Free Roof Inspection Agreement
               </div>
-              <div style={{ fontSize: 14, fontFamily: "'Nunito', sans-serif", fontWeight: 700, color: "#c8392b", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+              <div style={{ fontSize: 14, fontFamily: "'Nunito', sans-serif", fontWeight: 700, color: "#c9a35c", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                 U.S. Shingle & Metal LLC
               </div>
               <div style={{ fontSize: 15, fontFamily: "'Nunito', sans-serif", fontWeight: 600, opacity: 0.88 }}>
@@ -8838,7 +8840,7 @@ if (!hasDamage) {
             <div>
               {!effectiveInspSig ? (
                 <div style={{
-                  background: "linear-gradient(135deg, #1a2e5a 0%, #0f1e3d 100%)",
+                  background: "linear-gradient(135deg, #0a0a0a 0%, #0f1e3d 100%)",
                   borderRadius: "24px 24px 0 0",
                   padding: "24px 28px 20px",
                   color: "#fff",
@@ -8861,12 +8863,12 @@ if (!hasDamage) {
                       <button key={m} type="button" onClick={() => setInspSigMethod(m)}
                         style={{
                           padding: "14px 12px", borderRadius: 16, textAlign: "center",
-                          border: inspSigMethod === m ? "3px solid #1a2e5a" : "2px solid #e5e7eb",
+                          border: inspSigMethod === m ? "3px solid #0a0a0a" : "2px solid #e5e7eb",
                           background: inspSigMethod === m ? "#eef1f8" : "#fff", cursor: "pointer",
                         }}>
                         <div style={{ fontSize: 28, marginBottom: 6 }}>{emoji}</div>
                         <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Nunito', sans-serif", color: "#111827" }}>{label}</div>
-                        {inspSigMethod === m ? <div style={{ fontSize: 12, color: "#1a2e5a", fontWeight: 700, fontFamily: "'Nunito', sans-serif", marginTop: 4 }}>✓ Selected</div> : null}
+                        {inspSigMethod === m ? <div style={{ fontSize: 12, color: "#0a0a0a", fontWeight: 700, fontFamily: "'Nunito', sans-serif", marginTop: 4 }}>✓ Selected</div> : null}
                       </button>
                     ))}
                   </div>
@@ -8906,8 +8908,8 @@ if (!hasDamage) {
                       }}
                       style={{
                         padding: "12px 16px", borderRadius: 14,
-                        border: "2px solid #1a2e5a", background: "#fff",
-                        color: "#1a2e5a", fontFamily: "'Oswald', sans-serif",
+                        border: "2px solid #0a0a0a", background: "#fff",
+                        color: "#0a0a0a", fontFamily: "'Oswald', sans-serif",
                         fontWeight: 700, fontSize: 14, cursor: "pointer",
                         letterSpacing: "0.04em", textTransform: "uppercase",
                       }}
@@ -8915,7 +8917,7 @@ if (!hasDamage) {
                       👁 Preview Document
                     </button>
                     <Button onClick={submitInspection} disabled={inspSubmitting}
-                      style={{ background: "#1a2e5a", border: "1px solid #1a2e5a" }}>
+                      style={{ background: "#0a0a0a", border: "1px solid #0a0a0a" }}>
                       <Mail size={16} /> {inspSubmitting ? "Submitting..." : "Submit & Email to Client"}
                     </Button>
                   </div>
@@ -8929,15 +8931,15 @@ if (!hasDamage) {
                 {/* Header */}
                 <div style={{ textAlign: "center", marginBottom: 24 }}>
 
-                  <div style={{ fontSize: 20, fontWeight: 700, color: "#1a2e5a", marginBottom: 4, textTransform: "uppercase", letterSpacing: 1.5 }}>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: "#0a0a0a", marginBottom: 4, textTransform: "uppercase", letterSpacing: 1.5 }}>
                     Free Roof Inspection Agreement
                   </div>
-                  <div style={{ width: 60, height: 3, background: "#c8392b", margin: "0 auto 10px", borderRadius: 2 }} />
+                  <div style={{ width: 60, height: 3, background: "#c9a35c", margin: "0 auto 10px", borderRadius: 2 }} />
                   <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.7 }}>
                     {INSPECTION_COMPANY.name} &nbsp;|&nbsp; {INSPECTION_COMPANY.address}<br />
                     Phone: {INSPECTION_COMPANY.phone} &nbsp;|&nbsp; Email: {INSPECTION_COMPANY.email} &nbsp;|&nbsp; License #: {INSPECTION_COMPANY.license}
                   </div>
-                  <div style={{ borderBottom: "2px solid #1a2e5a", marginTop: 14 }} />
+                  <div style={{ borderBottom: "2px solid #0a0a0a", marginTop: 14 }} />
                 </div>
 
                 {/* Client info */}
@@ -9321,9 +9323,9 @@ if (!hasDamage) {
                           style={{
                             padding: "8px 16px",
                             borderRadius: 12,
-                            border: managerTYTab === tab.key ? "2px solid #1a2e5a" : "1px solid #d1d5db",
+                            border: managerTYTab === tab.key ? "2px solid #0a0a0a" : "1px solid #d1d5db",
                             background: managerTYTab === tab.key ? "#eef1f8" : "#fff",
-                            color: managerTYTab === tab.key ? "#1a2e5a" : "#374151",
+                            color: managerTYTab === tab.key ? "#0a0a0a" : "#374151",
                             fontFamily: "'Nunito', sans-serif",
                             fontWeight: 700,
                             fontSize: 13,
@@ -9539,14 +9541,14 @@ if (!hasDamage) {
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                           <Label>What to expect next (numbered steps)</Label>
                           <button type="button" onClick={() => setInspOnlySteps([...inspOnlySteps, "New step — click to edit"])}
-                            style={{ padding: "6px 14px", borderRadius: 10, border: "1.5px solid #1a2e5a", background: "#fff", color: "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 600, fontSize: 13, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                            style={{ padding: "6px 14px", borderRadius: 10, border: "1.5px solid #0a0a0a", background: "#fff", color: "#0a0a0a", fontFamily: "'Oswald', sans-serif", fontWeight: 600, fontSize: 13, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase" }}>
                             + Add Step
                           </button>
                         </div>
                         <div style={{ display: "grid", gap: 10 }}>
                           {inspOnlySteps.map((step, i) => (
                             <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-                              <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#1a2e5a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13, fontFamily: "'Oswald', sans-serif", flexShrink: 0, marginTop: 8 }}>{i + 1}</div>
+                              <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#0a0a0a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13, fontFamily: "'Oswald', sans-serif", flexShrink: 0, marginTop: 8 }}>{i + 1}</div>
                               <textarea value={step} onChange={(e) => { const n=[...inspOnlySteps]; n[i]=e.target.value; setInspOnlySteps(n); }} rows={2}
                                 style={{ flex: 1, borderRadius: 12, border: "1px solid #d1d5db", padding: "8px 12px", fontSize: 14, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }} />
                               <button type="button" onClick={() => setInspOnlySteps(inspOnlySteps.filter((_,idx)=>idx!==i))}
@@ -9564,11 +9566,11 @@ if (!hasDamage) {
                         <div style={{ fontSize: 12, color: "#9ca3af", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 12 }}>Live Preview</div>
                         <div style={{ background: "#eef1f8", border: "1px solid #bfdbfe", borderRadius: 16, padding: "20px 18px" }}>
                           <div style={{ fontSize: 28, marginBottom: 8, textAlign: "center" }}>🏠</div>
-                          <div style={{ fontSize: 20, fontWeight: 700, color: "#1a2e5a", fontFamily: "'Oswald', sans-serif", marginBottom: 6, textAlign: "center" }}>{inspOnlyHeadline}</div>
+                          <div style={{ fontSize: 20, fontWeight: 700, color: "#0a0a0a", fontFamily: "'Oswald', sans-serif", marginBottom: 6, textAlign: "center" }}>{inspOnlyHeadline}</div>
                           <div style={{ fontSize: 13, color: "#1e3a5f", fontFamily: "'Nunito', sans-serif", marginBottom: 14, textAlign: "center", lineHeight: 1.5 }}>{inspOnlyOpening}</div>
                           {inspOnlySteps.map((step, i) => (
                             <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 8, padding: "8px 12px", background: "#fff", borderRadius: 10, border: "1px solid #bfdbfe" }}>
-                              <div style={{ width: 22, height: 22, borderRadius: "50%", background: "#1a2e5a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
+                              <div style={{ width: 22, height: 22, borderRadius: "50%", background: "#0a0a0a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
                               <div style={{ fontSize: 13, color: "#1e3a5f", fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.4 }}>{step}</div>
                             </div>
                           ))}
@@ -9595,7 +9597,7 @@ if (!hasDamage) {
                           : "Could not reach JN API. Using manually managed reps from Supabase. Check your API key."}
                       </div>
                       <button type="button" onClick={loadReps} disabled={jnImporting}
-                        style={{ padding: "8px 18px", borderRadius: 10, border: "none", background: "#1a2e5a", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                        style={{ padding: "8px 18px", borderRadius: 10, border: "none", background: "#0a0a0a", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase" }}>
                         {jnImporting ? "Syncing…" : "🔄 Sync from JN Now"}
                       </button>
                       {jnImportError ? <div style={{ marginTop: 8, fontSize: 12, color: "#dc2626", fontFamily: "'Nunito', sans-serif" }}>{jnImportError}</div> : null}
@@ -9651,7 +9653,7 @@ if (!hasDamage) {
                             {rep.jobnimbus_id ? <div style={{ fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>JN: {rep.jobnimbus_id}</div> : null}
                             {rep.short_code ? (
                               <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
-                                <span style={{ fontSize: 12, fontWeight: 700, background: "#1a2e5a", color: "#fff", borderRadius: 6, padding: "2px 8px", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.06em" }}>
+                                <span style={{ fontSize: 12, fontWeight: 700, background: "#0a0a0a", color: "#fff", borderRadius: 6, padding: "2px 8px", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.06em" }}>
                                   Code: {rep.short_code}
                                 </span>
                                 <a
@@ -9856,7 +9858,7 @@ if (!hasDamage) {
       } catch (e) { console.error("Load pending error:", e); }
       finally { setRecordSearchLoading(false); }
     }}
-    style={{ padding: "10px 20px", borderRadius: 12, border: listMode === "pending" ? "1.5px solid #1a2e5a" : "1.5px solid #1a2e5a", background: listMode === "pending" ? "#1a2e5a" : "#fff", color: listMode === "pending" ? "#fff" : "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}
+    style={{ padding: "10px 20px", borderRadius: 12, border: listMode === "pending" ? "1.5px solid #0a0a0a" : "1.5px solid #0a0a0a", background: listMode === "pending" ? "#0a0a0a" : "#fff", color: listMode === "pending" ? "#fff" : "#0a0a0a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}
   >
     📋 Load Pending Inspections
   </button>
@@ -9983,7 +9985,7 @@ if (!hasDamage) {
       }
       finally { setRecordSearchLoading(false); }
     }}
-    style={{ padding: "10px 20px", borderRadius: 12, border: "1.5px solid #1a2e5a", background: listMode === "last30" ? "#1a2e5a" : "#fff", color: listMode === "last30" ? "#fff" : "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}
+    style={{ padding: "10px 20px", borderRadius: 12, border: "1.5px solid #0a0a0a", background: listMode === "last30" ? "#0a0a0a" : "#fff", color: listMode === "last30" ? "#fff" : "#0a0a0a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}
   >
     📂 Load Last 30 Days
   </button>
@@ -9994,7 +9996,7 @@ if (!hasDamage) {
       type="date"
       value={lookupDate}
       onChange={(e) => setLookupDate(e.target.value)}
-      style={{ height: 40, borderRadius: 10, border: "1.5px solid #1a2e5a", padding: "0 10px", fontSize: 13, fontFamily: "'Nunito', sans-serif", color: "#1a2e5a", boxSizing: "border-box" }}
+      style={{ height: 40, borderRadius: 10, border: "1.5px solid #0a0a0a", padding: "0 10px", fontSize: 13, fontFamily: "'Nunito', sans-serif", color: "#0a0a0a", boxSizing: "border-box" }}
     />
     <button
       type="button"
@@ -10099,7 +10101,7 @@ if (!hasDamage) {
         }
         finally { setRecordSearchLoading(false); }
       }}
-      style={{ padding: "10px 20px", borderRadius: 12, border: "1.5px solid #1a2e5a", background: listMode === "dateLookup" ? "#1a2e5a" : "#fff", color: listMode === "dateLookup" ? "#fff" : "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}
+      style={{ padding: "10px 20px", borderRadius: 12, border: "1.5px solid #0a0a0a", background: listMode === "dateLookup" ? "#0a0a0a" : "#fff", color: listMode === "dateLookup" ? "#fff" : "#0a0a0a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}
     >
       📅 Load by Date
     </button>
@@ -10118,7 +10120,7 @@ if (!hasDamage) {
   <div style={{ marginBottom: 14, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
     <span style={{ fontSize: 11, fontFamily: "'Oswald', sans-serif", color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>Filter:</span>
     {[
-      { key: "all",        label: "All",         bg: "#1a2e5a", color: "#fff" },
+      { key: "all",        label: "All",         bg: "#0a0a0a", color: "#fff" },
       { key: "damage",     label: "⚠️ Damage",    bg: "#dc2626", color: "#fff" },
       { key: "no_damage",  label: "✅ No Damage", bg: "#199c2e", color: "#fff" },
       { key: "retail",     label: "🏠 Retail",    bg: "#d97706", color: "#fff" },
@@ -10295,7 +10297,7 @@ if (!hasDamage) {
 
                           return (
                             <div key={rec.id}
-                              style={{ background: selectedInspRecord?.id === rec.id ? "#eef1f8" : "#fff", border: selectedInspRecord?.id === rec.id ? "2px solid #1a2e5a" : "1px solid #e5e7eb", borderRadius: 14, padding: "12px 16px" }}>
+                              style={{ background: selectedInspRecord?.id === rec.id ? "#eef1f8" : "#fff", border: selectedInspRecord?.id === rec.id ? "2px solid #0a0a0a" : "1px solid #e5e7eb", borderRadius: 14, padding: "12px 16px" }}>
 
                               {/* Main row — name/addr, signed date, status pill */}
                               <div
@@ -10359,7 +10361,7 @@ if (!hasDamage) {
                                     disabled={isBusy || !rec.result}
                                     onClick={(e) => { e.stopPropagation(); adminNotifyRow(rec, "rep"); }}
                                     title={!rec.result ? "Set a result first" : "Send SMS to the sales rep using current template"}
-                                    style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #1a2e5a", background: (isBusy || !rec.result) ? "#f3f4f6" : "#fff", color: (isBusy || !rec.result) ? "#9ca3af" : "#1a2e5a", fontSize: 11, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: (isBusy || !rec.result) ? "not-allowed" : "pointer" }}>
+                                    style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #0a0a0a", background: (isBusy || !rec.result) ? "#f3f4f6" : "#fff", color: (isBusy || !rec.result) ? "#9ca3af" : "#0a0a0a", fontSize: 11, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: (isBusy || !rec.result) ? "not-allowed" : "pointer" }}>
                                     📱 Notify Rep
                                   </button>
                                   <div style={{ fontSize: 9, color: rec.last_notified_rep_at ? "#059669" : "#9ca3af", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>{formatAgo(rec.last_notified_rep_at)}</div>
@@ -10370,7 +10372,7 @@ if (!hasDamage) {
                                     disabled={isBusy || !rec.result}
                                     onClick={(e) => { e.stopPropagation(); adminNotifyRow(rec, "homeowner"); }}
                                     title={!rec.result ? "Set a result first" : "Send SMS to the homeowner using current template"}
-                                    style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #1a2e5a", background: (isBusy || !rec.result) ? "#f3f4f6" : "#fff", color: (isBusy || !rec.result) ? "#9ca3af" : "#1a2e5a", fontSize: 11, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: (isBusy || !rec.result) ? "not-allowed" : "pointer" }}>
+                                    style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #0a0a0a", background: (isBusy || !rec.result) ? "#f3f4f6" : "#fff", color: (isBusy || !rec.result) ? "#9ca3af" : "#0a0a0a", fontSize: 11, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: (isBusy || !rec.result) ? "not-allowed" : "pointer" }}>
                                     📱 Notify Homeowner
                                   </button>
                                   <div style={{ fontSize: 9, color: rec.last_notified_homeowner_at ? "#059669" : "#9ca3af", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>{formatAgo(rec.last_notified_homeowner_at)}</div>
@@ -10509,8 +10511,8 @@ if (!hasDamage) {
                     ) : null}
 
                     {selectedInspRecord && !resultDone ? (
-                      <div style={{ background: "#fff", border: "2px solid #1a2e5a", borderRadius: 18, padding: "20px 22px", marginTop: 8 }}>
-                        <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#1a2e5a", marginBottom: 14 }}>
+                      <div style={{ background: "#fff", border: "2px solid #0a0a0a", borderRadius: 18, padding: "20px 22px", marginTop: 8 }}>
+                        <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#0a0a0a", marginBottom: 14 }}>
                           🏠 Record Result — {selectedInspRecord.client_name}
                         </div>
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
@@ -10645,7 +10647,7 @@ if (!hasDamage) {
                                   setReportPdfLoading(false);
                                 }
                               }}
-                              style={{ padding: "8px 18px", borderRadius: 10, border: (reportPdfLoading || reportData.totalRows === 0) ? "1px solid #d1d5db" : "1px solid #1a2e5a", background: (reportPdfLoading || reportData.totalRows === 0) ? "#f3f4f6" : "#1a2e5a", color: (reportPdfLoading || reportData.totalRows === 0) ? "#9ca3af" : "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, cursor: (reportPdfLoading || reportData.totalRows === 0) ? "not-allowed" : "pointer", letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
+                              style={{ padding: "8px 18px", borderRadius: 10, border: (reportPdfLoading || reportData.totalRows === 0) ? "1px solid #d1d5db" : "1px solid #0a0a0a", background: (reportPdfLoading || reportData.totalRows === 0) ? "#f3f4f6" : "#0a0a0a", color: (reportPdfLoading || reportData.totalRows === 0) ? "#9ca3af" : "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, cursor: (reportPdfLoading || reportData.totalRows === 0) ? "not-allowed" : "pointer", letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
                               {reportPdfLoading ? "Generating..." : "📄 Download PDF"}
                             </button>
                             {/* Email PDF — opens a small modal with recipient picker (office or custom). */}
@@ -10755,7 +10757,7 @@ if (!hasDamage) {
                         ))}
                       </div>
                       <button type="button" onClick={() => fetchAnalytics(analyticsStart, analyticsEnd)} disabled={analyticsLoading}
-                        style={{ padding: "10px 24px", borderRadius: 14, border: "none", background: "#1a2e5a", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", width: "fit-content" }}>
+                        style={{ padding: "10px 24px", borderRadius: 14, border: "none", background: "#0a0a0a", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", width: "fit-content" }}>
                         {analyticsLoading ? "Loading..." : "📈 Generate Analytics"}
                       </button>
                     </div>
@@ -10794,13 +10796,13 @@ if (!hasDamage) {
                           </div>
                           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                             <div style={{ background: "#eef2ff", borderRadius: 10, padding: "10px 12px", textAlign: "center" }}>
-                              <div style={{ fontSize: 22, fontWeight: 700, color: "#1a2e5a", fontFamily: "'Oswald', sans-serif" }}>{analyticsData.meanDays !== null ? analyticsData.meanDays.toFixed(1) : "—"}</div>
-                              <div style={{ fontSize: 11, color: "#1a2e5a", fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}>Avg Days to Inspection</div>
+                              <div style={{ fontSize: 22, fontWeight: 700, color: "#0a0a0a", fontFamily: "'Oswald', sans-serif" }}>{analyticsData.meanDays !== null ? analyticsData.meanDays.toFixed(1) : "—"}</div>
+                              <div style={{ fontSize: 11, color: "#0a0a0a", fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}>Avg Days to Inspection</div>
                               <div style={{ fontSize: 10, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>mean</div>
                             </div>
                             <div style={{ background: "#eef2ff", borderRadius: 10, padding: "10px 12px", textAlign: "center" }}>
-                              <div style={{ fontSize: 22, fontWeight: 700, color: "#1a2e5a", fontFamily: "'Oswald', sans-serif" }}>{analyticsData.medianDays !== null ? analyticsData.medianDays.toFixed(1) : "—"}</div>
-                              <div style={{ fontSize: 11, color: "#1a2e5a", fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}>Median Days</div>
+                              <div style={{ fontSize: 22, fontWeight: 700, color: "#0a0a0a", fontFamily: "'Oswald', sans-serif" }}>{analyticsData.medianDays !== null ? analyticsData.medianDays.toFixed(1) : "—"}</div>
+                              <div style={{ fontSize: 11, color: "#0a0a0a", fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}>Median Days</div>
                               <div style={{ fontSize: 10, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>half above, half below</div>
                             </div>
                           </div>
@@ -10843,10 +10845,10 @@ if (!hasDamage) {
                                   <div style={{ color: "#6b7280", fontWeight: 700 }}>{b.pendingPct}%</div>
                                   <div style={{ fontSize: 10, color: "#9ca3af" }}>{b.pending}</div>
                                 </div>
-                                <div style={{ textAlign: "right", color: "#1a2e5a", fontWeight: 700 }}>
+                                <div style={{ textAlign: "right", color: "#0a0a0a", fontWeight: 700 }}>
                                   {b.meanDays !== null ? b.meanDays.toFixed(1) : "—"}
                                 </div>
-                                <div style={{ textAlign: "right", color: "#1a2e5a", fontWeight: 700 }}>
+                                <div style={{ textAlign: "right", color: "#0a0a0a", fontWeight: 700 }}>
                                   {b.medianDays !== null ? b.medianDays.toFixed(1) : "—"}
                                 </div>
                               </div>
@@ -10929,7 +10931,7 @@ if (!hasDamage) {
                             setBrowseAllLoading(false);
                           }
                         }}
-                        style={{ padding: "10px 18px", borderRadius: 12, border: "2px solid #1a2e5a", background: "#1a2e5a", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                        style={{ padding: "10px 18px", borderRadius: 12, border: "2px solid #0a0a0a", background: "#0a0a0a", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
                         🔄 {browseAllRows.length > 0 ? "Reload All" : "Load All Records"}
                       </button>
 
@@ -11370,7 +11372,7 @@ if (!hasDamage) {
                         }
                       }}
                       disabled={dupeLoading}
-                      style={{ padding: "10px 18px", borderRadius: 12, border: "2px solid #1a2e5a", background: dupeLoading ? "#9ca3af" : "#1a2e5a", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: dupeLoading ? "not-allowed" : "pointer", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 16 }}>
+                      style={{ padding: "10px 18px", borderRadius: 12, border: "2px solid #0a0a0a", background: dupeLoading ? "#9ca3af" : "#0a0a0a", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: dupeLoading ? "not-allowed" : "pointer", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 16 }}>
                       {dupeLoading ? "Scanning..." : (dupeGroups.length > 0 ? "🔄 Re-scan" : "🔍 Scan for Duplicates")}
                     </button>
 
@@ -11382,7 +11384,7 @@ if (!hasDamage) {
 
                     {dupeGroups.length > 0 ? (
                       <>
-                        <div style={{ fontSize: 13, color: "#1a2e5a", fontWeight: 700, marginBottom: 12, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                        <div style={{ fontSize: 13, color: "#0a0a0a", fontWeight: 700, marginBottom: 12, fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: "0.04em" }}>
                           Found {dupeGroups.length} duplicate {dupeGroups.length === 1 ? "group" : "groups"} ({dupeGroups.reduce((sum, g) => sum + g.rows.length - 1, 0)} extra records will be merged into the master)
                         </div>
                         <div style={{ background: "#dbeafe", border: "1px solid #1e40af", borderRadius: 8, padding: "10px 12px", marginBottom: 14, fontSize: 12, color: "#1e40af", fontFamily: "'Nunito', sans-serif", lineHeight: 1.5 }}>
@@ -11684,7 +11686,7 @@ if (!hasDamage) {
                       style={{
                         padding: "12px 24px", borderRadius: 12,
                         border: "none",
-                        background: (jnReportSending || !jnReportJnid.trim()) ? "#9ca3af" : "#1a2e5a",
+                        background: (jnReportSending || !jnReportJnid.trim()) ? "#9ca3af" : "#0a0a0a",
                         color: "#fff",
                         fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14,
                         cursor: (jnReportSending || !jnReportJnid.trim()) ? "not-allowed" : "pointer",
@@ -11780,7 +11782,7 @@ if (!hasDamage) {
                       }}
                       style={{
                         padding: "12px 24px", borderRadius: 12, border: "none",
-                        background: bulkLoading ? "#9ca3af" : "#1a2e5a",
+                        background: bulkLoading ? "#9ca3af" : "#0a0a0a",
                         color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14,
                         cursor: bulkLoading ? "not-allowed" : "pointer",
                         textTransform: "uppercase", letterSpacing: "0.04em",
@@ -11914,7 +11916,7 @@ if (!hasDamage) {
                                   }}
                                   style={{
                                     marginTop: 14, padding: "14px 26px", borderRadius: 12, border: "none",
-                                    background: bulkRunning ? "#9ca3af" : "#c8392b",
+                                    background: bulkRunning ? "#9ca3af" : "#c9a35c",
                                     color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14,
                                     cursor: bulkRunning ? "not-allowed" : "pointer",
                                     textTransform: "uppercase", letterSpacing: "0.04em",
@@ -11947,7 +11949,7 @@ if (!hasDamage) {
           <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 20, overflow: "auto" }}
                onClick={() => setMyStatsOpen(false)}>
             <div style={{ background: "#fff", borderRadius: 14, padding: "24px 28px", maxWidth: 600, width: "100%", maxHeight: "90vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: "#1a2e5a", marginBottom: 4, fontFamily: "'Oswald', sans-serif" }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#0a0a0a", marginBottom: 4, fontFamily: "'Oswald', sans-serif" }}>
                 📊 My Stats
               </div>
               <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 16, fontFamily: "'Nunito', sans-serif" }}>
@@ -11957,15 +11959,15 @@ if (!hasDamage) {
               {/* Toggle: This Week / Last Week / All Time */}
               <div style={{ display: "flex", gap: 6, marginBottom: 18 }}>
                 <button type="button" onClick={() => { setMyStatsRange("thisWeek"); setMyStatsDrilldown(null); }}
-                  style={{ flex: 1, padding: "10px 12px", borderRadius: 10, border: "1.5px solid #1a2e5a", background: myStatsRange === "thisWeek" ? "#1a2e5a" : "#fff", color: myStatsRange === "thisWeek" ? "#fff" : "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  style={{ flex: 1, padding: "10px 12px", borderRadius: 10, border: "1.5px solid #0a0a0a", background: myStatsRange === "thisWeek" ? "#0a0a0a" : "#fff", color: myStatsRange === "thisWeek" ? "#fff" : "#0a0a0a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
                   This Week
                 </button>
                 <button type="button" onClick={() => { setMyStatsRange("lastWeek"); setMyStatsDrilldown(null); }}
-                  style={{ flex: 1, padding: "10px 12px", borderRadius: 10, border: "1.5px solid #1a2e5a", background: myStatsRange === "lastWeek" ? "#1a2e5a" : "#fff", color: myStatsRange === "lastWeek" ? "#fff" : "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  style={{ flex: 1, padding: "10px 12px", borderRadius: 10, border: "1.5px solid #0a0a0a", background: myStatsRange === "lastWeek" ? "#0a0a0a" : "#fff", color: myStatsRange === "lastWeek" ? "#fff" : "#0a0a0a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
                   Last Week
                 </button>
                 <button type="button" onClick={() => { setMyStatsRange("allTime"); setMyStatsDrilldown(null); }}
-                  style={{ flex: 1, padding: "10px 12px", borderRadius: 10, border: "1.5px solid #1a2e5a", background: myStatsRange === "allTime" ? "#1a2e5a" : "#fff", color: myStatsRange === "allTime" ? "#fff" : "#1a2e5a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  style={{ flex: 1, padding: "10px 12px", borderRadius: 10, border: "1.5px solid #0a0a0a", background: myStatsRange === "allTime" ? "#0a0a0a" : "#fff", color: myStatsRange === "allTime" ? "#fff" : "#0a0a0a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
                   All Time
                 </button>
               </div>
@@ -11980,7 +11982,7 @@ if (!hasDamage) {
                 return (
                   <>
                     {/* Top row — submissions count */}
-                    <div style={{ background: "#1a2e5a", borderRadius: 12, padding: "16px 20px", color: "#fff", marginBottom: 14, textAlign: "center" }}>
+                    <div style={{ background: "#0a0a0a", borderRadius: 12, padding: "16px 20px", color: "#fff", marginBottom: 14, textAlign: "center" }}>
                       <div style={{ fontSize: 11, opacity: 0.8, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>
                         {myStatsRange === "allTime" ? "Lifetime Submissions" : "Total Submissions"}
                       </div>
@@ -12088,7 +12090,7 @@ if (!hasDamage) {
                     {myStatsRange === "thisWeek" ? (
                       <>
                         <div style={{ borderTop: "1px solid #e5e7eb", paddingTop: 16, marginBottom: 12 }}>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: "#1a2e5a", textTransform: "uppercase", letterSpacing: "0.05em", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: "#0a0a0a", textTransform: "uppercase", letterSpacing: "0.05em", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>
                             🏆 Your Rank This Week
                           </div>
                           {myStatsData.leaderboard.rank ? (
@@ -12115,11 +12117,11 @@ if (!hasDamage) {
                                     <div style={{ width: 28, height: 28, borderRadius: "50%", background: i === 0 ? "#fbbf24" : i === 1 ? "#94a3b8" : i === 2 ? "#d97706" : "#e5e7eb", color: i < 3 ? "#fff" : "#6b7280", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>
                                       {i + 1}
                                     </div>
-                                    <div style={{ fontSize: 14, fontWeight: isMe ? 700 : 500, color: isMe ? "#1a2e5a" : "#111827", fontFamily: "'Nunito', sans-serif" }}>
-                                      {r.name} {isMe ? <span style={{ fontSize: 10, color: "#1a2e5a", marginLeft: 6, fontWeight: 700 }}>← YOU</span> : null}
+                                    <div style={{ fontSize: 14, fontWeight: isMe ? 700 : 500, color: isMe ? "#0a0a0a" : "#111827", fontFamily: "'Nunito', sans-serif" }}>
+                                      {r.name} {isMe ? <span style={{ fontSize: 10, color: "#0a0a0a", marginLeft: 6, fontWeight: 700 }}>← YOU</span> : null}
                                     </div>
                                   </div>
-                                  <div style={{ fontSize: 14, fontWeight: 700, color: "#1a2e5a", fontFamily: "'Oswald', sans-serif" }}>
+                                  <div style={{ fontSize: 14, fontWeight: 700, color: "#0a0a0a", fontFamily: "'Oswald', sans-serif" }}>
                                     {r.submissions}
                                   </div>
                                 </div>
@@ -12153,14 +12155,14 @@ if (!hasDamage) {
                   the Existing-customer flow. */}
               <div style={{
                 padding: "24px 28px",
-                background: "linear-gradient(135deg, #c8392b 0%, #a02b1f 100%)",
+                background: "linear-gradient(135deg, #c9a35c 0%, #a17e3f 100%)",
                 borderRadius: 14,
                 fontFamily: "'Oswald', sans-serif",
                 color: "#fff",
                 textAlign: "center",
                 boxShadow: "0 6px 20px rgba(200, 57, 43, 0.35)",
                 border: "3px solid #fff",
-                outline: "3px solid #c8392b",
+                outline: "3px solid #c9a35c",
                 marginBottom: 20,
               }}>
                 <div style={{
@@ -12186,7 +12188,7 @@ if (!hasDamage) {
                 autoFocus
                 style={{
                   width: "100%", height: 48, borderRadius: 12,
-                  border: "2px solid #1a2e5a",
+                  border: "2px solid #0a0a0a",
                   padding: "0 16px", fontSize: 15, boxSizing: "border-box",
                   fontFamily: "'Nunito', sans-serif", marginBottom: 16,
                   outline: "none",
@@ -12214,7 +12216,7 @@ if (!hasDamage) {
                       const allDone = hasInsp && hasLor && hasPac;
                       return (
                         <div key={`${h.claim_id || h.insp_id}-${idx}`}
-                             style={{ padding: "12px 14px", borderRadius: 12, border: allDone ? "1px solid #d1d5db" : "1.5px solid #1a2e5a", background: allDone ? "#fafafa" : "#fff", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                             style={{ padding: "12px 14px", borderRadius: 12, border: allDone ? "1px solid #d1d5db" : "1.5px solid #0a0a0a", background: allDone ? "#fafafa" : "#fff", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                           <div style={{ flex: 1, minWidth: 220 }}>
                             <div style={{ fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827", fontSize: 14 }}>{h.name || "(no name)"}</div>
                             <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>
@@ -12266,7 +12268,7 @@ if (!hasDamage) {
                               // Scroll up to the form
                               setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 100);
                             }}
-                            style={{ padding: "8px 14px", borderRadius: 10, border: allDone ? "1px solid #d1d5db" : "2px solid #1a2e5a", background: allDone ? "#f3f4f6" : "#1a2e5a", color: allDone ? "#9ca3af" : "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, cursor: allDone ? "not-allowed" : "pointer", textTransform: "uppercase", letterSpacing: "0.04em", whiteSpace: "nowrap" }}>
+                            style={{ padding: "8px 14px", borderRadius: 10, border: allDone ? "1px solid #d1d5db" : "2px solid #0a0a0a", background: allDone ? "#f3f4f6" : "#0a0a0a", color: allDone ? "#9ca3af" : "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, cursor: allDone ? "not-allowed" : "pointer", textTransform: "uppercase", letterSpacing: "0.04em", whiteSpace: "nowrap" }}>
                             {allDone ? "✓ All Signed" : "Add Docs →"}
                           </button>
                         </div>
@@ -12417,7 +12419,7 @@ if (!hasDamage) {
           <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 20 }}
                onClick={() => !reportEmailSending && setReportEmailModal(null)}>
             <div style={{ background: "#fff", borderRadius: 14, padding: "24px 28px", maxWidth: 460, width: "100%" }} onClick={e => e.stopPropagation()}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: "#1a2e5a", marginBottom: 6, fontFamily: "'Oswald', sans-serif" }}>📧 Email Weekly Report</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#0a0a0a", marginBottom: 6, fontFamily: "'Oswald', sans-serif" }}>📧 Email Weekly Report</div>
               <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 16, fontFamily: "'Nunito', sans-serif" }}>
                 {reportData.startDate} → {reportData.endDate} · {reportData.totalRows} signing{reportData.totalRows !== 1 ? "s" : ""} · ${reportData.totalEarned.toLocaleString()}
               </div>
@@ -12523,7 +12525,7 @@ if (!hasDamage) {
           <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 20, overflow: "auto" }}
                onClick={() => !editLoading && setEditModal(null)}>
             <div style={{ background: "#fff", borderRadius: 14, padding: "24px 28px", maxWidth: 620, width: "100%", maxHeight: "90vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: "#1a2e5a", marginBottom: 6, fontFamily: "'Oswald', sans-serif" }}>✏️ Edit Record</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#0a0a0a", marginBottom: 6, fontFamily: "'Oswald', sans-serif" }}>✏️ Edit Record</div>
               <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 16, fontFamily: "'Nunito', sans-serif", wordBreak: "break-all" }}>
                 Record ID: {editModal.rec.id}
               </div>
@@ -12674,7 +12676,7 @@ if (!hasDamage) {
                       setEditLoading(false);
                     }
                   }}
-                  style={{ padding: "10px 22px", borderRadius: 10, border: "none", background: editLoading ? "#9ca3af" : "#1a2e5a", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: editLoading ? "not-allowed" : "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  style={{ padding: "10px 22px", borderRadius: 10, border: "none", background: editLoading ? "#9ca3af" : "#0a0a0a", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: editLoading ? "not-allowed" : "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
                   {editLoading ? "Saving..." : "Save Changes"}
                 </button>
               </div>
@@ -12749,13 +12751,13 @@ if (!hasDamage) {
           <div style={{ textAlign: "center", marginBottom: 24 }}>
 
             <img src="/uss-header.png" alt="U.S. Shingle & Metal" style={{ height: 70, objectFit: "contain", marginBottom: 10 }} />
-            <div style={{ fontSize: 20, fontWeight: 700, color: "#1a2e5a", marginBottom: 4, textTransform: "uppercase", letterSpacing: 1.5 }}>Free Roof Inspection Agreement</div>
-            <div style={{ width: 60, height: 3, background: "#c8392b", margin: "0 auto 10px", borderRadius: 2 }} />
+            <div style={{ fontSize: 20, fontWeight: 700, color: "#0a0a0a", marginBottom: 4, textTransform: "uppercase", letterSpacing: 1.5 }}>Free Roof Inspection Agreement</div>
+            <div style={{ width: 60, height: 3, background: "#c9a35c", margin: "0 auto 10px", borderRadius: 2 }} />
             <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.7 }}>
               {INSPECTION_COMPANY.name} &nbsp;|&nbsp; {INSPECTION_COMPANY.address}<br />
               Phone: {INSPECTION_COMPANY.phone} &nbsp;|&nbsp; Email: {INSPECTION_COMPANY.email} &nbsp;|&nbsp; License #: {INSPECTION_COMPANY.license}
             </div>
-            <div style={{ borderBottom: "2px solid #1a2e5a", marginTop: 14 }} />
+            <div style={{ borderBottom: "2px solid #0a0a0a", marginTop: 14 }} />
           </div>
           <div style={{ display: "grid", gap: 6, fontSize: 14, marginBottom: 20 }}>
             <div><strong>Date:</strong> {inspData.date || data.date}</div>
@@ -12790,8 +12792,8 @@ if (!hasDamage) {
           </div>
 
           {/* Audit trail page */}
-          <div style={{ marginTop: 40, paddingTop: 24, borderTop: "2px solid #1a2e5a", pageBreakBefore: "always" }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: "#1a2e5a", marginBottom: 14, textTransform: "uppercase", letterSpacing: 1 }}>
+          <div style={{ marginTop: 40, paddingTop: 24, borderTop: "2px solid #0a0a0a", pageBreakBefore: "always" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#0a0a0a", marginBottom: 14, textTransform: "uppercase", letterSpacing: 1 }}>
               Signing Audit Trail
             </div>
             <div style={{ display: "grid", gap: 6, fontSize: 12 }}>

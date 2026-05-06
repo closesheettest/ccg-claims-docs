@@ -308,16 +308,16 @@ function buildLorHtml(claim, baseUrl) {
   `;
 
   const lorTitleBar = `
-    <div style="margin:10px 0 12px; background:#199c2e; color:#fff; text-align:center; font-weight:700; font-size:20px; letter-spacing:1px; padding:11px 16px; text-transform:uppercase; font-family:'Oswald', Arial, sans-serif;">
+    <div style="margin:10px 0 12px; background:#c9a35c; color:#fff; text-align:center; font-weight:700; font-size:20px; letter-spacing:1px; padding:11px 16px; text-transform:uppercase; font-family:'Oswald', Arial, sans-serif;">
       Letter of Representation
     </div>
   `;
 
   const footerBlock = `
-    <div style="border-top:3px solid #7c3aed; margin-top:14px; padding-top:10px; font-size:12px; color:#111827; line-height:1.35;">
+    <div style="border-top:3px solid #c9a35c; margin-top:14px; padding-top:10px; font-size:12px; color:#111827; line-height:1.35;">
       <div style="font-weight:700;">3570 S Ocean Blvd</div>
       <div>South Palm Beach, FL 33480 &bull; Kkeckleradj@gmail.com &bull; 561-283-5674 &bull; propertydamageinspection.com</div>
-      <div style="margin-top:6px; font-weight:700; color:#6d28d9;">License No: W435195</div>
+      <div style="margin-top:6px; font-weight:700; color:#a17e3f;">License No: W435195</div>
     </div>
   `;
 
@@ -400,13 +400,13 @@ function buildPacHtml(claim, baseUrl) {
   const propAddr = [claim.address, claim.city, claim.state, claim.zip].filter(Boolean).join(", ");
 
   const bodyText = "font-size:14px; line-height:1.43; color:#111827; font-family:Arial, Helvetica, sans-serif;";
-  const sectionHead = "color:#199c2e; font-weight:700; text-transform:uppercase;";
+  const sectionHead = "color:#c9a35c; font-weight:700; text-transform:uppercase;";
 
   const headerImg = `<img src="${baseUrl}/pa-header.png" alt="header" style="width:100%; display:block;" />`;
   const footerImg = `<img src="${baseUrl}/pa-footer.png" alt="footer" style="width:100%; display:block;" />`;
 
   const titleBarImg = `
-    <div style="width:100%; display:block; margin:10px 0 12px; background:#199c2e; color:#fff; text-align:center; font-weight:700; font-size:20px; letter-spacing:1px; padding:11px 16px; text-transform:uppercase; font-family:'Oswald', Arial, sans-serif; box-sizing:border-box;">
+    <div style="width:100%; display:block; margin:10px 0 12px; background:#c9a35c; color:#fff; text-align:center; font-weight:700; font-size:20px; letter-spacing:1px; padding:11px 16px; text-transform:uppercase; font-family:'Oswald', Arial, sans-serif; box-sizing:border-box;">
       Public Adjuster Contract
     </div>
   `;
@@ -438,7 +438,7 @@ function buildPacHtml(claim, baseUrl) {
     <div style="display:flex; align-items:flex-end; gap:24px; margin-top:12px; padding-top:8px; border-top:1px solid #e5e7eb; flex-wrap:wrap;">
       <div style="min-width:80px;">
         <div style="font-size:12px; color:#6b7280; margin-bottom:2px;">PA Initials:</div>
-        <div style="border-bottom:1px solid #199c2e; height:26px; display:flex; align-items:flex-end; padding-bottom:2px;">
+        <div style="border-bottom:1px solid #c9a35c; height:26px; display:flex; align-items:flex-end; padding-bottom:2px;">
           <span style="font-family:'Brush Script MT', cursive; font-size:20px; color:#111827; line-height:1;">BP</span>
         </div>
       </div>
@@ -522,7 +522,7 @@ function buildPacHtml(claim, baseUrl) {
 
   const page3Content = `
     <div style="${bodyText}">
-      <p style="margin:0 0 6px; font-weight:700; font-size:18px; line-height:1.4;">12. <span style="color:#199c2e;">Residential Policy Cancellation:</span></p>
+      <p style="margin:0 0 6px; font-weight:700; font-size:18px; line-height:1.4;">12. <span style="color:#c9a35c;">Residential Policy Cancellation:</span></p>
 
       <p style="margin:0 0 10px; font-weight:700; font-size:18px; line-height:1.5;">You, the insured, may cancel this contract for any reason without penalty or obligation to you within 10 days after the date of this contract.</p>
 
@@ -550,8 +550,8 @@ function buildPacHtml(claim, baseUrl) {
 
   const page4Content = `
     <div style="${bodyText}">
-      <div style="border-top:4px solid #199c2e; margin-top:18px; margin-bottom:14px;"></div>
-      <div style="color:#199c2e; font-weight:700; font-size:14px; margin-bottom:14px;">CAPITAL CLAIMS GROUP</div>
+      <div style="border-top:4px solid #c9a35c; margin-top:18px; margin-bottom:14px;"></div>
+      <div style="color:#c9a35c; font-weight:700; font-size:14px; margin-bottom:14px;">HEALTHY HOMES PUBLIC ADJUSTING</div>
 
       <div style="display:grid; grid-template-columns:${hasSecond ? "1fr 1fr" : "1fr"}; gap:24px; align-items:start;">
         <div>
@@ -615,13 +615,13 @@ function buildInspectionHtml(claim, insp, baseUrl) {
       <div style="font-family:Arial, Helvetica, sans-serif; background:#fff; width:8.5in; padding:0.6in 0.7in; box-sizing:border-box;">
         <div style="text-align:center; margin-bottom:24px;">
           <img src="${baseUrl}/uss-header.png" alt="U.S. Shingle &amp; Metal" style="height:70px; object-fit:contain; margin-bottom:10px;" />
-          <div style="font-size:20px; font-weight:700; color:#1a2e5a; margin-bottom:4px; text-transform:uppercase; letter-spacing:1.5px;">Free Roof Inspection Agreement</div>
-          <div style="width:60px; height:3px; background:#c8392b; margin:0 auto 10px; border-radius:2px;"></div>
+          <div style="font-size:20px; font-weight:700; color:#0a0a0a; margin-bottom:4px; text-transform:uppercase; letter-spacing:1.5px;">Free Roof Inspection Agreement</div>
+          <div style="width:60px; height:3px; background:#c9a35c; margin:0 auto 10px; border-radius:2px;"></div>
           <div style="font-size:12px; color:#374151; line-height:1.7;">
             ${esc(INSPECTION_COMPANY.name)} &nbsp;|&nbsp; ${esc(INSPECTION_COMPANY.address)}<br />
             Phone: ${esc(INSPECTION_COMPANY.phone)} &nbsp;|&nbsp; Email: ${esc(INSPECTION_COMPANY.email)} &nbsp;|&nbsp; License #: ${esc(INSPECTION_COMPANY.license)}
           </div>
-          <div style="border-bottom:2px solid #1a2e5a; margin-top:14px;"></div>
+          <div style="border-bottom:2px solid #0a0a0a; margin-top:14px;"></div>
         </div>
 
         <div style="display:grid; gap:6px; font-size:14px; margin-bottom:20px;">
