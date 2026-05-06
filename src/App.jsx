@@ -11729,12 +11729,22 @@ if (!hasDamage) {
                           const eligible = bulkCandidates.filter(c => c.photoCount > 0 && !c.hasExistingReport);
                           const noPhotos = bulkCandidates.filter(c => c.photoCount === 0);
                           const existing = bulkCandidates.filter(c => c.photoCount > 0 && c.hasExistingReport);
+                          // Count distinct addresses with more than one matching JN job —
+                          // each such cluster is one "possible dupe group" worth flagging.
+                          const dupeNorm = (s) => String(s || "").toLowerCase().replace(/[.,#]/g, " ").replace(/\s+/g, " ").trim();
+                          const dupeAddrCounts = bulkCandidates.reduce((m, c) => {
+                            const a = dupeNorm(c.address);
+                            if (a) m[a] = (m[a] || 0) + 1;
+                            return m;
+                          }, {});
+                          const dupeGroups = Object.values(dupeAddrCounts).filter(n => n > 1).length;
                           return (
                             <>
                               <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12, fontFamily: "'Nunito', sans-serif", fontSize: 13 }}>
                                 <div style={{ padding: "6px 12px", borderRadius: 8, background: "#dbeafe", color: "#1e40af", fontWeight: 700 }}>{eligible.length} eligible</div>
                                 {noPhotos.length > 0 ? <div style={{ padding: "6px 12px", borderRadius: 8, background: "#f3f4f6", color: "#6b7280" }}>{noPhotos.length} skipped (no photos)</div> : null}
                                 {existing.length > 0 ? <div style={{ padding: "6px 12px", borderRadius: 8, background: "#dcfce7", color: "#15803d" }}>{existing.length} already done</div> : null}
+                                {dupeGroups > 0 ? <div style={{ padding: "6px 12px", borderRadius: 8, background: "#fed7aa", color: "#9a3412", fontWeight: 700 }}>⚠️ {dupeGroups} possible dupe {dupeGroups === 1 ? "group" : "groups"}</div> : null}
                               </div>
 
                               {bulkCandidates.length === 0 ? (
@@ -11745,26 +11755,50 @@ if (!hasDamage) {
                                 <div style={{ maxHeight: 360, overflowY: "auto", border: "1px solid #e5e7eb", borderRadius: 10, background: "#fff" }}>
                                   {/* Sort eligible first, then no-photos, then already-done so
                                       the rep can scan top-down. Each row carries an explicit
-                                      status pill so there's no guessing why a row is skipped. */}
-                                  {[...bulkCandidates]
-                                    .map(c => ({
+                                      status pill so there's no guessing why a row is skipped.
+                                      Also flag suspected JN-side duplicates: jobs sharing the
+                                      same normalized address are tagged with a POSSIBLE DUPE
+                                      pill. We don't auto-merge — JN duplicates need manual
+                                      cleanup in JN to preserve any signed documents. */}
+                                  {(() => {
+                                    // Normalize an address for dupe matching: lowercase, drop
+                                    // punctuation, collapse whitespace. Cheap but catches the
+                                    // common case (same property entered twice with slightly
+                                    // different name spellings — e.g. Maerz vs Maertz).
+                                    const norm = (s) => String(s || "")
+                                      .toLowerCase()
+                                      .replace(/[.,#]/g, " ")
+                                      .replace(/\s+/g, " ")
+                                      .trim();
+                                    const addrCounts = {};
+                                    bulkCandidates.forEach(c => {
+                                      const a = norm(c.address);
+                                      if (!a) return;
+                                      addrCounts[a] = (addrCounts[a] || 0) + 1;
+                                    });
+                                    const annotated = bulkCandidates.map(c => ({
                                       ...c,
                                       _status: c.photoCount === 0 ? "no_photos"
                                              : c.hasExistingReport ? "already_done"
                                              : "eligible",
-                                    }))
-                                    .sort((a, b) => {
+                                      _isDupe: (addrCounts[norm(c.address)] || 0) > 1,
+                                    }));
+                                    annotated.sort((a, b) => {
+                                      // Surface dupes near the top within their status group
+                                      // so they're impossible to miss.
                                       const order = { eligible: 0, no_photos: 1, already_done: 2 };
-                                      return order[a._status] - order[b._status];
-                                    })
-                                    .map((c) => {
+                                      const s = order[a._status] - order[b._status];
+                                      if (s !== 0) return s;
+                                      return (b._isDupe ? 1 : 0) - (a._isDupe ? 1 : 0);
+                                    });
+                                    return annotated.map((c) => {
                                       const pill = c._status === "eligible"
                                         ? { bg: "#dbeafe", fg: "#1e40af", label: "ELIGIBLE" }
                                         : c._status === "no_photos"
                                         ? { bg: "#fef3c7", fg: "#92400e", label: "⊘ NO PHOTOS" }
                                         : { bg: "#dcfce7", fg: "#15803d", label: "✓ DONE" };
                                       return (
-                                        <div key={c.jnid} style={{ padding: "10px 14px", borderBottom: "1px solid #f3f4f6", fontFamily: "'Nunito', sans-serif", display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", opacity: c._status === "eligible" ? 1 : 0.7 }}>
+                                        <div key={c.jnid} style={{ padding: "10px 14px", borderBottom: "1px solid #f3f4f6", fontFamily: "'Nunito', sans-serif", display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", opacity: c._status === "eligible" ? 1 : 0.7, background: c._isDupe ? "#fff7ed" : "transparent" }}>
                                           <div style={{ flex: 1, minWidth: 0 }}>
                                             <div style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{c.clientName}</div>
                                             <div style={{ fontSize: 11, color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.address}</div>
@@ -11772,11 +11806,18 @@ if (!hasDamage) {
                                           </div>
                                           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
                                             <div style={{ padding: "3px 8px", borderRadius: 6, background: pill.bg, color: pill.fg, fontSize: 10, fontWeight: 700, fontFamily: "'Oswald', sans-serif", letterSpacing: "0.04em", whiteSpace: "nowrap" }}>{pill.label}</div>
+                                            {c._isDupe ? (
+                                              <div title="Two or more JN jobs share this address — clean up in JN before the bulk run if needed."
+                                                style={{ padding: "3px 8px", borderRadius: 6, background: "#fed7aa", color: "#9a3412", fontSize: 10, fontWeight: 700, fontFamily: "'Oswald', sans-serif", letterSpacing: "0.04em", whiteSpace: "nowrap" }}>
+                                                ⚠️ POSSIBLE DUPE
+                                              </div>
+                                            ) : null}
                                             <div style={{ fontSize: 10, color: "#9ca3af", fontFamily: "monospace" }}>{c.jnid.slice(0, 8)}…</div>
                                           </div>
                                         </div>
                                       );
-                                    })}
+                                    });
+                                  })()}
                                 </div>
                               )}
 
