@@ -1677,33 +1677,35 @@ function LetterOfRepresentation({
     ? fullAddress
     : data.lossLocation;
 
-  // HTML-rendered header/footer — Healthy Homes doesn't have a branded
-  // PNG header/footer yet, so we draw them in code with the company's
-  // black/gold theme. Block layout (no flex) — html2pdf collapses
-  // flex-column layouts onto a single line, which is why the early
-  // versions of these blocks were stacking on top of each other.
-  // Built to fit within the page wrapper's reserved 1.28in / 0.82in
-  // slots so body content doesn't shift.
+  // HTML-rendered header — Healthy Homes black/gold theme with the
+  // shield mark (cropped from the full logo) on the left and the
+  // company info on the right. Uses table layout (not flex) for
+  // reliable side-by-side positioning under html2pdf.
   const HeaderImg = () => (
     <div style={{
       width: "100%", height: "1.28in", boxSizing: "border-box",
       background: "#0a0a0a", color: "#fff",
       borderBottom: "3px solid #c9a35c",
-      padding: "0.16in 0.4in 0",
-      textAlign: "center",
-      fontFamily: "'Oswald', Arial, sans-serif",
+      padding: "0.1in 0.4in",
     }}>
-      <div style={{ fontSize: 15, fontWeight: 700, color: "#c9a35c", letterSpacing: "0.05em", lineHeight: 1.2 }}>
-        HEALTHY HOMES PUBLIC ADJUSTING
-      </div>
-      <div style={{ fontSize: 9.5, color: "#d4af6c", marginTop: 4, lineHeight: 1.25, fontFamily: "Georgia, 'Times New Roman', serif", fontStyle: "italic" }}>
-        Public Adjusting &nbsp;·&nbsp; Property Claim Documentation &nbsp;·&nbsp; Roof / Wind / Water Support
-      </div>
-      <div style={{ fontSize: 9.5, color: "#fff", marginTop: 4, lineHeight: 1.25, fontFamily: "Georgia, 'Times New Roman', serif" }}>
-        Kortni Keckler &nbsp;|&nbsp; Public Adjuster &nbsp;|&nbsp; FL License W435195
-      </div>
-      <div style={{ fontSize: 9.5, color: "#fff", marginTop: 2, lineHeight: 1.25, fontFamily: "Georgia, 'Times New Roman', serif" }}>
-        Phone: 561-283-5674 &nbsp;|&nbsp; Email: Kkeckleradj@gmail.com
+      <div style={{ display: "table", width: "100%", height: "100%" }}>
+        <div style={{ display: "table-cell", verticalAlign: "middle", width: "0.95in", paddingRight: 14 }}>
+          <img src="/hh-shield.png" alt="Healthy Homes shield" style={{ height: "1in", width: "auto", display: "block" }} />
+        </div>
+        <div style={{ display: "table-cell", verticalAlign: "middle", textAlign: "left" }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#c9a35c", letterSpacing: "0.05em", lineHeight: 1.2, fontFamily: "'Oswald', Arial, sans-serif" }}>
+            HEALTHY HOMES PUBLIC ADJUSTING
+          </div>
+          <div style={{ fontSize: 9, color: "#d4af6c", marginTop: 3, lineHeight: 1.25, fontFamily: "Georgia, 'Times New Roman', serif", fontStyle: "italic" }}>
+            Public Adjusting &nbsp;·&nbsp; Property Claim Documentation &nbsp;·&nbsp; Roof / Wind / Water Support
+          </div>
+          <div style={{ fontSize: 9, color: "#fff", marginTop: 3, lineHeight: 1.25, fontFamily: "Georgia, 'Times New Roman', serif" }}>
+            Kortni Keckler &nbsp;|&nbsp; Public Adjuster &nbsp;|&nbsp; FL License W435195
+          </div>
+          <div style={{ fontSize: 9, color: "#fff", marginTop: 1, lineHeight: 1.25, fontFamily: "Georgia, 'Times New Roman', serif" }}>
+            Phone: 561-283-5674 &nbsp;|&nbsp; Email: Kkeckleradj@gmail.com
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -2068,28 +2070,33 @@ function PublicAdjusterContract({
     textTransform: "uppercase",
   };
 
-  // Mirrors the LorPdf HeaderImg/FooterImg above — see comments there
-  // for design rationale. Block layout (no flex) for html2pdf compatibility.
+  // Mirrors the LorPdf HeaderImg above — shield on the left + info on
+  // the right via table layout for html2pdf compatibility.
   const HeaderImg = () => (
     <div style={{
       width: "100%", height: "1.28in", boxSizing: "border-box",
       background: "#0a0a0a", color: "#fff",
       borderBottom: "3px solid #c9a35c",
-      padding: "0.16in 0.4in 0",
-      textAlign: "center",
-      fontFamily: "'Oswald', Arial, sans-serif",
+      padding: "0.1in 0.4in",
     }}>
-      <div style={{ fontSize: 15, fontWeight: 700, color: "#c9a35c", letterSpacing: "0.05em", lineHeight: 1.2 }}>
-        HEALTHY HOMES PUBLIC ADJUSTING
-      </div>
-      <div style={{ fontSize: 9.5, color: "#d4af6c", marginTop: 4, lineHeight: 1.25, fontFamily: "Georgia, 'Times New Roman', serif", fontStyle: "italic" }}>
-        Public Adjusting &nbsp;·&nbsp; Property Claim Documentation &nbsp;·&nbsp; Roof / Wind / Water Support
-      </div>
-      <div style={{ fontSize: 9.5, color: "#fff", marginTop: 4, lineHeight: 1.25, fontFamily: "Georgia, 'Times New Roman', serif" }}>
-        Kortni Keckler &nbsp;|&nbsp; Public Adjuster &nbsp;|&nbsp; FL License W435195
-      </div>
-      <div style={{ fontSize: 9.5, color: "#fff", marginTop: 2, lineHeight: 1.25, fontFamily: "Georgia, 'Times New Roman', serif" }}>
-        Phone: 561-283-5674 &nbsp;|&nbsp; Email: Kkeckleradj@gmail.com
+      <div style={{ display: "table", width: "100%", height: "100%" }}>
+        <div style={{ display: "table-cell", verticalAlign: "middle", width: "0.95in", paddingRight: 14 }}>
+          <img src="/hh-shield.png" alt="Healthy Homes shield" style={{ height: "1in", width: "auto", display: "block" }} />
+        </div>
+        <div style={{ display: "table-cell", verticalAlign: "middle", textAlign: "left" }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#c9a35c", letterSpacing: "0.05em", lineHeight: 1.2, fontFamily: "'Oswald', Arial, sans-serif" }}>
+            HEALTHY HOMES PUBLIC ADJUSTING
+          </div>
+          <div style={{ fontSize: 9, color: "#d4af6c", marginTop: 3, lineHeight: 1.25, fontFamily: "Georgia, 'Times New Roman', serif", fontStyle: "italic" }}>
+            Public Adjusting &nbsp;·&nbsp; Property Claim Documentation &nbsp;·&nbsp; Roof / Wind / Water Support
+          </div>
+          <div style={{ fontSize: 9, color: "#fff", marginTop: 3, lineHeight: 1.25, fontFamily: "Georgia, 'Times New Roman', serif" }}>
+            Kortni Keckler &nbsp;|&nbsp; Public Adjuster &nbsp;|&nbsp; FL License W435195
+          </div>
+          <div style={{ fontSize: 9, color: "#fff", marginTop: 1, lineHeight: 1.25, fontFamily: "Georgia, 'Times New Roman', serif" }}>
+            Phone: 561-283-5674 &nbsp;|&nbsp; Email: Kkeckleradj@gmail.com
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -287,16 +287,22 @@ function buildLorHtml(claim, baseUrl) {
   const fieldBoxStyle = "min-height:46px; border:1px solid #d1d5db; border-radius:12px; padding:10px 12px; background:#fff; font-size:12px; line-height:1.35; color:#111827; box-sizing:border-box;";
   const bodyText = "font-size:14px; line-height:1.5; color:#111827;";
 
-  // HTML-rendered header/footer — Healthy Homes doesn't have branded
-  // PNG assets yet, so we draw both in code with the company's black/gold
-  // theme. Block layout (no flex) for PDFShift compatibility — flex
-  // column layouts collapse onto a single line in some PDF renderers.
+  // HTML-rendered header — Healthy Homes black/gold theme with the
+  // shield mark on the left and company info on the right. Table
+  // layout for reliable side-by-side positioning under PDFShift.
   const headerImg = `
-    <div style="width:100%; height:1.28in; box-sizing:border-box; background:#0a0a0a; color:#fff; border-bottom:3px solid #c9a35c; padding:0.16in 0.4in 0; text-align:center; font-family:'Oswald', Arial, sans-serif;">
-      <div style="font-size:15px; font-weight:700; color:#c9a35c; letter-spacing:0.05em; line-height:1.2;">HEALTHY HOMES PUBLIC ADJUSTING</div>
-      <div style="font-size:9.5px; color:#d4af6c; margin-top:4px; line-height:1.25; font-family:Georgia, 'Times New Roman', serif; font-style:italic;">Public Adjusting &nbsp;·&nbsp; Property Claim Documentation &nbsp;·&nbsp; Roof / Wind / Water Support</div>
-      <div style="font-size:9.5px; color:#fff; margin-top:4px; line-height:1.25; font-family:Georgia, 'Times New Roman', serif;">Kortni Keckler &nbsp;|&nbsp; Public Adjuster &nbsp;|&nbsp; FL License W435195</div>
-      <div style="font-size:9.5px; color:#fff; margin-top:2px; line-height:1.25; font-family:Georgia, 'Times New Roman', serif;">Phone: 561-283-5674 &nbsp;|&nbsp; Email: Kkeckleradj@gmail.com</div>
+    <div style="width:100%; height:1.28in; box-sizing:border-box; background:#0a0a0a; color:#fff; border-bottom:3px solid #c9a35c; padding:0.1in 0.4in;">
+      <div style="display:table; width:100%; height:100%;">
+        <div style="display:table-cell; vertical-align:middle; width:0.95in; padding-right:14px;">
+          <img src="${baseUrl}/hh-shield.png" alt="Healthy Homes shield" style="height:1in; width:auto; display:block;" />
+        </div>
+        <div style="display:table-cell; vertical-align:middle; text-align:left;">
+          <div style="font-size:14px; font-weight:700; color:#c9a35c; letter-spacing:0.05em; line-height:1.2; font-family:'Oswald', Arial, sans-serif;">HEALTHY HOMES PUBLIC ADJUSTING</div>
+          <div style="font-size:9px; color:#d4af6c; margin-top:3px; line-height:1.25; font-family:Georgia, 'Times New Roman', serif; font-style:italic;">Public Adjusting &nbsp;·&nbsp; Property Claim Documentation &nbsp;·&nbsp; Roof / Wind / Water Support</div>
+          <div style="font-size:9px; color:#fff; margin-top:3px; line-height:1.25; font-family:Georgia, 'Times New Roman', serif;">Kortni Keckler &nbsp;|&nbsp; Public Adjuster &nbsp;|&nbsp; FL License W435195</div>
+          <div style="font-size:9px; color:#fff; margin-top:1px; line-height:1.25; font-family:Georgia, 'Times New Roman', serif;">Phone: 561-283-5674 &nbsp;|&nbsp; Email: Kkeckleradj@gmail.com</div>
+        </div>
+      </div>
     </div>
   `;
   const footerImg = `
