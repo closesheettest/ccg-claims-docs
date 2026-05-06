@@ -254,16 +254,16 @@ const INSP_ROWS_DAMAGE = [
 // so the homeowner is a retail (non-insurance) sale. Findings call out
 // age/wear-driven failures rather than storm damage.
 const INSP_ROWS_RETAIL = [
-  { category: "Roofing Material Type",       finding: "Asphalt Shingle",                                    result: "N/A"  },
-  { category: "Shingle Condition",            finding: "Significant granular loss, extremely brittle, seal failures.", result: "FAIL" },
-  { category: "Metal Panel Condition",        finding: "N/A",                                                result: "N/A"  },
-  { category: "Flashing & Sealants",          finding: "Sun and temperature erosion",                        result: "FAIL" },
-  { category: "Gutters & Downspouts",         finding: "N/A",                                                result: "N/A"  },
-  { category: "Ridge & Hip Caps",             finding: "Significant granular loss, extremely brittle.",      result: "FAIL" },
-  { category: "Roof Deck (Visible)",          finding: "Unknown",                                            result: "N/A"  },
-  { category: "Ventilation",                  finding: "Painted over soffit vents",                          result: "FAIL" },
-  { category: "Water Intrusion / Leaks",      finding: "Not assessed at enrollment.",                        result: "N/A"  },
-  { category: "Overall Structural Integrity", finding: "Poor",                                               result: "FAIL" },
+  { category: "Roofing Material Type",       finding: "Asphalt Shingle",                                                  result: "N/A"  },
+  { category: "Shingle Condition",            finding: "Significant granular loss, degraded elasticity, seal failures.",   result: "FAIL" },
+  { category: "Metal Panel Condition",        finding: "N/A",                                                              result: "N/A"  },
+  { category: "Flashing & Sealants",          finding: "Thermal cycling fatigue",                                          result: "FAIL" },
+  { category: "Gutters & Downspouts",         finding: "N/A",                                                              result: "N/A"  },
+  { category: "Ridge & Hip Caps",             finding: "Significant granular loss, degraded elasticity, seal failures.",   result: "FAIL" },
+  { category: "Roof Deck (Visible)",          finding: "Unknown",                                                          result: "N/A"  },
+  { category: "Ventilation",                  finding: "Painted over soffit vents",                                        result: "FAIL" },
+  { category: "Water Intrusion / Leaks",      finding: "Not assessed at enrollment.",                                      result: "N/A"  },
+  { category: "Overall Structural Integrity", finding: "Moderately poor to poor",                                          result: "FAIL" },
 ];
 
 // ── Date helpers ─────────────────────────────────────────────────────
@@ -387,7 +387,7 @@ function buildCertificateHTML({ record, inspectorName, inspectionDateISO, logoUr
 
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;margin:6px 14px;border:2px solid #1a2e5a;border-radius:4px;overflow:hidden;">
         <div style="background:#1a2e5a;padding:9px 13px;border-right:2px solid #fff;">
-          <div style="font-size:8.5px;color:#c8392b;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;">ESTIMATED REMAINING ROOF LIFE:</div>
+          <div style="font-size:8.5px;color:${isRetail ? "#fff" : "#c8392b"};font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;">ESTIMATED REMAINING ROOF LIFE:</div>
           <div style="font-size:14px;font-weight:700;color:#fff;">Needs Replacement</div>
         </div>
         <div style="background:${isRetail ? "#6b7280" : "#dc2626"};padding:9px 13px;text-align:center;border-right:2px solid #fff;display:flex;flex-direction:column;align-items:center;justify-content:center;">
