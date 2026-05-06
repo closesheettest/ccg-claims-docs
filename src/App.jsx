@@ -7903,33 +7903,37 @@ if (!hasDamage) {
             <div style={{ display: "grid", gap: 20 }}>
 
               {selectedDocs.includes("insp") ? (
+                /* Free Roof Inspection — U.S. Shingle branded.
+                   USS is a separate company from Healthy Homes, so this card
+                   stays in USS navy/red regardless of the broader gold/black
+                   theme on the rest of the review screen. */
                 <div style={{
                   borderRadius: 24,
-                  border: inspAgreed ? "3px solid #0a0a0a" : "2px solid #e5e7eb",
+                  border: inspAgreed ? "3px solid #1a2e5a" : "2px solid #e5e7eb",
                   background: inspAgreed ? "#eef1f8" : "#fff",
                   padding: "0",
                   transition: "border-color 0.3s, background 0.3s",
                   boxShadow: inspAgreed ? "0 0 0 4px rgba(26,46,90,0.08)" : "0 1px 3px rgba(0,0,0,0.06)",
                   overflow: "hidden",
                 }}>
-                  {/* USS tricolor stripe */}
+                  {/* USS tricolor stripe — navy / white / red */}
                   <div style={{ display: "flex", height: 6 }}>
-                    <div style={{ flex: 1, background: "#0a0a0a" }} />
+                    <div style={{ flex: 1, background: "#1a2e5a" }} />
                     <div style={{ flex: 1, background: "#e5e7eb" }} />
-                    <div style={{ flex: 1, background: "#c9a35c" }} />
+                    <div style={{ flex: 1, background: "#c8392b" }} />
                   </div>
                   <div style={{ padding: "24px 28px 20px" }}>
                     <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 16 }}>
                       <div style={{
                         width: 52, height: 52, borderRadius: 16,
-                        background: inspAgreed ? "#0a0a0a" : "#f3f4f6",
+                        background: inspAgreed ? "#1a2e5a" : "#f3f4f6",
                         display: "flex", alignItems: "center", justifyContent: "center",
                         fontSize: 24, flexShrink: 0, transition: "background 0.3s",
                       }}>
                         {inspAgreed ? "✅" : "🏠"}
                       </div>
                       <div>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: "#0a0a0a", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "#1a2e5a", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>
                           U.S. Shingle & Metal LLC — Document 1 of {selectedDocs.length}
                         </div>
                         <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827", lineHeight: 1.2 }}>
@@ -7954,8 +7958,8 @@ if (!hasDamage) {
                             }}
                             style={{
                               padding: "12px 8px", borderRadius: 12,
-                              border: "2px solid #0a0a0a", background: "#fff",
-                              color: "#0a0a0a", fontFamily: "'Oswald', sans-serif",
+                              border: "2px solid #1a2e5a", background: "#fff",
+                              color: "#1a2e5a", fontFamily: "'Oswald', sans-serif",
                               fontWeight: 700, fontSize: 13, cursor: "pointer",
                               letterSpacing: "0.04em", textTransform: "uppercase",
                             }}>
@@ -7968,23 +7972,23 @@ if (!hasDamage) {
                             overflow: "hidden", display: "flex", flexDirection: "column",
                             animation: "ccg-pulse 2s infinite",
                           }}>
-                          <div style={{ background: "#c9a35c", padding: "8px 24px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                          <div style={{ background: "#c8392b", padding: "8px 24px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
                             <span style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#fff", letterSpacing: "0.04em", textTransform: "uppercase" }}>👍 Tap Here</span>
                           </div>
                           <div style={{ background: "#fff", padding: "8px 24px", display: "flex", alignItems: "center", justifyContent: "center", borderTop: "1px solid #e5e7eb", borderBottom: "1px solid #e5e7eb" }}>
-                            <span style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#0a0a0a", letterSpacing: "0.04em", textTransform: "uppercase" }}>Looks Good!</span>
+                            <span style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#1a2e5a", letterSpacing: "0.04em", textTransform: "uppercase" }}>Looks Good!</span>
                           </div>
-                          <div style={{ background: "#0a0a0a", padding: "8px 24px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <div style={{ background: "#1a2e5a", padding: "8px 24px", display: "flex", alignItems: "center", justifyContent: "center" }}>
                             <span style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#fff", letterSpacing: "0.04em", textTransform: "uppercase" }}>✅ Authorized</span>
                           </div>
                         </button>
                         </div>
-                        <div style={{ textAlign: "center", marginTop: 10, fontSize: 13, color: "#0a0a0a", fontWeight: 600, fontFamily: "'Nunito', sans-serif" }}>
+                        <div style={{ textAlign: "center", marginTop: 10, fontSize: 13, color: "#1a2e5a", fontWeight: 600, fontFamily: "'Nunito', sans-serif" }}>
                           ☝️ Please tap the button above to continue
                         </div>
                       </div>
                     ) : (
-                      <div style={{ background: "#0a0a0a", borderRadius: 14, padding: "14px 20px", textAlign: "center" }}>
+                      <div style={{ background: "#1a2e5a", borderRadius: 14, padding: "14px 20px", textAlign: "center" }}>
                         <span style={{ fontSize: 20, fontWeight: 700, color: "#fff", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.04em" }}>
                           ✅ Authorized!
                         </span>
@@ -7995,14 +7999,15 @@ if (!hasDamage) {
               ) : null}
 
               {selectedDocs.includes("lor") ? (
+                /* Letter of Representation — Healthy Homes branded (black + gold). */
                 <div
                   style={{
                     borderRadius: 24,
-                    border: lorAgreed ? "2px solid #199c2e" : "2px solid #e5e7eb",
-                    background: lorAgreed ? "#f0fdf4" : "#fff",
+                    border: lorAgreed ? "2px solid #a17e3f" : "2px solid #e5e7eb",
+                    background: lorAgreed ? "#faf3e0" : "#fff",
                     padding: "28px 28px 24px",
                     transition: "border-color 0.3s, background 0.3s",
-                    boxShadow: lorAgreed ? "0 0 0 4px rgba(25,156,46,0.08)" : "0 1px 3px rgba(0,0,0,0.06)",
+                    boxShadow: lorAgreed ? "0 0 0 4px rgba(201,163,92,0.18)" : "0 1px 3px rgba(0,0,0,0.06)",
                   }}
                 >
                   <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 16 }}>
@@ -8011,7 +8016,7 @@ if (!hasDamage) {
                         width: 52,
                         height: 52,
                         borderRadius: 16,
-                        background: lorAgreed ? "#199c2e" : "#f3f4f6",
+                        background: lorAgreed ? "#0a0a0a" : "#f3f4f6",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
@@ -8027,14 +8032,14 @@ if (!hasDamage) {
                         style={{
                           fontSize: 11,
                           fontWeight: 700,
-                          color: "#199c2e",
+                          color: "#a17e3f",
                           textTransform: "uppercase",
                           letterSpacing: "0.08em",
                           fontFamily: "'Oswald', sans-serif",
                           marginBottom: 4,
                         }}
                       >
-                        Document 1 of {selectedDocs.length}
+                        Healthy Homes — Document {selectedDocs.includes("insp") ? "2" : "1"} of {selectedDocs.length}
                       </div>
                       <div
                         style={{
@@ -8097,9 +8102,9 @@ if (!hasDamage) {
                         gap: 10,
                         padding: lorAgreed ? "12px 28px" : "14px 32px",
                         borderRadius: 16,
-                        border: lorAgreed ? "2px solid #15803d" : "3px solid #15803d",
-                        background: lorAgreed ? "#f0fdf4" : "#199c2e",
-                        color: lorAgreed ? "#15803d" : "#fff",
+                        border: lorAgreed ? "2px solid #a17e3f" : "3px solid #a17e3f",
+                        background: lorAgreed ? "#faf3e0" : "#0a0a0a",
+                        color: lorAgreed ? "#a17e3f" : "#c9a35c",
                         fontFamily: "'Oswald', sans-serif",
                         fontWeight: 700,
                         fontSize: lorAgreed ? 16 : 18,
@@ -8107,7 +8112,7 @@ if (!hasDamage) {
                         cursor: lorAgreed ? "default" : "pointer",
                         textTransform: "uppercase",
                         transition: "all 0.3s",
-                        boxShadow: lorAgreed ? "none" : "0 6px 20px rgba(25,156,46,0.45)",
+                        boxShadow: lorAgreed ? "none" : "0 6px 20px rgba(201,163,92,0.45)",
                         animation: lorAgreed ? "none" : "ccg-pulse 2s ease-in-out infinite",
                       }}
                     >
@@ -8121,27 +8126,28 @@ if (!hasDamage) {
                       fontSize: 13,
                       fontFamily: "'Nunito', sans-serif",
                       fontWeight: 700,
-                      color: "#199c2e",
+                      color: "#a17e3f",
                       display: "flex",
                       alignItems: "center",
                       gap: 6,
                       animation: "ccg-bounce 1.2s ease-in-out infinite",
                     }}>
-                      ☝️ Please tap the green button above to continue
+                      ☝️ Please tap the gold button above to continue
                     </div>
                   ) : null}
                 </div>
               ) : null}
 
               {selectedDocs.includes("pac") ? (
+                /* PA Authorization — Healthy Homes branded (black + gold). */
                 <div
                   style={{
                     borderRadius: 24,
-                    border: pacAgreed ? "2px solid #199c2e" : "2px solid #e5e7eb",
-                    background: pacAgreed ? "#f0fdf4" : "#fff",
+                    border: pacAgreed ? "2px solid #a17e3f" : "2px solid #e5e7eb",
+                    background: pacAgreed ? "#faf3e0" : "#fff",
                     padding: "28px 28px 24px",
                     transition: "border-color 0.3s, background 0.3s",
-                    boxShadow: pacAgreed ? "0 0 0 4px rgba(25,156,46,0.08)" : "0 1px 3px rgba(0,0,0,0.06)",
+                    boxShadow: pacAgreed ? "0 0 0 4px rgba(201,163,92,0.18)" : "0 1px 3px rgba(0,0,0,0.06)",
                   }}
                 >
                   <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 16 }}>
@@ -8150,7 +8156,7 @@ if (!hasDamage) {
                         width: 52,
                         height: 52,
                         borderRadius: 16,
-                        background: pacAgreed ? "#199c2e" : "#f3f4f6",
+                        background: pacAgreed ? "#0a0a0a" : "#f3f4f6",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
@@ -8166,14 +8172,14 @@ if (!hasDamage) {
                         style={{
                           fontSize: 11,
                           fontWeight: 700,
-                          color: "#199c2e",
+                          color: "#a17e3f",
                           textTransform: "uppercase",
                           letterSpacing: "0.08em",
                           fontFamily: "'Oswald', sans-serif",
                           marginBottom: 4,
                         }}
                       >
-                        Document {selectedDocs.includes("lor") ? "2" : "1"} of {selectedDocs.length}
+                        Healthy Homes — Document {(selectedDocs.includes("insp") ? 1 : 0) + (selectedDocs.includes("lor") ? 1 : 0) + 1} of {selectedDocs.length}
                       </div>
                       <div
                         style={{
@@ -8236,9 +8242,9 @@ if (!hasDamage) {
                         gap: 10,
                         padding: pacAgreed ? "12px 28px" : "14px 32px",
                         borderRadius: 16,
-                        border: pacAgreed ? "2px solid #15803d" : "3px solid #15803d",
-                        background: pacAgreed ? "#f0fdf4" : "#199c2e",
-                        color: pacAgreed ? "#15803d" : "#fff",
+                        border: pacAgreed ? "2px solid #a17e3f" : "3px solid #a17e3f",
+                        background: pacAgreed ? "#faf3e0" : "#0a0a0a",
+                        color: pacAgreed ? "#a17e3f" : "#c9a35c",
                         fontFamily: "'Oswald', sans-serif",
                         fontWeight: 700,
                         fontSize: pacAgreed ? 16 : 18,
@@ -8246,7 +8252,7 @@ if (!hasDamage) {
                         cursor: pacAgreed ? "default" : "pointer",
                         textTransform: "uppercase",
                         transition: "all 0.3s",
-                        boxShadow: pacAgreed ? "none" : "0 6px 20px rgba(25,156,46,0.45)",
+                        boxShadow: pacAgreed ? "none" : "0 6px 20px rgba(201,163,92,0.45)",
                         animation: pacAgreed ? "none" : "ccg-pulse 2s ease-in-out infinite",
                       }}
                     >
@@ -8260,12 +8266,12 @@ if (!hasDamage) {
                       fontSize: 13,
                       fontFamily: "'Nunito', sans-serif",
                       fontWeight: 700,
-                      color: "#199c2e",
+                      color: "#a17e3f",
                       display: "flex",
                       alignItems: "center",
                       gap: 6,
                     }}>
-                      ☝️ Please tap the green button above to continue
+                      ☝️ Please tap the gold button above to continue
                     </div>
                   ) : null}
                 </div>
