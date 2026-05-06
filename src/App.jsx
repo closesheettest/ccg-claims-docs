@@ -7651,11 +7651,13 @@ if (!hasDamage) {
                     </div>
                   </button>
 
-                  {/* Letter of Representation — Healthy Homes branding (black + gold) */}
+                  {/* Letter of Representation — Healthy Homes branding
+                      (black card, gold stripe on the title to match the USS
+                      card's striped layout). */}
                   <button type="button" onClick={() => toggleDocSelection("lor")}
                     disabled={alreadySignedDocs.includes("lor")}
                     style={{
-                      padding: "16px 14px", borderRadius: 16, textAlign: "left", cursor: alreadySignedDocs.includes("lor") ? "not-allowed" : "pointer",
+                      padding: 0, borderRadius: 16, textAlign: "left", cursor: alreadySignedDocs.includes("lor") ? "not-allowed" : "pointer",
                       border: alreadySignedDocs.includes("lor") ? "2px solid #fff" : selectedDocs.includes("lor") ? "2px solid #c9a35c" : "1px solid #1f1f1f",
                       background: alreadySignedDocs.includes("lor")
                         ? "linear-gradient(135deg, #6ee7b7 0%, #34d399 100%)"
@@ -7664,32 +7666,41 @@ if (!hasDamage) {
                           : "linear-gradient(135deg, #1f1f1f 0%, #0a0a0a 100%)",
                       boxShadow: selectedDocs.includes("lor") ? "0 4px 16px rgba(201,163,92,0.45)" : "0 2px 8px rgba(0,0,0,0.25)",
                       transition: "all 0.15s",
+                      overflow: "hidden",
                       opacity: alreadySignedDocs.includes("lor") ? 0.7 : selectedDocs.includes("lor") ? 1 : 0.85,
                     }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.7)", flexShrink: 0 }} />
-                      <span style={{ fontSize: 10, fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "rgba(255,255,255,0.85)", letterSpacing: "0.06em", textTransform: "uppercase", marginLeft: 4 }}>
-                        Healthy Homes Public Adjusting
-                      </span>
+                    <div style={{ padding: "12px 14px 10px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.7)", flexShrink: 0 }} />
+                        <span style={{ fontSize: 10, fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "rgba(255,255,255,0.85)", letterSpacing: "0.06em", textTransform: "uppercase", marginLeft: 4 }}>
+                          Healthy Homes Public Adjusting
+                        </span>
+                      </div>
                     </div>
-                    <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#fff", marginBottom: 2 }}>
-                      📋 Letter of Representation
+                    <div style={{ background: "#c9a35c", padding: "10px 14px", borderTop: "1px solid #a17e3f", borderBottom: "1px solid #a17e3f" }}>
+                      <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#0a0a0a", letterSpacing: "0.02em" }}>
+                        📋 Letter of Representation
+                      </div>
                     </div>
-                    <div style={{ fontSize: 12, color: "rgba(255,255,255,0.8)", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>
-                      Authorizes Healthy Homes to represent the client
+                    <div style={{ padding: "10px 14px 12px" }}>
+                      <div style={{ fontSize: 12, color: "rgba(255,255,255,0.8)", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>
+                        Authorizes Healthy Homes to represent the client
+                      </div>
+                      {alreadySignedDocs.includes("lor") ? (
+                        <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#fff", fontFamily: "'Nunito', sans-serif" }}>✓ Already signed</div>
+                      ) : selectedDocs.includes("lor") ? (
+                        <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#c9a35c", fontFamily: "'Nunito', sans-serif" }}>✓ Selected</div>
+                      ) : null}
                     </div>
-                    {alreadySignedDocs.includes("lor") ? (
-                      <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#fff", fontFamily: "'Nunito', sans-serif" }}>✓ Already signed</div>
-                    ) : selectedDocs.includes("lor") ? (
-                      <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#fff", fontFamily: "'Nunito', sans-serif" }}>✓ Selected</div>
-                    ) : null}
                   </button>
 
-                  {/* PA Authorization — Healthy Homes branding (black + gold) */}
+                  {/* PA Authorization — Healthy Homes branding
+                      (black card, gold stripe on the title to match the LOR
+                      and USS cards' striped layout). */}
                   <button type="button" onClick={() => toggleDocSelection("pac")}
                     disabled={alreadySignedDocs.includes("pac")}
                     style={{
-                      padding: "16px 14px", borderRadius: 16, textAlign: "left", cursor: alreadySignedDocs.includes("pac") ? "not-allowed" : "pointer",
+                      padding: 0, borderRadius: 16, textAlign: "left", cursor: alreadySignedDocs.includes("pac") ? "not-allowed" : "pointer",
                       border: alreadySignedDocs.includes("pac") ? "2px solid #fff" : selectedDocs.includes("pac") ? "2px solid #c9a35c" : "1px solid #1f1f1f",
                       background: alreadySignedDocs.includes("pac")
                         ? "linear-gradient(135deg, #6ee7b7 0%, #34d399 100%)"
@@ -7698,25 +7709,32 @@ if (!hasDamage) {
                           : "linear-gradient(135deg, #0a0a0a 0%, #1f1f1f 100%)",
                       boxShadow: selectedDocs.includes("pac") ? "0 4px 16px rgba(201,163,92,0.45)" : "0 2px 8px rgba(0,0,0,0.25)",
                       transition: "all 0.15s",
+                      overflow: "hidden",
                       opacity: alreadySignedDocs.includes("pac") ? 0.7 : selectedDocs.includes("pac") ? 1 : 0.85,
                     }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.7)", flexShrink: 0 }} />
-                      <span style={{ fontSize: 10, fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "rgba(255,255,255,0.85)", letterSpacing: "0.06em", textTransform: "uppercase", marginLeft: 4 }}>
-                        Healthy Homes Public Adjusting
-                      </span>
+                    <div style={{ padding: "12px 14px 10px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.7)", flexShrink: 0 }} />
+                        <span style={{ fontSize: 10, fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "rgba(255,255,255,0.85)", letterSpacing: "0.06em", textTransform: "uppercase", marginLeft: 4 }}>
+                          Healthy Homes Public Adjusting
+                        </span>
+                      </div>
                     </div>
-                    <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#fff", marginBottom: 2 }}>
-                      📄 PA Authorization
+                    <div style={{ background: "#c9a35c", padding: "10px 14px", borderTop: "1px solid #a17e3f", borderBottom: "1px solid #a17e3f" }}>
+                      <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#0a0a0a", letterSpacing: "0.02em" }}>
+                        📄 PA Authorization
+                      </div>
                     </div>
-                    <div style={{ fontSize: 12, color: "rgba(255,255,255,0.8)", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>
-                      Public Adjuster Contract
+                    <div style={{ padding: "10px 14px 12px" }}>
+                      <div style={{ fontSize: 12, color: "rgba(255,255,255,0.8)", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>
+                        Public Adjuster Contract
+                      </div>
+                      {alreadySignedDocs.includes("pac") ? (
+                        <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#fff", fontFamily: "'Nunito', sans-serif" }}>✓ Already signed</div>
+                      ) : selectedDocs.includes("pac") ? (
+                        <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#c9a35c", fontFamily: "'Nunito', sans-serif" }}>✓ Selected</div>
+                      ) : null}
                     </div>
-                    {alreadySignedDocs.includes("pac") ? (
-                      <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#fff", fontFamily: "'Nunito', sans-serif" }}>✓ Already signed</div>
-                    ) : selectedDocs.includes("pac") ? (
-                      <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#fff", fontFamily: "'Nunito', sans-serif" }}>✓ Selected</div>
-                    ) : null}
                   </button>
                 </div>
 
