@@ -251,7 +251,7 @@ function buildAuditTrailHtml(claim, docLabel) {
   `).join("");
 
   return `
-    <div style="width:8.5in; min-height:11in; background:#fff; box-sizing:border-box; font-family:Arial, Helvetica, sans-serif; color:#111827;">
+    <div style="width:8.5in; min-height:11in; background:#fff; box-sizing:border-box; font-family:Georgia, 'Times New Roman', serif; color:#111827;">
       <div style="padding:0.55in 0.6in; box-sizing:border-box;">
         <div style="font-size:26px; font-weight:700; margin-bottom:10px;">Signature Acknowledgment</div>
         <div style="font-size:14px; color:#4b5563; margin-bottom:24px;">Electronic signing audit trail for this document.</div>
@@ -289,21 +289,21 @@ function buildLorHtml(claim, baseUrl) {
 
   // HTML-rendered header/footer — Healthy Homes doesn't have branded
   // PNG assets yet, so we draw both in code with the company's black/gold
-  // theme. Sized to fit the page wrapper's 1.28in / 0.82in slots so
-  // the body content flows the same as before.
+  // theme. Block layout (no flex) for PDFShift compatibility — flex
+  // column layouts collapse onto a single line in some PDF renderers.
   const headerImg = `
-    <div style="width:100%; height:1.28in; box-sizing:border-box; background:#000; color:#fff; border-bottom:3px solid #c9a35c; padding:0.18in 0.4in; display:flex; flex-direction:column; justify-content:center; font-family:'Oswald', Arial, sans-serif;">
-      <div style="font-size:16px; font-weight:700; color:#c9a35c; letter-spacing:0.04em; text-align:center;">KORT CO, LLC d/b/a HEALTHY HOMES PUBLIC ADJUSTING</div>
-      <div style="font-size:10.5px; color:#d4af6c; margin-top:4px; text-align:center; font-family:Arial, sans-serif;">Public Adjusting · Property Claim Documentation · Roof / Wind / Water Support</div>
-      <div style="font-size:10.5px; color:#fff; margin-top:3px; text-align:center; font-family:Arial, sans-serif;">Kortni Keckler &nbsp;|&nbsp; Public Adjuster &nbsp;|&nbsp; FL License W435195</div>
-      <div style="font-size:10.5px; color:#fff; margin-top:1px; text-align:center; font-family:Arial, sans-serif;">Phone: 561-283-5674 &nbsp;|&nbsp; Email: Kkeckleradj@gmail.com</div>
+    <div style="width:100%; height:1.28in; box-sizing:border-box; background:#0a0a0a; color:#fff; border-bottom:3px solid #c9a35c; padding:0.16in 0.4in 0; text-align:center; font-family:'Oswald', Arial, sans-serif;">
+      <div style="font-size:15px; font-weight:700; color:#c9a35c; letter-spacing:0.05em; line-height:1.2;">KORT CO, LLC d/b/a HEALTHY HOMES PUBLIC ADJUSTING</div>
+      <div style="font-size:9.5px; color:#d4af6c; margin-top:4px; line-height:1.25; font-family:Georgia, 'Times New Roman', serif; font-style:italic;">Public Adjusting &nbsp;·&nbsp; Property Claim Documentation &nbsp;·&nbsp; Roof / Wind / Water Support</div>
+      <div style="font-size:9.5px; color:#fff; margin-top:4px; line-height:1.25; font-family:Georgia, 'Times New Roman', serif;">Kortni Keckler &nbsp;|&nbsp; Public Adjuster &nbsp;|&nbsp; FL License W435195</div>
+      <div style="font-size:9.5px; color:#fff; margin-top:2px; line-height:1.25; font-family:Georgia, 'Times New Roman', serif;">Phone: 561-283-5674 &nbsp;|&nbsp; Email: Kkeckleradj@gmail.com</div>
     </div>
   `;
   const footerImg = `
-    <div style="width:100%; height:0.82in; box-sizing:border-box; background:#000; color:#fff; border-top:3px solid #c9a35c; padding:0.08in 0.4in; display:flex; flex-direction:column; justify-content:center; font-family:Arial, sans-serif;">
-      <div style="font-size:9px; font-weight:700; color:#c9a35c; text-align:center; text-transform:uppercase; letter-spacing:0.06em;">Confidential / For Intended Recipient Only</div>
-      <div style="font-size:7.5px; color:#d1d5db; text-align:center; line-height:1.3; margin-top:3px;">This document is for claim-documentation and operational coordination purposes only. No coverage determination, engineering opinion, construction guarantee, or legal advice is being provided. All claim decisions remain subject to policy terms, carrier review, applicable Florida law, and licensed public adjuster review.</div>
-      <div style="font-size:8.5px; color:#c9a35c; font-weight:700; text-align:center; margin-top:4px;">Kort Co, LLC d/b/a Healthy Homes Public Adjusting &nbsp;|&nbsp; FL PA License: W435195</div>
+    <div style="width:100%; height:0.82in; box-sizing:border-box; background:#0a0a0a; color:#fff; border-top:3px solid #c9a35c; padding:0.08in 0.4in 0; text-align:center; font-family:Georgia, 'Times New Roman', serif;">
+      <div style="font-size:8.5px; font-weight:700; color:#c9a35c; text-transform:uppercase; letter-spacing:0.08em; line-height:1.2; font-family:'Oswald', Arial, sans-serif;">Confidential &nbsp;·&nbsp; For Intended Recipient Only</div>
+      <div style="font-size:7px; color:#d1d5db; line-height:1.35; margin-top:3px; font-style:italic;">This document is for claim-documentation and operational coordination purposes only. No coverage determination, engineering opinion, construction guarantee, or legal advice is being provided. All claim decisions remain subject to policy terms, carrier review, applicable Florida law, and licensed public adjuster review.</div>
+      <div style="font-size:8px; color:#c9a35c; font-weight:700; margin-top:3px; line-height:1.2; font-family:'Oswald', Arial, sans-serif; letter-spacing:0.04em;">Kort Co, LLC d/b/a Healthy Homes Public Adjusting &nbsp;|&nbsp; FL PA License: W435195</div>
     </div>
   `;
 
@@ -332,7 +332,7 @@ function buildLorHtml(claim, baseUrl) {
 
   // Page wrapper — replicates PdfPage layout (header at top absolute, footer absolute bottom, content padded)
   const page = (innerHtml) => `
-    <div style="position:relative; width:8.5in; height:11in; background:#fff; box-sizing:border-box; overflow:hidden; font-family:Arial, Helvetica, sans-serif; color:#111827;">
+    <div style="position:relative; width:8.5in; height:11in; background:#fff; box-sizing:border-box; overflow:hidden; font-family:Georgia, 'Times New Roman', serif; color:#111827;">
       <div style="position:absolute; top:0; left:0; right:0; height:1.28in; line-height:0; overflow:hidden;">${headerImg}</div>
       <div style="position:absolute; left:0; right:0; bottom:0; height:0.82in; line-height:0; overflow:hidden;">${footerImg}</div>
       <div style="position:absolute; top:1.28in; left:0; right:0; bottom:0.82in; box-sizing:border-box; padding:0 0.42in 0.12in; overflow:hidden;">${innerHtml}</div>
@@ -399,7 +399,7 @@ function buildPacHtml(claim, baseUrl) {
   const dateStr = claim.signed_at ? new Date(claim.signed_at).toLocaleDateString() : (claim.date || "");
   const propAddr = [claim.address, claim.city, claim.state, claim.zip].filter(Boolean).join(", ");
 
-  const bodyText = "font-size:14px; line-height:1.43; color:#111827; font-family:Arial, Helvetica, sans-serif;";
+  const bodyText = "font-size:13.5px; line-height:1.55; color:#111827; font-family:Georgia, 'Times New Roman', serif;";
   const sectionHead = "color:#c9a35c; font-weight:700; text-transform:uppercase;";
 
   const headerImg = `<img src="${baseUrl}/pa-header.png" alt="header" style="width:100%; display:block;" />`;
@@ -456,13 +456,13 @@ function buildPacHtml(claim, baseUrl) {
 
   const footerWithPageNum = (pageNum) => `
     <div>
-      <div style="text-align:center; font-size:12px; color:#2f9e44; font-style:italic; margin-bottom:4px; line-height:1.2;">Page ${pageNum} of 4</div>
+      <div style="text-align:center; font-size:11px; color:#6b7280; font-style:italic; margin-bottom:4px; line-height:1.2; font-family:Georgia, 'Times New Roman', serif;">Page ${pageNum} of 4</div>
       ${footerImg}
     </div>
   `;
 
   const pacPage = (pageNum, innerHtml) => `
-    <div style="position:relative; width:8.5in; height:11in; background:#fff; box-sizing:border-box; overflow:hidden; font-family:Arial, Helvetica, sans-serif; color:#111827;">
+    <div style="position:relative; width:8.5in; height:11in; background:#fff; box-sizing:border-box; overflow:hidden; font-family:Georgia, 'Times New Roman', serif; color:#111827;">
       <div style="position:absolute; top:0; left:0; right:0; height:1.28in; line-height:0; overflow:hidden;">${headerImg}</div>
       <div style="position:absolute; left:0; right:0; bottom:0; height:0.82in; line-height:0; overflow:hidden;">${footerWithPageNum(pageNum)}</div>
       <div style="position:absolute; top:1.28in; left:0; right:0; bottom:0.82in; box-sizing:border-box; padding:0 0.42in 0.12in; overflow:hidden;">${innerHtml}</div>

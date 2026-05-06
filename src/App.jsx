@@ -1455,7 +1455,7 @@ function PdfPage({
           background: "#fff",
           boxSizing: "border-box",
           overflow: "hidden",
-          fontFamily: "Arial, Helvetica, sans-serif",
+          fontFamily: "Georgia, 'Times New Roman', serif",
           color: "#111827",
         }}
       >
@@ -1519,7 +1519,7 @@ function PdfPage({
         boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
         overflow: "hidden",
         marginBottom: 16,
-        fontFamily: "Arial, Helvetica, sans-serif",
+        fontFamily: "Georgia, 'Times New Roman', serif",
         color: "#111827",
       }}
     >
@@ -1679,27 +1679,30 @@ function LetterOfRepresentation({
 
   // HTML-rendered header/footer — Healthy Homes doesn't have a branded
   // PNG header/footer yet, so we draw them in code with the company's
-  // black/gold theme. Built to fit within the page wrapper's reserved
-  // 1.28in / 0.82in slots so the body content doesn't shift.
+  // black/gold theme. Block layout (no flex) — html2pdf collapses
+  // flex-column layouts onto a single line, which is why the early
+  // versions of these blocks were stacking on top of each other.
+  // Built to fit within the page wrapper's reserved 1.28in / 0.82in
+  // slots so body content doesn't shift.
   const HeaderImg = () => (
     <div style={{
       width: "100%", height: "1.28in", boxSizing: "border-box",
-      background: "#000", color: "#fff",
+      background: "#0a0a0a", color: "#fff",
       borderBottom: "3px solid #c9a35c",
-      padding: "0.18in 0.4in",
-      display: "flex", flexDirection: "column", justifyContent: "center",
+      padding: "0.16in 0.4in 0",
+      textAlign: "center",
       fontFamily: "'Oswald', Arial, sans-serif",
     }}>
-      <div style={{ fontSize: 16, fontWeight: 700, color: "#c9a35c", letterSpacing: "0.04em", textAlign: "center" }}>
+      <div style={{ fontSize: 15, fontWeight: 700, color: "#c9a35c", letterSpacing: "0.05em", lineHeight: 1.2 }}>
         KORT CO, LLC d/b/a HEALTHY HOMES PUBLIC ADJUSTING
       </div>
-      <div style={{ fontSize: 10.5, color: "#d4af6c", marginTop: 4, textAlign: "center", fontFamily: "Arial, sans-serif" }}>
-        Public Adjusting · Property Claim Documentation · Roof / Wind / Water Support
+      <div style={{ fontSize: 9.5, color: "#d4af6c", marginTop: 4, lineHeight: 1.25, fontFamily: "Georgia, 'Times New Roman', serif", fontStyle: "italic" }}>
+        Public Adjusting &nbsp;·&nbsp; Property Claim Documentation &nbsp;·&nbsp; Roof / Wind / Water Support
       </div>
-      <div style={{ fontSize: 10.5, color: "#fff", marginTop: 3, textAlign: "center", fontFamily: "Arial, sans-serif" }}>
+      <div style={{ fontSize: 9.5, color: "#fff", marginTop: 4, lineHeight: 1.25, fontFamily: "Georgia, 'Times New Roman', serif" }}>
         Kortni Keckler &nbsp;|&nbsp; Public Adjuster &nbsp;|&nbsp; FL License W435195
       </div>
-      <div style={{ fontSize: 10.5, color: "#fff", marginTop: 1, textAlign: "center", fontFamily: "Arial, sans-serif" }}>
+      <div style={{ fontSize: 9.5, color: "#fff", marginTop: 2, lineHeight: 1.25, fontFamily: "Georgia, 'Times New Roman', serif" }}>
         Phone: 561-283-5674 &nbsp;|&nbsp; Email: Kkeckleradj@gmail.com
       </div>
     </div>
@@ -1708,19 +1711,19 @@ function LetterOfRepresentation({
   const FooterImg = () => (
     <div style={{
       width: "100%", height: "0.82in", boxSizing: "border-box",
-      background: "#000", color: "#fff",
+      background: "#0a0a0a", color: "#fff",
       borderTop: "3px solid #c9a35c",
-      padding: "0.08in 0.4in",
-      display: "flex", flexDirection: "column", justifyContent: "center",
-      fontFamily: "Arial, sans-serif",
+      padding: "0.08in 0.4in 0",
+      textAlign: "center",
+      fontFamily: "Georgia, 'Times New Roman', serif",
     }}>
-      <div style={{ fontSize: 9, fontWeight: 700, color: "#c9a35c", textAlign: "center", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-        Confidential / For Intended Recipient Only
+      <div style={{ fontSize: 8.5, fontWeight: 700, color: "#c9a35c", textTransform: "uppercase", letterSpacing: "0.08em", lineHeight: 1.2, fontFamily: "'Oswald', Arial, sans-serif" }}>
+        Confidential &nbsp;·&nbsp; For Intended Recipient Only
       </div>
-      <div style={{ fontSize: 7.5, color: "#d1d5db", textAlign: "center", lineHeight: 1.3, marginTop: 3 }}>
+      <div style={{ fontSize: 7, color: "#d1d5db", lineHeight: 1.35, marginTop: 3, fontStyle: "italic" }}>
         This document is for claim-documentation and operational coordination purposes only. No coverage determination, engineering opinion, construction guarantee, or legal advice is being provided. All claim decisions remain subject to policy terms, carrier review, applicable Florida law, and licensed public adjuster review.
       </div>
-      <div style={{ fontSize: 8.5, color: "#c9a35c", fontWeight: 700, textAlign: "center", marginTop: 4 }}>
+      <div style={{ fontSize: 8, color: "#c9a35c", fontWeight: 700, marginTop: 3, lineHeight: 1.2, fontFamily: "'Oswald', Arial, sans-serif", letterSpacing: "0.04em" }}>
         Kort Co, LLC d/b/a Healthy Homes Public Adjusting &nbsp;|&nbsp; FL PA License: W435195
       </div>
     </div>
@@ -2060,33 +2063,32 @@ function PublicAdjusterContract({
   };
 
   const sectionHead = {
-    color: "#199c2e",
+    color: "#a17e3f",
     fontWeight: 700,
     textTransform: "uppercase",
   };
 
   // Mirrors the LorPdf HeaderImg/FooterImg above — see comments there
-  // for design rationale. Kept inline in each component for now since
-  // they're scoped to their respective PDF previews.
+  // for design rationale. Block layout (no flex) for html2pdf compatibility.
   const HeaderImg = () => (
     <div style={{
       width: "100%", height: "1.28in", boxSizing: "border-box",
-      background: "#000", color: "#fff",
+      background: "#0a0a0a", color: "#fff",
       borderBottom: "3px solid #c9a35c",
-      padding: "0.18in 0.4in",
-      display: "flex", flexDirection: "column", justifyContent: "center",
+      padding: "0.16in 0.4in 0",
+      textAlign: "center",
       fontFamily: "'Oswald', Arial, sans-serif",
     }}>
-      <div style={{ fontSize: 16, fontWeight: 700, color: "#c9a35c", letterSpacing: "0.04em", textAlign: "center" }}>
+      <div style={{ fontSize: 15, fontWeight: 700, color: "#c9a35c", letterSpacing: "0.05em", lineHeight: 1.2 }}>
         KORT CO, LLC d/b/a HEALTHY HOMES PUBLIC ADJUSTING
       </div>
-      <div style={{ fontSize: 10.5, color: "#d4af6c", marginTop: 4, textAlign: "center", fontFamily: "Arial, sans-serif" }}>
-        Public Adjusting · Property Claim Documentation · Roof / Wind / Water Support
+      <div style={{ fontSize: 9.5, color: "#d4af6c", marginTop: 4, lineHeight: 1.25, fontFamily: "Georgia, 'Times New Roman', serif", fontStyle: "italic" }}>
+        Public Adjusting &nbsp;·&nbsp; Property Claim Documentation &nbsp;·&nbsp; Roof / Wind / Water Support
       </div>
-      <div style={{ fontSize: 10.5, color: "#fff", marginTop: 3, textAlign: "center", fontFamily: "Arial, sans-serif" }}>
+      <div style={{ fontSize: 9.5, color: "#fff", marginTop: 4, lineHeight: 1.25, fontFamily: "Georgia, 'Times New Roman', serif" }}>
         Kortni Keckler &nbsp;|&nbsp; Public Adjuster &nbsp;|&nbsp; FL License W435195
       </div>
-      <div style={{ fontSize: 10.5, color: "#fff", marginTop: 1, textAlign: "center", fontFamily: "Arial, sans-serif" }}>
+      <div style={{ fontSize: 9.5, color: "#fff", marginTop: 2, lineHeight: 1.25, fontFamily: "Georgia, 'Times New Roman', serif" }}>
         Phone: 561-283-5674 &nbsp;|&nbsp; Email: Kkeckleradj@gmail.com
       </div>
     </div>
@@ -2095,19 +2097,19 @@ function PublicAdjusterContract({
   const FooterImg = () => (
     <div style={{
       width: "100%", height: "0.82in", boxSizing: "border-box",
-      background: "#000", color: "#fff",
+      background: "#0a0a0a", color: "#fff",
       borderTop: "3px solid #c9a35c",
-      padding: "0.08in 0.4in",
-      display: "flex", flexDirection: "column", justifyContent: "center",
-      fontFamily: "Arial, sans-serif",
+      padding: "0.08in 0.4in 0",
+      textAlign: "center",
+      fontFamily: "Georgia, 'Times New Roman', serif",
     }}>
-      <div style={{ fontSize: 9, fontWeight: 700, color: "#c9a35c", textAlign: "center", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-        Confidential / For Intended Recipient Only
+      <div style={{ fontSize: 8.5, fontWeight: 700, color: "#c9a35c", textTransform: "uppercase", letterSpacing: "0.08em", lineHeight: 1.2, fontFamily: "'Oswald', Arial, sans-serif" }}>
+        Confidential &nbsp;·&nbsp; For Intended Recipient Only
       </div>
-      <div style={{ fontSize: 7.5, color: "#d1d5db", textAlign: "center", lineHeight: 1.3, marginTop: 3 }}>
+      <div style={{ fontSize: 7, color: "#d1d5db", lineHeight: 1.35, marginTop: 3, fontStyle: "italic" }}>
         This document is for claim-documentation and operational coordination purposes only. No coverage determination, engineering opinion, construction guarantee, or legal advice is being provided. All claim decisions remain subject to policy terms, carrier review, applicable Florida law, and licensed public adjuster review.
       </div>
-      <div style={{ fontSize: 8.5, color: "#c9a35c", fontWeight: 700, textAlign: "center", marginTop: 4 }}>
+      <div style={{ fontSize: 8, color: "#c9a35c", fontWeight: 700, marginTop: 3, lineHeight: 1.2, fontFamily: "'Oswald', Arial, sans-serif", letterSpacing: "0.04em" }}>
         Kort Co, LLC d/b/a Healthy Homes Public Adjusting &nbsp;|&nbsp; FL PA License: W435195
       </div>
     </div>
@@ -2153,7 +2155,7 @@ function PublicAdjusterContract({
         <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 2 }}>PA Initials:</div>
         <div
           style={{
-            borderBottom: "1px solid #199c2e",
+            borderBottom: "1px solid #a17e3f",
             height: 26,
             display: "flex",
             alignItems: "flex-end",
@@ -2227,11 +2229,12 @@ function PublicAdjusterContract({
         <div
           style={{
             textAlign: "center",
-            fontSize: 12,
-            color: "#2f9e44",
+            fontSize: 11,
+            color: "#6b7280",
             fontStyle: "italic",
             marginBottom: 4,
             lineHeight: 1.2,
+            fontFamily: "Georgia, 'Times New Roman', serif",
           }}
         >
           Page {page} of 4
@@ -2543,7 +2546,7 @@ function PublicAdjusterContract({
 
           <div
             style={{
-              borderTop: "4px solid #199c2e",
+              borderTop: "3px solid #a17e3f",
               marginTop: 18,
               marginBottom: 14,
             }}
@@ -2551,10 +2554,12 @@ function PublicAdjusterContract({
 
           <div
             style={{
-              color: "#199c2e",
+              color: "#a17e3f",
               fontWeight: 700,
               fontSize: 14,
               marginBottom: 14,
+              letterSpacing: "0.06em",
+              fontFamily: "'Oswald', Arial, sans-serif",
             }}
           >
             HEALTHY HOMES PUBLIC ADJUSTING
@@ -2579,14 +2584,14 @@ function PublicAdjusterContract({
                 }}
               >
                 <div>By:</div>
-                <div style={{ background: "#d7c2f0", padding: "4px 8px" }}>
+                <div style={{ background: "#faf3e0", padding: "4px 8px" }}>
                   {PA_FIXED.name}
                 </div>
 
                 <div>License:</div>
                 <div
                   style={{
-                    background: "#d7c2f0",
+                    background: "#faf3e0",
                     padding: "4px 8px",
                     fontWeight: 700,
                   }}
@@ -2595,7 +2600,7 @@ function PublicAdjusterContract({
                 </div>
 
                 <div>Signature:</div>
-                <div style={{ background: "#d7c2f0", padding: "4px 8px" }}>
+                <div style={{ background: "#faf3e0", padding: "4px 8px" }}>
                   <img
                     src={PA_FIXED.signatureImage}
                     alt="Benito Paul signature"
