@@ -7607,12 +7607,14 @@ if (!hasDamage) {
 
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
 
-                  {/* Free Roof Inspection — U.S. Shingle branding */}
+                  {/* Free Roof Inspection — U.S. Shingle branding (navy + red,
+                      a separate company from the PA — does NOT inherit the
+                      Healthy Homes black/gold theme). */}
                   <button type="button" onClick={() => toggleDocSelection("insp")}
                     disabled={alreadySignedDocs.includes("insp")}
                     style={{
                       padding: 0, borderRadius: 16, textAlign: "left", cursor: alreadySignedDocs.includes("insp") ? "not-allowed" : "pointer",
-                      border: alreadySignedDocs.includes("insp") ? "2px solid #199c2e" : selectedDocs.includes("insp") ? "3px solid #0a0a0a" : "2px solid #d1d5db",
+                      border: alreadySignedDocs.includes("insp") ? "2px solid #199c2e" : selectedDocs.includes("insp") ? "3px solid #1a2e5a" : "2px solid #d1d5db",
                       background: "#fff",
                       boxShadow: selectedDocs.includes("insp") ? "0 4px 16px rgba(26,46,90,0.25)" : "0 2px 6px rgba(0,0,0,0.06)",
                       transition: "all 0.15s",
@@ -7620,7 +7622,7 @@ if (!hasDamage) {
                       opacity: alreadySignedDocs.includes("insp") ? 0.6 : 1,
                     }}>
                     {/* Top third — Navy */}
-                    <div style={{ background: "#0a0a0a", padding: "10px 14px" }}>
+                    <div style={{ background: "#1a2e5a", padding: "10px 14px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <div style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.5)", flexShrink: 0 }} />
                         <div style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.8)", flexShrink: 0 }} />
@@ -7638,31 +7640,31 @@ if (!hasDamage) {
                       {alreadySignedDocs.includes("insp") ? (
                         <div style={{ fontSize: 11, fontWeight: 700, color: "#199c2e", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>✓ Already signed</div>
                       ) : selectedDocs.includes("insp") ? (
-                        <div style={{ fontSize: 11, fontWeight: 700, color: "#0a0a0a", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>✓ Selected</div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "#1a2e5a", fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>✓ Selected</div>
                       ) : null}
                     </div>
                     {/* Bottom third — Red */}
-                    <div style={{ background: "#c9a35c", padding: "8px 14px" }}>
+                    <div style={{ background: "#c8392b", padding: "8px 14px" }}>
                       <div style={{ fontSize: 12, color: "#fff", fontFamily: "'Nunito', sans-serif", fontWeight: 600, lineHeight: 1.3 }}>
                         Homeowner signs inspection agreement
                       </div>
                     </div>
                   </button>
 
-                  {/* Letter of Representation — Healthy Homes branding */}
+                  {/* Letter of Representation — Healthy Homes branding (black + gold) */}
                   <button type="button" onClick={() => toggleDocSelection("lor")}
                     disabled={alreadySignedDocs.includes("lor")}
                     style={{
                       padding: "16px 14px", borderRadius: 16, textAlign: "left", cursor: alreadySignedDocs.includes("lor") ? "not-allowed" : "pointer",
-                      border: alreadySignedDocs.includes("lor") ? "2px solid #fff" : "none",
+                      border: alreadySignedDocs.includes("lor") ? "2px solid #fff" : selectedDocs.includes("lor") ? "2px solid #c9a35c" : "1px solid #1f1f1f",
                       background: alreadySignedDocs.includes("lor")
                         ? "linear-gradient(135deg, #6ee7b7 0%, #34d399 100%)"
                         : selectedDocs.includes("lor")
-                          ? "linear-gradient(135deg, #199c2e 0%, #14752a 100%)"
-                          : "linear-gradient(135deg, #22b535 0%, #199c2e 100%)",
-                      boxShadow: selectedDocs.includes("lor") ? "0 4px 16px rgba(25,156,46,0.35)" : "0 2px 8px rgba(25,156,46,0.18)",
+                          ? "linear-gradient(135deg, #0a0a0a 0%, #1f1f1f 100%)"
+                          : "linear-gradient(135deg, #1f1f1f 0%, #0a0a0a 100%)",
+                      boxShadow: selectedDocs.includes("lor") ? "0 4px 16px rgba(201,163,92,0.45)" : "0 2px 8px rgba(0,0,0,0.25)",
                       transition: "all 0.15s",
-                      opacity: alreadySignedDocs.includes("lor") ? 0.7 : selectedDocs.includes("lor") ? 1 : 0.82,
+                      opacity: alreadySignedDocs.includes("lor") ? 0.7 : selectedDocs.includes("lor") ? 1 : 0.85,
                     }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
                       <div style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.7)", flexShrink: 0 }} />
@@ -7683,20 +7685,20 @@ if (!hasDamage) {
                     ) : null}
                   </button>
 
-                  {/* PA Authorization — Healthy Homes branding */}
+                  {/* PA Authorization — Healthy Homes branding (black + gold) */}
                   <button type="button" onClick={() => toggleDocSelection("pac")}
                     disabled={alreadySignedDocs.includes("pac")}
                     style={{
                       padding: "16px 14px", borderRadius: 16, textAlign: "left", cursor: alreadySignedDocs.includes("pac") ? "not-allowed" : "pointer",
-                      border: alreadySignedDocs.includes("pac") ? "2px solid #fff" : "none",
+                      border: alreadySignedDocs.includes("pac") ? "2px solid #fff" : selectedDocs.includes("pac") ? "2px solid #c9a35c" : "1px solid #1f1f1f",
                       background: alreadySignedDocs.includes("pac")
                         ? "linear-gradient(135deg, #6ee7b7 0%, #34d399 100%)"
                         : selectedDocs.includes("pac")
-                          ? "linear-gradient(135deg, #14752a 0%, #199c2e 100%)"
-                          : "linear-gradient(135deg, #199c2e 0%, #22b535 100%)",
-                      boxShadow: selectedDocs.includes("pac") ? "0 4px 16px rgba(25,156,46,0.35)" : "0 2px 8px rgba(25,156,46,0.18)",
+                          ? "linear-gradient(135deg, #1f1f1f 0%, #0a0a0a 100%)"
+                          : "linear-gradient(135deg, #0a0a0a 0%, #1f1f1f 100%)",
+                      boxShadow: selectedDocs.includes("pac") ? "0 4px 16px rgba(201,163,92,0.45)" : "0 2px 8px rgba(0,0,0,0.25)",
                       transition: "all 0.15s",
-                      opacity: alreadySignedDocs.includes("pac") ? 0.7 : selectedDocs.includes("pac") ? 1 : 0.82,
+                      opacity: alreadySignedDocs.includes("pac") ? 0.7 : selectedDocs.includes("pac") ? 1 : 0.85,
                     }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
                       <div style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.7)", flexShrink: 0 }} />
