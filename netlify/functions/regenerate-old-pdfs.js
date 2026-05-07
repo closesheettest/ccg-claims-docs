@@ -294,8 +294,8 @@ function buildLorHtml(claim, baseUrl) {
   const headerImg = `
     <div style="width:100%; height:2.2in; box-sizing:border-box; background:#0a0a0a; color:#fff; border-bottom:3px solid #c9a35c; padding:0.2in 0.4in 0.25in;">
       <div style="display:table; width:100%; height:100%;">
-        <div style="display:table-cell; vertical-align:middle; width:1.55in; padding-right:14px;">
-          <img src="${baseUrl}/hh-shield.png" alt="Healthy Homes shield" style="height:1.5in; max-height:1.5in; width:auto; max-width:1.5in; object-fit:contain; display:block;" />
+        <div style="display:table-cell; vertical-align:middle; width:1.85in; padding-right:14px;">
+          <img src="${baseUrl}/hh-shield.png" alt="Healthy Homes shield" style="height:1.7in; width:auto; display:block;" />
         </div>
         <div style="display:table-cell; vertical-align:middle; text-align:left;">
           <div style="font-size:14px; font-weight:700; color:#c9a35c; letter-spacing:0.05em; line-height:1.2; font-family:'Oswald', Arial, sans-serif;">HEALTHY HOMES PUBLIC ADJUSTING</div>
