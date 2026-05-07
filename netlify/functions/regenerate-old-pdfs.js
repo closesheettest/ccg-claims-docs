@@ -294,7 +294,7 @@ function buildLorHtml(claim, baseUrl) {
     <div style="width:100%; height:1.55in; box-sizing:border-box; background:#0a0a0a; color:#fff; border-bottom:3px solid #c9a35c; padding:0.1in 0.4in;">
       <div style="display:table; width:100%; height:100%;">
         <div style="display:table-cell; vertical-align:middle; width:0.95in; padding-right:14px;">
-          <img src="${baseUrl}/hh-shield.png" alt="Healthy Homes shield" style="height:1.25in; width:auto; display:block;" />
+          <img src="${baseUrl}/hh-shield.png" alt="Healthy Homes shield" style="height:1.05in; width:auto; display:block;" />
         </div>
         <div style="display:table-cell; vertical-align:middle; text-align:left;">
           <div style="font-size:14px; font-weight:700; color:#c9a35c; letter-spacing:0.05em; line-height:1.2; font-family:'Oswald', Arial, sans-serif;">HEALTHY HOMES PUBLIC ADJUSTING</div>

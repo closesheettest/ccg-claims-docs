@@ -1690,7 +1690,7 @@ function LetterOfRepresentation({
     }}>
       <div style={{ display: "table", width: "100%", height: "100%" }}>
         <div style={{ display: "table-cell", verticalAlign: "middle", width: "0.95in", paddingRight: 14 }}>
-          <img src="/hh-shield.png" alt="Healthy Homes shield" style={{ height: "1.25in", width: "auto", display: "block" }} />
+          <img src="/hh-shield.png" alt="Healthy Homes shield" style={{ height: "1.05in", width: "auto", display: "block" }} />
         </div>
         <div style={{ display: "table-cell", verticalAlign: "middle", textAlign: "left" }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: "#c9a35c", letterSpacing: "0.05em", lineHeight: 1.2, fontFamily: "'Oswald', Arial, sans-serif" }}>
@@ -2081,7 +2081,7 @@ function PublicAdjusterContract({
     }}>
       <div style={{ display: "table", width: "100%", height: "100%" }}>
         <div style={{ display: "table-cell", verticalAlign: "middle", width: "0.95in", paddingRight: 14 }}>
-          <img src="/hh-shield.png" alt="Healthy Homes shield" style={{ height: "1.25in", width: "auto", display: "block" }} />
+          <img src="/hh-shield.png" alt="Healthy Homes shield" style={{ height: "1.05in", width: "auto", display: "block" }} />
         </div>
         <div style={{ display: "table-cell", verticalAlign: "middle", textAlign: "left" }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: "#c9a35c", letterSpacing: "0.05em", lineHeight: 1.2, fontFamily: "'Oswald', Arial, sans-serif" }}>
