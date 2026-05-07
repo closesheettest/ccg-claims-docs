@@ -1441,6 +1441,173 @@ function TypedInitialsField({
   );
 }
 
+// Rep-facing help modal: "Understanding the App". Walks reps through what
+// they're responsible for, what the app does automatically, when the PA
+// gets pulled in, and how the three inspection outcomes (Damage / No
+// Damage / Retail) play out. Same flow as the PA onboarding doc but from
+// the rep's perspective.
+function RepHelpModal({ onClose }) {
+  const stepCard = (color, num, title, body, autoNote, paNote) => (
+    <div style={{
+      border: `1.5px solid ${color.border}`,
+      background: color.bg,
+      borderRadius: 12,
+      padding: "14px 16px",
+    }}>
+      <span style={{
+        display: "inline-block",
+        background: color.numBg, color: color.numFg,
+        fontFamily: "'Oswald', sans-serif", fontWeight: 700,
+        fontSize: 12, padding: "3px 10px", borderRadius: 999,
+        marginBottom: 8, letterSpacing: "0.05em",
+      }}>{num}</span>
+      <div style={{ fontFamily: "'Oswald', sans-serif", fontSize: 16, fontWeight: 700, color: "#0a0a0a", marginBottom: 6, letterSpacing: "0.02em" }}>{title}</div>
+      <div style={{ fontSize: 13.5, color: "#374151", lineHeight: 1.5 }}>{body}</div>
+      {autoNote ? (
+        <div style={{ marginTop: 8, padding: "6px 10px", background: "#c9a35c", color: "#0a0a0a", borderRadius: 6, fontSize: 12, fontWeight: 700, fontFamily: "'Oswald', sans-serif", display: "inline-block", letterSpacing: "0.04em" }}>
+          📲 {autoNote}
+        </div>
+      ) : null}
+      {paNote ? (
+        <div style={{ marginTop: 8, padding: "6px 10px", background: "#0a0a0a", color: "#c9a35c", borderRadius: 6, fontSize: 12, fontWeight: 700, fontFamily: "'Oswald', sans-serif", display: "inline-block", letterSpacing: "0.04em" }}>
+          📩 {paNote}
+        </div>
+      ) : null}
+    </div>
+  );
+  const C = {
+    muted:   { bg: "#f9fafb", border: "#d1d5db", numBg: "#0a0a0a", numFg: "#c9a35c" },
+    gold:    { bg: "#fffbf3", border: "#c9a35c", numBg: "#c9a35c", numFg: "#0a0a0a" },
+    damage:  { bg: "#fff1f1", border: "#dc2626", numBg: "#dc2626", numFg: "#fff" },
+    nodam:   { bg: "#f0fdf4", border: "#15803d", numBg: "#15803d", numFg: "#fff" },
+    retail:  { bg: "#eff6ff", border: "#2563eb", numBg: "#2563eb", numFg: "#fff" },
+  };
+  const arrow = <div style={{ textAlign: "center", color: "#c9a35c", fontSize: 22, lineHeight: 1, margin: "2px 0" }}>▼</div>;
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+      zIndex: 9999, padding: "30px 16px", overflowY: "auto",
+      fontFamily: "'Nunito', system-ui, sans-serif",
+    }}>
+      <div onClick={(e) => e.stopPropagation()} style={{
+        maxWidth: 880, margin: "0 auto", background: "#fff",
+        borderRadius: 16, overflow: "hidden",
+        boxShadow: "0 12px 40px rgba(0,0,0,0.35)",
+      }}>
+        {/* Branded header */}
+        <div style={{ background: "#0a0a0a", color: "#fff", borderBottom: "3px solid #c9a35c", padding: "20px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+          <div>
+            <div style={{ fontFamily: "'Oswald', sans-serif", fontSize: 20, fontWeight: 700, color: "#c9a35c", letterSpacing: "0.05em", textTransform: "uppercase" }}>
+              ❔ Understanding the App
+            </div>
+            <div style={{ fontSize: 12, color: "#d4af6c", fontStyle: "italic", marginTop: 4, fontFamily: "Georgia, serif" }}>
+              How the rep / inspection / PA flow runs — from start to handoff
+            </div>
+          </div>
+          <button type="button" onClick={onClose} style={{
+            background: "transparent", border: "1px solid rgba(255,255,255,0.3)",
+            color: "#fff", borderRadius: 8, padding: "6px 12px", cursor: "pointer",
+            fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12,
+            letterSpacing: "0.05em", textTransform: "uppercase",
+          }}>✕ Close</button>
+        </div>
+
+        <div style={{ padding: "20px 28px", color: "#374151" }}>
+          <p style={{ margin: "0 0 14px", fontSize: 14 }}>
+            Quick walkthrough of what <strong>you</strong> do, what the app does automatically, and when the PA is pulled in. The 📲 markers show what the <strong>homeowner</strong> gets automatically. The 📩 markers show what gets sent to <strong>Kortni (the PA)</strong>.
+          </p>
+
+          {/* Banner — current PA disable */}
+          <div style={{ padding: "10px 14px", background: "#fef3c7", border: "2px solid #d97706", borderRadius: 10, fontSize: 13, color: "#78350f", fontWeight: 600, lineHeight: 1.4, marginBottom: 14 }}>
+            ⛔ <strong>Heads up:</strong> LoR + PA Authorization are temporarily disabled. Right now you can only sign up Inspection Agreements. They'll be back on once the new PA is set up.
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+
+            {stepCard(C.muted, "1", "You sign up the homeowner",
+              "On the first visit, you have the homeowner e-sign the Inspection Agreement. (PA paperwork is currently disabled — see banner above.)"
+            )}
+            {arrow}
+
+            {stepCard(C.muted, "2", "Inspector visits the property",
+              "Scheduled in JobNimbus. The inspector goes on-site, photographs the roof, and documents findings. You don't have to do anything in this step."
+            )}
+            {arrow}
+
+            {stepCard(C.gold, "3", "Inspector classifies the result in JobNimbus",
+              <>One of three outcomes gets logged: <strong>Damage</strong>, <strong>No Damage</strong>, or <strong>Retail (Wear &amp; Tear)</strong>. The app reads the status automatically — you don't chase anyone for it.</>
+            )}
+            {arrow}
+
+            <div style={{ textAlign: "center", fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "#6b7280", fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", margin: "4px 0 6px" }}>
+              — Auto-message goes to the homeowner (all three outcomes) —
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+              {stepCard(C.damage, "4A", "⚠️ Damage",
+                "Storm damage confirmed — claim path. (Currently the LoR/PA paperwork step is paused while we set up the new PA.)",
+                <>"U.S. Shingle has completed the inspection — <em>{`{your name}`}</em> will be swinging by"</>
+              )}
+              {stepCard(C.nodam, "4B", "✅ No Damage",
+                "Roof is sound. No claim, no PA paperwork.",
+                <>"U.S. Shingle has completed the inspection — <em>{`{your name}`}</em> will be swinging by"</>
+              )}
+              {stepCard(C.retail, "4C", <>🏠 Retail<span style={{ fontSize: 12, fontWeight: 600, color: "#6b7280", marginLeft: 6 }}>(Wear &amp; Tear)</span></>,
+                "Significant age-related wear & tear — roof needs replacement but it's not storm damage, so not a claim. Direct retail sale path.",
+                <>"U.S. Shingle has completed the inspection — <em>{`{your name}`}</em> will be swinging by"</>
+              )}
+            </div>
+
+            <p style={{ textAlign: "center", margin: "8px 0 0", fontSize: 12, color: "#6b7280", fontStyle: "italic" }}>
+              Same auto-text + email goes out the moment the inspector logs the result. <strong>Don't wait</strong> — go follow up promptly so the homeowner isn't ahead of you.
+            </p>
+
+            {arrow}
+
+            <div style={{ padding: "12px 14px", background: "#fef3c7", border: "2px dashed #d97706", borderRadius: 12 }}>
+              <span style={{ display: "inline-block", background: "#d97706", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, letterSpacing: "0.06em", padding: "3px 10px", borderRadius: 999, marginBottom: 8 }}>EXCEPTION</span>
+              <div style={{ fontFamily: "'Oswald', sans-serif", fontSize: 15, color: "#92400e", marginBottom: 4 }}>
+                Paperwork already signed BEFORE inspection &nbsp;+&nbsp; result = Damage
+              </div>
+              <div style={{ fontSize: 13, color: "#78350f", lineHeight: 1.5 }}>
+                Skip the default "rep will swing by" message. Homeowner is moved to the <strong>custom stage configured in Admin</strong> instead — whatever email/SMS lives there fires.
+              </div>
+            </div>
+
+            {arrow}
+
+            {stepCard(C.gold, "5", "You visit the homeowner & walk through results in person",
+              <>This is your call. <strong>Damage:</strong> get LoR + PA Authorization signed (currently disabled — see banner). <strong>Retail:</strong> walk them through the wear & tear findings, offer a paid roof replacement. <strong>No Damage:</strong> confirm with them and leave the certificate (they can submit it to their insurer if asked to replace).</>,
+              null,
+              "Damage path: Once paperwork is signed, Kortni receives the damage-confirmation email + signed LoR + signed PA Authorization automatically."
+            )}
+            {arrow}
+
+            {stepCard(C.gold, "6", "Damage path: PA takes the claim from here",
+              "Once Kortni has the signed paperwork, she calls the homeowner within 24 hours and handles the carrier from there. Your job on that lead is done unless someone tags you back in."
+            )}
+
+          </div>
+
+          {/* Inbox legend */}
+          <div style={{ marginTop: 18, padding: "12px 14px", border: "1px dashed #c9a35c", borderRadius: 10, background: "#fffbf3", fontSize: 13, color: "#4b5563" }}>
+            <strong style={{ color: "#0a0a0a" }}>What kicks in automatically:</strong>
+            <ul style={{ margin: "6px 0 0", paddingLeft: 20, lineHeight: 1.6 }}>
+              <li>Homeowner SMS + email after every inspection result (Damage / No Damage / Retail)</li>
+              <li>Inspection certificate PDF generated for No Damage and Retail outcomes</li>
+              <li>Damage-confirmation email + signed PDFs to Kortni — Damage path only</li>
+            </ul>
+          </div>
+
+          <div style={{ marginTop: 14, fontSize: 11, color: "#9ca3af", fontStyle: "italic", textAlign: "center" }}>
+            Click anywhere outside this box, or hit ✕ Close, to dismiss.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PdfPage({
   children,
   header,
@@ -3498,6 +3665,10 @@ export default function App() {
   const [guidedStep, setGuidedStep] = useState(0);
   const [guidedNewVsExisting, setGuidedNewVsExisting] = useState(null);
   const [selectedDocs, setSelectedDocs] = useState(["insp", "lor", "pac"]);
+
+  // "Understanding the App" — rep-facing help modal with the inspection
+  // → result → swing-by → PA-handoff flow.
+  const [showRepHelp, setShowRepHelp] = useState(false);
 
   // ── My Homeowners (existing-homeowner add-on signing) ──────────────
   // When set, we're signing additional docs for an existing homeowner.
@@ -7025,6 +7196,8 @@ if (!hasDamage) {
           gap: 24,
         }}
       >
+        {showRepHelp ? <RepHelpModal onClose={() => setShowRepHelp(false)} /> : null}
+
         {view === "input" ? (
           <Card>
             <CardHeader>
@@ -7036,27 +7209,46 @@ if (!hasDamage) {
                     choose which forms to include, then continue.
                   </CardDescription>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setView("manager")}
-                  style={{
-                    background: "transparent",
-                    border: "1px solid #d1d5db",
-                    borderRadius: 10,
-                    padding: "6px 14px",
-                    fontSize: 12,
-                    fontFamily: "'Oswald', sans-serif",
-                    fontWeight: 600,
-                    letterSpacing: "0.04em",
-                    color: "#6b7280",
-                    cursor: "pointer",
-                    textTransform: "uppercase",
-                    flexShrink: 0,
-                    marginTop: 4,
-                  }}
-                >
-                  ⚙️ Manager
-                </button>
+                <div style={{ display: "flex", gap: 8, flexShrink: 0, marginTop: 4 }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowRepHelp(true)}
+                    style={{
+                      background: "#fffbeb",
+                      border: "1px solid #c9a35c",
+                      borderRadius: 10,
+                      padding: "6px 14px",
+                      fontSize: 12,
+                      fontFamily: "'Oswald', sans-serif",
+                      fontWeight: 700,
+                      letterSpacing: "0.04em",
+                      color: "#92400e",
+                      cursor: "pointer",
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    ❔ Understanding the App
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setView("manager")}
+                    style={{
+                      background: "transparent",
+                      border: "1px solid #d1d5db",
+                      borderRadius: 10,
+                      padding: "6px 14px",
+                      fontSize: 12,
+                      fontFamily: "'Oswald', sans-serif",
+                      fontWeight: 600,
+                      letterSpacing: "0.04em",
+                      color: "#6b7280",
+                      cursor: "pointer",
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    ⚙️ Manager
+                  </button>
+                </div>
               </div>
             </CardHeader>
 
