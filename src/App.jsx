@@ -3664,11 +3664,29 @@ export default function App() {
   const [intakeMode, setIntakeMode] = useState("quick");
   const [guidedStep, setGuidedStep] = useState(0);
   const [guidedNewVsExisting, setGuidedNewVsExisting] = useState(null);
-  const [selectedDocs, setSelectedDocs] = useState(["insp", "lor", "pac"]);
+  const [selectedDocs, setSelectedDocs] = useState(
+    PA_FORMS_DISABLED ? ["insp"] : ["insp", "lor", "pac"]
+  );
 
   // "Understanding the App" — rep-facing help modal with the inspection
   // → result → swing-by → PA-handoff flow.
   const [showRepHelp, setShowRepHelp] = useState(false);
+
+  // Safety net for PA_FORMS_DISABLED: even if some other code path
+  // (signing link, My Homeowners "Add Docs", reset button, etc.) puts
+  // lor/pac into selectedDocs, strip them out so the rep never reaches
+  // the review/sign step with PA forms still in the list. Without this,
+  // a rep can land in the flow with lor/pac pre-selected and no way to
+  // un-toggle them (since the toggle buttons are disabled).
+  useEffect(() => {
+    if (!PA_FORMS_DISABLED) return;
+    if (selectedDocs.some(d => d === "lor" || d === "pac")) {
+      setSelectedDocs(prev => {
+        const filtered = prev.filter(d => d !== "lor" && d !== "pac");
+        return filtered.length ? filtered : ["insp"];
+      });
+    }
+  }, [selectedDocs]);
 
   // ── My Homeowners (existing-homeowner add-on signing) ──────────────
   // When set, we're signing additional docs for an existing homeowner.
@@ -5019,7 +5037,13 @@ const renderSmsTemplate = (key, vars) => {
         }
 
         setCurrentClaimId(claim.id);
-        setSelectedDocs(docsFromLink.length ? docsFromLink : ["lor"]);
+        {
+          const wantedDocs = docsFromLink.length ? docsFromLink : ["lor"];
+          const safeDocs = PA_FORMS_DISABLED
+            ? wantedDocs.filter(d => d !== "lor" && d !== "pac")
+            : wantedDocs;
+          setSelectedDocs(safeDocs.length ? safeDocs : ["insp"]);
+        }
         setSignMode("now");
         setPendingSend(false);
         setIsSigningFromLink(true);
@@ -5306,6 +5330,18 @@ const renderSmsTemplate = (key, vars) => {
 
 
   const beginDocumentFlow = async () => {
+    // Final guard for PA_FORMS_DISABLED — strip lor/pac before entering
+    // the signing/review flow regardless of how they got into selectedDocs.
+    if (PA_FORMS_DISABLED && selectedDocs.some(d => d === "lor" || d === "pac")) {
+      const filtered = selectedDocs.filter(d => d !== "lor" && d !== "pac");
+      if (!filtered.length) {
+        alert("PA forms are temporarily disabled. Please select the inspection agreement to continue.");
+        return;
+      }
+      setSelectedDocs(filtered);
+      // Bail this click — the state update will re-render; rep clicks Continue again.
+      return;
+    }
     if (!selectedDocs.length) {
       alert("Please select at least one form.");
       return;
@@ -7731,7 +7767,7 @@ if (!hasDamage) {
                                 setExistingClaim(null);
                                 setExistingInsp(null);
                                 setAlreadySignedDocs([]);
-                                setSelectedDocs(["insp", "lor", "pac"]);
+                                setSelectedDocs(PA_FORMS_DISABLED ? ["insp"] : ["insp", "lor", "pac"]);
                               }}
                               style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #166534", background: "#fff", color: "#166534", fontSize: 11, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", cursor: "pointer" }}>
                               ✕ Clear
@@ -12566,9 +12602,16 @@ if (!hasDamage) {
                               // Set currentClaimId so saveClaimToSupabase UPDATES the existing
                               // row instead of creating a new one.
                               if (c?.id) setCurrentClaimId(c.id);
-                              // Auto-select only the missing docs
+                              // Auto-select only the missing docs (filter to allowed forms when PA disabled)
                               const remaining = ["insp","lor","pac"].filter(d => !docsList.includes(d));
-                              setSelectedDocs(remaining.length ? remaining : ["lor","pac"]);
+                              const safeRemaining = PA_FORMS_DISABLED
+                                ? remaining.filter(d => d === "insp")
+                                : remaining;
+                              setSelectedDocs(
+                                safeRemaining.length
+                                  ? safeRemaining
+                                  : (PA_FORMS_DISABLED ? ["insp"] : ["lor","pac"])
+                              );
                               setMyHomeownersOpen(false);
                               // Scroll up to the form
                               setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 100);
