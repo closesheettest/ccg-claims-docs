@@ -25,6 +25,12 @@ const PA_FIXED = {
   signatureImage: "/benito-signature.png",
 };
 
+// TEMPORARY: hide the LoR + PA Authorization options from the sales-rep
+// signing UI while we wait on the new PA's signature/info. Reps can only
+// sign Inspection Agreements until this is flipped back to false.
+// Flip to false to re-enable. Does not affect any docs already signed.
+const PA_FORMS_DISABLED = true;
+
 const PA_ASSETS = {
   header: "/pa-header.png",
   footer: "/pa-footer.png",
@@ -2714,6 +2720,8 @@ function GuidedIntakeFlow({
   const update = (patch) => setData(prev => ({ ...prev, ...patch }));
   // Helper to toggle a doc in/out of the selectedDocs array
   const toggleDoc = (key) => {
+    // Temporary block: PA forms disabled until new PA is ready.
+    if (PA_FORMS_DISABLED && (key === "lor" || key === "pac")) return;
     setSelectedDocs(prev => {
       const has = prev.includes(key);
       return has ? prev.filter(d => d !== key) : [...prev, key];
@@ -2917,10 +2925,22 @@ function GuidedIntakeFlow({
     subtitle = "You can pick more than one if multiple forms are being signed at the same visit.";
     const opt = (key, emoji, label, sub) => {
       const active = (selectedDocs || []).includes(key);
+      const blocked = PA_FORMS_DISABLED && (key === "lor" || key === "pac");
       // Make the selected state unmistakable: thick green border, light green
       // background, drop shadow, and an explicit "SELECTED" pill in the corner.
       // Unselected stays calm/neutral so the active one stands out by contrast.
-      const cardStyle = active
+      const cardStyle = blocked
+        ? {
+            width: "100%", padding: "20px 22px", borderRadius: 14,
+            border: "2px dashed #d1d5db",
+            background: "#f3f4f6",
+            cursor: "not-allowed", textAlign: "left", fontFamily: "'Nunito', sans-serif",
+            opacity: 0.55,
+            transition: "all 0.15s",
+            position: "relative",
+            filter: "grayscale(0.8)",
+          }
+        : active
         ? {
             width: "100%", padding: "20px 22px", borderRadius: 14,
             border: "3px solid #16a34a",
@@ -2943,8 +2963,16 @@ function GuidedIntakeFlow({
         ? { width: 32, height: 32, borderRadius: 8, background: "#16a34a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0, fontWeight: 800 }
         : { width: 32, height: 32, borderRadius: 8, background: "#fff", border: "2px solid #d1d5db", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 };
       return (
-        <button type="button" style={cardStyle} onClick={() => toggleDoc(key)}>
-          {active ? (
+        <button type="button" style={cardStyle} onClick={() => toggleDoc(key)} disabled={blocked} title={blocked ? "Temporarily disabled — new PA setup in progress" : undefined}>
+          {blocked ? (
+            <span style={{
+              position: "absolute", top: 10, right: 12,
+              padding: "2px 8px", borderRadius: 6,
+              background: "#d97706", color: "#fff",
+              fontSize: 10, fontWeight: 700, letterSpacing: "0.06em",
+              fontFamily: "'Oswald', sans-serif",
+            }}>⛔ DISABLED</span>
+          ) : active ? (
             <span style={{
               position: "absolute", top: 10, right: 12,
               padding: "2px 8px", borderRadius: 6,
@@ -2957,7 +2985,7 @@ function GuidedIntakeFlow({
             <div style={checkBox}>{active ? "✓" : ""}</div>
             <div style={{ flex: 1 }}>
               <div style={{ ...bigChoiceTitle, color: active ? "#15803d" : "#111827" }}>{emoji} {label}</div>
-              <div style={{ ...bigChoiceSub, color: "#6b7280" }}>{sub}</div>
+              <div style={{ ...bigChoiceSub, color: "#6b7280" }}>{blocked ? "Temporarily disabled — only inspection agreements can be signed right now." : sub}</div>
             </div>
           </div>
         </button>
@@ -2965,12 +2993,19 @@ function GuidedIntakeFlow({
     };
     body = (
       <div style={{ display: "grid", gap: 12 }}>
+        {PA_FORMS_DISABLED ? (
+          <div style={{ padding: "12px 14px", background: "#fef3c7", border: "2px solid #d97706", borderRadius: 10, fontSize: 13, color: "#78350f", fontWeight: 600, lineHeight: 1.4 }}>
+            ⛔ <strong>PA forms temporarily disabled.</strong> Only the inspection agreement can be signed right now while we get the new PA set up. LOR + PA Authorization will be back shortly.
+          </div>
+        ) : null}
         {opt("insp", "🔍", "Free Roof Inspection Agreement", "First-visit inspection signoff")}
         {opt("lor",  "📝", "Letter of Representation", "Authorizes us to talk to insurance")}
         {opt("pac",  "📜", "Public Adjuster Contract", "Storm damage confirmed — claim paperwork")}
-        <div style={{ marginTop: 8, padding: "10px 14px", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, fontSize: 12, color: "#92400e" }}>
-          💡 Common combos: <strong>Inspection only</strong> on first visit. <strong>LOR + PA</strong> on second visit when damage is confirmed. <strong>All three</strong> when everything happens at once.
-        </div>
+        {PA_FORMS_DISABLED ? null : (
+          <div style={{ marginTop: 8, padding: "10px 14px", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, fontSize: 12, color: "#92400e" }}>
+            💡 Common combos: <strong>Inspection only</strong> on first visit. <strong>LOR + PA</strong> on second visit when damage is confirmed. <strong>All three</strong> when everything happens at once.
+          </div>
+        )}
       </div>
     );
   }
@@ -5085,6 +5120,8 @@ const renderSmsTemplate = (key, vars) => {
   const toggleDocSelection = (doc) => {
     // Disallow toggling docs that are already signed for an existing homeowner
     if (alreadySignedDocs.includes(doc)) return;
+    // Temporary block: PA forms are disabled until new PA is ready.
+    if (PA_FORMS_DISABLED && (doc === "lor" || doc === "pac")) return;
     setSelectedDocs((prev) => {
       if (prev.includes(doc)) {
         const next = prev.filter((item) => item !== doc);
@@ -7629,6 +7666,23 @@ if (!hasDamage) {
                   Choose form{selectedDocs.length !== 1 ? "s" : ""}
                 </div>
 
+                {PA_FORMS_DISABLED ? (
+                  <div style={{
+                    marginBottom: 12,
+                    padding: "12px 14px",
+                    background: "#fef3c7",
+                    border: "2px solid #d97706",
+                    borderRadius: 10,
+                    fontSize: 13,
+                    color: "#78350f",
+                    fontFamily: "'Nunito', sans-serif",
+                    fontWeight: 600,
+                    lineHeight: 1.4,
+                  }}>
+                    ⛔ <strong>PA forms temporarily disabled.</strong> Only the inspection agreement can be signed right now while we get the new PA set up. The Letter of Representation and PA Authorization will be back online shortly.
+                  </div>
+                ) : null}
+
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
 
                   {/* Free Roof Inspection — U.S. Shingle branding (navy + red,
@@ -7679,9 +7733,10 @@ if (!hasDamage) {
                       (black card, gold stripe on the title to match the USS
                       card's striped layout). */}
                   <button type="button" onClick={() => toggleDocSelection("lor")}
-                    disabled={alreadySignedDocs.includes("lor")}
+                    disabled={alreadySignedDocs.includes("lor") || PA_FORMS_DISABLED}
+                    title={PA_FORMS_DISABLED ? "Temporarily disabled — new PA setup in progress" : undefined}
                     style={{
-                      padding: 0, borderRadius: 16, textAlign: "left", cursor: alreadySignedDocs.includes("lor") ? "not-allowed" : "pointer",
+                      padding: 0, borderRadius: 16, textAlign: "left", cursor: (alreadySignedDocs.includes("lor") || PA_FORMS_DISABLED) ? "not-allowed" : "pointer",
                       border: alreadySignedDocs.includes("lor") ? "2px solid #fff" : selectedDocs.includes("lor") ? "2px solid #c9a35c" : "1px solid #1f1f1f",
                       background: alreadySignedDocs.includes("lor")
                         ? "linear-gradient(135deg, #6ee7b7 0%, #34d399 100%)"
@@ -7691,7 +7746,9 @@ if (!hasDamage) {
                       boxShadow: selectedDocs.includes("lor") ? "0 4px 16px rgba(201,163,92,0.45)" : "0 2px 8px rgba(0,0,0,0.25)",
                       transition: "all 0.15s",
                       overflow: "hidden",
-                      opacity: alreadySignedDocs.includes("lor") ? 0.7 : selectedDocs.includes("lor") ? 1 : 0.85,
+                      opacity: PA_FORMS_DISABLED ? 0.4 : alreadySignedDocs.includes("lor") ? 0.7 : selectedDocs.includes("lor") ? 1 : 0.85,
+                      filter: PA_FORMS_DISABLED ? "grayscale(0.6)" : "none",
+                      position: "relative",
                     }}>
                     <div style={{ padding: "12px 14px 10px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -7710,7 +7767,9 @@ if (!hasDamage) {
                       <div style={{ fontSize: 12, color: "rgba(255,255,255,0.8)", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>
                         Authorizes Healthy Homes to represent the client
                       </div>
-                      {alreadySignedDocs.includes("lor") ? (
+                      {PA_FORMS_DISABLED ? (
+                        <div style={{ marginTop: 8, fontSize: 11, fontWeight: 700, color: "#fbbf24", fontFamily: "'Nunito', sans-serif" }}>⛔ Temporarily disabled</div>
+                      ) : alreadySignedDocs.includes("lor") ? (
                         <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#fff", fontFamily: "'Nunito', sans-serif" }}>✓ Already signed</div>
                       ) : selectedDocs.includes("lor") ? (
                         <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#c9a35c", fontFamily: "'Nunito', sans-serif" }}>✓ Selected</div>
@@ -7722,9 +7781,10 @@ if (!hasDamage) {
                       (black card, gold stripe on the title to match the LOR
                       and USS cards' striped layout). */}
                   <button type="button" onClick={() => toggleDocSelection("pac")}
-                    disabled={alreadySignedDocs.includes("pac")}
+                    disabled={alreadySignedDocs.includes("pac") || PA_FORMS_DISABLED}
+                    title={PA_FORMS_DISABLED ? "Temporarily disabled — new PA setup in progress" : undefined}
                     style={{
-                      padding: 0, borderRadius: 16, textAlign: "left", cursor: alreadySignedDocs.includes("pac") ? "not-allowed" : "pointer",
+                      padding: 0, borderRadius: 16, textAlign: "left", cursor: (alreadySignedDocs.includes("pac") || PA_FORMS_DISABLED) ? "not-allowed" : "pointer",
                       border: alreadySignedDocs.includes("pac") ? "2px solid #fff" : selectedDocs.includes("pac") ? "2px solid #c9a35c" : "1px solid #1f1f1f",
                       background: alreadySignedDocs.includes("pac")
                         ? "linear-gradient(135deg, #6ee7b7 0%, #34d399 100%)"
@@ -7734,7 +7794,8 @@ if (!hasDamage) {
                       boxShadow: selectedDocs.includes("pac") ? "0 4px 16px rgba(201,163,92,0.45)" : "0 2px 8px rgba(0,0,0,0.25)",
                       transition: "all 0.15s",
                       overflow: "hidden",
-                      opacity: alreadySignedDocs.includes("pac") ? 0.7 : selectedDocs.includes("pac") ? 1 : 0.85,
+                      opacity: PA_FORMS_DISABLED ? 0.4 : alreadySignedDocs.includes("pac") ? 0.7 : selectedDocs.includes("pac") ? 1 : 0.85,
+                      filter: PA_FORMS_DISABLED ? "grayscale(0.6)" : "none",
                     }}>
                     <div style={{ padding: "12px 14px 10px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -7753,7 +7814,9 @@ if (!hasDamage) {
                       <div style={{ fontSize: 12, color: "rgba(255,255,255,0.8)", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>
                         Public Adjuster Contract
                       </div>
-                      {alreadySignedDocs.includes("pac") ? (
+                      {PA_FORMS_DISABLED ? (
+                        <div style={{ marginTop: 8, fontSize: 11, fontWeight: 700, color: "#fbbf24", fontFamily: "'Nunito', sans-serif" }}>⛔ Temporarily disabled</div>
+                      ) : alreadySignedDocs.includes("pac") ? (
                         <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#fff", fontFamily: "'Nunito', sans-serif" }}>✓ Already signed</div>
                       ) : selectedDocs.includes("pac") ? (
                         <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#c9a35c", fontFamily: "'Nunito', sans-serif" }}>✓ Selected</div>
