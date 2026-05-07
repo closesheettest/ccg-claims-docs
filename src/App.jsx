@@ -298,7 +298,7 @@ function AddressAutocomplete({ value, onChange, onPlaceSelected, placeholder, st
 }
 
 const PDF_LAYOUT = {
-  headerHeight: "1.55in",
+  headerHeight: "1.9in",
   footerHeight: "1.0in",
 };
 
@@ -1685,10 +1685,10 @@ function LetterOfRepresentation({
   // overflow regardless of the PNG's intrinsic ratio.
   const HeaderImg = () => (
     <div style={{
-      width: "100%", height: "1.55in", boxSizing: "border-box",
+      width: "100%", height: "1.9in", boxSizing: "border-box",
       background: "#0a0a0a", color: "#fff",
       borderBottom: "3px solid #c9a35c",
-      padding: "0.05in 0.4in",
+      padding: "0.15in 0.4in",
     }}>
       <div style={{ display: "table", width: "100%", height: "100%" }}>
         <div style={{ display: "table-cell", verticalAlign: "middle", width: "1.55in", paddingRight: 14 }}>
@@ -2079,10 +2079,10 @@ function PublicAdjusterContract({
   // the right via table layout for html2pdf compatibility.
   const HeaderImg = () => (
     <div style={{
-      width: "100%", height: "1.55in", boxSizing: "border-box",
+      width: "100%", height: "1.9in", boxSizing: "border-box",
       background: "#0a0a0a", color: "#fff",
       borderBottom: "3px solid #c9a35c",
-      padding: "0.05in 0.4in",
+      padding: "0.15in 0.4in",
     }}>
       <div style={{ display: "table", width: "100%", height: "100%" }}>
         <div style={{ display: "table-cell", verticalAlign: "middle", width: "1.55in", paddingRight: 14 }}>
