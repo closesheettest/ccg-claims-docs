@@ -1691,8 +1691,10 @@ function LetterOfRepresentation({
       padding: "0.2in 0.4in 0.25in",
     }}>
       <div style={{ display: "table", width: "100%", height: "100%" }}>
-        <div style={{ display: "table-cell", verticalAlign: "middle", width: "1.85in", paddingRight: 14 }}>
-          <img src="/hh-shield.png" alt="Healthy Homes shield" style={{ height: "1.7in", width: "auto", display: "block" }} />
+        <div style={{ display: "table-cell", verticalAlign: "middle", width: "1.7in", paddingRight: 14 }}>
+          <div style={{ width: "1.6in", height: "1.6in", display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible" }}>
+            <img src="/hh-shield.png" alt="Healthy Homes shield" style={{ maxWidth: "100%", maxHeight: "100%", width: "auto", height: "auto", display: "block" }} />
+          </div>
         </div>
         <div style={{ display: "table-cell", verticalAlign: "middle", textAlign: "left" }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: "#c9a35c", letterSpacing: "0.05em", lineHeight: 1.2, fontFamily: "'Oswald', Arial, sans-serif" }}>
@@ -2085,8 +2087,10 @@ function PublicAdjusterContract({
       padding: "0.2in 0.4in 0.25in",
     }}>
       <div style={{ display: "table", width: "100%", height: "100%" }}>
-        <div style={{ display: "table-cell", verticalAlign: "middle", width: "1.85in", paddingRight: 14 }}>
-          <img src="/hh-shield.png" alt="Healthy Homes shield" style={{ height: "1.7in", width: "auto", display: "block" }} />
+        <div style={{ display: "table-cell", verticalAlign: "middle", width: "1.7in", paddingRight: 14 }}>
+          <div style={{ width: "1.6in", height: "1.6in", display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible" }}>
+            <img src="/hh-shield.png" alt="Healthy Homes shield" style={{ maxWidth: "100%", maxHeight: "100%", width: "auto", height: "auto", display: "block" }} />
+          </div>
         </div>
         <div style={{ display: "table-cell", verticalAlign: "middle", textAlign: "left" }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: "#c9a35c", letterSpacing: "0.05em", lineHeight: 1.2, fontFamily: "'Oswald', Arial, sans-serif" }}>
