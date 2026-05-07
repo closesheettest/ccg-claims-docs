@@ -19,9 +19,9 @@ if (typeof document !== "undefined" && !document.getElementById("oswald-font")) 
 }
 
 const PA_FIXED = {
-  name: "Benito Paul",
-  initials: "BP",
-  license: "P199496",
+  name: "Kortni Keckler",
+  initials: "KK",
+  license: "PA License W435195 | Business License G033912",
   signatureImage: "/benito-signature.png",
 };
 
@@ -2165,7 +2165,7 @@ function PublicAdjusterContract({
         flexWrap: "wrap",
       }}
     >
-      {/* PA Initials — Benito Paul "BP" in Brush Script */}
+      {/* PA Initials — Kortni Keckler "KK" in Brush Script */}
       <div style={{ minWidth: 80 }}>
         <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 2 }}>PA Initials:</div>
         <div
@@ -2185,7 +2185,7 @@ function PublicAdjusterContract({
               lineHeight: 1,
             }}
           >
-            BP
+            KK
           </span>
         </div>
       </div>
@@ -2618,7 +2618,7 @@ function PublicAdjusterContract({
                 <div style={{ background: "#faf3e0", padding: "4px 8px" }}>
                   <img
                     src={PA_FIXED.signatureImage}
-                    alt="Benito Paul signature"
+                    alt="PA signature"
                     style={{ height: 22, objectFit: "contain" }}
                   />
                 </div>

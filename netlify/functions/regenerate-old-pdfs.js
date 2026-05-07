@@ -29,9 +29,9 @@ const sbHeaders = {
 // Constants — mirror the App.jsx source so output matches
 // ──────────────────────────────────────────────────────────────────
 const PA_FIXED = {
-  name: "Benito Paul",
-  initials: "BP",
-  license: "P199496",
+  name: "Kortni Keckler",
+  initials: "KK",
+  license: "PA License W435195 | Business License G033912",
 };
 
 const REP_FIXED = {
@@ -447,7 +447,7 @@ function buildPacHtml(claim, baseUrl) {
       <div style="min-width:80px;">
         <div style="font-size:12px; color:#6b7280; margin-bottom:2px;">PA Initials:</div>
         <div style="border-bottom:1px solid #c9a35c; height:26px; display:flex; align-items:flex-end; padding-bottom:2px;">
-          <span style="font-family:'Brush Script MT', cursive; font-size:20px; color:#111827; line-height:1;">BP</span>
+          <span style="font-family:'Brush Script MT', cursive; font-size:20px; color:#111827; line-height:1;">KK</span>
         </div>
       </div>
       <div style="min-width:80px;">
@@ -546,7 +546,7 @@ function buildPacHtml(claim, baseUrl) {
     </div>
   `;
 
-  const benitoSig = `<img src="${baseUrl}/benito-signature.png" alt="Benito Paul signature" style="height:22px; object-fit:contain;" />`;
+  const benitoSig = `<img src="${baseUrl}/benito-signature.png" alt="PA signature" style="height:22px; object-fit:contain;" />`;
   const insuredSigBlock = (homeowner, sigVal) => `
     <div style="margin-bottom:10px; font-size:12px;">
       <div>Insured (Print): ${esc(homeowner)}</div>
