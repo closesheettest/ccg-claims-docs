@@ -290,11 +290,12 @@ function buildLorHtml(claim, baseUrl) {
   // HTML-rendered header — Healthy Homes black/gold theme with the
   // shield mark on the left and company info on the right. Table
   // layout for reliable side-by-side positioning under PDFShift.
+  // Shield uses object-fit:contain to fill the cell without overflow.
   const headerImg = `
-    <div style="width:100%; height:1.55in; box-sizing:border-box; background:#0a0a0a; color:#fff; border-bottom:3px solid #c9a35c; padding:0.1in 0.4in;">
+    <div style="width:100%; height:1.55in; box-sizing:border-box; background:#0a0a0a; color:#fff; border-bottom:3px solid #c9a35c; padding:0.05in 0.4in;">
       <div style="display:table; width:100%; height:100%;">
-        <div style="display:table-cell; vertical-align:middle; width:0.95in; padding-right:14px;">
-          <img src="${baseUrl}/hh-shield.png" alt="Healthy Homes shield" style="height:1.05in; width:auto; display:block;" />
+        <div style="display:table-cell; vertical-align:middle; width:1.55in; padding-right:14px;">
+          <img src="${baseUrl}/hh-shield.png" alt="Healthy Homes shield" style="height:1.4in; max-height:1.4in; width:auto; max-width:1.5in; object-fit:contain; display:block;" />
         </div>
         <div style="display:table-cell; vertical-align:middle; text-align:left;">
           <div style="font-size:14px; font-weight:700; color:#c9a35c; letter-spacing:0.05em; line-height:1.2; font-family:'Oswald', Arial, sans-serif;">HEALTHY HOMES PUBLIC ADJUSTING</div>
@@ -306,10 +307,11 @@ function buildLorHtml(claim, baseUrl) {
     </div>
   `;
   const footerImg = `
-    <div style="width:100%; height:0.82in; box-sizing:border-box; background:#0a0a0a; color:#fff; border-top:3px solid #c9a35c; padding:0.08in 0.4in 0; text-align:center; font-family:Georgia, 'Times New Roman', serif;">
+    <div style="width:100%; height:1.0in; box-sizing:border-box; background:#0a0a0a; color:#fff; border-top:3px solid #c9a35c; padding:0.08in 0.4in 0; text-align:center; font-family:Georgia, 'Times New Roman', serif;">
       <div style="font-size:8.5px; font-weight:700; color:#c9a35c; text-transform:uppercase; letter-spacing:0.08em; line-height:1.2; font-family:'Oswald', Arial, sans-serif;">Confidential &nbsp;·&nbsp; For Intended Recipient Only</div>
       <div style="font-size:7px; color:#d1d5db; line-height:1.35; margin-top:3px; font-style:italic;">This document is for claim-documentation and operational coordination purposes only. No coverage determination, engineering opinion, construction guarantee, or legal advice is being provided. All claim decisions remain subject to policy terms, carrier review, applicable Florida law, and licensed public adjuster review.</div>
-      <div style="font-size:8px; color:#c9a35c; font-weight:700; margin-top:3px; line-height:1.2; font-family:'Oswald', Arial, sans-serif; letter-spacing:0.04em;">Healthy Homes Public Adjusting &nbsp;|&nbsp; FL PA License: W435195</div>
+      <div style="font-size:8px; color:#c9a35c; font-weight:700; margin-top:4px; line-height:1.25; font-family:'Oswald', Arial, sans-serif; letter-spacing:0.04em;">Kort Co, LLC d/b/a Healthy Homes Public Adjusting</div>
+      <div style="font-size:7.5px; color:#c9a35c; font-weight:700; margin-top:1px; line-height:1.25; font-family:'Oswald', Arial, sans-serif; letter-spacing:0.03em;">FL PA License W435195 &nbsp;|&nbsp; Business License G033912 &nbsp;|&nbsp; PropertyDamageInspection.com &nbsp;|&nbsp; 561-283-5674</div>
     </div>
   `;
 

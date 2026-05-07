@@ -299,7 +299,7 @@ function AddressAutocomplete({ value, onChange, onPlaceSelected, placeholder, st
 
 const PDF_LAYOUT = {
   headerHeight: "1.55in",
-  footerHeight: "0.82in",
+  footerHeight: "1.0in",
 };
 
 const REVIEW_INTRO_TEXT =
@@ -1680,17 +1680,19 @@ function LetterOfRepresentation({
   // HTML-rendered header — Healthy Homes black/gold theme with the
   // shield mark (cropped from the full logo) on the left and the
   // company info on the right. Uses table layout (not flex) for
-  // reliable side-by-side positioning under html2pdf.
+  // reliable side-by-side positioning under html2pdf. Shield uses
+  // object-fit:contain + max-height so it scales to the cell without
+  // overflow regardless of the PNG's intrinsic ratio.
   const HeaderImg = () => (
     <div style={{
       width: "100%", height: "1.55in", boxSizing: "border-box",
       background: "#0a0a0a", color: "#fff",
       borderBottom: "3px solid #c9a35c",
-      padding: "0.1in 0.4in",
+      padding: "0.05in 0.4in",
     }}>
       <div style={{ display: "table", width: "100%", height: "100%" }}>
-        <div style={{ display: "table-cell", verticalAlign: "middle", width: "0.95in", paddingRight: 14 }}>
-          <img src="/hh-shield.png" alt="Healthy Homes shield" style={{ height: "1.05in", width: "auto", display: "block" }} />
+        <div style={{ display: "table-cell", verticalAlign: "middle", width: "1.55in", paddingRight: 14 }}>
+          <img src="/hh-shield.png" alt="Healthy Homes shield" style={{ height: "1.4in", maxHeight: "1.4in", width: "auto", maxWidth: "1.5in", objectFit: "contain", display: "block" }} />
         </div>
         <div style={{ display: "table-cell", verticalAlign: "middle", textAlign: "left" }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: "#c9a35c", letterSpacing: "0.05em", lineHeight: 1.2, fontFamily: "'Oswald', Arial, sans-serif" }}>
@@ -1712,7 +1714,7 @@ function LetterOfRepresentation({
 
   const FooterImg = () => (
     <div style={{
-      width: "100%", height: "0.82in", boxSizing: "border-box",
+      width: "100%", height: "1.0in", boxSizing: "border-box",
       background: "#0a0a0a", color: "#fff",
       borderTop: "3px solid #c9a35c",
       padding: "0.08in 0.4in 0",
@@ -1725,8 +1727,11 @@ function LetterOfRepresentation({
       <div style={{ fontSize: 7, color: "#d1d5db", lineHeight: 1.35, marginTop: 3, fontStyle: "italic" }}>
         This document is for claim-documentation and operational coordination purposes only. No coverage determination, engineering opinion, construction guarantee, or legal advice is being provided. All claim decisions remain subject to policy terms, carrier review, applicable Florida law, and licensed public adjuster review.
       </div>
-      <div style={{ fontSize: 8, color: "#c9a35c", fontWeight: 700, marginTop: 3, lineHeight: 1.2, fontFamily: "'Oswald', Arial, sans-serif", letterSpacing: "0.04em" }}>
-        Healthy Homes Public Adjusting &nbsp;|&nbsp; FL PA License: W435195
+      <div style={{ fontSize: 8, color: "#c9a35c", fontWeight: 700, marginTop: 4, lineHeight: 1.25, fontFamily: "'Oswald', Arial, sans-serif", letterSpacing: "0.04em" }}>
+        Kort Co, LLC d/b/a Healthy Homes Public Adjusting
+      </div>
+      <div style={{ fontSize: 7.5, color: "#c9a35c", fontWeight: 700, marginTop: 1, lineHeight: 1.25, fontFamily: "'Oswald', Arial, sans-serif", letterSpacing: "0.03em" }}>
+        FL PA License W435195 &nbsp;|&nbsp; Business License G033912 &nbsp;|&nbsp; PropertyDamageInspection.com &nbsp;|&nbsp; 561-283-5674
       </div>
     </div>
   );
@@ -2077,11 +2082,11 @@ function PublicAdjusterContract({
       width: "100%", height: "1.55in", boxSizing: "border-box",
       background: "#0a0a0a", color: "#fff",
       borderBottom: "3px solid #c9a35c",
-      padding: "0.1in 0.4in",
+      padding: "0.05in 0.4in",
     }}>
       <div style={{ display: "table", width: "100%", height: "100%" }}>
-        <div style={{ display: "table-cell", verticalAlign: "middle", width: "0.95in", paddingRight: 14 }}>
-          <img src="/hh-shield.png" alt="Healthy Homes shield" style={{ height: "1.05in", width: "auto", display: "block" }} />
+        <div style={{ display: "table-cell", verticalAlign: "middle", width: "1.55in", paddingRight: 14 }}>
+          <img src="/hh-shield.png" alt="Healthy Homes shield" style={{ height: "1.4in", maxHeight: "1.4in", width: "auto", maxWidth: "1.5in", objectFit: "contain", display: "block" }} />
         </div>
         <div style={{ display: "table-cell", verticalAlign: "middle", textAlign: "left" }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: "#c9a35c", letterSpacing: "0.05em", lineHeight: 1.2, fontFamily: "'Oswald', Arial, sans-serif" }}>
@@ -2103,7 +2108,7 @@ function PublicAdjusterContract({
 
   const FooterImg = () => (
     <div style={{
-      width: "100%", height: "0.82in", boxSizing: "border-box",
+      width: "100%", height: "1.0in", boxSizing: "border-box",
       background: "#0a0a0a", color: "#fff",
       borderTop: "3px solid #c9a35c",
       padding: "0.08in 0.4in 0",
@@ -2116,8 +2121,11 @@ function PublicAdjusterContract({
       <div style={{ fontSize: 7, color: "#d1d5db", lineHeight: 1.35, marginTop: 3, fontStyle: "italic" }}>
         This document is for claim-documentation and operational coordination purposes only. No coverage determination, engineering opinion, construction guarantee, or legal advice is being provided. All claim decisions remain subject to policy terms, carrier review, applicable Florida law, and licensed public adjuster review.
       </div>
-      <div style={{ fontSize: 8, color: "#c9a35c", fontWeight: 700, marginTop: 3, lineHeight: 1.2, fontFamily: "'Oswald', Arial, sans-serif", letterSpacing: "0.04em" }}>
-        Healthy Homes Public Adjusting &nbsp;|&nbsp; FL PA License: W435195
+      <div style={{ fontSize: 8, color: "#c9a35c", fontWeight: 700, marginTop: 4, lineHeight: 1.25, fontFamily: "'Oswald', Arial, sans-serif", letterSpacing: "0.04em" }}>
+        Kort Co, LLC d/b/a Healthy Homes Public Adjusting
+      </div>
+      <div style={{ fontSize: 7.5, color: "#c9a35c", fontWeight: 700, marginTop: 1, lineHeight: 1.25, fontFamily: "'Oswald', Arial, sans-serif", letterSpacing: "0.03em" }}>
+        FL PA License W435195 &nbsp;|&nbsp; Business License G033912 &nbsp;|&nbsp; PropertyDamageInspection.com &nbsp;|&nbsp; 561-283-5674
       </div>
     </div>
   );
