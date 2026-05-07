@@ -298,7 +298,7 @@ function AddressAutocomplete({ value, onChange, onPlaceSelected, placeholder, st
 }
 
 const PDF_LAYOUT = {
-  headerHeight: "1.28in",
+  headerHeight: "1.55in",
   footerHeight: "0.82in",
 };
 
@@ -1683,14 +1683,14 @@ function LetterOfRepresentation({
   // reliable side-by-side positioning under html2pdf.
   const HeaderImg = () => (
     <div style={{
-      width: "100%", height: "1.28in", boxSizing: "border-box",
+      width: "100%", height: "1.55in", boxSizing: "border-box",
       background: "#0a0a0a", color: "#fff",
       borderBottom: "3px solid #c9a35c",
       padding: "0.1in 0.4in",
     }}>
       <div style={{ display: "table", width: "100%", height: "100%" }}>
         <div style={{ display: "table-cell", verticalAlign: "middle", width: "0.95in", paddingRight: 14 }}>
-          <img src="/hh-shield.png" alt="Healthy Homes shield" style={{ height: "1in", width: "auto", display: "block" }} />
+          <img src="/hh-shield.png" alt="Healthy Homes shield" style={{ height: "1.25in", width: "auto", display: "block" }} />
         </div>
         <div style={{ display: "table-cell", verticalAlign: "middle", textAlign: "left" }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: "#c9a35c", letterSpacing: "0.05em", lineHeight: 1.2, fontFamily: "'Oswald', Arial, sans-serif" }}>
@@ -2074,14 +2074,14 @@ function PublicAdjusterContract({
   // the right via table layout for html2pdf compatibility.
   const HeaderImg = () => (
     <div style={{
-      width: "100%", height: "1.28in", boxSizing: "border-box",
+      width: "100%", height: "1.55in", boxSizing: "border-box",
       background: "#0a0a0a", color: "#fff",
       borderBottom: "3px solid #c9a35c",
       padding: "0.1in 0.4in",
     }}>
       <div style={{ display: "table", width: "100%", height: "100%" }}>
         <div style={{ display: "table-cell", verticalAlign: "middle", width: "0.95in", paddingRight: 14 }}>
-          <img src="/hh-shield.png" alt="Healthy Homes shield" style={{ height: "1in", width: "auto", display: "block" }} />
+          <img src="/hh-shield.png" alt="Healthy Homes shield" style={{ height: "1.25in", width: "auto", display: "block" }} />
         </div>
         <div style={{ display: "table-cell", verticalAlign: "middle", textAlign: "left" }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: "#c9a35c", letterSpacing: "0.05em", lineHeight: 1.2, fontFamily: "'Oswald', Arial, sans-serif" }}>
