@@ -298,7 +298,7 @@ function AddressAutocomplete({ value, onChange, onPlaceSelected, placeholder, st
 }
 
 const PDF_LAYOUT = {
-  headerHeight: "1.9in",
+  headerHeight: "2.2in",
   footerHeight: "1.0in",
 };
 
@@ -1685,14 +1685,14 @@ function LetterOfRepresentation({
   // overflow regardless of the PNG's intrinsic ratio.
   const HeaderImg = () => (
     <div style={{
-      width: "100%", height: "1.9in", boxSizing: "border-box",
+      width: "100%", height: "2.2in", boxSizing: "border-box",
       background: "#0a0a0a", color: "#fff",
       borderBottom: "3px solid #c9a35c",
-      padding: "0.15in 0.4in",
+      padding: "0.2in 0.4in 0.25in",
     }}>
       <div style={{ display: "table", width: "100%", height: "100%" }}>
         <div style={{ display: "table-cell", verticalAlign: "middle", width: "1.55in", paddingRight: 14 }}>
-          <img src="/hh-shield.png" alt="Healthy Homes shield" style={{ height: "1.4in", maxHeight: "1.4in", width: "auto", maxWidth: "1.5in", objectFit: "contain", display: "block" }} />
+          <img src="/hh-shield.png" alt="Healthy Homes shield" style={{ height: "1.5in", maxHeight: "1.5in", width: "auto", maxWidth: "1.5in", objectFit: "contain", display: "block" }} />
         </div>
         <div style={{ display: "table-cell", verticalAlign: "middle", textAlign: "left" }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: "#c9a35c", letterSpacing: "0.05em", lineHeight: 1.2, fontFamily: "'Oswald', Arial, sans-serif" }}>
@@ -2079,14 +2079,14 @@ function PublicAdjusterContract({
   // the right via table layout for html2pdf compatibility.
   const HeaderImg = () => (
     <div style={{
-      width: "100%", height: "1.9in", boxSizing: "border-box",
+      width: "100%", height: "2.2in", boxSizing: "border-box",
       background: "#0a0a0a", color: "#fff",
       borderBottom: "3px solid #c9a35c",
-      padding: "0.15in 0.4in",
+      padding: "0.2in 0.4in 0.25in",
     }}>
       <div style={{ display: "table", width: "100%", height: "100%" }}>
         <div style={{ display: "table-cell", verticalAlign: "middle", width: "1.55in", paddingRight: 14 }}>
-          <img src="/hh-shield.png" alt="Healthy Homes shield" style={{ height: "1.4in", maxHeight: "1.4in", width: "auto", maxWidth: "1.5in", objectFit: "contain", display: "block" }} />
+          <img src="/hh-shield.png" alt="Healthy Homes shield" style={{ height: "1.5in", maxHeight: "1.5in", width: "auto", maxWidth: "1.5in", objectFit: "contain", display: "block" }} />
         </div>
         <div style={{ display: "table-cell", verticalAlign: "middle", textAlign: "left" }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: "#c9a35c", letterSpacing: "0.05em", lineHeight: 1.2, fontFamily: "'Oswald', Arial, sans-serif" }}>

@@ -292,10 +292,10 @@ function buildLorHtml(claim, baseUrl) {
   // layout for reliable side-by-side positioning under PDFShift.
   // Shield uses object-fit:contain to fill the cell without overflow.
   const headerImg = `
-    <div style="width:100%; height:1.9in; box-sizing:border-box; background:#0a0a0a; color:#fff; border-bottom:3px solid #c9a35c; padding:0.15in 0.4in;">
+    <div style="width:100%; height:2.2in; box-sizing:border-box; background:#0a0a0a; color:#fff; border-bottom:3px solid #c9a35c; padding:0.2in 0.4in 0.25in;">
       <div style="display:table; width:100%; height:100%;">
         <div style="display:table-cell; vertical-align:middle; width:1.55in; padding-right:14px;">
-          <img src="${baseUrl}/hh-shield.png" alt="Healthy Homes shield" style="height:1.4in; max-height:1.4in; width:auto; max-width:1.5in; object-fit:contain; display:block;" />
+          <img src="${baseUrl}/hh-shield.png" alt="Healthy Homes shield" style="height:1.5in; max-height:1.5in; width:auto; max-width:1.5in; object-fit:contain; display:block;" />
         </div>
         <div style="display:table-cell; vertical-align:middle; text-align:left;">
           <div style="font-size:14px; font-weight:700; color:#c9a35c; letter-spacing:0.05em; line-height:1.2; font-family:'Oswald', Arial, sans-serif;">HEALTHY HOMES PUBLIC ADJUSTING</div>
@@ -341,9 +341,9 @@ function buildLorHtml(claim, baseUrl) {
   // Page wrapper — replicates PdfPage layout (header at top absolute, footer absolute bottom, content padded)
   const page = (innerHtml) => `
     <div style="position:relative; width:8.5in; height:11in; background:#fff; box-sizing:border-box; overflow:hidden; font-family:Georgia, 'Times New Roman', serif; color:#111827;">
-      <div style="position:absolute; top:0; left:0; right:0; height:1.9in; line-height:0; overflow:hidden;">${headerImg}</div>
+      <div style="position:absolute; top:0; left:0; right:0; height:2.2in; line-height:0; overflow:hidden;">${headerImg}</div>
       <div style="position:absolute; left:0; right:0; bottom:0; height:1.0in; line-height:0; overflow:hidden;">${footerImg}</div>
-      <div style="position:absolute; top:1.9in; left:0; right:0; bottom:1.0in; box-sizing:border-box; padding:0 0.42in 0.12in; overflow:hidden;">${innerHtml}</div>
+      <div style="position:absolute; top:2.2in; left:0; right:0; bottom:1.0in; box-sizing:border-box; padding:0 0.42in 0.12in; overflow:hidden;">${innerHtml}</div>
     </div>
   `;
 
@@ -471,9 +471,9 @@ function buildPacHtml(claim, baseUrl) {
 
   const pacPage = (pageNum, innerHtml) => `
     <div style="position:relative; width:8.5in; height:11in; background:#fff; box-sizing:border-box; overflow:hidden; font-family:Georgia, 'Times New Roman', serif; color:#111827;">
-      <div style="position:absolute; top:0; left:0; right:0; height:1.9in; line-height:0; overflow:hidden;">${headerImg}</div>
+      <div style="position:absolute; top:0; left:0; right:0; height:2.2in; line-height:0; overflow:hidden;">${headerImg}</div>
       <div style="position:absolute; left:0; right:0; bottom:0; height:1.0in; line-height:0; overflow:hidden;">${footerWithPageNum(pageNum)}</div>
-      <div style="position:absolute; top:1.9in; left:0; right:0; bottom:1.0in; box-sizing:border-box; padding:0 0.42in 0.12in; overflow:hidden;">${innerHtml}</div>
+      <div style="position:absolute; top:2.2in; left:0; right:0; bottom:1.0in; box-sizing:border-box; padding:0 0.42in 0.12in; overflow:hidden;">${innerHtml}</div>
     </div>
   `;
 
