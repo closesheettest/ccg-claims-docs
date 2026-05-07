@@ -292,18 +292,18 @@ function buildLorHtml(claim, baseUrl) {
   // layout for reliable side-by-side positioning under PDFShift.
   // Shield uses object-fit:contain to fill the cell without overflow.
   const headerImg = `
-    <div style="width:100%; height:2.2in; box-sizing:border-box; background:#0a0a0a; color:#fff; border-bottom:3px solid #c9a35c; padding:0.2in 0.4in 0.25in;">
+    <div style="width:100%; height:1.85in; box-sizing:border-box; background:#0a0a0a; color:#fff; border-bottom:3px solid #c9a35c; padding:0.1in 0.4in;">
       <div style="display:table; width:100%; height:100%;">
-        <div style="display:table-cell; vertical-align:middle; width:1.7in; padding-right:14px;">
-          <div style="width:1.6in; height:1.6in; display:flex; align-items:center; justify-content:center;">
+        <div style="display:table-cell; vertical-align:middle; width:1.65in; padding-right:16px;">
+          <div style="width:1.55in; height:1.55in; display:flex; align-items:center; justify-content:center;">
             <img src="${baseUrl}/hh-shield.png" alt="Healthy Homes shield" style="max-width:100%; max-height:100%; width:auto; height:auto; display:block;" />
           </div>
         </div>
         <div style="display:table-cell; vertical-align:middle; text-align:left;">
-          <div style="font-size:14px; font-weight:700; color:#c9a35c; letter-spacing:0.05em; line-height:1.2; font-family:'Oswald', Arial, sans-serif;">HEALTHY HOMES PUBLIC ADJUSTING</div>
-          <div style="font-size:9px; color:#d4af6c; margin-top:3px; line-height:1.25; font-family:Georgia, 'Times New Roman', serif; font-style:italic;">Public Adjusting &nbsp;·&nbsp; Property Claim Documentation &nbsp;·&nbsp; Roof / Wind / Water Support</div>
-          <div style="font-size:9px; color:#fff; margin-top:3px; line-height:1.25; font-family:Georgia, 'Times New Roman', serif;">Kortni Keckler &nbsp;|&nbsp; Public Adjuster &nbsp;|&nbsp; FL License W435195</div>
-          <div style="font-size:9px; color:#fff; margin-top:1px; line-height:1.25; font-family:Georgia, 'Times New Roman', serif;">Phone: 561-283-5674 &nbsp;|&nbsp; Email: Kkeckleradj@gmail.com</div>
+          <div style="font-size:17px; font-weight:700; color:#c9a35c; letter-spacing:0.05em; line-height:1.2; font-family:'Oswald', Arial, sans-serif;">HEALTHY HOMES PUBLIC ADJUSTING</div>
+          <div style="font-size:11px; color:#d4af6c; margin-top:5px; line-height:1.3; font-family:Georgia, 'Times New Roman', serif; font-style:italic;">Public Adjusting &nbsp;·&nbsp; Property Claim Documentation &nbsp;·&nbsp; Roof / Wind / Water Support</div>
+          <div style="font-size:11px; color:#fff; margin-top:5px; line-height:1.3; font-family:Georgia, 'Times New Roman', serif;">Kortni Keckler &nbsp;|&nbsp; Public Adjuster &nbsp;|&nbsp; FL License W435195</div>
+          <div style="font-size:11px; color:#fff; margin-top:2px; line-height:1.3; font-family:Georgia, 'Times New Roman', serif;">Phone: 561-283-5674 &nbsp;|&nbsp; Email: Kkeckleradj@gmail.com</div>
         </div>
       </div>
     </div>
@@ -343,9 +343,9 @@ function buildLorHtml(claim, baseUrl) {
   // Page wrapper — replicates PdfPage layout (header at top absolute, footer absolute bottom, content padded)
   const page = (innerHtml) => `
     <div style="position:relative; width:8.5in; height:11in; background:#fff; box-sizing:border-box; overflow:hidden; font-family:Georgia, 'Times New Roman', serif; color:#111827;">
-      <div style="position:absolute; top:0; left:0; right:0; height:2.2in; line-height:0; overflow:hidden;">${headerImg}</div>
+      <div style="position:absolute; top:0; left:0; right:0; height:1.85in; line-height:0; overflow:hidden;">${headerImg}</div>
       <div style="position:absolute; left:0; right:0; bottom:0; height:1.0in; line-height:0; overflow:hidden;">${footerImg}</div>
-      <div style="position:absolute; top:2.2in; left:0; right:0; bottom:1.0in; box-sizing:border-box; padding:0 0.42in 0.12in; overflow:hidden;">${innerHtml}</div>
+      <div style="position:absolute; top:1.85in; left:0; right:0; bottom:1.0in; box-sizing:border-box; padding:0 0.42in 0.12in; overflow:hidden;">${innerHtml}</div>
     </div>
   `;
 
@@ -473,9 +473,9 @@ function buildPacHtml(claim, baseUrl) {
 
   const pacPage = (pageNum, innerHtml) => `
     <div style="position:relative; width:8.5in; height:11in; background:#fff; box-sizing:border-box; overflow:hidden; font-family:Georgia, 'Times New Roman', serif; color:#111827;">
-      <div style="position:absolute; top:0; left:0; right:0; height:2.2in; line-height:0; overflow:hidden;">${headerImg}</div>
+      <div style="position:absolute; top:0; left:0; right:0; height:1.85in; line-height:0; overflow:hidden;">${headerImg}</div>
       <div style="position:absolute; left:0; right:0; bottom:0; height:1.0in; line-height:0; overflow:hidden;">${footerWithPageNum(pageNum)}</div>
-      <div style="position:absolute; top:2.2in; left:0; right:0; bottom:1.0in; box-sizing:border-box; padding:0 0.42in 0.12in; overflow:hidden;">${innerHtml}</div>
+      <div style="position:absolute; top:1.85in; left:0; right:0; bottom:1.0in; box-sizing:border-box; padding:0 0.42in 0.12in; overflow:hidden;">${innerHtml}</div>
     </div>
   `;
 

@@ -298,7 +298,7 @@ function AddressAutocomplete({ value, onChange, onPlaceSelected, placeholder, st
 }
 
 const PDF_LAYOUT = {
-  headerHeight: "2.2in",
+  headerHeight: "1.85in",
   footerHeight: "1.0in",
 };
 
@@ -1685,28 +1685,28 @@ function LetterOfRepresentation({
   // overflow regardless of the PNG's intrinsic ratio.
   const HeaderImg = () => (
     <div style={{
-      width: "100%", height: "2.2in", boxSizing: "border-box",
+      width: "100%", height: "1.85in", boxSizing: "border-box",
       background: "#0a0a0a", color: "#fff",
       borderBottom: "3px solid #c9a35c",
-      padding: "0.2in 0.4in 0.25in",
+      padding: "0.1in 0.4in",
     }}>
       <div style={{ display: "table", width: "100%", height: "100%" }}>
-        <div style={{ display: "table-cell", verticalAlign: "middle", width: "1.7in", paddingRight: 14 }}>
-          <div style={{ width: "1.6in", height: "1.6in", display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible" }}>
+        <div style={{ display: "table-cell", verticalAlign: "middle", width: "1.65in", paddingRight: 16 }}>
+          <div style={{ width: "1.55in", height: "1.55in", display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible" }}>
             <img src="/hh-shield.png" alt="Healthy Homes shield" style={{ maxWidth: "100%", maxHeight: "100%", width: "auto", height: "auto", display: "block" }} />
           </div>
         </div>
         <div style={{ display: "table-cell", verticalAlign: "middle", textAlign: "left" }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#c9a35c", letterSpacing: "0.05em", lineHeight: 1.2, fontFamily: "'Oswald', Arial, sans-serif" }}>
+          <div style={{ fontSize: 17, fontWeight: 700, color: "#c9a35c", letterSpacing: "0.05em", lineHeight: 1.2, fontFamily: "'Oswald', Arial, sans-serif" }}>
             HEALTHY HOMES PUBLIC ADJUSTING
           </div>
-          <div style={{ fontSize: 9, color: "#d4af6c", marginTop: 3, lineHeight: 1.25, fontFamily: "Georgia, 'Times New Roman', serif", fontStyle: "italic" }}>
+          <div style={{ fontSize: 11, color: "#d4af6c", marginTop: 5, lineHeight: 1.3, fontFamily: "Georgia, 'Times New Roman', serif", fontStyle: "italic" }}>
             Public Adjusting &nbsp;·&nbsp; Property Claim Documentation &nbsp;·&nbsp; Roof / Wind / Water Support
           </div>
-          <div style={{ fontSize: 9, color: "#fff", marginTop: 3, lineHeight: 1.25, fontFamily: "Georgia, 'Times New Roman', serif" }}>
+          <div style={{ fontSize: 11, color: "#fff", marginTop: 5, lineHeight: 1.3, fontFamily: "Georgia, 'Times New Roman', serif" }}>
             Kortni Keckler &nbsp;|&nbsp; Public Adjuster &nbsp;|&nbsp; FL License W435195
           </div>
-          <div style={{ fontSize: 9, color: "#fff", marginTop: 1, lineHeight: 1.25, fontFamily: "Georgia, 'Times New Roman', serif" }}>
+          <div style={{ fontSize: 11, color: "#fff", marginTop: 2, lineHeight: 1.3, fontFamily: "Georgia, 'Times New Roman', serif" }}>
             Phone: 561-283-5674 &nbsp;|&nbsp; Email: Kkeckleradj@gmail.com
           </div>
         </div>
@@ -2081,28 +2081,28 @@ function PublicAdjusterContract({
   // the right via table layout for html2pdf compatibility.
   const HeaderImg = () => (
     <div style={{
-      width: "100%", height: "2.2in", boxSizing: "border-box",
+      width: "100%", height: "1.85in", boxSizing: "border-box",
       background: "#0a0a0a", color: "#fff",
       borderBottom: "3px solid #c9a35c",
-      padding: "0.2in 0.4in 0.25in",
+      padding: "0.1in 0.4in",
     }}>
       <div style={{ display: "table", width: "100%", height: "100%" }}>
-        <div style={{ display: "table-cell", verticalAlign: "middle", width: "1.7in", paddingRight: 14 }}>
-          <div style={{ width: "1.6in", height: "1.6in", display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible" }}>
+        <div style={{ display: "table-cell", verticalAlign: "middle", width: "1.65in", paddingRight: 16 }}>
+          <div style={{ width: "1.55in", height: "1.55in", display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible" }}>
             <img src="/hh-shield.png" alt="Healthy Homes shield" style={{ maxWidth: "100%", maxHeight: "100%", width: "auto", height: "auto", display: "block" }} />
           </div>
         </div>
         <div style={{ display: "table-cell", verticalAlign: "middle", textAlign: "left" }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#c9a35c", letterSpacing: "0.05em", lineHeight: 1.2, fontFamily: "'Oswald', Arial, sans-serif" }}>
+          <div style={{ fontSize: 17, fontWeight: 700, color: "#c9a35c", letterSpacing: "0.05em", lineHeight: 1.2, fontFamily: "'Oswald', Arial, sans-serif" }}>
             HEALTHY HOMES PUBLIC ADJUSTING
           </div>
-          <div style={{ fontSize: 9, color: "#d4af6c", marginTop: 3, lineHeight: 1.25, fontFamily: "Georgia, 'Times New Roman', serif", fontStyle: "italic" }}>
+          <div style={{ fontSize: 11, color: "#d4af6c", marginTop: 5, lineHeight: 1.3, fontFamily: "Georgia, 'Times New Roman', serif", fontStyle: "italic" }}>
             Public Adjusting &nbsp;·&nbsp; Property Claim Documentation &nbsp;·&nbsp; Roof / Wind / Water Support
           </div>
-          <div style={{ fontSize: 9, color: "#fff", marginTop: 3, lineHeight: 1.25, fontFamily: "Georgia, 'Times New Roman', serif" }}>
+          <div style={{ fontSize: 11, color: "#fff", marginTop: 5, lineHeight: 1.3, fontFamily: "Georgia, 'Times New Roman', serif" }}>
             Kortni Keckler &nbsp;|&nbsp; Public Adjuster &nbsp;|&nbsp; FL License W435195
           </div>
-          <div style={{ fontSize: 9, color: "#fff", marginTop: 1, lineHeight: 1.25, fontFamily: "Georgia, 'Times New Roman', serif" }}>
+          <div style={{ fontSize: 11, color: "#fff", marginTop: 2, lineHeight: 1.3, fontFamily: "Georgia, 'Times New Roman', serif" }}>
             Phone: 561-283-5674 &nbsp;|&nbsp; Email: Kkeckleradj@gmail.com
           </div>
         </div>
