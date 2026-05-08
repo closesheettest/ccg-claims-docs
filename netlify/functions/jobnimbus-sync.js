@@ -3,6 +3,14 @@
 
 const JN_BASE = "https://app.jobnimbus.com/api1";
 
+// TEMPORARY: mirror of PA_FORMS_DISABLED in src/App.jsx. While true,
+// this server forces the JN status to "Sit Sold Insp" no matter what
+// docsSignedList the client sent — guarantees no claim ever gets
+// pushed into "Sit Sold PA" while the new PA is being onboarded, even
+// if a stale browser cache somehow submits lor/pac. Flip in BOTH
+// places (App.jsx + this file) when re-enabling.
+const PA_FORMS_DISABLED = true;
+
 const jnHeaders = (apiKey) => ({
   Authorization: `bearer ${apiKey}`,
   "Content-Type": "application/json",
@@ -195,8 +203,16 @@ exports.handler = async (event) => {
   console.log("Rep:", salesRepName, salesRepId, "| Has PDF:", !!pdfBase64);
 
   try {
-    const hasPADocs = (docsSignedList || []).some(d => d === "lor" || d === "pac");
-    const hasInsp   = (docsSignedList || []).includes("insp");
+    // Force-strip lor/pac while PA forms are disabled — defense in depth
+    // against stale clients that might still submit them.
+    const safeDocsSignedList = PA_FORMS_DISABLED
+      ? (docsSignedList || []).filter(d => d !== "lor" && d !== "pac")
+      : (docsSignedList || []);
+    if (PA_FORMS_DISABLED && (docsSignedList || []).some(d => d === "lor" || d === "pac")) {
+      console.warn("PA_FORMS_DISABLED: stripping lor/pac from docsSignedList. Original:", docsSignedList);
+    }
+    const hasPADocs = safeDocsSignedList.some(d => d === "lor" || d === "pac");
+    const hasInsp   = safeDocsSignedList.includes("insp");
     const status    = hasPADocs ? "Sit Sold PA" : "Sit Sold Insp";
     const nameParts = (homeowner1 || "Homeowner").trim().split(" ");
     const firstName = nameParts[0];
