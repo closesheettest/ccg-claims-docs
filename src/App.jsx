@@ -5087,6 +5087,14 @@ const renderSmsTemplate = (key, vars) => {
           signerEmail: claim.homeowner_email || "",
           paEmail: claim.pa_email || prev.paEmail,
           salesRepEmail: claim.sales_rep_email || prev.salesRepEmail,
+          // Hydrate the rep name/id from the saved claim so the
+          // recipient-side validator (missingSigningFields) doesn't
+          // block submit on "Sales rep name" — that field isn't shown
+          // to the homeowner and can't be filled in on this view, so
+          // if we don't seed it, the submit button stays disabled
+          // forever no matter what they sign.
+          salesRepName: claim.sales_rep_name || prev.salesRepName || "",
+          salesRepId: claim.sales_rep_id || prev.salesRepId || "",
           initials1: claim.initials1 || "",
           initials2: claim.initials2 || "",
           claimType: prev.claimType,
@@ -5428,7 +5436,11 @@ const renderSmsTemplate = (key, vars) => {
   const missingSigningFields = (() => {
     if (pendingSend) return [];
     const missing = [];
-    if (!data.salesRepName) missing.push("Sales rep name");
+    // Skip sales-rep-name validation on the recipient (signing-from-link)
+    // side — the homeowner can't fix it, and the rep name should
+    // already be persisted on the claim record from when the rep
+    // sent the link. Keep the check for the rep-side "Sign Now" flow.
+    if (!isSigningFromLink && !data.salesRepName) missing.push("Sales rep name");
     if (!effectiveSig1) missing.push("Homeowner 1 signature");
     if (hasSecond && !effectiveSig2) missing.push("Homeowner 2 signature");
     if (selectedDocs.includes("pac")) {
