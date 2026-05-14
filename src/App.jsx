@@ -3702,6 +3702,15 @@ export default function App() {
   const [myHomeownersList, setMyHomeownersList] = useState([]);
   const [myHomeownersLoading, setMyHomeownersLoading] = useState(false);
   const [myHomeownersSearch, setMyHomeownersSearch] = useState("");
+  // When true, the modal filters to rows where signed_at IS NULL (the homeowner
+  // got a link but never finished signing). Set by the "Awaiting Signature"
+  // button on the input screen so reps can quickly resend pending links.
+  const [myHomeownersPendingOnly, setMyHomeownersPendingOnly] = useState(false);
+  // Count of pending homeowners for the current rep — drives the badge on the
+  // Awaiting Signature button. Refreshed whenever the modal data loads.
+  const [pendingHomeownersCount, setPendingHomeownersCount] = useState(0);
+  // Tracks which pending row is currently being resent (for spinner / disabled state)
+  const [resendingHomeownerKey, setResendingHomeownerKey] = useState(null);
 
   // ── My Stats modal ──────────────────────────────────────────────────
   // Shows the rep's own performance for this/last week + their leaderboard rank.
@@ -5150,6 +5159,74 @@ const renderSmsTemplate = (key, vars) => {
   // onClick, which meant Guided opening the modal saw an empty list).
   // Loads inspections + claims for the current rep, merges by name+zip,
   // and shows the result in the modal.
+  // Wrapper that opens the modal pre-filtered to awaiting-signature rows only.
+  // Used by the "Awaiting Signature" button so reps can quickly find every
+  // homeowner who got a link but didn't finish signing, and resend it.
+  const loadAndOpenAwaitingSignature = async () => {
+    setMyHomeownersPendingOnly(true);
+    await loadAndOpenMyHomeowners();
+  };
+
+  // Resend an existing pending signing link without leaving the modal.
+  // Reuses the same claim row (no new record) and the same originally-sent
+  // doc set, so the homeowner can pick up where they left off.
+  const resendSigningLink = async (h, docsList) => {
+    const claim = h.raw_claim;
+    if (!claim || !claim.id) {
+      alert("Cannot resend — this homeowner has no claim record yet. Open Add Docs and send a new link instead.");
+      return;
+    }
+    if (!h.email) {
+      alert("This homeowner doesn't have an email on file. Open Add Docs and add one before resending.");
+      return;
+    }
+    if (!isValidEmail(h.email)) {
+      alert("The homeowner email on this record isn't valid. Open Add Docs to correct it and try again.");
+      return;
+    }
+    const key = claim.id;
+    setResendingHomeownerKey(key);
+    try {
+      const docs = (docsList || []).filter(d => ["insp","lor","pac"].includes(d));
+      const sendDocs = PA_FORMS_DISABLED
+        ? (docs.filter(d => d === "insp").length ? docs.filter(d => d === "insp") : ["insp"])
+        : (docs.length ? docs : ["insp"]);
+      const params = new URLSearchParams({
+        sign: "1",
+        docs: sendDocs.join(","),
+        claim: String(claim.id),
+      });
+      const signingLink = `${window.location.origin}/?${params.toString()}`;
+      const subject = isTestMode
+        ? `🧪 [TEST] Reminder — Please Sign: ${sendDocs.length > 1 ? "Claim Documents" : documentLabel(sendDocs[0])}`
+        : sendDocs.length > 1
+          ? "Reminder — Please Sign: Claim Documents"
+          : `Reminder — Please Sign: ${documentLabel(sendDocs[0])}`;
+      const emailResponse = await fetch("/.netlify/functions/send-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: [testEmail(h.email)].filter(Boolean),
+          subject,
+          html: `
+            <h2>Signature Reminder</h2>
+            <p>Just a friendly reminder — your document${sendDocs.length > 1 ? "s are" : " is"} still waiting for your signature. Click the link below to review and sign.</p>
+            <p><a href="${signingLink}">${signingLink}</a></p>
+            <p><strong>Forms included:</strong></p>
+            <ul>${sendDocs.map(doc => `<li>${documentLabel(doc)}</li>`).join("")}</ul>
+            <p><strong>Important:</strong> You can draw your signature or use the bold typed-signature option if you're on a computer without a touchscreen.</p>
+          `,
+        }),
+      });
+      await parseJsonResponse(emailResponse, "Resend failed.");
+      alert(`✅ Signing link resent to:\n${h.email}`);
+    } catch (e) {
+      alert("Resend failed: " + (e.message || e));
+    } finally {
+      setResendingHomeownerKey(null);
+    }
+  };
+
   const loadAndOpenMyHomeowners = async () => {
     setMyHomeownersOpen(true);
     setMyHomeownersLoading(true);
@@ -5232,6 +5309,8 @@ const renderSmsTemplate = (key, vars) => {
         return tb - ta;
       });
       setMyHomeownersList(merged);
+      // Refresh the pending count so the input-screen badge stays accurate.
+      setPendingHomeownersCount(merged.filter(h => !h.signed_at).length);
     } catch (e) {
       alert("Could not load homeowners: " + (e.message || e));
     } finally {
@@ -5296,9 +5375,27 @@ const renderSmsTemplate = (key, vars) => {
   useEffect(() => {
     if (!data.salesRepId || !data.salesRepName) {
       setBannerStats(null);
+      setPendingHomeownersCount(0);
       return;
     }
     fetchMyStats(data.salesRepId, data.salesRepName);
+    // Also refresh the awaiting-signature count so the input-screen button
+    // shows an accurate badge before the rep ever opens the modal.
+    (async () => {
+      try {
+        const orParts = [];
+        if (data.salesRepId) orParts.push(`sales_rep_id.eq.${data.salesRepId}`);
+        if (data.salesRepName) orParts.push(`sales_rep_name.eq.${data.salesRepName}`);
+        const { count } = await supabase
+          .from("claims")
+          .select("id", { count: "exact", head: true })
+          .or(orParts.join(","))
+          .is("signed_at", null);
+        setPendingHomeownersCount(count || 0);
+      } catch (e) {
+        console.warn("Pending count fetch failed (non-blocking):", e);
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.salesRepId, data.salesRepName]);
 
@@ -7787,11 +7884,23 @@ if (!hasDamage) {
                           </div>
                         </div>
                       ) : (
-                        <button type="button"
-                          onClick={() => loadAndOpenMyHomeowners()}
-                          style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #0a0a0a", background: "#fff", color: "#0a0a0a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                          📋 My Homeowners — Add Docs to Existing Customer
-                        </button>
+                        <div style={{ display: "grid", gap: 8 }}>
+                          <button type="button"
+                            onClick={() => { setMyHomeownersPendingOnly(false); loadAndOpenMyHomeowners(); }}
+                            style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #0a0a0a", background: "#fff", color: "#0a0a0a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                            📋 My Homeowners — Add Docs to Existing Customer
+                          </button>
+                          <button type="button"
+                            onClick={() => loadAndOpenAwaitingSignature()}
+                            style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #ea580c", background: pendingHomeownersCount > 0 ? "#fff7ed" : "#fff", color: "#ea580c", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+                            <span>⏳ Awaiting Signature</span>
+                            {pendingHomeownersCount > 0 ? (
+                              <span style={{ background: "#ea580c", color: "#fff", padding: "2px 10px", borderRadius: 999, fontSize: 12, fontWeight: 700 }}>
+                                {pendingHomeownersCount}
+                              </span>
+                            ) : null}
+                          </button>
+                        </div>
                       )}
                     </div>
                   ) : null}
@@ -12501,21 +12610,23 @@ if (!hasDamage) {
         {/* ── My Homeowners Modal — rep picks an existing homeowner to add docs to ── */}
         {myHomeownersOpen ? (
           <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 20, overflow: "auto" }}
-               onClick={() => !myHomeownersLoading && setMyHomeownersOpen(false)}>
+               onClick={() => !myHomeownersLoading && !resendingHomeownerKey && setMyHomeownersOpen(false)}>
             <div style={{ background: "#fff", borderRadius: 14, padding: "24px 28px", maxWidth: 720, width: "100%", maxHeight: "90vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>
-              {/* Big in-your-face prompt — matches the "Pick yourself" card on
-                  the Sales Rep step so the visual language is consistent across
-                  the Existing-customer flow. */}
+              {/* Header — copy + colors switch when the modal is opened in
+                  "Awaiting Signature" mode so the rep knows they're looking at
+                  pending links, not their full homeowner list. */}
               <div style={{
                 padding: "24px 28px",
-                background: "linear-gradient(135deg, #c9a35c 0%, #a17e3f 100%)",
+                background: myHomeownersPendingOnly
+                  ? "linear-gradient(135deg, #ea580c 0%, #9a3412 100%)"
+                  : "linear-gradient(135deg, #c9a35c 0%, #a17e3f 100%)",
                 borderRadius: 14,
                 fontFamily: "'Oswald', sans-serif",
                 color: "#fff",
                 textAlign: "center",
                 boxShadow: "0 6px 20px rgba(200, 57, 43, 0.35)",
                 border: "3px solid #fff",
-                outline: "3px solid #c9a35c",
+                outline: myHomeownersPendingOnly ? "3px solid #ea580c" : "3px solid #c9a35c",
                 marginBottom: 20,
               }}>
                 <div style={{
@@ -12523,14 +12634,16 @@ if (!hasDamage) {
                   letterSpacing: "0.04em", textTransform: "uppercase",
                   marginBottom: 8, lineHeight: 1.15,
                 }}>
-                  👇 Pick the homeowner
+                  {myHomeownersPendingOnly ? "⏳ Awaiting Signature" : "👇 Pick the homeowner"}
                 </div>
                 <div style={{
                   fontSize: 16, fontWeight: 600, lineHeight: 1.4,
                   fontFamily: "'Nunito', sans-serif",
                   opacity: 0.95,
                 }}>
-                  Search the customer's name or address. Click <strong>ADD DOCS</strong> on the right row to load them.
+                  {myHomeownersPendingOnly
+                    ? <>These homeowners got a signing link but haven't finished. Click <strong>RESEND LINK</strong> to send the same link again.</>
+                    : <>Search the customer's name or address. Click <strong>ADD DOCS</strong> on the right row to load them.</>}
                 </div>
               </div>
 
@@ -12552,10 +12665,16 @@ if (!hasDamage) {
                 <div style={{ textAlign: "center", padding: "40px 0", color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>Loading your homeowners...</div>
               ) : myHomeownersList.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "40px 0", color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>No homeowners found for your account yet.</div>
+              ) : myHomeownersPendingOnly && myHomeownersList.every(h => h.signed_at) ? (
+                <div style={{ textAlign: "center", padding: "40px 0", color: "#166534", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 12, fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
+                  ✅ No homeowners awaiting signature — you're all caught up.
+                </div>
               ) : (
                 <div style={{ display: "grid", gap: 8 }}>
                   {myHomeownersList
                     .filter(h => {
+                      // Awaiting-Signature mode hides any row the homeowner already finished.
+                      if (myHomeownersPendingOnly && h.signed_at) return false;
                       if (!myHomeownersSearch || myHomeownersSearch.length < 2) return true;
                       const q = myHomeownersSearch.toLowerCase();
                       const hay = [h.name, h.address, h.city, h.zip].filter(Boolean).join(" ").toLowerCase();
@@ -12605,6 +12724,15 @@ if (!hasDamage) {
                               {h.signed_at ? <span style={{ fontSize: 10, color: "#9ca3af", fontFamily: "'Nunito', sans-serif" }}>· {new Date(h.signed_at).toLocaleDateString()}</span> : null}
                             </div>
                           </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "stretch" }}>
+                          {isPending ? (
+                            <button type="button"
+                              disabled={resendingHomeownerKey === (h.raw_claim?.id)}
+                              onClick={() => resendSigningLink(h, docsList)}
+                              style={{ padding: "8px 14px", borderRadius: 10, border: "2px solid #ea580c", background: resendingHomeownerKey === (h.raw_claim?.id) ? "#fff7ed" : "#ea580c", color: resendingHomeownerKey === (h.raw_claim?.id) ? "#ea580c" : "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, cursor: resendingHomeownerKey === (h.raw_claim?.id) ? "not-allowed" : "pointer", textTransform: "uppercase", letterSpacing: "0.04em", whiteSpace: "nowrap" }}>
+                              {resendingHomeownerKey === (h.raw_claim?.id) ? "Sending…" : "📨 Resend Link"}
+                            </button>
+                          ) : null}
                           <button type="button"
                             disabled={allDone}
                             onClick={() => {
@@ -12663,8 +12791,9 @@ if (!hasDamage) {
                               setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 100);
                             }}
                             style={{ padding: "8px 14px", borderRadius: 10, border: allDone ? "1px solid #d1d5db" : "2px solid #0a0a0a", background: allDone ? "#f3f4f6" : "#0a0a0a", color: allDone ? "#9ca3af" : "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, cursor: allDone ? "not-allowed" : "pointer", textTransform: "uppercase", letterSpacing: "0.04em", whiteSpace: "nowrap" }}>
-                            {allDone ? "✓ All Signed" : "Add Docs →"}
+                            {allDone ? "✓ All Signed" : isPending ? "Sign Now →" : "Add Docs →"}
                           </button>
+                          </div>
                         </div>
                       );
                     })}
