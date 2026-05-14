@@ -12567,18 +12567,41 @@ if (!hasDamage) {
                       const hasLor  = docsList.includes("lor");
                       const hasPac  = docsList.includes("pac");
                       const allDone = hasInsp && hasLor && hasPac;
+                      // docs_signed records what was SENT for signing. signed_at is the
+                      // homeowner's actual completion timestamp. When signed_at is null
+                      // the link went out but the homeowner never finished — show those
+                      // rows as "awaiting signature" rather than checked-off.
+                      const isPending = !h.signed_at;
+                      const docBadge = (label, requested) => {
+                        if (!requested) {
+                          return { bg: "#f3f4f6", color: "#9ca3af", mark: "○" };
+                        }
+                        if (isPending) {
+                          return { bg: "#fff7ed", color: "#9a3412", mark: "⏳" };
+                        }
+                        if (label === "INSP") return { bg: "#dbeafe", color: "#1e40af", mark: "✓" };
+                        return { bg: "#dcfce7", color: "#166534", mark: "✓" };
+                      };
+                      const inspBadge = docBadge("INSP", hasInsp);
+                      const lorBadge  = docBadge("LOR",  hasLor);
+                      const pacBadge  = docBadge("PA",   hasPac);
                       return (
                         <div key={`${h.claim_id || h.insp_id}-${idx}`}
-                             style={{ padding: "12px 14px", borderRadius: 12, border: allDone ? "1px solid #d1d5db" : "1.5px solid #0a0a0a", background: allDone ? "#fafafa" : "#fff", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                             style={{ padding: "12px 14px", borderRadius: 12, border: isPending ? "1.5px solid #ea580c" : (allDone ? "1px solid #d1d5db" : "1.5px solid #0a0a0a"), background: isPending ? "#fff7ed" : (allDone ? "#fafafa" : "#fff"), display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                           <div style={{ flex: 1, minWidth: 220 }}>
                             <div style={{ fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827", fontSize: 14 }}>{h.name || "(no name)"}</div>
                             <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>
                               {[h.address, h.city, h.state, h.zip].filter(Boolean).join(", ")}
                             </div>
+                            {isPending ? (
+                              <div style={{ marginTop: 6, display: "inline-block", padding: "3px 9px", borderRadius: 6, background: "#ea580c", color: "#fff", fontSize: 10, fontWeight: 700, fontFamily: "'Oswald', sans-serif", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                                ⏳ Awaiting Signature
+                              </div>
+                            ) : null}
                             <div style={{ marginTop: 6, display: "flex", gap: 5, flexWrap: "wrap" }}>
-                              <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 6, fontWeight: 700, background: hasInsp ? "#dbeafe" : "#f3f4f6", color: hasInsp ? "#1e40af" : "#9ca3af", fontFamily: "'Oswald', sans-serif" }}>{hasInsp ? "✓" : "○"} INSP</span>
-                              <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 6, fontWeight: 700, background: hasLor ? "#dcfce7" : "#f3f4f6", color: hasLor ? "#166534" : "#9ca3af", fontFamily: "'Oswald', sans-serif" }}>{hasLor ? "✓" : "○"} LOR</span>
-                              <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 6, fontWeight: 700, background: hasPac ? "#dcfce7" : "#f3f4f6", color: hasPac ? "#166534" : "#9ca3af", fontFamily: "'Oswald', sans-serif" }}>{hasPac ? "✓" : "○"} PA</span>
+                              <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 6, fontWeight: 700, background: inspBadge.bg, color: inspBadge.color, fontFamily: "'Oswald', sans-serif" }}>{inspBadge.mark} INSP</span>
+                              <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 6, fontWeight: 700, background: lorBadge.bg, color: lorBadge.color, fontFamily: "'Oswald', sans-serif" }}>{lorBadge.mark} LOR</span>
+                              <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 6, fontWeight: 700, background: pacBadge.bg, color: pacBadge.color, fontFamily: "'Oswald', sans-serif" }}>{pacBadge.mark} PA</span>
                               {h.signed_at ? <span style={{ fontSize: 10, color: "#9ca3af", fontFamily: "'Nunito', sans-serif" }}>· {new Date(h.signed_at).toLocaleDateString()}</span> : null}
                             </div>
                           </div>
@@ -12607,21 +12630,32 @@ if (!hasDamage) {
                                 update("situation", c.situation || "");
                                 update("paEmail", c.pa_email || "Kkeckleradj@gmail.com");
                               }
-                              // Set existing-mode flags so docs already signed are disabled
+                              // Set existing-mode flags so docs already signed are disabled.
+                              // For pending rows (signed_at is null) the link was sent but the
+                              // homeowner never completed signing — nothing is actually signed
+                              // yet, so don't lock any of the doc toggles. Pre-select the
+                              // originally-requested docs so the rep can resend or sign in person.
                               setExistingClaim(c || null);
                               setExistingInsp(h.raw_insp || null);
-                              setAlreadySignedDocs(docsList.filter(d => ["insp","lor","pac"].includes(d)));
+                              const signedDocs = isPending
+                                ? []
+                                : docsList.filter(d => ["insp","lor","pac"].includes(d));
+                              setAlreadySignedDocs(signedDocs);
                               // Set currentClaimId so saveClaimToSupabase UPDATES the existing
                               // row instead of creating a new one.
                               if (c?.id) setCurrentClaimId(c.id);
-                              // Auto-select only the missing docs (filter to allowed forms when PA disabled)
-                              const remaining = ["insp","lor","pac"].filter(d => !docsList.includes(d));
-                              const safeRemaining = PA_FORMS_DISABLED
-                                ? remaining.filter(d => d === "insp")
-                                : remaining;
+                              // Auto-select docs:
+                              //  - Pending row → re-select what was originally sent
+                              //  - Signed row → select what's still missing
+                              const docsToSelect = isPending
+                                ? docsList.filter(d => ["insp","lor","pac"].includes(d))
+                                : ["insp","lor","pac"].filter(d => !docsList.includes(d));
+                              const safeDocsToSelect = PA_FORMS_DISABLED
+                                ? docsToSelect.filter(d => d === "insp")
+                                : docsToSelect;
                               setSelectedDocs(
-                                safeRemaining.length
-                                  ? safeRemaining
+                                safeDocsToSelect.length
+                                  ? safeDocsToSelect
                                   : (PA_FORMS_DISABLED ? ["insp"] : ["lor","pac"])
                               );
                               setMyHomeownersOpen(false);
