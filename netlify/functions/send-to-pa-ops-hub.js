@@ -182,6 +182,26 @@ exports.handler = async (event) => {
     })
   }
 
+  // Stamp pa_status = "pending" + pa_intake_sent_at so the app's
+  // Record Lookup view shows the PDN is in flight at the PA. The PA's
+  // app will fire pa-ops-hub-status-callback to flip this to "signed"
+  // or "refused" once their team acts on the customer.
+  const stampUrl = `${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}`
+  await fetch(stampUrl, {
+    method: 'PATCH',
+    headers: {
+      apikey: SB_KEY,
+      Authorization: `Bearer ${SB_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify({
+      pa_status: 'pending',
+      pa_status_updated_at: new Date().toISOString(),
+      pa_intake_sent_at: new Date().toISOString(),
+    }),
+  }).catch((err) => console.warn('Could not stamp pa_status pending:', err.message))
+
   console.log('=== PA Ops Hub PDN submitted for inspection', inspectionId)
   return json(200, {
     ok: true,

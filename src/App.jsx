@@ -10315,7 +10315,7 @@ if (!hasDamage) {
         // even after one of their rows was resolved.
         const { data: results, error } = await supabase
           .from("inspections")
-          .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed, jn_job_id, cancelled_at, signed_pdfs, jn_status")
+          .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed, jn_job_id, cancelled_at, signed_pdfs, pa_status, pa_status_updated_at, jn_status")
           .is("result", null)
           .is("cancelled_at", null)
           .or("jn_status.is.null,jn_status.eq.Needs Inspection,jn_status.eq.New Lead,jn_status.eq.");
@@ -10431,7 +10431,7 @@ if (!hasDamage) {
         const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
         const { data: results, error } = await supabase
           .from("inspections")
-          .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed, jn_job_id, cancelled_at, signed_pdfs")
+          .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed, jn_job_id, cancelled_at, signed_pdfs, pa_status, pa_status_updated_at")
           .gte("signed_at", thirtyDaysAgo)
           .order("result_at", { ascending: false, nullsFirst: false });
         if (error) throw error;
@@ -10572,7 +10572,7 @@ if (!hasDamage) {
           const dayEnd   = new Date(`${lookupDate}T23:59:59.999`).toISOString();
           const { data: results, error } = await supabase
             .from("inspections")
-            .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed, jn_job_id, cancelled_at, signed_pdfs")
+            .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed, jn_job_id, cancelled_at, signed_pdfs, pa_status, pa_status_updated_at")
             .gte("signed_at", dayStart)
             .lte("signed_at", dayEnd)
             .order("signed_at", { ascending: false });
@@ -10888,8 +10888,29 @@ if (!hasDamage) {
                                   <div style={{ fontSize: 10, color: "#9ca3af", fontFamily: "'Oswald', sans-serif", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>Signed</div>
                                   <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", whiteSpace: "nowrap" }}>{signedDate}</div>
                                 </div>
-                                <div style={{ flexShrink: 0 }}>
+                                <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end" }}>
                                   {pill}
+                                  {/* PA status pill — only shown for damage records that
+                                      we've submitted to the PA Ops Hub. The PA's app flips
+                                      this to "signed" / "refused" via the callback webhook. */}
+                                  {rec.result === "damage" && rec.pa_status ? (
+                                    rec.pa_status === "signed" ? (
+                                      <div style={{ background: "#199c2e", color: "#fff", borderRadius: 20, padding: "3px 10px", fontSize: 10, fontWeight: 700, fontFamily: "'Oswald', sans-serif", whiteSpace: "nowrap" }}
+                                        title={rec.pa_status_updated_at ? `PA updated ${new Date(rec.pa_status_updated_at).toLocaleString()}` : undefined}>
+                                        🤝 PA: SIGNED
+                                      </div>
+                                    ) : rec.pa_status === "refused" ? (
+                                      <div style={{ background: "#6b7280", color: "#fff", borderRadius: 20, padding: "3px 10px", fontSize: 10, fontWeight: 700, fontFamily: "'Oswald', sans-serif", whiteSpace: "nowrap" }}
+                                        title={rec.pa_status_updated_at ? `PA updated ${new Date(rec.pa_status_updated_at).toLocaleString()}` : undefined}>
+                                        🚫 PA: REFUSED
+                                      </div>
+                                    ) : (
+                                      <div style={{ background: "#fef3c7", color: "#92400e", border: "1px solid #fbbf24", borderRadius: 20, padding: "3px 10px", fontSize: 10, fontWeight: 700, fontFamily: "'Oswald', sans-serif", whiteSpace: "nowrap" }}
+                                        title={rec.pa_status_updated_at ? `PA updated ${new Date(rec.pa_status_updated_at).toLocaleString()}` : "Sent to PA Ops Hub — waiting on signature outcome"}>
+                                        ⏳ PA: PENDING
+                                      </div>
+                                    )
+                                  ) : null}
                                 </div>
                               </div>
 
