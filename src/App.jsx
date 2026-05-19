@@ -3378,14 +3378,24 @@ function GuidedIntakeFlow({
     body = (
       <div style={{ display: "grid", gap: 14 }}>
         <div>
-          <Label>Street Address *</Label>
-          <input type="text" style={fld} placeholder="123 Main Street"
+          <Label>Property Address *</Label>
+          {/* AddressAutocomplete = Google Places typeahead. Same component
+              the Quick form uses. Picking a suggestion fires onPlaceSelected
+              and atomically fills address + city + state + zip — no chance
+              to mistype the city / mismatch the state / miss the zip. */}
+          <AddressAutocomplete
             value={data.address || ""}
-            onChange={(e) => update({ address: e.target.value })}
-            autoCapitalize="words" />
-          <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>
-            💡 Tip: Use the Quick form for full address autocomplete with city/state/zip auto-fill.
-          </div>
+            onChange={(v) => update({ address: v })}
+            onPlaceSelected={({ address, city, state, zip }) => {
+              update({
+                address,
+                city,
+                state: normalizeStateValue(state),
+                zip,
+              });
+            }}
+            placeholder="Start typing the property address..."
+          />
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 10 }}>
           <div>
@@ -3395,12 +3405,20 @@ function GuidedIntakeFlow({
               onChange={(e) => update({ city: e.target.value })}
               autoCapitalize="words" />
           </div>
+          {/* State = dropdown so we never get fl / FL / Florida mismatches
+              from free typing. Mirrors the Quick form. */}
           <div>
             <Label>State</Label>
-            <input type="text" style={fld} placeholder="FL" maxLength={2}
-              value={data.state || ""}
-              onChange={(e) => update({ state: e.target.value.toUpperCase() })}
-              autoCapitalize="characters" />
+            <select
+              value={normalizeStateValue(data.state) || ""}
+              onChange={(e) => update({ state: e.target.value })}
+              style={{ ...fld, background: "#fff" }}
+            >
+              <option value="">— Select —</option>
+              {US_STATES.map(([code, name]) => (
+                <option key={code} value={code}>{code} — {name}</option>
+              ))}
+            </select>
           </div>
           <div>
             <Label>ZIP</Label>
@@ -7834,6 +7852,16 @@ if (!hasDamage) {
                       {reps.length === 0 ? (
                         <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 4, fontFamily: "'Nunito', sans-serif" }}>
                           ⚠️ No reps loaded — check JN API connection or go to Manager → Sales Rep Manager to add manually
+                        </div>
+                      ) : null}
+
+                      {/* Lock-to-JN-list reminder. Shows when the rep has
+                          typed text but no JN match is selected (salesRepId
+                          empty) — keeps reps from submitting a free-text
+                          name that doesn't tie back to a real JN rep. */}
+                      {reps.length > 0 && repSearch.trim() && !data.salesRepId ? (
+                        <div style={{ fontSize: 12, color: "#b45309", marginTop: 6, fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
+                          ⚠️ Tap a name from the suggestions to select. Free-typed names won't be saved.
                         </div>
                       ) : null}
                     </div>
