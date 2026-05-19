@@ -1533,10 +1533,14 @@ function RepHelpModal({ onClose }) {
             Quick walkthrough of what <strong>you</strong> do, what the app does automatically, and when the PA is pulled in. The 📲 markers show what the <strong>homeowner</strong> gets automatically. The 📩 markers show what gets sent to <strong>Kortni (the PA)</strong>.
           </p>
 
-          {/* Banner — current PA disable */}
-          <div style={{ padding: "10px 14px", background: "#fef3c7", border: "2px solid #d97706", borderRadius: 10, fontSize: 13, color: "#78350f", fontWeight: 600, lineHeight: 1.4, marginBottom: 14 }}>
-            ⛔ <strong>Heads up:</strong> LoR + PA Authorization are temporarily disabled. Right now you can only sign up Inspection Agreements. They'll be back on once the new PA is set up.
-          </div>
+          {/* Banner — only shown when PA workflow is off. Toggle on
+              Manager → PA Management → PA Workflow re-enables the
+              LoR + PA Authorization options across the app. */}
+          {PA_FORMS_DISABLED && (
+            <div style={{ padding: "10px 14px", background: "#fef3c7", border: "2px solid #d97706", borderRadius: 10, fontSize: 13, color: "#78350f", fontWeight: 600, lineHeight: 1.4, marginBottom: 14 }}>
+              ⛔ <strong>Heads up:</strong> PA paperwork is handled outside this system right now. You can only sign Inspection Agreements here — the PA team will follow up with the homeowner directly on their LoR + PA Authorization.
+            </div>
+          )}
 
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
 
@@ -1593,7 +1597,7 @@ function RepHelpModal({ onClose }) {
             {arrow}
 
             {stepCard(C.gold, "5", "You visit the homeowner & walk through results in person",
-              <>This is your call. <strong>Damage:</strong> get LoR + PA Authorization signed (currently disabled — see banner). <strong>Retail:</strong> walk them through the wear & tear findings, offer a paid roof replacement. <strong>No Damage:</strong> confirm with them and leave the certificate (they can submit it to their insurer if asked to replace).</>,
+              <>This is your call. <strong>Damage:</strong> {PA_FORMS_DISABLED ? "the PA team takes it from here — they'll contact the homeowner directly to handle paperwork." : "get LoR + PA Authorization signed."} <strong>Retail:</strong> walk them through the wear & tear findings, offer a paid roof replacement. <strong>No Damage:</strong> confirm with them and leave the certificate (they can submit it to their insurer if asked to replace).</>,
               null,
               "Damage path: Once paperwork is signed, Kortni receives the damage-confirmation email + signed LoR + signed PA Authorization automatically."
             )}
@@ -7639,6 +7643,11 @@ if (!hasDamage) {
                       gap: 16,
                     }}
                   >
+                    {/* PA Email — hidden when PA workflow is off.
+                        PA handles their own paperwork outside the system in
+                        that mode, so we don't need a place to enter their
+                        notification address. */}
+                    {!PA_FORMS_DISABLED && (
                     <FormField
                       label="PA Email"
                       type="email"
@@ -7646,6 +7655,7 @@ if (!hasDamage) {
                       onChange={(v) => update("paEmail", v)}
                       showError={submitAttempted}
                     />
+                    )}
 
                     {/* Lead Source */}
                     <div>
@@ -8038,22 +8048,11 @@ if (!hasDamage) {
                   Choose form{selectedDocs.length !== 1 ? "s" : ""}
                 </div>
 
-                {PA_FORMS_DISABLED ? (
-                  <div style={{
-                    marginBottom: 12,
-                    padding: "12px 14px",
-                    background: "#fef3c7",
-                    border: "2px solid #d97706",
-                    borderRadius: 10,
-                    fontSize: 13,
-                    color: "#78350f",
-                    fontFamily: "'Nunito', sans-serif",
-                    fontWeight: 600,
-                    lineHeight: 1.4,
-                  }}>
-                    ⛔ <strong>PA forms temporarily disabled.</strong> Only the inspection agreement can be signed right now while we get the new PA set up. The Letter of Representation and PA Authorization will be back online shortly.
-                  </div>
-                ) : null}
+                {/* "PA forms temporarily disabled" banner removed when
+                    PA workflow is off — the doc-selection UI just shows
+                    the inspection agreement alone, no explanation needed.
+                    Toggle it back on in Manager → PA Management to see
+                    the LoR + PA Authorization options again. */}
 
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
 
@@ -8101,6 +8100,14 @@ if (!hasDamage) {
                     </div>
                   </button>
 
+                  {/* LoR + PA Authorization cards — hidden entirely when
+                      PA workflow is off (instead of just being disabled
+                      with grayscale + ⛔ "temporarily disabled" labels).
+                      Cleaner UX: reps see only the inspection card and
+                      have no idea PA docs are even an option until admin
+                      flips the workflow on from Manager → PA Management. */}
+                  {!PA_FORMS_DISABLED && (
+                  <>
                   {/* Letter of Representation — Healthy Homes branding
                       (black card, gold stripe on the title to match the USS
                       card's striped layout). */}
@@ -8195,6 +8202,8 @@ if (!hasDamage) {
                       ) : null}
                     </div>
                   </button>
+                  </>
+                  )}
                 </div>
 
                 {selectedDocs.includes("insp") && (selectedDocs.includes("lor") || selectedDocs.includes("pac")) ? (
@@ -9563,6 +9572,7 @@ if (!hasDamage) {
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 8 }}>
                       {[
                         { key: "security", emoji: "⚙️", label: "Security & Notifications", desc: "PIN, activity email" },
+                        { key: "pamgmt", emoji: "📋", label: "PA Management", desc: "PA workflow on/off, PA-related settings" },
                         { key: "sms", emoji: "💬", label: "SMS Templates", desc: "Auto-messages for each inspection result" },
                         { key: "review", emoji: "📝", label: "Review Page Text", desc: "Headlines, document descriptions" },
                         { key: "thankyou", emoji: "🎉", label: "Thank You Pages", desc: "Post-inspection, pre-inspection, USS" },
@@ -9657,16 +9667,21 @@ if (!hasDamage) {
                           Available placeholders: {"{address}"} {"{client}"} {"{rep}"} {"{city}"}
                         </div>
                       </div>
-                      {/* ── PA Workflow toggle ──
-                          Hides PA-specific UI (Claim Admin section on intake,
-                          LOR + PA Authorization documents in signing) when off.
-                          Off by default because the current PA handles their
-                          own paperwork outside this system. Flipping ON brings
-                          everything back — nothing is deleted, just hidden.
-                          Changes require a page reload to take effect (the
-                          PA_FORMS_DISABLED constant is computed at module load
-                          from localStorage), so saving auto-reloads. */}
-                      <div style={{ marginTop: 24, paddingTop: 20, borderTop: "1px solid #e5e7eb" }}>
+                      </div>
+                    </div>
+                  </Card>}
+
+                  {/* ── PA Management section ──
+                      One place for everything PA-related. Currently:
+                        - PA Workflow on/off toggle (hides Claim Admin,
+                          LOR, PA Authorization across the app)
+                        - PA notification email default
+                      Designed to grow as more PA-specific settings show
+                      up (e.g. PA signature image swap, PA branding, etc.). */}
+                  {managerSection === "pamgmt" && <Card style={{ padding: 20, background: "#f8fafc" }}>
+                    <SectionTitle>PA Management</SectionTitle>
+                    <div style={{ display: "grid", gap: 20 }}>
+                      <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: 16 }}>
                         <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
                           <input
                             type="checkbox"
@@ -9676,8 +9691,8 @@ if (!hasDamage) {
                               const next = e.target.checked
                               try { localStorage.setItem("ccg_mgr_paWorkflowEnabled", next ? "true" : "false") } catch {}
                               const onMsg = next
-                                ? "PA workflow ENABLED. Claim Admin section + LOR + PA Authorization docs are back. The page will reload to apply."
-                                : "PA workflow DISABLED. Claim Admin section + LOR + PA Authorization docs are hidden. The page will reload to apply."
+                                ? "PA workflow ENABLED. Claim Admin section, PA Email field, and LoR + PA Authorization docs are back. The page will reload to apply."
+                                : "PA workflow DISABLED. Claim Admin section, PA Email field, and LoR + PA Authorization docs are hidden. The page will reload to apply."
                               alert(onMsg)
                               window.location.reload()
                             }}
@@ -9688,16 +9703,15 @@ if (!hasDamage) {
                               PA Workflow {!PA_FORMS_DISABLED ? "(currently ON)" : "(currently OFF)"}
                             </label>
                             <div style={{ fontSize: 13, color: "#374151", marginTop: 4, fontFamily: "'Nunito', sans-serif", lineHeight: 1.5 }}>
-                              When <strong>ON</strong>: reps can sign the LoR + PA Authorization, and the Claim Admin section (Insurance Co, Policy #, Claim #, Loss Location) appears on the intake form.
+                              When <strong>ON</strong>: reps can sign the LoR + PA Authorization, the Claim Admin section (Insurance Co, Policy #, Claim #, Loss Location) appears on the intake form, and the PA Email field is shown in Office Info.
                               <br />
-                              When <strong>OFF</strong>: those bits are hidden — useful when the PA is handling their own paperwork outside this system. Toggle back ON if you switch PAs later. Nothing is deleted, just hidden.
+                              When <strong>OFF</strong>: all of those are hidden — useful when the PA is handling their own paperwork outside this system. Toggle back ON if you switch PAs later. Nothing is deleted, just hidden.
                             </div>
                             <div style={{ fontSize: 12, color: "#6b7280", marginTop: 6, fontFamily: "'Nunito', sans-serif", fontStyle: "italic" }}>
                               Saving auto-reloads the page so every PA-related UI updates cleanly. Already-signed PA docs are unaffected.
                             </div>
                           </div>
                         </div>
-                      </div>
                       </div>
                     </div>
                   </Card>}
