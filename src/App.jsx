@@ -6682,6 +6682,25 @@ const renderSmsTemplate = (key, vars) => {
         cert_number: certNo,
       }).eq("id", selectedInspRecord.id);
 
+      // ── PA Ops Hub Property Damage Notice (PDN) ────────────────────
+      // When an inspection is statused as damage, fire a multipart POST
+      // to the PA's Ops Hub intake endpoint with the homeowner data,
+      // the signed Free Roof Inspection PDF, and any JN photos. Fire-
+      // and-forget: failures don't block the main flow (PA can ask for
+      // the docs separately if anything is missing). The function
+      // gates on result === "damage" on its own end too.
+      if (resultChoice === "damage") {
+        fetch("/.netlify/functions/send-to-pa-ops-hub", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ inspectionId: selectedInspRecord.id }),
+        }).then(async (r) => {
+          const txt = await r.text().catch(() => "");
+          if (!r.ok) console.warn("PA Ops Hub POST failed:", r.status, txt.slice(0, 300));
+          else console.log("PA Ops Hub PDN submitted:", txt.slice(0, 200));
+        }).catch(e => console.warn("PA Ops Hub POST error:", e));
+      }
+
       // Generate PDF
       setIsExportingPdf(true);
       await new Promise(r => setTimeout(r, 350));
