@@ -9452,7 +9452,7 @@ if (!hasDamage) {
                     Client understands that they do not need to be present during the inspection; however, Company personnel will knock on the door upon arrival.
                   </p>
                   <p style={{ margin: "0 0 10px" }}>
-                    If the Public Adjuster determines that storm damage exists, they may proceed with filing an insurance claim provided the Client has hired them. Client authorizes the Public Adjuster to notify the Company of its findings and to keep the Company updated throughout the claims process.
+                    If a Public Adjuster determines you in fact have storm related damage, they will contact you directly to go over your options. Client agrees to authorize the Public Adjuster they hired to communicate directly with the Company about any and all updates.
                   </p>
                   <p style={{ margin: 0 }}>
                     Client acknowledges that the Company is a licensed roofing contractor and cannot discuss policy coverages, insurance requirements, or statutory guidelines. Any such questions should be directed to the Public Adjuster or the Client's homeowner's insurance carrier.
