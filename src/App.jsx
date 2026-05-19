@@ -4752,17 +4752,33 @@ export default function App() {
         });
       }
 
-      // Compute earnings per row.
-      // Policy (2026-05): with PA forms disabled, the only rep who earns
-      // anything is William Hernandez — $150 per free inspection. Every
-      // other rep earns $0 (we still display their signings, just with no
-      // dollar figure). Cancelled rows always earn $0.
+      // Compute earnings per row. There are TWO policy regimes:
+      //
+      //   • Pre-cutoff (signed before Mon 2026-05-18): old tiered
+      //     formula — Insp $100 / LOR+PA $150 / All 3 $250. Honored so
+      //     reps' historic deals still pay out correctly.
+      //
+      //   • Post-cutoff (signed on/after Mon 2026-05-18): new policy
+      //     under PA-forms-disabled — only William Hernandez earns,
+      //     $150 per free inspection. Every other rep keeps their
+      //     signing rows in the report but with no dollar figure.
+      //
+      // Cancelled rows always earn $0 regardless of regime.
+      const POLICY_CUTOFF = new Date("2026-05-18T00:00:00");
       const rows = [...merged.values()].map(r => {
         if (r.cancelled) return { ...r, earned: 0 };
         const inspThisWeek = r.inspStatus === "current";
+        const lorThisWeek  = r.lorStatus === "current";
+        const pacThisWeek  = r.pacStatus === "current";
+        const dealDate = r.signedAt ? new Date(r.signedAt) : null;
+        const isPostCutoff = dealDate && dealDate >= POLICY_CUTOFF;
         let earned = 0;
-        if (r.rep === "William Hernandez" && inspThisWeek) {
-          earned = 150;
+        if (isPostCutoff) {
+          if (r.rep === "William Hernandez" && inspThisWeek) earned = 150;
+        } else {
+          if (inspThisWeek && lorThisWeek && pacThisWeek) earned = 250;
+          else if (lorThisWeek && pacThisWeek)            earned = 150;
+          else if (inspThisWeek)                          earned = 100;
         }
         return { ...r, earned };
       });
