@@ -4753,18 +4753,17 @@ export default function App() {
       }
 
       // Compute earnings per row.
-      // Only docs signed THIS PERIOD count toward the week's pay.
-      // Cancelled rows always earn $0 — we still display them for transparency
-      // (the rep can see what got Lost) but they don't affect totals.
+      // Policy (2026-05): with PA forms disabled, the only rep who earns
+      // anything is William Hernandez — $150 per free inspection. Every
+      // other rep earns $0 (we still display their signings, just with no
+      // dollar figure). Cancelled rows always earn $0.
       const rows = [...merged.values()].map(r => {
         if (r.cancelled) return { ...r, earned: 0 };
         const inspThisWeek = r.inspStatus === "current";
-        const lorThisWeek  = r.lorStatus === "current";
-        const pacThisWeek  = r.pacStatus === "current";
         let earned = 0;
-        if (inspThisWeek && lorThisWeek && pacThisWeek) earned = 250;
-        else if (lorThisWeek && pacThisWeek)            earned = 150;
-        else if (inspThisWeek)                          earned = 100;
+        if (r.rep === "William Hernandez" && inspThisWeek) {
+          earned = 150;
+        }
         return { ...r, earned };
       });
 
@@ -11268,18 +11267,24 @@ if (!hasDamage) {
                         </div>
                         {reportData.claimsError ? <div style={{ color: "#ef4444", fontSize: 12, marginBottom: 8 }}>⚠️ Claims error: {reportData.claimsError}</div> : null}
                         {reportData.inspError ? <div style={{ color: "#ef4444", fontSize: 12, marginBottom: 8 }}>⚠️ Inspections error: {reportData.inspError}</div> : null}
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 40px 40px 40px 64px", gap: 8, padding: "6px 12px", background: "#f3f4f6", borderRadius: 8, marginBottom: 8, fontSize: 11, fontWeight: 700, color: "#6b7280", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                        {/* Grid columns: when PA forms are disabled, drop the LOR
+                            and PA columns since they'd always be ○. Earned column
+                            stays but rows with $0 render blank instead of "$0". */}
+                        <div style={{ display: "grid", gridTemplateColumns: PA_FORMS_DISABLED ? "1fr 40px 64px" : "1fr 40px 40px 40px 64px", gap: 8, padding: "6px 12px", background: "#f3f4f6", borderRadius: 8, marginBottom: 8, fontSize: 11, fontWeight: 700, color: "#6b7280", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.06em", textTransform: "uppercase" }}>
                           <div>Homeowner</div>
                           <div style={{ textAlign: "center" }}>Insp</div>
-                          <div style={{ textAlign: "center" }}>LOR</div>
-                          <div style={{ textAlign: "center" }}>PA</div>
+                          {!PA_FORMS_DISABLED && <div style={{ textAlign: "center" }}>LOR</div>}
+                          {!PA_FORMS_DISABLED && <div style={{ textAlign: "center" }}>PA</div>}
                           <div style={{ textAlign: "right" }}>Earned</div>
                         </div>
                         {Object.keys(reportData.byRep).sort((a,b) => reportData.repTotals[b] - reportData.repTotals[a]).map(rep => (
                           <div key={rep} style={{ marginBottom: 16 }}>
                             <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", padding: "8px 12px", background: "#e0f2fe", borderRadius: 10, marginBottom: 6, display: "flex", justifyContent: "space-between" }}>
                               <span>👤 {rep}</span>
-                              <span style={{ fontSize: 12, color: "#0369a1" }}>{reportData.byRep[rep].length} signing{reportData.byRep[rep].length !== 1 ? "s" : ""} · <strong>${reportData.repTotals[rep].toLocaleString()}</strong></span>
+                              <span style={{ fontSize: 12, color: "#0369a1" }}>
+                                {reportData.byRep[rep].length} signing{reportData.byRep[rep].length !== 1 ? "s" : ""}
+                                {reportData.repTotals[rep] > 0 ? <> · <strong>${reportData.repTotals[rep].toLocaleString()}</strong></> : null}
+                              </span>
                             </div>
                             {reportData.byRep[rep].map((s, i) => {
                               const renderCheck = (status, signedAtHint) => {
@@ -11296,7 +11301,7 @@ if (!hasDamage) {
                                 : (i % 2 === 0 ? "#fff" : "#f9fafb");
                               const rowOpacity = s.cancelled ? 0.78 : 1;
                               return (
-                                <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 40px 40px 40px 64px", gap: 8, padding: "8px 12px", background: rowBg, opacity: rowOpacity, borderRadius: 8, marginBottom: 4, alignItems: "center", border: s.cancelled ? "1px solid #fecaca" : "1px solid #f3f4f6" }}>
+                                <div key={i} style={{ display: "grid", gridTemplateColumns: PA_FORMS_DISABLED ? "1fr 40px 64px" : "1fr 40px 40px 40px 64px", gap: 8, padding: "8px 12px", background: rowBg, opacity: rowOpacity, borderRadius: 8, marginBottom: 4, alignItems: "center", border: s.cancelled ? "1px solid #fecaca" : "1px solid #f3f4f6" }}>
                                   <div>
                                     <div style={{ fontSize: 13, fontWeight: 700, color: "#111827", fontFamily: "'Nunito', sans-serif", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                                       <span style={s.cancelled ? { textDecoration: "line-through", color: "#6b7280" } : null}>{s.name}</span>
@@ -11310,9 +11315,11 @@ if (!hasDamage) {
                                     </div>
                                   </div>
                                   <div style={{ textAlign: "center" }}>{renderCheck(s.inspStatus, s.inspSignedAt)}</div>
-                                  <div style={{ textAlign: "center" }}>{renderCheck(s.lorStatus)}</div>
-                                  <div style={{ textAlign: "center" }}>{renderCheck(s.pacStatus)}</div>
-                                  <div style={{ textAlign: "right", fontSize: 13, fontWeight: 700, color: s.earned > 0 ? "#166534" : "#9ca3af", fontFamily: "'Nunito', sans-serif" }}>${s.earned}</div>
+                                  {!PA_FORMS_DISABLED && <div style={{ textAlign: "center" }}>{renderCheck(s.lorStatus)}</div>}
+                                  {!PA_FORMS_DISABLED && <div style={{ textAlign: "center" }}>{renderCheck(s.pacStatus)}</div>}
+                                  <div style={{ textAlign: "right", fontSize: 13, fontWeight: 700, color: "#166534", fontFamily: "'Nunito', sans-serif" }}>
+                                    {s.earned > 0 ? `$${s.earned}` : ""}
+                                  </div>
                                 </div>
                               );
                             })}
@@ -11320,9 +11327,11 @@ if (!hasDamage) {
                         ))}
                         <div style={{ marginTop: 12, padding: "10px 14px", background: "#f9fafb", borderRadius: 8, display: "flex", gap: 16, flexWrap: "wrap", fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>
                           <div><span style={{ color: "#16a34a", fontWeight: 700 }}>✅</span> signed this period</div>
-                          <div><span style={{ color: "#9ca3af" }}>✅</span> signed previously (no pay)</div>
+                          <div><span style={{ color: "#9ca3af" }}>✅</span> signed previously</div>
                           <div><span style={{ color: "#d1d5db" }}>○</span> not yet signed</div>
-                          <div style={{ marginLeft: "auto" }}>Insp $100 · LOR+PA $150 · All 3 $250</div>
+                          <div style={{ marginLeft: "auto" }}>
+                            {PA_FORMS_DISABLED ? "William Hernandez: $150 per free inspection" : "Insp $100 · LOR+PA $150 · All 3 $250"}
+                          </div>
                         </div>
                         {Object.keys(reportData.byRep).length === 0 ? (
                           <div style={{ textAlign: "center", padding: "24px 0", color: "#9ca3af", fontFamily: "'Nunito', sans-serif", fontSize: 15 }}>No signings recorded this period.</div>
