@@ -65,7 +65,7 @@ exports.handler = async (event) => {
 
   // Site URL — used both for header/footer image absolute URLs in HTML and
   // for the recursive call to archive-signed-docs at the end.
-  const baseUrl = process.env.URL || process.env.BASE_URL || "https://ccg-claims-docs.netlify.app";
+  const baseUrl = process.env.URL || process.env.BASE_URL || "https://free-roof-inspections.netlify.app";
 
   // 1. Fetch the inspection
   const inspRes = await fetch(

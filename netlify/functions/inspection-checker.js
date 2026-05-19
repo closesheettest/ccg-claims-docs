@@ -9,7 +9,7 @@ const JN_KEY      = process.env.JOBNIMBUS_API_KEY;
 const SB_URL      = process.env.VITE_SUPABASE_URL;
 const SB_KEY      = process.env.VITE_SUPABASE_ANON_KEY;
 const OFFICE_EMAIL = process.env.OFFICE_EMAIL || "neals@shingleusa.com";
-const BASE_URL    = process.env.URL || "https://ccg-claims-docs.netlify.app";
+const BASE_URL    = process.env.URL || "https://free-roof-inspections.netlify.app";
 
 const sbHeaders = {
   apikey: SB_KEY,

@@ -25,7 +25,7 @@ const JN_BASE = "https://app.jobnimbus.com/api1";
 const JN_FILES_BASE = "https://api.jobnimbus.com";
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const PDFSHIFT_KEY = process.env.PDFSHIFT_API_KEY;
-const BASE_URL = process.env.URL || process.env.DEPLOY_PRIME_URL || "https://ccg-claims-docs.netlify.app";
+const BASE_URL = process.env.URL || process.env.DEPLOY_PRIME_URL || "https://free-roof-inspections.netlify.app";
 
 const jnHeaders = {
   Authorization: `bearer ${JN_KEY}`,
