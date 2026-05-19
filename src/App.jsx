@@ -3180,15 +3180,13 @@ function GuidedIntakeFlow({
     };
     body = (
       <div style={{ display: "grid", gap: 12 }}>
-        {PA_FORMS_DISABLED ? (
-          <div style={{ padding: "12px 14px", background: "#fef3c7", border: "2px solid #d97706", borderRadius: 10, fontSize: 13, color: "#78350f", fontWeight: 600, lineHeight: 1.4 }}>
-            ⛔ <strong>PA forms temporarily disabled.</strong> Only the inspection agreement can be signed right now while we get the new PA set up. LOR + PA Authorization will be back shortly.
-          </div>
-        ) : null}
+        {/* PA forms (LoR + PAC) are completely hidden when PA workflow
+            is off — see Manager → PA Management. Reps see only the
+            inspection agreement option, no banner, no "disabled" badges. */}
         {opt("insp", "🔍", "Free Roof Inspection Agreement", "First-visit inspection signoff")}
-        {opt("lor",  "📝", "Letter of Representation", "Authorizes us to talk to insurance")}
-        {opt("pac",  "📜", "Public Adjuster Contract", "Storm damage confirmed — claim paperwork")}
-        {PA_FORMS_DISABLED ? null : (
+        {!PA_FORMS_DISABLED && opt("lor",  "📝", "Letter of Representation", "Authorizes us to talk to insurance")}
+        {!PA_FORMS_DISABLED && opt("pac",  "📜", "Public Adjuster Contract", "Storm damage confirmed — claim paperwork")}
+        {!PA_FORMS_DISABLED && (
           <div style={{ marginTop: 8, padding: "10px 14px", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, fontSize: 12, color: "#92400e" }}>
             💡 Common combos: <strong>Inspection only</strong> on first visit. <strong>LOR + PA</strong> on second visit when damage is confirmed. <strong>All three</strong> when everything happens at once.
           </div>
