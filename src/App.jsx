@@ -25,11 +25,27 @@ const PA_FIXED = {
   signatureImage: "/benito-signature.png",
 };
 
-// TEMPORARY: hide the LoR + PA Authorization options from the sales-rep
-// signing UI while we wait on the new PA's signature/info. Reps can only
-// sign Inspection Agreements until this is flipped back to false.
-// Flip to false to re-enable. Does not affect any docs already signed.
-const PA_FORMS_DISABLED = true;
+// PA workflow toggle. Hides:
+//   * The LoR + PA Authorization options from the sales-rep signing UI
+//   * The "Claim Admin" section on the homeowner intake form
+//
+// Currently the PA is handling their own paperwork outside this system, so
+// the workflow is OFF by default. If we ever switch to a different PA who
+// wants to sign through here, admin flips this back ON via
+// Manager → Security & Notifications → "PA Workflow" toggle, and all the
+// hidden bits return. Nothing is deleted — toggle off just hides.
+//
+// Stored in localStorage under the same "ccg_mgr_" prefix as other manager
+// settings. Read at module load, so toggling triggers a one-time page
+// reload to refresh every reference site cleanly. Already-signed PA docs
+// are unaffected either way.
+const PA_FORMS_DISABLED = (() => {
+  try {
+    return localStorage.getItem("ccg_mgr_paWorkflowEnabled") !== "true";
+  } catch {
+    return true;
+  }
+})();
 
 const PA_ASSETS = {
   header: "/pa-header.png",
@@ -7550,6 +7566,12 @@ if (!hasDamage) {
                   </div>
                 </Card>
 
+                {/* Claim Admin section — hidden when PA workflow is off.
+                    PA collects insurance/claim info on their own paperwork
+                    outside this system; we don't need to capture it on
+                    intake. Toggle back on in Manager → Security if you
+                    switch PAs later. */}
+                {!PA_FORMS_DISABLED && (
                 <Card style={{ padding: 20, background: "#f8fafc" }}>
                   <SectionTitle>Claim Admin</SectionTitle>
                   <div
@@ -7605,6 +7627,7 @@ if (!hasDamage) {
                     </div>
                   </div>
                 </Card>
+                )}
 
                 <Card style={{ padding: 20, background: "#f8fafc" }}>
                   <SectionTitle>Office Info</SectionTitle>
@@ -9632,6 +9655,47 @@ if (!hasDamage) {
                           style={{ width: "100%", borderRadius: 12, border: "1px solid #d1d5db", padding: "10px 12px", fontSize: 14, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }} />
                         <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4, fontFamily: "'Nunito', sans-serif" }}>
                           Available placeholders: {"{address}"} {"{client}"} {"{rep}"} {"{city}"}
+                        </div>
+                      </div>
+                      {/* ── PA Workflow toggle ──
+                          Hides PA-specific UI (Claim Admin section on intake,
+                          LOR + PA Authorization documents in signing) when off.
+                          Off by default because the current PA handles their
+                          own paperwork outside this system. Flipping ON brings
+                          everything back — nothing is deleted, just hidden.
+                          Changes require a page reload to take effect (the
+                          PA_FORMS_DISABLED constant is computed at module load
+                          from localStorage), so saving auto-reloads. */}
+                      <div style={{ marginTop: 24, paddingTop: 20, borderTop: "1px solid #e5e7eb" }}>
+                        <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+                          <input
+                            type="checkbox"
+                            id="paWorkflowEnabled"
+                            checked={!PA_FORMS_DISABLED}
+                            onChange={(e) => {
+                              const next = e.target.checked
+                              try { localStorage.setItem("ccg_mgr_paWorkflowEnabled", next ? "true" : "false") } catch {}
+                              const onMsg = next
+                                ? "PA workflow ENABLED. Claim Admin section + LOR + PA Authorization docs are back. The page will reload to apply."
+                                : "PA workflow DISABLED. Claim Admin section + LOR + PA Authorization docs are hidden. The page will reload to apply."
+                              alert(onMsg)
+                              window.location.reload()
+                            }}
+                            style={{ marginTop: 4, width: 18, height: 18, cursor: "pointer" }}
+                          />
+                          <div style={{ flex: 1 }}>
+                            <label htmlFor="paWorkflowEnabled" style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14, color: "#111827", cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                              PA Workflow {!PA_FORMS_DISABLED ? "(currently ON)" : "(currently OFF)"}
+                            </label>
+                            <div style={{ fontSize: 13, color: "#374151", marginTop: 4, fontFamily: "'Nunito', sans-serif", lineHeight: 1.5 }}>
+                              When <strong>ON</strong>: reps can sign the LoR + PA Authorization, and the Claim Admin section (Insurance Co, Policy #, Claim #, Loss Location) appears on the intake form.
+                              <br />
+                              When <strong>OFF</strong>: those bits are hidden — useful when the PA is handling their own paperwork outside this system. Toggle back ON if you switch PAs later. Nothing is deleted, just hidden.
+                            </div>
+                            <div style={{ fontSize: 12, color: "#6b7280", marginTop: 6, fontFamily: "'Nunito', sans-serif", fontStyle: "italic" }}>
+                              Saving auto-reloads the page so every PA-related UI updates cleanly. Already-signed PA docs are unaffected.
+                            </div>
+                          </div>
                         </div>
                       </div>
                       </div>
