@@ -47,13 +47,15 @@ exports.handler = async (event) => {
   };
   const jnHeaders = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
 
+  // Only inspections has lead_source + jn_job_id. The claims table
+  // (LoR + PA Authorization signings) doesn't ship to JN and doesn't
+  // store a lead source — handled here as a single-table backfill.
   const results = {
     dry_run: dryRun,
     inspections: { matched: 0, db_updated: 0, jn_updated: 0, jn_skipped_no_id: 0, jn_errors: [] },
-    claims:      { matched: 0, db_updated: 0, jn_updated: 0, jn_skipped_no_id: 0, jn_errors: [] },
   };
 
-  for (const table of ["inspections", "claims"]) {
+  for (const table of ["inspections"]) {
     // Pull every row with the old source.
     const qs = new URLSearchParams({
       select: "id,jn_job_id,lead_source",
