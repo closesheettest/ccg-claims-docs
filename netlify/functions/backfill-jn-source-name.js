@@ -56,9 +56,13 @@ exports.handler = async (event) => {
   };
 
   for (const table of ["inspections"]) {
-    // Pull every row with the old source.
+    // Pull every row with the old source. Includes enough identifying
+    // fields that the dry-run output lists orphan rows (no jn_job_id)
+    // by name + address + date — so admin can decide whether to sync,
+    // delete (test rows), or just let the DB backfill them.
     const qs = new URLSearchParams({
-      select: "id,jn_job_id,lead_source",
+      select:
+        "id,jn_job_id,lead_source,client_name,address,city,state,zip,sales_rep_name,signed_at,created_at",
       lead_source: "eq.NEED",
       limit: "1000",
     }).toString();
@@ -68,6 +72,22 @@ exports.handler = async (event) => {
     }
     const rows = await rowsRes.json();
     results[table].matched = rows.length;
+    // On dry runs, ship the orphan rows back so the caller can scan
+    // for test data without round-tripping to SQL.
+    if (dryRun) {
+      results[table].orphans = rows
+        .filter((r) => !r.jn_job_id)
+        .map((r) => ({
+          id: r.id,
+          client_name: r.client_name,
+          address: r.address,
+          city: r.city,
+          zip: r.zip,
+          sales_rep_name: r.sales_rep_name,
+          signed_at: r.signed_at,
+          created_at: r.created_at,
+        }));
+    }
 
     for (const row of rows) {
       // 1. Update the JN job (if linked) FIRST. If JN fails we still
