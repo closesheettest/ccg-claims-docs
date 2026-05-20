@@ -67,6 +67,47 @@ exports.handler = async (event) => {
     event.queryStringParameters?.reconcile === "1" ||
     event.queryStringParameters?.reconcile === "true";
 
+  // undo_orphans mode: roll back the orphan sync we just did. For the
+  // specific inspection IDs (defaults to the 14 from the 2026-05-20
+  // backfill), DELETEs the JN job we created today and NULLs out
+  // jn_job_id so the row becomes an orphan again. Doesn't touch
+  // lead_source — those rows stay as 'Inspection'.
+  const undoOrphans = body.undo_orphans === true ||
+    event.queryStringParameters?.undo_orphans === "1" ||
+    event.queryStringParameters?.undo_orphans === "true";
+
+  // The 14 inspection IDs from the 2026-05-20 backfill. Caller can
+  // override via body.inspection_ids if needed.
+  const DEFAULT_UNDO_IDS = [
+    "2e473e6e-637f-41fb-9b2a-2cd4bc58ae6f", // Nora lambirght
+    "1c865a85-9762-4f11-b7ef-59cdc07a4f18", // Emma freeman
+    "83411498-15c5-498e-a2d5-9e71296b3baa", // Jaime escalante
+    "b5a87f1a-6e19-454f-9032-9afbdbbcb204", // Cristin bullock
+    "ec5f5937-e92a-4ab6-9e91-8b1f56dada69", // Danny perry
+    "19485d78-83f5-4e9c-80e5-32c1df2c14da", // Johnny thomas
+    "ef01dfac-5ea4-4b2a-b941-aacafc22cf1e", // betty perry
+    "e6e0ae7e-da6b-4ffe-9f91-1c0fd20261d1", // Heidi mastroianni
+    "1d6a9056-8dcf-4a56-886a-9230df84426c", // Vanessa ealy
+    "e88e773d-6dab-4fa9-aa4f-51d2db77c8cd", // Carlos gomez
+    "d48865e8-ba2b-4516-a575-d13a239e66d7", // Rhonda Reining
+    "4e3daa93-47ed-4b32-9215-1a8b07ba6f27", // Robert abbatecola
+    "aa822f7e-92ed-456c-ab64-d68d0356e33a", // Maria class
+    "9e4188b0-a305-4c0b-b00d-2fd8ca5dfa08", // Michael Leone
+  ];
+  const undoIds = Array.isArray(body.inspection_ids) && body.inspection_ids.length > 0
+    ? body.inspection_ids
+    : DEFAULT_UNDO_IDS;
+
+  if (undoOrphans) {
+    return await runUndo({
+      SB_URL,
+      sbHeaders,
+      jnHeaders,
+      dryRun,
+      undoIds,
+    });
+  }
+
   const results = {
     dry_run: dryRun,
     sync_orphans: syncOrphans,
@@ -283,6 +324,97 @@ exports.handler = async (event) => {
 
   return json(200, results);
 };
+
+// Undo the 2026-05-20 orphan sync. For each inspection in undoIds:
+//   1. Read its current jn_job_id from Supabase.
+//   2. DELETE that JN job (so the duplicate / wrong-status-date jobs
+//      we created today disappear from JN).
+//   3. NULL out the Supabase row's jn_job_id so it goes back to being
+//      an orphan and admin can re-sync properly later.
+//
+// Leaves lead_source alone — it stays 'Inspection' per the rename.
+async function runUndo({ SB_URL, sbHeaders, jnHeaders, dryRun, undoIds }) {
+  const out = {
+    dry_run: dryRun,
+    undo_orphans: true,
+    total: undoIds.length,
+    jn_deleted: 0,
+    jn_already_missing: 0,
+    jn_delete_errors: [],
+    db_unlinked: 0,
+    db_errors: [],
+    rows: [],
+  };
+  for (const id of undoIds) {
+    // 1. Look up current state.
+    const qs = new URLSearchParams({
+      select: "id,client_name,jn_job_id",
+      id: `eq.${id}`,
+      limit: "1",
+    }).toString();
+    const lookup = await fetch(`${SB_URL}/rest/v1/inspections?${qs}`, { headers: sbHeaders });
+    const rows = lookup.ok ? await lookup.json() : [];
+    const row = rows[0];
+    if (!row) {
+      out.rows.push({ id, error: "not found in inspections" });
+      continue;
+    }
+    const summary = { id, client_name: row.client_name, jn_job_id: row.jn_job_id };
+    if (!row.jn_job_id) {
+      out.jn_already_missing++;
+      summary.action = "skipped — already orphan";
+      out.rows.push(summary);
+      continue;
+    }
+    // 2. DELETE the JN job.
+    if (!dryRun) {
+      try {
+        const delRes = await fetch(`https://app.jobnimbus.com/api1/jobs/${row.jn_job_id}`, {
+          method: "DELETE",
+          headers: jnHeaders,
+        });
+        if (delRes.ok || delRes.status === 404) {
+          out.jn_deleted++;
+          summary.jn = `deleted (${delRes.status})`;
+        } else {
+          const detail = await delRes.text().then((t) => t.slice(0, 200));
+          out.jn_delete_errors.push({ id, jn_job_id: row.jn_job_id, status: delRes.status, detail });
+          summary.jn = `error ${delRes.status}`;
+          // Still continue to NULL out the DB pointer so a re-sync works later.
+        }
+      } catch (e) {
+        out.jn_delete_errors.push({ id, jn_job_id: row.jn_job_id, error: e.message || "Unknown" });
+        summary.jn = `exception: ${e.message || "Unknown"}`;
+      }
+    } else {
+      summary.jn = "(dry-run would DELETE)";
+    }
+    // 3. NULL out the Supabase pointer.
+    if (!dryRun) {
+      const upd = await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${id}`, {
+        method: "PATCH",
+        headers: sbHeaders,
+        body: JSON.stringify({ jn_job_id: null }),
+      });
+      if (upd.ok) {
+        out.db_unlinked++;
+        summary.db = "jn_job_id cleared";
+      } else {
+        const detail = await upd.text().then((t) => t.slice(0, 200));
+        out.db_errors.push({ id, status: upd.status, detail });
+        summary.db = `error ${upd.status}`;
+      }
+    } else {
+      summary.db = "(dry-run would NULL jn_job_id)";
+    }
+    out.rows.push(summary);
+  }
+  return {
+    statusCode: 200,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(out),
+  };
+}
 
 function safeJson(s) {
   try { return JSON.parse(s || "{}"); } catch { return {}; }
