@@ -193,6 +193,11 @@ exports.handler = async (event) => {
     address, city, state, zip,
     salesRepName, salesRepId,
     pdfBase64, pdfFilename,
+    // Optional: override the "sold date" (cf_date_5) with an explicit
+    // timestamp. Used by retry-jn-sync so re-synced orphans land in
+    // JN with their ORIGINAL signed_at, not today's date. Accepts a
+    // Unix-seconds integer OR an ISO 8601 string.
+    soldDate,
     isTest, testOverrideEmail, testOverridePhone,
   } = body;
 
@@ -219,8 +224,22 @@ exports.handler = async (event) => {
     const lastName  = nameParts.slice(1).join(" ") || "";
     const fullName  = [homeowner1, homeowner2].filter(Boolean).join(" & ");
 
-    // Sold date = today as Unix timestamp (seconds)
-    const soldDateUnix = Math.floor(Date.now() / 1000);
+    // Sold date — defaults to "now" but caller can override via the
+    // soldDate param. Used by retry-jn-sync to preserve the original
+    // signed_at on re-synced orphans (otherwise JN's weekly report
+    // shows old signings under "this week" because cf_date_5 = today).
+    let soldDateUnix;
+    if (soldDate != null) {
+      if (typeof soldDate === "number") {
+        // If it looks like ms (>10 digits), divide by 1000.
+        soldDateUnix = soldDate > 1e11 ? Math.floor(soldDate / 1000) : Math.floor(soldDate);
+      } else {
+        const ms = Date.parse(String(soldDate));
+        soldDateUnix = Number.isFinite(ms) ? Math.floor(ms / 1000) : Math.floor(Date.now() / 1000);
+      }
+    } else {
+      soldDateUnix = Math.floor(Date.now() / 1000);
+    }
 
     console.log("Status:", status, "| Full name:", fullName, "| Sold date:", soldDateUnix);
 

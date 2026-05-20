@@ -88,6 +88,34 @@ exports.handler = async (event) => {
   const syncUrl = `${base}/.netlify/functions/jobnimbus-sync`;
   console.log("Calling:", syncUrl);
 
+  // Fetch the signed inspection PDF if we have it archived in storage —
+  // attach it so the resulting JN job matches what the live signing
+  // flow produces. signed_pdfs is shaped like { insp: "<url>", lor: ..., pac: ... }.
+  let pdfBase64 = undefined;
+  let pdfFilename = undefined;
+  try {
+    const inspUrl = rec.signed_pdfs?.insp;
+    if (inspUrl) {
+      const pdfRes = await fetch(inspUrl);
+      if (pdfRes.ok) {
+        const buf = await pdfRes.arrayBuffer();
+        pdfBase64 = Buffer.from(buf).toString("base64");
+        // Filename: keep whatever the URL ends in, or fall back.
+        const fromUrl = inspUrl.split("/").pop().split("?")[0];
+        pdfFilename = fromUrl && fromUrl.endsWith(".pdf")
+          ? fromUrl
+          : `inspection-${(rec.client_name || "homeowner").replace(/[^a-z0-9]+/gi, "_")}.pdf`;
+        console.log("PDF fetched:", pdfFilename, "size:", buf.byteLength);
+      } else {
+        console.warn("Could not fetch signed PDF:", pdfRes.status, inspUrl);
+      }
+    } else {
+      console.log("No signed_pdfs.insp on record — JN job will be created without PDF.");
+    }
+  } catch (e) {
+    console.warn("PDF fetch failed (non-fatal):", e.message);
+  }
+
   const payload = {
     leadSource: rec.lead_source || "Inspection",
     docsSignedList,
@@ -101,8 +129,11 @@ exports.handler = async (event) => {
     zip: rec.zip || "",
     salesRepName: rec.sales_rep_name || "",
     salesRepId: rec.sales_rep_id || "",
-    // No PDF — we don't have it stored. JN job gets created without attachment.
-    // If the user wants the PDF attached, they can regenerate and attach manually.
+    pdfBase64,
+    pdfFilename,
+    // Use the original signed_at as the "sold date" (cf_date_5) so the
+    // JN job doesn't show up under "this week" if the signing was old.
+    soldDate: rec.signed_at || undefined,
   };
 
   let jnResult;
