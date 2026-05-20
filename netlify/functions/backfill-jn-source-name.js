@@ -59,31 +59,48 @@ exports.handler = async (event) => {
     event.queryStringParameters?.sync_orphans === "1" ||
     event.queryStringParameters?.sync_orphans === "true";
 
+  // reconcile=1 mode: instead of "fix NEED → Inspection", iterate every
+  // linked inspection (jn_job_id set) and PUT source_name = whatever
+  // lead_source the DB currently holds. Fixes pre-existing DB-vs-JN
+  // drift (e.g. row 'df52eac3...' had INS in DB but NEED in JN).
+  const reconcile = body.reconcile === true ||
+    event.queryStringParameters?.reconcile === "1" ||
+    event.queryStringParameters?.reconcile === "true";
+
   const results = {
     dry_run: dryRun,
     sync_orphans: syncOrphans,
+    reconcile,
     inspections: {
       matched: 0,
       db_updated: 0,
       jn_updated: 0,
       jn_skipped_no_id: 0,
+      jn_already_matched: 0,
       orphans_synced: 0,
       orphan_sync_errors: [],
       jn_errors: [],
+      mismatches: [], // populated in reconcile dry-run
     },
   };
 
   for (const table of ["inspections"]) {
-    // Pull every row with the old source. Includes enough identifying
-    // fields that the dry-run output lists orphan rows (no jn_job_id)
-    // by name + address + date — so admin can decide whether to sync,
-    // delete (test rows), or just let the DB backfill them.
-    const qs = new URLSearchParams({
+    // Pull rows. Default scope = rows with lead_source='NEED' (the
+    // original NEED → Inspection backfill). reconcile=1 scope = every
+    // linked row (jn_job_id set), so we can push the DB's current
+    // lead_source to JN and fix any pre-existing drift.
+    const params = {
       select:
         "id,jn_job_id,lead_source,client_name,address,city,state,zip,sales_rep_name,signed_at",
-      lead_source: "eq.NEED",
       limit: "1000",
-    }).toString();
+    };
+    if (reconcile) {
+      params["jn_job_id"] = "not.is.null";
+      params["lead_source"] = "not.is.null";
+    } else {
+      params["lead_source"] = "eq.NEED";
+    }
+    const qs = new URLSearchParams(params).toString();
     const rowsRes = await fetch(`${SB_URL}/rest/v1/${table}?${qs}`, { headers: sbHeaders });
     if (!rowsRes.ok) {
       return json(500, { error: `Could not fetch ${table}: ${await rowsRes.text()}` });
@@ -111,10 +128,15 @@ exports.handler = async (event) => {
 
     // Per-row work — runs in parallel inside Promise.all batches below.
     async function processRow(row) {
-      // 1. Update the DB row FIRST. This way any retry-jn-sync call
-      //    that follows reads lead_source='Inspection' from the row
-      //    and ships that to JN as the new source_name.
-      if (!dryRun) {
+      // The target value for JN's source_name:
+      //   • reconcile mode: whatever the DB currently has (push DB → JN)
+      //   • default mode:   force 'Inspection' (rename NEED → Inspection)
+      const targetSource = reconcile ? row.lead_source : "Inspection";
+
+      // 1. Update the DB row FIRST (default mode only — reconcile leaves
+      //    DB alone since DB is the source of truth there). This way any
+      //    retry-jn-sync call that follows reads the new value.
+      if (!reconcile && !dryRun) {
         const updRes = await fetch(`${SB_URL}/rest/v1/${table}?id=eq.${row.id}`, {
           method: "PATCH",
           headers: sbHeaders,
@@ -130,7 +152,7 @@ exports.handler = async (event) => {
             const jnRes = await fetch(`${JN_BASE}/jobs/${row.jn_job_id}`, {
               method: "PUT",
               headers: jnHeaders,
-              body: JSON.stringify({ source_name: "Inspection" }),
+              body: JSON.stringify({ source_name: targetSource }),
             });
             if (jnRes.ok) {
               results[table].jn_updated++;
@@ -138,6 +160,7 @@ exports.handler = async (event) => {
               results[table].jn_errors.push({
                 row_id: row.id,
                 jn_job_id: row.jn_job_id,
+                target_source: targetSource,
                 status: jnRes.status,
                 detail: await jnRes.text().then((t) => t.slice(0, 200)),
               });
@@ -146,9 +169,20 @@ exports.handler = async (event) => {
             results[table].jn_errors.push({
               row_id: row.id,
               jn_job_id: row.jn_job_id,
+              target_source: targetSource,
               error: e.message || "Unknown",
             });
           }
+        } else if (reconcile) {
+          // Dry-run reconcile: record what would be pushed.
+          results[table].mismatches.push({
+            row_id: row.id,
+            client_name: row.client_name,
+            address: row.address,
+            jn_job_id: row.jn_job_id,
+            db_lead_source: row.lead_source,
+            would_push_to_jn: targetSource,
+          });
         }
         return;
       }
