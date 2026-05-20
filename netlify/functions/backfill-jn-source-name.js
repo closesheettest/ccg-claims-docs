@@ -109,7 +109,8 @@ exports.handler = async (event) => {
     // Resolve the base URL once for orphan retry-sync calls.
     const base = process.env.URL || process.env.PUBLIC_SITE_URL || process.env.DEPLOY_URL || "";
 
-    for (const row of rows) {
+    // Per-row work — runs in parallel inside Promise.all batches below.
+    async function processRow(row) {
       // 1. Update the DB row FIRST. This way any retry-jn-sync call
       //    that follows reads lead_source='Inspection' from the row
       //    and ships that to JN as the new source_name.
@@ -149,37 +150,47 @@ exports.handler = async (event) => {
             });
           }
         }
-      } else {
-        // 3. Orphan row: optionally create a JN job via retry-jn-sync.
-        //    Without sync_orphans=true we just count and move on.
-        results[table].jn_skipped_no_id++;
-        if (syncOrphans && !dryRun && base) {
-          try {
-            const syncRes = await fetch(`${base}/.netlify/functions/retry-jn-sync`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ inspectionId: row.id }),
-            });
-            const syncBody = await syncRes.json().catch(() => ({}));
-            if (syncRes.ok && syncBody.ok) {
-              results[table].orphans_synced++;
-            } else {
-              results[table].orphan_sync_errors.push({
-                row_id: row.id,
-                client_name: row.client_name,
-                status: syncRes.status,
-                detail: syncBody.error || syncBody.detail || "Unknown",
-              });
-            }
-          } catch (e) {
+        return;
+      }
+
+      // 3. Orphan row: optionally create a JN job via retry-jn-sync.
+      results[table].jn_skipped_no_id++;
+      if (syncOrphans && !dryRun && base) {
+        try {
+          const syncRes = await fetch(`${base}/.netlify/functions/retry-jn-sync`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ inspectionId: row.id }),
+          });
+          const syncBody = await syncRes.json().catch(() => ({}));
+          if (syncRes.ok && syncBody.ok) {
+            results[table].orphans_synced++;
+          } else {
             results[table].orphan_sync_errors.push({
               row_id: row.id,
               client_name: row.client_name,
-              error: e.message || "Unknown",
+              status: syncRes.status,
+              detail: syncBody.error || syncBody.detail || "Unknown",
             });
           }
+        } catch (e) {
+          results[table].orphan_sync_errors.push({
+            row_id: row.id,
+            client_name: row.client_name,
+            error: e.message || "Unknown",
+          });
         }
       }
+    }
+
+    // Process in concurrent batches of 8. Big enough to stay under the
+    // 30s function timeout with 68 rows + cascading retry-jn-sync calls;
+    // small enough not to slam JN's rate limits. Each batch awaits
+    // before the next starts so errors stay contained.
+    const BATCH_SIZE = 8;
+    for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+      const batch = rows.slice(i, i + BATCH_SIZE);
+      await Promise.all(batch.map(processRow));
     }
   }
 
