@@ -143,12 +143,28 @@ exports.handler = async (event) => {
     event.queryStringParameters?.jn_audit === "true";
 
   if (jnAudit) {
+    // Two ways to call: legacy shortcut (target_status / target_source
+    // / replacement_source) for the common "rename NEED to Inspection
+    // at Sit Sold Insp" case, OR the flexible form via `match` and
+    // `set` objects for any field-combo audit.
+    let match = body.match;
+    let set = body.set;
+    if ((!match || Object.keys(match).length === 0) ||
+        (!set || Object.keys(set).length === 0)) {
+      // Fall back to legacy params.
+      match = {
+        status_name: body.target_status || "Sit Sold Insp",
+        source_name: body.target_source || "NEED",
+      };
+      set = {
+        source_name: body.replacement_source || "Inspection",
+      };
+    }
     return await runJnAudit({
       jnHeaders,
       dryRun,
-      targetStatus: body.target_status || "Sit Sold Insp",
-      targetSource: body.target_source || "NEED",
-      replacementSource: body.replacement_source || "Inspection",
+      match,
+      set,
       maxPages: Number.isFinite(body.max_pages) ? body.max_pages : 30,
     });
   }
@@ -604,20 +620,30 @@ async function runMarkDuplicates({ jnHeaders, dryRun, markIds, prefix }) {
   };
 }
 
-// Scan every JN job and fix any that still have source_name="NEED"
-// at status="Sit Sold Insp". Paginated through JN's /jobs endpoint.
-// Page size 100 (JN's max we expect to be supported) — at most
-// `maxPages` pages are scanned to keep us inside the function
-// timeout. For typical free-roof-inspection volume (~75 jobs), one
-// page is plenty.
-async function runJnAudit({ jnHeaders, dryRun, targetStatus, targetSource, replacementSource, maxPages }) {
+// Generic JN job audit: scan every JN job (paginated), find ones
+// where every `match` key equals the job's value for that key, and
+// PUT every `set` key=value to those jobs. Works for any field combo.
+//
+// Examples:
+//   match: { status_name: "Sit Sold Insp", source_name: "NEED" }
+//   set:   { source_name: "Inspection" }
+//   → renames NEED → Inspection at Sit Sold Insp.
+//
+//   match: { status_name: "Sit Sold PA", cf_string_34: "Retail" }
+//   set:   { source_name: "Inspection" }
+//   → fixes lead source for PA jobs with retail inspection results.
+//
+// Match comparison is strict-equal after both sides are stringified
+// and lowercased — so "Retail" matches "retail" but not "Retail Job".
+// Set values are PUT verbatim.
+async function runJnAudit({ jnHeaders, dryRun, match, set, maxPages }) {
   const PAGE_SIZE = 100;
+  const matchEntries = Object.entries(match || {});
   const out = {
     dry_run: dryRun,
     jn_audit: true,
-    target_status: targetStatus,
-    target_source: targetSource,
-    replacement_source: replacementSource,
+    match,
+    set,
     pages_scanned: 0,
     total_jobs_scanned: 0,
     matches_found: 0,
@@ -626,6 +652,21 @@ async function runJnAudit({ jnHeaders, dryRun, targetStatus, targetSource, repla
     errors: [],
     truncated: false,
   };
+  if (matchEntries.length === 0 || Object.keys(set || {}).length === 0) {
+    out.errors.push({ step: "validate", error: "match and set must both be non-empty objects" });
+    return {
+      statusCode: 400,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(out),
+    };
+  }
+  function eqLoose(a, b) {
+    return String(a == null ? "" : a).trim().toLowerCase() ===
+           String(b == null ? "" : b).trim().toLowerCase();
+  }
+  function rowMatches(job) {
+    return matchEntries.every(([k, v]) => eqLoose(job[k], v));
+  }
   for (let page = 0; page < maxPages; page++) {
     const from = page * PAGE_SIZE;
     const url = `https://app.jobnimbus.com/api1/jobs?size=${PAGE_SIZE}&from=${from}`;
@@ -647,19 +688,22 @@ async function runJnAudit({ jnHeaders, dryRun, targetStatus, targetSource, repla
     out.pages_scanned = page + 1;
     out.total_jobs_scanned += jobs.length;
 
-    const matches = jobs.filter(
-      (j) => j.status_name === targetStatus && j.source_name === targetSource,
-    );
-    // Update each match (or list for dry-run). Process in parallel
-    // batches of 8 to stay under timeout.
+    const matches = jobs.filter(rowMatches);
+
+    // Process matches in parallel batches of 8 to stay under timeout.
     for (let i = 0; i < matches.length; i += 8) {
       const batch = matches.slice(i, i + 8);
       await Promise.all(batch.map(async (job) => {
         const jnId = job.jnid || job.id;
-        const summary = { jn_job_id: jnId, name: job.name || job.display_name || "" };
+        const summary = {
+          jn_job_id: jnId,
+          name: job.name || job.display_name || "",
+          before: Object.fromEntries(matchEntries.map(([k]) => [k, job[k]])),
+          set,
+        };
         out.matches_found++;
         if (dryRun) {
-          summary.action = `(dry-run would PUT source_name=${replacementSource})`;
+          summary.action = "(dry-run would PUT)";
           out.matches.push(summary);
           return;
         }
@@ -667,7 +711,7 @@ async function runJnAudit({ jnHeaders, dryRun, targetStatus, targetSource, repla
           const putRes = await fetch(`https://app.jobnimbus.com/api1/jobs/${jnId}`, {
             method: "PUT",
             headers: jnHeaders,
-            body: JSON.stringify({ source_name: replacementSource }),
+            body: JSON.stringify(set),
           });
           if (putRes.ok) {
             out.matches_updated++;
@@ -687,7 +731,6 @@ async function runJnAudit({ jnHeaders, dryRun, targetStatus, targetSource, repla
 
     if (jobs.length < PAGE_SIZE) break;
     if (page === maxPages - 1) {
-      // We hit the cap — there might be more jobs to scan.
       out.truncated = true;
     }
   }
