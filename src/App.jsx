@@ -3784,6 +3784,12 @@ export default function App() {
   const [inspTypedSig, setInspTypedSig] = useState("");
   const [inspSigFont, setInspSigFont] = useState(SIGNATURE_FONTS[0]);
   const [inspSubmitting, setInspSubmitting] = useState(false);
+  // Synchronous re-entrancy guard. State updates from setInspSubmitting
+  // don't apply until the next render, so a fast double-tap can fire
+  // submitInspection twice before the button visually disables. The
+  // useRef flips immediately so the second invocation early-returns.
+  // (Goldstein triple-submit on 2026-05-20 — 3 inserts in 37ms.)
+  const inspSubmittingRef = useRef(false);
   const [inspectionOnly, setInspectionOnly] = useState(false);
   const [duplicateRecord, setDuplicateRecord] = useState(null);
   const [inspSubmitAttempted, setInspSubmitAttempted] = useState(false);
@@ -5728,8 +5734,14 @@ const renderSmsTemplate = (key, vars) => {
   };
 
   const submitInspection = async () => {
+    // Synchronous re-entrancy guard — flip BEFORE any await so a fast
+    // double-tap can't slip a second call through while the first is
+    // in flight. Reset on every early-return and in the finally below.
+    if (inspSubmittingRef.current) return;
+    inspSubmittingRef.current = true;
     setInspSubmitAttempted(true);
     if (!effectiveInspSig || !inspData.clientName || !inspData.address) {
+      inspSubmittingRef.current = false;
       return;
     }
     // Block submit if a non-empty email is malformed. JN's API rejects the
@@ -5738,13 +5750,18 @@ const renderSmsTemplate = (key, vars) => {
     // the record. Catch this at intake instead.
     if (!isValidEmail(inspData.email)) {
       alert("The email address is not valid. Please correct it (e.g. name@example.com) or clear the field.");
+      inspSubmittingRef.current = false;
       return;
     }
+    setInspSubmitting(true);
     // Pre-flight duplicate check by address+zip. If a recent inspection exists
     // for the same property, warn the rep and let them cancel.
     const okToProceed = await checkForExistingByAddress(inspData.address, inspData.zip);
-    if (!okToProceed) return;
-    setInspSubmitting(true);
+    if (!okToProceed) {
+      setInspSubmitting(false);
+      inspSubmittingRef.current = false;
+      return;
+    }
     try {
       // Generate PDF
       const blob = await generatePDF("#inspection-printable", "Free-Roof-Inspection-Agreement.pdf");
@@ -5944,6 +5961,7 @@ const renderSmsTemplate = (key, vars) => {
       alert(err?.message || "Something went wrong. Please try again.");
     } finally {
       setInspSubmitting(false);
+      inspSubmittingRef.current = false;
     }
   };
 
