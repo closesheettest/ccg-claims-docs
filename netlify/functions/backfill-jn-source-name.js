@@ -50,9 +50,27 @@ exports.handler = async (event) => {
   // Only inspections has lead_source + jn_job_id. The claims table
   // (LoR + PA Authorization signings) doesn't ship to JN and doesn't
   // store a lead source — handled here as a single-table backfill.
+  //
+  // syncOrphans=true also creates JN jobs for rows missing jn_job_id
+  // by calling the existing /retry-jn-sync function per row. The DB
+  // is updated to lead_source='Inspection' BEFORE the call so the JN
+  // job gets the new source_name from the get-go.
+  const syncOrphans = body.sync_orphans === true ||
+    event.queryStringParameters?.sync_orphans === "1" ||
+    event.queryStringParameters?.sync_orphans === "true";
+
   const results = {
     dry_run: dryRun,
-    inspections: { matched: 0, db_updated: 0, jn_updated: 0, jn_skipped_no_id: 0, jn_errors: [] },
+    sync_orphans: syncOrphans,
+    inspections: {
+      matched: 0,
+      db_updated: 0,
+      jn_updated: 0,
+      jn_skipped_no_id: 0,
+      orphans_synced: 0,
+      orphan_sync_errors: [],
+      jn_errors: [],
+    },
   };
 
   for (const table of ["inspections"]) {
@@ -88,9 +106,23 @@ exports.handler = async (event) => {
         }));
     }
 
+    // Resolve the base URL once for orphan retry-sync calls.
+    const base = process.env.URL || process.env.PUBLIC_SITE_URL || process.env.DEPLOY_URL || "";
+
     for (const row of rows) {
-      // 1. Update the JN job (if linked) FIRST. If JN fails we still
-      //    want to fix the DB so future syncs send the right value.
+      // 1. Update the DB row FIRST. This way any retry-jn-sync call
+      //    that follows reads lead_source='Inspection' from the row
+      //    and ships that to JN as the new source_name.
+      if (!dryRun) {
+        const updRes = await fetch(`${SB_URL}/rest/v1/${table}?id=eq.${row.id}`, {
+          method: "PATCH",
+          headers: sbHeaders,
+          body: JSON.stringify({ lead_source: "Inspection" }),
+        });
+        if (updRes.ok) results[table].db_updated++;
+      }
+
+      // 2. Already-linked row: PUT source_name to its JN job.
       if (row.jn_job_id) {
         if (!dryRun) {
           try {
@@ -118,17 +150,35 @@ exports.handler = async (event) => {
           }
         }
       } else {
+        // 3. Orphan row: optionally create a JN job via retry-jn-sync.
+        //    Without sync_orphans=true we just count and move on.
         results[table].jn_skipped_no_id++;
-      }
-
-      // 2. Update the DB row.
-      if (!dryRun) {
-        const updRes = await fetch(`${SB_URL}/rest/v1/${table}?id=eq.${row.id}`, {
-          method: "PATCH",
-          headers: sbHeaders,
-          body: JSON.stringify({ lead_source: "Inspection" }),
-        });
-        if (updRes.ok) results[table].db_updated++;
+        if (syncOrphans && !dryRun && base) {
+          try {
+            const syncRes = await fetch(`${base}/.netlify/functions/retry-jn-sync`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ inspectionId: row.id }),
+            });
+            const syncBody = await syncRes.json().catch(() => ({}));
+            if (syncRes.ok && syncBody.ok) {
+              results[table].orphans_synced++;
+            } else {
+              results[table].orphan_sync_errors.push({
+                row_id: row.id,
+                client_name: row.client_name,
+                status: syncRes.status,
+                detail: syncBody.error || syncBody.detail || "Unknown",
+              });
+            }
+          } catch (e) {
+            results[table].orphan_sync_errors.push({
+              row_id: row.id,
+              client_name: row.client_name,
+              error: e.message || "Unknown",
+            });
+          }
+        }
       }
     }
   }
