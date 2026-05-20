@@ -91,7 +91,7 @@ exports.handler = async (event) => {
     // lead_source to JN and fix any pre-existing drift.
     const params = {
       select:
-        "id,jn_job_id,lead_source,client_name,address,city,state,zip,sales_rep_name,signed_at",
+        "id,jn_job_id,lead_source,client_name,address,city,state,zip,sales_rep_name,sales_rep_id,signed_at",
       limit: "1000",
     };
     if (reconcile) {
@@ -126,6 +126,32 @@ exports.handler = async (event) => {
     // Resolve the base URL once for orphan retry-sync calls.
     const base = process.env.URL || process.env.PUBLIC_SITE_URL || process.env.DEPLOY_URL || "";
 
+    // In reconcile mode, also rebuild the JN user index so we can fill
+    // in the sales_rep field on any job that was created without one
+    // (e.g. orphan rows that had sales_rep_name but no sales_rep_id).
+    // Map keys are lowercased trimmed full names.
+    let repByName = null;
+    if (reconcile) {
+      try {
+        const usersRes = await fetch(`${JN_BASE}/users?size=200`, { headers: jnHeaders });
+        if (usersRes.ok) {
+          const usersJson = await usersRes.json();
+          const users = usersJson.results || usersJson.users || usersJson || [];
+          repByName = new Map();
+          for (const u of users) {
+            const name =
+              (u.display_name || `${u.first_name || ""} ${u.last_name || ""}`).trim().toLowerCase();
+            const id = u.jnid || u.id;
+            if (name && id) repByName.set(name, id);
+          }
+        }
+      } catch (e) {
+        // non-fatal — reconcile still pushes source_name even if rep
+        // lookup fails. Surface the issue in the response.
+        results.rep_lookup_error = e.message || "Unknown";
+      }
+    }
+
     // Per-row work — runs in parallel inside Promise.all batches below.
     async function processRow(row) {
       // The target value for JN's source_name:
@@ -134,8 +160,9 @@ exports.handler = async (event) => {
       const targetSource = reconcile ? row.lead_source : "Inspection";
 
       // 1. Update the DB row FIRST (default mode only — reconcile leaves
-      //    DB alone since DB is the source of truth there). This way any
-      //    retry-jn-sync call that follows reads the new value.
+      //    lead_source alone since the DB is the source of truth there).
+      //    Reconcile mode separately backfills sales_rep_id below when
+      //    we resolve it from the name.
       if (!reconcile && !dryRun) {
         const updRes = await fetch(`${SB_URL}/rest/v1/${table}?id=eq.${row.id}`, {
           method: "PATCH",
@@ -145,17 +172,43 @@ exports.handler = async (event) => {
         if (updRes.ok) results[table].db_updated++;
       }
 
-      // 2. Already-linked row: PUT source_name to its JN job.
+      // 2. Already-linked row: PUT source_name to its JN job. In
+      //    reconcile mode also push sales_rep when we have the rep's
+      //    JN id (from row.sales_rep_id, or looked up by name in the
+      //    JN user index we built above).
       if (row.jn_job_id) {
+        const putBody = { source_name: targetSource };
+        let repIdForJn = null;
+        if (reconcile) {
+          repIdForJn =
+            row.sales_rep_id ||
+            (repByName && row.sales_rep_name
+              ? repByName.get(String(row.sales_rep_name).trim().toLowerCase()) || null
+              : null);
+          if (repIdForJn) {
+            putBody.sales_rep = repIdForJn;
+            putBody.owners = [{ id: repIdForJn }];
+          }
+        }
         if (!dryRun) {
           try {
             const jnRes = await fetch(`${JN_BASE}/jobs/${row.jn_job_id}`, {
               method: "PUT",
               headers: jnHeaders,
-              body: JSON.stringify({ source_name: targetSource }),
+              body: JSON.stringify(putBody),
             });
             if (jnRes.ok) {
               results[table].jn_updated++;
+              // If we filled in sales_rep_id via name lookup, save it
+              // back to Supabase so the next sync doesn't have to
+              // re-resolve. Best-effort — non-fatal if it fails.
+              if (reconcile && repIdForJn && !row.sales_rep_id) {
+                fetch(`${SB_URL}/rest/v1/${table}?id=eq.${row.id}`, {
+                  method: "PATCH",
+                  headers: sbHeaders,
+                  body: JSON.stringify({ sales_rep_id: repIdForJn }),
+                }).catch(() => {});
+              }
             } else {
               results[table].jn_errors.push({
                 row_id: row.id,
