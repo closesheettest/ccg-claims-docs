@@ -62,7 +62,7 @@ exports.handler = async (event) => {
     // delete (test rows), or just let the DB backfill them.
     const qs = new URLSearchParams({
       select:
-        "id,jn_job_id,lead_source,client_name,address,city,state,zip,sales_rep_name,signed_at,created_at",
+        "id,jn_job_id,lead_source,client_name,address,city,state,zip,sales_rep_name,signed_at",
       lead_source: "eq.NEED",
       limit: "1000",
     }).toString();
@@ -85,7 +85,6 @@ exports.handler = async (event) => {
           zip: r.zip,
           sales_rep_name: r.sales_rep_name,
           signed_at: r.signed_at,
-          created_at: r.created_at,
         }));
     }
 
