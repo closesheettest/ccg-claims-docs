@@ -76,8 +76,11 @@ exports.handler = async (event) => {
     event.queryStringParameters?.undo_orphans === "1" ||
     event.queryStringParameters?.undo_orphans === "true";
 
-  // The 14 inspection IDs from the 2026-05-20 backfill. Caller can
-  // override via body.inspection_ids if needed.
+  // The 11 inspection IDs from the 2026-05-20 backfill THAT STILL POINT
+  // AT NEWLY-CREATED JN JOBS. Stefano's 3 (Robert/Maria/Michael) were
+  // manually re-pointed to their original JN jobs via SQL earlier, so
+  // they are EXCLUDED here — running undo on those would delete the
+  // originals.
   const DEFAULT_UNDO_IDS = [
     "2e473e6e-637f-41fb-9b2a-2cd4bc58ae6f", // Nora lambirght
     "1c865a85-9762-4f11-b7ef-59cdc07a4f18", // Emma freeman
@@ -90,13 +93,21 @@ exports.handler = async (event) => {
     "1d6a9056-8dcf-4a56-886a-9230df84426c", // Vanessa ealy
     "e88e773d-6dab-4fa9-aa4f-51d2db77c8cd", // Carlos gomez
     "d48865e8-ba2b-4516-a575-d13a239e66d7", // Rhonda Reining
-    "4e3daa93-47ed-4b32-9215-1a8b07ba6f27", // Robert abbatecola
-    "aa822f7e-92ed-456c-ab64-d68d0356e33a", // Maria class
-    "9e4188b0-a305-4c0b-b00d-2fd8ca5dfa08", // Michael Leone
+  ];
+  // Stefano's 3 duplicate JN job IDs created by the 2026-05-20 backfill.
+  // These aren't linked to any Supabase row (we re-pointed those rows
+  // to the original JN jobs already), so we delete them directly.
+  const DEFAULT_STRAY_JN_IDS = [
+    "mpearva0sym2dc80c0pprw",  // Maria class duplicate
+    "mpearunzwbmegujjq2gkl9d", // Michael Leone duplicate
+    "mpeartv411728lxa9wkv9zp", // Robert abbatecola duplicate
   ];
   const undoIds = Array.isArray(body.inspection_ids) && body.inspection_ids.length > 0
     ? body.inspection_ids
     : DEFAULT_UNDO_IDS;
+  const strayJnIds = Array.isArray(body.stray_jn_ids)
+    ? body.stray_jn_ids
+    : DEFAULT_STRAY_JN_IDS;
 
   if (undoOrphans) {
     return await runUndo({
@@ -105,6 +116,7 @@ exports.handler = async (event) => {
       jnHeaders,
       dryRun,
       undoIds,
+      strayJnIds,
     });
   }
 
@@ -325,15 +337,22 @@ exports.handler = async (event) => {
   return json(200, results);
 };
 
-// Undo the 2026-05-20 orphan sync. For each inspection in undoIds:
-//   1. Read its current jn_job_id from Supabase.
-//   2. DELETE that JN job (so the duplicate / wrong-status-date jobs
-//      we created today disappear from JN).
-//   3. NULL out the Supabase row's jn_job_id so it goes back to being
-//      an orphan and admin can re-sync properly later.
+// Undo the 2026-05-20 orphan sync. Two pieces of cleanup:
+//
+//   A) For each inspection ID in undoIds (the 11 William+Dustin rows
+//      that still point at newly-created JN jobs):
+//      1. Read its current jn_job_id from Supabase.
+//      2. DELETE that JN job (the one we created today).
+//      3. NULL out the Supabase row's jn_job_id so it goes back to
+//         being an orphan and admin can re-sync properly later.
+//
+//   B) For each jn_id in strayJnIds (Stefano's 3 duplicates that
+//      aren't linked to any Supabase row anymore — we relinked
+//      Stefano's rows to the originals via SQL earlier):
+//      Just DELETE the stray JN job directly.
 //
 // Leaves lead_source alone — it stays 'Inspection' per the rename.
-async function runUndo({ SB_URL, sbHeaders, jnHeaders, dryRun, undoIds }) {
+async function runUndo({ SB_URL, sbHeaders, jnHeaders, dryRun, undoIds, strayJnIds }) {
   const out = {
     dry_run: dryRun,
     undo_orphans: true,
@@ -344,6 +363,10 @@ async function runUndo({ SB_URL, sbHeaders, jnHeaders, dryRun, undoIds }) {
     db_unlinked: 0,
     db_errors: [],
     rows: [],
+    stray_jn_total: (strayJnIds || []).length,
+    stray_jn_deleted: 0,
+    stray_jn_errors: [],
+    stray_rows: [],
   };
   for (const id of undoIds) {
     // 1. Look up current state.
@@ -408,6 +431,34 @@ async function runUndo({ SB_URL, sbHeaders, jnHeaders, dryRun, undoIds }) {
       summary.db = "(dry-run would NULL jn_job_id)";
     }
     out.rows.push(summary);
+  }
+  // Part B: stray JN-only deletions (Stefano's 3 duplicates that
+  // aren't tied to any Supabase inspection anymore).
+  for (const jnId of (strayJnIds || [])) {
+    const summary = { jn_job_id: jnId };
+    if (dryRun) {
+      summary.action = "(dry-run would DELETE)";
+      out.stray_rows.push(summary);
+      continue;
+    }
+    try {
+      const delRes = await fetch(`https://app.jobnimbus.com/api1/jobs/${jnId}`, {
+        method: "DELETE",
+        headers: jnHeaders,
+      });
+      if (delRes.ok || delRes.status === 404) {
+        out.stray_jn_deleted++;
+        summary.action = `deleted (${delRes.status})`;
+      } else {
+        const detail = await delRes.text().then((t) => t.slice(0, 200));
+        out.stray_jn_errors.push({ jn_job_id: jnId, status: delRes.status, detail });
+        summary.action = `error ${delRes.status}`;
+      }
+    } catch (e) {
+      out.stray_jn_errors.push({ jn_job_id: jnId, error: e.message || "Unknown" });
+      summary.action = `exception: ${e.message || "Unknown"}`;
+    }
+    out.stray_rows.push(summary);
   }
   return {
     statusCode: 200,
