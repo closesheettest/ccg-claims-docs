@@ -130,6 +130,29 @@ exports.handler = async (event) => {
     event.queryStringParameters?.mark_duplicates === "1" ||
     event.queryStringParameters?.mark_duplicates === "true";
 
+  // jn_audit=1 mode: scan every JN job (paginated), find ones with
+  // status="Sit Sold Insp" AND source_name="NEED", PUT source_name to
+  // "Inspection". Catches legacy / unlinked / orphaned JN jobs that
+  // the DB-driven reconcile can't see. Customize via body:
+  //   target_status (default "Sit Sold Insp")
+  //   target_source (default "NEED")
+  //   replacement_source (default "Inspection")
+  //   max_pages (default 30 — safety against runaway scans)
+  const jnAudit = body.jn_audit === true ||
+    event.queryStringParameters?.jn_audit === "1" ||
+    event.queryStringParameters?.jn_audit === "true";
+
+  if (jnAudit) {
+    return await runJnAudit({
+      jnHeaders,
+      dryRun,
+      targetStatus: body.target_status || "Sit Sold Insp",
+      targetSource: body.target_source || "NEED",
+      replacementSource: body.replacement_source || "Inspection",
+      maxPages: Number.isFinite(body.max_pages) ? body.max_pages : 30,
+    });
+  }
+
   if (markDuplicates) {
     // Hardcoded set: the 11 jn_job_ids we just unlinked from Supabase
     // (from the undo dry-run output) + the 3 Stefano duplicates.
@@ -573,6 +596,100 @@ async function runMarkDuplicates({ jnHeaders, dryRun, markIds, prefix }) {
       summary.action = `exception: ${e.message || "Unknown"}`;
     }
     out.rows.push(summary);
+  }
+  return {
+    statusCode: 200,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(out),
+  };
+}
+
+// Scan every JN job and fix any that still have source_name="NEED"
+// at status="Sit Sold Insp". Paginated through JN's /jobs endpoint.
+// Page size 100 (JN's max we expect to be supported) — at most
+// `maxPages` pages are scanned to keep us inside the function
+// timeout. For typical free-roof-inspection volume (~75 jobs), one
+// page is plenty.
+async function runJnAudit({ jnHeaders, dryRun, targetStatus, targetSource, replacementSource, maxPages }) {
+  const PAGE_SIZE = 100;
+  const out = {
+    dry_run: dryRun,
+    jn_audit: true,
+    target_status: targetStatus,
+    target_source: targetSource,
+    replacement_source: replacementSource,
+    pages_scanned: 0,
+    total_jobs_scanned: 0,
+    matches_found: 0,
+    matches_updated: 0,
+    matches: [],
+    errors: [],
+    truncated: false,
+  };
+  for (let page = 0; page < maxPages; page++) {
+    const from = page * PAGE_SIZE;
+    const url = `https://app.jobnimbus.com/api1/jobs?size=${PAGE_SIZE}&from=${from}`;
+    let listRes;
+    try {
+      listRes = await fetch(url, { headers: jnHeaders });
+    } catch (e) {
+      out.errors.push({ step: "list", page, error: e.message || "Unknown" });
+      break;
+    }
+    if (!listRes.ok) {
+      const detail = await listRes.text().then((t) => t.slice(0, 200));
+      out.errors.push({ step: "list", page, status: listRes.status, detail });
+      break;
+    }
+    const data = await listRes.json().catch(() => ({}));
+    const jobs = data.results || data.jobs || data.items || [];
+    if (jobs.length === 0) break;
+    out.pages_scanned = page + 1;
+    out.total_jobs_scanned += jobs.length;
+
+    const matches = jobs.filter(
+      (j) => j.status_name === targetStatus && j.source_name === targetSource,
+    );
+    // Update each match (or list for dry-run). Process in parallel
+    // batches of 8 to stay under timeout.
+    for (let i = 0; i < matches.length; i += 8) {
+      const batch = matches.slice(i, i + 8);
+      await Promise.all(batch.map(async (job) => {
+        const jnId = job.jnid || job.id;
+        const summary = { jn_job_id: jnId, name: job.name || job.display_name || "" };
+        out.matches_found++;
+        if (dryRun) {
+          summary.action = `(dry-run would PUT source_name=${replacementSource})`;
+          out.matches.push(summary);
+          return;
+        }
+        try {
+          const putRes = await fetch(`https://app.jobnimbus.com/api1/jobs/${jnId}`, {
+            method: "PUT",
+            headers: jnHeaders,
+            body: JSON.stringify({ source_name: replacementSource }),
+          });
+          if (putRes.ok) {
+            out.matches_updated++;
+            summary.action = "updated";
+          } else {
+            const detail = await putRes.text().then((t) => t.slice(0, 200));
+            out.errors.push({ step: "put", jn_job_id: jnId, status: putRes.status, detail });
+            summary.action = `error ${putRes.status}`;
+          }
+        } catch (e) {
+          out.errors.push({ step: "put", jn_job_id: jnId, error: e.message || "Unknown" });
+          summary.action = `exception: ${e.message || "Unknown"}`;
+        }
+        out.matches.push(summary);
+      }));
+    }
+
+    if (jobs.length < PAGE_SIZE) break;
+    if (page === maxPages - 1) {
+      // We hit the cap — there might be more jobs to scan.
+      out.truncated = true;
+    }
   }
   return {
     statusCode: 200,
