@@ -345,7 +345,7 @@ const initialData = {
   signerEmail: "",
   paEmail: "Kkeckleradj@gmail.com",
   representativeName: "",
-  leadSource: "NEED",  // "NEED" | "INS"
+  leadSource: "Inspection",  // "Inspection" (was "NEED") | "INS"
   salesRepId: "",
   salesRepName: "",
   salesRepEmail: "",
@@ -3315,10 +3315,10 @@ function GuidedIntakeFlow({
     title = "How did they come to us?";
     subtitle = "This is the lead source — where the customer originated.";
     const sources = [
-      { code: "INS",  label: "INS",  desc: "Insurance lead" },
-      { code: "NEED", label: "NEED", desc: "NEED lead" },
+      { code: "Inspection", label: "Inspection", desc: "Free roof inspection lead (default)" },
+      { code: "INS",        label: "INS",        desc: "Insurance lead" },
       { code: "Door Knock", label: "Door Knock", desc: "Walked the neighborhood" },
-      { code: "Referral", label: "Referral",  desc: "Referred by another customer" },
+      { code: "Referral",   label: "Referral",   desc: "Referred by another customer" },
     ];
     body = (
       <div style={{ display: "grid", gap: 10 }}>
@@ -5764,7 +5764,7 @@ const renderSmsTemplate = (key, vars) => {
         sales_rep_name: data.salesRepName || "",
         sales_rep_id: data.salesRepId || "",
         sales_rep_email: data.salesRepEmail || "",
-        lead_source: data.leadSource || "NEED",
+        lead_source: data.leadSource || "Inspection",
       }]).select("id").single();
       if (inspSaveError) {
         console.error("Inspection save error:", inspSaveError);
@@ -5856,7 +5856,7 @@ const renderSmsTemplate = (key, vars) => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          leadSource: data.leadSource || "NEED",
+          leadSource: data.leadSource || "Inspection",
           docsSignedList: ["insp"],
           homeowner1: inspData.clientName || data.homeowner1 || "",
           homeowner2: "",
@@ -6096,7 +6096,7 @@ const renderSmsTemplate = (key, vars) => {
           sales_rep_name: data.salesRepName || "",
           sales_rep_id: data.salesRepId || "",
           sales_rep_email: data.salesRepEmail || "",
-          lead_source: data.leadSource || "NEED",
+          lead_source: data.leadSource || "Inspection",
         }]).select("id").single();
         if (inspInsertErr) {
           console.error("Inspection insert error:", inspInsertErr);
@@ -6412,7 +6412,7 @@ const renderSmsTemplate = (key, vars) => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          leadSource: data.leadSource || "NEED",
+          leadSource: data.leadSource || "Inspection",
           docsSignedList: selectedDocs,
           homeowner1: data.homeowner1 || "",
           homeowner2: data.homeowner2 || "",
@@ -7711,18 +7711,21 @@ if (!hasDamage) {
                     <div>
                       <Label>Lead Source</Label>
                       <div style={{ display: "flex", gap: 10 }}>
-                        {["NEED", "INS"].map((src) => (
+                        {[
+                          { code: "Inspection", label: "Inspection" },
+                          { code: "INS", label: "INS" },
+                        ].map((src) => (
                           <button
-                            key={src}
+                            key={src.code}
                             type="button"
-                            onClick={() => update("leadSource", src)}
+                            onClick={() => update("leadSource", src.code)}
                             style={{
                               flex: 1,
                               padding: "10px 8px",
                               borderRadius: 12,
-                              border: data.leadSource === src ? "2.5px solid #199c2e" : "1.5px solid #d1d5db",
-                              background: data.leadSource === src ? "#f0fdf4" : "#fff",
-                              color: data.leadSource === src ? "#166534" : "#374151",
+                              border: data.leadSource === src.code ? "2.5px solid #199c2e" : "1.5px solid #d1d5db",
+                              background: data.leadSource === src.code ? "#f0fdf4" : "#fff",
+                              color: data.leadSource === src.code ? "#166534" : "#374151",
                               fontFamily: "'Oswald', sans-serif",
                               fontWeight: 700,
                               fontSize: 15,
@@ -7730,12 +7733,12 @@ if (!hasDamage) {
                               letterSpacing: "0.05em",
                             }}
                           >
-                            {src}
+                            {src.label}
                           </button>
                         ))}
                       </div>
                       <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4, fontFamily: "'Nunito', sans-serif" }}>
-                        {data.leadSource === "NEED" ? "New lead — will create contact + job in JN" : "Existing lead — will search JN by address"}
+                        {data.leadSource === "Inspection" ? "New lead — will create contact + job in JN" : "Existing lead — will search JN by address"}
                       </div>
                     </div>
 

@@ -302,7 +302,7 @@ exports.handler = async (event) => {
       status: statusId,
       primary: { id: contactId },
       location: { id: locationId },
-      source_name: leadSource || "NEED",
+      source_name: leadSource || "Inspection",
       // Address fields on the job so city shows in reports
       address_line1: address || "",
       city: (city || "").split(",")[0].trim(),

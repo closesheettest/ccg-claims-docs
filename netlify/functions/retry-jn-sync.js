@@ -89,7 +89,7 @@ exports.handler = async (event) => {
   console.log("Calling:", syncUrl);
 
   const payload = {
-    leadSource: rec.lead_source || "NEED",
+    leadSource: rec.lead_source || "Inspection",
     docsSignedList,
     homeowner1: rec.client_name || "",
     homeowner2: "",
