@@ -120,6 +120,47 @@ exports.handler = async (event) => {
     });
   }
 
+  // mark_duplicates=1 mode: JN won't let us DELETE via API. As a
+  // workaround, rename each of the 14 leftover JN jobs from the
+  // 2026-05-20 backfill (11 newly-created + 3 Stefano duplicates) to
+  // prefix "[DELETE ME 2026-05-20] " so admin can find them in the
+  // JN UI and bulk-delete with manual clicks. Idempotent (no-op if
+  // already prefixed).
+  const markDuplicates = body.mark_duplicates === true ||
+    event.queryStringParameters?.mark_duplicates === "1" ||
+    event.queryStringParameters?.mark_duplicates === "true";
+
+  if (markDuplicates) {
+    // Hardcoded set: the 11 jn_job_ids we just unlinked from Supabase
+    // (from the undo dry-run output) + the 3 Stefano duplicates.
+    const DEFAULT_MARK_IDS = [
+      "mpeafhyrtdck37apwghn7ax", // Nora lambirght
+      "mpeafk0ksy2r6sbao9bav7n", // Emma freeman
+      "mpeaflf2gxvx60pyhlu0pkt", // Jaime escalante
+      "mpeafmjaptw73abm50k4bv", // Cristin bullock
+      "mpeafy1cgvx5c8sxbaxin3w", // Danny perry
+      "mpeafzb5dzeo95797u7qrok", // Johnny thomas
+      "mpeag0737ca6khnat2eigj8", // betty perry
+      "mpearqsvxr8rmv6g212gyhc", // Heidi mastroianni
+      "mpearrjhpjfo8984ake6o1i", // Vanessa ealy
+      "mpearsg4m6uf8az2he0cubb", // Carlos gomez
+      "mpeart494f698q17k3cjuxv", // Rhonda Reining
+      "mpearva0sym2dc80c0pprw",  // Maria class duplicate
+      "mpearunzwbmegujjq2gkl9d", // Michael Leone duplicate
+      "mpeartv411728lxa9wkv9zp", // Robert abbatecola duplicate
+    ];
+    const markIds = Array.isArray(body.jn_ids) && body.jn_ids.length > 0
+      ? body.jn_ids
+      : DEFAULT_MARK_IDS;
+    const prefix = body.prefix || "[DELETE ME 2026-05-20] ";
+    return await runMarkDuplicates({
+      jnHeaders,
+      dryRun,
+      markIds,
+      prefix,
+    });
+  }
+
   const results = {
     dry_run: dryRun,
     sync_orphans: syncOrphans,
@@ -459,6 +500,79 @@ async function runUndo({ SB_URL, sbHeaders, jnHeaders, dryRun, undoIds, strayJnI
       summary.action = `exception: ${e.message || "Unknown"}`;
     }
     out.stray_rows.push(summary);
+  }
+  return {
+    statusCode: 200,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(out),
+  };
+}
+
+// JN doesn't allow DELETE on jobs via API. Workaround: rename each
+// leftover job with a "[DELETE ME ...] " prefix so admin can spot
+// them at a glance in the JN UI and bulk-delete via clicks.
+//
+// Idempotent — if a job's name already starts with the prefix we
+// skip it. Returns per-job status so admin can see what changed.
+async function runMarkDuplicates({ jnHeaders, dryRun, markIds, prefix }) {
+  const out = {
+    dry_run: dryRun,
+    mark_duplicates: true,
+    prefix,
+    total: markIds.length,
+    renamed: 0,
+    already_prefixed: 0,
+    errors: [],
+    rows: [],
+  };
+  for (const jnId of markIds) {
+    const summary = { jn_job_id: jnId };
+    try {
+      // 1. GET the current name.
+      const getRes = await fetch(`https://app.jobnimbus.com/api1/jobs/${jnId}`, {
+        headers: jnHeaders,
+      });
+      if (!getRes.ok) {
+        const detail = await getRes.text().then((t) => t.slice(0, 200));
+        out.errors.push({ jn_job_id: jnId, step: "get", status: getRes.status, detail });
+        summary.action = `get error ${getRes.status}`;
+        out.rows.push(summary);
+        continue;
+      }
+      const job = await getRes.json().catch(() => ({}));
+      const currentName = job.name || job.display_name || "";
+      summary.current_name = currentName;
+      if (currentName.startsWith(prefix)) {
+        out.already_prefixed++;
+        summary.action = "skipped — already prefixed";
+        out.rows.push(summary);
+        continue;
+      }
+      const newName = prefix + currentName;
+      summary.new_name = newName;
+      // 2. PUT the new name.
+      if (!dryRun) {
+        const putRes = await fetch(`https://app.jobnimbus.com/api1/jobs/${jnId}`, {
+          method: "PUT",
+          headers: jnHeaders,
+          body: JSON.stringify({ name: newName }),
+        });
+        if (putRes.ok) {
+          out.renamed++;
+          summary.action = "renamed";
+        } else {
+          const detail = await putRes.text().then((t) => t.slice(0, 200));
+          out.errors.push({ jn_job_id: jnId, step: "put", status: putRes.status, detail });
+          summary.action = `put error ${putRes.status}`;
+        }
+      } else {
+        summary.action = "(dry-run would rename)";
+      }
+    } catch (e) {
+      out.errors.push({ jn_job_id: jnId, error: e.message || "Unknown" });
+      summary.action = `exception: ${e.message || "Unknown"}`;
+    }
+    out.rows.push(summary);
   }
   return {
     statusCode: 200,
