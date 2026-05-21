@@ -461,7 +461,7 @@ export function InspectorsAdminPanel() {
     // Un-assign their jobs first so the FK doesn't block deletion.
     await supabase
       .from("inspections")
-      .update({ inspector_id: null })
+      .update({ inspector_id: null, claimed_at: null })
       .eq("inspector_id", insp.id);
     const { error } = await supabase.from("inspectors").delete().eq("id", insp.id);
     if (error) return setMessage({ kind: "error", text: error.message });
@@ -472,9 +472,15 @@ export function InspectorsAdminPanel() {
 
   async function reassignJob(jobId, newInspectorId) {
     setBusyJobId(jobId);
+    // Manager-driven reassignment resets the claim clock: a new
+    // claimed_at if going to someone (so the daily stale-claim
+    // check starts fresh), or null if releasing back to the pool.
+    const patch = newInspectorId
+      ? { inspector_id: newInspectorId, claimed_at: new Date().toISOString() }
+      : { inspector_id: null, claimed_at: null };
     const { error } = await supabase
       .from("inspections")
-      .update({ inspector_id: newInspectorId || null })
+      .update(patch)
       .eq("id", jobId);
     setBusyJobId(null);
     if (error) return setMessage({ kind: "error", text: error.message });
@@ -1174,9 +1180,13 @@ function InspectorJobList({ me, onOpenJob, onOpenReports }) {
 
   async function claim(jobId) {
     setClaimingId(jobId);
+    // claimed_at stamps when the inspector picked it up. The nightly
+    // check-stale-claims cron uses this: if a claim is still pending
+    // (result IS NULL) when the day ends, the inspection is auto-
+    // unclaimed and the manager gets an SMS.
     const { error } = await supabase
       .from("inspections")
-      .update({ inspector_id: me.id })
+      .update({ inspector_id: me.id, claimed_at: new Date().toISOString() })
       .eq("id", jobId)
       .is("inspector_id", null); // optimistic — fails if someone beat me
     setClaimingId(null);
