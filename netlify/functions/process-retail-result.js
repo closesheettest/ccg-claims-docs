@@ -149,20 +149,22 @@ exports.handler = async (event) => {
   //    to the JN job's Documents tab. Best-effort — failure here
   //    doesn't roll back the JN field updates.
   const base = (process.env.URL || process.env.PUBLIC_SITE_URL || "").replace(/\/$/, "");
+  // Fire the cert generator as a Background Function (returns 202
+  // instantly, runs up to 15 min). Regular variant timed out the
+  // calling function on most retail submissions.
   let certUploaded = false;
   let certError = null;
   if (base) {
     try {
-      const certRes = await fetch(`${base}/.netlify/functions/generate-and-upload-insp-report`, {
+      const certRes = await fetch(`${base}/.netlify/functions/generate-and-upload-insp-report-background`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jnid: insp.jn_job_id }),
       });
-      const certBody = await certRes.json().catch(() => ({}));
-      if (certRes.ok && certBody.ok) {
+      if (certRes.status === 202 || certRes.ok) {
         certUploaded = true;
       } else {
-        certError = certBody.error || `cert generator returned ${certRes.status}`;
+        certError = `cert background-queue returned ${certRes.status}`;
       }
     } catch (e) {
       certError = e.message;

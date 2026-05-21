@@ -219,9 +219,12 @@ exports.handler = async (event) => {
     }
 
     // Cert + photos to JN Documents — for damage + no_damage. Retail's
-    // cert upload is fired from process-retail-result.
+    // cert upload is fired from process-retail-result. Uses the
+    // -background variant so the cert work continues after this
+    // function returns (regular variant routinely exceeds the 10s
+    // timeout, leaving the inspector with no feedback).
     if ((result === "damage" || result === "no_damage") && base) {
-      fetch(`${base}/.netlify/functions/generate-and-upload-insp-report`, {
+      fetch(`${base}/.netlify/functions/generate-and-upload-insp-report-background`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jnid: insp.jn_job_id }),

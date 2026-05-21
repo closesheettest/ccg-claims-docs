@@ -6777,21 +6777,25 @@ const renderSmsTemplate = (key, vars) => {
     }
   };
 
-  // Retroactively push a record's result (and cert+photos) to JN.
-  // Used for records that were statused BEFORE the inspector-submit
-  // and manager-set-result flows started auto-pushing to JN — JN's
-  // cf_string_34 may still say "Needs Inspection" while the app
-  // says Damage / No Damage / Retail. Click this to fix it.
+  // Inline per-row status for the "Push to JN" button. Map of
+  // row.id → { stage, ok?, message? }. Replaces the prior
+  // confirm()+alert() flow which hid all progress behind a modal
+  // and gave no indication anything was happening.
+  // stage values: "updating" | "queueing" | "done" | "error"
+  const [pushStatus, setPushStatus] = useState({});
+
   const adminPushResultToJn = async (row) => {
     if (!row) return;
-    if (!row.result) { alert("This record has no result yet — nothing to push."); return; }
-    if (!row.jn_job_id) { alert("This record isn't linked to a JN job yet. Hit Sync to JN first."); return; }
-    if (!window.confirm(
-      `Push "${row.result}" to JobNimbus for ${row.client_name}?\n\n` +
-      `Updates JN's inspection-result field, attaches the cert + photos to Documents` +
-      (row.result === "retail" ? ", and swaps the record to Lead / US Shingle and Metal LLC." : ".")
-    )) return;
+    if (!row.result) {
+      setPushStatus((s) => ({ ...s, [row.id]: { stage: "error", message: "No result on this record yet." } }));
+      return;
+    }
+    if (!row.jn_job_id) {
+      setPushStatus((s) => ({ ...s, [row.id]: { stage: "error", message: "Not linked to JN yet — hit Sync to JN first." } }));
+      return;
+    }
     setRowBusyId(row.id);
+    setPushStatus((s) => ({ ...s, [row.id]: { stage: "updating", message: "Updating JN inspection result…" } }));
     try {
       const r = await fetch("/.netlify/functions/push-result-to-jn", {
         method: "POST",
@@ -6800,18 +6804,24 @@ const renderSmsTemplate = (key, vars) => {
       });
       const d = await r.json().catch(() => ({}));
       if (r.ok && d.ok) {
-        const cert = d.cert_uploaded ? "✅ cert uploaded" : (d.cert_error ? `⚠️ cert: ${d.cert_error}` : "");
-        const jn = d.jn_updated ? `✅ JN result set to "${d.cf_string_34_set || row.result}"` : "";
-        alert(`Pushed to JN.\n\n${jn}${jn && cert ? "\n" : ""}${cert}`);
+        // Server has done the fast JN PUT + queued the slow cert
+        // generation as a Background Function. Show that staged.
+        setPushStatus((s) => ({
+          ...s,
+          [row.id]: {
+            stage: "done",
+            ok: true,
+            message: d.cert_uploaded
+              ? `✅ JN updated to "${d.cf_string_34_set || row.result}". Cert + photos uploading in background — appears in JN Documents within ~1 min.`
+              : `✅ JN updated to "${d.cf_string_34_set || row.result}". Cert queue: ${d.cert_error || "skipped"}.`,
+          },
+        }));
       } else {
-        // Response body was already consumed by .json() above — don't
-        // try to .text() it again ("body stream already read"). Use
-        // whatever the JSON parser surfaced, plus the status code.
         const detail = d.error || d.detail || d.jn_update_error || d.cert_error || `HTTP ${r.status}`;
-        alert("❌ Push failed: " + detail);
+        setPushStatus((s) => ({ ...s, [row.id]: { stage: "error", ok: false, message: `❌ ${detail}` } }));
       }
     } catch (e) {
-      alert("Push to JN error: " + (e.message || e));
+      setPushStatus((s) => ({ ...s, [row.id]: { stage: "error", ok: false, message: `❌ ${e.message || e}` } }));
     } finally {
       setRowBusyId(null);
     }
@@ -11280,22 +11290,55 @@ if (!hasDamage) {
                                   </div>                                ) : null}
 
                                 {/* Push result to JN — appears when the record HAS a JN job AND
-                                    a local result. Use to retroactively sync results that were
-                                    statused before the auto-push existed (cf_string_34 still
-                                    "Needs Inspection" in JN), or whenever JN drifts out of
-                                    sync with the app. */}
-                                {rec.jn_job_id && rec.result ? (
-                                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-                                    <button
-                                      type="button"
-                                      disabled={isBusy}
-                                      onClick={(e) => { e.stopPropagation(); adminPushResultToJn(rec); }}
-                                      title={`Push the local result (${rec.result}) to this record's JN job — updates JN's inspection-result field and attaches the cert + photos to Documents.`}
-                                      style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #0e7490", background: isBusy ? "#f3f4f6" : "#ecfeff", color: isBusy ? "#9ca3af" : "#0e7490", fontSize: 11, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: isBusy ? "not-allowed" : "pointer" }}>
-                                      🔄 Push to JN
-                                    </button>
-                                  </div>
-                                ) : null}
+                                    a local result. Live status appears under the button so
+                                    the manager sees progress instead of staring at a frozen
+                                    page (the prior alert()-only flow gave no feedback). */}
+                                {rec.jn_job_id && rec.result ? (() => {
+                                  const status = pushStatus[rec.id];
+                                  const inFlight = status && (status.stage === "updating" || status.stage === "queueing");
+                                  const label = inFlight
+                                    ? "⏳ Pushing…"
+                                    : status?.stage === "done"
+                                      ? "✓ Pushed"
+                                      : "🔄 Push to JN";
+                                  return (
+                                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, maxWidth: 220 }}>
+                                      <button
+                                        type="button"
+                                        disabled={isBusy || inFlight}
+                                        onClick={(e) => { e.stopPropagation(); adminPushResultToJn(rec); }}
+                                        title={`Push the local result (${rec.result}) to JN. Updates the JN inspection-result field instantly; cert + photos upload in the background.`}
+                                        style={{
+                                          padding: "6px 12px",
+                                          borderRadius: 8,
+                                          border: `1px solid ${status?.ok === false ? "#dc2626" : "#0e7490"}`,
+                                          background: (isBusy || inFlight) ? "#f3f4f6" : (status?.ok === true ? "#ecfdf5" : status?.ok === false ? "#fef2f2" : "#ecfeff"),
+                                          color: (isBusy || inFlight) ? "#9ca3af" : (status?.ok === false ? "#991b1b" : "#0e7490"),
+                                          fontSize: 11,
+                                          fontFamily: "'Oswald', sans-serif",
+                                          fontWeight: 700,
+                                          textTransform: "uppercase",
+                                          letterSpacing: "0.04em",
+                                          cursor: (isBusy || inFlight) ? "wait" : "pointer",
+                                        }}>
+                                        {label}
+                                      </button>
+                                      {status?.message && (
+                                        <div style={{
+                                          fontSize: 10,
+                                          color: status.ok === false ? "#991b1b" : status.ok === true ? "#065f46" : "#475569",
+                                          fontFamily: "'Nunito', sans-serif",
+                                          fontWeight: 600,
+                                          textAlign: "center",
+                                          lineHeight: 1.3,
+                                          maxWidth: 220,
+                                        }}>
+                                          {status.message}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })() : null}
 
                                 {/* Photos — opens a modal showing every inspection_photo with its
                                     label (from the inspector's wizard) so the manager can

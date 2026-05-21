@@ -119,22 +119,27 @@ exports.handler = async (event) => {
     jnUpdateError = `JN PUT exception: ${e.message}`;
   }
 
-  // 2. Fire cert+photos upload to JN Documents (fire-and-forget here
-  //    since the caller is usually a UI click and we want quick feedback).
+  // 2. Fire the cert+photos upload via the BACKGROUND variant of
+  //    the cert generator. Netlify Background Functions return 202
+  //    immediately and run for up to 15 minutes — exactly what we
+  //    need, since the regular function (PDFShift + photo downloads
+  //    + JN upload) routinely exceeds the 10-second regular-function
+  //    timeout and was returning 502 to the user-facing caller.
   let certFired = false;
   let certError = null;
   if (base) {
     try {
-      const certRes = await fetch(`${base}/.netlify/functions/generate-and-upload-insp-report`, {
+      const certRes = await fetch(`${base}/.netlify/functions/generate-and-upload-insp-report-background`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jnid: insp.jn_job_id }),
       });
-      const certBody = await certRes.json().catch(() => ({}));
-      if (certRes.ok && certBody.ok) {
+      // Background functions return 202 on accept. Don't await a JSON
+      // body — there isn't one yet.
+      if (certRes.status === 202 || certRes.ok) {
         certFired = true;
       } else {
-        certError = certBody.error || `cert generator returned ${certRes.status}`;
+        certError = `cert background-queue returned ${certRes.status}`;
       }
     } catch (e) {
       certError = e.message;
