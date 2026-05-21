@@ -159,14 +159,30 @@ exports.handler = async (event) => {
               description: label,
             }),
           });
+          // Read response body once, parse from text — lets us include
+          // the actual JN error message instead of a bare status code.
+          const initText = await initRes.text();
           if (!initRes.ok) {
-            photoResults.push({ ok: false, label, error: `JN init ${initRes.status}` });
+            photoResults.push({
+              ok: false,
+              label,
+              error: `JN init ${initRes.status}: ${initText.slice(0, 250)}`,
+            });
             return;
           }
-          const initJson = await initRes.json().catch(() => ({}));
-          const presignedUrl = initJson.url || initJson.upload_url || initJson.presigned_url;
+          let initJson = {};
+          try { initJson = JSON.parse(initText); } catch {}
+          // JN wraps the response in { data: { url, jnid } } — match
+          // the same shape the cert generator's uploadFileToJob looks for.
+          const presignedUrl =
+            initJson.data?.url || initJson.url ||
+            initJson.upload_url || initJson.presigned_url;
           if (!presignedUrl) {
-            photoResults.push({ ok: false, label, error: "no presigned URL" });
+            photoResults.push({
+              ok: false,
+              label,
+              error: `no presigned URL in JN response: ${initText.slice(0, 250)}`,
+            });
             return;
           }
           const putRes = await fetch(presignedUrl, {

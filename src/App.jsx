@@ -6820,6 +6820,13 @@ const renderSmsTemplate = (key, vars) => {
             parts.push("ℹ no photos on file");
           }
         }
+        // When all photos failed, append the first error so the
+        // manager can see why JN rejected them (and paste it back
+        // if it needs further investigation).
+        if (d.photos_failed > 0 && Array.isArray(d.photo_errors) && d.photo_errors.length > 0) {
+          const firstErr = d.photo_errors[0]?.error || "(no detail)";
+          parts.push(`First photo error: ${firstErr}`);
+        }
         if (d.cert_kicked_off) {
           parts.push("📄 Cert generating — check JN Documents in ~1 min");
         }
