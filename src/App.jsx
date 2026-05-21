@@ -6804,16 +6804,31 @@ const renderSmsTemplate = (key, vars) => {
       });
       const d = await r.json().catch(() => ({}));
       if (r.ok && d.ok) {
-        // Server has done the fast JN PUT + queued the slow cert
-        // generation as a Background Function. Show that staged.
+        // Server inlines the JN PUT + photo uploads, then fires the
+        // cert generation as a separate Lambda invocation. Show the
+        // real per-step counts so the manager can verify in JN.
+        const parts = [];
+        if (d.jn_updated) parts.push(`✅ JN result set to "${d.cf_string_34_set || row.result}"`);
+        if (d.photos_total != null) {
+          if (d.photos_uploaded > 0 && d.photos_failed === 0) {
+            parts.push(`✅ ${d.photos_uploaded}/${d.photos_total} photos uploaded to JN`);
+          } else if (d.photos_uploaded > 0 && d.photos_failed > 0) {
+            parts.push(`⚠ ${d.photos_uploaded}/${d.photos_total} photos uploaded (${d.photos_failed} failed)`);
+          } else if (d.photos_total > 0) {
+            parts.push(`❌ 0/${d.photos_total} photos uploaded`);
+          } else {
+            parts.push("ℹ no photos on file");
+          }
+        }
+        if (d.cert_kicked_off) {
+          parts.push("📄 Cert generating — check JN Documents in ~1 min");
+        }
         setPushStatus((s) => ({
           ...s,
           [row.id]: {
             stage: "done",
-            ok: true,
-            message: d.cert_uploaded
-              ? `✅ JN updated to "${d.cf_string_34_set || row.result}". Cert + photos uploading in background — appears in JN Documents within ~1 min.`
-              : `✅ JN updated to "${d.cf_string_34_set || row.result}". Cert queue: ${d.cert_error || "skipped"}.`,
+            ok: d.photos_failed === 0,
+            message: parts.join(". "),
           },
         }));
       } else {
