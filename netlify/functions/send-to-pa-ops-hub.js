@@ -215,9 +215,17 @@ exports.handler = async (event) => {
 // ── Helpers ───────────────────────────────────────────────────────────
 
 async function fetchInspection(id) {
-  const url = `${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(id)}&select=id,client_name,address,city,state,zip,mobile,phone,email,sales_rep_name,inspector_name,cert_number,result,result_at,jn_job_id,signed_pdfs`
+  // select=* so the query succeeds even on databases where some of
+  // the newer columns (phone, inspector_name, result_at, etc.) haven't
+  // been migrated yet. PostgREST 400s on unknown columns and the
+  // whole function reports "Inspection not found" with no clue why.
+  const url = `${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(id)}&select=*`
   const res = await fetch(url, { headers: sbHeaders })
-  if (!res.ok) return null
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    console.error(`fetchInspection failed: ${res.status} ${text.slice(0, 300)}`)
+    return null
+  }
   const arr = await res.json().catch(() => [])
   return Array.isArray(arr) ? arr[0] || null : null
 }
