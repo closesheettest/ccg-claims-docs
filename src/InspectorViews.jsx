@@ -294,23 +294,24 @@ export function InspectorsAdminPanel() {
     setSyncing(false);
   }
 
-  async function sendSetupEmail(insp) {
-    if (!insp.email) {
-      setMessage({ kind: "error", text: `${insp.name} has no email on file. Sync from JN first or add manually.` });
+  async function sendUpdateLink(insp) {
+    if (!insp.email && !insp.phone) {
+      setMessage({ kind: "error", text: `${insp.name} has no email or phone on file. Sync from JN first or add manually.` });
       return;
     }
     setSendingEmailId(insp.id);
     try {
-      const res = await fetch("/.netlify/functions/send-inspector-setup-email", {
+      const res = await fetch("/.netlify/functions/send-inspector-update-link", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inspectorId: insp.id }),
+        body: JSON.stringify({ inspectorId: insp.id, channel: "auto" }),
       });
       const body = await res.json().catch(() => ({}));
       if (!body.ok) {
         setMessage({ kind: "error", text: body.error || `Send failed (status ${res.status})` });
       } else {
-        setMessage({ kind: "success", text: `Setup link emailed to ${body.email}.` });
+        const dest = body.channel_used === "sms" ? `📱 SMS to ${body.phone}` : `📧 email to ${body.email}`;
+        setMessage({ kind: "success", text: `Link sent (${dest}).` });
       }
     } catch (e) {
       setMessage({ kind: "error", text: e.message || "Network error" });
@@ -581,7 +582,7 @@ export function InspectorsAdminPanel() {
                 onToggle={() => toggleActive(insp)}
                 onUpdate={(patch) => updateInspector(insp, patch)}
                 onDelete={() => deleteInspector(insp)}
-                onSendSetupEmail={() => sendSetupEmail(insp)}
+                onSendUpdateLink={() => sendUpdateLink(insp)}
               />
             ))}
           </div>
@@ -652,7 +653,7 @@ export function InspectorsAdminPanel() {
   );
 }
 
-function InspectorRow({ insp, sendingEmail, onToggle, onUpdate, onDelete, onSendSetupEmail }) {
+function InspectorRow({ insp, sendingEmail, onToggle, onUpdate, onDelete, onSendUpdateLink }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({
     name: insp.name,
@@ -696,14 +697,28 @@ function InspectorRow({ insp, sendingEmail, onToggle, onUpdate, onDelete, onSend
             </div>
           </div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-            {!setupDone && insp.email && onSendSetupEmail && (
+            {(insp.email || insp.phone) && onSendUpdateLink && (
               <button
                 type="button"
-                onClick={onSendSetupEmail}
+                onClick={onSendUpdateLink}
                 disabled={sendingEmail}
-                style={{ ...secondaryBtn, fontSize: 11, background: "#fef3c7", borderColor: "#fbbf24" }}
+                style={{
+                  ...secondaryBtn,
+                  fontSize: 11,
+                  background: setupDone ? "#fff" : "#fef3c7",
+                  borderColor: setupDone ? "#d1d5db" : "#fbbf24",
+                }}
+                title={
+                  insp.phone
+                    ? `Will SMS to ${insp.phone}`
+                    : `Will email to ${insp.email}`
+                }
               >
-                {sendingEmail ? "Sending…" : "📧 Send setup email"}
+                {sendingEmail
+                  ? "Sending…"
+                  : setupDone
+                    ? (insp.phone ? "📱 Send update SMS" : "📧 Send update email")
+                    : (insp.phone ? "📱 Send setup SMS" : "📧 Send setup email")}
               </button>
             )}
             <button type="button" onClick={onToggle} style={{ ...secondaryBtn, fontSize: 11 }}>
