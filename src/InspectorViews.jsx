@@ -956,15 +956,13 @@ function InspectorRow({ insp, sendingEmail, onToggle, onUpdate, onDelete, onSend
 // MOBILE APP — inspector-side. Self-serve.
 // ═════════════════════════════════════════════════════════════════════
 
-export function InspectorMobileApp({ onExit }) {
+export function InspectorMobileApp() {
+  // No escape hatch to the rep main app — inspectors should only see
+  // the inspector page. Any future inspector-only utilities should be
+  // linked from inside this page.
   const [stage, setStage] = useState("pick"); // pick | list | detail | inactive
   const [inspectors, setInspectors] = useState([]);
   const [me, setMe] = useState(null);
-  // True when the inspector arrived via the SMS/email invite link
-  // (?mode=inspector). We use this to hide the "← Main app" escape
-  // hatch — inspectors should only see the inspector page.
-  const isInspectorMode = typeof window !== "undefined" &&
-    new URLSearchParams(window.location.search).get("mode") === "inspector";
   // When the inspector's stored ID points to a row that is no longer
   // active (or never completed setup), we show a friendly "account
   // not active" screen instead of dumping them to an empty picker.
@@ -1038,15 +1036,6 @@ export function InspectorMobileApp({ onExit }) {
           {me && (
             <button type="button" onClick={signOut} style={{ ...secondaryBtn, fontSize: 11 }}>
               Switch user
-            </button>
-          )}
-          {/* Inspectors who arrived via the SMS/email link (?mode=inspector)
-              are locked into this page — no escape hatch to the rep main
-              app. We only show "← Main app" when the page was opened
-              from inside the rep app (e.g. a manager previewing). */}
-          {onExit && !isInspectorMode && (
-            <button type="button" onClick={onExit} style={{ ...secondaryBtn, fontSize: 11 }}>
-              ← Main app
             </button>
           )}
         </div>

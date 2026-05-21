@@ -12673,7 +12673,7 @@ if (!hasDamage) {
 
         {/* ── Inspector mobile flow (rep-facing inspector phone app) ─── */}
         {view === "inspector" ? (
-          <InspectorMobileApp onExit={() => setView("input")} />
+          <InspectorMobileApp />
         ) : null}
 
         {/* ── My Stats Modal — rep's own performance + leaderboard rank ─── */}
