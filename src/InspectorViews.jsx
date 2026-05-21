@@ -1340,11 +1340,22 @@ function InspectorJobList({ me, onOpenJob, onOpenReports }) {
     // check-stale-claims cron uses this: if a claim is still pending
     // (result IS NULL) when the day ends, the inspection is auto-
     // unclaimed and the manager gets an SMS.
-    const { error } = await supabase
+    //
+    // The claimed_at column might not exist on every DB yet (it's
+    // a per-deploy migration). If the write 400s on that column,
+    // retry without it so the claim still goes through.
+    let { error } = await supabase
       .from("inspections")
       .update({ inspector_id: me.id, claimed_at: new Date().toISOString() })
       .eq("id", jobId)
-      .is("inspector_id", null); // optimistic — fails if someone beat me
+      .is("inspector_id", null);
+    if (error && /claimed_at/i.test(error.message || "")) {
+      ({ error } = await supabase
+        .from("inspections")
+        .update({ inspector_id: me.id })
+        .eq("id", jobId)
+        .is("inspector_id", null));
+    }
     setClaimingId(null);
     if (error) {
       alert("Couldn't claim: " + error.message);
