@@ -78,8 +78,16 @@ exports.handler = async (event) => {
   console.log('=== send-to-pa-ops-hub START — inspectionId:', inspectionId)
 
   // ── 1. Fetch the inspection record ────────────────────────────────
-  const insp = await fetchInspection(inspectionId)
-  if (!insp) return json(404, { ok: false, error: 'Inspection not found' })
+  const fetchResult = await fetchInspection(inspectionId)
+  if (!fetchResult.row) {
+    return json(404, {
+      ok: false,
+      error: 'Inspection not found',
+      detail: fetchResult.error || `No row in inspections with id=${inspectionId}`,
+      http_status: fetchResult.status,
+    })
+  }
+  const insp = fetchResult.row
   // Gate on damage result — anything else shouldn't trigger a PDN.
   if (insp.result !== 'damage') {
     return json(400, {
@@ -214,20 +222,31 @@ exports.handler = async (event) => {
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
+// Returns { row, status, error } — row is null when nothing matched
+// or when PostgREST 400'd; error carries the actual response body so
+// the caller can surface it instead of the generic "not found".
 async function fetchInspection(id) {
   // select=* so the query succeeds even on databases where some of
   // the newer columns (phone, inspector_name, result_at, etc.) haven't
-  // been migrated yet. PostgREST 400s on unknown columns and the
-  // whole function reports "Inspection not found" with no clue why.
+  // been migrated yet.
   const url = `${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(id)}&select=*`
-  const res = await fetch(url, { headers: sbHeaders })
+  let res
+  try {
+    res = await fetch(url, { headers: sbHeaders })
+  } catch (e) {
+    return { row: null, status: 0, error: `network error: ${e.message || e}` }
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => '')
-    console.error(`fetchInspection failed: ${res.status} ${text.slice(0, 300)}`)
-    return null
+    console.error(`fetchInspection ${res.status}: ${text.slice(0, 400)}`)
+    return { row: null, status: res.status, error: text.slice(0, 400) || `HTTP ${res.status}` }
   }
   const arr = await res.json().catch(() => [])
-  return Array.isArray(arr) ? arr[0] || null : null
+  const row = Array.isArray(arr) ? arr[0] || null : null
+  if (!row) {
+    return { row: null, status: 200, error: `no row matched id=${id}` }
+  }
+  return { row, status: 200 }
 }
 
 async function downloadFromSupabaseStorage(bucket, path) {
