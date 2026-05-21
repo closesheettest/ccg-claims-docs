@@ -3027,13 +3027,20 @@ function InspectorJobDetail({ me, jobId, onBack }) {
     setStage({ kind: "result" });
   }
 
-  function addPhotos(files, metadata) {
-    const additions = Array.from(files).map((f) => ({
-      file: f,
-      previewUrl: URL.createObjectURL(f),
-      uploaded: false,
-      path: null,
-      ...metadata,
+  // Phone cameras produce 4–8 MB photos — too big to upload over
+  // cell on the side of a roof. Compress each one to a max long-edge
+  // of 1600px at JPEG quality 0.85 BEFORE stashing it in state, so
+  // by submit time the upload payload is already small.
+  async function addPhotos(files, metadata) {
+    const additions = await Promise.all(Array.from(files).map(async (rawFile) => {
+      const file = await resizeImageForUpload(rawFile);
+      return {
+        file,
+        previewUrl: URL.createObjectURL(file),
+        uploaded: false,
+        path: null,
+        ...metadata,
+      };
     }));
     setPhotos((prev) => [...prev, ...additions]);
   }
@@ -3811,6 +3818,45 @@ function labelToSlug(label) {
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/(^_|_$)/g, "")
     .slice(0, 40);
+}
+
+// Client-side image compression. Modern phone cameras spit out 4–8 MB
+// JPEGs, which take forever to upload over cell. Scaling the long
+// edge to 1600px and re-encoding at JPEG quality 0.85 typically drops
+// each photo to 300–700 KB with no visible quality loss on the kind
+// of detail an inspection needs.
+//
+// Uses createImageBitmap with imageOrientation: 'from-image' so EXIF
+// rotation is baked into the bitmap — otherwise portrait photos from
+// some Androids come out sideways after the canvas round-trip.
+//
+// Falls back to the original File on any error (and skips files
+// already under 600 KB or already small enough by dimension).
+async function resizeImageForUpload(file, maxDim = 1600, quality = 0.85) {
+  if (!file || !file.type || !file.type.startsWith("image/")) return file;
+  if (file.size < 600 * 1024) return file;
+  try {
+    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const longEdge = Math.max(bitmap.width, bitmap.height);
+    if (longEdge <= maxDim) {
+      bitmap.close?.();
+      return file;
+    }
+    const scale = maxDim / longEdge;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", quality));
+    if (!blob || blob.size >= file.size) return file;
+    const newName = (file.name || "photo").replace(/\.[a-zA-Z0-9]+$/, "") + ".jpg";
+    return new File([blob], newName, { type: "image/jpeg", lastModified: Date.now() });
+  } catch (e) {
+    console.warn("Image resize failed, using original:", e);
+    return file;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────
