@@ -417,14 +417,17 @@ export function InspectorsAdminPanel() {
   }
 
   async function loadClaimedJobs() {
-    // Every inspection currently assigned to an inspector — manager
-    // can override / un-assign each one.
+    // Every PENDING inspection — manager-facing reassign panel needs
+    // to show both currently-claimed (so they can take them away)
+    // AND unassigned (so they can hand them out). Completed jobs
+    // (result IS NOT NULL) are filtered out — the manager only
+    // controls work before it's done.
     const { data } = await supabase
       .from("inspections")
-      .select("id, client_name, address, city, signed_at, inspector_id, result")
-      .not("inspector_id", "is", null)
+      .select("id, client_name, address, city, signed_at, inspector_id, result, claimed_at")
+      .is("result", null)
       .order("signed_at", { ascending: false })
-      .limit(100);
+      .limit(200);
     setClaimedJobs(data || []);
   }
 
@@ -660,20 +663,21 @@ export function InspectorsAdminPanel() {
         )}
       </section>
 
-      {/* Reassign in-progress jobs */}
+      {/* Active inspections — manager-facing assign / take-away panel */}
       <section style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, background: "#fff" }}>
         <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>
-          🔁 Claimed inspections ({claimedJobs.length})
+          🔁 Active inspections ({claimedJobs.length} pending)
         </div>
         <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 10 }}>
-          Override-reassign or release back to the unassigned pool.
+          Every inspection that hasn't been completed yet. Use the dropdown to assign an inspector or change who has it. <strong>Release</strong> takes a job back from an inspector and returns it to the unassigned pool.
         </div>
         {claimedJobs.length === 0 ? (
-          <div style={{ fontSize: 13, color: "#6b7280" }}>Nothing claimed right now.</div>
+          <div style={{ fontSize: 13, color: "#6b7280" }}>No pending inspections — everything's either done or hasn't been signed up yet.</div>
         ) : (
           <div style={{ display: "grid", gap: 6 }}>
             {claimedJobs.map((job) => {
-              const ass = inspectorById.get(job.inspector_id);
+              const ass = job.inspector_id ? inspectorById.get(job.inspector_id) : null;
+              const isUnassigned = !job.inspector_id;
               return (
                 <div
                   key={job.id}
@@ -683,7 +687,8 @@ export function InspectorsAdminPanel() {
                     gap: 8,
                     alignItems: "center",
                     padding: "8px 10px",
-                    background: "#f9fafb",
+                    background: isUnassigned ? "#fef3c7" : "#f9fafb",
+                    border: isUnassigned ? "1px solid #fbbf24" : "1px solid transparent",
                     borderRadius: 8,
                     fontSize: 12,
                   }}
@@ -691,8 +696,12 @@ export function InspectorsAdminPanel() {
                   <div>
                     <div style={{ fontWeight: 600 }}>{job.client_name || "(no name)"}</div>
                     <div style={{ fontSize: 11, color: "#6b7280" }}>
-                      {job.address}, {job.city} · claimed by {ass?.name || "(unknown)"}
-                      {job.result && <> · <span style={{ color: "#059669" }}>✓ {job.result}</span></>}
+                      {job.address}, {job.city} ·{" "}
+                      {isUnassigned ? (
+                        <span style={{ color: "#92400e", fontWeight: 700 }}>⚠ Unassigned</span>
+                      ) : (
+                        <>claimed by <strong>{ass?.name || "(unknown)"}</strong></>
+                      )}
                     </div>
                   </div>
                   <select
@@ -701,19 +710,21 @@ export function InspectorsAdminPanel() {
                     disabled={busyJobId === job.id}
                     style={{ ...inputStyle, padding: "4px 6px", fontSize: 12 }}
                   >
-                    <option value="">— Unassign —</option>
+                    <option value="">— {isUnassigned ? "Assign to…" : "Unassign"} —</option>
                     {inspectors.filter((i) => i.active).map((i) => (
                       <option key={i.id} value={i.id}>{i.name}</option>
                     ))}
                   </select>
-                  <button
-                    type="button"
-                    onClick={() => reassignJob(job.id, null)}
-                    disabled={busyJobId === job.id}
-                    style={{ ...secondaryBtn, padding: "4px 10px", fontSize: 11 }}
-                  >
-                    Release
-                  </button>
+                  {!isUnassigned && (
+                    <button
+                      type="button"
+                      onClick={() => reassignJob(job.id, null)}
+                      disabled={busyJobId === job.id}
+                      style={{ ...secondaryBtn, padding: "4px 10px", fontSize: 11 }}
+                    >
+                      Release
+                    </button>
+                  )}
                 </div>
               );
             })}
