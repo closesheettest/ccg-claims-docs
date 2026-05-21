@@ -965,6 +965,7 @@ export function InspectorMobileApp() {
         <InspectorJobList
           me={me}
           onOpenJob={(jobId) => setStage({ kind: "detail", jobId })}
+          onOpenReports={() => setStage("reports")}
         />
       )}
 
@@ -974,6 +975,10 @@ export function InspectorMobileApp() {
           jobId={stage.jobId}
           onBack={() => setStage("list")}
         />
+      )}
+
+      {stage === "reports" && me && (
+        <InspectorReports me={me} onBack={() => setStage("list")} />
       )}
     </div>
   );
@@ -1060,7 +1065,7 @@ function nearestNeighborRoute(jobs, startLat, startLng) {
   return [...route, ...withoutCoords];
 }
 
-function InspectorJobList({ me, onOpenJob }) {
+function InspectorJobList({ me, onOpenJob, onOpenReports }) {
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [claimingId, setClaimingId] = useState(null);
@@ -1186,9 +1191,29 @@ function InspectorJobList({ me, onOpenJob }) {
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      <div style={{ padding: 12, background: "#fff", borderRadius: 10, border: "1px solid #e5e7eb" }}>
-        <div style={{ fontSize: 14, color: "#6b7280" }}>Signed in as</div>
-        <div style={{ fontSize: 18, fontWeight: 700 }}>👷 {me.name}</div>
+      <div style={{
+        padding: 12,
+        background: "#fff",
+        borderRadius: 10,
+        border: "1px solid #e5e7eb",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: 8,
+      }}>
+        <div>
+          <div style={{ fontSize: 14, color: "#6b7280" }}>Signed in as</div>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>👷 {me.name}</div>
+        </div>
+        {onOpenReports && (
+          <button
+            type="button"
+            onClick={onOpenReports}
+            style={{ ...secondaryBtn, fontSize: 12, padding: "8px 12px", whiteSpace: "nowrap" }}
+          >
+            📊 Reports
+          </button>
+        )}
       </div>
 
       {/* Shared route-mode toggle bar — affects BOTH sections.
@@ -1411,6 +1436,280 @@ function JobCard({ job, accent, cta, onClick, disabled, showStopNumber, showNavi
           </a>
         )}
       </div>
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// REPORTS — per-inspector roll-up of their own completed inspections.
+// Visible only inside the inspector mobile app (tap "📊 Reports" on
+// the job list). Filters by date range and breaks down by status
+// (damage / no_damage / retail) and by day.
+// ═════════════════════════════════════════════════════════════════════
+
+function startOfDay(d) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+function startOfWeek(d) {
+  // Sunday-based week (US convention).
+  const x = startOfDay(d);
+  x.setDate(x.getDate() - x.getDay());
+  return x;
+}
+function dayKey(d) {
+  // Local-date YYYY-MM-DD for grouping.
+  const x = new Date(d);
+  const y = x.getFullYear();
+  const m = String(x.getMonth() + 1).padStart(2, "0");
+  const day = String(x.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+function fmtShort(d) {
+  return new Date(d).toLocaleDateString(undefined, { weekday: "short", month: "numeric", day: "numeric" });
+}
+
+const STATUS_META = {
+  damage:    { label: "Damage",    color: "#dc2626", bg: "#fee2e2", emoji: "⚠️" },
+  no_damage: { label: "No Damage", color: "#16a34a", bg: "#dcfce7", emoji: "✅" },
+  retail:    { label: "Retail",    color: "#b45309", bg: "#fef3c7", emoji: "🏠" },
+};
+
+function InspectorReports({ me, onBack }) {
+  // range: "this_week" | "last_week" | "last_30"
+  const [range, setRange] = useState("this_week");
+  const [rows, setRows] = useState([]);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  const { fromIso, toIso, label } = useMemo(() => {
+    const now = new Date();
+    let from, to;
+    let label = "";
+    if (range === "this_week") {
+      from = startOfWeek(now);
+      to = new Date();
+      label = "This week";
+    } else if (range === "last_week") {
+      const thisWeekStart = startOfWeek(now);
+      to = new Date(thisWeekStart);
+      from = new Date(thisWeekStart);
+      from.setDate(from.getDate() - 7);
+      label = "Last week";
+    } else {
+      to = new Date();
+      from = new Date();
+      from.setDate(from.getDate() - 30);
+      label = "Last 30 days";
+    }
+    return { fromIso: from.toISOString(), toIso: to.toISOString(), label };
+  }, [range]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      // Completed inspections (this inspector, has a result, within range).
+      const completed = await supabase
+        .from("inspections")
+        .select("id, client_name, address, result, result_at")
+        .eq("inspector_id", me.id)
+        .not("result", "is", null)
+        .gte("result_at", fromIso)
+        .lte("result_at", toIso)
+        .order("result_at", { ascending: false })
+        .limit(2000);
+      // Pending (assigned but no result yet) — snapshot, independent of date range.
+      const pending = await supabase
+        .from("inspections")
+        .select("id", { count: "exact", head: true })
+        .eq("inspector_id", me.id)
+        .is("result", null);
+      if (cancelled) return;
+      setRows(completed.data || []);
+      setPendingCount(pending.count || 0);
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [me.id, fromIso, toIso]);
+
+  // Aggregate by status + by day.
+  const { byStatus, byDay, total } = useMemo(() => {
+    const byStatus = { damage: 0, no_damage: 0, retail: 0 };
+    const byDay = new Map(); // dayKey -> { date, total, damage, no_damage, retail }
+    for (const r of rows) {
+      if (byStatus[r.result] != null) byStatus[r.result]++;
+      const k = dayKey(r.result_at);
+      const existing = byDay.get(k) || { date: r.result_at, total: 0, damage: 0, no_damage: 0, retail: 0 };
+      existing.total++;
+      if (existing[r.result] != null) existing[r.result]++;
+      byDay.set(k, existing);
+    }
+    const dayList = Array.from(byDay.values()).sort(
+      (a, b) => new Date(b.date) - new Date(a.date),
+    );
+    return { byStatus, byDay: dayList, total: rows.length };
+  }, [rows]);
+
+  const maxDayTotal = Math.max(1, ...byDay.map((d) => d.total));
+
+  return (
+    <div style={{ display: "grid", gap: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+        <button type="button" onClick={onBack} style={{ ...secondaryBtn, fontSize: 12 }}>
+          ← Back to jobs
+        </button>
+        <div style={{ fontSize: 18, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>
+          📊 Reports
+        </div>
+      </div>
+
+      {/* Date range picker */}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {[
+          { key: "this_week", label: "This week" },
+          { key: "last_week", label: "Last week" },
+          { key: "last_30",   label: "Last 30 days" },
+        ].map((r) => (
+          <button
+            key={r.key}
+            type="button"
+            onClick={() => setRange(r.key)}
+            style={{
+              ...secondaryBtn,
+              fontSize: 12,
+              padding: "6px 12px",
+              background: range === r.key ? "#0e7490" : "#fff",
+              color: range === r.key ? "#fff" : "#374151",
+              borderColor: range === r.key ? "#0e7490" : "#d1d5db",
+            }}
+          >
+            {r.label}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div style={{ padding: 16, color: "#6b7280" }}>Loading…</div>
+      ) : (
+        <>
+          {/* Totals */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <div style={{ padding: 14, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10 }}>
+              <div style={{ fontSize: 11, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                Completed
+              </div>
+              <div style={{ fontSize: 28, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>
+                {total}
+              </div>
+              <div style={{ fontSize: 11, color: "#6b7280" }}>{label}</div>
+            </div>
+            <div style={{ padding: 14, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10 }}>
+              <div style={{ fontSize: 11, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                Pending now
+              </div>
+              <div style={{ fontSize: 28, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: pendingCount > 0 ? "#b45309" : "#111827" }}>
+                {pendingCount}
+              </div>
+              <div style={{ fontSize: 11, color: "#6b7280" }}>Assigned, no result yet</div>
+            </div>
+          </div>
+
+          {/* By status */}
+          <section style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, fontFamily: "'Oswald', sans-serif" }}>
+              By result
+            </div>
+            <div style={{ display: "grid", gap: 8 }}>
+              {["damage", "no_damage", "retail"].map((status) => {
+                const meta = STATUS_META[status];
+                const count = byStatus[status];
+                const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+                return (
+                  <div key={status} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 10, alignItems: "center" }}>
+                    <div style={{
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: meta.color,
+                      background: meta.bg,
+                      padding: "4px 10px",
+                      borderRadius: 999,
+                      whiteSpace: "nowrap",
+                    }}>
+                      {meta.emoji} {meta.label}
+                    </div>
+                    <div style={{ height: 8, background: "#f3f4f6", borderRadius: 999, overflow: "hidden" }}>
+                      <div style={{ width: `${pct}%`, height: "100%", background: meta.color, transition: "width 0.3s" }} />
+                    </div>
+                    <div style={{ fontSize: 12, color: "#374151", minWidth: 56, textAlign: "right" }}>
+                      {count} · {pct}%
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {total === 0 && (
+              <div style={{ fontSize: 12, color: "#6b7280", marginTop: 8 }}>
+                No completed inspections in this range.
+              </div>
+            )}
+          </section>
+
+          {/* By day */}
+          <section style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, fontFamily: "'Oswald', sans-serif" }}>
+              By day
+            </div>
+            {byDay.length === 0 ? (
+              <div style={{ fontSize: 12, color: "#6b7280" }}>
+                No completed inspections in this range.
+              </div>
+            ) : (
+              <div style={{ display: "grid", gap: 6 }}>
+                {byDay.map((d) => {
+                  const pct = Math.round((d.total / maxDayTotal) * 100);
+                  return (
+                    <div key={d.date} style={{ display: "grid", gridTemplateColumns: "90px 1fr auto", gap: 10, alignItems: "center" }}>
+                      <div style={{ fontSize: 12, color: "#374151", fontWeight: 600 }}>
+                        {fmtShort(d.date)}
+                      </div>
+                      <div style={{ height: 18, background: "#f3f4f6", borderRadius: 4, overflow: "hidden", display: "flex" }}>
+                        {d.damage > 0 && (
+                          <div style={{
+                            width: `${(d.damage / maxDayTotal) * 100}%`,
+                            background: STATUS_META.damage.color,
+                          }} title={`Damage: ${d.damage}`} />
+                        )}
+                        {d.no_damage > 0 && (
+                          <div style={{
+                            width: `${(d.no_damage / maxDayTotal) * 100}%`,
+                            background: STATUS_META.no_damage.color,
+                          }} title={`No damage: ${d.no_damage}`} />
+                        )}
+                        {d.retail > 0 && (
+                          <div style={{
+                            width: `${(d.retail / maxDayTotal) * 100}%`,
+                            background: STATUS_META.retail.color,
+                          }} title={`Retail: ${d.retail}`} />
+                        )}
+                      </div>
+                      <div style={{ fontSize: 12, color: "#374151", minWidth: 24, textAlign: "right" }}>
+                        {d.total}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <div style={{ fontSize: 10, color: "#6b7280", marginTop: 10, display: "flex", gap: 12 }}>
+              <span><span style={{ display: "inline-block", width: 10, height: 10, background: STATUS_META.damage.color, borderRadius: 2, marginRight: 4 }}></span>Damage</span>
+              <span><span style={{ display: "inline-block", width: 10, height: 10, background: STATUS_META.no_damage.color, borderRadius: 2, marginRight: 4 }}></span>No damage</span>
+              <span><span style={{ display: "inline-block", width: 10, height: 10, background: STATUS_META.retail.color, borderRadius: 2, marginRight: 4 }}></span>Retail</span>
+            </div>
+          </section>
+        </>
+      )}
     </div>
   );
 }
