@@ -280,6 +280,9 @@ export function InspectorsAdminPanel() {
   const [syncing, setSyncing] = useState(false);
   // Per-row "send setup email" state
   const [sendingEmailId, setSendingEmailId] = useState(null);
+  // Bulk-geocode state (for the one-time "give every old inspection
+  // lat/lng" backfill — needed before mile distances appear).
+  const [geocoding, setGeocoding] = useState(false);
   // Reassign panel state — claimed inspections + the selected one
   const [claimedJobs, setClaimedJobs] = useState([]);
   const [busyJobId, setBusyJobId] = useState(null);
@@ -319,6 +322,40 @@ export function InspectorsAdminPanel() {
       setMessage({ kind: "error", text: e.message || "Network error" });
     }
     setSyncing(false);
+  }
+
+  async function geocodeAllInspections() {
+    if (!confirm(
+      "Geocode every inspection that has an address but no lat/lng yet?\n\n" +
+      "This is a one-time backfill so distance routing in the Inspector app " +
+      "works for older rows. Takes about 1 second per row. Safe to re-run — " +
+      "rows already geocoded are skipped.",
+    )) return;
+    setGeocoding(true);
+    try {
+      const res = await fetch("/.netlify/functions/bulk-geocode-inspections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body.error) {
+        setMessage({ kind: "error", text: body.error || `Geocode failed (${res.status})` });
+      } else {
+        const errs = body.errors?.length || 0;
+        setMessage({
+          kind: errs === 0 ? "success" : "error",
+          text:
+            `Geocoded ${body.geocoded} of ${body.matched} inspections` +
+            (body.skipped ? `, skipped ${body.skipped} already done` : "") +
+            (errs ? ` — ${errs} errored (usually a typo or PO box)` : "") +
+            ". Distance routing should now work in the Inspector app.",
+        });
+      }
+    } catch (e) {
+      setMessage({ kind: "error", text: e.message || "Network error" });
+    }
+    setGeocoding(false);
   }
 
   async function sendUpdateLink(insp) {
@@ -496,14 +533,25 @@ export function InspectorsAdminPanel() {
             Inspectors stay inactive until you flip them on AND they've completed setup.
           </div>
         </div>
-        <button
-          type="button"
-          onClick={syncFromJn}
-          disabled={syncing}
-          style={{ ...primaryBtn, padding: "8px 16px", fontSize: 13, whiteSpace: "nowrap" }}
-        >
-          {syncing ? "Syncing…" : "🔄 Sync from JN"}
-        </button>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+          <button
+            type="button"
+            onClick={syncFromJn}
+            disabled={syncing}
+            style={{ ...primaryBtn, padding: "8px 16px", fontSize: 13, whiteSpace: "nowrap" }}
+          >
+            {syncing ? "Syncing…" : "🔄 Sync from JN"}
+          </button>
+          <button
+            type="button"
+            onClick={geocodeAllInspections}
+            disabled={geocoding}
+            style={{ ...secondaryBtn, padding: "6px 12px", fontSize: 11, whiteSpace: "nowrap" }}
+            title="One-time backfill: give every inspection lat/lng so distance routing works. Safe to re-run."
+          >
+            {geocoding ? "Geocoding…" : "🌐 Geocode all inspections"}
+          </button>
+        </div>
       </div>
 
       {message && (
