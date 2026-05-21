@@ -1351,6 +1351,11 @@ export function PAHandoffPanel() {
             const result = results[insp.id];
             const hasPdf = !!insp.signed_pdfs?.insp;
             const hasJn = !!insp.jn_job_id;
+            const hasPhone = !!(insp.mobile || insp.phone);
+            // PA requires phone — without one their intake returns
+            // 400 "homeowner_name, phone, and property_address are
+            // required". Block the send and tell the manager.
+            const canSend = hasPhone;
             const completedAt = insp.result_at ? new Date(insp.result_at).toLocaleString() : "(not stamped)";
             return (
               <div
@@ -1381,18 +1386,21 @@ export function PAHandoffPanel() {
                     <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap" }}>
                       <span style={{ color: hasPdf ? "#059669" : "#b45309" }}>{hasPdf ? "✓ Signed PDF" : "⚠ No signed PDF"}</span>
                       <span style={{ color: hasJn ? "#059669" : "#b45309" }}>{hasJn ? "✓ JN linked" : "⚠ No JN link"}</span>
+                      <span style={{ color: hasPhone ? "#059669" : "#dc2626", fontWeight: hasPhone ? 400 : 700 }}>{hasPhone ? "✓ Phone" : "⚠ NO PHONE — PA will reject"}</span>
                     </div>
                   </div>
                   <button
                     type="button"
                     onClick={() => send(insp.id)}
-                    disabled={busyId === insp.id}
+                    disabled={busyId === insp.id || !canSend}
+                    title={!canSend ? "Can't send to PA without a phone number. Edit the record to add one, then try again." : undefined}
                     style={{
                       ...primaryBtn,
                       padding: "8px 14px",
                       fontSize: 12,
                       whiteSpace: "nowrap",
-                      cursor: busyId === insp.id ? "wait" : "pointer",
+                      opacity: !canSend ? 0.5 : 1,
+                      cursor: busyId === insp.id ? "wait" : (!canSend ? "not-allowed" : "pointer"),
                     }}
                   >
                     {busyId === insp.id ? "Sending…" : "📤 Send to PA"}

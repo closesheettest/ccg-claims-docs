@@ -138,7 +138,11 @@ exports.handler = async (event) => {
   form.append('property_city', insp.city || '')
   form.append('property_state', insp.state || '')
   form.append('property_zip', insp.zip || '')
-  form.append('homeowner_phone', insp.mobile || insp.phone || '')
+  // PA's intake spec calls this `phone` (not `homeowner_phone`).
+  // The 400 from their validator literally lists "homeowner_name,
+  // phone, and property_address are required" — match the field
+  // name they expect.
+  form.append('phone', insp.mobile || insp.phone || '')
   form.append('homeowner_email', insp.email || '')
 
   // Reference back to our system + JN for cross-linking.
