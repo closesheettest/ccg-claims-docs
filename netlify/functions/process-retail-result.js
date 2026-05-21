@@ -23,9 +23,11 @@
 //   VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
 //   JOBNIMBUS_API_KEY
 // Optional env:
-//   JN_LOCATION_ID_RETAIL — JN location ID to move the job into. If
-//     unset, the location is left alone (manager sees a warning in
-//     the response so they can fill it in).
+//   JN_LOCATION_NAME_RETAIL — name of the JN location to move the
+//     job into. Default "US Shingle and Metal LLC". The function
+//     looks up the matching ID at runtime via /locations.
+//   JN_LOCATION_ID_RETAIL — direct ID override. When set, skips the
+//     name lookup. Use this if name-based resolution misbehaves.
 //   URL or PUBLIC_SITE_URL — base used to internally call
 //     generate-and-upload-insp-report.
 
@@ -79,20 +81,51 @@ exports.handler = async (event) => {
     return json(400, { ok: false, error: "Inspection has no jn_job_id — sync to JN first" });
   }
 
-  // 2. Build the JN PUT body. Location is only set when the env var
-  //    is provided so an unset env doesn't blow up the request.
+  // 2. Resolve the retail location ID. Direct ID env wins; otherwise
+  //    look up by name (default "US Shingle and Metal LLC") against
+  //    JN's /account/locations endpoint.
+  let retailLocationId = process.env.JN_LOCATION_ID_RETAIL || null;
+  let locationLookupNote = null;
+  if (!retailLocationId) {
+    const targetName = (process.env.JN_LOCATION_NAME_RETAIL || "US Shingle and Metal LLC").trim();
+    try {
+      const locRes = await fetch("https://app.jobnimbus.com/api1/account/locations", {
+        headers: jnHeaders,
+      });
+      if (locRes.ok) {
+        const locData = await locRes.json().catch(() => ({}));
+        const list = locData.locations || locData.results || locData.items || [];
+        const match = list.find((l) =>
+          (l.name || l.display_name || "").trim().toLowerCase() === targetName.toLowerCase(),
+        );
+        if (match) {
+          retailLocationId = match.id || match.jnid || match.location_id;
+          locationLookupNote = `Resolved "${targetName}" → location id ${retailLocationId}`;
+        } else {
+          locationLookupNote = `Could not find a JN location named "${targetName}". Available: ${list.map((l) => l.name || l.display_name).filter(Boolean).join(", ") || "(none)"}`;
+        }
+      } else {
+        locationLookupNote = `JN /account/locations returned ${locRes.status} — could not resolve "${targetName}"`;
+      }
+    } catch (e) {
+      locationLookupNote = `Location lookup threw: ${e.message}`;
+    }
+  } else {
+    locationLookupNote = `Using JN_LOCATION_ID_RETAIL env override (${retailLocationId})`;
+  }
+
+  // Build the JN PUT body. Location is only included when resolved.
   const putBody = {
     jnid: insp.jn_job_id,
     cf_string_34: "Retail",
     record_type_name: "Lead",
   };
-  const retailLocationId = process.env.JN_LOCATION_ID_RETAIL;
-  const locationWarning = retailLocationId
-    ? null
-    : "JN_LOCATION_ID_RETAIL env var not set — JN location left as-is. Set it in Netlify env to enable the location transition.";
   if (retailLocationId) {
     putBody.location = { id: Number(retailLocationId) || retailLocationId };
   }
+  const locationWarning = retailLocationId
+    ? null
+    : `JN location not changed — ${locationLookupNote}. Set JN_LOCATION_ID_RETAIL (or fix the name lookup) and re-fire.`;
 
   // 3. PUT the JN job.
   let jnUpdated = false;
@@ -148,6 +181,7 @@ exports.handler = async (event) => {
     cert_uploaded: certUploaded,
     cert_error: certError,
     location_warning: locationWarning,
+    location_lookup_note: locationLookupNote,
     fields_set: {
       cf_string_34: "Retail",
       record_type_name: "Lead",
