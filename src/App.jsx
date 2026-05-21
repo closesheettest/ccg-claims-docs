@@ -6777,6 +6777,42 @@ const renderSmsTemplate = (key, vars) => {
     }
   };
 
+  // Retroactively push a record's result (and cert+photos) to JN.
+  // Used for records that were statused BEFORE the inspector-submit
+  // and manager-set-result flows started auto-pushing to JN — JN's
+  // cf_string_34 may still say "Needs Inspection" while the app
+  // says Damage / No Damage / Retail. Click this to fix it.
+  const adminPushResultToJn = async (row) => {
+    if (!row) return;
+    if (!row.result) { alert("This record has no result yet — nothing to push."); return; }
+    if (!row.jn_job_id) { alert("This record isn't linked to a JN job yet. Hit Sync to JN first."); return; }
+    if (!window.confirm(
+      `Push "${row.result}" to JobNimbus for ${row.client_name}?\n\n` +
+      `Updates JN's inspection-result field, attaches the cert + photos to Documents` +
+      (row.result === "retail" ? ", and swaps the record to Lead / US Shingle and Metal LLC." : ".")
+    )) return;
+    setRowBusyId(row.id);
+    try {
+      const r = await fetch("/.netlify/functions/push-result-to-jn", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inspectionId: row.id }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.ok) {
+        const cert = d.cert_uploaded ? "✅ cert uploaded" : (d.cert_error ? `⚠️ cert: ${d.cert_error}` : "");
+        const jn = d.jn_updated ? `✅ JN result set to "${d.cf_string_34_set || row.result}"` : "";
+        alert(`Pushed to JN.\n\n${jn}${jn && cert ? "\n" : ""}${cert}`);
+      } else {
+        alert("❌ Push failed: " + (d.error || (await r.text()).slice(0, 200)));
+      }
+    } catch (e) {
+      alert("Push to JN error: " + (e.message || e));
+    } finally {
+      setRowBusyId(null);
+    }
+  };
+
   const submitInspectionResult = async () => {
     if (!resultChoice || !resultInspectorName.trim() || !selectedInspRecord) return;
     setResultSubmitting(true);
@@ -6809,6 +6845,26 @@ const renderSmsTemplate = (key, vars) => {
           if (!r.ok) console.warn("PA Ops Hub POST failed:", r.status, txt.slice(0, 300));
           else console.log("PA Ops Hub PDN submitted:", txt.slice(0, 200));
         }).catch(e => console.warn("PA Ops Hub POST error:", e));
+      }
+
+      // ── Push result to JobNimbus ───────────────────────────────────
+      // Updates the JN job's cf_string_34 to match the result, fires
+      // a cert+photos upload to JN Documents, and (for retail) does
+      // the record_type/location swap. Fire-and-forget so the rest
+      // of submitInspectionResult (email, SMS, PDF) isn't blocked.
+      // Previously this only happened when the inspector submitted
+      // via the wizard — manager-side result-setting via Record
+      // Lookup left JN at "Needs Inspection" forever.
+      if (selectedInspRecord.jn_job_id) {
+        fetch("/.netlify/functions/push-result-to-jn", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ inspectionId: selectedInspRecord.id }),
+        }).then(async (r) => {
+          const txt = await r.text().catch(() => "");
+          if (!r.ok) console.warn("Push result to JN failed:", r.status, txt.slice(0, 300));
+          else console.log("Push result to JN:", txt.slice(0, 200));
+        }).catch(e => console.warn("Push result to JN error:", e));
       }
 
       // Generate PDF
@@ -11218,6 +11274,24 @@ if (!hasDamage) {
                                     </button>
                                     <div style={{ fontSize: 9, color: "#ea580c", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>Not in JN</div>
                                   </div>                                ) : null}
+
+                                {/* Push result to JN — appears when the record HAS a JN job AND
+                                    a local result. Use to retroactively sync results that were
+                                    statused before the auto-push existed (cf_string_34 still
+                                    "Needs Inspection" in JN), or whenever JN drifts out of
+                                    sync with the app. */}
+                                {rec.jn_job_id && rec.result ? (
+                                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                                    <button
+                                      type="button"
+                                      disabled={isBusy}
+                                      onClick={(e) => { e.stopPropagation(); adminPushResultToJn(rec); }}
+                                      title={`Push the local result (${rec.result}) to this record's JN job — updates JN's inspection-result field and attaches the cert + photos to Documents.`}
+                                      style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #0e7490", background: isBusy ? "#f3f4f6" : "#ecfeff", color: isBusy ? "#9ca3af" : "#0e7490", fontSize: 11, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: isBusy ? "not-allowed" : "pointer" }}>
+                                      🔄 Push to JN
+                                    </button>
+                                  </div>
+                                ) : null}
 
                                 {/* Photos — opens a modal showing every inspection_photo with its
                                     label (from the inspector's wizard) so the manager can
