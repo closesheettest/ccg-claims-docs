@@ -5801,6 +5801,20 @@ const renderSmsTemplate = (key, vars) => {
       }
       const newInspId = insertedInsp?.id || null;
 
+      // Fire-and-forget: geocode the new inspection's address into
+      // latitude/longitude so the Inspector mobile app can immediately
+      // distance-route this job to the closest inspector. Runs server-
+      // side via /.netlify/functions/geocode-inspection. Failure here
+      // is non-fatal — admin can backfill later via
+      // /.netlify/functions/bulk-geocode-inspections.
+      if (newInspId) {
+        fetch("/.netlify/functions/geocode-inspection", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ inspectionId: newInspId }),
+        }).catch((e) => console.warn("Geocode trigger failed (non-fatal):", e?.message));
+      }
+
       // Email to homeowner
       if (inspData.email) {
         // Generate USS welcome PDF
@@ -6130,6 +6144,17 @@ const renderSmsTemplate = (key, vars) => {
           }
         }
         archiveInspectionId = insertedInsp?.id || null;
+
+        // Fire-and-forget geocode of the new inspection — populates
+        // latitude/longitude so the Inspector mobile app's distance
+        // routing has data immediately. Non-fatal on failure.
+        if (archiveInspectionId) {
+          fetch("/.netlify/functions/geocode-inspection", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ inspectionId: archiveInspectionId }),
+          }).catch((e) => console.warn("Geocode trigger failed (non-fatal):", e?.message));
+        }
 
         try {
           const inspBlob = await generatePDF(
