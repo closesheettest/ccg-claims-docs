@@ -8071,7 +8071,14 @@ if (!hasDamage) {
                   ) : null}
                 </Card>
 
-                {/* Claim Stage selector */}
+                {/* Claim Stage selector — hidden when PA workflow is off.
+                    The "Roof Was Inspected" branch is a PA flow (damage
+                    confirmed → file claim with PA), so without PA it has
+                    nowhere to go. With this hidden, claimStage stays at
+                    the "pre_inspection" default for every new signing —
+                    the email composer + admin notes downstream both
+                    branch correctly off that. */}
+                {!PA_FORMS_DISABLED && (
                 <Card style={{ padding: 20, background: "#f8fafc" }}>
                   <SectionTitle>Claim Stage</SectionTitle>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -8126,6 +8133,7 @@ if (!hasDamage) {
                     </button>
                   </div>
                 </Card>
+                )}
               </div>
 
               <div style={{ marginTop: 20 }}>
