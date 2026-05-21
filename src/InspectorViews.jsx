@@ -465,12 +465,48 @@ export function InspectorsAdminPanel() {
   }
 
   async function toggleActive(insp) {
+    const wasActive = !!insp.active;
     const { error } = await supabase
       .from("inspectors")
       .update({ active: !insp.active })
       .eq("id", insp.id);
     if (error) return setMessage({ kind: "error", text: error.message });
     loadInspectors();
+
+    // On activation (false → true) auto-fire the app-link invite to
+    // the inspector's phone (SMS) or email — saves the manager an
+    // extra click and gets the app onto their home screen quickly.
+    if (!wasActive) {
+      if (!insp.email && !insp.phone) {
+        setMessage({
+          kind: "success",
+          text: `Activated ${insp.name}. No email/phone on file — couldn't auto-send the app link.`,
+        });
+        return;
+      }
+      try {
+        const res = await fetch("/.netlify/functions/send-inspector-app-invite", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ inspectorId: insp.id, channel: "auto" }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!body.ok) {
+          setMessage({
+            kind: "error",
+            text: `Activated, but invite send failed: ${body.error || `status ${res.status}`}`,
+          });
+        } else {
+          const dest = body.channel_used === "sms" ? `📱 SMS to ${body.phone}` : `📧 email to ${body.email}`;
+          setMessage({
+            kind: "success",
+            text: `Activated ${insp.name} — app link sent (${dest}).`,
+          });
+        }
+      } catch (e) {
+        setMessage({ kind: "error", text: `Activated, but invite send failed: ${e.message || "Network error"}` });
+      }
+    }
   }
 
   async function updateInspector(insp, patch) {

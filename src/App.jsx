@@ -3708,7 +3708,14 @@ export default function App() {
     }
   }
 
-  const [view, setView] = useState("input");
+  // ?mode=inspector lands the inspector straight in the mobile app
+  // (skipping the rep-facing homepage). Used by the SMS/email invite
+  // we text the inspector when the manager activates them.
+  const [view, setView] = useState(() => {
+    if (typeof window === "undefined") return "input";
+    const mode = new URLSearchParams(window.location.search).get("mode");
+    return mode === "inspector" ? "inspector" : "input";
+  });
   // ── Guided intake mode ──────────────────────────────────────────
   // When true, the intake screen replaces the all-at-once form with a
   // step-by-step interview flow for new reps. Quick mode (the original
