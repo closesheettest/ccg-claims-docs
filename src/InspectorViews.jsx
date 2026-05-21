@@ -831,13 +831,20 @@ export function InspectionAssignmentsPanel() {
     setLoading(true);
     const [insRes, jobRes] = await Promise.all([
       supabase.from("inspectors").select("id, name, active").order("name"),
+      // Don't select claimed_at here — the column may not exist yet
+      // (the migration is per-deploy) and PostgREST 400s the whole
+      // query if any column in select is missing. Reads can survive
+      // without it; writes still set it (will surface in console if
+      // the column is missing on the target DB).
       supabase
         .from("inspections")
-        .select("id, client_name, address, city, signed_at, inspector_id, result, claimed_at")
+        .select("id, client_name, address, city, signed_at, inspector_id, result")
         .is("result", null)
         .order("signed_at", { ascending: false })
         .limit(200),
     ]);
+    if (insRes.error) setMessage({ kind: "error", text: `Loading inspectors: ${insRes.error.message}` });
+    if (jobRes.error) setMessage({ kind: "error", text: `Loading pending inspections: ${jobRes.error.message}` });
     setInspectors(insRes.data || []);
     setJobs(jobRes.data || []);
     setLoading(false);
@@ -851,13 +858,23 @@ export function InspectionAssignmentsPanel() {
 
   async function reassign(jobId, newInspectorId) {
     setBusyJobId(jobId);
-    const patch = newInspectorId
+    // Try with claimed_at first (proper behavior). If the column
+    // doesn't exist on this DB yet, fall back to a write that just
+    // touches inspector_id so the assignment still works.
+    const fullPatch = newInspectorId
       ? { inspector_id: newInspectorId, claimed_at: new Date().toISOString() }
       : { inspector_id: null, claimed_at: null };
-    const { error } = await supabase
+    let { error } = await supabase
       .from("inspections")
-      .update(patch)
+      .update(fullPatch)
       .eq("id", jobId);
+    if (error && /claimed_at/i.test(error.message || "")) {
+      const minimal = { inspector_id: newInspectorId || null };
+      ({ error } = await supabase
+        .from("inspections")
+        .update(minimal)
+        .eq("id", jobId));
+    }
     setBusyJobId(null);
     if (error) {
       setMessage({ kind: "error", text: error.message });
