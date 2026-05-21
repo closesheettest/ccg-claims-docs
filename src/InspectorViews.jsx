@@ -768,11 +768,15 @@ function InspectorRow({ insp, sendingEmail, onToggle, onUpdate, onDelete, onSend
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({
     name: insp.name,
+    email: insp.email ?? "",
+    phone: insp.phone ?? "",
     latitude: insp.latitude ?? "",
     longitude: insp.longitude ?? "",
     max_distance_miles: insp.max_distance_miles ?? "",
   });
   const setupDone = !!insp.info_updated_at;
+  const hasContact = !!(insp.email || insp.phone);
+  const canActivate = setupDone; // need home address confirmed before going live
   return (
     <div
       style={{
@@ -801,6 +805,7 @@ function InspectorRow({ insp, sendingEmail, onToggle, onUpdate, onDelete, onSend
             </div>
             <div style={{ fontSize: 11, color: "#6b7280" }}>
               {insp.email && <>📧 {insp.email} · </>}
+              {insp.phone && <>📱 {insp.phone} · </>}
               {insp.latitude != null && insp.longitude != null
                 ? `📍 ${insp.latitude.toFixed(4)}, ${insp.longitude.toFixed(4)}`
                 : "📍 No home base set"}
@@ -808,31 +813,50 @@ function InspectorRow({ insp, sendingEmail, onToggle, onUpdate, onDelete, onSend
             </div>
           </div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-            {(insp.email || insp.phone) && onSendUpdateLink && (
+            {onSendUpdateLink && (
               <button
                 type="button"
                 onClick={onSendUpdateLink}
-                disabled={sendingEmail}
+                disabled={sendingEmail || !hasContact}
                 style={{
                   ...secondaryBtn,
                   fontSize: 11,
-                  background: setupDone ? "#fff" : "#fef3c7",
-                  borderColor: setupDone ? "#d1d5db" : "#fbbf24",
+                  background: !hasContact ? "#f3f4f6" : (setupDone ? "#fff" : "#fef3c7"),
+                  borderColor: !hasContact ? "#e5e7eb" : (setupDone ? "#d1d5db" : "#fbbf24"),
+                  opacity: !hasContact ? 0.55 : 1,
+                  cursor: !hasContact ? "not-allowed" : "pointer",
                 }}
                 title={
-                  insp.phone
-                    ? `Will SMS to ${insp.phone}`
-                    : `Will email to ${insp.email}`
+                  !hasContact
+                    ? "Add a phone number or email via Edit first"
+                    : (insp.phone ? `Will SMS to ${insp.phone}` : `Will email to ${insp.email}`)
                 }
               >
                 {sendingEmail
                   ? "Sending…"
                   : setupDone
-                    ? (insp.phone ? "📱 Send update SMS" : "📧 Send update email")
-                    : (insp.phone ? "📱 Send setup SMS" : "📧 Send setup email")}
+                    ? "📧/📱 Send update email/text"
+                    : "📧/📱 Send setup email/text"}
               </button>
             )}
-            <button type="button" onClick={onToggle} style={{ ...secondaryBtn, fontSize: 11 }}>
+            <button
+              type="button"
+              onClick={onToggle}
+              disabled={!insp.active && !canActivate}
+              style={{
+                ...secondaryBtn,
+                fontSize: 11,
+                opacity: !insp.active && !canActivate ? 0.55 : 1,
+                cursor: !insp.active && !canActivate ? "not-allowed" : "pointer",
+              }}
+              title={
+                insp.active
+                  ? "Click to deactivate — the inspector's app link will stop working"
+                  : !canActivate
+                    ? "Inspector must confirm their home address first (Send setup email/text → they tap the link → submit address)"
+                    : "Click to activate and text/email the app link"
+              }
+            >
               {insp.active ? "Deactivate" : "Activate"}
             </button>
             <button type="button" onClick={() => setEditing(true)} style={{ ...secondaryBtn, fontSize: 11 }}>
@@ -851,6 +875,25 @@ function InspectorRow({ insp, sendingEmail, onToggle, onUpdate, onDelete, onSend
             style={inputStyle}
             placeholder="Name"
           />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+            <input
+              type="email"
+              value={draft.email}
+              onChange={(e) => setDraft({ ...draft, email: e.target.value })}
+              style={inputStyle}
+              placeholder="Email"
+            />
+            <input
+              type="tel"
+              value={draft.phone}
+              onChange={(e) => setDraft({ ...draft, phone: e.target.value })}
+              style={inputStyle}
+              placeholder="Phone (e.g. +18135551234)"
+            />
+          </div>
+          <div style={{ fontSize: 11, color: "#6b7280", marginTop: -2 }}>
+            Add a phone or email here, then click <b>Send setup email/text</b> below. After the inspector confirms their address you'll be able to Activate them.
+          </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
             <input
               type="number"
@@ -858,7 +901,7 @@ function InspectorRow({ insp, sendingEmail, onToggle, onUpdate, onDelete, onSend
               value={draft.latitude}
               onChange={(e) => setDraft({ ...draft, latitude: e.target.value })}
               style={inputStyle}
-              placeholder="Latitude"
+              placeholder="Latitude (auto-filled from setup)"
             />
             <input
               type="number"
@@ -866,7 +909,7 @@ function InspectorRow({ insp, sendingEmail, onToggle, onUpdate, onDelete, onSend
               value={draft.longitude}
               onChange={(e) => setDraft({ ...draft, longitude: e.target.value })}
               style={inputStyle}
-              placeholder="Longitude"
+              placeholder="Longitude (auto-filled from setup)"
             />
             <input
               type="number"
@@ -882,6 +925,8 @@ function InspectorRow({ insp, sendingEmail, onToggle, onUpdate, onDelete, onSend
               onClick={() => {
                 const patch = {
                   name: draft.name.trim(),
+                  email: draft.email.trim() || null,
+                  phone: draft.phone.trim() || null,
                   latitude: draft.latitude !== "" ? parseFloat(draft.latitude) : null,
                   longitude: draft.longitude !== "" ? parseFloat(draft.longitude) : null,
                   max_distance_miles: draft.max_distance_miles !== "" ? parseInt(draft.max_distance_miles, 10) : null,
@@ -908,17 +953,13 @@ function InspectorRow({ insp, sendingEmail, onToggle, onUpdate, onDelete, onSend
 // ═════════════════════════════════════════════════════════════════════
 
 export function InspectorMobileApp({ onExit }) {
-  const [stage, setStage] = useState("pick"); // pick | list | detail
+  const [stage, setStage] = useState("pick"); // pick | list | detail | inactive
   const [inspectors, setInspectors] = useState([]);
   const [me, setMe] = useState(null);
-  // Persist the picked inspector in localStorage so the next visit
-  // remembers them (same pattern as personas in TMS).
-  useEffect(() => {
-    const stored = localStorage.getItem("ccg_inspector_id");
-    if (stored) {
-      // Will hydrate after inspectors load.
-    }
-  }, []);
+  // When the inspector's stored ID points to a row that is no longer
+  // active (or never completed setup), we show a friendly "account
+  // not active" screen instead of dumping them to an empty picker.
+  const [inactiveName, setInactiveName] = useState("");
   useEffect(() => {
     // Only show active inspectors who've completed setup (have a home
     // base lat/lng saved). Partial setups don't appear in the picker
@@ -930,17 +971,31 @@ export function InspectorMobileApp({ onExit }) {
       .eq("active", true)
       .not("info_updated_at", "is", null)
       .order("name")
-      .then(({ data }) => {
+      .then(async ({ data }) => {
       const list = data || [];
       setInspectors(list);
       const stored = localStorage.getItem("ccg_inspector_id");
-      if (stored) {
-        const found = list.find((i) => i.id === stored);
-        if (found) {
-          setMe(found);
-          setStage("list");
-        }
+      if (!stored) return;
+      const found = list.find((i) => i.id === stored);
+      if (found) {
+        setMe(found);
+        setStage("list");
+        return;
       }
+      // Stored ID is NOT in the active+setup-done list. Look up the
+      // actual row to figure out why so we can tell them why their
+      // link stopped working.
+      const { data: raw } = await supabase
+        .from("inspectors")
+        .select("id,name,active,info_updated_at")
+        .eq("id", stored)
+        .maybeSingle();
+      if (raw) {
+        setInactiveName(raw.name || "");
+        setStage("inactive");
+      }
+      // If the row was deleted entirely, fall through to the normal
+      // picker — they can pick a different inspector if needed.
     });
   }, []);
 
@@ -953,6 +1008,7 @@ export function InspectorMobileApp({ onExit }) {
   function signOut() {
     localStorage.removeItem("ccg_inspector_id");
     setMe(null);
+    setInactiveName("");
     setStage("pick");
   }
 
@@ -982,6 +1038,28 @@ export function InspectorMobileApp({ onExit }) {
           )}
         </div>
       </div>
+
+      {stage === "inactive" && (
+        <div style={{
+          padding: 24,
+          background: "#fff",
+          border: "1px solid #fca5a5",
+          borderRadius: 12,
+          textAlign: "center",
+        }}>
+          <div style={{ fontSize: 32, marginBottom: 8 }}>🚫</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "#991b1b", marginBottom: 6 }}>
+            {inactiveName ? `Hi ${inactiveName} —` : "Hi —"} your inspector account is not active.
+          </div>
+          <div style={{ fontSize: 13, color: "#64748b", marginBottom: 16 }}>
+            Your manager has either deactivated you or your setup is incomplete.
+            Contact your manager to get reactivated.
+          </div>
+          <button type="button" onClick={signOut} style={{ ...secondaryBtn, fontSize: 12 }}>
+            Sign out
+          </button>
+        </div>
+      )}
 
       {stage === "pick" && (
         <InspectorPickName inspectors={inspectors} onPick={pickMe} />
