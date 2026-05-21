@@ -6797,57 +6797,143 @@ const renderSmsTemplate = (key, vars) => {
     setRowBusyId(row.id);
     setPushStatus((s) => ({ ...s, [row.id]: { stage: "updating", message: "Updating JN inspection result…" } }));
     try {
+      // STEP 1: Server PUTs cf_string_34 and returns the photo list.
+      // Fast — server returns in ~1s. Each per-photo upload happens
+      // in its own Lambda below so Netlify's 10s budget never matters.
       const r = await fetch("/.netlify/functions/push-result-to-jn", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ inspectionId: row.id }),
       });
       const d = await r.json().catch(() => ({}));
-      if (r.ok && d.ok) {
-        // Server inlines the JN PUT + photo uploads, then fires the
-        // cert generation as a separate Lambda invocation. Show the
-        // real per-step counts so the manager can verify in JN.
-        const parts = [];
-        if (d.jn_updated) parts.push(`✅ JN result set to "${d.cf_string_34_set || row.result}"`);
-        if (d.photos_total != null) {
-          if (d.photos_uploaded > 0 && d.photos_failed === 0) {
-            parts.push(`✅ ${d.photos_uploaded}/${d.photos_total} photos uploaded to JN`);
-          } else if (d.photos_uploaded > 0 && d.photos_failed > 0) {
-            parts.push(`⚠ ${d.photos_uploaded}/${d.photos_total} photos uploaded (${d.photos_failed} failed)`);
-          } else if (d.photos_total > 0) {
-            parts.push(`❌ 0/${d.photos_total} photos uploaded`);
-          } else {
-            parts.push("ℹ no photos on file");
-          }
-        }
-        // When all photos failed, append the first error so the
-        // manager can see why JN rejected them (and paste it back
-        // if it needs further investigation).
-        if (d.photos_failed > 0 && Array.isArray(d.photo_errors) && d.photo_errors.length > 0) {
-          const firstErr = d.photo_errors[0]?.error || "(no detail)";
-          parts.push(`First photo error: ${firstErr}`);
-        }
-        if (d.cert_kicked_off) {
-          parts.push("📄 Cert generating — check JN Documents in ~1 min");
-        }
+      if (!r.ok || !d.ok) {
+        const detail = d.error || d.detail || d.jn_update_error || `HTTP ${r.status}`;
+        setPushStatus((s) => ({ ...s, [row.id]: { stage: "error", ok: false, message: `❌ ${detail}` } }));
+        setRowBusyId(null);
+        return;
+      }
+
+      // Retail path returns nothing to upload — process-retail-result
+      // already handled its own JN PUT + cert. Show its summary and stop.
+      if (d.delegated_to === "process-retail-result") {
         setPushStatus((s) => ({
           ...s,
           [row.id]: {
             stage: "done",
-            ok: d.photos_failed === 0,
-            message: parts.join(". "),
+            ok: true,
+            message: `✅ Retail pushed (record_type + location swapped). Cert in JN Documents shortly.`,
           },
         }));
-      } else {
-        const detail = d.error || d.detail || d.jn_update_error || d.cert_error || `HTTP ${r.status}`;
-        setPushStatus((s) => ({ ...s, [row.id]: { stage: "error", ok: false, message: `❌ ${detail}` } }));
+        setRowBusyId(null);
+        return;
       }
+
+      const photos = Array.isArray(d.photos_to_upload) ? d.photos_to_upload : [];
+      const jnJobId = d.jn_job_id;
+
+      // STEP 2: Fire per-photo uploads in parallel batches. Each photo
+      // is its own Lambda — ~2s — so 28 photos in batches of 6 finish
+      // in ~10s wall time with progress shown to the manager.
+      if (photos.length === 0) {
+        setPushStatus((s) => ({
+          ...s,
+          [row.id]: {
+            stage: "done",
+            ok: true,
+            message: `✅ JN result set to "${d.cf_string_34_set || row.result}". No photos on file. 📄 Cert generating — check JN Documents in ~1 min.`,
+          },
+        }));
+        // Still fire the cert in case it can find photos in JN already.
+        fireCertGeneration(jnJobId);
+        setRowBusyId(null);
+        return;
+      }
+
+      let uploaded = 0;
+      let failed = 0;
+      let firstFailureMsg = null;
+      const BATCH = 6;
+      const update = () => {
+        const done = uploaded + failed;
+        setPushStatus((s) => ({
+          ...s,
+          [row.id]: {
+            stage: "updating",
+            message: `📤 Uploading photos to JN: ${done}/${photos.length}${failed > 0 ? ` (${failed} failed so far)` : ""}…`,
+          },
+        }));
+      };
+      update();
+      for (let i = 0; i < photos.length; i += BATCH) {
+        const slice = photos.slice(i, i + BATCH);
+        await Promise.all(slice.map(async (p) => {
+          try {
+            const resp = await fetch("/.netlify/functions/upload-photo-to-jn", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                jn_job_id: jnJobId,
+                path: p.path,
+                bucket: p.bucket,
+                label: p.label,
+              }),
+            });
+            const j = await resp.json().catch(() => ({}));
+            if (resp.ok && j.ok) {
+              uploaded++;
+            } else {
+              failed++;
+              if (!firstFailureMsg) firstFailureMsg = j.error || `HTTP ${resp.status}`;
+            }
+          } catch (e) {
+            failed++;
+            if (!firstFailureMsg) firstFailureMsg = e.message || "network error";
+          }
+          update();
+        }));
+      }
+
+      // STEP 3: Fire the cert generator (fire-and-forget — its own Lambda).
+      fireCertGeneration(jnJobId);
+
+      const parts = [];
+      parts.push(`✅ JN result set to "${d.cf_string_34_set || row.result}"`);
+      if (failed === 0) {
+        parts.push(`✅ ${uploaded}/${photos.length} photos uploaded to JN`);
+      } else if (uploaded > 0) {
+        parts.push(`⚠ ${uploaded}/${photos.length} photos uploaded (${failed} failed)`);
+      } else {
+        parts.push(`❌ 0/${photos.length} photos uploaded`);
+      }
+      if (firstFailureMsg) parts.push(`First photo error: ${firstFailureMsg}`);
+      parts.push("📄 Cert generating — check JN Documents in ~1 min");
+
+      setPushStatus((s) => ({
+        ...s,
+        [row.id]: {
+          stage: "done",
+          ok: failed === 0,
+          message: parts.join(". "),
+        },
+      }));
     } catch (e) {
       setPushStatus((s) => ({ ...s, [row.id]: { stage: "error", ok: false, message: `❌ ${e.message || e}` } }));
     } finally {
       setRowBusyId(null);
     }
   };
+
+  // Fire the cert generator for a given JN job. Fire-and-forget —
+  // the cert function runs in its own Lambda with its own 10s budget
+  // (or 15-min if the user's Netlify plan supports background funcs).
+  function fireCertGeneration(jnJobId) {
+    if (!jnJobId) return;
+    fetch("/.netlify/functions/generate-and-upload-insp-report", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jnid: jnJobId }),
+    }).catch((e) => console.warn("Cert kickoff failed:", e));
+  }
 
   const submitInspectionResult = async () => {
     if (!resultChoice || !resultInspectorName.trim() || !selectedInspRecord) return;

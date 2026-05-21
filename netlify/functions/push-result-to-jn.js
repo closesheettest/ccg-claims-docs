@@ -1,37 +1,28 @@
 // netlify/functions/push-result-to-jn.js
 //
-// Push a recorded inspection result + the wizard photos to JobNimbus
-// and trigger the cert generation. Designed for the manager-side
-// "🔄 Push to JN" button on Record Lookup AND for auto-firing from
-// submitInspectionResult when a manager statuses a record via the
-// Set-result dropdown.
+// Step 1 of the manager's "Push to JN" flow. Does ONLY the fast
+// server-side work so Netlify's 10s timeout isn't a factor:
 //
-// What we do (in order, INLINE — no nested HTTP-to-our-own-functions
-// for the photo step because each function has its own 10s budget):
-//
-//   1. PUT cf_string_34 on the JN job (fast, ~1s)
-//   2. For each photo in inspection_photos JSON:
-//      - Download from Supabase Storage
-//      - Upload to JN /files (presigned URL + PUT to S3)
-//      Done in parallel batches of 3 so 10 photos finish in ~4-6s
-//      total instead of ~20s sequential.
-//   3. Fire generate-and-upload-insp-report HTTP fetch as a separate
-//      Lambda invocation (NOT awaited — Netlify spawns its own 10s
-//      Lambda for that, independent of this one's budget). Returns
-//      quickly to the client.
+//   1. PUTs cf_string_34 on the linked JN job (~1s)
+//   2. Returns the inspection_photos JSON + jn_job_id so the
+//      client can fan out per-photo uploads in parallel (via
+//      /.netlify/functions/upload-photo-to-jn, one Lambda per
+//      photo — finishes in ~3-5s wall time for 28 photos)
+//   3. After all photo uploads complete, the client should fire
+//      /.netlify/functions/generate-and-upload-insp-report
+//      directly to produce the cert PDF.
 //
 // Retail records short-circuit at the top — they get handed to
-// process-retail-result which does the location + record-type
-// transitions on top of the same cf_string_34 + cert work.
+// process-retail-result for the additional record_type + location
+// transitions. Retail's photo + cert flow may still need the
+// per-photo orchestration if process-retail-result's inline cert
+// path exceeds the budget; that's tracked separately.
 //
 // POST body: { inspectionId }
 //
-// Required env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, JOBNIMBUS_API_KEY,
-//               URL or PUBLIC_SITE_URL.
+// Required env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, JOBNIMBUS_API_KEY.
 
 const JN_BASE = "https://app.jobnimbus.com/api1";
-const JN_FILES_BASE = "https://api.jobnimbus.com/files/v1/uploads/url";
-const SIGNED_BUCKET = "signed-documents";
 
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -63,7 +54,6 @@ exports.handler = async (event) => {
     "Content-Type": "application/json",
   };
 
-  // Fetch the inspection row — need result + jn_job_id + inspection_photos.
   const inspRes = await fetch(
     `${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}&select=id,jn_job_id,client_name,result,inspection_photos&limit=1`,
     { headers: sbHeaders },
@@ -83,7 +73,10 @@ exports.handler = async (event) => {
 
   const base = (process.env.URL || process.env.PUBLIC_SITE_URL || "").replace(/\/$/, "");
 
-  // Retail → dedicated function (also does record_type / location swap).
+  // Retail → dedicated function (record_type + location swap on top
+  // of cf_string_34). Process-retail-result currently runs the cert
+  // generation inline; if that times out we'll need to apply the
+  // same per-photo split there too.
   if (insp.result === "retail") {
     if (!base) return json(500, { ok: false, error: "No base URL configured for internal retail call" });
     const r = await fetch(`${base}/.netlify/functions/process-retail-result`, {
@@ -105,7 +98,7 @@ exports.handler = async (event) => {
     return json(400, { ok: false, error: `Unsupported result "${insp.result}"` });
   }
 
-  // ── 1. PUT cf_string_34 on the JN job ─────────────────────────────────
+  // PUT cf_string_34 on the JN job.
   let jnUpdated = false;
   let jnUpdateError = null;
   try {
@@ -123,107 +116,10 @@ exports.handler = async (event) => {
     jnUpdateError = `JN PUT exception: ${e.message}`;
   }
 
-  // ── 2. Upload wizard photos to JN as attachments ──────────────────────
-  // inspection_photos is the JSON array the wizard wrote when the
-  // inspector submitted. Each entry: { path, bucket, label, captured_at }.
-  // Parallel batches of 3 to keep within Netlify's 10s budget on 10+ photos.
+  // Return the photo list so the client can fan out per-photo uploads.
+  // We DON'T do them server-side anymore — 28 photos won't fit in
+  // Netlify's 10s budget when batched 3 at a time on this one Lambda.
   const photos = Array.isArray(insp.inspection_photos) ? insp.inspection_photos : [];
-  const photoResults = []; // { ok, label, error? }
-  if (photos.length > 0) {
-    const BATCH_SIZE = 3;
-    for (let i = 0; i < photos.length; i += BATCH_SIZE) {
-      const batch = photos.slice(i, i + BATCH_SIZE);
-      await Promise.all(batch.map(async (p) => {
-        const label = p.label || "Inspector photo";
-        try {
-          const bucket = p.bucket || SIGNED_BUCKET;
-          const dlRes = await fetch(
-            `${SB_URL}/storage/v1/object/${bucket}/${p.path}`,
-            { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } },
-          );
-          if (!dlRes.ok) {
-            photoResults.push({ ok: false, label, error: `Storage download ${dlRes.status}` });
-            return;
-          }
-          const buf = Buffer.from(await dlRes.arrayBuffer());
-          const filename = p.path.split("/").pop() || "photo.jpg";
-          const contentType = filename.toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
-
-          const initRes = await fetch(JN_FILES_BASE, {
-            method: "POST",
-            headers: jnHeaders,
-            body: JSON.stringify({
-              related: [insp.jn_job_id],
-              type: 1,
-              filename,
-              description: label,
-            }),
-          });
-          // Read response body once, parse from text — lets us include
-          // the actual JN error message instead of a bare status code.
-          const initText = await initRes.text();
-          if (!initRes.ok) {
-            photoResults.push({
-              ok: false,
-              label,
-              error: `JN init ${initRes.status}: ${initText.slice(0, 250)}`,
-            });
-            return;
-          }
-          let initJson = {};
-          try { initJson = JSON.parse(initText); } catch {}
-          // JN wraps the response in { data: { url, jnid } } — match
-          // the same shape the cert generator's uploadFileToJob looks for.
-          const presignedUrl =
-            initJson.data?.url || initJson.url ||
-            initJson.upload_url || initJson.presigned_url;
-          if (!presignedUrl) {
-            photoResults.push({
-              ok: false,
-              label,
-              error: `no presigned URL in JN response: ${initText.slice(0, 250)}`,
-            });
-            return;
-          }
-          const putRes = await fetch(presignedUrl, {
-            method: "PUT",
-            headers: { "Content-Type": contentType },
-            body: buf,
-          });
-          if (!putRes.ok) {
-            photoResults.push({ ok: false, label, error: `S3 PUT ${putRes.status}` });
-            return;
-          }
-          photoResults.push({ ok: true, label });
-        } catch (e) {
-          photoResults.push({ ok: false, label, error: e.message || "Unknown" });
-        }
-      }));
-    }
-  }
-  const photosUploaded = photoResults.filter((r) => r.ok).length;
-  const photosFailed = photoResults.filter((r) => !r.ok).length;
-
-  // ── 3. Fire cert generation as a separate Lambda invocation ──────────
-  // We DON'T await this. The fetch call hits Netlify's gateway which
-  // routes to a new Lambda for generate-and-upload-insp-report. That
-  // Lambda has its own 10s budget, independent of this one's. The
-  // client gets back our response (with photo counts) within ~5-6s;
-  // the cert lands in JN Documents asynchronously a few seconds later.
-  let certKickedOff = false;
-  if (base) {
-    try {
-      // Don't await — we want this Lambda to fire-and-go.
-      fetch(`${base}/.netlify/functions/generate-and-upload-insp-report`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jnid: insp.jn_job_id }),
-      }).catch((e) => console.warn("Cert kickoff failed:", e.message));
-      certKickedOff = true;
-    } catch (e) {
-      console.warn("Cert kickoff exception:", e.message);
-    }
-  }
 
   return json(200, {
     ok: jnUpdated,
@@ -234,11 +130,12 @@ exports.handler = async (event) => {
     cf_string_34_set: cfValue,
     jn_updated: jnUpdated,
     jn_update_error: jnUpdateError,
-    photos_total: photos.length,
-    photos_uploaded: photosUploaded,
-    photos_failed: photosFailed,
-    photo_errors: photoResults.filter((r) => !r.ok).slice(0, 5),
-    cert_kicked_off: certKickedOff,
+    // Caller iterates this list and fires upload-photo-to-jn per item.
+    photos_to_upload: photos.map((p) => ({
+      path: p.path,
+      bucket: p.bucket || "signed-documents",
+      label: p.label || "Inspector photo",
+    })),
   });
 };
 
