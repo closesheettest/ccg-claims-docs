@@ -2050,24 +2050,34 @@ export function ManagerInspectorReports() {
 // Guided inspector photo wizard — multi-step interview rather than a
 // single dump-it-all-here photo picker. Sequence:
 //
-//   1. Front of the house — 1 photo
-//   2-5. For each side in order [left, rear, right, front]:
+//   1. House number photo (confirms which house this is)
+//   2. Front of house photo
+//   3. Pick story count (1 or 2)
+//   4. For each story (story 1 first, then story 2 if applicable):
+//      For each side in CLOCKWISE order starting LEFT [left, front,
+//      right, rear]:
 //        a. Ask how many slopes on this side (1-4)
-//        b. Take overview photo of slope #1, #2, … (one per slope)
-//        c. Take damage photos for slope #1 (1-N), then #2, …
-//   6. Result picker (damage / retail / no_damage)
-//   7. If retail: 10 photos of the worst condition spots
-//   8. Submit
+//        b. Overview photo of slope #1, then damage photos of slope #1
+//        c. Repeat overview+damage for slope #2, etc.
+//        d. Continue to next side
+//      After all 4 sides on story 1 → "Story 1 complete — start
+//      Story 2" transition card (only when 2-story).
+//   5. Result picker (damage / retail / no_damage)
+//   6. If retail: 10 photos of the worst condition spots
+//   7. Submit
 //
-// Each photo carries metadata (category, side, slope_index, label) so
-// it gets a descriptive filename in Supabase Storage and a clean
-// description on its JN attachment.
-const SIDES = ["left", "rear", "right", "front"];
+// Each photo carries metadata (category, side, slope_index, story,
+// label) so it gets a descriptive filename in Supabase Storage and a
+// clean description on its JN attachment.
+// Clockwise from LEFT (looking down at the house from above):
+// left → front → right → rear → back to left. Inspector walks the
+// house in this order, one side at a time.
+const SIDES = ["left", "front", "right", "rear"];
 const SIDE_LABELS = {
   left: "LEFT-facing",
-  rear: "REAR-facing",
-  right: "RIGHT-facing",
   front: "FRONT-facing",
+  right: "RIGHT-facing",
+  rear: "REAR-facing",
 };
 
 function InspectorJobDetail({ me, jobId, onBack }) {
@@ -2075,22 +2085,35 @@ function InspectorJobDetail({ me, jobId, onBack }) {
   const [loading, setLoading] = useState(true);
   // Guided wizard state.
   // stage shapes:
+  //   { kind: "house_number" }
   //   { kind: "front_house" }
-  //   { kind: "side_count", side }
-  //   { kind: "side_overview", side, slopeIndex } — slopeIndex 0-based
-  //   { kind: "side_damage",   side, slopeIndex }
+  //   { kind: "story_pick" }
+  //   { kind: "side_count",    side, story }
+  //   { kind: "side_overview", side, story, slopeIndex }
+  //   { kind: "side_damage",   side, story, slopeIndex }
+  //   { kind: "story_transition" } — only when storyCount === 2,
+  //                                   between story 1 and story 2
   //   { kind: "result" }
   //   { kind: "retail_worst" }
-  const [stage, setStage] = useState({ kind: "front_house" });
-  // How many slopes for each side. Filled as the inspector progresses.
-  const [slopeCounts, setSlopeCounts] = useState({ left: 0, rear: 0, right: 0, front: 0 });
+  const [stage, setStage] = useState({ kind: "house_number" });
+  // How many stories — 1 or 2. Set by the story_pick step.
+  const [storyCount, setStoryCount] = useState(0);
+  // Slope counts keyed by `${story}_${side}` — each story+side can
+  // have its own slope count. e.g. "1_left", "2_left" etc.
+  const [slopeCounts, setSlopeCounts] = useState({});
   // Flat array of all photos. Each carries metadata so we can group
   // them in the UI + write descriptive filenames at upload.
-  // Shape: { file, previewUrl, category, side?, slopeIndex?, label, uploaded, path }
+  // Shape: { file, previewUrl, category, side?, story?, slopeIndex?,
+  //         label, uploaded, path }
   const [photos, setPhotos] = useState([]);
   const [resultChoice, setResultChoice] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitMsg, setSubmitMsg] = useState(null);
+
+  const slopeCountKey = (story, side) => `${story}_${side}`;
+  const getSlopeCount = (story, side) => slopeCounts[slopeCountKey(story, side)] || 0;
+  const setSlopeCount = (story, side, n) =>
+    setSlopeCounts((prev) => ({ ...prev, [slopeCountKey(story, side)]: n }));
 
   async function load() {
     setLoading(true);
@@ -2105,37 +2128,48 @@ function InspectorJobDetail({ me, jobId, onBack }) {
   useEffect(() => { load(); }, [jobId]);
 
   // Advance to the next logical stage based on where we are.
+  // Per-slope flow: count → overview slope 1 → damage slope 1 →
+  // overview slope 2 → damage slope 2 → next side.
   function advance() {
+    if (stage.kind === "house_number") {
+      setStage({ kind: "front_house" });
+      return;
+    }
     if (stage.kind === "front_house") {
-      setStage({ kind: "side_count", side: "left" });
+      setStage({ kind: "story_pick" });
+      return;
+    }
+    if (stage.kind === "story_pick") {
+      // storyCount must be set by the step's buttons before advance.
+      setStage({ kind: "side_count", side: "left", story: 1 });
+      return;
+    }
+    if (stage.kind === "story_transition") {
+      setStage({ kind: "side_count", side: "left", story: 2 });
       return;
     }
     if (stage.kind === "side_count") {
-      const count = slopeCounts[stage.side];
+      const count = getSlopeCount(stage.story, stage.side);
       if (count > 0) {
-        setStage({ kind: "side_overview", side: stage.side, slopeIndex: 0 });
+        setStage({ kind: "side_overview", story: stage.story, side: stage.side, slopeIndex: 0 });
       } else {
-        // No slopes on this side — skip to next.
-        goToNextSide(stage.side);
+        // No slopes on this side — skip to next side (or next story / result).
+        goToNextSide(stage.story, stage.side);
       }
       return;
     }
     if (stage.kind === "side_overview") {
-      const count = slopeCounts[stage.side];
-      if (stage.slopeIndex + 1 < count) {
-        setStage({ kind: "side_overview", side: stage.side, slopeIndex: stage.slopeIndex + 1 });
-      } else {
-        // All overviews done — move to damage of slope #1
-        setStage({ kind: "side_damage", side: stage.side, slopeIndex: 0 });
-      }
+      // Right after overview, take damage photos for THIS slope.
+      setStage({ kind: "side_damage", story: stage.story, side: stage.side, slopeIndex: stage.slopeIndex });
       return;
     }
     if (stage.kind === "side_damage") {
-      const count = slopeCounts[stage.side];
+      const count = getSlopeCount(stage.story, stage.side);
       if (stage.slopeIndex + 1 < count) {
-        setStage({ kind: "side_damage", side: stage.side, slopeIndex: stage.slopeIndex + 1 });
+        // Next slope on this side — back to overview.
+        setStage({ kind: "side_overview", story: stage.story, side: stage.side, slopeIndex: stage.slopeIndex + 1 });
       } else {
-        goToNextSide(stage.side);
+        goToNextSide(stage.story, stage.side);
       }
       return;
     }
@@ -2145,13 +2179,19 @@ function InspectorJobDetail({ me, jobId, onBack }) {
     }
   }
 
-  function goToNextSide(currentSide) {
+  function goToNextSide(currentStory, currentSide) {
     const idx = SIDES.indexOf(currentSide);
     if (idx >= 0 && idx + 1 < SIDES.length) {
-      setStage({ kind: "side_count", side: SIDES[idx + 1] });
-    } else {
-      setStage({ kind: "result" });
+      setStage({ kind: "side_count", side: SIDES[idx + 1], story: currentStory });
+      return;
     }
+    // All 4 sides done on this story. If 2-story and we just
+    // finished story 1, show the transition card.
+    if (storyCount === 2 && currentStory === 1) {
+      setStage({ kind: "story_transition" });
+      return;
+    }
+    setStage({ kind: "result" });
   }
 
   function addPhotos(files, metadata) {
@@ -2172,17 +2212,26 @@ function InspectorJobDetail({ me, jobId, onBack }) {
   // Filter photos belonging to the current stage so we can show only
   // those previews instead of every photo accumulated so far.
   function currentStagePhotos() {
+    if (stage.kind === "house_number") {
+      return photos.filter((p) => p.category === "house_number");
+    }
     if (stage.kind === "front_house") {
       return photos.filter((p) => p.category === "front_house");
     }
     if (stage.kind === "side_overview") {
       return photos.filter(
-        (p) => p.category === "slope_overview" && p.side === stage.side && p.slopeIndex === stage.slopeIndex,
+        (p) => p.category === "slope_overview"
+          && p.side === stage.side
+          && p.story === stage.story
+          && p.slopeIndex === stage.slopeIndex,
       );
     }
     if (stage.kind === "side_damage") {
       return photos.filter(
-        (p) => p.category === "slope_damage" && p.side === stage.side && p.slopeIndex === stage.slopeIndex,
+        (p) => p.category === "slope_damage"
+          && p.side === stage.side
+          && p.story === stage.story
+          && p.slopeIndex === stage.slopeIndex,
       );
     }
     if (stage.kind === "retail_worst") {
@@ -2274,7 +2323,7 @@ function InspectorJobDetail({ me, jobId, onBack }) {
   );
 
   const stagePhotos = currentStagePhotos();
-  const progressLabel = stageLabel(stage, slopeCounts);
+  const progressLabel = stageLabel(stage, slopeCounts, storyCount);
   const isResultDamage = resultChoice === "damage";
   const isResultRetail = resultChoice === "retail";
   const retailPhotoCount = photos.filter((p) => p.category === "retail_worst").length;
@@ -2311,6 +2360,26 @@ function InspectorJobDetail({ me, jobId, onBack }) {
         <strong>Step:</strong> {progressLabel} · <strong>{photos.length}</strong> photo{photos.length === 1 ? "" : "s"} so far
       </div>
 
+      {stage.kind === "house_number" && (
+        <WizardPhotoStep
+          title="📷 House number"
+          subtitle="Take ONE clear photo of the house number so we can confirm we're at the right address."
+          ctaLabel="Done — front of house next →"
+          ctaEnabled={stagePhotos.length >= 1}
+          stagePhotos={stagePhotos}
+          submitting={submitting}
+          onAddPhotos={(files) => addPhotos(files, {
+            category: "house_number",
+            label: "House number",
+          })}
+          onRemove={(idx) => {
+            const target = stagePhotos[idx];
+            setPhotos((prev) => prev.filter((p) => p !== target));
+          }}
+          onContinue={advance}
+        />
+      )}
+
       {stage.kind === "front_house" && (
         <WizardPhotoStep
           title="📷 Front of the house"
@@ -2331,32 +2400,85 @@ function InspectorJobDetail({ me, jobId, onBack }) {
         />
       )}
 
+      {stage.kind === "story_pick" && (
+        <section style={{ padding: 14, background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", display: "grid", gap: 10 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>
+            🏠 How many stories?
+          </div>
+          <div style={{ fontSize: 12, color: "#6b7280" }}>
+            For 2-story homes you'll photograph the 1st story first (all 4 sides), then move up to the 2nd story.
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            {[1, 2].map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => {
+                  setStoryCount(n);
+                  setStage({ kind: "side_count", side: "left", story: 1 });
+                }}
+                style={{
+                  padding: "18px 12px",
+                  background: storyCount === n ? "#0e7490" : "#fff",
+                  color: storyCount === n ? "#fff" : "#111827",
+                  border: `2px solid ${storyCount === n ? "#0e7490" : "#e5e7eb"}`,
+                  borderRadius: 12,
+                  fontWeight: 700,
+                  fontSize: 16,
+                  cursor: "pointer",
+                }}
+              >
+                {n === 1 ? "1 story" : "2 stories"}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {stage.kind === "story_transition" && (
+        <section style={{ padding: 18, background: "#ecfeff", borderRadius: 12, border: "2px solid #06b6d4", display: "grid", gap: 10, textAlign: "center" }}>
+          <div style={{ fontSize: 32 }}>✅</div>
+          <div style={{ fontSize: 18, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>
+            1st story complete
+          </div>
+          <div style={{ fontSize: 13, color: "#0e7490" }}>
+            Move up to the 2nd story. Same order — start with the LEFT-facing slope, then go clockwise (front → right → rear).
+          </div>
+          <button
+            type="button"
+            onClick={advance}
+            style={{ ...primaryBtn, padding: "14px 18px", fontSize: 15 }}
+          >
+            Start 2nd story →
+          </button>
+        </section>
+      )}
+
       {stage.kind === "side_count" && (
         <SlopeCountStep
           side={stage.side}
-          value={slopeCounts[stage.side]}
-          onSet={(n) => setSlopeCounts({ ...slopeCounts, [stage.side]: n })}
+          story={stage.story}
+          storyCount={storyCount}
+          value={getSlopeCount(stage.story, stage.side)}
+          onSet={(n) => setSlopeCount(stage.story, stage.side, n)}
           onContinue={advance}
         />
       )}
 
       {stage.kind === "side_overview" && (
         <WizardPhotoStep
-          title={`📷 ${SIDE_LABELS[stage.side]} slope #${stage.slopeIndex + 1} — overview`}
-          subtitle={`Take ONE overview photo showing the whole ${SIDE_LABELS[stage.side]} slope #${stage.slopeIndex + 1}.`}
-          ctaLabel={
-            stage.slopeIndex + 1 < slopeCounts[stage.side]
-              ? `Done — next slope's overview →`
-              : `Done — now damage photos →`
-          }
+          title={`📷 ${storyPrefix(stage.story, storyCount)}${SIDE_LABELS[stage.side]} slope #${stage.slopeIndex + 1} — overview`}
+          subtitle={`Take ONE overview photo showing the whole ${SIDE_LABELS[stage.side]} slope #${stage.slopeIndex + 1}${storyCount === 2 ? ` on story ${stage.story}` : ""}.`}
+          ctaLabel="Done — now damage photos for this slope →"
           ctaEnabled={stagePhotos.length >= 1}
           stagePhotos={stagePhotos}
           submitting={submitting}
           onAddPhotos={(files) => addPhotos(files, {
             category: "slope_overview",
             side: stage.side,
+            story: stage.story,
             slopeIndex: stage.slopeIndex,
-            label: `${capitalize(stage.side)} slope ${stage.slopeIndex + 1} overview`,
+            label: `${storyLabelFor(stage.story, storyCount)}${capitalize(stage.side)} slope ${stage.slopeIndex + 1} overview`,
           })}
           onRemove={(idx) => {
             const target = stagePhotos[idx];
@@ -2368,14 +2490,16 @@ function InspectorJobDetail({ me, jobId, onBack }) {
 
       {stage.kind === "side_damage" && (
         <WizardPhotoStep
-          title={`📷 ${SIDE_LABELS[stage.side]} slope #${stage.slopeIndex + 1} — damage photos`}
-          subtitle={`Take as many photos as you need showing damage on the ${SIDE_LABELS[stage.side]} slope #${stage.slopeIndex + 1}. Tap Done when finished.`}
+          title={`📷 ${storyPrefix(stage.story, storyCount)}${SIDE_LABELS[stage.side]} slope #${stage.slopeIndex + 1} — damage photos`}
+          subtitle={`Take as many photos as you need showing damage on this slope. Tap Done when finished.`}
           ctaLabel={
-            stage.slopeIndex + 1 < slopeCounts[stage.side]
-              ? `Done with this slope → next slope`
+            stage.slopeIndex + 1 < getSlopeCount(stage.story, stage.side)
+              ? `Done — overview of slope #${stage.slopeIndex + 2} →`
               : nextSideAfter(stage.side)
-                ? `Done with ${SIDE_LABELS[stage.side]} → ${SIDE_LABELS[nextSideAfter(stage.side)]}`
-                : `Done — pick result →`
+                ? `Done — ${SIDE_LABELS[nextSideAfter(stage.side)]} side next →`
+                : storyCount === 2 && stage.story === 1
+                  ? "Done — 1st story finished →"
+                  : "Done — pick result →"
           }
           ctaEnabled={stagePhotos.length >= 1}
           stagePhotos={stagePhotos}
@@ -2383,8 +2507,9 @@ function InspectorJobDetail({ me, jobId, onBack }) {
           onAddPhotos={(files) => addPhotos(files, {
             category: "slope_damage",
             side: stage.side,
+            story: stage.story,
             slopeIndex: stage.slopeIndex,
-            label: `${capitalize(stage.side)} slope ${stage.slopeIndex + 1} damage`,
+            label: `${storyLabelFor(stage.story, storyCount)}${capitalize(stage.side)} slope ${stage.slopeIndex + 1} damage`,
           })}
           onRemove={(idx) => {
             const target = stagePhotos[idx];
@@ -2598,7 +2723,9 @@ function WizardPhotoStep({ title, subtitle, ctaLabel, ctaEnabled, ctaPrimary, st
   );
 }
 
-function SlopeCountStep({ side, value, onSet, onContinue }) {
+function SlopeCountStep({ side, story, storyCount, value, onSet, onContinue }) {
+  const isFirstSide = side === "left";
+  const storyTag = storyCount === 2 ? ` (Story ${story})` : "";
   return (
     <section style={{
       padding: 14,
@@ -2610,10 +2737,12 @@ function SlopeCountStep({ side, value, onSet, onContinue }) {
     }}>
       <div>
         <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>
-          📐 How many {SIDE_LABELS[side]} slopes?
+          📐 How many {SIDE_LABELS[side]} slopes?{storyTag}
         </div>
         <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
-          Count the visible {SIDE_LABELS[side]} slopes on this house. Pick 0 if there are none.
+          {isFirstSide
+            ? `Start with the ${SIDE_LABELS[side]} slope${storyCount === 2 ? ` on story ${story}` : ""}, then walk clockwise around the house: front → right → rear.`
+            : `Count the visible ${SIDE_LABELS[side]} slopes${storyCount === 2 ? ` on story ${story}` : ""}. Pick 0 if there are none.`}
         </div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6 }}>
@@ -2658,11 +2787,21 @@ function SlopeCountStep({ side, value, onSet, onContinue }) {
   );
 }
 
-function stageLabel(stage, slopeCounts) {
+function stageLabel(stage, slopeCounts, storyCount) {
+  const sp = (story) => storyCount === 2 ? `Story ${story} · ` : "";
+  if (stage.kind === "house_number") return "House number";
   if (stage.kind === "front_house") return "Front of house";
-  if (stage.kind === "side_count") return `${SIDE_LABELS[stage.side]} — slope count`;
-  if (stage.kind === "side_overview") return `${SIDE_LABELS[stage.side]} slope ${stage.slopeIndex + 1} of ${slopeCounts[stage.side]} — overview`;
-  if (stage.kind === "side_damage") return `${SIDE_LABELS[stage.side]} slope ${stage.slopeIndex + 1} of ${slopeCounts[stage.side]} — damage`;
+  if (stage.kind === "story_pick") return "Stories?";
+  if (stage.kind === "story_transition") return "Story 1 complete → Story 2";
+  if (stage.kind === "side_count") return `${sp(stage.story)}${SIDE_LABELS[stage.side]} — slope count`;
+  if (stage.kind === "side_overview") {
+    const count = slopeCounts[`${stage.story}_${stage.side}`] || 0;
+    return `${sp(stage.story)}${SIDE_LABELS[stage.side]} slope ${stage.slopeIndex + 1} of ${count} — overview`;
+  }
+  if (stage.kind === "side_damage") {
+    const count = slopeCounts[`${stage.story}_${stage.side}`] || 0;
+    return `${sp(stage.story)}${SIDE_LABELS[stage.side]} slope ${stage.slopeIndex + 1} of ${count} — damage`;
+  }
   if (stage.kind === "result") return "Pick result";
   if (stage.kind === "retail_worst") return "Retail — 10 worst photos";
   return "";
@@ -2675,6 +2814,16 @@ function nextSideAfter(side) {
 
 function capitalize(s) {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : "";
+}
+
+// "Story 1 · " when 2-story; empty when 1-story (so single-story
+// inspectors don't see a "Story 1" prefix that adds no info).
+function storyPrefix(story, storyCount) {
+  return storyCount === 2 ? `Story ${story} · ` : "";
+}
+// Filename-friendly prefix for the photo label.
+function storyLabelFor(story, storyCount) {
+  return storyCount === 2 ? `Story ${story} ` : "";
 }
 
 function labelToSlug(label) {

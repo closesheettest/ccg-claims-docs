@@ -1,16 +1,23 @@
 // netlify/functions/check-stale-claims.js
 //
-// Nightly cleanup: every inspection that was claimed by an inspector
-// but never completed gets:
-//   1. Auto-unclaimed (inspector_id → NULL, claimed_at → NULL) so it
-//      reappears on the "Available near me" list for the next day.
-//   2. Reported to the manager via SMS — one consolidated message
-//      per inspector listing the addresses they sat on.
+// Nightly cleanup + manager daily report. Does two things:
+//   1. Auto-unclaims stale claims (inspector_id → NULL, claimed_at
+//      → NULL) so they reappear on the "Available near me" list
+//      tomorrow. "Stale" = claimed but not completed.
+//   2. Sends ONE consolidated SMS to MANAGER_ALERT_PHONE with:
+//        • Inspectors who sat on claims (with the addresses)
+//        • Active inspectors who claimed NOTHING today
+//      The SMS is only sent when there's something to flag —
+//      a quiet day (everyone working, nothing stale) is silent.
 //
 // "Stale" = inspector_id IS NOT NULL AND result IS NULL AND
 //           claimed_at IS NOT NULL AND claimed_at < now() - 2h
-// The 2h buffer protects an inspector who claimed a job late in the
-// evening and is still actively inspecting when the cron fires.
+// "Idle today" = active inspector with no claim_at OR result_at in
+//                the last 20 hours.
+// The 2h stale buffer protects an inspector who claimed a job late
+// in the evening and is still actively inspecting when the cron
+// fires. The 20h "today" window matches the typical cron schedule
+// (end-of-business-ET) without needing timezone math.
 //
 // Trigger:
 //   • Wired via Netlify scheduled functions OR external cron hitting
@@ -65,6 +72,7 @@ exports.handler = async (event) => {
   };
 
   const cutoff = new Date(Date.now() - hoursBuffer * 3600 * 1000).toISOString();
+  const todayWindowStart = new Date(Date.now() - 20 * 3600 * 1000).toISOString();
 
   // 1. Fetch every stale claim, joining inspector name in one round-trip.
   // PostgREST embed syntax: inspector:inspectors(name) follows the FK.
@@ -77,13 +85,45 @@ exports.handler = async (event) => {
     `&claimed_at=lt.${encodeURIComponent(cutoff)}` +
     `&order=claimed_at.asc` +
     `&limit=500`;
-  const listRes = await fetch(listUrl, { headers: sbHeaders });
+
+  // 2. Today's activity per inspector — anything claimed or completed
+  //    in the last 20h. Used to figure out who was actually working.
+  const activityUrl =
+    `${SB_URL}/rest/v1/inspections` +
+    `?select=inspector_id,claimed_at,result_at` +
+    `&inspector_id=not.is.null` +
+    `&or=(claimed_at.gte.${encodeURIComponent(todayWindowStart)},result_at.gte.${encodeURIComponent(todayWindowStart)})` +
+    `&limit=5000`;
+
+  // 3. All active+setup-done inspectors — these are the ones we expect
+  //    to have done something today. Anyone in this list with no entry
+  //    in the activity set is "idle".
+  const inspectorsUrl =
+    `${SB_URL}/rest/v1/inspectors` +
+    `?select=id,name` +
+    `&active=eq.true` +
+    `&info_updated_at=not.is.null` +
+    `&order=name`;
+
+  const [listRes, activityRes, inspectorsRes] = await Promise.all([
+    fetch(listUrl, { headers: sbHeaders }),
+    fetch(activityUrl, { headers: sbHeaders }),
+    fetch(inspectorsUrl, { headers: sbHeaders }),
+  ]);
   if (!listRes.ok) {
     return json(500, { ok: false, error: `List failed: ${await listRes.text()}` });
   }
+  if (!activityRes.ok) {
+    return json(500, { ok: false, error: `Activity failed: ${await activityRes.text()}` });
+  }
+  if (!inspectorsRes.ok) {
+    return json(500, { ok: false, error: `Inspectors failed: ${await inspectorsRes.text()}` });
+  }
   const stale = await listRes.json();
+  const activityRows = await activityRes.json();
+  const allInspectors = await inspectorsRes.json();
 
-  // 2. Group by inspector.
+  // Group stale claims by inspector.
   const byInspector = new Map();
   for (const row of stale) {
     const k = row.inspector_id;
@@ -102,14 +142,25 @@ exports.handler = async (event) => {
   }
   const groups = Array.from(byInspector.values());
 
-  // 3. Dry run: just report.
+  // Find idle inspectors: active+setup-done but no claim/result today.
+  const activeInspectorIds = new Set(
+    activityRows
+      .filter((r) => r.claimed_at >= todayWindowStart || r.result_at >= todayWindowStart)
+      .map((r) => r.inspector_id),
+  );
+  const idleInspectors = allInspectors.filter((i) => !activeInspectorIds.has(i.id));
+
+  // Dry run: just report what would happen.
   if (dryRun) {
     return json(200, {
       ok: true,
       dry_run: true,
       cutoff,
+      today_window_start: todayWindowStart,
       stale_count: stale.length,
       groups,
+      idle_inspectors: idleInspectors.map((i) => ({ id: i.id, name: i.name })),
+      total_active_setup_done: allInspectors.length,
     });
   }
 
@@ -119,17 +170,27 @@ exports.handler = async (event) => {
     .map((s) => s.trim())
     .filter(Boolean);
 
+  // Compose ONE consolidated daily-report SMS. Only sent when there's
+  // something noteworthy — quiet days (no stale, nobody idle) are silent.
   const smsResults = [];
-  for (const g of groups) {
-    if (managerPhones.length === 0 || !base) {
-      smsResults.push({ inspector_id: g.inspector_id, skipped: "no manager phone or base URL set" });
-      continue;
+  let reportSent = false;
+  if ((groups.length > 0 || idleInspectors.length > 0) && managerPhones.length > 0 && base) {
+    const sections = ["🚨 Daily inspector report:"];
+    if (groups.length > 0) {
+      const staleSummary = groups
+        .map((g) => {
+          const jobLines = g.jobs.map((j) => `   • ${j.client} — ${j.address}`).join("\n");
+          return `${g.inspector_name} (${g.jobs.length}):\n${jobLines}`;
+        })
+        .join("\n\n");
+      sections.push(`🔴 Sat on claims (auto-unclaimed):\n${staleSummary}`);
     }
-    const lines = g.jobs.map((j) => `• ${j.client} — ${j.address}`).join("\n");
-    const message =
-      `🚨 Stale-claim alert (auto):\n` +
-      `${g.inspector_name} claimed ${g.jobs.length} inspection${g.jobs.length === 1 ? "" : "s"} but didn't complete any today. ` +
-      `They've been unclaimed so other inspectors can pick them up:\n\n${lines}`;
+    if (idleInspectors.length > 0) {
+      const idleList = idleInspectors.map((i) => `• ${i.name}`).join("\n");
+      sections.push(`🟡 Claimed nothing today:\n${idleList}`);
+    }
+    const message = sections.join("\n\n");
+
     for (const phone of managerPhones) {
       try {
         const r = await fetch(`${base}/.netlify/functions/ghl-sms`, {
@@ -139,19 +200,19 @@ exports.handler = async (event) => {
         });
         const rb = await r.json().catch(() => ({}));
         smsResults.push({
-          inspector_id: g.inspector_id,
           to: phone,
           ok: r.ok,
           status: r.status,
           error: r.ok ? undefined : (rb.error || `status ${r.status}`),
         });
       } catch (e) {
-        smsResults.push({ inspector_id: g.inspector_id, to: phone, ok: false, error: e.message });
+        smsResults.push({ to: phone, ok: false, error: e.message });
       }
     }
+    reportSent = true;
   }
 
-  // 4. Unclaim every stale row in one bulk PATCH per group (in.(id,id,..)).
+  // Unclaim every stale row in one bulk PATCH per group.
   let unclaimed = 0;
   const unclaimErrors = [];
   for (const g of groups) {
@@ -175,9 +236,12 @@ exports.handler = async (event) => {
   return json(200, {
     ok: true,
     cutoff,
+    today_window_start: todayWindowStart,
     stale_count: stale.length,
     unclaimed,
-    inspectors_notified: groups.length,
+    inspectors_with_stale_claims: groups.length,
+    idle_inspectors: idleInspectors.map((i) => i.name),
+    report_sent: reportSent,
     sms_results: smsResults,
     unclaim_errors: unclaimErrors,
   });
