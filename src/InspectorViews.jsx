@@ -26,6 +26,193 @@ import { supabase } from "./lib/supabase";
 const SIGNED_BUCKET = "signed-documents";
 const PHOTO_PATH_PREFIX = "inspection-photos";
 
+// Public setup page for new inspectors. The manager clicks "Sync from
+// JN" + "Send setup email", which emails the inspector a link to
+// ?inspector_setup=<token>. App.jsx detects the URL param and mounts
+// <InspectorSetupPage token={...} /> at full-screen instead of the
+// regular signing flow. Inspector fills in their home address →
+// we geocode + save lat/lng + info_updated_at, then they can be
+// activated by the manager and start receiving jobs.
+export function InspectorSetupPage({ token, onDone }) {
+  const [insp, setInsp] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [address, setAddress] = useState("");
+  const [phone, setPhone] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    if (!token) {
+      setError("No setup token in URL.");
+      setLoading(false);
+      return;
+    }
+    supabase
+      .from("inspectors")
+      .select("*")
+      .eq("registration_token", token)
+      .maybeSingle()
+      .then(({ data, error: err }) => {
+        if (err || !data) {
+          setError(err?.message || "Setup link not found — ask your manager to re-send.");
+          setLoading(false);
+          return;
+        }
+        setInsp(data);
+        setAddress(data.address || "");
+        setPhone(data.phone || "");
+        setLoading(false);
+      });
+  }, [token]);
+
+  async function submit(e) {
+    e?.preventDefault?.();
+    if (!address.trim()) {
+      setError("Address is required.");
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    // Geocode first.
+    try {
+      const geoRes = await fetch("/.netlify/functions/geocode-place", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: address }),
+      });
+      const geo = await geoRes.json().catch(() => ({}));
+      if (!geo.ok) {
+        setError(`Couldn't find that address: ${geo.error || "unknown"}`);
+        setSubmitting(false);
+        return;
+      }
+      const { error: updErr } = await supabase
+        .from("inspectors")
+        .update({
+          address: address.trim(),
+          phone: phone.trim() || null,
+          latitude: geo.lat,
+          longitude: geo.lng,
+          info_updated_at: new Date().toISOString(),
+        })
+        .eq("id", insp.id);
+      if (updErr) {
+        setError(updErr.message);
+        setSubmitting(false);
+        return;
+      }
+      setDone(true);
+    } catch (e) {
+      setError(e.message || "Network error");
+    }
+    setSubmitting(false);
+  }
+
+  if (loading) {
+    return <div style={{ padding: 40, textAlign: "center", color: "#6b7280" }}>Loading…</div>;
+  }
+  if (error && !insp) {
+    return (
+      <div style={{ maxWidth: 480, margin: "60px auto", padding: 24, fontFamily: "'Nunito', sans-serif" }}>
+        <div style={{ padding: 16, background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 12, color: "#991b1b" }}>
+          {error}
+        </div>
+      </div>
+    );
+  }
+  if (done) {
+    return (
+      <div style={{ maxWidth: 480, margin: "60px auto", padding: 24, textAlign: "center", fontFamily: "'Nunito', sans-serif" }}>
+        <div style={{ fontSize: 56, marginBottom: 16 }}>✅</div>
+        <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 8, fontFamily: "'Oswald', sans-serif" }}>
+          You're all set, {insp.name}!
+        </div>
+        <p style={{ color: "#475569", marginBottom: 20 }}>
+          Your home base is saved. Once your manager activates your account,
+          you'll start receiving inspection jobs in the app.
+        </p>
+        {onDone && (
+          <button
+            type="button"
+            onClick={onDone}
+            style={{ ...primaryBtn, padding: "12px 24px", fontSize: 14 }}
+          >
+            ← Back to app
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ maxWidth: 480, margin: "40px auto", padding: 24, fontFamily: "'Nunito', sans-serif" }}>
+      <div style={{ fontSize: 24, fontWeight: 700, fontFamily: "'Oswald', sans-serif", marginBottom: 6 }}>
+        👷 Welcome, {insp.name}
+      </div>
+      <p style={{ color: "#475569", marginBottom: 24, fontSize: 14 }}>
+        You've been added as an inspector. Please confirm your home base
+        address so the system can route inspections to the closest
+        inspector. {insp.info_updated_at && (
+          <span style={{ color: "#0e7490" }}>
+            (You've already set this once — this will update it.)
+          </span>
+        )}
+      </p>
+      <form onSubmit={submit} style={{ display: "grid", gap: 14 }}>
+        <label>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>
+            Home address <span style={{ color: "#dc2626" }}>*</span>
+          </div>
+          <input
+            type="text"
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            placeholder="123 Main St, Tampa, FL 33606"
+            required
+            style={{ ...inputStyle, fontSize: 16, padding: "12px 14px" }}
+            autoFocus
+          />
+        </label>
+        <label>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>
+            Mobile phone <span style={{ color: "#94a3b8", fontWeight: 400 }}>(optional, for future SMS notifications)</span>
+          </div>
+          <input
+            type="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="(555) 123-4567"
+            style={{ ...inputStyle, fontSize: 16, padding: "12px 14px" }}
+          />
+        </label>
+        {error && (
+          <div style={{ padding: "10px 14px", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, color: "#991b1b", fontSize: 13 }}>
+            {error}
+          </div>
+        )}
+        <button
+          type="submit"
+          disabled={submitting || !address.trim()}
+          style={{
+            padding: "14px 18px",
+            background: submitting ? "#94a3b8" : "#0e7490",
+            color: "#fff",
+            border: "none",
+            borderRadius: 10,
+            fontSize: 16,
+            fontWeight: 700,
+            fontFamily: "'Oswald', sans-serif",
+            cursor: submitting ? "wait" : "pointer",
+          }}
+        >
+          {submitting ? "Saving…" : "Save & continue →"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Haversine distance in miles between two lat/lng pairs.
 // ─────────────────────────────────────────────────────────────────────
@@ -62,6 +249,10 @@ export function InspectorsAdminPanel() {
   const [newMaxMiles, setNewMaxMiles] = useState("");
   const [findingCoords, setFindingCoords] = useState(false);
   const [adding, setAdding] = useState(false);
+  // JN sync state
+  const [syncing, setSyncing] = useState(false);
+  // Per-row "send setup email" state
+  const [sendingEmailId, setSendingEmailId] = useState(null);
   // Reassign panel state — claimed inspections + the selected one
   const [claimedJobs, setClaimedJobs] = useState([]);
   const [busyJobId, setBusyJobId] = useState(null);
@@ -70,6 +261,62 @@ export function InspectorsAdminPanel() {
     loadInspectors();
     loadClaimedJobs();
   }, []);
+
+  async function syncFromJn() {
+    if (!confirm(
+      "Pull the inspector list from JobNimbus?\n\nNew JN users get added " +
+      "as inactive inspectors (you choose who to activate). Existing rows " +
+      "have their name + email refreshed without touching their address " +
+      "or active status.",
+    )) return;
+    setSyncing(true);
+    try {
+      const res = await fetch("/.netlify/functions/sync-inspectors-from-jn", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!body.ok) {
+        setMessage({ kind: "error", text: body.error || `Sync failed (status ${res.status})` });
+      } else {
+        setMessage({
+          kind: "success",
+          text:
+            `Synced ${body.total_jn_users} JN users — ${body.inserted} new inspectors added (inactive), ` +
+            `${body.updated} refreshed${body.skipped ? `, ${body.skipped} skipped` : ""}.`,
+        });
+        await loadInspectors();
+      }
+    } catch (e) {
+      setMessage({ kind: "error", text: e.message || "Network error" });
+    }
+    setSyncing(false);
+  }
+
+  async function sendSetupEmail(insp) {
+    if (!insp.email) {
+      setMessage({ kind: "error", text: `${insp.name} has no email on file. Sync from JN first or add manually.` });
+      return;
+    }
+    setSendingEmailId(insp.id);
+    try {
+      const res = await fetch("/.netlify/functions/send-inspector-setup-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inspectorId: insp.id }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!body.ok) {
+        setMessage({ kind: "error", text: body.error || `Send failed (status ${res.status})` });
+      } else {
+        setMessage({ kind: "success", text: `Setup link emailed to ${body.email}.` });
+      }
+    } catch (e) {
+      setMessage({ kind: "error", text: e.message || "Network error" });
+    }
+    setSendingEmailId(null);
+  }
 
   async function loadInspectors() {
     setLoading(true);
@@ -210,16 +457,25 @@ export function InspectorsAdminPanel() {
 
   return (
     <div style={{ display: "grid", gap: 18 }}>
-      <div>
-        <div style={{ fontSize: 18, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>
-          🔍 Inspectors
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 18, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>
+            🔍 Inspectors
+          </div>
+          <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
+            Pull the list from JobNimbus (single source of truth for names + emails),
+            then email each one a setup link so they confirm their home address.
+            Inspectors stay inactive until you flip them on AND they've completed setup.
+          </div>
         </div>
-        <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
-          Manage who can do inspections. Each inspector has a home-base lat/lng;
-          new free-roof-inspection signings auto-route to the closest active
-          inspector. Optional <strong>Max miles</strong> caps how far any one
-          inspector can be assigned — leave blank for no limit.
-        </div>
+        <button
+          type="button"
+          onClick={syncFromJn}
+          disabled={syncing}
+          style={{ ...primaryBtn, padding: "8px 16px", fontSize: 13, whiteSpace: "nowrap" }}
+        >
+          {syncing ? "Syncing…" : "🔄 Sync from JN"}
+        </button>
       </div>
 
       {message && (
@@ -321,9 +577,11 @@ export function InspectorsAdminPanel() {
               <InspectorRow
                 key={insp.id}
                 insp={insp}
+                sendingEmail={sendingEmailId === insp.id}
                 onToggle={() => toggleActive(insp)}
                 onUpdate={(patch) => updateInspector(insp, patch)}
                 onDelete={() => deleteInspector(insp)}
+                onSendSetupEmail={() => sendSetupEmail(insp)}
               />
             ))}
           </div>
@@ -394,7 +652,7 @@ export function InspectorsAdminPanel() {
   );
 }
 
-function InspectorRow({ insp, onToggle, onUpdate, onDelete }) {
+function InspectorRow({ insp, sendingEmail, onToggle, onUpdate, onDelete, onSendSetupEmail }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({
     name: insp.name,
@@ -402,6 +660,7 @@ function InspectorRow({ insp, onToggle, onUpdate, onDelete }) {
     longitude: insp.longitude ?? "",
     max_distance_miles: insp.max_distance_miles ?? "",
   });
+  const setupDone = !!insp.info_updated_at;
   return (
     <div
       style={{
@@ -415,18 +674,38 @@ function InspectorRow({ insp, onToggle, onUpdate, onDelete }) {
       {!editing ? (
         <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "center" }}>
           <div>
-            <div style={{ fontWeight: 700 }}>
-              {insp.name}
-              {!insp.active && <span style={{ marginLeft: 8, fontSize: 10, color: "#6b7280" }}>(inactive)</span>}
+            <div style={{ fontWeight: 700, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span>{insp.name}</span>
+              {!insp.active && <span style={{ fontSize: 10, color: "#6b7280" }}>(inactive)</span>}
+              {setupDone ? (
+                <span style={{ fontSize: 10, padding: "2px 8px", background: "#d1fae5", color: "#065f46", borderRadius: 999, fontWeight: 700 }}>
+                  ✓ Setup complete
+                </span>
+              ) : (
+                <span style={{ fontSize: 10, padding: "2px 8px", background: "#fef3c7", color: "#92400e", borderRadius: 999, fontWeight: 700 }}>
+                  ⏳ Setup pending
+                </span>
+              )}
             </div>
             <div style={{ fontSize: 11, color: "#6b7280" }}>
+              {insp.email && <>📧 {insp.email} · </>}
               {insp.latitude != null && insp.longitude != null
                 ? `📍 ${insp.latitude.toFixed(4)}, ${insp.longitude.toFixed(4)}`
                 : "📍 No home base set"}
               {insp.max_distance_miles ? ` · max ${insp.max_distance_miles} mi` : " · no mile cap"}
             </div>
           </div>
-          <div style={{ display: "flex", gap: 6 }}>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {!setupDone && insp.email && onSendSetupEmail && (
+              <button
+                type="button"
+                onClick={onSendSetupEmail}
+                disabled={sendingEmail}
+                style={{ ...secondaryBtn, fontSize: 11, background: "#fef3c7", borderColor: "#fbbf24" }}
+              >
+                {sendingEmail ? "Sending…" : "📧 Send setup email"}
+              </button>
+            )}
             <button type="button" onClick={onToggle} style={{ ...secondaryBtn, fontSize: 11 }}>
               {insp.active ? "Deactivate" : "Activate"}
             </button>
@@ -515,7 +794,17 @@ export function InspectorMobileApp({ onExit }) {
     }
   }, []);
   useEffect(() => {
-    supabase.from("inspectors").select("*").eq("active", true).order("name").then(({ data }) => {
+    // Only show active inspectors who've completed setup (have a home
+    // base lat/lng saved). Partial setups don't appear in the picker
+    // so an inspector can't sign in before the manager activates them
+    // AND they've confirmed their address.
+    supabase
+      .from("inspectors")
+      .select("*")
+      .eq("active", true)
+      .not("info_updated_at", "is", null)
+      .order("name")
+      .then(({ data }) => {
       const list = data || [];
       setInspectors(list);
       const stored = localStorage.getItem("ccg_inspector_id");

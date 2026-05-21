@@ -8,7 +8,7 @@ import {
   Send,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
-import { InspectorMobileApp, InspectorsAdminPanel } from "./InspectorViews";
+import { InspectorMobileApp, InspectorsAdminPanel, InspectorSetupPage } from "./InspectorViews";
 
 // Inject Oswald font
 if (typeof document !== "undefined" && !document.getElementById("oswald-font")) {
@@ -3690,6 +3690,24 @@ function GuidedIntakeFlow({
 }
 
 export default function App() {
+  // Early-return URL param routing for one-off public pages — these
+  // don't share state with the rest of the App, so we short-circuit
+  // BEFORE all the heavy claim-intake state initializes.
+  if (typeof window !== "undefined") {
+    const params = new URLSearchParams(window.location.search);
+    const inspectorSetupToken = params.get("inspector_setup");
+    if (inspectorSetupToken) {
+      return (
+        <InspectorSetupPage
+          token={inspectorSetupToken}
+          onDone={() => {
+            window.location.href = window.location.origin + "/";
+          }}
+        />
+      );
+    }
+  }
+
   const [view, setView] = useState("input");
   // ── Guided intake mode ──────────────────────────────────────────
   // When true, the intake screen replaces the all-at-once form with a
