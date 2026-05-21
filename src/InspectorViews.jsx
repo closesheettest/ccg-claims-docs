@@ -3594,7 +3594,8 @@ function InspectorJobDetail({ me, jobId, onBack }) {
 // Wizard sub-components + helpers
 // ─────────────────────────────────────────────────────────────────────
 function WizardPhotoStep({ title, subtitle, ctaLabel, ctaEnabled, ctaPrimary, stagePhotos, submitting, onAddPhotos, onRemove, onContinue }) {
-  const fileInputRef = useRef(null);
+  const cameraInputRef = useRef(null);
+  const libraryInputRef = useRef(null);
   return (
     <section style={{
       padding: 16,
@@ -3608,35 +3609,76 @@ function WizardPhotoStep({ title, subtitle, ctaLabel, ctaEnabled, ctaPrimary, st
         <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", lineHeight: 1.2 }}>{title}</div>
         {subtitle && <div style={{ fontSize: 16, color: "#374151", marginTop: 8, lineHeight: 1.5 }}>{subtitle}</div>}
       </div>
+      {/* Two inputs: one forces the rear camera (capture="environment"),
+          the other has NO capture attribute so iOS/Android opens the
+          photo library picker. Lets the inspector either snap fresh
+          shots OR pick already-taken photos from camera roll (handy
+          when re-doing an inspection that previously failed to submit). */}
       <input
-        ref={fileInputRef}
+        ref={cameraInputRef}
         type="file"
         accept="image/*"
         capture="environment"
         multiple
         onChange={(e) => {
           onAddPhotos(e.target.files || []);
-          if (fileInputRef.current) fileInputRef.current.value = "";
+          if (cameraInputRef.current) cameraInputRef.current.value = "";
         }}
         style={{ display: "none" }}
       />
-      <button
-        type="button"
-        onClick={() => fileInputRef.current?.click()}
-        disabled={submitting}
-        style={{
-          padding: "16px 20px",
-          background: "#0ea5e9",
-          color: "#fff",
-          border: "none",
-          borderRadius: 12,
-          fontWeight: 700,
-          fontSize: 18,
-          cursor: submitting ? "wait" : "pointer",
+      <input
+        ref={libraryInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        onChange={(e) => {
+          onAddPhotos(e.target.files || []);
+          if (libraryInputRef.current) libraryInputRef.current.value = "";
         }}
-      >
-        📷 Take photo{stagePhotos.length > 0 ? "s" : ""}{stagePhotos.length > 0 ? ` (${stagePhotos.length} so far)` : ""}
-      </button>
+        style={{ display: "none" }}
+      />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <button
+          type="button"
+          onClick={() => cameraInputRef.current?.click()}
+          disabled={submitting}
+          style={{
+            padding: "16px 14px",
+            background: "#0ea5e9",
+            color: "#fff",
+            border: "none",
+            borderRadius: 12,
+            fontWeight: 700,
+            fontSize: 17,
+            cursor: submitting ? "wait" : "pointer",
+          }}
+        >
+          📷 Take photo
+        </button>
+        <button
+          type="button"
+          onClick={() => libraryInputRef.current?.click()}
+          disabled={submitting}
+          style={{
+            padding: "16px 14px",
+            background: "#fff",
+            color: "#0c4a6e",
+            border: "2px solid #0ea5e9",
+            borderRadius: 12,
+            fontWeight: 700,
+            fontSize: 17,
+            cursor: submitting ? "wait" : "pointer",
+          }}
+          title="Pick photos you already took from your phone's gallery"
+        >
+          🖼 Choose from phone
+        </button>
+      </div>
+      {stagePhotos.length > 0 && (
+        <div style={{ fontSize: 13, color: "#0e7490", fontWeight: 700, textAlign: "center" }}>
+          ✓ {stagePhotos.length} photo{stagePhotos.length === 1 ? "" : "s"} added for this step
+        </div>
+      )}
       {stagePhotos.length > 0 && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
           {stagePhotos.map((p, i) => (
