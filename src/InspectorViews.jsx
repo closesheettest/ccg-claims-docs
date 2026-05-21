@@ -1259,6 +1259,182 @@ export function ManagerRoutePlanner() {
 }
 
 // ═════════════════════════════════════════════════════════════════════
+// PA HANDOFF — manager tile for firing the PA Ops Hub submission
+// against any damage inspection. Used to test the link AND as a
+// manual retry / re-send path when the auto-fire on completion
+// didn't go through for some reason (or for older damage records
+// that pre-date the inspector flow).
+// ═════════════════════════════════════════════════════════════════════
+export function PAHandoffPanel() {
+  const [inspections, setInspections] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState(null);
+  // results: { [inspectionId]: { ok, body, ts } }
+  const [results, setResults] = useState({});
+  const [message, setMessage] = useState(null);
+
+  async function load() {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("inspections")
+      .select("id, client_name, address, city, state, zip, signed_at, result_at, jn_job_id, signed_pdfs, sales_rep_name, mobile, email")
+      .eq("result", "damage")
+      .order("result_at", { ascending: false, nullsFirst: false })
+      .limit(200);
+    if (error) {
+      setMessage({ kind: "error", text: error.message });
+    } else {
+      setInspections(data || []);
+    }
+    setLoading(false);
+  }
+  useEffect(() => { load(); }, []);
+
+  async function send(inspectionId) {
+    setBusyId(inspectionId);
+    setResults((prev) => ({ ...prev, [inspectionId]: { ok: null, body: { pending: true }, ts: new Date().toISOString() } }));
+    try {
+      const res = await fetch("/.netlify/functions/send-to-pa-ops-hub", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inspectionId }),
+      });
+      const body = await res.json().catch(() => ({ error: "Could not parse response" }));
+      setResults((prev) => ({
+        ...prev,
+        [inspectionId]: { ok: res.ok && body.ok !== false, status: res.status, body, ts: new Date().toISOString() },
+      }));
+    } catch (e) {
+      setResults((prev) => ({
+        ...prev,
+        [inspectionId]: { ok: false, body: { error: e.message || "Network error" }, ts: new Date().toISOString() },
+      }));
+    }
+    setBusyId(null);
+  }
+
+  if (loading) return <div style={{ padding: 16, color: "#6b7280" }}>Loading damage inspections…</div>;
+
+  return (
+    <div style={{ display: "grid", gap: 16 }}>
+      <div>
+        <div style={{ fontSize: 18, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>
+          📤 PA Handoff
+        </div>
+        <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4, lineHeight: 1.5 }}>
+          Every damage-result inspection. Click <strong>Send to PA</strong> to fire the PA Ops Hub submission — homeowner info + signed Free Roof Inspection PDF + every photo on the JN job. Use this to test the link, retry a failed auto-send, or hand off older damage records that pre-date the in-app inspector flow (their photos still live in JN, so the same path works).
+        </div>
+      </div>
+
+      {message && (
+        <div
+          style={{
+            padding: "10px 14px",
+            borderRadius: 10,
+            fontSize: 13,
+            background: message.kind === "success" ? "#ecfdf5" : "#fef2f2",
+            border: `1px solid ${message.kind === "success" ? "#86efac" : "#fca5a5"}`,
+            color: message.kind === "success" ? "#065f46" : "#991b1b",
+          }}
+        >
+          {message.text}
+        </div>
+      )}
+
+      {inspections.length === 0 ? (
+        <div style={{ padding: 16, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, fontSize: 13, color: "#6b7280" }}>
+          No damage inspections found.
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: 8 }}>
+          {inspections.map((insp) => {
+            const result = results[insp.id];
+            const hasPdf = !!insp.signed_pdfs?.insp;
+            const hasJn = !!insp.jn_job_id;
+            const completedAt = insp.result_at ? new Date(insp.result_at).toLocaleString() : "(not stamped)";
+            return (
+              <div
+                key={insp.id}
+                style={{
+                  padding: 14,
+                  background: "#fff",
+                  border: "1px solid #e5e7eb",
+                  borderRadius: 10,
+                  display: "grid",
+                  gap: 8,
+                }}
+              >
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 700 }}>
+                      {insp.client_name || "(no name)"}
+                    </div>
+                    <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
+                      📍 {insp.address}{insp.city && `, ${insp.city}`}{insp.state && `, ${insp.state}`} {insp.zip || ""}
+                    </div>
+                    {insp.mobile && (
+                      <div style={{ fontSize: 12, color: "#6b7280" }}>📞 {insp.mobile}{insp.email && ` · ✉️ ${insp.email}`}</div>
+                    )}
+                    <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
+                      Damage logged: {completedAt}{insp.sales_rep_name && ` · Rep: ${insp.sales_rep_name}`}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{ color: hasPdf ? "#059669" : "#b45309" }}>{hasPdf ? "✓ Signed PDF" : "⚠ No signed PDF"}</span>
+                      <span style={{ color: hasJn ? "#059669" : "#b45309" }}>{hasJn ? "✓ JN linked" : "⚠ No JN link"}</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => send(insp.id)}
+                    disabled={busyId === insp.id}
+                    style={{
+                      ...primaryBtn,
+                      padding: "8px 14px",
+                      fontSize: 12,
+                      whiteSpace: "nowrap",
+                      cursor: busyId === insp.id ? "wait" : "pointer",
+                    }}
+                  >
+                    {busyId === insp.id ? "Sending…" : "📤 Send to PA"}
+                  </button>
+                </div>
+
+                {result && !result.body?.pending && (
+                  <div style={{
+                    padding: "10px 12px",
+                    background: result.ok ? "#ecfdf5" : "#fef2f2",
+                    border: `1px solid ${result.ok ? "#86efac" : "#fca5a5"}`,
+                    borderRadius: 8,
+                    fontSize: 12,
+                  }}>
+                    <div style={{ fontWeight: 700, color: result.ok ? "#065f46" : "#991b1b", marginBottom: 4 }}>
+                      {result.ok ? "✓ Sent to PA Ops Hub" : "✗ Send failed"}
+                      <span style={{ fontWeight: 400, color: "#6b7280", marginLeft: 8 }}>
+                        {new Date(result.ts).toLocaleTimeString()}
+                      </span>
+                    </div>
+                    <pre style={{
+                      margin: 0,
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                      fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                      fontSize: 11,
+                      color: result.ok ? "#065f46" : "#991b1b",
+                    }}>
+                      {JSON.stringify(result.body, null, 2)}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════
 // MOBILE APP — inspector-side. Self-serve.
 // ═════════════════════════════════════════════════════════════════════
 
