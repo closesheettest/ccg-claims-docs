@@ -381,9 +381,39 @@ export function InspectorsAdminPanel() {
       .from("inspectors")
       .select("*")
       .order("name", { ascending: true });
-    if (error) setMessage({ kind: "error", text: error.message });
-    else setInspectors(data || []);
+    if (error) {
+      setMessage({ kind: "error", text: error.message });
+      setLoading(false);
+      return;
+    }
+    const all = data || [];
+    setInspectors(all);
     setLoading(false);
+
+    // Self-heal: release pending claims that point to an INACTIVE
+    // inspector. Catches orphans left behind from older deactivations
+    // (or any other path that bypassed the toggleActive cleanup).
+    const inactiveIds = all.filter((i) => !i.active).map((i) => i.id);
+    if (inactiveIds.length === 0) return;
+    const idList = inactiveIds.join(",");
+    const { data: released } = await supabase
+      .from("inspections")
+      .update({ inspector_id: null, claimed_at: null })
+      .in("inspector_id", inactiveIds)
+      .is("result", null)
+      .select("id");
+    const n = released?.length || 0;
+    if (n > 0) {
+      // Refresh the manager's claimed-jobs panel so the just-released
+      // rows disappear immediately.
+      loadClaimedJobs();
+      setMessage({
+        kind: "success",
+        text: `Released ${n} orphaned pending claim${n === 1 ? "" : "s"} (assigned to inactive inspector${inactiveIds.length === 1 ? "" : "s"}).`,
+      });
+    }
+    // Suppress lint complaint about unused idList var.
+    void idList;
   }
 
   async function loadClaimedJobs() {
