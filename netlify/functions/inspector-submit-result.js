@@ -170,17 +170,66 @@ exports.handler = async (event) => {
   }
   // We're done iterating photoPaths here; loop variables are scoped.
 
-  // 4. Result-specific fan-out, fire-and-forget so the inspector's
+  // 4. Push the result back to JN and trigger the result-specific
+  //    fan-out. Everything fire-and-forget so the inspector's
   //    Submit button isn't blocked on slow downstream calls.
   //
-  //    - damage → send-to-pa-ops-hub (PA gets homeowner + photos + PDF)
-  //    - retail → process-retail-result (JN job moves PA→Lead +
-  //               insurance location → retail location, cert+photos
-  //               attached to JN Documents)
-  //    - no_damage → nothing extra; result row + photo uploads are it
+  // For ALL results (damage / no_damage / retail) — when there's a
+  // linked JN job:
+  //   • PUT cf_string_34 = "Damage" | "No Damage" | "Retail"
+  //     (so JN reflects the result the inspector logged in the app —
+  //     previously the JN job stayed at "Needs Inspection" forever)
+  //   • Generate the inspection-report cert + upload to JN Documents
+  //     via /.netlify/functions/generate-and-upload-insp-report
+  //
+  // PLUS result-specific extras:
+  //   • damage → send-to-pa-ops-hub (PA gets homeowner + photos + PDF)
+  //   • retail → process-retail-result (also swaps record_type PA→Lead
+  //              and location insurance→retail; sets cf_string_34 +
+  //              uploads the cert itself, so we skip the generic
+  //              cf_string_34 PUT + cert-upload for retail to avoid
+  //              double-firing)
   const base = process.env.URL || process.env.PUBLIC_SITE_URL || "";
+  const RESULT_LABELS = { damage: "Damage", no_damage: "No Damage", retail: "Retail" };
   let paPdnFired = false;
   let retailJnFired = false;
+  let jnResultUpdated = false;
+  let certUploadFired = false;
+
+  if (insp.jn_job_id) {
+    // For damage + no_damage, push cf_string_34 directly. Retail goes
+    // through process-retail-result which handles cf_string_34 + the
+    // record_type/location transitions in one PUT.
+    if (result === "damage" || result === "no_damage") {
+      fetch(`${JN_BASE}/jobs/${insp.jn_job_id}`, {
+        method: "PUT",
+        headers: jnHeaders,
+        body: JSON.stringify({
+          jnid: insp.jn_job_id,
+          cf_string_34: RESULT_LABELS[result],
+        }),
+      })
+        .then(async (r) => {
+          if (!r.ok) {
+            console.warn(`cf_string_34 PUT failed (${r.status}):`, (await r.text()).slice(0, 200));
+          }
+        })
+        .catch((e) => console.warn("cf_string_34 PUT exception:", e.message));
+      jnResultUpdated = true;
+    }
+
+    // Cert + photos to JN Documents — for damage + no_damage. Retail's
+    // cert upload is fired from process-retail-result.
+    if ((result === "damage" || result === "no_damage") && base) {
+      fetch(`${base}/.netlify/functions/generate-and-upload-insp-report`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jnid: insp.jn_job_id }),
+      }).catch((e) => console.warn("Cert upload trigger failed:", e.message));
+      certUploadFired = true;
+    }
+  }
+
   if (base) {
     if (result === "damage") {
       fetch(`${base}/.netlify/functions/send-to-pa-ops-hub`, {
@@ -206,6 +255,8 @@ exports.handler = async (event) => {
     photos_added: photoPaths.length,
     jn_photos_uploaded: jnUploaded,
     jn_errors: jnErrors,
+    jn_result_updated: jnResultUpdated,
+    cert_upload_fired: certUploadFired,
     pa_pdn_fired: paPdnFired,
     retail_jn_fired: retailJnFired,
   });
