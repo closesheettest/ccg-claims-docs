@@ -2050,25 +2050,31 @@ export function ManagerInspectorReports() {
 // Guided inspector photo wizard — multi-step interview rather than a
 // single dump-it-all-here photo picker. Sequence:
 //
-//   1. House number photo (confirms which house this is)
+//   1. House number photo (confirms the right address)
 //   2. Front of house photo
 //   3. Pick story count (1 or 2)
-//   4. For each story (story 1 first, then story 2 if applicable):
-//      For each side in CLOCKWISE order starting LEFT [left, front,
-//      right, rear]:
-//        a. Ask how many slopes on this side (1-4)
-//        b. Overview photo of slope #1, then damage photos of slope #1
-//        c. Repeat overview+damage for slope #2, etc.
-//        d. Continue to next side
-//      After all 4 sides on story 1 → "Story 1 complete — start
-//      Story 2" transition card (only when 2-story).
+//   4. For each story (story 1 first, then story 2 if 2-story):
+//      a. Roof overview — wide shot from the LEFT edge of the roof
+//         capturing as much of the roof as possible
+//      b. For each side in CLOCKWISE order starting LEFT
+//         (left → front → right → rear):
+//           i.   Ask how many slopes on this side (0–4)
+//           ii.  For each slope on the side, back-to-back:
+//                  - Overview photo (1 wide shot of that slope)
+//                  - Detail photos (close-ups of any damage/wear)
+//      c. After all 4 sides on story 1 → "Story 1 complete" card
+//         (only when 2-story).
 //   5. Result picker (damage / retail / no_damage)
-//   6. If retail: 10 photos of the worst condition spots
+//   6. If retail: 10 worst-condition photos
 //   7. Submit
 //
-// Each photo carries metadata (category, side, slope_index, story,
-// label) so it gets a descriptive filename in Supabase Storage and a
-// clean description on its JN attachment.
+// Photo labels follow the inspector's mental model. Slopes are
+// numbered sequentially per story across all 4 sides — so for a
+// 1-story house with left=2, front=1, right=2, rear=1 slopes the
+// labels go "1st slope overview, 1st slope detail, 2nd slope
+// overview, 2nd slope detail, … 6th slope overview, 6th slope
+// detail". For 2-story homes the floor is appended in parens:
+// "1st slope overview (1st floor)".
 // Clockwise from LEFT (looking down at the house from above):
 // left → front → right → rear → back to left. Inspector walks the
 // house in this order, one side at a time.
@@ -2088,6 +2094,8 @@ function InspectorJobDetail({ me, jobId, onBack }) {
   //   { kind: "house_number" }
   //   { kind: "front_house" }
   //   { kind: "story_pick" }
+  //   { kind: "roof_overview", story } — wide shot from LEFT edge
+  //                                       of the roof, once per story
   //   { kind: "side_count",    side, story }
   //   { kind: "side_overview", side, story, slopeIndex }
   //   { kind: "side_damage",   side, story, slopeIndex }
@@ -2141,11 +2149,15 @@ function InspectorJobDetail({ me, jobId, onBack }) {
     }
     if (stage.kind === "story_pick") {
       // storyCount must be set by the step's buttons before advance.
-      setStage({ kind: "side_count", side: "left", story: 1 });
+      setStage({ kind: "roof_overview", story: 1 });
       return;
     }
     if (stage.kind === "story_transition") {
-      setStage({ kind: "side_count", side: "left", story: 2 });
+      setStage({ kind: "roof_overview", story: 2 });
+      return;
+    }
+    if (stage.kind === "roof_overview") {
+      setStage({ kind: "side_count", side: "left", story: stage.story });
       return;
     }
     if (stage.kind === "side_count") {
@@ -2217,6 +2229,9 @@ function InspectorJobDetail({ me, jobId, onBack }) {
     }
     if (stage.kind === "front_house") {
       return photos.filter((p) => p.category === "front_house");
+    }
+    if (stage.kind === "roof_overview") {
+      return photos.filter((p) => p.category === "roof_overview" && p.story === stage.story);
     }
     if (stage.kind === "side_overview") {
       return photos.filter(
@@ -2362,9 +2377,9 @@ function InspectorJobDetail({ me, jobId, onBack }) {
 
       {stage.kind === "house_number" && (
         <WizardPhotoStep
-          title="📷 House number"
-          subtitle="Take ONE clear photo of the house number so we can confirm we're at the right address."
-          ctaLabel="Done — front of house next →"
+          title="📷 Step 1 — Photo of the house number"
+          subtitle="Stand on the sidewalk or driveway and take ONE clear, in-focus photo of the house number on the front of the house (or on the mailbox). This is how we confirm we're at the right address."
+          ctaLabel="Got it — next: front of the house →"
           ctaEnabled={stagePhotos.length >= 1}
           stagePhotos={stagePhotos}
           submitting={submitting}
@@ -2382,9 +2397,9 @@ function InspectorJobDetail({ me, jobId, onBack }) {
 
       {stage.kind === "front_house" && (
         <WizardPhotoStep
-          title="📷 Front of the house"
-          subtitle="Take ONE photo of the front of the house — straight on if possible."
-          ctaLabel="Done with front of house →"
+          title="📷 Step 2 — Photo of the front of the house"
+          subtitle="Back up far enough to see the WHOLE front of the house in the frame — roof + walls + driveway. Take ONE photo, straight-on if you can."
+          ctaLabel="Got it — next: how many stories? →"
           ctaEnabled={stagePhotos.length >= 1}
           stagePhotos={stagePhotos}
           submitting={submitting}
@@ -2403,10 +2418,10 @@ function InspectorJobDetail({ me, jobId, onBack }) {
       {stage.kind === "story_pick" && (
         <section style={{ padding: 14, background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", display: "grid", gap: 10 }}>
           <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>
-            🏠 How many stories?
+            🏠 Step 3 — How many stories does this house have?
           </div>
-          <div style={{ fontSize: 12, color: "#6b7280" }}>
-            For 2-story homes you'll photograph the 1st story first (all 4 sides), then move up to the 2nd story.
+          <div style={{ fontSize: 12, color: "#6b7280", lineHeight: 1.5 }}>
+            Count the floors of the house, not the roof slopes. A standard ranch is <strong>1 story</strong>. A house with bedrooms upstairs is <strong>2 stories</strong>. If it's 2-story, you'll photograph the 1st floor's roof first (all 4 sides), then climb up and do the 2nd floor's roof the same way.
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             {[1, 2].map((n) => (
@@ -2415,7 +2430,7 @@ function InspectorJobDetail({ me, jobId, onBack }) {
                 type="button"
                 onClick={() => {
                   setStoryCount(n);
-                  setStage({ kind: "side_count", side: "left", story: 1 });
+                  setStage({ kind: "roof_overview", story: 1 });
                 }}
                 style={{
                   padding: "18px 12px",
@@ -2435,21 +2450,48 @@ function InspectorJobDetail({ me, jobId, onBack }) {
         </section>
       )}
 
+      {stage.kind === "roof_overview" && (
+        <WizardPhotoStep
+          title={`📷 Step 4 — Roof overview${storyCount === 2 ? ` (${ordinal(stage.story)} floor)` : ""}`}
+          subtitle={
+            stage.story === 1
+              ? "Now climb up onto the roof. Walk all the way over to the FAR LEFT side of the roof. From there, take ONE wide photo trying to capture as much of the roof as you can see. This gives us a single picture that shows the overall condition before we zoom into each slope."
+              : "On the 2nd-floor roof: same idea. Walk to the FAR LEFT and take ONE wide photo capturing as much of the 2nd-floor roof as possible."
+          }
+          ctaLabel="Got it — now start slopes (LEFT side) →"
+          ctaEnabled={stagePhotos.length >= 1}
+          stagePhotos={stagePhotos}
+          submitting={submitting}
+          onAddPhotos={(files) => addPhotos(files, {
+            category: "roof_overview",
+            story: stage.story,
+            label: `Roof overview${storyCount === 2 ? ` (${ordinal(stage.story)} floor)` : ""}`,
+          })}
+          onRemove={(idx) => {
+            const target = stagePhotos[idx];
+            setPhotos((prev) => prev.filter((p) => p !== target));
+          }}
+          onContinue={advance}
+        />
+      )}
+
       {stage.kind === "story_transition" && (
         <section style={{ padding: 18, background: "#ecfeff", borderRadius: 12, border: "2px solid #06b6d4", display: "grid", gap: 10, textAlign: "center" }}>
           <div style={{ fontSize: 32 }}>✅</div>
           <div style={{ fontSize: 18, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>
-            1st story complete
+            1st floor finished
           </div>
-          <div style={{ fontSize: 13, color: "#0e7490" }}>
-            Move up to the 2nd story. Same order — start with the LEFT-facing slope, then go clockwise (front → right → rear).
+          <div style={{ fontSize: 13, color: "#0e7490", lineHeight: 1.5 }}>
+            Climb up to the 2nd-floor roof. We'll do the same thing all over again:
+            roof overview from the FAR LEFT, then slopes clockwise from the LEFT side
+            (left → front → right → rear).
           </div>
           <button
             type="button"
             onClick={advance}
             style={{ ...primaryBtn, padding: "14px 18px", fontSize: 15 }}
           >
-            Start 2nd story →
+            I'm on the 2nd-floor roof — continue →
           </button>
         </section>
       )}
@@ -2465,66 +2507,87 @@ function InspectorJobDetail({ me, jobId, onBack }) {
         />
       )}
 
-      {stage.kind === "side_overview" && (
-        <WizardPhotoStep
-          title={`📷 ${storyPrefix(stage.story, storyCount)}${SIDE_LABELS[stage.side]} slope #${stage.slopeIndex + 1} — overview`}
-          subtitle={`Take ONE overview photo showing the whole ${SIDE_LABELS[stage.side]} slope #${stage.slopeIndex + 1}${storyCount === 2 ? ` on story ${stage.story}` : ""}.`}
-          ctaLabel="Done — now damage photos for this slope →"
-          ctaEnabled={stagePhotos.length >= 1}
-          stagePhotos={stagePhotos}
-          submitting={submitting}
-          onAddPhotos={(files) => addPhotos(files, {
-            category: "slope_overview",
-            side: stage.side,
-            story: stage.story,
-            slopeIndex: stage.slopeIndex,
-            label: `${storyLabelFor(stage.story, storyCount)}${capitalize(stage.side)} slope ${stage.slopeIndex + 1} overview`,
-          })}
-          onRemove={(idx) => {
-            const target = stagePhotos[idx];
-            setPhotos((prev) => prev.filter((p) => p !== target));
-          }}
-          onContinue={advance}
-        />
-      )}
+      {(() => {
+        if (stage.kind !== "side_overview" && stage.kind !== "side_damage") return null;
+        const seq = slopeSequence(stage, slopeCounts);
+        const ord = ordinal(seq);
+        const floorTag = storyCount === 2 ? ` (${ordinal(stage.story)} floor)` : "";
+        const overviewLabel = `${ord} slope overview${floorTag}`;
+        const detailLabel = `${ord} slope detail${floorTag}`;
+        const isOverview = stage.kind === "side_overview";
 
-      {stage.kind === "side_damage" && (
-        <WizardPhotoStep
-          title={`📷 ${storyPrefix(stage.story, storyCount)}${SIDE_LABELS[stage.side]} slope #${stage.slopeIndex + 1} — damage photos`}
-          subtitle={`Take as many photos as you need showing damage on this slope. Tap Done when finished.`}
-          ctaLabel={
-            stage.slopeIndex + 1 < getSlopeCount(stage.story, stage.side)
-              ? `Done — overview of slope #${stage.slopeIndex + 2} →`
-              : nextSideAfter(stage.side)
-                ? `Done — ${SIDE_LABELS[nextSideAfter(stage.side)]} side next →`
-                : storyCount === 2 && stage.story === 1
-                  ? "Done — 1st story finished →"
-                  : "Done — pick result →"
+        // CTA depends on what's next.
+        let ctaLabel;
+        if (isOverview) {
+          ctaLabel = "Got it — now detail photos of THIS slope →";
+        } else {
+          if (stage.slopeIndex + 1 < getSlopeCount(stage.story, stage.side)) {
+            ctaLabel = `Done — next slope (${ordinal(seq + 1)}) overview →`;
+          } else if (nextSideAfter(stage.side)) {
+            ctaLabel = `Done — ${SIDE_LABELS[nextSideAfter(stage.side)]} side next →`;
+          } else if (storyCount === 2 && stage.story === 1) {
+            ctaLabel = "Done — 1st floor finished →";
+          } else {
+            ctaLabel = "Done — pick result →";
           }
-          ctaEnabled={stagePhotos.length >= 1}
-          stagePhotos={stagePhotos}
-          submitting={submitting}
-          onAddPhotos={(files) => addPhotos(files, {
-            category: "slope_damage",
-            side: stage.side,
-            story: stage.story,
-            slopeIndex: stage.slopeIndex,
-            label: `${storyLabelFor(stage.story, storyCount)}${capitalize(stage.side)} slope ${stage.slopeIndex + 1} damage`,
-          })}
-          onRemove={(idx) => {
-            const target = stagePhotos[idx];
-            setPhotos((prev) => prev.filter((p) => p !== target));
-          }}
-          onContinue={advance}
-        />
-      )}
+        }
+
+        const sideText = SIDE_LABELS[stage.side];
+        return isOverview ? (
+          <WizardPhotoStep
+            title={`📷 ${overviewLabel}`}
+            subtitle={`You should be facing the ${sideText} side of the roof. Stand back far enough to see the WHOLE slope in one shot. Take ONE wide overview photo of this slope.`}
+            ctaLabel={ctaLabel}
+            ctaEnabled={stagePhotos.length >= 1}
+            stagePhotos={stagePhotos}
+            submitting={submitting}
+            onAddPhotos={(files) => addPhotos(files, {
+              category: "slope_overview",
+              side: stage.side,
+              story: stage.story,
+              slopeIndex: stage.slopeIndex,
+              label: overviewLabel,
+            })}
+            onRemove={(idx) => {
+              const target = stagePhotos[idx];
+              setPhotos((prev) => prev.filter((p) => p !== target));
+            }}
+            onContinue={advance}
+          />
+        ) : (
+          <WizardPhotoStep
+            title={`📷 ${detailLabel}`}
+            subtitle={`Still on the ${sideText} side. Now move in CLOSE and take detail photos of anything you see — hail strikes, missing or torn shingles, granule loss, wear marks, exposed nails, soft spots. Add as many photos as you need. Tap Done when this slope is fully documented.`}
+            ctaLabel={ctaLabel}
+            ctaEnabled={stagePhotos.length >= 1}
+            stagePhotos={stagePhotos}
+            submitting={submitting}
+            onAddPhotos={(files) => addPhotos(files, {
+              category: "slope_damage",
+              side: stage.side,
+              story: stage.story,
+              slopeIndex: stage.slopeIndex,
+              label: detailLabel,
+            })}
+            onRemove={(idx) => {
+              const target = stagePhotos[idx];
+              setPhotos((prev) => prev.filter((p) => p !== target));
+            }}
+            onContinue={advance}
+          />
+        );
+      })()}
 
       {stage.kind === "result" && (
         <section style={{ display: "grid", gap: 10 }}>
-          <div style={{ fontSize: 16, fontWeight: 700 }}>Pick the result</div>
-          <div style={{ fontSize: 12, color: "#6b7280" }}>
-            <strong>Damage</strong> = roof claim. <strong>Retail</strong> = homeowner pays (we'll
-            ask you to add 10 more photos of the worst spots). <strong>No damage</strong> = clean roof.
+          <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>
+            🧾 Final step — what did you find?
+          </div>
+          <div style={{ fontSize: 12, color: "#6b7280", lineHeight: 1.5 }}>
+            Pick the result based on what you saw on the roof:
+            <br/>• <strong>Damage</strong> — clear storm damage (hail strikes, wind-lifted shingles). Triggers the PA claim path.
+            <br/>• <strong>Retail</strong> — significant wear & tear but no storm damage. Homeowner pays out of pocket. You'll be asked for 10 more close-ups of the worst spots before submitting.
+            <br/>• <strong>No damage</strong> — roof is sound, nothing to file.
           </div>
           {[
             { key: "damage", label: "🚨 Damage — file PA claim", color: "#dc2626" },
@@ -2579,10 +2642,11 @@ function InspectorJobDetail({ me, jobId, onBack }) {
 
       {stage.kind === "retail_worst" && (
         <section style={{ display: "grid", gap: 10 }}>
-          <div style={{ fontSize: 16, fontWeight: 700 }}>💰 Retail — 10 worst-condition photos</div>
-          <div style={{ fontSize: 12, color: "#6b7280" }}>
-            Walk the whole roof and take photos of the 10 worst spots — anywhere on the roof.
-            Submit unlocks once you have at least 10.
+          <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>
+            💰 Retail — 10 worst-spot photos
+          </div>
+          <div style={{ fontSize: 12, color: "#6b7280", lineHeight: 1.5 }}>
+            Walk the whole roof one more time and photograph the <strong>10 worst spots</strong> — anywhere across all sides. These are the close-ups we'll use to justify the retail recommendation. Submit unlocks once you've added at least 10.
           </div>
           <WizardPhotoStep
             title={`Worst-condition photos (${retailPhotoCount} / 10 minimum)`}
@@ -2725,7 +2789,7 @@ function WizardPhotoStep({ title, subtitle, ctaLabel, ctaEnabled, ctaPrimary, st
 
 function SlopeCountStep({ side, story, storyCount, value, onSet, onContinue }) {
   const isFirstSide = side === "left";
-  const storyTag = storyCount === 2 ? ` (Story ${story})` : "";
+  const floorTag = storyCount === 2 ? ` — ${ordinal(story)} floor` : "";
   return (
     <section style={{
       padding: 14,
@@ -2737,12 +2801,12 @@ function SlopeCountStep({ side, story, storyCount, value, onSet, onContinue }) {
     }}>
       <div>
         <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>
-          📐 How many {SIDE_LABELS[side]} slopes?{storyTag}
+          📐 How many {SIDE_LABELS[side]} slopes?{floorTag}
         </div>
-        <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
+        <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4, lineHeight: 1.5 }}>
           {isFirstSide
-            ? `Start with the ${SIDE_LABELS[side]} slope${storyCount === 2 ? ` on story ${story}` : ""}, then walk clockwise around the house: front → right → rear.`
-            : `Count the visible ${SIDE_LABELS[side]} slopes${storyCount === 2 ? ` on story ${story}` : ""}. Pick 0 if there are none.`}
+            ? <>You're walking the roof <strong>clockwise starting from the LEFT</strong>: left → front → right → rear. Count the slopes you can see on the <strong>{SIDE_LABELS[side]}</strong> side and tap the number. (A "slope" is one flat plane of the roof. Most sides have 1 slope; complex roofs can have 2–4.)</>
+            : <>Count the slopes on the <strong>{SIDE_LABELS[side]}</strong> side. Pick <strong>0</strong> if there are none on this side.</>}
         </div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6 }}>
@@ -2788,19 +2852,20 @@ function SlopeCountStep({ side, story, storyCount, value, onSet, onContinue }) {
 }
 
 function stageLabel(stage, slopeCounts, storyCount) {
-  const sp = (story) => storyCount === 2 ? `Story ${story} · ` : "";
+  const floor = (s) => storyCount === 2 ? ` (${ordinal(s)} floor)` : "";
   if (stage.kind === "house_number") return "House number";
   if (stage.kind === "front_house") return "Front of house";
-  if (stage.kind === "story_pick") return "Stories?";
-  if (stage.kind === "story_transition") return "Story 1 complete → Story 2";
-  if (stage.kind === "side_count") return `${sp(stage.story)}${SIDE_LABELS[stage.side]} — slope count`;
+  if (stage.kind === "story_pick") return "How many stories?";
+  if (stage.kind === "roof_overview") return `Roof overview${floor(stage.story)}`;
+  if (stage.kind === "story_transition") return "1st floor done — start 2nd floor";
+  if (stage.kind === "side_count") return `${SIDE_LABELS[stage.side]} slope count${floor(stage.story)}`;
   if (stage.kind === "side_overview") {
-    const count = slopeCounts[`${stage.story}_${stage.side}`] || 0;
-    return `${sp(stage.story)}${SIDE_LABELS[stage.side]} slope ${stage.slopeIndex + 1} of ${count} — overview`;
+    const seq = slopeSequence(stage, slopeCounts);
+    return `${ordinal(seq)} slope overview${floor(stage.story)}`;
   }
   if (stage.kind === "side_damage") {
-    const count = slopeCounts[`${stage.story}_${stage.side}`] || 0;
-    return `${sp(stage.story)}${SIDE_LABELS[stage.side]} slope ${stage.slopeIndex + 1} of ${count} — damage`;
+    const seq = slopeSequence(stage, slopeCounts);
+    return `${ordinal(seq)} slope detail${floor(stage.story)}`;
   }
   if (stage.kind === "result") return "Pick result";
   if (stage.kind === "retail_worst") return "Retail — 10 worst photos";
@@ -2816,14 +2881,30 @@ function capitalize(s) {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : "";
 }
 
-// "Story 1 · " when 2-story; empty when 1-story (so single-story
-// inspectors don't see a "Story 1" prefix that adds no info).
-function storyPrefix(story, storyCount) {
-  return storyCount === 2 ? `Story ${story} · ` : "";
+// Cardinal → ordinal English string ("1st", "2nd", "3rd", …, "11th").
+function ordinal(n) {
+  if (n == null || !Number.isFinite(n)) return "";
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${n}th`;
+  const mod10 = n % 10;
+  if (mod10 === 1) return `${n}st`;
+  if (mod10 === 2) return `${n}nd`;
+  if (mod10 === 3) return `${n}rd`;
+  return `${n}th`;
 }
-// Filename-friendly prefix for the photo label.
-function storyLabelFor(story, storyCount) {
-  return storyCount === 2 ? `Story ${story} ` : "";
+
+// Slopes are numbered sequentially across all 4 sides on a given
+// story. left=2, front=1, right=2, rear=1 → sequence runs 1..6.
+// Reset per story (so 2-story labels are "1st…6th (1st floor)",
+// then "1st…6th (2nd floor)").
+function slopeSequence(stage, slopeCounts) {
+  if (stage.kind !== "side_overview" && stage.kind !== "side_damage") return null;
+  let seq = 0;
+  for (const s of SIDES) {
+    if (s === stage.side) break;
+    seq += slopeCounts[`${stage.story}_${s}`] || 0;
+  }
+  return seq + stage.slopeIndex + 1;
 }
 
 function labelToSlug(label) {
