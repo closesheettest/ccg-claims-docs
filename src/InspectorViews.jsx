@@ -1006,11 +1006,13 @@ function InspectorJobList({ me, onOpenJob }) {
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [claimingId, setClaimingId] = useState(null);
-  // Route-optimization state. mode = "off" | "home" | "current"
-  // - off: list shows in signed-date order (default)
-  // - home: nearest-neighbor starting from inspector's home base
-  // - current: nearest-neighbor starting from browser geolocation
-  const [routeMode, setRouteMode] = useState("off");
+  // Route view state — two independent dials:
+  //   startMode = "home" | "current"   (where distances/route start)
+  //   optimize  = boolean              (route-optimize claimed jobs)
+  // Distances on every card are always computed from the active start
+  // point. Optimization only affects the "In progress" sort order.
+  const [startMode, setStartMode] = useState("home");
+  const [optimize, setOptimize] = useState(false);
   const [currentCoords, setCurrentCoords] = useState(null);
   const [geoError, setGeoError] = useState(null);
 
@@ -1035,21 +1037,33 @@ function InspectorJobList({ me, onOpenJob }) {
   }
   useEffect(() => { load(); }, []);
 
-  const { mine, available, totalRouteMiles } = useMemo(() => {
+  const { mine, available, totalRouteMiles, startLabel } = useMemo(() => {
+    // Resolve the active start point — the GPS-or-home location every
+    // distance is measured FROM. Drives both sections.
+    let startLat = null;
+    let startLng = null;
+    let startLabel = "your home base";
+    if (startMode === "current" && currentCoords) {
+      startLat = currentCoords.lat;
+      startLng = currentCoords.lng;
+      startLabel = "your current location";
+    } else if (me.latitude != null && me.longitude != null) {
+      startLat = me.latitude;
+      startLng = me.longitude;
+    }
     const mine = [];
     const available = [];
     for (const j of jobs) {
       const dist =
-        me.latitude != null && me.longitude != null &&
+        startLat != null && startLng != null &&
         typeof j.latitude === "number" && typeof j.longitude === "number"
-          ? milesBetween(me.latitude, me.longitude, j.latitude, j.longitude)
+          ? milesBetween(startLat, startLng, j.latitude, j.longitude)
           : null;
       const enriched = { ...j, _dist: dist };
       if (j.inspector_id === me.id) mine.push(enriched);
       else if (!j.inspector_id) available.push(enriched);
     }
-    // Available: always sort by distance from home base (rows w/ no
-    // distance go to bottom). Max-miles cap applied below.
+    // Available: sort by distance from start point.
     available.sort((a, b) => {
       if (a._dist == null && b._dist == null) return 0;
       if (a._dist == null) return 1;
@@ -1061,29 +1075,17 @@ function InspectorJobList({ me, onOpenJob }) {
       ? available.filter((j) => j._dist == null || j._dist <= cap)
       : available;
 
-    // Mine: default = signed-date order. If route optimization is on,
-    // run nearest-neighbor TSP starting from home base or current GPS.
-    let orderedMine = mine;
+    // Mine: optimize toggle decides between signed-date and TSP order.
+    let orderedMine;
     let totalRouteMiles = null;
-    if (routeMode === "off") {
-      orderedMine = [...mine].sort((a, b) => new Date(b.signed_at) - new Date(a.signed_at));
+    if (optimize && startLat != null && startLng != null) {
+      orderedMine = nearestNeighborRoute(mine, startLat, startLng);
+      totalRouteMiles = orderedMine.reduce((sum, j) => sum + (j._legDist || 0), 0);
     } else {
-      let startLat = null;
-      let startLng = null;
-      if (routeMode === "current" && currentCoords) {
-        startLat = currentCoords.lat;
-        startLng = currentCoords.lng;
-      } else if (me.latitude != null && me.longitude != null) {
-        startLat = me.latitude;
-        startLng = me.longitude;
-      }
-      if (startLat != null && startLng != null) {
-        orderedMine = nearestNeighborRoute(mine, startLat, startLng);
-        totalRouteMiles = orderedMine.reduce((sum, j) => sum + (j._legDist || 0), 0);
-      }
+      orderedMine = [...mine].sort((a, b) => new Date(b.signed_at) - new Date(a.signed_at));
     }
-    return { mine: orderedMine, available: availFiltered, totalRouteMiles };
-  }, [jobs, me, routeMode, currentCoords]);
+    return { mine: orderedMine, available: availFiltered, totalRouteMiles, startLabel };
+  }, [jobs, me, startMode, currentCoords, optimize]);
 
   // Ask the browser for the inspector's current location. Cached for
   // the session; user is prompted once.
@@ -1096,12 +1098,12 @@ function InspectorJobList({ me, onOpenJob }) {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setCurrentCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        setRouteMode("current");
+        setStartMode("current");
       },
       (err) => {
         setGeoError(err.message || "Couldn't get your location.");
-        // Fall back to home-base routing.
-        setRouteMode("home");
+        // Fall back to home-base start.
+        setStartMode("home");
       },
       { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 },
     );
@@ -1131,6 +1133,55 @@ function InspectorJobList({ me, onOpenJob }) {
         <div style={{ fontSize: 18, fontWeight: 700 }}>👷 {me.name}</div>
       </div>
 
+      {/* Shared route-mode toggle bar — affects BOTH sections.
+          Distances on every card, the sort order of "Available near
+          you", and (when optimize is on) the nearest-neighbor order
+          in "In progress" all use whichever start point is selected. */}
+      {(mine.length > 0 || available.length > 0) && (
+        <div style={{
+          padding: 10,
+          background: "#fff",
+          border: "1px solid #e5e7eb",
+          borderRadius: 10,
+          display: "grid",
+          gap: 8,
+        }}>
+          <div style={{ fontSize: 12, color: "#374151" }}>
+            🧭 Distances from <strong style={{ color: "#0e7490" }}>{startLabel}</strong>
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <RouteBtn
+              active={startMode === "home"}
+              onClick={() => setStartMode("home")}
+              label="🏠 From home"
+              disabled={me.latitude == null}
+            />
+            <RouteBtn
+              active={startMode === "current"}
+              onClick={requestCurrentLocation}
+              label={startMode === "current" && currentCoords ? "📍 From here ✓" : "📍 Use my location"}
+            />
+            {mine.length > 1 && (
+              <RouteBtn
+                active={optimize}
+                onClick={() => setOptimize(!optimize)}
+                label={optimize ? "✓ Route optimized" : "🧭 Optimize my route"}
+              />
+            )}
+          </div>
+          {totalRouteMiles != null && (
+            <div style={{ fontSize: 11, color: "#6b7280" }}>
+              Optimized order — ~{Math.round(totalRouteMiles)} mi total drive
+            </div>
+          )}
+          {geoError && (
+            <div style={{ fontSize: 11, color: "#dc2626" }}>
+              {geoError}
+            </div>
+          )}
+        </div>
+      )}
+
       <section>
         <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, fontFamily: "'Oswald', sans-serif" }}>
           🛠 In progress — assigned to you ({mine.length})
@@ -1140,66 +1191,19 @@ function InspectorJobList({ me, onOpenJob }) {
             No jobs claimed. Tap one below to start.
           </div>
         ) : (
-          <>
-            {/* Route optimization controls. Visible whenever there's
-                more than one claimed job — saves driving time. */}
-            {mine.length > 1 && (
-              <div style={{
-                marginBottom: 8,
-                padding: 10,
-                background: "#fff",
-                border: "1px solid #e5e7eb",
-                borderRadius: 10,
-                display: "grid",
-                gap: 8,
-              }}>
-                <div style={{ fontSize: 12, color: "#374151", fontWeight: 700 }}>
-                  🧭 Route order
-                </div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  <RouteBtn
-                    active={routeMode === "off"}
-                    onClick={() => setRouteMode("off")}
-                    label="Newest first"
-                  />
-                  <RouteBtn
-                    active={routeMode === "home"}
-                    onClick={() => setRouteMode("home")}
-                    label="🏠 From home"
-                    disabled={me.latitude == null}
-                  />
-                  <RouteBtn
-                    active={routeMode === "current"}
-                    onClick={requestCurrentLocation}
-                    label={routeMode === "current" && currentCoords ? "📍 From here ✓" : "📍 Use my location"}
-                  />
-                </div>
-                {totalRouteMiles != null && (
-                  <div style={{ fontSize: 11, color: "#6b7280" }}>
-                    Optimized order — ~{Math.round(totalRouteMiles)} mi total
-                  </div>
-                )}
-                {geoError && (
-                  <div style={{ fontSize: 11, color: "#dc2626" }}>
-                    {geoError}
-                  </div>
-                )}
-              </div>
-            )}
-            <div style={{ display: "grid", gap: 6 }}>
-              {mine.map((j, i) => (
-                <JobCard
-                  key={j.id}
-                  job={j}
-                  accent="#0ea5e9"
-                  onClick={() => onOpenJob(j.id)}
-                  cta="Open →"
-                  showStopNumber={routeMode !== "off" ? i + 1 : null}
-                  showNavigate
-                />
-              ))}
-            </div>
-          </>
+          <div style={{ display: "grid", gap: 6 }}>
+            {mine.map((j, i) => (
+              <JobCard
+                key={j.id}
+                job={j}
+                accent="#0ea5e9"
+                onClick={() => onOpenJob(j.id)}
+                cta="Open →"
+                showStopNumber={optimize ? i + 1 : null}
+                showNavigate
+              />
+            ))}
+          </div>
         )}
       </section>
 
@@ -1226,6 +1230,7 @@ function InspectorJobList({ me, onOpenJob }) {
                 cta={claimingId === j.id ? "Claiming…" : "✋ Claim"}
                 onClick={() => claim(j.id)}
                 disabled={claimingId !== null}
+                showNavigate
               />
             ))}
           </div>
