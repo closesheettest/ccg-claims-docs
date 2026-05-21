@@ -17,45 +17,114 @@ const jnHeaders = (apiKey) => ({
 });
 
 // Search contacts by address AND name
+// Normalize an address for comparison: lowercase, strip punctuation,
+// collapse whitespace, expand/abbreviate common street suffixes so
+// "2334 N Orange Ave" and "2334 North Orange Avenue" match.
+function normalizeAddress(s) {
+  if (!s) return "";
+  let t = String(s).toLowerCase()
+    .replace(/[.,#]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const suffixes = [
+    [/\bavenue\b/g, "ave"], [/\bav\b/g, "ave"],
+    [/\bstreet\b/g, "st"], [/\bdrive\b/g, "dr"],
+    [/\bboulevard\b/g, "blvd"], [/\bblvd\b/g, "blvd"],
+    [/\broad\b/g, "rd"], [/\blane\b/g, "ln"], [/\bcourt\b/g, "ct"],
+    [/\bcircle\b/g, "cir"], [/\bplace\b/g, "pl"],
+    [/\bparkway\b/g, "pkwy"], [/\bhighway\b/g, "hwy"],
+    [/\bterrace\b/g, "ter"], [/\btrail\b/g, "trl"],
+    [/\bnorth\b/g, "n"], [/\bsouth\b/g, "s"], [/\beast\b/g, "e"], [/\bwest\b/g, "w"],
+  ];
+  for (const [re, abbr] of suffixes) t = t.replace(re, abbr);
+  return t;
+}
+
+// First 5 digits of a US zip — JN sometimes stores ZIP+4 ("34234-1234")
+// while we have just "34234", so equality on the full string misses.
+function normalizeZip(z) {
+  if (!z) return "";
+  const m = String(z).match(/\d{5}/);
+  return m ? m[0] : "";
+}
+
 async function findContact(apiKey, address, zip, firstName, lastName) {
   try {
-    // Try by address first
-    const addrQuery = encodeURIComponent(address.split(",")[0].trim());
-    const addrRes = await fetch(`${JN_BASE}/contacts?search=${addrQuery}&size=10`, {
-      headers: jnHeaders(apiKey),
-    });
-    if (addrRes.ok) {
-      const addrData = await addrRes.json();
-      const contacts = addrData.results || addrData.contacts || addrData.items || [];
-      console.log("Address search returned:", contacts.length, "contacts");
-      const streetNum = address.trim().split(" ")[0];
-      const byAddr = contacts.find((c) => {
-        const cAddr = [c.address_line1, c.city].filter(Boolean).join(" ").toLowerCase();
-        const zipMatch = !zip || (c.zip || "").replace(/\s/g,"") === zip.replace(/\s/g,"");
-        return cAddr.includes(streetNum.toLowerCase()) && zipMatch;
+    const streetNum = (address || "").trim().split(/\s+/)[0] || "";
+    const targetAddrNorm = normalizeAddress(address);
+    const targetZip5 = normalizeZip(zip);
+    const fnLower = (firstName || "").toLowerCase().trim();
+    const lnLower = (lastName || "").toLowerCase().trim();
+
+    // Helper: does this contact look like a match for our homeowner?
+    function isMatch(c) {
+      const cAddrNorm = normalizeAddress([c.address_line1, c.city].filter(Boolean).join(" "));
+      const cZip5 = normalizeZip(c.zip);
+      const cFn = (c.first_name || "").toLowerCase().trim();
+      const cLn = (c.last_name || "").toLowerCase().trim();
+
+      // Strong: normalized address contains the street number AND zip matches (or no zip on either side)
+      const streetNumHit = streetNum && cAddrNorm.includes(streetNum.toLowerCase());
+      const zipHit = !targetZip5 || !cZip5 || cZip5 === targetZip5;
+      if (streetNumHit && zipHit) return "strong-addr";
+
+      // Medium: normalized full-address overlaps (handles abbreviation differences)
+      if (targetAddrNorm && cAddrNorm && (cAddrNorm.includes(targetAddrNorm) || targetAddrNorm.includes(cAddrNorm))) {
+        return "medium-addr";
+      }
+
+      // Medium: exact case-insensitive first + last name (regardless of address)
+      if (fnLower && lnLower && cFn === fnLower && cLn === lnLower) return "name-exact";
+
+      // Weak: last-name match + street-number match (catches Jr/Sr suffix differences)
+      if (lnLower && cLn === lnLower && streetNumHit) return "name+streetnum";
+
+      return null;
+    }
+
+    // Pass 1: search JN by street number (matches existing pattern).
+    if (streetNum) {
+      const addrRes = await fetch(`${JN_BASE}/contacts?search=${encodeURIComponent(streetNum)}&size=20`, {
+        headers: jnHeaders(apiKey),
       });
-      if (byAddr) {
-        console.log("Found by address:", byAddr.jnid || byAddr.id, byAddr.display_name);
-        return byAddr;
+      if (addrRes.ok) {
+        const addrData = await addrRes.json();
+        const contacts = addrData.results || addrData.contacts || addrData.items || [];
+        console.log("Street-num search returned:", contacts.length, "contacts");
+        // Score each — strong addr matches win.
+        const ranked = [];
+        for (const c of contacts) {
+          const tier = isMatch(c);
+          if (tier) ranked.push({ c, tier });
+        }
+        // Prefer strong-addr over anything else.
+        const order = { "strong-addr": 0, "medium-addr": 1, "name-exact": 2, "name+streetnum": 3 };
+        ranked.sort((a, b) => order[a.tier] - order[b.tier]);
+        if (ranked[0]) {
+          const top = ranked[0];
+          console.log(`Found by ${top.tier}:`, top.c.jnid || top.c.id, top.c.display_name);
+          return top.c;
+        }
       }
     }
 
-    // Then try by name
-    const nameQuery = encodeURIComponent(`${firstName} ${lastName}`.trim());
-    const nameRes = await fetch(`${JN_BASE}/contacts?search=${nameQuery}&size=10`, {
-      headers: jnHeaders(apiKey),
-    });
-    if (nameRes.ok) {
-      const nameData = await nameRes.json();
-      const contacts = nameData.results || nameData.contacts || nameData.items || [];
-      console.log("Name search returned:", contacts.length, "contacts");
-      const byName = contacts.find((c) =>
-        (c.first_name || "").toLowerCase() === firstName.toLowerCase() &&
-        (c.last_name || "").toLowerCase() === lastName.toLowerCase()
-      );
-      if (byName) {
-        console.log("Found by name:", byName.jnid || byName.id, byName.display_name);
-        return byName;
+    // Pass 2: search JN by name. Same scoring — any tier wins.
+    const nameQuery = `${firstName} ${lastName}`.trim();
+    if (nameQuery) {
+      const nameRes = await fetch(`${JN_BASE}/contacts?search=${encodeURIComponent(nameQuery)}&size=20`, {
+        headers: jnHeaders(apiKey),
+      });
+      if (nameRes.ok) {
+        const nameData = await nameRes.json();
+        const contacts = nameData.results || nameData.contacts || nameData.items || [];
+        console.log("Name search returned:", contacts.length, "contacts");
+        for (const c of contacts) {
+          const tier = isMatch(c);
+          if (tier) {
+            console.log(`Found by ${tier} (name search):`, c.jnid || c.id, c.display_name);
+            return c;
+          }
+        }
       }
     }
 
@@ -63,6 +132,46 @@ async function findContact(apiKey, address, zip, firstName, lastName) {
     return null;
   } catch (e) {
     console.error("findContact error:", e.message);
+    return null;
+  }
+}
+
+// Given a contact's JNID and a target address, see if the contact
+// already has a job at that address. Used to prevent duplicate JOBS
+// even when the contact lookup succeeds — the original duplicate
+// happened because we found the right contact but then created a
+// fresh job on top of one that already existed for the same property.
+async function findJobOnContactByAddress(apiKey, contactId, address) {
+  if (!contactId) return null;
+  try {
+    const r = await fetch(`${JN_BASE}/jobs?related=${encodeURIComponent(contactId)}&size=30`, {
+      headers: jnHeaders(apiKey),
+    });
+    if (!r.ok) {
+      console.warn("findJobOnContactByAddress list failed:", r.status);
+      return null;
+    }
+    const data = await r.json().catch(() => ({}));
+    const list = data.results || data.jobs || data.items || [];
+    if (!Array.isArray(list) || list.length === 0) return null;
+    const targetNorm = normalizeAddress(address);
+    const streetNum = (address || "").trim().split(/\s+/)[0] || "";
+    // Prefer an exact normalized-address match; fall back to street-num.
+    const exact = list.find((j) => {
+      const jAddrNorm = normalizeAddress([j.address_line1, j.city].filter(Boolean).join(" "));
+      return targetNorm && jAddrNorm && (jAddrNorm === targetNorm || jAddrNorm.includes(targetNorm) || targetNorm.includes(jAddrNorm));
+    });
+    if (exact) return exact;
+    if (streetNum) {
+      const partial = list.find((j) => {
+        const jAddrNorm = normalizeAddress([j.address_line1, j.city].filter(Boolean).join(" "));
+        return jAddrNorm.includes(streetNum.toLowerCase());
+      });
+      if (partial) return partial;
+    }
+    return null;
+  } catch (e) {
+    console.warn("findJobOnContactByAddress error:", e.message);
     return null;
   }
 }
@@ -378,31 +487,37 @@ exports.handler = async (event) => {
 
     console.log("Creating job payload:", JSON.stringify(jobPayload));
 
-    // Create the job. If JN says "Duplicate job exists", find the
-    // existing job by name and link to it instead of failing —
-    // this is what happens when the Supabase row was created later
-    // than the JN job (e.g. orphan re-sync), and lets the manager
-    // press "Sync to JN" expecting their local row to attach to
-    // the already-existing JN record.
+    // BEFORE calling createJob — if we already have the contact ID,
+    // ask JN for the contact's existing jobs at this address. If one
+    // exists we LINK to it instead of creating. This catches the
+    // case where findContact succeeded (we used the existing JN
+    // contact) but the contact already had a job for this property —
+    // previously we'd create a brand-new duplicate job alongside it.
     let jobId;
     let linkedExisting = false;
-    try {
-      const newJob = await createJob(apiKey, jobPayload);
-      jobId = newJob.jnid || newJob.id;
-      console.log("Job created:", jobId);
-    } catch (createErr) {
-      const isDup = (createErr.message || "").toLowerCase().includes("duplicate");
-      if (!isDup) throw createErr;
-      console.log("Job already exists — searching JN for the existing one to link to");
-      const existing = await findJobByName(apiKey, jobPayload.name);
-      if (!existing) {
-        // JN said duplicate but we can't find it. Surface the original
-        // error so the manager knows to look it up manually.
-        throw createErr;
-      }
-      jobId = existing.jnid || existing.id;
+    const preexistingJob = await findJobOnContactByAddress(apiKey, contactId, address);
+    if (preexistingJob) {
+      jobId = preexistingJob.jnid || preexistingJob.id;
       linkedExisting = true;
-      console.log("Linked to existing JN job:", jobId);
+      console.log("Pre-flight: contact already has a job at this address — linking to", jobId);
+    } else {
+      // No existing job on this contact at this address. Create.
+      // If JN STILL returns "Duplicate job exists" (different contact
+      // with same job-name), fall back to findJobByName to link.
+      try {
+        const newJob = await createJob(apiKey, jobPayload);
+        jobId = newJob.jnid || newJob.id;
+        console.log("Job created:", jobId);
+      } catch (createErr) {
+        const isDup = (createErr.message || "").toLowerCase().includes("duplicate");
+        if (!isDup) throw createErr;
+        console.log("Job duplicate-name error from JN — searching by name to link");
+        const existing = await findJobByName(apiKey, jobPayload.name);
+        if (!existing) throw createErr;
+        jobId = existing.jnid || existing.id;
+        linkedExisting = true;
+        console.log("Linked to existing JN job (by name):", jobId);
+      }
     }
     if (!jobId) throw new Error("Job created but no ID returned");
 
