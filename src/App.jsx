@@ -6804,7 +6804,11 @@ const renderSmsTemplate = (key, vars) => {
         const jn = d.jn_updated ? `✅ JN result set to "${d.cf_string_34_set || row.result}"` : "";
         alert(`Pushed to JN.\n\n${jn}${jn && cert ? "\n" : ""}${cert}`);
       } else {
-        alert("❌ Push failed: " + (d.error || (await r.text()).slice(0, 200)));
+        // Response body was already consumed by .json() above — don't
+        // try to .text() it again ("body stream already read"). Use
+        // whatever the JSON parser surfaced, plus the status code.
+        const detail = d.error || d.detail || d.jn_update_error || d.cert_error || `HTTP ${r.status}`;
+        alert("❌ Push failed: " + detail);
       }
     } catch (e) {
       alert("Push to JN error: " + (e.message || e));
