@@ -268,14 +268,6 @@ export function InspectorsAdminPanel() {
   const [inspectors, setInspectors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState(null);
-  // Add form state
-  const [newName, setNewName] = useState("");
-  const [newAddress, setNewAddress] = useState("");
-  const [newLat, setNewLat] = useState("");
-  const [newLng, setNewLng] = useState("");
-  const [newMaxMiles, setNewMaxMiles] = useState("");
-  const [findingCoords, setFindingCoords] = useState(false);
-  const [adding, setAdding] = useState(false);
   // JN sync state
   const [syncing, setSyncing] = useState(false);
   // Per-row "send setup email" state
@@ -404,64 +396,6 @@ export function InspectorsAdminPanel() {
       .order("signed_at", { ascending: false })
       .limit(100);
     setClaimedJobs(data || []);
-  }
-
-  async function findCoordsForNewInspector() {
-    const query = newAddress.trim() || newName.trim();
-    if (!query) {
-      setMessage({ kind: "error", text: "Enter an address (or name) first." });
-      return;
-    }
-    setFindingCoords(true);
-    try {
-      const res = await fetch("/.netlify/functions/geocode-place", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!body.ok) {
-        setMessage({ kind: "error", text: body.error || "Geocode failed" });
-      } else {
-        setNewLat(String(body.lat));
-        setNewLng(String(body.lng));
-        setMessage({ kind: "success", text: `Found: ${body.formatted_address}` });
-      }
-    } catch (e) {
-      setMessage({ kind: "error", text: e.message || "Network error" });
-    }
-    setFindingCoords(false);
-  }
-
-  async function addInspector(e) {
-    e?.preventDefault?.();
-    if (!newName.trim()) {
-      setMessage({ kind: "error", text: "Name is required." });
-      return;
-    }
-    setAdding(true);
-    const lat = newLat.trim() ? parseFloat(newLat) : null;
-    const lng = newLng.trim() ? parseFloat(newLng) : null;
-    const max = newMaxMiles.trim() ? parseInt(newMaxMiles, 10) : null;
-    const { error } = await supabase.from("inspectors").insert({
-      name: newName.trim(),
-      latitude: Number.isFinite(lat) ? lat : null,
-      longitude: Number.isFinite(lng) ? lng : null,
-      max_distance_miles: Number.isFinite(max) ? max : null,
-      active: true,
-    });
-    setAdding(false);
-    if (error) {
-      setMessage({ kind: "error", text: error.message });
-      return;
-    }
-    setMessage({ kind: "success", text: `Added ${newName.trim()}.` });
-    setNewName("");
-    setNewAddress("");
-    setNewLat("");
-    setNewLng("");
-    setNewMaxMiles("");
-    loadInspectors();
   }
 
   async function toggleActive(insp) {
@@ -613,73 +547,25 @@ export function InspectorsAdminPanel() {
         </div>
       )}
 
-      {/* Add inspector */}
-      <section style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, background: "#fff" }}>
-        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>➕ Add inspector</div>
-        <form onSubmit={addInspector} style={{ display: "grid", gap: 10 }}>
-          <input
-            type="text"
-            placeholder="Name (e.g. John Doe)"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            style={inputStyle}
-            disabled={adding}
-            required
-          />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
-            <input
-              type="text"
-              placeholder="Home address (used to find lat/lng)"
-              value={newAddress}
-              onChange={(e) => setNewAddress(e.target.value)}
-              style={inputStyle}
-              disabled={adding || findingCoords}
-            />
-            <button
-              type="button"
-              onClick={findCoordsForNewInspector}
-              disabled={adding || findingCoords || !newAddress.trim()}
-              style={{ ...secondaryBtn, padding: "8px 12px" }}
-            >
-              {findingCoords ? "Finding…" : "📍 Find lat/lng"}
-            </button>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 8 }}>
-            <input
-              type="number"
-              step="any"
-              placeholder="Latitude"
-              value={newLat}
-              onChange={(e) => setNewLat(e.target.value)}
-              style={inputStyle}
-              disabled={adding}
-            />
-            <input
-              type="number"
-              step="any"
-              placeholder="Longitude"
-              value={newLng}
-              onChange={(e) => setNewLng(e.target.value)}
-              style={inputStyle}
-              disabled={adding}
-            />
-            <input
-              type="number"
-              placeholder="Max miles (blank = no limit)"
-              value={newMaxMiles}
-              onChange={(e) => setNewMaxMiles(e.target.value)}
-              style={inputStyle}
-              disabled={adding}
-            />
-            <button
-              type="submit"
-              disabled={adding || !newName.trim()}
-              style={{ ...primaryBtn, padding: "8px 14px" }}
-            >
-              {adding ? "Adding…" : "Add"}
-            </button>
-          </div>
-        </form>
+      {/* Adding inspectors — JN is the source of truth. Manual add is
+          intentionally removed so we never end up with an inspector
+          here that isn't in JN (which would break job assignment +
+          photo upload). */}
+      <section style={{ border: "1px solid #bfdbfe", borderRadius: 12, padding: 16, background: "#eff6ff" }}>
+        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6, color: "#1e3a8a" }}>
+          ➕ Don't see an inspector below?
+        </div>
+        <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: "#1e3a8a", lineHeight: 1.6 }}>
+          <li>Add them as a user in <strong>JobNimbus</strong> first (with their email).</li>
+          <li>Come back here and click <strong>🔄 Sync from JN</strong> at the top of this page.</li>
+          <li>The new inspector shows up here as <em>Setup pending</em>.</li>
+          <li>Open <strong>Edit</strong>, drop in their phone number, save.</li>
+          <li>Click <strong>📧/📱 Send setup email/text</strong> — they confirm their home address from the link.</li>
+          <li>Once their row says <em>✓ Setup complete</em>, click <strong>Activate</strong> and they get the app link.</li>
+        </ol>
+        <div style={{ marginTop: 10, fontSize: 11, color: "#475569" }}>
+          We don't allow manual adds here — if an inspector isn't in JN, their job assignments and photo uploads won't sync, so JN has to come first.
+        </div>
       </section>
 
       {/* List inspectors */}
