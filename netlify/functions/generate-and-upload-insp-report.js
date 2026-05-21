@@ -261,7 +261,7 @@ const INSP_ROWS_RETAIL = [
   { category: "Gutters & Downspouts",         finding: "N/A",                                                              result: "N/A"  },
   { category: "Ridge & Hip Caps",             finding: "Significant granular loss, degraded elasticity, seal failures.",   result: "FAIL" },
   { category: "Roof Deck (Visible)",          finding: "Unknown",                                                          result: "N/A"  },
-  { category: "Ventilation",                  finding: "Painted over soffit vents",                                        result: "FAIL" },
+  { category: "Ventilation",                  finding: "N/A",                                                              result: "N/A"  },
   { category: "Water Intrusion / Leaks",      finding: "Not assessed at enrollment.",                                      result: "N/A"  },
   { category: "Overall Structural Integrity", finding: "Moderately poor to poor",                                          result: "FAIL" },
 ];
