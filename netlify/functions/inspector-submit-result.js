@@ -50,6 +50,10 @@ exports.handler = async (event) => {
   const result = (body.result || "").trim();
   const inspectorName = (body.inspector_name || "").trim();
   const photoPaths = Array.isArray(body.photo_paths) ? body.photo_paths : [];
+  // Optional per-photo labels — when present, used as the JN file
+  // description so attachments are named like "Left slope 1 damage"
+  // instead of the generic "Inspector roof photo".
+  const photoLabels = Array.isArray(body.photo_labels) ? body.photo_labels : [];
   if (!inspectionId) return json(400, { ok: false, error: "inspectionId required" });
   if (!["damage", "no_damage", "retail"].includes(result)) {
     return json(400, { ok: false, error: "result must be damage | no_damage | retail" });
@@ -88,10 +92,11 @@ exports.handler = async (event) => {
   if (inspectorName) updates.inspector_name = inspectorName;
   // Merge new photo paths into inspection_photos JSON column.
   const prevPhotos = Array.isArray(insp.inspection_photos) ? insp.inspection_photos : [];
-  const newPhotos = photoPaths.map((p) => ({
+  const newPhotos = photoPaths.map((p, i) => ({
     path: p,
     bucket: SIGNED_BUCKET,
     captured_at: new Date().toISOString(),
+    label: photoLabels[i] || null,
   }));
   updates.inspection_photos = [...prevPhotos, ...newPhotos];
   const updRes = await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${inspectionId}`, {
@@ -107,7 +112,9 @@ exports.handler = async (event) => {
   let jnUploaded = 0;
   const jnErrors = [];
   if (insp.jn_job_id) {
-    for (const path of photoPaths) {
+    for (let i = 0; i < photoPaths.length; i++) {
+      const path = photoPaths[i];
+      const label = photoLabels[i] || "Inspector roof photo";
       try {
         // Download from Supabase Storage. Storage object URL pattern:
         // {SB_URL}/storage/v1/object/{bucket}/{path}
@@ -124,7 +131,8 @@ exports.handler = async (event) => {
         const contentType = filename.endsWith(".png") ? "image/png" : "image/jpeg";
 
         // JN file upload: 2-step. Ask JN for a presigned URL, then PUT
-        // the bytes to that URL.
+        // the bytes to that URL. The `description` uses the wizard
+        // label so JN attachments are human-readable.
         const initRes = await fetch(JN_FILES_BASE, {
           method: "POST",
           headers: jnHeaders,
@@ -132,7 +140,7 @@ exports.handler = async (event) => {
             related: [insp.jn_job_id],
             type: 1,
             filename,
-            description: "Inspector roof photo",
+            description: label,
           }),
         });
         if (!initRes.ok) {
@@ -160,6 +168,7 @@ exports.handler = async (event) => {
       }
     }
   }
+  // We're done iterating photoPaths here; loop variables are scoped.
 
   // 4. If damage, fire-and-forget the PA Ops Hub PDN. The existing
   //    send-to-pa-ops-hub function pulls the signed PDF from Supabase

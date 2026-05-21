@@ -1405,14 +1405,50 @@ function JobCard({ job, accent, cta, onClick, disabled, showStopNumber, showNavi
   );
 }
 
+// Guided inspector photo wizard — multi-step interview rather than a
+// single dump-it-all-here photo picker. Sequence:
+//
+//   1. Front of the house — 1 photo
+//   2-5. For each side in order [left, rear, right, front]:
+//        a. Ask how many slopes on this side (1-4)
+//        b. Take overview photo of slope #1, #2, … (one per slope)
+//        c. Take damage photos for slope #1 (1-N), then #2, …
+//   6. Result picker (damage / retail / no_damage)
+//   7. If retail: 10 photos of the worst condition spots
+//   8. Submit
+//
+// Each photo carries metadata (category, side, slope_index, label) so
+// it gets a descriptive filename in Supabase Storage and a clean
+// description on its JN attachment.
+const SIDES = ["left", "rear", "right", "front"];
+const SIDE_LABELS = {
+  left: "LEFT-facing",
+  rear: "REAR-facing",
+  right: "RIGHT-facing",
+  front: "FRONT-facing",
+};
+
 function InspectorJobDetail({ me, jobId, onBack }) {
   const [job, setJob] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [photos, setPhotos] = useState([]); // [{ file, previewUrl, uploaded: false, path }]
-  const [resultChoice, setResultChoice] = useState(""); // damage | no_damage | retail
+  // Guided wizard state.
+  // stage shapes:
+  //   { kind: "front_house" }
+  //   { kind: "side_count", side }
+  //   { kind: "side_overview", side, slopeIndex } — slopeIndex 0-based
+  //   { kind: "side_damage",   side, slopeIndex }
+  //   { kind: "result" }
+  //   { kind: "retail_worst" }
+  const [stage, setStage] = useState({ kind: "front_house" });
+  // How many slopes for each side. Filled as the inspector progresses.
+  const [slopeCounts, setSlopeCounts] = useState({ left: 0, rear: 0, right: 0, front: 0 });
+  // Flat array of all photos. Each carries metadata so we can group
+  // them in the UI + write descriptive filenames at upload.
+  // Shape: { file, previewUrl, category, side?, slopeIndex?, label, uploaded, path }
+  const [photos, setPhotos] = useState([]);
+  const [resultChoice, setResultChoice] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitMsg, setSubmitMsg] = useState(null);
-  const fileInputRef = useRef(null);
 
   async function load() {
     setLoading(true);
@@ -1426,20 +1462,91 @@ function InspectorJobDetail({ me, jobId, onBack }) {
   }
   useEffect(() => { load(); }, [jobId]);
 
-  function onFilesPicked(e) {
-    const files = Array.from(e.target.files || []);
-    const additions = files.map((f) => ({
+  // Advance to the next logical stage based on where we are.
+  function advance() {
+    if (stage.kind === "front_house") {
+      setStage({ kind: "side_count", side: "left" });
+      return;
+    }
+    if (stage.kind === "side_count") {
+      const count = slopeCounts[stage.side];
+      if (count > 0) {
+        setStage({ kind: "side_overview", side: stage.side, slopeIndex: 0 });
+      } else {
+        // No slopes on this side — skip to next.
+        goToNextSide(stage.side);
+      }
+      return;
+    }
+    if (stage.kind === "side_overview") {
+      const count = slopeCounts[stage.side];
+      if (stage.slopeIndex + 1 < count) {
+        setStage({ kind: "side_overview", side: stage.side, slopeIndex: stage.slopeIndex + 1 });
+      } else {
+        // All overviews done — move to damage of slope #1
+        setStage({ kind: "side_damage", side: stage.side, slopeIndex: 0 });
+      }
+      return;
+    }
+    if (stage.kind === "side_damage") {
+      const count = slopeCounts[stage.side];
+      if (stage.slopeIndex + 1 < count) {
+        setStage({ kind: "side_damage", side: stage.side, slopeIndex: stage.slopeIndex + 1 });
+      } else {
+        goToNextSide(stage.side);
+      }
+      return;
+    }
+    if (stage.kind === "result") {
+      // Handled by result-button presses → submit() or retail step.
+      return;
+    }
+  }
+
+  function goToNextSide(currentSide) {
+    const idx = SIDES.indexOf(currentSide);
+    if (idx >= 0 && idx + 1 < SIDES.length) {
+      setStage({ kind: "side_count", side: SIDES[idx + 1] });
+    } else {
+      setStage({ kind: "result" });
+    }
+  }
+
+  function addPhotos(files, metadata) {
+    const additions = Array.from(files).map((f) => ({
       file: f,
       previewUrl: URL.createObjectURL(f),
       uploaded: false,
       path: null,
+      ...metadata,
     }));
     setPhotos((prev) => [...prev, ...additions]);
-    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   function removePhoto(i) {
     setPhotos((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
+  // Filter photos belonging to the current stage so we can show only
+  // those previews instead of every photo accumulated so far.
+  function currentStagePhotos() {
+    if (stage.kind === "front_house") {
+      return photos.filter((p) => p.category === "front_house");
+    }
+    if (stage.kind === "side_overview") {
+      return photos.filter(
+        (p) => p.category === "slope_overview" && p.side === stage.side && p.slopeIndex === stage.slopeIndex,
+      );
+    }
+    if (stage.kind === "side_damage") {
+      return photos.filter(
+        (p) => p.category === "slope_damage" && p.side === stage.side && p.slopeIndex === stage.slopeIndex,
+      );
+    }
+    if (stage.kind === "retail_worst") {
+      return photos.filter((p) => p.category === "retail_worst");
+    }
+    return [];
   }
 
   async function submit() {
@@ -1450,17 +1557,21 @@ function InspectorJobDetail({ me, jobId, onBack }) {
     setSubmitting(true);
     setSubmitMsg(null);
     try {
-      // 1. Upload each photo to Supabase Storage.
-      const uploadedPaths = [];
+      // 1. Upload each photo to Supabase Storage. Filename encodes the
+      //    photo's metadata so anyone looking at the bucket sees what
+      //    each shot is at a glance (e.g.
+      //    inspection-photos/<id>/left_slope_1_damage_3_2026-05-21....jpg).
+      const uploadedPhotos = []; // { path, label } pairs
       for (let i = 0; i < photos.length; i++) {
         const p = photos[i];
         if (p.uploaded) {
-          uploadedPaths.push(p.path);
+          uploadedPhotos.push({ path: p.path, label: p.label });
           continue;
         }
         const ext = (p.file.name.split(".").pop() || "jpg").toLowerCase();
         const ts = new Date().toISOString().replace(/[:.]/g, "-");
-        const path = `${PHOTO_PATH_PREFIX}/${jobId}/${ts}_${i}.${ext}`;
+        const slug = labelToSlug(p.label);
+        const path = `${PHOTO_PATH_PREFIX}/${jobId}/${slug}_${ts}_${i}.${ext}`;
         const { error } = await supabase.storage
           .from(SIGNED_BUCKET)
           .upload(path, p.file, {
@@ -1472,11 +1583,13 @@ function InspectorJobDetail({ me, jobId, onBack }) {
           setSubmitting(false);
           return;
         }
-        uploadedPaths.push(path);
+        uploadedPhotos.push({ path, label: p.label });
         setPhotos((prev) => prev.map((x, idx) => idx === i ? { ...x, uploaded: true, path } : x));
       }
 
       // 2. Hand off to the server function for JN photo upload + PA PDN.
+      //    Photo paths AND labels go through so JN attachments get
+      //    human-readable descriptions ("Left slope 1 damage #3" etc).
       const res = await fetch("/.netlify/functions/inspector-submit-result", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1484,7 +1597,8 @@ function InspectorJobDetail({ me, jobId, onBack }) {
           inspectionId: jobId,
           result: resultChoice,
           inspector_name: me.name,
-          photo_paths: uploadedPaths,
+          photo_paths: uploadedPhotos.map((p) => p.path),
+          photo_labels: uploadedPhotos.map((p) => p.label),
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -1496,12 +1610,12 @@ function InspectorJobDetail({ me, jobId, onBack }) {
       setSubmitMsg({
         kind: "success",
         text:
-          `Done. ${body.jn_photos_uploaded || 0} of ${uploadedPaths.length} photos pushed to JN. ` +
+          `Done. ${body.jn_photos_uploaded || 0} of ${uploadedPhotos.length} photos pushed to JN. ` +
           (body.pa_pdn_fired ? "PA Ops Hub notified." : ""),
       });
       setTimeout(() => {
         onBack();
-      }, 1500);
+      }, 1800);
     } catch (e) {
       setSubmitMsg({ kind: "error", text: e.message || "Unknown error" });
     } finally {
@@ -1517,6 +1631,13 @@ function InspectorJobDetail({ me, jobId, onBack }) {
     </div>
   );
 
+  const stagePhotos = currentStagePhotos();
+  const progressLabel = stageLabel(stage, slopeCounts);
+  const isResultDamage = resultChoice === "damage";
+  const isResultRetail = resultChoice === "retail";
+  const retailPhotoCount = photos.filter((p) => p.category === "retail_worst").length;
+  const retailReady = retailPhotoCount >= 10;
+
   return (
     <div style={{ display: "grid", gap: 14 }}>
       <button type="button" onClick={onBack} style={{ ...secondaryBtn, alignSelf: "flex-start", fontSize: 12 }}>
@@ -1531,102 +1652,127 @@ function InspectorJobDetail({ me, jobId, onBack }) {
         </div>
         {job.sales_rep_name && (
           <div style={{ fontSize: 12, color: "#6b7280", marginTop: 6 }}>
-            Rep: {job.sales_rep_name}
-            {job.mobile && <> · {job.mobile}</>}
-          </div>
-        )}
-        {job.signed_at && (
-          <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>
-            Signed: {new Date(job.signed_at).toLocaleString()}
+            Rep: {job.sales_rep_name}{job.mobile && <> · {job.mobile}</>}
           </div>
         )}
       </div>
 
-      <section>
-        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>
-          📸 Roof photos ({photos.length})
-        </div>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          multiple
-          onChange={onFilesPicked}
-          style={{ display: "none" }}
-        />
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          style={{
-            padding: "14px 18px",
-            background: "#0ea5e9",
-            color: "#fff",
-            border: "none",
-            borderRadius: 12,
-            fontWeight: 700,
-            fontSize: 15,
-            cursor: "pointer",
-            width: "100%",
-          }}
-        >
-          📷 Take / pick photos
-        </button>
-        {photos.length > 0 && (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginTop: 10 }}>
-            {photos.map((p, i) => (
-              <div key={i} style={{ position: "relative" }}>
-                <img
-                  src={p.previewUrl}
-                  alt={`Photo ${i + 1}`}
-                  style={{ width: "100%", aspectRatio: "1", objectFit: "cover", borderRadius: 8, border: p.uploaded ? "2px solid #059669" : "1px solid #e5e7eb" }}
-                />
-                <button
-                  type="button"
-                  onClick={() => removePhoto(i)}
-                  style={{
-                    position: "absolute",
-                    top: 4,
-                    right: 4,
-                    background: "rgba(0,0,0,0.6)",
-                    color: "#fff",
-                    border: "none",
-                    borderRadius: 999,
-                    width: 22,
-                    height: 22,
-                    cursor: "pointer",
-                    fontSize: 12,
-                    lineHeight: 1,
-                  }}
-                  disabled={submitting}
-                >
-                  ×
-                </button>
-                {p.uploaded && (
-                  <div style={{
-                    position: "absolute", bottom: 4, left: 4,
-                    fontSize: 10, padding: "2px 5px",
-                    background: "#059669", color: "#fff", borderRadius: 4,
-                  }}>✓ uploaded</div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
+      {/* Progress strip — shows the current step + total photos so far */}
+      <div style={{
+        padding: "8px 12px",
+        background: "#ecfeff",
+        border: "1px solid #67e8f9",
+        borderRadius: 10,
+        fontSize: 12,
+        color: "#0e7490",
+      }}>
+        <strong>Step:</strong> {progressLabel} · <strong>{photos.length}</strong> photo{photos.length === 1 ? "" : "s"} so far
+      </div>
 
-      <section>
-        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Result</div>
-        <div style={{ display: "grid", gap: 8 }}>
+      {stage.kind === "front_house" && (
+        <WizardPhotoStep
+          title="📷 Front of the house"
+          subtitle="Take ONE photo of the front of the house — straight on if possible."
+          ctaLabel="Done with front of house →"
+          ctaEnabled={stagePhotos.length >= 1}
+          stagePhotos={stagePhotos}
+          submitting={submitting}
+          onAddPhotos={(files) => addPhotos(files, {
+            category: "front_house",
+            label: "Front of house",
+          })}
+          onRemove={(idx) => {
+            const target = stagePhotos[idx];
+            setPhotos((prev) => prev.filter((p) => p !== target));
+          }}
+          onContinue={advance}
+        />
+      )}
+
+      {stage.kind === "side_count" && (
+        <SlopeCountStep
+          side={stage.side}
+          value={slopeCounts[stage.side]}
+          onSet={(n) => setSlopeCounts({ ...slopeCounts, [stage.side]: n })}
+          onContinue={advance}
+        />
+      )}
+
+      {stage.kind === "side_overview" && (
+        <WizardPhotoStep
+          title={`📷 ${SIDE_LABELS[stage.side]} slope #${stage.slopeIndex + 1} — overview`}
+          subtitle={`Take ONE overview photo showing the whole ${SIDE_LABELS[stage.side]} slope #${stage.slopeIndex + 1}.`}
+          ctaLabel={
+            stage.slopeIndex + 1 < slopeCounts[stage.side]
+              ? `Done — next slope's overview →`
+              : `Done — now damage photos →`
+          }
+          ctaEnabled={stagePhotos.length >= 1}
+          stagePhotos={stagePhotos}
+          submitting={submitting}
+          onAddPhotos={(files) => addPhotos(files, {
+            category: "slope_overview",
+            side: stage.side,
+            slopeIndex: stage.slopeIndex,
+            label: `${capitalize(stage.side)} slope ${stage.slopeIndex + 1} overview`,
+          })}
+          onRemove={(idx) => {
+            const target = stagePhotos[idx];
+            setPhotos((prev) => prev.filter((p) => p !== target));
+          }}
+          onContinue={advance}
+        />
+      )}
+
+      {stage.kind === "side_damage" && (
+        <WizardPhotoStep
+          title={`📷 ${SIDE_LABELS[stage.side]} slope #${stage.slopeIndex + 1} — damage photos`}
+          subtitle={`Take as many photos as you need showing damage on the ${SIDE_LABELS[stage.side]} slope #${stage.slopeIndex + 1}. Tap Done when finished.`}
+          ctaLabel={
+            stage.slopeIndex + 1 < slopeCounts[stage.side]
+              ? `Done with this slope → next slope`
+              : nextSideAfter(stage.side)
+                ? `Done with ${SIDE_LABELS[stage.side]} → ${SIDE_LABELS[nextSideAfter(stage.side)]}`
+                : `Done — pick result →`
+          }
+          ctaEnabled={stagePhotos.length >= 1}
+          stagePhotos={stagePhotos}
+          submitting={submitting}
+          onAddPhotos={(files) => addPhotos(files, {
+            category: "slope_damage",
+            side: stage.side,
+            slopeIndex: stage.slopeIndex,
+            label: `${capitalize(stage.side)} slope ${stage.slopeIndex + 1} damage`,
+          })}
+          onRemove={(idx) => {
+            const target = stagePhotos[idx];
+            setPhotos((prev) => prev.filter((p) => p !== target));
+          }}
+          onContinue={advance}
+        />
+      )}
+
+      {stage.kind === "result" && (
+        <section style={{ display: "grid", gap: 10 }}>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>Pick the result</div>
+          <div style={{ fontSize: 12, color: "#6b7280" }}>
+            <strong>Damage</strong> = roof claim. <strong>Retail</strong> = homeowner pays (we'll
+            ask you to add 10 more photos of the worst spots). <strong>No damage</strong> = clean roof.
+          </div>
           {[
             { key: "damage", label: "🚨 Damage — file PA claim", color: "#dc2626" },
-            { key: "retail", label: "💰 Retail — homeowner pays", color: "#7c3aed" },
+            { key: "retail", label: "💰 Retail — homeowner pays (10 more photos)", color: "#7c3aed" },
             { key: "no_damage", label: "✓ No damage", color: "#059669" },
           ].map((opt) => (
             <button
               key={opt.key}
               type="button"
-              onClick={() => setResultChoice(opt.key)}
+              onClick={() => {
+                setResultChoice(opt.key);
+                if (opt.key === "retail") {
+                  setStage({ kind: "retail_worst" });
+                }
+              }}
               style={{
                 padding: "14px 16px",
                 background: resultChoice === opt.key ? opt.color : "#fff",
@@ -1635,15 +1781,62 @@ function InspectorJobDetail({ me, jobId, onBack }) {
                 borderRadius: 12,
                 fontWeight: 700,
                 fontSize: 14,
-                cursor: "pointer",
                 textAlign: "left",
+                cursor: "pointer",
               }}
             >
               {opt.label}
             </button>
           ))}
-        </div>
-      </section>
+          {(isResultDamage || resultChoice === "no_damage") && (
+            <button
+              type="button"
+              onClick={submit}
+              disabled={submitting}
+              style={{
+                padding: "16px 18px",
+                background: submitting ? "#9ca3af" : "#13294b",
+                color: "#fff",
+                border: "none",
+                borderRadius: 12,
+                fontWeight: 700,
+                fontSize: 16,
+                cursor: submitting ? "wait" : "pointer",
+              }}
+            >
+              {submitting ? "Submitting…" : "Submit inspection →"}
+            </button>
+          )}
+        </section>
+      )}
+
+      {stage.kind === "retail_worst" && (
+        <section style={{ display: "grid", gap: 10 }}>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>💰 Retail — 10 worst-condition photos</div>
+          <div style={{ fontSize: 12, color: "#6b7280" }}>
+            Walk the whole roof and take photos of the 10 worst spots — anywhere on the roof.
+            Submit unlocks once you have at least 10.
+          </div>
+          <WizardPhotoStep
+            title={`Worst-condition photos (${retailPhotoCount} / 10 minimum)`}
+            subtitle=""
+            ctaLabel={retailReady ? `Submit inspection (${retailPhotoCount} photos) →` : `Need ${10 - retailPhotoCount} more`}
+            ctaEnabled={retailReady && !submitting}
+            stagePhotos={stagePhotos}
+            submitting={submitting}
+            onAddPhotos={(files) => addPhotos(files, {
+              category: "retail_worst",
+              label: "Retail worst condition",
+            })}
+            onRemove={(idx) => {
+              const target = stagePhotos[idx];
+              setPhotos((prev) => prev.filter((p) => p !== target));
+            }}
+            onContinue={submit}
+            ctaPrimary
+          />
+        </section>
+      )}
 
       {submitMsg && (
         <div style={{
@@ -1657,26 +1850,197 @@ function InspectorJobDetail({ me, jobId, onBack }) {
           {submitMsg.text}
         </div>
       )}
+    </div>
+  );
+}
 
+// ─────────────────────────────────────────────────────────────────────
+// Wizard sub-components + helpers
+// ─────────────────────────────────────────────────────────────────────
+function WizardPhotoStep({ title, subtitle, ctaLabel, ctaEnabled, ctaPrimary, stagePhotos, submitting, onAddPhotos, onRemove, onContinue }) {
+  const fileInputRef = useRef(null);
+  return (
+    <section style={{
+      padding: 14,
+      background: "#fff",
+      borderRadius: 12,
+      border: "1px solid #e5e7eb",
+      display: "grid",
+      gap: 10,
+    }}>
+      <div>
+        <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>{title}</div>
+        {subtitle && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>{subtitle}</div>}
+      </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        multiple
+        onChange={(e) => {
+          onAddPhotos(e.target.files || []);
+          if (fileInputRef.current) fileInputRef.current.value = "";
+        }}
+        style={{ display: "none" }}
+      />
       <button
         type="button"
-        onClick={submit}
-        disabled={submitting || !resultChoice}
+        onClick={() => fileInputRef.current?.click()}
+        disabled={submitting}
         style={{
-          padding: "16px 18px",
-          background: submitting || !resultChoice ? "#9ca3af" : "#13294b",
+          padding: "14px 18px",
+          background: "#0ea5e9",
           color: "#fff",
           border: "none",
           borderRadius: 12,
           fontWeight: 700,
-          fontSize: 16,
-          cursor: submitting ? "wait" : (!resultChoice ? "not-allowed" : "pointer"),
+          fontSize: 15,
+          cursor: submitting ? "wait" : "pointer",
         }}
       >
-        {submitting ? "Submitting…" : "Submit inspection →"}
+        📷 Take photo{stagePhotos.length > 0 ? "s" : ""}{stagePhotos.length > 0 ? ` (${stagePhotos.length} so far)` : ""}
       </button>
-    </div>
+      {stagePhotos.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
+          {stagePhotos.map((p, i) => (
+            <div key={i} style={{ position: "relative" }}>
+              <img
+                src={p.previewUrl}
+                alt={`Photo ${i + 1}`}
+                style={{ width: "100%", aspectRatio: "1", objectFit: "cover", borderRadius: 8, border: p.uploaded ? "2px solid #059669" : "1px solid #e5e7eb" }}
+              />
+              <button
+                type="button"
+                onClick={() => onRemove(i)}
+                style={{
+                  position: "absolute",
+                  top: 4,
+                  right: 4,
+                  background: "rgba(0,0,0,0.6)",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 999,
+                  width: 22,
+                  height: 22,
+                  cursor: "pointer",
+                  fontSize: 12,
+                  lineHeight: 1,
+                }}
+                disabled={submitting}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={onContinue}
+        disabled={!ctaEnabled || submitting}
+        style={{
+          padding: "14px 18px",
+          background: !ctaEnabled || submitting ? "#9ca3af" : ctaPrimary ? "#13294b" : "#059669",
+          color: "#fff",
+          border: "none",
+          borderRadius: 12,
+          fontWeight: 700,
+          fontSize: 15,
+          cursor: !ctaEnabled || submitting ? "not-allowed" : "pointer",
+        }}
+      >
+        {ctaLabel}
+      </button>
+    </section>
   );
+}
+
+function SlopeCountStep({ side, value, onSet, onContinue }) {
+  return (
+    <section style={{
+      padding: 14,
+      background: "#fff",
+      borderRadius: 12,
+      border: "1px solid #e5e7eb",
+      display: "grid",
+      gap: 10,
+    }}>
+      <div>
+        <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>
+          📐 How many {SIDE_LABELS[side]} slopes?
+        </div>
+        <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
+          Count the visible {SIDE_LABELS[side]} slopes on this house. Pick 0 if there are none.
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6 }}>
+        {[0, 1, 2, 3, 4].map((n) => (
+          <button
+            key={n}
+            type="button"
+            onClick={() => onSet(n)}
+            style={{
+              padding: "16px 0",
+              background: value === n ? "#0e7490" : "#fff",
+              color: value === n ? "#fff" : "#111827",
+              border: `2px solid ${value === n ? "#0e7490" : "#d1d5db"}`,
+              borderRadius: 10,
+              fontWeight: 700,
+              fontSize: 18,
+              cursor: "pointer",
+            }}
+          >
+            {n}
+          </button>
+        ))}
+      </div>
+      <button
+        type="button"
+        onClick={onContinue}
+        disabled={value == null}
+        style={{
+          padding: "14px 18px",
+          background: value == null ? "#9ca3af" : "#059669",
+          color: "#fff",
+          border: "none",
+          borderRadius: 12,
+          fontWeight: 700,
+          fontSize: 15,
+          cursor: value == null ? "not-allowed" : "pointer",
+        }}
+      >
+        {value === 0 ? `No ${SIDE_LABELS[side]} slopes — skip ahead →` : `Continue → take overview photos`}
+      </button>
+    </section>
+  );
+}
+
+function stageLabel(stage, slopeCounts) {
+  if (stage.kind === "front_house") return "Front of house";
+  if (stage.kind === "side_count") return `${SIDE_LABELS[stage.side]} — slope count`;
+  if (stage.kind === "side_overview") return `${SIDE_LABELS[stage.side]} slope ${stage.slopeIndex + 1} of ${slopeCounts[stage.side]} — overview`;
+  if (stage.kind === "side_damage") return `${SIDE_LABELS[stage.side]} slope ${stage.slopeIndex + 1} of ${slopeCounts[stage.side]} — damage`;
+  if (stage.kind === "result") return "Pick result";
+  if (stage.kind === "retail_worst") return "Retail — 10 worst photos";
+  return "";
+}
+
+function nextSideAfter(side) {
+  const idx = SIDES.indexOf(side);
+  return idx >= 0 && idx + 1 < SIDES.length ? SIDES[idx + 1] : null;
+}
+
+function capitalize(s) {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : "";
+}
+
+function labelToSlug(label) {
+  return String(label || "photo")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/(^_|_$)/g, "")
+    .slice(0, 40);
 }
 
 // ─────────────────────────────────────────────────────────────────────
