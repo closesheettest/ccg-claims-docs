@@ -965,10 +965,54 @@ function InspectorPickName({ inspectors, onPick }) {
   );
 }
 
+// Nearest-neighbor TSP for ordering a daily route. Good enough for the
+// typical 5-15 stops an inspector handles in a day — sub-second
+// client-side, no external API. Within ~25% of the optimal route in
+// practice, which beats a random / signed-date-ordered list every time.
+//
+// startLat/Lng = where the route begins (home base or current location).
+// jobs = array of { latitude, longitude, ... }.
+// Returns the input list re-ordered.
+function nearestNeighborRoute(jobs, startLat, startLng) {
+  if (typeof startLat !== "number" || typeof startLng !== "number") return jobs;
+  const withCoords = jobs.filter((j) => typeof j.latitude === "number" && typeof j.longitude === "number");
+  const withoutCoords = jobs.filter((j) => typeof j.latitude !== "number" || typeof j.longitude !== "number");
+  const remaining = [...withCoords];
+  const route = [];
+  let curLat = startLat;
+  let curLng = startLng;
+  while (remaining.length > 0) {
+    let bestIdx = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < remaining.length; i++) {
+      const j = remaining[i];
+      const d = milesBetween(curLat, curLng, j.latitude, j.longitude);
+      if (d != null && d < bestDist) {
+        bestDist = d;
+        bestIdx = i;
+      }
+    }
+    const picked = remaining.splice(bestIdx, 1)[0];
+    route.push({ ...picked, _legDist: bestDist });
+    curLat = picked.latitude;
+    curLng = picked.longitude;
+  }
+  // Stops without coordinates go to the end — admin can geocode them
+  // later, they're not skippable but aren't routable yet either.
+  return [...route, ...withoutCoords];
+}
+
 function InspectorJobList({ me, onOpenJob }) {
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [claimingId, setClaimingId] = useState(null);
+  // Route-optimization state. mode = "off" | "home" | "current"
+  // - off: list shows in signed-date order (default)
+  // - home: nearest-neighbor starting from inspector's home base
+  // - current: nearest-neighbor starting from browser geolocation
+  const [routeMode, setRouteMode] = useState("off");
+  const [currentCoords, setCurrentCoords] = useState(null);
+  const [geoError, setGeoError] = useState(null);
 
   async function load() {
     setLoading(true);
@@ -991,7 +1035,7 @@ function InspectorJobList({ me, onOpenJob }) {
   }
   useEffect(() => { load(); }, []);
 
-  const { mine, available } = useMemo(() => {
+  const { mine, available, totalRouteMiles } = useMemo(() => {
     const mine = [];
     const available = [];
     for (const j of jobs) {
@@ -1004,22 +1048,64 @@ function InspectorJobList({ me, onOpenJob }) {
       if (j.inspector_id === me.id) mine.push(enriched);
       else if (!j.inspector_id) available.push(enriched);
     }
-    // Sort mine newest first; sort available by distance (rows w/ no
-    // distance go to bottom).
-    mine.sort((a, b) => new Date(b.signed_at) - new Date(a.signed_at));
+    // Available: always sort by distance from home base (rows w/ no
+    // distance go to bottom). Max-miles cap applied below.
     available.sort((a, b) => {
       if (a._dist == null && b._dist == null) return 0;
       if (a._dist == null) return 1;
       if (b._dist == null) return -1;
       return a._dist - b._dist;
     });
-    // Apply max-miles cap.
     const cap = me.max_distance_miles;
     const availFiltered = cap
       ? available.filter((j) => j._dist == null || j._dist <= cap)
       : available;
-    return { mine, available: availFiltered };
-  }, [jobs, me]);
+
+    // Mine: default = signed-date order. If route optimization is on,
+    // run nearest-neighbor TSP starting from home base or current GPS.
+    let orderedMine = mine;
+    let totalRouteMiles = null;
+    if (routeMode === "off") {
+      orderedMine = [...mine].sort((a, b) => new Date(b.signed_at) - new Date(a.signed_at));
+    } else {
+      let startLat = null;
+      let startLng = null;
+      if (routeMode === "current" && currentCoords) {
+        startLat = currentCoords.lat;
+        startLng = currentCoords.lng;
+      } else if (me.latitude != null && me.longitude != null) {
+        startLat = me.latitude;
+        startLng = me.longitude;
+      }
+      if (startLat != null && startLng != null) {
+        orderedMine = nearestNeighborRoute(mine, startLat, startLng);
+        totalRouteMiles = orderedMine.reduce((sum, j) => sum + (j._legDist || 0), 0);
+      }
+    }
+    return { mine: orderedMine, available: availFiltered, totalRouteMiles };
+  }, [jobs, me, routeMode, currentCoords]);
+
+  // Ask the browser for the inspector's current location. Cached for
+  // the session; user is prompted once.
+  function requestCurrentLocation() {
+    setGeoError(null);
+    if (!("geolocation" in navigator)) {
+      setGeoError("This browser doesn't support GPS.");
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setCurrentCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setRouteMode("current");
+      },
+      (err) => {
+        setGeoError(err.message || "Couldn't get your location.");
+        // Fall back to home-base routing.
+        setRouteMode("home");
+      },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 },
+    );
+  }
 
   async function claim(jobId) {
     setClaimingId(jobId);
@@ -1054,11 +1140,66 @@ function InspectorJobList({ me, onOpenJob }) {
             No jobs claimed. Tap one below to start.
           </div>
         ) : (
-          <div style={{ display: "grid", gap: 6 }}>
-            {mine.map((j) => (
-              <JobCard key={j.id} job={j} accent="#0ea5e9" onClick={() => onOpenJob(j.id)} cta="Open →" />
-            ))}
-          </div>
+          <>
+            {/* Route optimization controls. Visible whenever there's
+                more than one claimed job — saves driving time. */}
+            {mine.length > 1 && (
+              <div style={{
+                marginBottom: 8,
+                padding: 10,
+                background: "#fff",
+                border: "1px solid #e5e7eb",
+                borderRadius: 10,
+                display: "grid",
+                gap: 8,
+              }}>
+                <div style={{ fontSize: 12, color: "#374151", fontWeight: 700 }}>
+                  🧭 Route order
+                </div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <RouteBtn
+                    active={routeMode === "off"}
+                    onClick={() => setRouteMode("off")}
+                    label="Newest first"
+                  />
+                  <RouteBtn
+                    active={routeMode === "home"}
+                    onClick={() => setRouteMode("home")}
+                    label="🏠 From home"
+                    disabled={me.latitude == null}
+                  />
+                  <RouteBtn
+                    active={routeMode === "current"}
+                    onClick={requestCurrentLocation}
+                    label={routeMode === "current" && currentCoords ? "📍 From here ✓" : "📍 Use my location"}
+                  />
+                </div>
+                {totalRouteMiles != null && (
+                  <div style={{ fontSize: 11, color: "#6b7280" }}>
+                    Optimized order — ~{Math.round(totalRouteMiles)} mi total
+                  </div>
+                )}
+                {geoError && (
+                  <div style={{ fontSize: 11, color: "#dc2626" }}>
+                    {geoError}
+                  </div>
+                )}
+              </div>
+            )}
+            <div style={{ display: "grid", gap: 6 }}>
+              {mine.map((j, i) => (
+                <JobCard
+                  key={j.id}
+                  job={j}
+                  accent="#0ea5e9"
+                  onClick={() => onOpenJob(j.id)}
+                  cta="Open →"
+                  showStopNumber={routeMode !== "off" ? i + 1 : null}
+                  showNavigate
+                />
+              ))}
+            </div>
+          </>
         )}
       </section>
 
@@ -1094,7 +1235,38 @@ function InspectorJobList({ me, onOpenJob }) {
   );
 }
 
-function JobCard({ job, accent, cta, onClick, disabled }) {
+function RouteBtn({ active, onClick, label, disabled }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        padding: "6px 10px",
+        background: active ? "#0e7490" : "#fff",
+        color: active ? "#fff" : "#374151",
+        border: `1px solid ${active ? "#0e7490" : "#d1d5db"}`,
+        borderRadius: 999,
+        fontSize: 11,
+        fontWeight: 700,
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.5 : 1,
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+function JobCard({ job, accent, cta, onClick, disabled, showStopNumber, showNavigate }) {
+  // Tap-to-navigate URL — opens default maps app on iOS/Android, or
+  // Google Maps in the browser on desktop. Universal `?q=` query param
+  // accepts a freeform address.
+  const navUrl = job.latitude != null && job.longitude != null
+    ? `https://maps.google.com/?q=${job.latitude},${job.longitude}`
+    : `https://maps.google.com/?q=${encodeURIComponent(
+        [job.address, job.city, job.state, job.zip].filter(Boolean).join(", "),
+      )}`;
   return (
     <div style={{
       background: "#fff",
@@ -1103,10 +1275,27 @@ function JobCard({ job, accent, cta, onClick, disabled }) {
       borderRadius: 10,
       padding: 12,
       display: "grid",
-      gridTemplateColumns: "1fr auto",
-      gap: 8,
+      gridTemplateColumns: showStopNumber != null ? "auto 1fr auto" : "1fr auto",
+      gap: 10,
       alignItems: "center",
     }}>
+      {showStopNumber != null && (
+        <div style={{
+          width: 32,
+          height: 32,
+          borderRadius: 999,
+          background: accent,
+          color: "#fff",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontWeight: 700,
+          fontSize: 14,
+          flexShrink: 0,
+        }}>
+          {showStopNumber}
+        </div>
+      )}
       <div>
         <div style={{ fontWeight: 700, fontSize: 14 }}>{job.client_name || "(no name)"}</div>
         <div style={{ fontSize: 12, color: "#6b7280" }}>
@@ -1115,27 +1304,50 @@ function JobCard({ job, accent, cta, onClick, disabled }) {
         <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>
           {job.sales_rep_name ? `Rep: ${job.sales_rep_name}` : ""}
           {job._dist != null ? ` · ${Math.round(job._dist)} mi` : ""}
+          {job._legDist != null ? ` (next leg ${Math.round(job._legDist)} mi)` : ""}
           {job.signed_at ? ` · ${new Date(job.signed_at).toLocaleDateString()}` : ""}
         </div>
       </div>
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={disabled}
-        style={{
-          padding: "8px 14px",
-          background: accent,
-          color: "#fff",
-          border: "none",
-          borderRadius: 8,
-          fontWeight: 700,
-          fontSize: 13,
-          cursor: disabled ? "not-allowed" : "pointer",
-          opacity: disabled ? 0.6 : 1,
-        }}
-      >
-        {cta}
-      </button>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "stretch" }}>
+        <button
+          type="button"
+          onClick={onClick}
+          disabled={disabled}
+          style={{
+            padding: "8px 14px",
+            background: accent,
+            color: "#fff",
+            border: "none",
+            borderRadius: 8,
+            fontWeight: 700,
+            fontSize: 13,
+            cursor: disabled ? "not-allowed" : "pointer",
+            opacity: disabled ? 0.6 : 1,
+          }}
+        >
+          {cta}
+        </button>
+        {showNavigate && (
+          <a
+            href={navUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              padding: "6px 12px",
+              background: "#fff",
+              color: "#374151",
+              border: "1px solid #d1d5db",
+              borderRadius: 8,
+              fontWeight: 600,
+              fontSize: 11,
+              textAlign: "center",
+              textDecoration: "none",
+            }}
+          >
+            🗺️ Navigate
+          </a>
+        )}
+      </div>
     </div>
   );
 }
