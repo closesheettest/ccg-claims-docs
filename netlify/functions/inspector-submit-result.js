@@ -170,20 +170,32 @@ exports.handler = async (event) => {
   }
   // We're done iterating photoPaths here; loop variables are scoped.
 
-  // 4. If damage, fire-and-forget the PA Ops Hub PDN. The existing
-  //    send-to-pa-ops-hub function pulls the signed PDF from Supabase
-  //    Storage + photos from JN (which now have our inspector photos
-  //    attached, thanks to step 3).
+  // 4. Result-specific fan-out, fire-and-forget so the inspector's
+  //    Submit button isn't blocked on slow downstream calls.
+  //
+  //    - damage → send-to-pa-ops-hub (PA gets homeowner + photos + PDF)
+  //    - retail → process-retail-result (JN job moves PA→Lead +
+  //               insurance location → retail location, cert+photos
+  //               attached to JN Documents)
+  //    - no_damage → nothing extra; result row + photo uploads are it
+  const base = process.env.URL || process.env.PUBLIC_SITE_URL || "";
   let paPdnFired = false;
-  if (result === "damage") {
-    const base = process.env.URL || process.env.PUBLIC_SITE_URL || "";
-    if (base) {
+  let retailJnFired = false;
+  if (base) {
+    if (result === "damage") {
       fetch(`${base}/.netlify/functions/send-to-pa-ops-hub`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ inspectionId }),
       }).catch((e) => console.warn("PA Ops Hub trigger failed:", e.message));
       paPdnFired = true;
+    } else if (result === "retail") {
+      fetch(`${base}/.netlify/functions/process-retail-result`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inspectionId }),
+      }).catch((e) => console.warn("Retail processing trigger failed:", e.message));
+      retailJnFired = true;
     }
   }
 
@@ -195,6 +207,7 @@ exports.handler = async (event) => {
     jn_photos_uploaded: jnUploaded,
     jn_errors: jnErrors,
     pa_pdn_fired: paPdnFired,
+    retail_jn_fired: retailJnFired,
   });
 };
 
