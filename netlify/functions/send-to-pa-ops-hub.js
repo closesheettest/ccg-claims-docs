@@ -169,24 +169,53 @@ exports.handler = async (event) => {
   })
 
   // ── 5. POST to PA Ops Hub ─────────────────────────────────────────
+  // PA's intake is a Supabase edge function. Those cold-start, and
+  // when they do they often emit a 503 on the first request. Retry
+  // once after a short backoff before reporting failure.
   console.log('POSTing to PA Ops Hub:', PA_INTAKE_URL)
+  const init = { method: 'POST', body: form }
+  if (process.env.PA_OPS_HUB_AUTH_TOKEN) {
+    init.headers = { Authorization: `Bearer ${process.env.PA_OPS_HUB_AUTH_TOKEN}` }
+  }
   let paRes
-  try {
-    const init = { method: 'POST', body: form }
-    if (process.env.PA_OPS_HUB_AUTH_TOKEN) {
-      init.headers = { Authorization: `Bearer ${process.env.PA_OPS_HUB_AUTH_TOKEN}` }
+  let attempt = 0
+  const maxAttempts = 2
+  while (attempt < maxAttempts) {
+    attempt++
+    try {
+      paRes = await fetch(PA_INTAKE_URL, init)
+    } catch (err) {
+      if (attempt >= maxAttempts) {
+        return json(502, {
+          ok: false,
+          error: 'Network error reaching PA Ops Hub',
+          detail: err.message,
+          attempts: attempt,
+        })
+      }
+      await new Promise((r) => setTimeout(r, 1500))
+      continue
     }
-    paRes = await fetch(PA_INTAKE_URL, init)
-  } catch (err) {
-    return json(502, { ok: false, error: 'Network error reaching PA Ops Hub', detail: err.message })
+    // 5xx on the first try → likely a cold start, retry once.
+    if (paRes.status >= 500 && paRes.status < 600 && attempt < maxAttempts) {
+      console.warn(`PA Ops Hub ${paRes.status} on attempt ${attempt}, retrying…`)
+      await new Promise((r) => setTimeout(r, 1500))
+      continue
+    }
+    break
   }
   const paBodyText = await paRes.text().catch(() => '')
   if (!paRes.ok) {
     console.error('PA Ops Hub responded', paRes.status, paBodyText.slice(0, 400))
     return json(502, {
       ok: false,
-      error: `PA Ops Hub returned ${paRes.status}`,
-      detail: paBodyText.slice(0, 400),
+      error: `PA Ops Hub returned ${paRes.status} after ${attempt} attempt${attempt === 1 ? '' : 's'}`,
+      detail: paBodyText.slice(0, 400) || '(empty response body — likely an upstream PA outage)',
+      attempts: attempt,
+      response_headers: {
+        'content-type': paRes.headers.get('content-type'),
+        'x-supabase-edge-function-error': paRes.headers.get('x-supabase-edge-function-error'),
+      },
     })
   }
 
