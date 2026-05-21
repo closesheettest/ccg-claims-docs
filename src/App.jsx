@@ -7536,6 +7536,43 @@ if (!hasDamage) {
               </div>
             </CardHeader>
 
+            {/* Hard-stop warning so reps don't use this flow for
+                retail-only homeowners. Retail appointments go through
+                JobNimbus directly — the free-roof flow is for
+                inspection sign-ups only. */}
+            <div style={{ padding: "0 16px 12px" }}>
+              <div style={{
+                background: "#dc2626",
+                color: "#fff",
+                border: "4px solid #7f1d1d",
+                borderRadius: 14,
+                padding: "18px 20px",
+                textAlign: "center",
+                boxShadow: "0 4px 16px rgba(220,38,38,0.35)",
+              }}>
+                <div style={{
+                  fontSize: 22,
+                  fontWeight: 900,
+                  fontFamily: "'Oswald', sans-serif",
+                  letterSpacing: "0.04em",
+                  textTransform: "uppercase",
+                  lineHeight: 1.15,
+                }}>
+                  🚫 DO NOT USE THIS TO CREATE A RETAIL APPOINTMENT!
+                </div>
+                <div style={{
+                  fontSize: 16,
+                  fontWeight: 700,
+                  marginTop: 10,
+                  fontFamily: "'Oswald', sans-serif",
+                  letterSpacing: "0.03em",
+                  lineHeight: 1.3,
+                }}>
+                  If they don't want an inspection and want a retail appointment, go through <span style={{ textDecoration: "underline" }}>JobNimbus</span>!
+                </div>
+              </div>
+            </div>
+
             {/* Mode toggle — Quick (current form) vs Guided (interview).
                 Quick is the default for veteran reps; Guided opens an
                 overlay-style step-by-step flow for new reps. The Quick
