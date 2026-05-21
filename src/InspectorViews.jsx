@@ -22,6 +22,7 @@
 
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import { supabase } from "./lib/supabase";
+import { AddressAutocomplete } from "./lib/AddressAutocomplete";
 
 const SIGNED_BUCKET = "signed-documents";
 const PHOTO_PATH_PREFIX = "inspection-photos";
@@ -38,6 +39,10 @@ export function InspectorSetupPage({ token, onDone }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [address, setAddress] = useState("");
+  const [city, setCity] = useState("");
+  const [state, setStateField] = useState("");
+  const [zip, setZip] = useState("");
+  const [placeCoords, setPlaceCoords] = useState(null); // { lat, lng } from Google Places pick
   const [phone, setPhone] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
@@ -69,31 +74,43 @@ export function InspectorSetupPage({ token, onDone }) {
   async function submit(e) {
     e?.preventDefault?.();
     if (!address.trim()) {
-      setError("Address is required.");
+      setError("Pick your home address from the dropdown first.");
       return;
     }
     setSubmitting(true);
     setError(null);
-    // Geocode first.
     try {
-      const geoRes = await fetch("/.netlify/functions/geocode-place", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: address }),
-      });
-      const geo = await geoRes.json().catch(() => ({}));
-      if (!geo.ok) {
-        setError(`Couldn't find that address: ${geo.error || "unknown"}`);
-        setSubmitting(false);
-        return;
+      // Prefer the lat/lng Google handed back when the inspector picked
+      // from the autocomplete dropdown (no second API call needed).
+      // Fall back to server-side geocode if for some reason we don't
+      // have coords yet (e.g. user typed but didn't pick).
+      let lat = placeCoords?.lat;
+      let lng = placeCoords?.lng;
+      if (lat == null || lng == null) {
+        const fullQuery = [address, city, state, zip].filter(Boolean).join(", ") || address;
+        const geoRes = await fetch("/.netlify/functions/geocode-place", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: fullQuery }),
+        });
+        const geo = await geoRes.json().catch(() => ({}));
+        if (!geo.ok) {
+          setError(`Couldn't find that address: ${geo.error || "unknown"}`);
+          setSubmitting(false);
+          return;
+        }
+        lat = geo.lat;
+        lng = geo.lng;
       }
+      // Save full structured address back to the inspector row.
+      const fullAddress = [address, city, state, zip].filter(Boolean).join(", ") || address;
       const { error: updErr } = await supabase
         .from("inspectors")
         .update({
-          address: address.trim(),
+          address: fullAddress,
           phone: phone.trim() || null,
-          latitude: geo.lat,
-          longitude: geo.lng,
+          latitude: lat,
+          longitude: lng,
           info_updated_at: new Date().toISOString(),
         })
         .eq("id", insp.id);
@@ -160,20 +177,30 @@ export function InspectorSetupPage({ token, onDone }) {
         )}
       </p>
       <form onSubmit={submit} style={{ display: "grid", gap: 14 }}>
-        <label>
+        <div>
           <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>
             Home address <span style={{ color: "#dc2626" }}>*</span>
           </div>
-          <input
-            type="text"
+          <AddressAutocomplete
             value={address}
-            onChange={(e) => setAddress(e.target.value)}
-            placeholder="123 Main St, Tampa, FL 33606"
-            required
-            style={{ ...inputStyle, fontSize: 16, padding: "12px 14px" }}
-            autoFocus
+            onChange={(v) => setAddress(v)}
+            onPlaceSelected={({ address: street, city: c, state: s, zip: z, lat, lng }) => {
+              setAddress(street);
+              setCity(c);
+              setStateField(s);
+              setZip(z);
+              if (typeof lat === "number" && typeof lng === "number") {
+                setPlaceCoords({ lat, lng });
+              }
+            }}
+            placeholder="Start typing your home address…"
           />
-        </label>
+          {city && (
+            <div style={{ fontSize: 12, color: "#475569", marginTop: 6 }}>
+              {city}, {state} {zip}
+            </div>
+          )}
+        </div>
         <label>
           <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>
             Mobile phone <span style={{ color: "#94a3b8", fontWeight: 400 }}>(optional, for future SMS notifications)</span>
