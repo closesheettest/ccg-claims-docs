@@ -775,7 +775,11 @@ function InspectorRow({ insp, sendingEmail, onToggle, onUpdate, onDelete, onSend
     max_distance_miles: insp.max_distance_miles ?? "",
   });
   const setupDone = !!insp.info_updated_at;
-  const hasContact = !!(insp.email || insp.phone);
+  // Phone is required to enable the setup link send — manager has to
+  // add it via Edit first. Email-only isn't enough; we want the link
+  // to text the inspector so it lands on their phone (which is where
+  // the app will live).
+  const hasContact = !!insp.phone;
   const canActivate = setupDone; // need home address confirmed before going live
   return (
     <div
@@ -828,8 +832,8 @@ function InspectorRow({ insp, sendingEmail, onToggle, onUpdate, onDelete, onSend
                 }}
                 title={
                   !hasContact
-                    ? "Add a phone number or email via Edit first"
-                    : (insp.phone ? `Will SMS to ${insp.phone}` : `Will email to ${insp.email}`)
+                    ? "Add a phone number via Edit first"
+                    : `Will SMS to ${insp.phone}`
                 }
               >
                 {sendingEmail
@@ -892,7 +896,7 @@ function InspectorRow({ insp, sendingEmail, onToggle, onUpdate, onDelete, onSend
             />
           </div>
           <div style={{ fontSize: 11, color: "#6b7280", marginTop: -2 }}>
-            Add a phone or email here, then click <b>Send setup email/text</b> below. After the inspector confirms their address you'll be able to Activate them.
+            Add the inspector's <b>phone number</b> here (email optional), then click <b>Send setup email/text</b> below. After the inspector confirms their address you'll be able to Activate them.
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
             <input
