@@ -587,6 +587,14 @@ export function InspectorsAdminPanel() {
           >
             {geocoding ? "Geocoding…" : "🌐 Geocode all inspections"}
           </button>
+          <button
+            type="button"
+            onClick={() => window.open("/?mode=inspector", "_blank")}
+            style={{ ...secondaryBtn, padding: "6px 12px", fontSize: 11, whiteSpace: "nowrap" }}
+            title="Opens the inspector mobile view in a new tab. Useful for QA-ing the inspector experience."
+          >
+            👁 Preview as inspector
+          </button>
         </div>
       </div>
 

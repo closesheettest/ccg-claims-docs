@@ -7515,25 +7515,6 @@ if (!hasDamage) {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setView("inspector")}
-                    style={{
-                      background: "#ecfeff",
-                      border: "1px solid #06b6d4",
-                      borderRadius: 10,
-                      padding: "6px 14px",
-                      fontSize: 12,
-                      fontFamily: "'Oswald', sans-serif",
-                      fontWeight: 700,
-                      letterSpacing: "0.04em",
-                      color: "#0e7490",
-                      cursor: "pointer",
-                      textTransform: "uppercase",
-                    }}
-                  >
-                    🔍 Inspector
-                  </button>
-                  <button
-                    type="button"
                     onClick={() => setView("manager")}
                     style={{
                       background: "transparent",
