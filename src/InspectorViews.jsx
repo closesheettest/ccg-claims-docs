@@ -405,6 +405,36 @@ export function InspectorsAdminPanel() {
       .update({ active: !insp.active })
       .eq("id", insp.id);
     if (error) return setMessage({ kind: "error", text: error.message });
+
+    // On deactivation (true → false): release every PENDING claim
+    // back to the pool. Completed inspections (result IS NOT NULL)
+    // stay attached so historical reports keep showing who did what.
+    if (wasActive) {
+      const { data: released, error: releaseErr } = await supabase
+        .from("inspections")
+        .update({ inspector_id: null, claimed_at: null })
+        .eq("inspector_id", insp.id)
+        .is("result", null)
+        .select("id");
+      loadInspectors();
+      loadClaimedJobs();
+      if (releaseErr) {
+        setMessage({
+          kind: "error",
+          text: `Deactivated, but couldn't release their pending claims: ${releaseErr.message}`,
+        });
+        return;
+      }
+      const n = released?.length || 0;
+      setMessage({
+        kind: "success",
+        text: n > 0
+          ? `Deactivated ${insp.name}. Released ${n} pending claim${n === 1 ? "" : "s"} back to the available pool.`
+          : `Deactivated ${insp.name}. No pending claims to release.`,
+      });
+      return;
+    }
+
     loadInspectors();
 
     // On activation (false → true) auto-fire the app-link invite to
