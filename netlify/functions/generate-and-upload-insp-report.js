@@ -26,9 +26,17 @@ const JN_FILES_BASE = "https://api.jobnimbus.com";
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const PDFSHIFT_KEY = process.env.PDFSHIFT_API_KEY;
 const BASE_URL = process.env.URL || process.env.DEPLOY_PRIME_URL || "https://free-roof-inspections.netlify.app";
+const SB_URL = process.env.VITE_SUPABASE_URL;
+const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
+const SIGNED_BUCKET = "signed-documents";
 
 const jnHeaders = {
   Authorization: `bearer ${JN_KEY}`,
+  "Content-Type": "application/json",
+};
+const sbHeaders = {
+  apikey: SB_KEY,
+  Authorization: `Bearer ${SB_KEY}`,
   "Content-Type": "application/json",
 };
 
@@ -97,19 +105,32 @@ exports.handler = async (event) => {
     console.warn("Job has no address_line1 — PDF will show partial address");
   }
 
-  // ── 4. Fetch photos from JN ──────────────────────────────────────
-  const photos = await fetchJobPhotos(jnid);
-  console.log("Photos fetched:", photos.length);
+  // ── 4. Fetch photos. JN attachments first (older path), then fall
+  //       back to Supabase Storage (newer wizard-submitted photos
+  //       live there). The wizard ALSO pushes to JN but that can lag
+  //       or silently miss some, so the fallback closes the gap.
+  let photos = await fetchJobPhotos(jnid);
+  console.log("JN photos fetched:", photos.length);
+  let photoSource = "jn";
+  if (photos.length === 0) {
+    const sbPhotos = await fetchSupabasePhotosByJnId(jnid);
+    if (sbPhotos.length > 0) {
+      photos = sbPhotos;
+      photoSource = "supabase";
+      console.log("Supabase fallback found photos:", photos.length);
+    }
+  }
   if (photos.length === 0) {
     return {
       statusCode: 400,
       body: JSON.stringify({
         ok: false,
-        error: "No photos found on JN job",
-        detail: "Add at least one photo to the JN job before generating a report.",
+        error: "No photos found",
+        detail: "Checked JN attachments and Supabase Storage — neither has photos for this job. Have the inspector add at least one photo before generating the report.",
       }),
     };
   }
+  console.log("Photo source:", photoSource);
 
   // ── 5. Build the PDF ─────────────────────────────────────────────
   // Damage and Retail both get the full 2-page certificate (page 1 cert
@@ -176,6 +197,69 @@ exports.handler = async (event) => {
 // We download up to 10 photos in parallel and base64-encode them so the
 // PDF renderer (PDFShift) can embed them via `data:image/jpeg;base64,...`
 // inline URIs without needing public URLs.
+// Fallback photo source: when the JN job has no attached photos
+// (common for wizard-submitted inspections where the JN attachment
+// upload race-lost or hasn't run yet), look up the inspection row
+// by jn_job_id and download each photo from its inspection_photos
+// JSON list via signed URLs. The PDF format is identical either way.
+async function fetchSupabasePhotosByJnId(jnJobId) {
+  if (!SB_URL || !SB_KEY) {
+    console.warn("Supabase env not configured — fallback skipped");
+    return [];
+  }
+  try {
+    const lookupRes = await fetch(
+      `${SB_URL}/rest/v1/inspections?jn_job_id=eq.${encodeURIComponent(jnJobId)}&select=inspection_photos&limit=1`,
+      { headers: sbHeaders },
+    );
+    if (!lookupRes.ok) {
+      console.warn("Supabase inspection lookup failed:", lookupRes.status);
+      return [];
+    }
+    const rows = await lookupRes.json().catch(() => []);
+    const raw = rows?.[0]?.inspection_photos;
+    if (!Array.isArray(raw) || raw.length === 0) return [];
+    // Sort by captured_at desc so the PDF gets the most recent shots
+    // first (matches the JN-attachment sort).
+    const sorted = [...raw].sort((a, b) =>
+      new Date(b.captured_at || 0) - new Date(a.captured_at || 0),
+    );
+    // Limit to 10 — same as the JN path. Cert template has 10 slots.
+    const downloads = sorted.slice(0, 10).map(async (p) => {
+      if (!p.path) return null;
+      try {
+        const bucket = p.bucket || SIGNED_BUCKET;
+        const dlRes = await fetch(
+          `${SB_URL}/storage/v1/object/${bucket}/${p.path}`,
+          { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } },
+        );
+        if (!dlRes.ok) {
+          console.warn("SB storage download failed for", p.path, ":", dlRes.status);
+          return null;
+        }
+        const buffer = await dlRes.arrayBuffer();
+        const bytes = new Uint8Array(buffer);
+        if (!bytes.length) return null;
+        const base64 = Buffer.from(buffer).toString("base64");
+        const contentType = p.path.toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
+        return {
+          base64,
+          contentType,
+          dataUri: `data:${contentType};base64,${base64}`,
+        };
+      } catch (e) {
+        console.warn("SB photo download error for", p.path, ":", e.message);
+        return null;
+      }
+    });
+    const results = await Promise.all(downloads);
+    return results.filter(Boolean);
+  } catch (e) {
+    console.warn("fetchSupabasePhotosByJnId error:", e.message);
+    return [];
+  }
+}
+
 async function fetchJobPhotos(jnJobId) {
   try {
     const listRes = await fetch(
