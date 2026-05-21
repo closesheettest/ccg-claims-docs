@@ -1258,6 +1258,18 @@ export function ManagerRoutePlanner() {
   );
 }
 
+// Color/label mapping for the inspection's PA workflow status pill
+// shown on each row in the PA Handoff panel. Values come from the
+// PA Ops Hub callback (signed/refused/pending) or null (not yet sent).
+function paStatusPill(status) {
+  switch ((status || "").toLowerCase()) {
+    case "signed":  return { label: "✓ Signed by PA",     bg: "#d1fae5", color: "#065f46" };
+    case "refused": return { label: "✗ Refused by PA",    bg: "#fee2e2", color: "#991b1b" };
+    case "pending": return { label: "📤 Awaiting PA",      bg: "#fef3c7", color: "#92400e" };
+    default:        return { label: "Not sent yet",        bg: "#f3f4f6", color: "#6b7280" };
+  }
+}
+
 // ═════════════════════════════════════════════════════════════════════
 // PA HANDOFF — manager tile for firing the PA Ops Hub submission
 // against any damage inspection. Used to test the link AND as a
@@ -1275,9 +1287,12 @@ export function PAHandoffPanel() {
 
   async function load() {
     setLoading(true);
+    // Pull PA status fields too so each row shows where the file
+    // currently is in the PA workflow. pa_status_notes carries any
+    // free-text the PA's callback included with a Refused outcome.
     const { data, error } = await supabase
       .from("inspections")
-      .select("id, client_name, address, city, state, zip, signed_at, result_at, jn_job_id, signed_pdfs, sales_rep_name, mobile, email")
+      .select("id, client_name, address, city, state, zip, signed_at, result, result_at, jn_job_id, signed_pdfs, sales_rep_name, mobile, email, pa_status, pa_status_updated_at, pa_intake_sent_at, pa_status_notes")
       .eq("result", "damage")
       .order("result_at", { ascending: false, nullsFirst: false })
       .limit(200);
@@ -1300,10 +1315,14 @@ export function PAHandoffPanel() {
         body: JSON.stringify({ inspectionId }),
       });
       const body = await res.json().catch(() => ({ error: "Could not parse response" }));
+      const ok = res.ok && body.ok !== false;
       setResults((prev) => ({
         ...prev,
-        [inspectionId]: { ok: res.ok && body.ok !== false, status: res.status, body, ts: new Date().toISOString() },
+        [inspectionId]: { ok, status: res.status, body, ts: new Date().toISOString() },
       }));
+      // Refresh the list so the row's PA status pill updates from
+      // "Not sent" → "Awaiting PA" immediately on a successful send.
+      if (ok) load();
     } catch (e) {
       setResults((prev) => ({
         ...prev,
@@ -1371,8 +1390,41 @@ export function PAHandoffPanel() {
               >
                 <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "flex-start" }}>
                   <div>
-                    <div style={{ fontSize: 15, fontWeight: 700 }}>
-                      {insp.client_name || "(no name)"}
+                    <div style={{ fontSize: 15, fontWeight: 700, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                      <span>{insp.client_name || "(no name)"}</span>
+                      {/* Inspection result pill — always "damage" since
+                          the panel filters on that, but useful as a
+                          visual confirmation. */}
+                      <span style={{
+                        fontSize: 10,
+                        padding: "3px 8px",
+                        background: "#fee2e2",
+                        color: "#991b1b",
+                        borderRadius: 999,
+                        fontWeight: 700,
+                        letterSpacing: "0.04em",
+                        textTransform: "uppercase",
+                      }}>
+                        ⚠ {insp.result}
+                      </span>
+                      {/* PA workflow status pill — null / pending / signed / refused */}
+                      {(() => {
+                        const meta = paStatusPill(insp.pa_status);
+                        return (
+                          <span style={{
+                            fontSize: 10,
+                            padding: "3px 8px",
+                            background: meta.bg,
+                            color: meta.color,
+                            borderRadius: 999,
+                            fontWeight: 700,
+                            letterSpacing: "0.04em",
+                            textTransform: "uppercase",
+                          }}>
+                            {meta.label}
+                          </span>
+                        );
+                      })()}
                     </div>
                     <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
                       📍 {insp.address}{insp.city && `, ${insp.city}`}{insp.state && `, ${insp.state}`} {insp.zip || ""}
@@ -1383,6 +1435,18 @@ export function PAHandoffPanel() {
                     <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
                       Damage logged: {completedAt}{insp.sales_rep_name && ` · Rep: ${insp.sales_rep_name}`}
                     </div>
+                    {/* PA workflow timeline */}
+                    {(insp.pa_intake_sent_at || insp.pa_status_updated_at) && (
+                      <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
+                        {insp.pa_intake_sent_at && <>📤 Sent to PA: {new Date(insp.pa_intake_sent_at).toLocaleString()}</>}
+                        {insp.pa_status_updated_at && (
+                          <> · 🔄 PA updated: {new Date(insp.pa_status_updated_at).toLocaleString()}</>
+                        )}
+                        {insp.pa_status_notes && (
+                          <div style={{ marginTop: 2, fontStyle: "italic" }}>PA note: "{insp.pa_status_notes}"</div>
+                        )}
+                      </div>
+                    )}
                     <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap" }}>
                       <span style={{ color: hasPdf ? "#059669" : "#b45309" }}>{hasPdf ? "✓ Signed PDF" : "⚠ No signed PDF"}</span>
                       <span style={{ color: hasJn ? "#059669" : "#b45309" }}>{hasJn ? "✓ JN linked" : "⚠ No JN link"}</span>
