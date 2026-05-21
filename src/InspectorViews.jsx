@@ -1284,6 +1284,50 @@ export function PAHandoffPanel() {
   // results: { [inspectionId]: { ok, body, ts } }
   const [results, setResults] = useState({});
   const [message, setMessage] = useState(null);
+  // Inline-edit state for the row currently being patched (phone +
+  // email + name + address). When editingId is set, the row swaps
+  // its summary block for an editable form.
+  const [editingId, setEditingId] = useState(null);
+  const [editDraft, setEditDraft] = useState({});
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  function startEditing(insp) {
+    setEditDraft({
+      client_name: insp.client_name || "",
+      mobile: insp.mobile || "",
+      email: insp.email || "",
+      address: insp.address || "",
+      city: insp.city || "",
+      state: insp.state || "",
+      zip: insp.zip || "",
+    });
+    setEditingId(insp.id);
+  }
+
+  async function saveEdit(id) {
+    setSavingEdit(true);
+    const patch = {
+      client_name: editDraft.client_name.trim() || null,
+      mobile: editDraft.mobile.trim() || null,
+      email: editDraft.email.trim() || null,
+      address: editDraft.address.trim() || null,
+      city: editDraft.city.trim() || null,
+      state: editDraft.state.trim() || null,
+      zip: editDraft.zip.trim() || null,
+    };
+    const { error } = await supabase
+      .from("inspections")
+      .update(patch)
+      .eq("id", id);
+    setSavingEdit(false);
+    if (error) {
+      setMessage({ kind: "error", text: `Couldn't save: ${error.message}` });
+      return;
+    }
+    setEditingId(null);
+    setMessage({ kind: "success", text: "Saved." });
+    load();
+  }
 
   async function load() {
     setLoading(true);
@@ -1453,23 +1497,123 @@ export function PAHandoffPanel() {
                       <span style={{ color: hasPhone ? "#059669" : "#dc2626", fontWeight: hasPhone ? 400 : 700 }}>{hasPhone ? "✓ Phone" : "⚠ NO PHONE — PA will reject"}</span>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => send(insp.id)}
-                    disabled={busyId === insp.id || !canSend}
-                    title={!canSend ? "Can't send to PA without a phone number. Edit the record to add one, then try again." : undefined}
-                    style={{
-                      ...primaryBtn,
-                      padding: "8px 14px",
-                      fontSize: 12,
-                      whiteSpace: "nowrap",
-                      opacity: !canSend ? 0.5 : 1,
-                      cursor: busyId === insp.id ? "wait" : (!canSend ? "not-allowed" : "pointer"),
-                    }}
-                  >
-                    {busyId === insp.id ? "Sending…" : "📤 Send to PA"}
-                  </button>
+                  <div style={{ display: "grid", gap: 6, alignContent: "flex-start" }}>
+                    <button
+                      type="button"
+                      onClick={() => send(insp.id)}
+                      disabled={busyId === insp.id || !canSend}
+                      title={!canSend ? "Can't send to PA without a phone number. Edit the record to add one, then try again." : undefined}
+                      style={{
+                        ...primaryBtn,
+                        padding: "8px 14px",
+                        fontSize: 12,
+                        whiteSpace: "nowrap",
+                        opacity: !canSend ? 0.5 : 1,
+                        cursor: busyId === insp.id ? "wait" : (!canSend ? "not-allowed" : "pointer"),
+                      }}
+                    >
+                      {busyId === insp.id ? "Sending…" : "📤 Send to PA"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => editingId === insp.id ? setEditingId(null) : startEditing(insp)}
+                      style={{
+                        ...secondaryBtn,
+                        padding: "6px 12px",
+                        fontSize: 11,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {editingId === insp.id ? "Cancel edit" : "✏️ Edit"}
+                    </button>
+                  </div>
                 </div>
+
+                {editingId === insp.id && (
+                  <div style={{
+                    padding: 12,
+                    background: "#f8fafc",
+                    border: "1px solid #cbd5e1",
+                    borderRadius: 8,
+                    display: "grid",
+                    gap: 8,
+                  }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#0f172a" }}>
+                      Fix any missing or wrong info, then save. Phone is required by the PA — without it the send button stays disabled.
+                    </div>
+                    <input
+                      value={editDraft.client_name}
+                      onChange={(e) => setEditDraft({ ...editDraft, client_name: e.target.value })}
+                      style={inputStyle}
+                      placeholder="Homeowner name"
+                    />
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                      <input
+                        type="tel"
+                        value={editDraft.mobile}
+                        onChange={(e) => setEditDraft({ ...editDraft, mobile: e.target.value })}
+                        style={{
+                          ...inputStyle,
+                          borderColor: !editDraft.mobile.trim() ? "#dc2626" : "#d1d5db",
+                          background: !editDraft.mobile.trim() ? "#fef2f2" : "#fff",
+                        }}
+                        placeholder="Phone (required by PA)"
+                      />
+                      <input
+                        type="email"
+                        value={editDraft.email}
+                        onChange={(e) => setEditDraft({ ...editDraft, email: e.target.value })}
+                        style={inputStyle}
+                        placeholder="Email (optional)"
+                      />
+                    </div>
+                    <input
+                      value={editDraft.address}
+                      onChange={(e) => setEditDraft({ ...editDraft, address: e.target.value })}
+                      style={inputStyle}
+                      placeholder="Street address"
+                    />
+                    <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 6 }}>
+                      <input
+                        value={editDraft.city}
+                        onChange={(e) => setEditDraft({ ...editDraft, city: e.target.value })}
+                        style={inputStyle}
+                        placeholder="City"
+                      />
+                      <input
+                        value={editDraft.state}
+                        onChange={(e) => setEditDraft({ ...editDraft, state: e.target.value })}
+                        style={inputStyle}
+                        placeholder="State"
+                        maxLength={2}
+                      />
+                      <input
+                        value={editDraft.zip}
+                        onChange={(e) => setEditDraft({ ...editDraft, zip: e.target.value })}
+                        style={inputStyle}
+                        placeholder="ZIP"
+                      />
+                    </div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button
+                        type="button"
+                        onClick={() => saveEdit(insp.id)}
+                        disabled={savingEdit}
+                        style={{ ...primaryBtn, padding: "8px 16px", fontSize: 12, cursor: savingEdit ? "wait" : "pointer" }}
+                      >
+                        {savingEdit ? "Saving…" : "Save"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingId(null)}
+                        disabled={savingEdit}
+                        style={{ ...secondaryBtn, padding: "8px 16px", fontSize: 12 }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {result && !result.body?.pending && (
                   <div style={{
