@@ -2933,6 +2933,11 @@ function InspectorJobDetail({ me, jobId, onBack }) {
   const [resultChoice, setResultChoice] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitMsg, setSubmitMsg] = useState(null);
+  // Live progress shown to the inspector during submit. Without
+  // this the button just said "Submitting…" the whole time and on
+  // a slow phone connection inspectors thought the app was frozen.
+  // Shape: { stage: "starting" | "uploading" | "saving", uploaded, total }
+  const [submitProgress, setSubmitProgress] = useState(null);
 
   const slopeCountKey = (story, side) => `${story}_${side}`;
   const getSlopeCount = (story, side) => slopeCounts[slopeCountKey(story, side)] || 0;
@@ -3078,40 +3083,60 @@ function InspectorJobDetail({ me, jobId, onBack }) {
     }
     setSubmitting(true);
     setSubmitMsg(null);
+    setSubmitProgress({ stage: "starting", uploaded: 0, total: photos.length });
     try {
-      // 1. Upload each photo to Supabase Storage. Filename encodes the
-      //    photo's metadata so anyone looking at the bucket sees what
-      //    each shot is at a glance (e.g.
-      //    inspection-photos/<id>/left_slope_1_damage_3_2026-05-21....jpg).
-      const uploadedPhotos = []; // { path, label } pairs
-      for (let i = 0; i < photos.length; i++) {
+      // 1. Upload photos to Supabase Storage in PARALLEL batches.
+      //    Sequential uploads on a phone with weak signal took long
+      //    enough that inspectors thought the app was frozen. Batches
+      //    of 4 finish ~4x faster while still keeping memory bounded.
+      //    Per-photo failures cause a retry once before reporting.
+      const BATCH_SIZE = 4;
+      const indices = photos.map((_, i) => i);
+      const uploadedPhotos = new Array(photos.length);
+      let completed = 0;
+
+      async function uploadOne(i) {
         const p = photos[i];
         if (p.uploaded) {
-          uploadedPhotos.push({ path: p.path, label: p.label });
-          continue;
+          uploadedPhotos[i] = { path: p.path, label: p.label };
+          return;
         }
         const ext = (p.file.name.split(".").pop() || "jpg").toLowerCase();
         const ts = new Date().toISOString().replace(/[:.]/g, "-");
         const slug = labelToSlug(p.label);
         const path = `${PHOTO_PATH_PREFIX}/${jobId}/${slug}_${ts}_${i}.${ext}`;
-        const { error } = await supabase.storage
-          .from(SIGNED_BUCKET)
-          .upload(path, p.file, {
-            contentType: p.file.type || "image/jpeg",
-            upsert: false,
-          });
-        if (error) {
-          setSubmitMsg({ kind: "error", text: `Upload failed (photo ${i + 1}): ${error.message}` });
-          setSubmitting(false);
-          return;
+        // Retry once on failure — phone networks blip.
+        let lastErr = null;
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          const { error } = await supabase.storage
+            .from(SIGNED_BUCKET)
+            .upload(path, p.file, {
+              contentType: p.file.type || "image/jpeg",
+              upsert: false,
+            });
+          if (!error) {
+            uploadedPhotos[i] = { path, label: p.label };
+            setPhotos((prev) => prev.map((x, idx) => idx === i ? { ...x, uploaded: true, path } : x));
+            return;
+          }
+          lastErr = error;
+          if (attempt < 2) await new Promise((r) => setTimeout(r, 800));
         }
-        uploadedPhotos.push({ path, label: p.label });
-        setPhotos((prev) => prev.map((x, idx) => idx === i ? { ...x, uploaded: true, path } : x));
+        throw new Error(`Photo ${i + 1} (${p.label}): ${lastErr?.message || "upload failed"}`);
       }
 
+      for (let i = 0; i < indices.length; i += BATCH_SIZE) {
+        const batch = indices.slice(i, i + BATCH_SIZE);
+        await Promise.all(batch.map(async (idx) => {
+          await uploadOne(idx);
+          completed++;
+          setSubmitProgress({ stage: "uploading", uploaded: completed, total: photos.length });
+        }));
+      }
+
+      setSubmitProgress({ stage: "saving", uploaded: completed, total: photos.length });
+
       // 2. Hand off to the server function for JN photo upload + PA PDN.
-      //    Photo paths AND labels go through so JN attachments get
-      //    human-readable descriptions ("Left slope 1 damage #3" etc).
       const res = await fetch("/.netlify/functions/inspector-submit-result", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -3124,22 +3149,25 @@ function InspectorJobDetail({ me, jobId, onBack }) {
         }),
       });
       const body = await res.json().catch(() => ({}));
-      if (!body.ok) {
+      if (!res.ok || !body.ok) {
         setSubmitMsg({ kind: "error", text: body.error || `Submit failed: ${res.status}` });
+        setSubmitProgress(null);
         setSubmitting(false);
         return;
       }
+      setSubmitProgress(null);
       setSubmitMsg({
         kind: "success",
         text:
-          `Done. ${body.jn_photos_uploaded || 0} of ${uploadedPhotos.length} photos pushed to JN. ` +
-          (body.pa_pdn_fired ? "PA Ops Hub notified." : ""),
+          `Done — inspection saved. ${body.jn_photos_uploaded || 0} of ${uploadedPhotos.length} photos pushed to JN.` +
+          (body.pa_pdn_fired ? " PA Ops Hub notified." : ""),
       });
       setTimeout(() => {
         onBack();
       }, 1800);
     } catch (e) {
       setSubmitMsg({ kind: "error", text: e.message || "Unknown error" });
+      setSubmitProgress(null);
     } finally {
       setSubmitting(false);
     }
@@ -3162,7 +3190,21 @@ function InspectorJobDetail({ me, jobId, onBack }) {
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
-      <button type="button" onClick={onBack} style={{ ...secondaryBtn, alignSelf: "flex-start", fontSize: 12 }}>
+      <button
+        type="button"
+        onClick={() => {
+          if (submitting) {
+            if (!confirm("Inspection is still uploading. Leaving now will lose your work and you'll have to take all photos again. Are you sure?")) return;
+          }
+          onBack();
+        }}
+        style={{
+          ...secondaryBtn,
+          alignSelf: "flex-start",
+          fontSize: 12,
+          opacity: submitting ? 0.55 : 1,
+        }}
+      >
         ← Back to list
       </button>
 
@@ -3486,11 +3528,50 @@ function InspectorJobDetail({ me, jobId, onBack }) {
         </section>
       )}
 
+      {submitProgress && (
+        <div style={{
+          padding: "14px 16px",
+          borderRadius: 12,
+          background: "#eff6ff",
+          border: "2px solid #3b82f6",
+          color: "#1e3a8a",
+          fontSize: 16,
+          fontWeight: 700,
+          textAlign: "center",
+          lineHeight: 1.4,
+        }}>
+          {submitProgress.stage === "starting" && (
+            <>⏳ Starting upload…</>
+          )}
+          {submitProgress.stage === "uploading" && (
+            <>
+              📤 Uploading photos — {submitProgress.uploaded} / {submitProgress.total}
+              <div style={{ height: 8, background: "#dbeafe", borderRadius: 4, marginTop: 8, overflow: "hidden" }}>
+                <div
+                  style={{
+                    width: `${Math.round((submitProgress.uploaded / Math.max(1, submitProgress.total)) * 100)}%`,
+                    height: "100%",
+                    background: "#3b82f6",
+                    transition: "width 0.3s ease",
+                  }}
+                />
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 400, color: "#475569", marginTop: 6 }}>
+                Don't close this page or hit Back — uploads are still going.
+              </div>
+            </>
+          )}
+          {submitProgress.stage === "saving" && (
+            <>💾 All photos uploaded. Saving the inspection…</>
+          )}
+        </div>
+      )}
+
       {submitMsg && (
         <div style={{
           padding: "10px 14px",
           borderRadius: 10,
-          fontSize: 13,
+          fontSize: 14,
           background: submitMsg.kind === "success" ? "#ecfdf5" : "#fef2f2",
           border: `1px solid ${submitMsg.kind === "success" ? "#86efac" : "#fca5a5"}`,
           color: submitMsg.kind === "success" ? "#065f46" : "#991b1b",
