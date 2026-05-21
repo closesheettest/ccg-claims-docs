@@ -6762,7 +6762,11 @@ const renderSmsTemplate = (key, vars) => {
         setRecordSearchResults(prev => prev.map(rr => rr.id === row.id
           ? { ...rr, jn_job_id: d.jobId, docs_signed: d.docsSigned || rr.docs_signed }
           : rr));
-        alert(`✅ Synced to JN — job id: ${d.jobId}`);
+        if (d.linkedExisting) {
+          alert(`🔗 Linked to existing JN job (id: ${d.jobId}).\n\nNo fields were overwritten — any manual changes you made in JN (status, custom fields) are preserved.`);
+        } else {
+          alert(`✅ Synced to JN — job id: ${d.jobId}`);
+        }
       } else {
         alert("❌ JN sync failed: " + (d.error || (await r.text()).slice(0, 200)) + (d.detail ? "\n\n" + JSON.stringify(d.detail).slice(0, 300) : ""));
       }

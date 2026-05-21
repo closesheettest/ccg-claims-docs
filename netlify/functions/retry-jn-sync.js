@@ -171,6 +171,15 @@ exports.handler = async (event) => {
 
   return {
     statusCode: 200,
-    body: JSON.stringify({ ok: true, jobId: jnResult.jobId, docsSigned }),
+    body: JSON.stringify({
+      ok: true,
+      jobId: jnResult.jobId,
+      docsSigned,
+      // Forward whether jobnimbus-sync had to link to an existing JN
+      // job (duplicate path) instead of creating a new one. The UI
+      // surfaces this so the manager knows their manual JN edits
+      // (e.g. Retail status) were preserved.
+      linkedExisting: !!jnResult.linkedExisting,
+    }),
   };
 };

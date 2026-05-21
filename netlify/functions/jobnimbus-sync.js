@@ -93,6 +93,27 @@ async function createJob(apiKey, payload) {
   return JSON.parse(text);
 }
 
+// Search JN for a job by name. Used when createJob returns
+// "Duplicate job exists" — we link our Supabase row to the
+// already-existing job instead of failing the sync.
+async function findJobByName(apiKey, name) {
+  if (!name) return null;
+  try {
+    const q = encodeURIComponent(name.trim());
+    const r = await fetch(`${JN_BASE}/jobs?search=${q}&size=10`, { headers: jnHeaders(apiKey) });
+    if (!r.ok) return null;
+    const data = await r.json().catch(() => ({}));
+    const list = data.results || data.jobs || data.items || [];
+    if (!Array.isArray(list) || list.length === 0) return null;
+    const target = name.trim().toLowerCase();
+    const exact = list.find((j) => (j.name || j.display_name || "").trim().toLowerCase() === target);
+    return exact || list[0] || null;
+  } catch (e) {
+    console.warn("findJobByName error:", e.message);
+    return null;
+  }
+}
+
 // GET an existing job to see what field names JN uses
 async function inspectJob(apiKey, jobId) {
   try {
@@ -357,33 +378,63 @@ exports.handler = async (event) => {
 
     console.log("Creating job payload:", JSON.stringify(jobPayload));
 
-    const newJob = await createJob(apiKey, jobPayload);
-    const jobId = newJob.jnid || newJob.id;
-    console.log("Job created:", jobId);
+    // Create the job. If JN says "Duplicate job exists", find the
+    // existing job by name and link to it instead of failing —
+    // this is what happens when the Supabase row was created later
+    // than the JN job (e.g. orphan re-sync), and lets the manager
+    // press "Sync to JN" expecting their local row to attach to
+    // the already-existing JN record.
+    let jobId;
+    let linkedExisting = false;
+    try {
+      const newJob = await createJob(apiKey, jobPayload);
+      jobId = newJob.jnid || newJob.id;
+      console.log("Job created:", jobId);
+    } catch (createErr) {
+      const isDup = (createErr.message || "").toLowerCase().includes("duplicate");
+      if (!isDup) throw createErr;
+      console.log("Job already exists — searching JN for the existing one to link to");
+      const existing = await findJobByName(apiKey, jobPayload.name);
+      if (!existing) {
+        // JN said duplicate but we can't find it. Surface the original
+        // error so the manager knows to look it up manually.
+        throw createErr;
+      }
+      jobId = existing.jnid || existing.id;
+      linkedExisting = true;
+      console.log("Linked to existing JN job:", jobId);
+    }
     if (!jobId) throw new Error("Job created but no ID returned");
 
-    // Follow-up PUT to ensure all fields are set
-    try {
-      const putBody = {
-        jnid: jobId,
-        sales_rep: salesRepId || undefined,
-        owners: salesRepId ? [{ id: salesRepId }] : undefined,
-        cf_string_34: "Needs Inspection",
-        cf_date_5: soldDateUnix,
-        date_start: soldDateUnix,
-      };
-      console.log("PUT body:", JSON.stringify(putBody));
-      const putRes = await fetch(`${JN_BASE}/jobs/${jobId}`, {
-        method: "PUT",
-        headers: jnHeaders(apiKey),
-        body: JSON.stringify(putBody),
-      });
-      const putText = await putRes.text();
-      console.log("Job PUT status:", putRes.status, putText.slice(0, 500));
-    } catch(e) { console.warn("Job PUT failed:", e.message); }
+    // Follow-up PUT to ensure all fields are set. SKIP when we linked
+    // to an existing JN job — overwriting cf_string_34 / cf_date_5 /
+    // date_start would wipe out manual changes the manager already
+    // made in JN (e.g. the Retail status they just set).
+    if (!linkedExisting) {
+      try {
+        const putBody = {
+          jnid: jobId,
+          sales_rep: salesRepId || undefined,
+          owners: salesRepId ? [{ id: salesRepId }] : undefined,
+          cf_string_34: "Needs Inspection",
+          cf_date_5: soldDateUnix,
+          date_start: soldDateUnix,
+        };
+        console.log("PUT body:", JSON.stringify(putBody));
+        const putRes = await fetch(`${JN_BASE}/jobs/${jobId}`, {
+          method: "PUT",
+          headers: jnHeaders(apiKey),
+          body: JSON.stringify(putBody),
+        });
+        const putText = await putRes.text();
+        console.log("Job PUT status:", putRes.status, putText.slice(0, 500));
+      } catch(e) { console.warn("Job PUT failed:", e.message); }
 
-    // Inspect the created job so we can see what fields JN actually saved
-    await inspectJob(apiKey, jobId);
+      // Inspect the created job so we can see what fields JN actually saved
+      await inspectJob(apiKey, jobId);
+    } else {
+      console.log("Skipped follow-up PUT to preserve manual JN edits on linked job");
+    }
 
     // ── Upload PDF ──────────────────────────────────────────────────────
     let fileResult = { success: false, error: "skipped" };
@@ -392,10 +443,10 @@ exports.handler = async (event) => {
     }
 
     console.log("=== JN Sync Complete ===");
-    console.log("Contact:", contactId, contactAction, "| Job:", jobId, "| Status:", status, "| File:", fileResult);
+    console.log("Contact:", contactId, contactAction, "| Job:", jobId, "| Status:", status, "| File:", fileResult, "| Linked existing:", linkedExisting);
     return {
       statusCode: 200,
-      body: JSON.stringify({ success: true, contactId, contactAction, jobId, status, fileResult }),
+      body: JSON.stringify({ success: true, contactId, contactAction, jobId, status, fileResult, linkedExisting }),
     };
   } catch (err) {
     console.error("=== JN Sync ERROR ===", err.message);
