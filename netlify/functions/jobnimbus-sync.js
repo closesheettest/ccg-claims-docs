@@ -189,7 +189,7 @@ exports.handler = async (event) => {
   const {
     leadSource, docsSignedList,
     homeowner1, homeowner2,
-    phone, email,
+    phone, email: rawEmail,
     address, city, state, zip,
     salesRepName, salesRepId,
     pdfBase64, pdfFilename,
@@ -200,6 +200,22 @@ exports.handler = async (event) => {
     soldDate,
     isTest, testOverrideEmail, testOverridePhone,
   } = body;
+
+  // JN's create-contact endpoint 400s if email is set but malformed
+  // (e.g. rep typed just "ppumphrey" without a domain). Empty email
+  // is accepted. So if the value doesn't look like a real address,
+  // null it out — the contact still syncs, just without an email.
+  function isValidEmail(s) {
+    if (typeof s !== "string") return false;
+    const t = s.trim();
+    if (!t) return false;
+    // Basic RFC-light check: chars + @ + chars + . + 2+ chars.
+    return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(t);
+  }
+  const email = isValidEmail(rawEmail) ? rawEmail.trim() : "";
+  if (rawEmail && !email) {
+    console.warn(`Stripped malformed email "${rawEmail}" — syncing without email`);
+  }
 
   console.log("=== JN Sync Start ===");
   if (isTest) console.log("🧪 TEST MODE — overrides:", testOverrideEmail, testOverridePhone);
