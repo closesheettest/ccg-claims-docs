@@ -8,7 +8,7 @@ import {
   Send,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
-import { InspectorMobileApp, InspectorsAdminPanel, InspectorSetupPage, ManagerInspectorReports } from "./InspectorViews";
+import { InspectorMobileApp, InspectorsAdminPanel, InspectorSetupPage, ManagerInspectorReports, InspectionAssignmentsPanel } from "./InspectorViews";
 
 // Inject Oswald font
 if (typeof document !== "undefined" && !document.getElementById("oswald-font")) {
@@ -9724,7 +9724,8 @@ if (!hasDamage) {
                         { key: "dupes", emoji: "👯", label: "Find Duplicates", desc: "Address-based deduper — pick which to keep, delete the rest" },
                         { key: "jnreport", emoji: "📄", label: "JN Inspection Report", desc: "Generate insp report PDF with photos and upload to JN" },
                         { key: "bulkreport", emoji: "📦", label: "Bulk Inspection Reports", desc: "Run insp reports across every JN job with a chosen status" },
-                        { key: "inspectors", emoji: "🔍", label: "Inspectors", desc: "Add inspectors, set home base + max miles, override-assign jobs" },
+                        { key: "inspectors", emoji: "🔍", label: "Inspectors", desc: "Roster — sync from JN, edit, activate/deactivate" },
+                        { key: "assign_inspections", emoji: "📋", label: "Assign Inspections", desc: "Hand out pending jobs, take them away, release" },
                         { key: "inspector_reports", emoji: "📊", label: "Inspector Reports", desc: "Completed this week by status + per-inspector + by day" },
                       ].map(item => (
                         <button key={item.key} type="button" onClick={() => setManagerSection(item.key)}
@@ -12646,6 +12647,10 @@ if (!hasDamage) {
 
                   {managerSection === "inspectors" && <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <InspectorsAdminPanel />
+                  </Card>}
+
+                  {managerSection === "assign_inspections" && <Card style={{ padding: 20, background: "#f8fafc" }}>
+                    <InspectionAssignmentsPanel />
                   </Card>}
 
                   {managerSection === "inspector_reports" && <Card style={{ padding: 20, background: "#f8fafc" }}>
