@@ -960,6 +960,11 @@ export function InspectorMobileApp({ onExit }) {
   const [stage, setStage] = useState("pick"); // pick | list | detail | inactive
   const [inspectors, setInspectors] = useState([]);
   const [me, setMe] = useState(null);
+  // True when the inspector arrived via the SMS/email invite link
+  // (?mode=inspector). We use this to hide the "← Main app" escape
+  // hatch — inspectors should only see the inspector page.
+  const isInspectorMode = typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("mode") === "inspector";
   // When the inspector's stored ID points to a row that is no longer
   // active (or never completed setup), we show a friendly "account
   // not active" screen instead of dumping them to an empty picker.
@@ -1035,7 +1040,11 @@ export function InspectorMobileApp({ onExit }) {
               Switch user
             </button>
           )}
-          {onExit && (
+          {/* Inspectors who arrived via the SMS/email link (?mode=inspector)
+              are locked into this page — no escape hatch to the rep main
+              app. We only show "← Main app" when the page was opened
+              from inside the rep app (e.g. a manager previewing). */}
+          {onExit && !isInspectorMode && (
             <button type="button" onClick={onExit} style={{ ...secondaryBtn, fontSize: 11 }}>
               ← Main app
             </button>
