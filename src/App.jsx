@@ -8,6 +8,7 @@ import {
   Send,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
+import { InspectorMobileApp, InspectorsAdminPanel } from "./InspectorViews";
 
 // Inject Oswald font
 if (typeof document !== "undefined" && !document.getElementById("oswald-font")) {
@@ -7464,6 +7465,25 @@ if (!hasDamage) {
                   </button>
                   <button
                     type="button"
+                    onClick={() => setView("inspector")}
+                    style={{
+                      background: "#ecfeff",
+                      border: "1px solid #06b6d4",
+                      borderRadius: 10,
+                      padding: "6px 14px",
+                      fontSize: 12,
+                      fontFamily: "'Oswald', sans-serif",
+                      fontWeight: 700,
+                      letterSpacing: "0.04em",
+                      color: "#0e7490",
+                      cursor: "pointer",
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    🔍 Inspector
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setView("manager")}
                     style={{
                       background: "transparent",
@@ -9665,6 +9685,7 @@ if (!hasDamage) {
                         { key: "dupes", emoji: "👯", label: "Find Duplicates", desc: "Address-based deduper — pick which to keep, delete the rest" },
                         { key: "jnreport", emoji: "📄", label: "JN Inspection Report", desc: "Generate insp report PDF with photos and upload to JN" },
                         { key: "bulkreport", emoji: "📦", label: "Bulk Inspection Reports", desc: "Run insp reports across every JN job with a chosen status" },
+                        { key: "inspectors", emoji: "🔍", label: "Inspectors", desc: "Add inspectors, set home base + max miles, override-assign jobs" },
                       ].map(item => (
                         <button key={item.key} type="button" onClick={() => setManagerSection(item.key)}
                           style={{ padding: "24px 20px", borderRadius: 20, border: "2px solid #e5e7eb", background: "#fff", textAlign: "left", cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
@@ -12583,6 +12604,10 @@ if (!hasDamage) {
                     ) : null}
                   </Card>}
 
+                  {managerSection === "inspectors" && <Card style={{ padding: 20, background: "#f8fafc" }}>
+                    <InspectorsAdminPanel />
+                  </Card>}
+
                       <div style={{ marginTop: 24 }}>
                         <Button onClick={() => { setManagerUnlocked(false); setManagerSection("home"); setView("input"); }}>
                           Save & Close
@@ -12594,6 +12619,11 @@ if (!hasDamage) {
               )}
             </CardContent>
           </Card>
+        ) : null}
+
+        {/* ── Inspector mobile flow (rep-facing inspector phone app) ─── */}
+        {view === "inspector" ? (
+          <InspectorMobileApp onExit={() => setView("input")} />
         ) : null}
 
         {/* ── My Stats Modal — rep's own performance + leaderboard rank ─── */}
