@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 import { InspectorMobileApp, InspectorsAdminPanel, InspectorSetupPage, ManagerInspectorReports, InspectionAssignmentsPanel, ManagerRoutePlanner, PAHandoffPanel } from "./InspectorViews";
+import InspectionPhotosModal from "./InspectionPhotosModal";
 
 // Inject Oswald font
 if (typeof document !== "undefined" && !document.getElementById("oswald-font")) {
@@ -3985,6 +3986,9 @@ export default function App() {
   // address, missing JN link, bad result, etc. Shows a danger zone at the
   // bottom for cancellation / deletion.
   const [editModal, setEditModal] = useState(null); // null | { rec, draft }
+  // Photo gallery modal — when set, shows the inspection_photos JSON
+  // for that inspection id (with signed URLs + category labels).
+  const [photosModalId, setPhotosModalId] = useState(null);
   const [editLoading, setEditLoading] = useState(false);
 
   // Sales rep manager
@@ -11211,6 +11215,20 @@ if (!hasDamage) {
                                     <div style={{ fontSize: 9, color: "#ea580c", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>Not in JN</div>
                                   </div>                                ) : null}
 
+                                {/* Photos — opens a modal showing every inspection_photo with its
+                                    label (from the inspector's wizard) so the manager can
+                                    review what was submitted without bouncing to JN. */}
+                                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                                  <button
+                                    type="button"
+                                    disabled={isBusy}
+                                    onClick={(e) => { e.stopPropagation(); setPhotosModalId(rec.id); }}
+                                    title="View the inspector's photos for this record (with labels)."
+                                    style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #0e7490", background: isBusy ? "#f3f4f6" : "#ecfeff", color: isBusy ? "#9ca3af" : "#0e7490", fontSize: 11, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: isBusy ? "not-allowed" : "pointer" }}>
+                                    📸 Photos
+                                  </button>
+                                </div>
+
                                 {/* Edit Record — opens a modal to fix client name, address, sales rep, JN link, result, etc. */}
                                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
                                   <button
@@ -13358,6 +13376,14 @@ if (!hasDamage) {
             </div>
           </div>
         ) : null}
+
+        {/* ── Inspection Photos Modal ───────────────────────────────────── */}
+        {photosModalId && (
+          <InspectionPhotosModal
+            inspectionId={photosModalId}
+            onClose={() => setPhotosModalId(null)}
+          />
+        )}
 
         {/* ── Edit Record Modal ─────────────────────────────────────────── */}
         {editModal ? (

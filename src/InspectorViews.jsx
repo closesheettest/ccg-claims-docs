@@ -1199,9 +1199,7 @@ export function ManagerRoutePlanner() {
       ) : (
         <div style={{ display: "grid", gap: 6 }}>
           {route.map((job, i) => {
-            const navHref = (typeof job.latitude === "number" && typeof job.longitude === "number")
-              ? `https://maps.google.com/?q=${job.latitude},${job.longitude}`
-              : `https://maps.google.com/?q=${encodeURIComponent([job.address, job.city, job.state, job.zip].filter(Boolean).join(", "))}`;
+            const navHref = navigationUrl(job);
             return (
               <a
                 key={job.id}
@@ -1840,6 +1838,22 @@ function InspectorPickName({ inspectors, onPick }) {
 // startLat/Lng = where the route begins (home base or current location).
 // jobs = array of { latitude, longitude, ... }.
 // Returns the input list re-ordered.
+// Tap-to-navigate URL. Use the ADDRESS as the destination (more
+// reliable than raw lat/lng — Maps couldn't always reverse-geocode
+// our coords into a navigable address, leaving inspectors with a
+// dropped pin and no route). Coords are kept as the fallback if
+// no address is on the row at all. The official directions URL
+// (maps/dir/?api=1&destination=…) opens straight into the
+// directions screen on iOS Apple Maps + Android Google Maps.
+function navigationUrl(job) {
+  const address = [job.address, job.city, job.state, job.zip].filter(Boolean).join(", ");
+  if (address) return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`;
+  if (typeof job.latitude === "number" && typeof job.longitude === "number") {
+    return `https://www.google.com/maps/dir/?api=1&destination=${job.latitude},${job.longitude}`;
+  }
+  return "https://www.google.com/maps";
+}
+
 function nearestNeighborRoute(jobs, startLat, startLng) {
   if (typeof startLat !== "number" || typeof startLng !== "number") return jobs;
   const withCoords = jobs.filter((j) => typeof j.latitude === "number" && typeof j.longitude === "number");
@@ -2166,14 +2180,7 @@ function RouteBtn({ active, onClick, label, disabled }) {
 }
 
 function JobCard({ job, accent, cta, onClick, disabled, showStopNumber, showNavigate }) {
-  // Tap-to-navigate URL — opens default maps app on iOS/Android, or
-  // Google Maps in the browser on desktop. Universal `?q=` query param
-  // accepts a freeform address.
-  const navUrl = job.latitude != null && job.longitude != null
-    ? `https://maps.google.com/?q=${job.latitude},${job.longitude}`
-    : `https://maps.google.com/?q=${encodeURIComponent(
-        [job.address, job.city, job.state, job.zip].filter(Boolean).join(", "),
-      )}`;
+  const navUrl = navigationUrl(job);
   return (
     <div style={{
       background: "#fff",
@@ -3174,12 +3181,13 @@ function InspectorJobDetail({ me, jobId, onBack }) {
 
       {/* Progress strip — shows the current step + total photos so far */}
       <div style={{
-        padding: "8px 12px",
+        padding: "12px 14px",
         background: "#ecfeff",
         border: "1px solid #67e8f9",
         borderRadius: 10,
-        fontSize: 12,
+        fontSize: 15,
         color: "#0e7490",
+        lineHeight: 1.4,
       }}>
         <strong>Step:</strong> {progressLabel} · <strong>{photos.length}</strong> photo{photos.length === 1 ? "" : "s"} so far
       </div>
@@ -3225,11 +3233,11 @@ function InspectorJobDetail({ me, jobId, onBack }) {
       )}
 
       {stage.kind === "story_pick" && (
-        <section style={{ padding: 14, background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", display: "grid", gap: 10 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>
+        <section style={{ padding: 16, background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", display: "grid", gap: 12 }}>
+          <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", lineHeight: 1.2 }}>
             🏠 Step 3 — How many stories does this house have?
           </div>
-          <div style={{ fontSize: 12, color: "#6b7280", lineHeight: 1.5 }}>
+          <div style={{ fontSize: 16, color: "#374151", lineHeight: 1.5 }}>
             Count the floors of the house, not the roof slopes. A standard ranch is <strong>1 story</strong>. A house with bedrooms upstairs is <strong>2 stories</strong>. If it's 2-story, you'll photograph the 1st floor's roof first (all 4 sides), then climb up and do the 2nd floor's roof the same way.
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
@@ -3242,13 +3250,13 @@ function InspectorJobDetail({ me, jobId, onBack }) {
                   setStage({ kind: "roof_overview", story: 1 });
                 }}
                 style={{
-                  padding: "18px 12px",
+                  padding: "24px 12px",
                   background: storyCount === n ? "#0e7490" : "#fff",
                   color: storyCount === n ? "#fff" : "#111827",
                   border: `2px solid ${storyCount === n ? "#0e7490" : "#e5e7eb"}`,
                   borderRadius: 12,
                   fontWeight: 700,
-                  fontSize: 16,
+                  fontSize: 20,
                   cursor: "pointer",
                 }}
               >
@@ -3285,12 +3293,12 @@ function InspectorJobDetail({ me, jobId, onBack }) {
       )}
 
       {stage.kind === "story_transition" && (
-        <section style={{ padding: 18, background: "#ecfeff", borderRadius: 12, border: "2px solid #06b6d4", display: "grid", gap: 10, textAlign: "center" }}>
-          <div style={{ fontSize: 32 }}>✅</div>
-          <div style={{ fontSize: 18, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>
+        <section style={{ padding: 20, background: "#ecfeff", borderRadius: 12, border: "2px solid #06b6d4", display: "grid", gap: 12, textAlign: "center" }}>
+          <div style={{ fontSize: 40 }}>✅</div>
+          <div style={{ fontSize: 24, fontWeight: 700, fontFamily: "'Oswald', sans-serif", lineHeight: 1.2 }}>
             1st floor finished
           </div>
-          <div style={{ fontSize: 13, color: "#0e7490", lineHeight: 1.5 }}>
+          <div style={{ fontSize: 17, color: "#0e7490", lineHeight: 1.5 }}>
             Climb up to the 2nd-floor roof. We'll do the same thing all over again:
             roof overview from the FAR LEFT, then slopes clockwise from the LEFT side
             (left → front → right → rear).
@@ -3298,7 +3306,7 @@ function InspectorJobDetail({ me, jobId, onBack }) {
           <button
             type="button"
             onClick={advance}
-            style={{ ...primaryBtn, padding: "14px 18px", fontSize: 15 }}
+            style={{ ...primaryBtn, padding: "18px 20px", fontSize: 18 }}
           >
             I'm on the 2nd-floor roof — continue →
           </button>
@@ -3388,11 +3396,11 @@ function InspectorJobDetail({ me, jobId, onBack }) {
       })()}
 
       {stage.kind === "result" && (
-        <section style={{ display: "grid", gap: 10 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>
+        <section style={{ display: "grid", gap: 12 }}>
+          <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", lineHeight: 1.2 }}>
             🧾 Final step — what did you find?
           </div>
-          <div style={{ fontSize: 12, color: "#6b7280", lineHeight: 1.5 }}>
+          <div style={{ fontSize: 16, color: "#374151", lineHeight: 1.5 }}>
             Pick the result based on what you saw on the roof:
             <br/>• <strong>Damage</strong> — clear storm damage (hail strikes, wind-lifted shingles). Triggers the PA claim path.
             <br/>• <strong>Retail</strong> — significant wear & tear but no storm damage. Homeowner pays out of pocket. You'll be asked for 10 more close-ups of the worst spots before submitting.
@@ -3413,13 +3421,13 @@ function InspectorJobDetail({ me, jobId, onBack }) {
                 }
               }}
               style={{
-                padding: "14px 16px",
+                padding: "18px 18px",
                 background: resultChoice === opt.key ? opt.color : "#fff",
                 color: resultChoice === opt.key ? "#fff" : "#111827",
                 border: `2px solid ${resultChoice === opt.key ? opt.color : "#e5e7eb"}`,
                 borderRadius: 12,
                 fontWeight: 700,
-                fontSize: 14,
+                fontSize: 18,
                 textAlign: "left",
                 cursor: "pointer",
               }}
@@ -3433,13 +3441,13 @@ function InspectorJobDetail({ me, jobId, onBack }) {
               onClick={submit}
               disabled={submitting}
               style={{
-                padding: "16px 18px",
+                padding: "20px 20px",
                 background: submitting ? "#9ca3af" : "#13294b",
                 color: "#fff",
                 border: "none",
                 borderRadius: 12,
                 fontWeight: 700,
-                fontSize: 16,
+                fontSize: 20,
                 cursor: submitting ? "wait" : "pointer",
               }}
             >
@@ -3450,11 +3458,11 @@ function InspectorJobDetail({ me, jobId, onBack }) {
       )}
 
       {stage.kind === "retail_worst" && (
-        <section style={{ display: "grid", gap: 10 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>
+        <section style={{ display: "grid", gap: 12 }}>
+          <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", lineHeight: 1.2 }}>
             💰 Retail — 10 worst-spot photos
           </div>
-          <div style={{ fontSize: 12, color: "#6b7280", lineHeight: 1.5 }}>
+          <div style={{ fontSize: 16, color: "#374151", lineHeight: 1.5 }}>
             Walk the whole roof one more time and photograph the <strong>10 worst spots</strong> — anywhere across all sides. These are the close-ups we'll use to justify the retail recommendation. Submit unlocks once you've added at least 10.
           </div>
           <WizardPhotoStep
@@ -3501,16 +3509,16 @@ function WizardPhotoStep({ title, subtitle, ctaLabel, ctaEnabled, ctaPrimary, st
   const fileInputRef = useRef(null);
   return (
     <section style={{
-      padding: 14,
+      padding: 16,
       background: "#fff",
       borderRadius: 12,
       border: "1px solid #e5e7eb",
       display: "grid",
-      gap: 10,
+      gap: 12,
     }}>
       <div>
-        <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>{title}</div>
-        {subtitle && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>{subtitle}</div>}
+        <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", lineHeight: 1.2 }}>{title}</div>
+        {subtitle && <div style={{ fontSize: 16, color: "#374151", marginTop: 8, lineHeight: 1.5 }}>{subtitle}</div>}
       </div>
       <input
         ref={fileInputRef}
@@ -3529,13 +3537,13 @@ function WizardPhotoStep({ title, subtitle, ctaLabel, ctaEnabled, ctaPrimary, st
         onClick={() => fileInputRef.current?.click()}
         disabled={submitting}
         style={{
-          padding: "14px 18px",
+          padding: "16px 20px",
           background: "#0ea5e9",
           color: "#fff",
           border: "none",
           borderRadius: 12,
           fontWeight: 700,
-          fontSize: 15,
+          fontSize: 18,
           cursor: submitting ? "wait" : "pointer",
         }}
       >
@@ -3580,13 +3588,13 @@ function WizardPhotoStep({ title, subtitle, ctaLabel, ctaEnabled, ctaPrimary, st
         onClick={onContinue}
         disabled={!ctaEnabled || submitting}
         style={{
-          padding: "14px 18px",
+          padding: "18px 20px",
           background: !ctaEnabled || submitting ? "#9ca3af" : ctaPrimary ? "#13294b" : "#059669",
           color: "#fff",
           border: "none",
           borderRadius: 12,
           fontWeight: 700,
-          fontSize: 15,
+          fontSize: 18,
           cursor: !ctaEnabled || submitting ? "not-allowed" : "pointer",
         }}
       >
@@ -3601,18 +3609,18 @@ function SlopeCountStep({ side, story, storyCount, value, onSet, onContinue }) {
   const floorTag = storyCount === 2 ? ` — ${ordinal(story)} floor` : "";
   return (
     <section style={{
-      padding: 14,
+      padding: 16,
       background: "#fff",
       borderRadius: 12,
       border: "1px solid #e5e7eb",
       display: "grid",
-      gap: 10,
+      gap: 12,
     }}>
       <div>
-        <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>
+        <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", lineHeight: 1.2 }}>
           📐 How many {SIDE_LABELS[side]} slopes?{floorTag}
         </div>
-        <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4, lineHeight: 1.5 }}>
+        <div style={{ fontSize: 16, color: "#374151", marginTop: 8, lineHeight: 1.5 }}>
           {isFirstSide
             ? <>You're walking the roof <strong>clockwise starting from the LEFT</strong>: left → front → right → rear. Count the slopes you can see on the <strong>{SIDE_LABELS[side]}</strong> side and tap the number. (A "slope" is one flat plane of the roof. Most sides have 1 slope; complex roofs can have 2–4.)</>
             : <>Count the slopes on the <strong>{SIDE_LABELS[side]}</strong> side. Pick <strong>0</strong> if there are none on this side.</>}
@@ -3625,13 +3633,13 @@ function SlopeCountStep({ side, story, storyCount, value, onSet, onContinue }) {
             type="button"
             onClick={() => onSet(n)}
             style={{
-              padding: "16px 0",
+              padding: "20px 0",
               background: value === n ? "#0e7490" : "#fff",
               color: value === n ? "#fff" : "#111827",
               border: `2px solid ${value === n ? "#0e7490" : "#d1d5db"}`,
               borderRadius: 10,
               fontWeight: 700,
-              fontSize: 18,
+              fontSize: 22,
               cursor: "pointer",
             }}
           >
@@ -3644,13 +3652,13 @@ function SlopeCountStep({ side, story, storyCount, value, onSet, onContinue }) {
         onClick={onContinue}
         disabled={value == null}
         style={{
-          padding: "14px 18px",
+          padding: "18px 20px",
           background: value == null ? "#9ca3af" : "#059669",
           color: "#fff",
           border: "none",
           borderRadius: 12,
           fontWeight: 700,
-          fontSize: 15,
+          fontSize: 18,
           cursor: value == null ? "not-allowed" : "pointer",
         }}
       >
