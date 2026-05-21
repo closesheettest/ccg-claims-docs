@@ -1009,6 +1009,256 @@ export function InspectionAssignmentsPanel() {
 }
 
 // ═════════════════════════════════════════════════════════════════════
+// MANAGER ROUTE PLANNER — pick an inspector, see their pending claims
+// as a nearest-neighbor route either from their home base or from the
+// manager's current GPS location. Tap-to-navigate hands the stop off
+// to whatever maps app the manager has set as default.
+// ═════════════════════════════════════════════════════════════════════
+
+export function ManagerRoutePlanner() {
+  const [inspectors, setInspectors] = useState([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [jobs, setJobs] = useState([]);
+  const [startMode, setStartMode] = useState("home"); // "home" | "current"
+  const [currentCoords, setCurrentCoords] = useState(null);
+  const [geoError, setGeoError] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      const { data } = await supabase
+        .from("inspectors")
+        .select("id, name, latitude, longitude, active")
+        .order("name");
+      if (cancelled) return;
+      const list = data || [];
+      setInspectors(list);
+      // Auto-pick the first inspector that has any pending claims.
+      // We figure that out after fetching jobs, below.
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!selectedId) {
+      setJobs([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("inspections")
+        .select("id, client_name, address, city, state, zip, signed_at, latitude, longitude")
+        .eq("inspector_id", selectedId)
+        .is("result", null)
+        .order("signed_at", { ascending: false })
+        .limit(200);
+      if (cancelled) return;
+      setJobs(data || []);
+    })();
+    return () => { cancelled = true; };
+  }, [selectedId]);
+
+  function requestCurrentLocation() {
+    setGeoError(null);
+    if (!("geolocation" in navigator)) {
+      setGeoError("This browser doesn't support GPS.");
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setCurrentCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setStartMode("current");
+      },
+      (err) => setGeoError(err.message || "Couldn't get your location."),
+      { enableHighAccuracy: true, timeout: 10000 },
+    );
+  }
+
+  const inspector = inspectors.find((i) => i.id === selectedId) || null;
+
+  // Resolve the start point. Falls back to home-then-null if current
+  // wasn't acquired.
+  let startLat = null;
+  let startLng = null;
+  let startLabel = "";
+  if (startMode === "current" && currentCoords) {
+    startLat = currentCoords.lat;
+    startLng = currentCoords.lng;
+    startLabel = "your current location";
+  } else if (inspector && inspector.latitude != null && inspector.longitude != null) {
+    startLat = inspector.latitude;
+    startLng = inspector.longitude;
+    startLabel = `${inspector.name}'s home base`;
+  }
+
+  const route = useMemo(() => {
+    if (startLat == null || startLng == null) return jobs.map((j) => ({ ...j, _legDist: null }));
+    return nearestNeighborRoute(jobs, startLat, startLng);
+  }, [jobs, startLat, startLng]);
+
+  const totalMiles = route.reduce((sum, j) => sum + (j._legDist || 0), 0);
+
+  return (
+    <div style={{ display: "grid", gap: 16 }}>
+      <div>
+        <div style={{ fontSize: 18, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>
+          🗺 Inspector Routes
+        </div>
+        <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4, lineHeight: 1.5 }}>
+          Pick an inspector to see their pending claims as a nearest-neighbor route. Start from the inspector's home base, or use the manager's current GPS location (handy when you're on-site with them). Tap any stop to open it in maps.
+        </div>
+      </div>
+
+      {/* Inspector picker */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "center" }}>
+        <select
+          value={selectedId}
+          onChange={(e) => setSelectedId(e.target.value)}
+          style={{ ...inputStyle, padding: "8px 10px", fontSize: 13 }}
+        >
+          <option value="">— Pick an inspector —</option>
+          {inspectors.map((i) => (
+            <option key={i.id} value={i.id}>
+              {i.name}{!i.active ? " (inactive)" : ""}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Start-point toggle */}
+      {selectedId && (
+        <div style={{
+          padding: 10,
+          background: "#fff",
+          border: "1px solid #e5e7eb",
+          borderRadius: 10,
+          display: "grid",
+          gap: 8,
+        }}>
+          <div style={{ fontSize: 12, color: "#374151" }}>
+            🧭 Distances from <strong style={{ color: "#0e7490" }}>{startLabel || "(no start point — set inspector's home base or grant GPS)"}</strong>
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => setStartMode("home")}
+              disabled={!inspector || inspector.latitude == null}
+              style={{
+                ...secondaryBtn,
+                fontSize: 12,
+                padding: "6px 12px",
+                background: startMode === "home" ? "#0e7490" : "#fff",
+                color: startMode === "home" ? "#fff" : "#374151",
+                borderColor: startMode === "home" ? "#0e7490" : "#d1d5db",
+                cursor: inspector?.latitude == null ? "not-allowed" : "pointer",
+                opacity: inspector?.latitude == null ? 0.5 : 1,
+              }}
+              title={inspector?.latitude == null ? "Inspector has no home base set yet" : "Use the inspector's home base"}
+            >
+              🏠 From {inspector?.name || "inspector"}'s home
+            </button>
+            <button
+              type="button"
+              onClick={requestCurrentLocation}
+              style={{
+                ...secondaryBtn,
+                fontSize: 12,
+                padding: "6px 12px",
+                background: startMode === "current" ? "#0e7490" : "#fff",
+                color: startMode === "current" ? "#fff" : "#374151",
+                borderColor: startMode === "current" ? "#0e7490" : "#d1d5db",
+              }}
+            >
+              {startMode === "current" && currentCoords ? "📍 From here ✓" : "📍 Use my location"}
+            </button>
+          </div>
+          {totalMiles > 0 && (
+            <div style={{ fontSize: 11, color: "#6b7280" }}>
+              ~{Math.round(totalMiles)} mi total drive · {route.length} stops
+            </div>
+          )}
+          {geoError && (
+            <div style={{ fontSize: 11, color: "#dc2626" }}>{geoError}</div>
+          )}
+        </div>
+      )}
+
+      {/* Route */}
+      {!selectedId ? (
+        <div style={{ padding: 16, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, fontSize: 13, color: "#6b7280" }}>
+          {loading ? "Loading inspectors…" : "Pick an inspector above to see their route."}
+        </div>
+      ) : jobs.length === 0 ? (
+        <div style={{ padding: 16, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, fontSize: 13, color: "#6b7280" }}>
+          {inspector?.name || "This inspector"} has no pending claims right now.
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: 6 }}>
+          {route.map((job, i) => {
+            const navHref = (typeof job.latitude === "number" && typeof job.longitude === "number")
+              ? `https://maps.google.com/?q=${job.latitude},${job.longitude}`
+              : `https://maps.google.com/?q=${encodeURIComponent([job.address, job.city, job.state, job.zip].filter(Boolean).join(", "))}`;
+            return (
+              <a
+                key={job.id}
+                href={navHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "32px 1fr auto",
+                  gap: 10,
+                  alignItems: "center",
+                  padding: "12px 14px",
+                  background: "#fff",
+                  border: "1px solid #e5e7eb",
+                  borderRadius: 10,
+                  textDecoration: "none",
+                  color: "inherit",
+                }}
+              >
+                <div style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: "50%",
+                  background: "#0e7490",
+                  color: "#fff",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 13,
+                  fontWeight: 700,
+                }}>
+                  {i + 1}
+                </div>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 600 }}>{job.client_name || "(no name)"}</div>
+                  <div style={{ fontSize: 12, color: "#6b7280" }}>
+                    {job.address}{job.city && `, ${job.city}`}{job.state && `, ${job.state}`} {job.zip || ""}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  {job._legDist != null && (
+                    <div style={{ fontSize: 12, color: "#0e7490", fontWeight: 700 }}>
+                      {job._legDist.toFixed(1)} mi
+                    </div>
+                  )}
+                  <div style={{ fontSize: 10, color: "#6b7280" }}>tap to navigate ↗</div>
+                </div>
+              </a>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════
 // MOBILE APP — inspector-side. Self-serve.
 // ═════════════════════════════════════════════════════════════════════
 

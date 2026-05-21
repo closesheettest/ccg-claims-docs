@@ -8,7 +8,7 @@ import {
   Send,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
-import { InspectorMobileApp, InspectorsAdminPanel, InspectorSetupPage, ManagerInspectorReports, InspectionAssignmentsPanel } from "./InspectorViews";
+import { InspectorMobileApp, InspectorsAdminPanel, InspectorSetupPage, ManagerInspectorReports, InspectionAssignmentsPanel, ManagerRoutePlanner } from "./InspectorViews";
 
 // Inject Oswald font
 if (typeof document !== "undefined" && !document.getElementById("oswald-font")) {
@@ -9763,6 +9763,7 @@ if (!hasDamage) {
                         { key: "bulkreport", emoji: "📦", label: "Bulk Inspection Reports", desc: "Run insp reports across every JN job with a chosen status" },
                         { key: "inspectors", emoji: "🔍", label: "Inspectors", desc: "Roster — sync from JN, edit, activate/deactivate" },
                         { key: "assign_inspections", emoji: "📋", label: "Assign Inspections", desc: "Hand out pending jobs, take them away, release" },
+                        { key: "inspector_routes", emoji: "🗺", label: "Inspector Routes", desc: "Optimize the day's route from home or current location" },
                         { key: "inspector_reports", emoji: "📊", label: "Inspector Reports", desc: "Completed this week by status + per-inspector + by day" },
                       ].map(item => (
                         <button key={item.key} type="button" onClick={() => setManagerSection(item.key)}
@@ -12688,6 +12689,10 @@ if (!hasDamage) {
 
                   {managerSection === "assign_inspections" && <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <InspectionAssignmentsPanel />
+                  </Card>}
+
+                  {managerSection === "inspector_routes" && <Card style={{ padding: 20, background: "#f8fafc" }}>
+                    <ManagerRoutePlanner />
                   </Card>}
 
                   {managerSection === "inspector_reports" && <Card style={{ padding: 20, background: "#f8fafc" }}>
