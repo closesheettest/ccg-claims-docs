@@ -32,9 +32,16 @@ exports.handler = async (event) => {
     return json(405, { error: "Method Not Allowed" });
   }
   const missing = [];
-  for (const k of ["VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY", "GOOGLE_MAPS_API_KEY"]) {
+  for (const k of ["VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY"]) {
     if (!process.env[k]) missing.push(k);
   }
+  // Google key: prefer the server-side var, fall back to the client
+  // var (which usually has the same value, just intended for browsers).
+  // If the client key has HTTP-referrer restrictions, server-side
+  // calls will fail with REQUEST_DENIED — admin needs to either
+  // remove that restriction OR create a separate unrestricted key.
+  const googleKey = process.env.GOOGLE_MAPS_API_KEY || process.env.VITE_GOOGLE_PLACES_API_KEY;
+  if (!googleKey) missing.push("GOOGLE_MAPS_API_KEY (or VITE_GOOGLE_PLACES_API_KEY)");
   if (missing.length) return json(500, { error: `Missing env vars: ${missing.join(", ")}` });
 
   let body;
@@ -83,7 +90,7 @@ exports.handler = async (event) => {
     const url = new URL(GOOGLE_BASE);
     url.searchParams.set("address", addr);
     url.searchParams.set("region", "us");
-    url.searchParams.set("key", process.env.GOOGLE_MAPS_API_KEY);
+    url.searchParams.set("key", googleKey);
     const res = await fetch(url.toString());
     if (!res.ok) {
       return json(200, { ok: false, error: `Google ${res.status}` });

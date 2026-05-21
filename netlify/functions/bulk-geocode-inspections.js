@@ -30,8 +30,13 @@ exports.handler = async (event) => {
   }
 
   const missing = [];
-  for (const k of ["VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY", "GOOGLE_MAPS_API_KEY"]) {
+  for (const k of ["VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY"]) {
     if (!process.env[k]) missing.push(k);
+  }
+  // Google key: prefer the server-side var, fall back to the client
+  // var (the existing VITE_GOOGLE_PLACES_API_KEY in this project).
+  if (!process.env.GOOGLE_MAPS_API_KEY && !process.env.VITE_GOOGLE_PLACES_API_KEY) {
+    missing.push("GOOGLE_MAPS_API_KEY (or VITE_GOOGLE_PLACES_API_KEY)");
   }
   if (missing.length) return json(500, { error: `Missing env vars: ${missing.join(", ")}` });
 

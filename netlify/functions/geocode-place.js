@@ -17,8 +17,9 @@ exports.handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return json(405, { error: "Method Not Allowed" });
   }
-  if (!process.env.GOOGLE_MAPS_API_KEY) {
-    return json(500, { error: "Missing GOOGLE_MAPS_API_KEY" });
+  const googleKey = process.env.GOOGLE_MAPS_API_KEY || process.env.VITE_GOOGLE_PLACES_API_KEY;
+  if (!googleKey) {
+    return json(500, { error: "Missing GOOGLE_MAPS_API_KEY (or VITE_GOOGLE_PLACES_API_KEY)" });
   }
   let body;
   try {
@@ -33,7 +34,7 @@ exports.handler = async (event) => {
     const url = new URL(GOOGLE_BASE);
     url.searchParams.set("address", query);
     url.searchParams.set("region", "us");
-    url.searchParams.set("key", process.env.GOOGLE_MAPS_API_KEY);
+    url.searchParams.set("key", googleKey);
     const res = await fetch(url.toString());
     if (!res.ok) {
       return json(200, { ok: false, error: `Google ${res.status}` });
