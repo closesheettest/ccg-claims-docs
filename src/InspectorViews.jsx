@@ -1714,6 +1714,329 @@ function InspectorReports({ me, onBack }) {
   );
 }
 
+// ═════════════════════════════════════════════════════════════════════
+// MANAGER REPORTS — aggregate across all inspectors. Lives in the
+// Manager → Inspector Reports tile. Shares range/status helpers with
+// the per-inspector InspectorReports above.
+// ═════════════════════════════════════════════════════════════════════
+export function ManagerInspectorReports() {
+  const [range, setRange] = useState("this_week");
+  const [filterInspectorId, setFilterInspectorId] = useState(""); // "" = all
+  const [rows, setRows] = useState([]);
+  const [pendingRows, setPendingRows] = useState([]);
+  const [inspectorList, setInspectorList] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const { fromIso, toIso, label } = useMemo(() => {
+    const now = new Date();
+    let from, to, label;
+    if (range === "this_week") {
+      from = startOfWeek(now);
+      to = new Date();
+      label = "This week";
+    } else if (range === "last_week") {
+      const thisWeekStart = startOfWeek(now);
+      to = new Date(thisWeekStart);
+      from = new Date(thisWeekStart);
+      from.setDate(from.getDate() - 7);
+      label = "Last week";
+    } else {
+      to = new Date();
+      from = new Date();
+      from.setDate(from.getDate() - 30);
+      label = "Last 30 days";
+    }
+    return { fromIso: from.toISOString(), toIso: to.toISOString(), label };
+  }, [range]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      // Completed in range (every inspector, optional inspector filter).
+      let completedQ = supabase
+        .from("inspections")
+        .select("id, client_name, address, result, result_at, inspector_id")
+        .not("result", "is", null)
+        .not("inspector_id", "is", null)
+        .gte("result_at", fromIso)
+        .lte("result_at", toIso)
+        .order("result_at", { ascending: false })
+        .limit(5000);
+      if (filterInspectorId) completedQ = completedQ.eq("inspector_id", filterInspectorId);
+
+      // Pending (assigned, no result) — independent of range.
+      let pendingQ = supabase
+        .from("inspections")
+        .select("id, inspector_id")
+        .is("result", null)
+        .not("inspector_id", "is", null)
+        .limit(5000);
+      if (filterInspectorId) pendingQ = pendingQ.eq("inspector_id", filterInspectorId);
+
+      const insQ = supabase
+        .from("inspectors")
+        .select("id, name, active")
+        .order("name");
+
+      const [completed, pending, insList] = await Promise.all([completedQ, pendingQ, insQ]);
+      if (cancelled) return;
+      setRows(completed.data || []);
+      setPendingRows(pending.data || []);
+      setInspectorList(insList.data || []);
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [fromIso, toIso, filterInspectorId]);
+
+  const nameById = useMemo(() => {
+    const m = new Map();
+    for (const i of inspectorList) m.set(i.id, i.name);
+    return m;
+  }, [inspectorList]);
+
+  const { byStatus, byDay, byInspector, total } = useMemo(() => {
+    const byStatus = { damage: 0, no_damage: 0, retail: 0 };
+    const byDay = new Map();
+    const byInspector = new Map(); // inspector_id -> { name, total, damage, no_damage, retail, pending }
+    for (const r of rows) {
+      if (byStatus[r.result] != null) byStatus[r.result]++;
+      const k = dayKey(r.result_at);
+      const dayEntry = byDay.get(k) || { date: r.result_at, total: 0, damage: 0, no_damage: 0, retail: 0 };
+      dayEntry.total++;
+      if (dayEntry[r.result] != null) dayEntry[r.result]++;
+      byDay.set(k, dayEntry);
+
+      const insEntry = byInspector.get(r.inspector_id) || {
+        name: nameById.get(r.inspector_id) || "(removed inspector)",
+        total: 0, damage: 0, no_damage: 0, retail: 0, pending: 0,
+      };
+      insEntry.total++;
+      if (insEntry[r.result] != null) insEntry[r.result]++;
+      byInspector.set(r.inspector_id, insEntry);
+    }
+    for (const p of pendingRows) {
+      const insEntry = byInspector.get(p.inspector_id) || {
+        name: nameById.get(p.inspector_id) || "(removed inspector)",
+        total: 0, damage: 0, no_damage: 0, retail: 0, pending: 0,
+      };
+      insEntry.pending++;
+      byInspector.set(p.inspector_id, insEntry);
+    }
+    const dayList = Array.from(byDay.values()).sort(
+      (a, b) => new Date(b.date) - new Date(a.date),
+    );
+    const inspectorList = Array.from(byInspector.entries())
+      .map(([id, v]) => ({ id, ...v }))
+      .sort((a, b) => b.total - a.total);
+    return { byStatus, byDay: dayList, byInspector: inspectorList, total: rows.length };
+  }, [rows, pendingRows, nameById]);
+
+  const maxDayTotal = Math.max(1, ...byDay.map((d) => d.total));
+
+  return (
+    <div style={{ display: "grid", gap: 16 }}>
+      <div style={{ fontSize: 18, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>
+        📊 Inspector Reports
+      </div>
+
+      {/* Range + inspector filter */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        {[
+          { key: "this_week", label: "This week" },
+          { key: "last_week", label: "Last week" },
+          { key: "last_30",   label: "Last 30 days" },
+        ].map((r) => (
+          <button
+            key={r.key}
+            type="button"
+            onClick={() => setRange(r.key)}
+            style={{
+              ...secondaryBtn,
+              fontSize: 12,
+              padding: "6px 12px",
+              background: range === r.key ? "#0e7490" : "#fff",
+              color: range === r.key ? "#fff" : "#374151",
+              borderColor: range === r.key ? "#0e7490" : "#d1d5db",
+            }}
+          >
+            {r.label}
+          </button>
+        ))}
+        <select
+          value={filterInspectorId}
+          onChange={(e) => setFilterInspectorId(e.target.value)}
+          style={{ ...inputStyle, fontSize: 12, padding: "6px 10px", minWidth: 180 }}
+        >
+          <option value="">All inspectors</option>
+          {inspectorList.map((i) => (
+            <option key={i.id} value={i.id}>
+              {i.name}{!i.active ? " (inactive)" : ""}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {loading ? (
+        <div style={{ padding: 16, color: "#6b7280" }}>Loading…</div>
+      ) : (
+        <>
+          {/* Totals */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+            <div style={{ padding: 14, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10 }}>
+              <div style={{ fontSize: 11, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                Completed
+              </div>
+              <div style={{ fontSize: 28, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>{total}</div>
+              <div style={{ fontSize: 11, color: "#6b7280" }}>{label}</div>
+            </div>
+            <div style={{ padding: 14, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10 }}>
+              <div style={{ fontSize: 11, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                Pending now
+              </div>
+              <div style={{ fontSize: 28, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: pendingRows.length > 0 ? "#b45309" : "#111827" }}>
+                {pendingRows.length}
+              </div>
+              <div style={{ fontSize: 11, color: "#6b7280" }}>Assigned, no result yet</div>
+            </div>
+            <div style={{ padding: 14, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10 }}>
+              <div style={{ fontSize: 11, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                Inspectors active in range
+              </div>
+              <div style={{ fontSize: 28, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>
+                {byInspector.filter((i) => i.total > 0).length}
+              </div>
+              <div style={{ fontSize: 11, color: "#6b7280" }}>Logged a result in this range</div>
+            </div>
+          </div>
+
+          {/* By status — overall */}
+          <section style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, fontFamily: "'Oswald', sans-serif" }}>
+              By result
+            </div>
+            <div style={{ display: "grid", gap: 8 }}>
+              {["damage", "no_damage", "retail"].map((status) => {
+                const meta = STATUS_META[status];
+                const count = byStatus[status];
+                const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+                return (
+                  <div key={status} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 10, alignItems: "center" }}>
+                    <div style={{
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: meta.color,
+                      background: meta.bg,
+                      padding: "4px 10px",
+                      borderRadius: 999,
+                      whiteSpace: "nowrap",
+                    }}>
+                      {meta.emoji} {meta.label}
+                    </div>
+                    <div style={{ height: 8, background: "#f3f4f6", borderRadius: 999, overflow: "hidden" }}>
+                      <div style={{ width: `${pct}%`, height: "100%", background: meta.color, transition: "width 0.3s" }} />
+                    </div>
+                    <div style={{ fontSize: 12, color: "#374151", minWidth: 56, textAlign: "right" }}>
+                      {count} · {pct}%
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {total === 0 && (
+              <div style={{ fontSize: 12, color: "#6b7280", marginTop: 8 }}>
+                No completed inspections in this range.
+              </div>
+            )}
+          </section>
+
+          {/* Per-inspector breakdown */}
+          <section style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, fontFamily: "'Oswald', sans-serif" }}>
+              By inspector
+            </div>
+            {byInspector.length === 0 ? (
+              <div style={{ fontSize: 12, color: "#6b7280" }}>
+                No activity from any inspector in this range.
+              </div>
+            ) : (
+              <div style={{ overflow: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ textAlign: "left", color: "#6b7280", borderBottom: "1px solid #e5e7eb" }}>
+                      <th style={{ padding: "6px 8px" }}>Inspector</th>
+                      <th style={{ padding: "6px 8px", textAlign: "right" }}>Total</th>
+                      <th style={{ padding: "6px 8px", textAlign: "right", color: STATUS_META.damage.color }}>⚠️ Damage</th>
+                      <th style={{ padding: "6px 8px", textAlign: "right", color: STATUS_META.no_damage.color }}>✅ No dmg</th>
+                      <th style={{ padding: "6px 8px", textAlign: "right", color: STATUS_META.retail.color }}>🏠 Retail</th>
+                      <th style={{ padding: "6px 8px", textAlign: "right" }}>Pending</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {byInspector.map((row) => (
+                      <tr key={row.id} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                        <td style={{ padding: "6px 8px", fontWeight: 600 }}>{row.name}</td>
+                        <td style={{ padding: "6px 8px", textAlign: "right" }}>{row.total}</td>
+                        <td style={{ padding: "6px 8px", textAlign: "right" }}>{row.damage}</td>
+                        <td style={{ padding: "6px 8px", textAlign: "right" }}>{row.no_damage}</td>
+                        <td style={{ padding: "6px 8px", textAlign: "right" }}>{row.retail}</td>
+                        <td style={{ padding: "6px 8px", textAlign: "right", color: row.pending > 0 ? "#b45309" : "#6b7280", fontWeight: row.pending > 0 ? 700 : 400 }}>
+                          {row.pending}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          {/* By day */}
+          <section style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, fontFamily: "'Oswald', sans-serif" }}>
+              By day
+            </div>
+            {byDay.length === 0 ? (
+              <div style={{ fontSize: 12, color: "#6b7280" }}>
+                No completed inspections in this range.
+              </div>
+            ) : (
+              <div style={{ display: "grid", gap: 6 }}>
+                {byDay.map((d) => (
+                  <div key={d.date} style={{ display: "grid", gridTemplateColumns: "100px 1fr auto", gap: 10, alignItems: "center" }}>
+                    <div style={{ fontSize: 12, color: "#374151", fontWeight: 600 }}>
+                      {fmtShort(d.date)}
+                    </div>
+                    <div style={{ height: 18, background: "#f3f4f6", borderRadius: 4, overflow: "hidden", display: "flex" }}>
+                      {d.damage > 0 && (
+                        <div style={{ width: `${(d.damage / maxDayTotal) * 100}%`, background: STATUS_META.damage.color }} title={`Damage: ${d.damage}`} />
+                      )}
+                      {d.no_damage > 0 && (
+                        <div style={{ width: `${(d.no_damage / maxDayTotal) * 100}%`, background: STATUS_META.no_damage.color }} title={`No damage: ${d.no_damage}`} />
+                      )}
+                      {d.retail > 0 && (
+                        <div style={{ width: `${(d.retail / maxDayTotal) * 100}%`, background: STATUS_META.retail.color }} title={`Retail: ${d.retail}`} />
+                      )}
+                    </div>
+                    <div style={{ fontSize: 12, color: "#374151", minWidth: 24, textAlign: "right" }}>
+                      {d.total}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ fontSize: 10, color: "#6b7280", marginTop: 10, display: "flex", gap: 12 }}>
+              <span><span style={{ display: "inline-block", width: 10, height: 10, background: STATUS_META.damage.color, borderRadius: 2, marginRight: 4 }}></span>Damage</span>
+              <span><span style={{ display: "inline-block", width: 10, height: 10, background: STATUS_META.no_damage.color, borderRadius: 2, marginRight: 4 }}></span>No damage</span>
+              <span><span style={{ display: "inline-block", width: 10, height: 10, background: STATUS_META.retail.color, borderRadius: 2, marginRight: 4 }}></span>Retail</span>
+            </div>
+          </section>
+        </>
+      )}
+    </div>
+  );
+}
+
 // Guided inspector photo wizard — multi-step interview rather than a
 // single dump-it-all-here photo picker. Sequence:
 //
