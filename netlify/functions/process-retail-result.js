@@ -101,34 +101,54 @@ exports.handler = async (event) => {
       console.warn(locationLookupNote);
     }
     const targetName = (process.env.JN_LOCATION_NAME_RETAIL || "US Shingle and Metal LLC").trim();
-    try {
-      const locRes = await fetch("https://app.jobnimbus.com/api1/account/locations", {
-        headers: jnHeaders,
-      });
-      if (locRes.ok) {
-        const locData = await locRes.json().catch(() => ({}));
-        const list = locData.locations || locData.results || locData.items || [];
-        const match = list.find((l) =>
-          (l.name || l.display_name || "").trim().toLowerCase() === targetName.toLowerCase(),
-        );
-        if (match) {
-          const rawId = match.id ?? match.jnid ?? match.location_id;
-          // JN locations are numeric — coerce + validate.
-          const numStr = String(rawId).trim();
-          if (rawId != null && /^\d+$/.test(numStr)) {
-            retailLocationId = numStr;
-            locationLookupNote = `${locationLookupNote ? locationLookupNote + " " : ""}Resolved "${targetName}" → location id ${retailLocationId}`;
-          } else {
-            locationLookupNote = `${locationLookupNote ? locationLookupNote + " " : ""}Found location "${targetName}" but its id "${rawId}" is not numeric — skipping location swap.`;
-          }
-        } else {
-          locationLookupNote = `${locationLookupNote ? locationLookupNote + " " : ""}Could not find a JN location named "${targetName}". Available: ${list.map((l) => l.name || l.display_name).filter(Boolean).join(", ") || "(none)"}`;
+    // JN doesn't have a clean "/account/locations" endpoint (returns
+    // 404). Try the most common variants in order — first one to
+    // return a JSON list with our target name wins.
+    const endpointCandidates = [
+      "https://app.jobnimbus.com/api1/locations",
+      "https://app.jobnimbus.com/api1/account/locations",
+      "https://app.jobnimbus.com/api1/account",
+    ];
+    let resolved = false;
+    let endpointNotes = [];
+    for (const url of endpointCandidates) {
+      try {
+        const locRes = await fetch(url, { headers: jnHeaders });
+        if (!locRes.ok) {
+          endpointNotes.push(`${url} → ${locRes.status}`);
+          continue;
         }
-      } else {
-        locationLookupNote = `${locationLookupNote ? locationLookupNote + " " : ""}JN /account/locations returned ${locRes.status} — could not resolve "${targetName}"`;
+        const locData = await locRes.json().catch(() => ({}));
+        // Extract the list from any of the common shapes.
+        const list = locData.locations || locData.results || locData.items
+          || locData.data?.locations || locData.account?.locations || [];
+        if (!Array.isArray(list) || list.length === 0) {
+          endpointNotes.push(`${url} → empty list`);
+          continue;
+        }
+        const match = list.find((l) =>
+          (l.name || l.display_name || l.location_name || "").trim().toLowerCase() === targetName.toLowerCase(),
+        );
+        if (!match) {
+          endpointNotes.push(`${url} → no match (available: ${list.map((l) => l.name || l.display_name || l.location_name).filter(Boolean).join(", ") || "(none)"})`);
+          continue;
+        }
+        const rawId = match.id ?? match.jnid ?? match.location_id;
+        const numStr = String(rawId).trim();
+        if (rawId == null || !/^\d+$/.test(numStr)) {
+          endpointNotes.push(`${url} → found but id "${rawId}" non-numeric`);
+          continue;
+        }
+        retailLocationId = numStr;
+        locationLookupNote = `${locationLookupNote ? locationLookupNote + " " : ""}Resolved "${targetName}" → location id ${retailLocationId} via ${url}`;
+        resolved = true;
+        break;
+      } catch (e) {
+        endpointNotes.push(`${url} → exception: ${e.message}`);
       }
-    } catch (e) {
-      locationLookupNote = `${locationLookupNote ? locationLookupNote + " " : ""}Location lookup threw: ${e.message}`;
+    }
+    if (!resolved) {
+      locationLookupNote = `${locationLookupNote ? locationLookupNote + " " : ""}Could not resolve "${targetName}" from any JN endpoint. Tried: ${endpointNotes.join("; ")}. Set JN_LOCATION_ID_RETAIL env to the numeric id manually.`;
     }
   }
 
