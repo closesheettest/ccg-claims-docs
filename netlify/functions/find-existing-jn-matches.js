@@ -86,15 +86,28 @@ exports.handler = async (event) => {
 
   // 2. Build query list and dedupe.
   //
-  // We dropped the bare streetNum query — JN's /contacts?search=1738
-  // matched 1738 anywhere in any field (phone, zip, address) and was
-  // pulling 20+ unrelated contacts. The combined `lastName streetNum`
-  // and `clientName` queries are far more discriminating.
-  const queries = Array.from(new Set([
+  // Two query buckets — one for /contacts?search and one for /jobs?search.
+  //
+  // We hit BOTH endpoints because JN's API contacts-search is much
+  // narrower than the UI's universal search. Contacts-search misses
+  // homeowners whose address-only data would have surfaced them in the
+  // UI, but the JOB name in JN typically embeds the address (e.g.
+  // "Carol Jordan - 1738 23rd Street"), so /jobs?search=1738 finds them.
+  //
+  // Contact queries stay name-focused (address-only queries against
+  // /contacts pull random noise). Job queries include the street
+  // number alone because JN's UI clearly indexes job names by it.
+  const contactQueries = Array.from(new Set([
     lastName,
     clientName,
     `${firstName} ${lastName}`.trim(),
     `${lastName} ${streetNum}`.trim(),
+  ].filter((q) => q && q.length >= 3)));
+  const jobQueries = Array.from(new Set([
+    clientName,
+    `${firstName} ${lastName}`.trim(),
+    `${lastName} ${streetNum}`.trim(),
+    streetNum,
   ].filter((q) => q && q.length >= 3)));
 
   // Pre-compute the address tokens we'll use for relevance filtering
@@ -106,8 +119,8 @@ exports.handler = async (event) => {
   const lastNameNorm = lastName.toLowerCase();
   const firstNameNorm = firstName.toLowerCase();
 
-  // 3. Fire all searches in parallel.
-  const searchResults = await Promise.all(queries.map(async (q) => {
+  // 3a. Fire CONTACT searches in parallel.
+  const contactSearchResults = await Promise.all(contactQueries.map(async (q) => {
     try {
       const r = await fetch(`${JN_BASE}/contacts?search=${encodeURIComponent(q)}&size=20`, {
         headers: jnHeaders,
@@ -120,9 +133,24 @@ exports.handler = async (event) => {
     }
   }));
 
-  // 4. De-dupe contacts by jnid/id.
+  // 3b. Fire JOB searches in parallel. Each hit gets its
+  //     primary_contact_id resolved into the contact bucket.
+  const jobSearchResults = await Promise.all(jobQueries.map(async (q) => {
+    try {
+      const r = await fetch(`${JN_BASE}/jobs?search=${encodeURIComponent(q)}&size=20`, {
+        headers: jnHeaders,
+      });
+      if (!r.ok) return [];
+      const data = await r.json().catch(() => ({}));
+      return data.results || data.jobs || data.items || [];
+    } catch {
+      return [];
+    }
+  }));
+
+  // 4a. De-dupe CONTACTS by jnid/id.
   const byId = new Map();
-  for (const list of searchResults) {
+  for (const list of contactSearchResults) {
     for (const c of list) {
       const id = c.jnid || c.id;
       if (!id) continue;
@@ -130,9 +158,50 @@ exports.handler = async (event) => {
     }
   }
 
-  // 5. For each contact, fetch their jobs.
+  // 4b. Stash matched jobs by their parent contact id so step 5
+  //     can include them without an extra /jobs?related call.
+  //     Resolves the contact via primary_contact_id and seeds the
+  //     contact into byId if not already there (fetched lazily).
+  const jobsByContactId = new Map();
+  const jobOnlyContactIds = new Set();
+  for (const list of jobSearchResults) {
+    for (const j of list) {
+      const primary = j.primary || j.primary_contact || {};
+      const contactId = primary.id || j.primary_contact_id || j.contact_id;
+      if (!contactId) continue;
+      if (!jobsByContactId.has(contactId)) jobsByContactId.set(contactId, []);
+      jobsByContactId.get(contactId).push(j);
+      if (!byId.has(contactId)) jobOnlyContactIds.add(contactId);
+    }
+  }
+
+  // 4c. For contacts surfaced only via job-search, fetch their
+  //     contact record so we have name/address fields to display.
+  await Promise.all(Array.from(jobOnlyContactIds).map(async (id) => {
+    try {
+      const r = await fetch(`${JN_BASE}/contacts/${encodeURIComponent(id)}`, {
+        headers: jnHeaders,
+      });
+      if (!r.ok) return;
+      const c = await r.json().catch(() => null);
+      if (c && (c.jnid || c.id)) byId.set(c.jnid || c.id, c);
+    } catch {}
+  }));
+
+  // 5. For each contact, fetch their jobs and merge in any jobs we
+  //    already picked up from the /jobs?search calls in step 3b
+  //    (those are guaranteed to be the address-matching ones we want
+  //    surfaced, so don't lose them if /jobs?related returns a
+  //    truncated set).
+  const mapJob = (j) => ({
+    jobId: j.jnid || j.id,
+    job_name: j.name || j.display_name || "(no name)",
+    job_address: [j.address_line1, j.city, j.state_text, j.zip].filter(Boolean).join(", "),
+    status_name: j.status_name || null,
+    record_type_name: j.record_type_name || null,
+  });
   const contactsOut = await Promise.all(Array.from(byId.entries()).map(async ([id, c]) => {
-    let jobs = [];
+    let related = [];
     try {
       const r = await fetch(`${JN_BASE}/jobs?related=${encodeURIComponent(id)}&size=30`, {
         headers: jnHeaders,
@@ -140,15 +209,14 @@ exports.handler = async (event) => {
       if (r.ok) {
         const data = await r.json().catch(() => ({}));
         const list = data.results || data.jobs || data.items || [];
-        jobs = list.map((j) => ({
-          jobId: j.jnid || j.id,
-          job_name: j.name || j.display_name || "(no name)",
-          job_address: [j.address_line1, j.city, j.state_text, j.zip].filter(Boolean).join(", "),
-          status_name: j.status_name || null,
-          record_type_name: j.record_type_name || null,
-        }));
+        related = list.map(mapJob);
       }
     } catch {}
+    const fromSearch = (jobsByContactId.get(id) || []).map(mapJob);
+    // Merge by jobId, preferring related results (they're the
+    // authoritative set per contact). Add search-only jobs after.
+    const seen = new Set(related.map((j) => j.jobId));
+    const jobs = [...related, ...fromSearch.filter((j) => !seen.has(j.jobId))];
     return {
       contactId: id,
       contact_name: c.display_name || `${c.first_name || ""} ${c.last_name || ""}`.trim() || "(no name)",
@@ -217,7 +285,11 @@ exports.handler = async (event) => {
       city: insp.city,
       zip: insp.zip,
     },
-    queries_tried: queries,
+    // Single flat list for the UI label — both contact and job
+    // queries fed into the candidate set.
+    queries_tried: Array.from(new Set([...contactQueries, ...jobQueries])),
+    contact_queries: contactQueries,
+    job_queries: jobQueries,
     total_contacts_found: contactsOut.length,
     filtered_out: contactsOut.length - relevant.length,
     contacts: relevant,
