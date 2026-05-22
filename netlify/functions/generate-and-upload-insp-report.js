@@ -123,7 +123,7 @@ exports.handler = async (event) => {
   //       returning HTTP 504. Signed URLs keep the HTML tiny and let
   //       PDFShift parallelize image downloads, cutting render time to
   //       ~3s.
-  let photos = await fetchSupabasePhotosByJnId(jnid);
+  let photos = await fetchSupabasePhotosByJnId(jnid, { resultLabel });
   console.log("Supabase signed-URL photos fetched:", photos.length);
   let photoSource = "supabase";
   if (photos.length === 0) {
@@ -302,7 +302,7 @@ async function stashPdfInSupabase(path, pdfBase64) {
 //
 // With sharp resize to 800px/q70, each photo becomes ~50-80KB. PDF is
 // ~1MB, memory stays comfortably under Lambda limits.
-async function fetchSupabasePhotosByJnId(jnJobId) {
+async function fetchSupabasePhotosByJnId(jnJobId, { resultLabel } = {}) {
   if (!SB_URL || !SB_KEY) {
     console.warn("Supabase env not configured — skipped");
     return [];
@@ -319,9 +319,24 @@ async function fetchSupabasePhotosByJnId(jnJobId) {
     const rows = await lookupRes.json().catch(() => []);
     const raw = rows?.[0]?.inspection_photos;
     if (!Array.isArray(raw) || raw.length === 0) return [];
+
+    // For Retail inspections the inspector is prompted to walk the
+    // whole roof and take 10 worst-condition close-ups (category
+    // "retail_worst"). Those are the photos the cert should show —
+    // they justify the retail recommendation. For Damage/No-Damage
+    // we fall back to the most-recent 10 photos of any kind.
+    let candidates;
+    if (resultLabel === "Retail") {
+      const worst = raw.filter((p) => p.category === "retail_worst");
+      candidates = worst.length > 0 ? worst : raw;
+      console.log(`Retail cert: using ${candidates.length} retail_worst photos (fell back to all=${worst.length === 0})`);
+    } else {
+      candidates = raw;
+    }
+
     // Sort by captured_at desc so the PDF gets the most recent shots
     // first (matches the JN-attachment sort).
-    const sorted = [...raw].sort((a, b) =>
+    const sorted = [...candidates].sort((a, b) =>
       new Date(b.captured_at || 0) - new Date(a.captured_at || 0),
     );
     // Limit to 10 — same as the JN path. Cert template has 10 slots.
