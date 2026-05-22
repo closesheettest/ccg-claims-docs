@@ -147,11 +147,12 @@ exports.handler = async (event) => {
         endpointNotes.push(`${url} → exception: ${e.message}`);
       }
     }
-    // LAST RESORT: scan recent JN jobs for one whose location.name
-    // matches our target — extract that job's location.id. JN's
-    // /account/locations endpoint requires admin scope (401) on
-    // this account, but individual job objects embed the full
-    // location { id, name }, so we can discover it indirectly.
+    // LAST RESORT: scan recent JN jobs for one whose location matches
+    // our target. JN's job-list response shape varies — sometimes
+    // location is { id, name }, sometimes just a number, sometimes
+    // under location_id / location_name. Check every plausible
+    // path AND dump what we actually see so the manager can give us
+    // the numeric id even when no name field exists.
     if (!resolved) {
       try {
         const jobsRes = await fetch("https://app.jobnimbus.com/api1/jobs?size=100", { headers: jnHeaders });
@@ -159,22 +160,61 @@ exports.handler = async (event) => {
           const jobsData = await jobsRes.json().catch(() => ({}));
           const jobs = jobsData.results || jobsData.jobs || jobsData.items || [];
           const targetLower = targetName.toLowerCase();
-          const sample = jobs.find((j) => {
-            const lname = (j.location?.name || j.location_name || "").trim().toLowerCase();
-            return lname === targetLower;
-          });
+          // Pull every possible name field per job; also collect the
+          // raw location values so we can show the manager what shapes
+          // JN actually uses on their account.
+          const nameOf = (j) =>
+            (j.location?.name || j.location_name || j.location?.display_name || j.location_display_name || "")
+              .toString().trim().toLowerCase();
+          const idOf = (j) => {
+            const raw = j.location?.id ?? j.location_id ?? (typeof j.location === "number" ? j.location : null);
+            return raw != null ? String(raw).trim() : null;
+          };
+          const sample = jobs.find((j) => nameOf(j) === targetLower);
           if (sample) {
-            const rawId = sample.location?.id ?? sample.location_id;
-            const numStr = String(rawId).trim();
-            if (rawId != null && /^\d+$/.test(numStr)) {
+            const numStr = idOf(sample);
+            if (numStr && /^\d+$/.test(numStr)) {
               retailLocationId = numStr;
               locationLookupNote = `${locationLookupNote ? locationLookupNote + " " : ""}Discovered location id ${retailLocationId} by scanning JN jobs (sample job: ${sample.jnid || sample.id}).`;
               resolved = true;
             } else {
-              endpointNotes.push(`jobs-scan → found job in "${targetName}" but its location.id "${rawId}" is non-numeric`);
+              endpointNotes.push(`jobs-scan → matched "${targetName}" on job ${sample.jnid || sample.id} but location id "${numStr}" is non-numeric`);
             }
           } else {
-            endpointNotes.push(`jobs-scan (${jobs.length} jobs) → none in "${targetName}". Locations seen: ${Array.from(new Set(jobs.map((j) => j.location?.name || j.location_name).filter(Boolean))).join(", ") || "(none)"}`);
+            // Group jobs by the location info we can see, however
+            // shaped, so the manager can spot the right one even
+            // when JN doesn't embed names.
+            const seenById = new Map();   // id → {sampleName, sampleJobId, count}
+            for (const j of jobs) {
+              const id = idOf(j);
+              const name = nameOf(j);
+              if (!id && !name) continue;
+              const key = id || `name:${name}`;
+              const existing = seenById.get(key) || { id, name, sampleJobId: j.jnid || j.id, count: 0 };
+              existing.count++;
+              if (name && !existing.name) existing.name = name;
+              seenById.set(key, existing);
+            }
+            const seenSummary = Array.from(seenById.values())
+              .map((v) => `id=${v.id || "?"}${v.name ? ` (${v.name})` : ""} ×${v.count}${v.sampleJobId ? ` e.g. job ${v.sampleJobId}` : ""}`)
+              .join("; ");
+            endpointNotes.push(`jobs-scan (${jobs.length} jobs) → no name match for "${targetName}". Locations seen across scanned jobs: ${seenSummary || "(none)"}`);
+
+            // FINAL fallback: GET the inspection's own JN job — its
+            // detail response often has more fields than the list view.
+            try {
+              const detailRes = await fetch(`https://app.jobnimbus.com/api1/jobs/${encodeURIComponent(insp.jn_job_id)}`, { headers: jnHeaders });
+              if (detailRes.ok) {
+                const detailJob = await detailRes.json().catch(() => ({}));
+                const detName = nameOf(detailJob);
+                const detId = idOf(detailJob);
+                endpointNotes.push(`detail of ${insp.jn_job_id}: location id="${detId || ""}" name="${detName || ""}" raw=${JSON.stringify(detailJob.location ?? detailJob.location_id ?? detailJob.location_name ?? null).slice(0, 200)}`);
+              } else {
+                endpointNotes.push(`detail of ${insp.jn_job_id} → ${detailRes.status}`);
+              }
+            } catch (e) {
+              endpointNotes.push(`detail exception: ${e.message}`);
+            }
           }
         } else {
           endpointNotes.push(`/jobs scan → ${jobsRes.status}`);
