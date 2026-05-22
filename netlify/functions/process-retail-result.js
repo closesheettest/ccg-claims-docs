@@ -81,12 +81,20 @@ exports.handler = async (event) => {
     return json(400, { ok: false, error: "Inspection has no jn_job_id — sync to JN first" });
   }
 
-  // 2. Resolve the retail location ID. Direct ID env wins; otherwise
-  //    look up by name (default "US Shingle and Metal LLC") against
-  //    JN's /account/locations endpoint.
-  let retailLocationId = process.env.JN_LOCATION_ID_RETAIL || null;
+  // 2. Resolve the retail location ID. JN requires a NUMERIC id.
+  //    Anything else (placeholder text, non-number strings) gets
+  //    rejected with a 400 — so we validate hard before sending.
+  let retailLocationId = null;
   let locationLookupNote = null;
-  if (!retailLocationId) {
+  const envOverride = (process.env.JN_LOCATION_ID_RETAIL || "").trim();
+  if (envOverride && /^\d+$/.test(envOverride)) {
+    retailLocationId = envOverride;
+    locationLookupNote = `Using JN_LOCATION_ID_RETAIL env override (${retailLocationId})`;
+  } else {
+    if (envOverride) {
+      locationLookupNote = `JN_LOCATION_ID_RETAIL env value "${envOverride.slice(0, 80)}" is not numeric — ignoring it and looking up by name instead.`;
+      console.warn(locationLookupNote);
+    }
     const targetName = (process.env.JN_LOCATION_NAME_RETAIL || "US Shingle and Metal LLC").trim();
     try {
       const locRes = await fetch("https://app.jobnimbus.com/api1/account/locations", {
@@ -99,33 +107,39 @@ exports.handler = async (event) => {
           (l.name || l.display_name || "").trim().toLowerCase() === targetName.toLowerCase(),
         );
         if (match) {
-          retailLocationId = match.id || match.jnid || match.location_id;
-          locationLookupNote = `Resolved "${targetName}" → location id ${retailLocationId}`;
+          const rawId = match.id ?? match.jnid ?? match.location_id;
+          // JN locations are numeric — coerce + validate.
+          const numStr = String(rawId).trim();
+          if (rawId != null && /^\d+$/.test(numStr)) {
+            retailLocationId = numStr;
+            locationLookupNote = `${locationLookupNote ? locationLookupNote + " " : ""}Resolved "${targetName}" → location id ${retailLocationId}`;
+          } else {
+            locationLookupNote = `${locationLookupNote ? locationLookupNote + " " : ""}Found location "${targetName}" but its id "${rawId}" is not numeric — skipping location swap.`;
+          }
         } else {
-          locationLookupNote = `Could not find a JN location named "${targetName}". Available: ${list.map((l) => l.name || l.display_name).filter(Boolean).join(", ") || "(none)"}`;
+          locationLookupNote = `${locationLookupNote ? locationLookupNote + " " : ""}Could not find a JN location named "${targetName}". Available: ${list.map((l) => l.name || l.display_name).filter(Boolean).join(", ") || "(none)"}`;
         }
       } else {
-        locationLookupNote = `JN /account/locations returned ${locRes.status} — could not resolve "${targetName}"`;
+        locationLookupNote = `${locationLookupNote ? locationLookupNote + " " : ""}JN /account/locations returned ${locRes.status} — could not resolve "${targetName}"`;
       }
     } catch (e) {
-      locationLookupNote = `Location lookup threw: ${e.message}`;
+      locationLookupNote = `${locationLookupNote ? locationLookupNote + " " : ""}Location lookup threw: ${e.message}`;
     }
-  } else {
-    locationLookupNote = `Using JN_LOCATION_ID_RETAIL env override (${retailLocationId})`;
   }
 
-  // Build the JN PUT body. Location is only included when resolved.
+  // Build the JN PUT body. Location is only included when we have a
+  // valid numeric ID — otherwise we leave it alone (better than 400).
   const putBody = {
     jnid: insp.jn_job_id,
     cf_string_34: "Retail",
     record_type_name: "Lead",
   };
   if (retailLocationId) {
-    putBody.location = { id: Number(retailLocationId) || retailLocationId };
+    putBody.location = { id: Number(retailLocationId) };
   }
   const locationWarning = retailLocationId
     ? null
-    : `JN location not changed — ${locationLookupNote}. Set JN_LOCATION_ID_RETAIL (or fix the name lookup) and re-fire.`;
+    : `JN location not changed — ${locationLookupNote || "no valid numeric location id resolved"}. Set JN_LOCATION_ID_RETAIL to the numeric ID from JN to enable the location transition.`;
 
   // 3. PUT the JN job.
   let jnUpdated = false;
