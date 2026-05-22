@@ -6981,6 +6981,27 @@ const renderSmsTemplate = (key, vars) => {
           message: parts.join(". "),
         },
       }));
+
+      // Persist push state so the row shows ✓ Pushed and "N photos in
+      // JN" badges across page refreshes. Best-effort — don't surface
+      // errors here since the actual push already succeeded.
+      try {
+        const totalInJn = photosAlreadyInJn + uploaded;
+        const pushedAt = new Date().toISOString();
+        await supabase
+          .from("inspections")
+          .update({
+            jn_pushed_at: pushedAt,
+            jn_photos_in_jn_count: totalInJn,
+          })
+          .eq("id", row.id);
+        // Patch local row so UI updates without a refresh.
+        setRecordSearchResults((rs) => rs.map((rr) =>
+          rr.id === row.id
+            ? { ...rr, jn_pushed_at: pushedAt, jn_photos_in_jn_count: totalInJn }
+            : rr,
+        ));
+      } catch {}
     } catch (e) {
       setPushStatus((s) => ({ ...s, [row.id]: { stage: "error", ok: false, message: `❌ ${e.message || e}` } }));
     } finally {
@@ -7071,6 +7092,18 @@ const renderSmsTemplate = (key, vars) => {
             message: `✅ Cert in JN Documents (${b1.photoCount ?? "?"} photos). Filename: ${b1.filename}.`,
           },
         }));
+        // Persist cert-uploaded timestamp so the row shows "📄 Cert in JN"
+        // across page refreshes. Best-effort.
+        try {
+          const uploadedAt = new Date().toISOString();
+          await supabase
+            .from("inspections")
+            .update({ jn_cert_uploaded_at: uploadedAt })
+            .eq("id", row.id);
+          setRecordSearchResults((rs) => rs.map((rr) =>
+            rr.id === row.id ? { ...rr, jn_cert_uploaded_at: uploadedAt } : rr,
+          ));
+        } catch {}
       } else {
         setPushStatus((s) => ({
           ...s,
@@ -10826,7 +10859,7 @@ if (!hasDamage) {
         // even after one of their rows was resolved.
         const { data: results, error } = await supabase
           .from("inspections")
-          .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed, jn_job_id, cancelled_at, signed_pdfs, pa_status, pa_status_updated_at, jn_status")
+          .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed, jn_job_id, cancelled_at, signed_pdfs, pa_status, pa_status_updated_at, jn_status, jn_pushed_at, jn_cert_uploaded_at, jn_photos_in_jn_count")
           .is("result", null)
           .is("cancelled_at", null)
           .or("jn_status.is.null,jn_status.eq.Needs Inspection,jn_status.eq.New Lead,jn_status.eq.");
@@ -10942,7 +10975,7 @@ if (!hasDamage) {
         const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
         const { data: results, error } = await supabase
           .from("inspections")
-          .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed, jn_job_id, cancelled_at, signed_pdfs, pa_status, pa_status_updated_at")
+          .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed, jn_job_id, cancelled_at, signed_pdfs, pa_status, pa_status_updated_at, jn_pushed_at, jn_cert_uploaded_at, jn_photos_in_jn_count")
           .gte("signed_at", thirtyDaysAgo)
           .order("result_at", { ascending: false, nullsFirst: false });
         if (error) throw error;
@@ -11083,7 +11116,7 @@ if (!hasDamage) {
           const dayEnd   = new Date(`${lookupDate}T23:59:59.999`).toISOString();
           const { data: results, error } = await supabase
             .from("inspections")
-            .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed, jn_job_id, cancelled_at, signed_pdfs, pa_status, pa_status_updated_at")
+            .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed, jn_job_id, cancelled_at, signed_pdfs, pa_status, pa_status_updated_at, jn_pushed_at, jn_cert_uploaded_at, jn_photos_in_jn_count")
             .gte("signed_at", dayStart)
             .lte("signed_at", dayEnd)
             .order("signed_at", { ascending: false });
@@ -11421,6 +11454,27 @@ if (!hasDamage) {
                                         ⏳ PA: PENDING
                                       </div>
                                     )
+                                  ) : null}
+                                  {/* JN push status pills — show what's already
+                                      landed in JN so the manager doesn't have
+                                      to re-click Push to JN to remember. */}
+                                  {rec.jn_pushed_at ? (
+                                    <div style={{ background: "#ecfdf5", color: "#065f46", border: "1px solid #10b981", borderRadius: 20, padding: "3px 10px", fontSize: 10, fontWeight: 700, fontFamily: "'Oswald', sans-serif", whiteSpace: "nowrap" }}
+                                      title={`Pushed to JN ${new Date(rec.jn_pushed_at).toLocaleString()}`}>
+                                      ✓ JN PUSHED
+                                    </div>
+                                  ) : null}
+                                  {rec.jn_cert_uploaded_at ? (
+                                    <div style={{ background: "#f5f3ff", color: "#5b21b6", border: "1px solid #7c3aed", borderRadius: 20, padding: "3px 10px", fontSize: 10, fontWeight: 700, fontFamily: "'Oswald', sans-serif", whiteSpace: "nowrap" }}
+                                      title={`Cert uploaded ${new Date(rec.jn_cert_uploaded_at).toLocaleString()}`}>
+                                      📄 CERT IN JN
+                                    </div>
+                                  ) : null}
+                                  {rec.jn_photos_in_jn_count > 0 ? (
+                                    <div style={{ background: "#ecfeff", color: "#0e7490", border: "1px solid #0e7490", borderRadius: 20, padding: "3px 10px", fontSize: 10, fontWeight: 700, fontFamily: "'Oswald', sans-serif", whiteSpace: "nowrap" }}
+                                      title={`${rec.jn_photos_in_jn_count} photos in JN`}>
+                                      📸 {rec.jn_photos_in_jn_count} IN JN
+                                    </div>
                                   ) : null}
                                 </div>
                               </div>
