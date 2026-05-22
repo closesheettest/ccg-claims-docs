@@ -10,6 +10,7 @@ import {
 import { supabase } from "./lib/supabase";
 import { InspectorMobileApp, InspectorsAdminPanel, InspectorSetupPage, ManagerInspectorReports, InspectionAssignmentsPanel, ManagerRoutePlanner, PAHandoffPanel } from "./InspectorViews";
 import InspectionPhotosModal from "./InspectionPhotosModal";
+import JnMatchPickerModal from "./JnMatchPickerModal";
 
 // Inject Oswald font
 if (typeof document !== "undefined" && !document.getElementById("oswald-font")) {
@@ -3989,6 +3990,10 @@ export default function App() {
   // Photo gallery modal — when set, shows the inspection_photos JSON
   // for that inspection id (with signed URLs + category labels).
   const [photosModalId, setPhotosModalId] = useState(null);
+  // JN match-picker modal — shown before "Sync to JN" creates anything,
+  // so the manager can link to an existing JN job instead of silently
+  // duplicating it. Holds the row that's being synced.
+  const [jnPickerRow, setJnPickerRow] = useState(null);
   const [editLoading, setEditLoading] = useState(false);
 
   // Sales rep manager
@@ -11383,14 +11388,18 @@ if (!hasDamage) {
                                   </div>
                                 ) : null}
 
-                                {/* Orphan detector — only show if record is missing jn_job_id. Lets admin retry JN sync in one click. */}
+                                {/* Orphan detector — only show if record is missing jn_job_id. Opens
+                                    the JN match picker first so the manager can link to an existing
+                                    JN job instead of silently creating a duplicate (the picker only
+                                    fires retry-jn-sync's create flow if the manager confirms
+                                    "None match — Create new in JN"). */}
                                 {!rec.jn_job_id ? (
                                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
                                     <button
                                       type="button"
                                       disabled={isBusy}
-                                      onClick={(e) => { e.stopPropagation(); adminRetryJnSync(rec); }}
-                                      title="This record isn't in JobNimbus. Click to create the JN job now."
+                                      onClick={(e) => { e.stopPropagation(); setJnPickerRow(rec); }}
+                                      title="Search JobNimbus for this homeowner first — link an existing job if one's there, or create a new one if not."
                                       style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #ea580c", background: isBusy ? "#f3f4f6" : "#fff7ed", color: isBusy ? "#9ca3af" : "#ea580c", fontSize: 11, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: isBusy ? "not-allowed" : "pointer" }}>
                                       🔄 Sync to JN
                                     </button>
@@ -13617,6 +13626,27 @@ if (!hasDamage) {
             onClose={() => setPhotosModalId(null)}
           />
         )}
+
+        {/* ── JN Match Picker Modal ─────────────────────────────────────── */}
+        <JnMatchPickerModal
+          open={!!jnPickerRow}
+          row={jnPickerRow}
+          onClose={() => setJnPickerRow(null)}
+          onLinked={(jobId, source) => {
+            // Refresh the row in-place so the orphan badge disappears
+            // and the Push to JN button takes over immediately.
+            if (jnPickerRow) {
+              setRecordSearchResults((prev) => prev.map((rr) => rr.id === jnPickerRow.id
+                ? { ...rr, jn_job_id: jobId }
+                : rr));
+            }
+            // Small confirmation toast via alert — short, easy to dismiss.
+            alert(source === "linked"
+              ? `🔗 Linked to existing JN job ${jobId}. No new JN record created.`
+              : `✅ Created new JN job ${jobId}.`);
+          }}
+        />
+
 
         {/* ── Edit Record Modal ─────────────────────────────────────────── */}
         {editModal ? (
