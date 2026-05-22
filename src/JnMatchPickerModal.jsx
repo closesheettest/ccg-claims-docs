@@ -178,13 +178,24 @@ export default function JnMatchPickerModal({ open, row, onClose, onLinked }) {
           <>
             {data.contacts.length === 0 ? (
               <div style={{ padding: 16, background: "#ecfdf5", border: "1px solid #86efac", borderRadius: 10, color: "#065f46", fontSize: 13, marginBottom: 16 }}>
-                ✅ Searched JN for: {data.queries_tried.map((q) => `"${q}"`).join(", ")}. <strong>No possibly-matching contacts found.</strong> Safe to create a new JN job.
+                ✅ Searched JN for: {data.queries_tried.map((q) => `"${q}"`).join(", ")}.{" "}
+                <strong>No possibly-matching contacts found.</strong> Safe to create a new JN job.
+                {data.filtered_out > 0 ? (
+                  <span style={{ display: "block", marginTop: 6, fontSize: 11, color: "#065f46" }}>
+                    ({data.filtered_out} unrelated result{data.filtered_out === 1 ? "" : "s"} from JN's broad search were filtered out — none of their names or addresses matched this homeowner.)
+                  </span>
+                ) : null}
               </div>
             ) : (
               <>
                 <div style={{ fontSize: 13, color: "#475569", marginBottom: 10 }}>
-                  Found <strong>{data.contacts.length}</strong> possibly-matching contact{data.contacts.length === 1 ? "" : "s"} in JN.
+                  Found <strong>{data.contacts.length}</strong> relevant match{data.contacts.length === 1 ? "" : "es"} in JN.
                   Queries tried: {data.queries_tried.map((q) => `"${q}"`).join(", ")}.
+                  {data.filtered_out > 0 ? (
+                    <span style={{ display: "block", marginTop: 4, fontSize: 11, color: "#9ca3af" }}>
+                      ({data.filtered_out} unrelated result{data.filtered_out === 1 ? "" : "s"} hidden — no name or address overlap with this homeowner.)
+                    </span>
+                  ) : null}
                 </div>
                 <div style={{ display: "grid", gap: 10, marginBottom: 18 }}>
                   {data.contacts.map((c) => (

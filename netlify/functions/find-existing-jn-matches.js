@@ -85,13 +85,26 @@ exports.handler = async (event) => {
   const middleAndLast = nameParts.slice(1).join(" ");
 
   // 2. Build query list and dedupe.
+  //
+  // We dropped the bare streetNum query — JN's /contacts?search=1738
+  // matched 1738 anywhere in any field (phone, zip, address) and was
+  // pulling 20+ unrelated contacts. The combined `lastName streetNum`
+  // and `clientName` queries are far more discriminating.
   const queries = Array.from(new Set([
     lastName,
-    streetNum,
     clientName,
     `${firstName} ${lastName}`.trim(),
     `${lastName} ${streetNum}`.trim(),
   ].filter((q) => q && q.length >= 3)));
+
+  // Pre-compute the address tokens we'll use for relevance filtering
+  // below: the street number, the rest of the street as a single
+  // lowercased token (e.g. "23rd street"), the zip, and the city.
+  const streetRest = address.replace(streetNum, "").trim().toLowerCase();
+  const zipNorm = (insp.zip || "").trim().slice(0, 5);
+  const cityNorm = (insp.city || "").trim().toLowerCase();
+  const lastNameNorm = lastName.toLowerCase();
+  const firstNameNorm = firstName.toLowerCase();
 
   // 3. Fire all searches in parallel.
   const searchResults = await Promise.all(queries.map(async (q) => {
@@ -147,9 +160,48 @@ exports.handler = async (event) => {
     };
   }));
 
-  // 6. Sort: contacts whose contact address contains our street number first,
+  // 6. Filter to RELEVANT matches. Without this, JN was returning 20
+  //    contacts where the only thing in common was a phone digit or
+  //    zip fragment — useless noise the manager had to scroll past.
+  //
+  //    A contact is considered relevant if it has any one of:
+  //      • Last name match (contact_name or any job_name contains our last name)
+  //      • First name match (contact_name contains our first name AND another signal)
+  //      • Street number + street name both in contact_address or a job_address
+  //      • Zip match AND (city match OR last-name partial)
+  //
+  //    Anything that misses all of these gets dropped.
+  const isRelevant = (c) => {
+    const cname = (c.contact_name || "").toLowerCase();
+    const caddr = (c.contact_address || "").toLowerCase();
+    const czip = (c.contact_zip || "").trim().slice(0, 5);
+    const allAddrs = [caddr, ...c.jobs.map((j) => (j.job_address || "").toLowerCase())].join(" | ");
+    const allNames = [cname, ...c.jobs.map((j) => (j.job_name || "").toLowerCase())].join(" | ");
+
+    // Strong: last name appears in any name field.
+    if (lastNameNorm && lastNameNorm.length >= 3 && allNames.includes(lastNameNorm)) return true;
+
+    // Strong: street number + meaningful street word both appear in
+    // some address. Guards against a bare "1738" matching unrelated
+    // phone/zip digits.
+    if (streetNum && streetRest) {
+      const streetWord = streetRest.split(/\s+/).find((w) => w.length >= 3) || "";
+      if (streetWord && allAddrs.includes(streetNum) && allAddrs.includes(streetWord)) return true;
+    }
+
+    // Medium: zip matches AND (city in address OR first name in any name).
+    if (zipNorm && czip && zipNorm === czip) {
+      if (cityNorm && allAddrs.includes(cityNorm)) return true;
+      if (firstNameNorm && firstNameNorm.length >= 3 && allNames.includes(firstNameNorm)) return true;
+    }
+
+    return false;
+  };
+  const relevant = contactsOut.filter(isRelevant);
+
+  // 7. Sort: contacts whose contact address contains our street number first,
   //    then by number of jobs (more jobs = more likely to be real).
-  contactsOut.sort((a, b) => {
+  relevant.sort((a, b) => {
     const aHit = streetNum && a.contact_address.toLowerCase().includes(streetNum.toLowerCase()) ? 1 : 0;
     const bHit = streetNum && b.contact_address.toLowerCase().includes(streetNum.toLowerCase()) ? 1 : 0;
     if (aHit !== bHit) return bHit - aHit;
@@ -167,7 +219,8 @@ exports.handler = async (event) => {
     },
     queries_tried: queries,
     total_contacts_found: contactsOut.length,
-    contacts: contactsOut,
+    filtered_out: contactsOut.length - relevant.length,
+    contacts: relevant,
   });
 };
 
