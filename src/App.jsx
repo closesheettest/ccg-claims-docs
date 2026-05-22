@@ -11683,9 +11683,24 @@ if (!hasDamage) {
                                   </div>                                ) : null}
 
                                 {/* Push result to JN — appears when the record HAS a JN job AND
-                                    a local result. Live status appears under the button so
-                                    the manager sees progress instead of staring at a frozen
-                                    page (the prior alert()-only flow gave no feedback). */}
+                                    a local result. When the row has a JN job but no result
+                                    yet, render a DISABLED Push to JN with a "Set a result
+                                    first" hint so the absence of the button isn't a
+                                    silent mystery. */}
+                                {rec.jn_job_id && !rec.result ? (
+                                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, maxWidth: 220 }}>
+                                    <button
+                                      type="button"
+                                      disabled
+                                      title="Set a result (damage / no_damage / retail) using the Admin dropdown above. Push to JN unlocks once a result exists."
+                                      style={{ padding: "6px 12px", borderRadius: 8, border: "1px dashed #94a3b8", background: "#f8fafc", color: "#94a3b8", fontSize: 11, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: "not-allowed" }}>
+                                      🔄 Push to JN
+                                    </button>
+                                    <div style={{ fontSize: 9, color: "#94a3b8", fontFamily: "'Nunito', sans-serif", fontWeight: 600, textAlign: "center", lineHeight: 1.3, maxWidth: 200 }}>
+                                      Needs a result first
+                                    </div>
+                                  </div>
+                                ) : null}
                                 {rec.jn_job_id && rec.result ? (() => {
                                   const status = pushStatus[rec.id];
                                   const inFlight = status && (status.stage === "updating" || status.stage === "queueing");
