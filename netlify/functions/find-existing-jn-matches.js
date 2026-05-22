@@ -62,7 +62,7 @@ exports.handler = async (event) => {
 
   // 1. Fetch the inspection's identity fields.
   const inspRes = await fetch(
-    `${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}&select=id,client_name,address,city,state,zip&limit=1`,
+    `${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}&select=id,client_name,address,city,state,zip,mobile,email&limit=1`,
     { headers: sbHeaders },
   );
   if (!inspRes.ok) {
@@ -75,6 +75,13 @@ exports.handler = async (event) => {
   const clientName = (insp.client_name || "").trim();
   const address = (insp.address || "").trim();
   const streetNum = address.split(/\s+/)[0] || "";
+  // Phone digits only. JN stores phones in mixed formats (e.g.
+  // "(941) 326-9141", "941-326-9141", "9413269141") — searching by
+  // bare digits matches any of them. The last 7 digits alone are
+  // usually enough to disambiguate within an area code.
+  const phoneDigits = (insp.mobile || "").replace(/\D/g, "");
+  const phoneLast7 = phoneDigits.slice(-7);
+  const email = (insp.email || "").trim().toLowerCase();
 
   // Split client_name. For "Jimmie Mae Alexander", store all alternatives
   // because JN may have the original as first="Jimmie" last="Alexander"
@@ -102,6 +109,14 @@ exports.handler = async (event) => {
     clientName,
     `${firstName} ${lastName}`.trim(),
     `${lastName} ${streetNum}`.trim(),
+    // Phone digits — extremely high-signal. JN matches phones across
+    // formats by digits, so this finds the homeowner even when name
+    // search misses them.
+    phoneLast7,
+    phoneDigits,
+    // Email is also high-signal. Most homeowners have a single email
+    // attached to their JN contact.
+    email,
   ].filter((q) => q && q.length >= 3)));
   const jobQueries = Array.from(new Set([
     clientName,
@@ -217,6 +232,10 @@ exports.handler = async (event) => {
     // authoritative set per contact). Add search-only jobs after.
     const seen = new Set(related.map((j) => j.jobId));
     const jobs = [...related, ...fromSearch.filter((j) => !seen.has(j.jobId))];
+    // Phone digits (combined across all JN phone fields) and email,
+    // used by the relevance filter as high-signal match criteria.
+    const phoneFields = [c.mobile_phone, c.home_phone, c.work_phone, c.phone].filter(Boolean);
+    const contactPhoneDigits = phoneFields.map((p) => String(p).replace(/\D/g, "")).join(" ");
     return {
       contactId: id,
       contact_name: c.display_name || `${c.first_name || ""} ${c.last_name || ""}`.trim() || "(no name)",
@@ -224,6 +243,8 @@ exports.handler = async (event) => {
       contact_last: c.last_name || "",
       contact_address: [c.address_line1, c.city, c.state_text, c.zip].filter(Boolean).join(", "),
       contact_zip: c.zip || "",
+      contact_phone_digits: contactPhoneDigits,
+      contact_email: (c.email || "").toLowerCase(),
       jobs,
     };
   }));
@@ -243,8 +264,17 @@ exports.handler = async (event) => {
     const cname = (c.contact_name || "").toLowerCase();
     const caddr = (c.contact_address || "").toLowerCase();
     const czip = (c.contact_zip || "").trim().slice(0, 5);
+    const cphone = c.contact_phone_digits || "";
+    const cemail = c.contact_email || "";
     const allAddrs = [caddr, ...c.jobs.map((j) => (j.job_address || "").toLowerCase())].join(" | ");
     const allNames = [cname, ...c.jobs.map((j) => (j.job_name || "").toLowerCase())].join(" | ");
+
+    // Strong: phone match (last 7 digits). High-signal — almost
+    // impossible to share with another homeowner by accident.
+    if (phoneLast7 && phoneLast7.length === 7 && cphone.includes(phoneLast7)) return true;
+
+    // Strong: exact email match.
+    if (email && cemail && email === cemail) return true;
 
     // Strong: last name appears in any name field.
     if (lastNameNorm && lastNameNorm.length >= 3 && allNames.includes(lastNameNorm)) return true;
