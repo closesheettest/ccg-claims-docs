@@ -49,6 +49,11 @@ exports.handler = async (event) => {
   }
   const inspectionId = (body.inspectionId || "").trim();
   if (!inspectionId) return json(400, { ok: false, error: "inspectionId required" });
+  // Client can ask us to skip the cert kickoff — useful when the
+  // calling UI has already fired the cert generator itself (e.g.
+  // adminPushResultToJn does cert before us so order is photos →
+  // cert → retail swap).
+  const skipCert = !!body.skip_cert;
 
   const SB_URL = process.env.VITE_SUPABASE_URL;
   const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
@@ -163,12 +168,18 @@ exports.handler = async (event) => {
   //    to the JN job's Documents tab. Best-effort — failure here
   //    doesn't roll back the JN field updates.
   const base = (process.env.URL || process.env.PUBLIC_SITE_URL || "").replace(/\/$/, "");
-  // Fire the cert generator as a Background Function (returns 202
-  // instantly, runs up to 15 min). Regular variant timed out the
-  // calling function on most retail submissions.
+  // Cert generator — fire only if the caller didn't already do it.
+  // adminPushResultToJn fires the cert itself for retail (so the
+  // order is photos → cert → retail swap) and sets skip_cert=true
+  // to avoid double-firing. Direct invocations (manual retry) still
+  // get the cert kicked off here.
   let certUploaded = false;
   let certError = null;
-  if (base) {
+  let certSkipped = false;
+  if (skipCert) {
+    certSkipped = true;
+    certError = "skipped by request (skip_cert=true)";
+  } else if (base) {
     try {
       const certRes = await fetch(`${base}/.netlify/functions/generate-and-upload-insp-report-background`, {
         method: "POST",
@@ -195,6 +206,7 @@ exports.handler = async (event) => {
     jn_updated: jnUpdated,
     jn_update_error: jnUpdateError,
     cert_uploaded: certUploaded,
+    cert_skipped: certSkipped,
     cert_error: certError,
     location_warning: locationWarning,
     location_lookup_note: locationLookupNote,

@@ -73,32 +73,43 @@ exports.handler = async (event) => {
 
   const base = (process.env.URL || process.env.PUBLIC_SITE_URL || "").replace(/\/$/, "");
 
-  // Retail → dedicated function (record_type + location swap on top
-  // of cf_string_34). Process-retail-result currently runs the cert
-  // generation inline; if that times out we'll need to apply the
-  // same per-photo split there too.
+  // Photo list — same for every result type. Client iterates and
+  // fires upload-photo-to-jn per photo.
+  const photos = Array.isArray(insp.inspection_photos) ? insp.inspection_photos : [];
+  const photosToUpload = photos.map((p) => ({
+    path: p.path,
+    bucket: p.bucket || "signed-documents",
+    label: p.label || "Inspector photo",
+  }));
+
+  // RETAIL: do NOT do the cf_string_34 + record_type + location PUT
+  // here. The client uploads photos first, then fires the cert, THEN
+  // calls process-retail-result for the workflow swap — so photos and
+  // cert land on the JN job while it's still in the "PA / U.S. SHINGLE
+  // - Insurance" location, and the swap happens once everything's
+  // attached. Order matters: if we transitioned the job first, any
+  // photo upload mid-swap could race.
   if (insp.result === "retail") {
-    if (!base) return json(500, { ok: false, error: "No base URL configured for internal retail call" });
-    const r = await fetch(`${base}/.netlify/functions/process-retail-result`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ inspectionId }),
-    });
-    const body2 = await r.json().catch(() => ({}));
-    return json(r.ok ? 200 : 500, {
-      ok: r.ok && body2.ok !== false,
-      delegated_to: "process-retail-result",
-      ...body2,
+    return json(200, {
+      ok: true,
+      inspection_id: inspectionId,
+      jn_job_id: insp.jn_job_id,
+      client_name: insp.client_name,
+      result: "retail",
+      jn_updated: false,           // we deliberately haven't PUT yet
+      needs_retail_swap: true,     // tells the client to fire process-retail-result LAST
+      photos_to_upload: photosToUpload,
     });
   }
 
+  // DAMAGE / NO_DAMAGE: PUT cf_string_34 now (fast, ~1s) and return
+  // the photo list. Client handles photos + cert.
   const RESULT_LABELS = { damage: "Damage", no_damage: "No Damage" };
   const cfValue = RESULT_LABELS[insp.result];
   if (!cfValue) {
     return json(400, { ok: false, error: `Unsupported result "${insp.result}"` });
   }
 
-  // PUT cf_string_34 on the JN job.
   let jnUpdated = false;
   let jnUpdateError = null;
   try {
@@ -116,11 +127,6 @@ exports.handler = async (event) => {
     jnUpdateError = `JN PUT exception: ${e.message}`;
   }
 
-  // Return the photo list so the client can fan out per-photo uploads.
-  // We DON'T do them server-side anymore — 28 photos won't fit in
-  // Netlify's 10s budget when batched 3 at a time on this one Lambda.
-  const photos = Array.isArray(insp.inspection_photos) ? insp.inspection_photos : [];
-
   return json(200, {
     ok: jnUpdated,
     inspection_id: inspectionId,
@@ -130,12 +136,7 @@ exports.handler = async (event) => {
     cf_string_34_set: cfValue,
     jn_updated: jnUpdated,
     jn_update_error: jnUpdateError,
-    // Caller iterates this list and fires upload-photo-to-jn per item.
-    photos_to_upload: photos.map((p) => ({
-      path: p.path,
-      bucket: p.bucket || "signed-documents",
-      label: p.label || "Inspector photo",
-    })),
+    photos_to_upload: photosToUpload,
   });
 };
 

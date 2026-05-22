@@ -6818,38 +6818,50 @@ const renderSmsTemplate = (key, vars) => {
         return;
       }
 
-      // Retail path returns nothing to upload — process-retail-result
-      // already handled its own JN PUT + cert. Show its summary and stop.
-      if (d.delegated_to === "process-retail-result") {
-        setPushStatus((s) => ({
-          ...s,
-          [row.id]: {
-            stage: "done",
-            ok: true,
-            message: `✅ Retail pushed (record_type + location swapped). Cert in JN Documents shortly.`,
-          },
-        }));
-        setRowBusyId(null);
-        return;
-      }
-
       const photos = Array.isArray(d.photos_to_upload) ? d.photos_to_upload : [];
       const jnJobId = d.jn_job_id;
+      const isRetail = !!d.needs_retail_swap || row.result === "retail";
+
+      // Helper that runs once everything's settled — for retail we
+      // ALSO fire process-retail-result for the workflow swap, AFTER
+      // photos + cert have been pushed (so the swap is the last thing
+      // and the JN job has all attachments before the location change).
+      async function fireRetailSwapIfNeeded() {
+        if (!isRetail) return null;
+        try {
+          const r = await fetch("/.netlify/functions/process-retail-result", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ inspectionId: row.id, skip_cert: true }),
+          });
+          const j = await r.json().catch(() => ({}));
+          return j;
+        } catch (e) {
+          return { ok: false, error: e.message || "network" };
+        }
+      }
 
       // STEP 2: Fire per-photo uploads in parallel batches. Each photo
       // is its own Lambda — ~2s — so 28 photos in batches of 6 finish
       // in ~10s wall time with progress shown to the manager.
       if (photos.length === 0) {
+        // No photos — fire cert (in case JN already has photos from
+        // somewhere else) and then the retail swap if applicable.
+        fireCertGeneration(jnJobId);
+        const swapResult = await fireRetailSwapIfNeeded();
+        const swapMsg = !isRetail ? "" :
+          swapResult?.jn_updated ? " ✅ Retail swap applied." :
+            ` ⚠ Retail swap: ${swapResult?.jn_update_error || swapResult?.error || "see logs"}.`;
         setPushStatus((s) => ({
           ...s,
           [row.id]: {
             stage: "done",
             ok: true,
-            message: `✅ JN result set to "${d.cf_string_34_set || row.result}". No photos on file. 📄 Cert generating — check JN Documents in ~1 min.`,
+            message: isRetail
+              ? `No photos on file.${swapMsg} 📄 Cert generating — check JN Documents in ~1 min.`
+              : `✅ JN result set to "${d.cf_string_34_set || row.result}". No photos on file. 📄 Cert generating — check JN Documents in ~1 min.`,
           },
         }));
-        // Still fire the cert in case it can find photos in JN already.
-        fireCertGeneration(jnJobId);
         setRowBusyId(null);
         return;
       }
@@ -6858,17 +6870,17 @@ const renderSmsTemplate = (key, vars) => {
       let failed = 0;
       let firstFailureMsg = null;
       const BATCH = 6;
-      const update = () => {
+      const update = (stagePrefix) => {
         const done = uploaded + failed;
         setPushStatus((s) => ({
           ...s,
           [row.id]: {
             stage: "updating",
-            message: `📤 Uploading photos to JN: ${done}/${photos.length}${failed > 0 ? ` (${failed} failed so far)` : ""}…`,
+            message: `${stagePrefix} ${done}/${photos.length}${failed > 0 ? ` (${failed} failed so far)` : ""}…`,
           },
         }));
       };
-      update();
+      update("📤 Uploading photos to JN:");
       for (let i = 0; i < photos.length; i += BATCH) {
         const slice = photos.slice(i, i + BATCH);
         await Promise.all(slice.map(async (p) => {
@@ -6894,15 +6906,39 @@ const renderSmsTemplate = (key, vars) => {
             failed++;
             if (!firstFailureMsg) firstFailureMsg = e.message || "network error";
           }
-          update();
+          update("📤 Uploading photos to JN:");
         }));
       }
 
       // STEP 3: Fire the cert generator (fire-and-forget — its own Lambda).
+      setPushStatus((s) => ({
+        ...s,
+        [row.id]: { stage: "updating", message: "📄 Queueing cert generation…" },
+      }));
       fireCertGeneration(jnJobId);
 
+      // STEP 4 (retail only): now the JN job has photos + cert
+      // queued, do the workflow swap (record_type → Lead, location →
+      // US Shingle and Metal LLC, cf_string_34 → Retail).
+      let swapResult = null;
+      if (isRetail) {
+        setPushStatus((s) => ({
+          ...s,
+          [row.id]: { stage: "updating", message: "🔁 Applying retail workflow swap (record_type + location)…" },
+        }));
+        swapResult = await fireRetailSwapIfNeeded();
+      }
+
       const parts = [];
-      parts.push(`✅ JN result set to "${d.cf_string_34_set || row.result}"`);
+      if (isRetail) {
+        if (swapResult?.jn_updated) {
+          parts.push(`✅ Retail swap applied (record_type=Lead, location=US Shingle and Metal LLC)`);
+        } else {
+          parts.push(`⚠ Retail swap failed: ${swapResult?.jn_update_error || swapResult?.error || "see logs"}`);
+        }
+      } else {
+        parts.push(`✅ JN result set to "${d.cf_string_34_set || row.result}"`);
+      }
       if (failed === 0) {
         parts.push(`✅ ${uploaded}/${photos.length} photos uploaded to JN`);
       } else if (uploaded > 0) {
