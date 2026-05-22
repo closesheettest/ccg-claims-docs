@@ -7017,26 +7017,58 @@ const renderSmsTemplate = (key, vars) => {
       return;
     }
     setRowBusyId(row.id);
+    // STEP A: render PDF in one Lambda. STEP B: upload PDF in another.
+    // Splitting it so neither half exceeds Netlify's 10s budget.
     setPushStatus((s) => ({
       ...s,
-      [row.id]: { stage: "updating", message: "📄 Generating cert (this can take 10-20s)…" },
+      [row.id]: { stage: "updating", message: "📄 Rendering cert PDF (step 1 of 2)…" },
     }));
     try {
-      const r = await fetch("/.netlify/functions/generate-and-upload-insp-report", {
+      const r1 = await fetch("/.netlify/functions/generate-and-upload-insp-report", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jnid: row.jn_job_id }),
+        body: JSON.stringify({ jnid: row.jn_job_id, skip_jn_upload: true }),
       });
-      const txt = await r.text();
-      let body = {};
-      try { body = JSON.parse(txt); } catch {}
-      if (r.ok && body.ok) {
+      const txt1 = await r1.text();
+      let b1 = {};
+      try { b1 = JSON.parse(txt1); } catch {}
+      if (!r1.ok || !b1.ok || !b1.pdf_signed_url) {
+        setPushStatus((s) => ({
+          ...s,
+          [row.id]: {
+            stage: "error",
+            ok: false,
+            message: `❌ Render failed (HTTP ${r1.status}): ${b1.error || b1.detail || txt1.slice(0, 200)}`,
+          },
+        }));
+        setRowBusyId(null);
+        return;
+      }
+
+      setPushStatus((s) => ({
+        ...s,
+        [row.id]: { stage: "updating", message: `📤 Uploading cert to JN (step 2 of 2)…` },
+      }));
+      const r2 = await fetch("/.netlify/functions/upload-pdf-to-jn", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jnid: row.jn_job_id,
+          filename: b1.filename,
+          pdf_url: b1.pdf_signed_url,
+          pdf_storage_path: b1.pdf_storage_path,
+        }),
+      });
+      const txt2 = await r2.text();
+      let b2 = {};
+      try { b2 = JSON.parse(txt2); } catch {}
+      if (r2.ok && b2.ok) {
         setPushStatus((s) => ({
           ...s,
           [row.id]: {
             stage: "done",
             ok: true,
-            message: `✅ Cert generated + uploaded to JN Documents (${body.photoCount ?? "?"} photos). Filename: ${body.filename || "(see JN)"}.`,
+            message: `✅ Cert in JN Documents (${b1.photoCount ?? "?"} photos). Filename: ${b1.filename}.`,
           },
         }));
       } else {
@@ -7045,7 +7077,7 @@ const renderSmsTemplate = (key, vars) => {
           [row.id]: {
             stage: "error",
             ok: false,
-            message: `❌ Cert failed (HTTP ${r.status}): ${body.error || body.detail || txt.slice(0, 200)}`,
+            message: `❌ JN upload failed (HTTP ${r2.status}): ${b2.error || txt2.slice(0, 200)}`,
           },
         }));
       }

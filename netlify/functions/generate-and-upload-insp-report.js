@@ -21,6 +21,8 @@
 // identical to the auto-generated cron version. JN upload flow copied
 // verbatim from jobnimbus-sync.js's uploadFileToJob().
 
+const sharp = require("sharp");
+
 const JN_BASE = "https://app.jobnimbus.com/api1";
 const JN_FILES_BASE = "https://api.jobnimbus.com";
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
@@ -51,10 +53,15 @@ exports.handler = async (event) => {
   if (!JN_KEY)       return { statusCode: 500, body: JSON.stringify({ ok: false, error: "JOBNIMBUS_API_KEY not set" }) };
   if (!PDFSHIFT_KEY) return { statusCode: 500, body: JSON.stringify({ ok: false, error: "PDFSHIFT_API_KEY not set" }) };
 
-  let jnid;
+  let jnid, skipJnUpload;
   try {
     const body = JSON.parse(event.body || "{}");
     jnid = (body.jnid || "").trim();
+    // When set, skip the JN upload step and return PDF base64 in
+    // the response so the client can fire upload-pdf-to-jn as a
+    // separate Lambda call. This splits the work across two 10s
+    // budgets so neither side times out.
+    skipJnUpload = !!body.skip_jn_upload;
   } catch {
     return { statusCode: 400, body: JSON.stringify({ ok: false, error: "Invalid JSON body" }) };
   }
@@ -105,19 +112,26 @@ exports.handler = async (event) => {
     console.warn("Job has no address_line1 — PDF will show partial address");
   }
 
-  // ── 4. Fetch photos. JN attachments first (older path), then fall
-  //       back to Supabase Storage (newer wizard-submitted photos
-  //       live there). The wizard ALSO pushes to JN but that can lag
-  //       or silently miss some, so the fallback closes the gap.
-  let photos = await fetchJobPhotos(jnid);
-  console.log("JN photos fetched:", photos.length);
-  let photoSource = "jn";
+  // ── 4. Fetch photos. Supabase signed URLs first (fast — no download,
+  //       PDFShift fetches the photos in parallel itself); fall back to
+  //       JN attachments only when Supabase has no record (very old
+  //       inspections that pre-date wizard storage).
+  //
+  //       Why signed URLs and not inline base64: embedding 10 photos as
+  //       base64 produced ~10MB HTML bodies. PDFShift took 5-8s parsing
+  //       that, putting total Lambda time over Netlify's 10s budget and
+  //       returning HTTP 504. Signed URLs keep the HTML tiny and let
+  //       PDFShift parallelize image downloads, cutting render time to
+  //       ~3s.
+  let photos = await fetchSupabasePhotosByJnId(jnid);
+  console.log("Supabase signed-URL photos fetched:", photos.length);
+  let photoSource = "supabase";
   if (photos.length === 0) {
-    const sbPhotos = await fetchSupabasePhotosByJnId(jnid);
-    if (sbPhotos.length > 0) {
-      photos = sbPhotos;
-      photoSource = "supabase";
-      console.log("Supabase fallback found photos:", photos.length);
+    const jnPhotos = await fetchJobPhotos(jnid);
+    if (jnPhotos.length > 0) {
+      photos = jnPhotos;
+      photoSource = "jn";
+      console.log("JN fallback found photos:", photos.length);
     }
   }
   if (photos.length === 0) {
@@ -162,9 +176,40 @@ exports.handler = async (event) => {
     return { statusCode: 500, body: JSON.stringify({ ok: false, error: "PDF generation returned empty" }) };
   }
 
-  // ── 6. Upload PDF to JN's documents tab ──────────────────────────
+  // ── 6. Upload PDF to JN's documents tab — OR — return base64 ─────
   const safeName = clientName.replace(/[^a-zA-Z0-9]/g, "-");
   const filename = `Inspection-Report-${safeName}-${new Date().toISOString().slice(0, 10)}.pdf`;
+
+  if (skipJnUpload) {
+    // Caller will fire upload-pdf-to-jn separately. Returning the PDF
+    // base64 in the JSON response was OOMing the Lambda (multi-MB
+    // string + JSON.stringify copy + response encoding). Instead we
+    // stash the PDF in Supabase Storage and return only a small
+    // signed URL — Lambda B fetches the PDF from the URL.
+    const tmpPath = `cert-temp/${jnid}-${Date.now()}.pdf`;
+    const stash = await stashPdfInSupabase(tmpPath, pdfBase64);
+    if (!stash.ok) {
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ ok: false, error: "Could not stash PDF in Supabase", detail: stash.error }),
+      };
+    }
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        ok: true,
+        pdf_signed_url: stash.signedUrl,
+        pdf_storage_path: tmpPath,
+        filename,
+        photoCount: photos.length,
+        result: resultLabel,
+        jobName: job.name,
+        clientName,
+        skipped_jn_upload: true,
+      }),
+    };
+  }
+
   const uploadResult = await uploadFileToJob(jnid, filename, pdfBase64);
   if (!uploadResult.success) {
     return {
@@ -187,6 +232,55 @@ exports.handler = async (event) => {
   };
 };
 
+// ── Stash a generated PDF in Supabase Storage and return a signed URL ──
+// Used by the split cert flow. Lambda A renders + stashes; Lambda B
+// downloads from the URL + uploads to JN. This keeps each Lambda well
+// under Netlify's 10s budget and prevents OOM on the JSON response
+// (returning multi-MB base64 in a JSON body was eating V8 heap).
+async function stashPdfInSupabase(path, pdfBase64) {
+  if (!SB_URL || !SB_KEY) {
+    return { ok: false, error: "Supabase env not configured" };
+  }
+  try {
+    const bytes = Buffer.from(pdfBase64, "base64");
+    const putRes = await fetch(`${SB_URL}/storage/v1/object/${SIGNED_BUCKET}/${path}`, {
+      method: "POST",
+      headers: {
+        apikey: SB_KEY,
+        Authorization: `Bearer ${SB_KEY}`,
+        "Content-Type": "application/pdf",
+        // Allow overwrite so re-clicks don't 409.
+        "x-upsert": "true",
+      },
+      body: bytes,
+    });
+    if (!putRes.ok) {
+      const txt = await putRes.text();
+      return { ok: false, error: `SB upload ${putRes.status}: ${txt.slice(0, 200)}` };
+    }
+    // Now create a signed URL Lambda B can fetch.
+    const signRes = await fetch(
+      `${SB_URL}/storage/v1/object/sign/${SIGNED_BUCKET}/${path}`,
+      {
+        method: "POST",
+        headers: sbHeaders,
+        body: JSON.stringify({ expiresIn: 600 }),
+      },
+    );
+    if (!signRes.ok) {
+      const txt = await signRes.text();
+      return { ok: false, error: `SB sign ${signRes.status}: ${txt.slice(0, 200)}` };
+    }
+    const signData = await signRes.json().catch(() => ({}));
+    const rel = signData.signedURL || signData.signedUrl;
+    if (!rel) return { ok: false, error: "SB sign returned no URL" };
+    const signedUrl = rel.startsWith("http") ? rel : `${SB_URL}/storage/v1${rel}`;
+    return { ok: true, signedUrl };
+  } catch (e) {
+    return { ok: false, error: e.message || "stash failed" };
+  }
+}
+
 // ── Fetch photos from JN ─────────────────────────────────────────────
 // JN's /files?related=<jnid> list endpoint returns file metadata only —
 // no download URL fields. To get the actual image bytes you have to make
@@ -197,14 +291,20 @@ exports.handler = async (event) => {
 // We download up to 10 photos in parallel and base64-encode them so the
 // PDF renderer (PDFShift) can embed them via `data:image/jpeg;base64,...`
 // inline URIs without needing public URLs.
-// Fallback photo source: when the JN job has no attached photos
-// (common for wizard-submitted inspections where the JN attachment
-// upload race-lost or hasn't run yet), look up the inspection row
-// by jn_job_id and download each photo from its inspection_photos
-// JSON list via signed URLs. The PDF format is identical either way.
+// Primary photo source: look up the inspection by jn_job_id, download
+// each photo from Supabase Storage, RESIZE via sharp to 800px wide /
+// quality 70, and return as inline base64 data URIs.
+//
+// Why we resize in-Lambda instead of trusting Supabase image transforms:
+// on user's project, transforms aren't honored — the signed URL serves
+// the original-size photo regardless of the `transform` param. So 10
+// photos × 400KB → ~5MB embedded in HTML → 15MB PDF → Lambda OOM.
+//
+// With sharp resize to 800px/q70, each photo becomes ~50-80KB. PDF is
+// ~1MB, memory stays comfortably under Lambda limits.
 async function fetchSupabasePhotosByJnId(jnJobId) {
   if (!SB_URL || !SB_KEY) {
-    console.warn("Supabase env not configured — fallback skipped");
+    console.warn("Supabase env not configured — skipped");
     return [];
   }
   try {
@@ -225,7 +325,7 @@ async function fetchSupabasePhotosByJnId(jnJobId) {
       new Date(b.captured_at || 0) - new Date(a.captured_at || 0),
     );
     // Limit to 10 — same as the JN path. Cert template has 10 slots.
-    const downloads = sorted.slice(0, 10).map(async (p) => {
+    const results = await Promise.all(sorted.slice(0, 10).map(async (p) => {
       if (!p.path) return null;
       try {
         const bucket = p.bucket || SIGNED_BUCKET;
@@ -234,25 +334,26 @@ async function fetchSupabasePhotosByJnId(jnJobId) {
           { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } },
         );
         if (!dlRes.ok) {
-          console.warn("SB storage download failed for", p.path, ":", dlRes.status);
+          console.warn("SB download failed for", p.path, ":", dlRes.status);
           return null;
         }
-        const buffer = await dlRes.arrayBuffer();
-        const bytes = new Uint8Array(buffer);
-        if (!bytes.length) return null;
-        const base64 = Buffer.from(buffer).toString("base64");
-        const contentType = p.path.toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
-        return {
-          base64,
-          contentType,
-          dataUri: `data:${contentType};base64,${base64}`,
-        };
+        const inputBytes = Buffer.from(await dlRes.arrayBuffer());
+        if (!inputBytes.length) return null;
+        // Resize: 800px max width, JPEG quality 70. EXIF rotation is
+        // applied automatically by sharp() when input has orientation
+        // metadata — important for portrait phone photos.
+        const resized = await sharp(inputBytes)
+          .rotate()
+          .resize({ width: 800, withoutEnlargement: true })
+          .jpeg({ quality: 70, mozjpeg: true })
+          .toBuffer();
+        const base64 = resized.toString("base64");
+        return { dataUri: `data:image/jpeg;base64,${base64}` };
       } catch (e) {
-        console.warn("SB photo download error for", p.path, ":", e.message);
+        console.warn("SB photo resize error for", p.path, ":", e.message);
         return null;
       }
-    });
-    const results = await Promise.all(downloads);
+    }));
     return results.filter(Boolean);
   } catch (e) {
     console.warn("fetchSupabasePhotosByJnId error:", e.message);
@@ -283,6 +384,10 @@ async function fetchJobPhotos(jnJobId) {
 
     // Limit to 10 photos — the certificate template's photo grid is
     // designed for 10 max. More than that won't fit on one page anyway.
+    //
+    // Resize via sharp to 800px / quality 70 — same as the Supabase
+    // path. Without this, embedding 10 originals as inline base64
+    // produced ~15MB PDFs and OOM'd the Lambda.
     const downloads = sorted.slice(0, 10).map(async (file) => {
       const fileJnid = file.jnid || file.id;
       if (!fileJnid) return null;
@@ -292,22 +397,17 @@ async function fetchJobPhotos(jnJobId) {
           console.warn("Photo download failed for", fileJnid, ":", dlRes.status);
           return null;
         }
-        const buffer = await dlRes.arrayBuffer();
-        // Sanity check — make sure we got binary data, not a JSON error
-        // payload. JPEG starts with FFD8FF, PNG with 89504E47.
-        const bytes = new Uint8Array(buffer);
-        const head = bytes[0]?.toString(16) + bytes[1]?.toString(16);
-        if (!head || head.length < 2) return null;
-        const base64 = Buffer.from(buffer).toString("base64");
-        const contentType = (file.content_type || "image/jpeg");
-        return {
-          base64,
-          contentType,
-          // Build a data URI the PDF renderer can use directly as an <img src>.
-          dataUri: `data:${contentType};base64,${base64}`,
-        };
+        const inputBytes = Buffer.from(await dlRes.arrayBuffer());
+        if (!inputBytes.length) return null;
+        const resized = await sharp(inputBytes)
+          .rotate()
+          .resize({ width: 800, withoutEnlargement: true })
+          .jpeg({ quality: 70, mozjpeg: true })
+          .toBuffer();
+        const base64 = resized.toString("base64");
+        return { dataUri: `data:image/jpeg;base64,${base64}` };
       } catch (e) {
-        console.warn("Photo download error for", fileJnid, ":", e.message);
+        console.warn("Photo download/resize error for", fileJnid, ":", e.message);
         return null;
       }
     });
@@ -582,6 +682,10 @@ async function buildCertificatePdf({ clientName, address, date, photos, record, 
     variant,
   });
 
+  // Photos are embedded as a 2nd page photo grid. The wizard now
+  // compresses photos to 1000px/quality 0.7 (~80-150KB each), so 10
+  // photos inline + cert page produces a ~2MB PDF that fits in Lambda
+  // memory. If we ever loosen the wizard compression we'll OOM again.
   const photoRows = renderPhotoRows(photos);
   const photoCount = Math.min(photos.length, 10);
 
@@ -618,15 +722,12 @@ async function buildCertificatePdf({ clientName, address, date, photos, record, 
   return await renderPdfFromHtml(html);
 }
 
-// ── No-Damage / Retail PDF: 1 page (header + photo grid) ─────────────
-// Used when the JN result isn't Damage. The certificate template is built
-// around damage findings (FAIL rows, "DAMAGE FOUND" badge, etc.) so we
-// don't try to retrofit it for the other results — we ship a simpler
-// photos-only report with a header reflecting the outcome.
+// ── No-Damage PDF: 1 page summary (no photos) ───────────────────────
+// Used when the JN result is "No Damage". Photos live in JN's Photos
+// tab — embedding them inline was OOMing the Lambda. This is a short
+// summary letter the rep can hand to the homeowner showing the result.
 async function generatePhotoReportPDF({ clientName, address, repName, date, photos, resultLabel }) {
   const logoUrl = `${BASE_URL}/uss-header.png`;
-  const photoRows = renderPhotoRows(photos);
-  const photoCount = Math.min(photos.length, 10);
   const headerColor = resultLabel === "No Damage" ? "#16a34a" : "#d97706";
   const headerText = resultLabel === "No Damage" ? "✅ No Damage Found" : "🏠 Retail Inspection";
 
@@ -640,19 +741,12 @@ async function generatePhotoReportPDF({ clientName, address, repName, date, phot
     .top .title { font-size: 18px; font-weight: 700; }
     .top .sub { font-size: 11px; opacity: 0.75; margin-top: 2px; }
     .result-bar { padding: 14px 22px; background: ${headerColor}; color: #fff; font-size: 16px; font-weight: 700; text-align: center; }
-    .meta { padding: 14px 22px; background: #f9fafb; border: 1px solid #e5e7eb; border-top: none; }
+    .meta { padding: 14px 22px; background: #f9fafb; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px; }
     .meta table { width: 100%; border-collapse: collapse; font-size: 12px; }
     .meta td { padding: 5px 0; }
     .meta td:first-child { color: #6b7280; font-weight: 700; text-transform: uppercase; font-size: 10px; letter-spacing: 0.05em; width: 130px; }
-    .photos-section { margin-top: 18px; }
-    .photos-header { background: #1a2e5a; color: #fff; padding: 12px 18px; border-radius: 6px 6px 0 0; display: flex; justify-content: space-between; align-items: center; }
-    .photos-header h2 { font-size: 15px; margin: 0; }
-    .photos-header span { font-size: 11px; opacity: 0.7; }
-    .photos-grid-wrap { padding: 14px; background: #fff; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 6px 6px; }
-    table.photo-grid { width: 100%; border-collapse: collapse; }
-    table.photo-grid td { padding: 4px; width: 50%; }
-    table.photo-grid img { width: 100%; height: 160px; object-fit: cover; border-radius: 4px; display: block; border: 1px solid #e5e7eb; }
-    .footer { margin-top: 18px; padding-top: 10px; border-top: 1px solid #e5e7eb; font-size: 10px; color: #9ca3af; text-align: center; }
+    .note { margin-top: 22px; font-size: 12px; color: #374151; line-height: 1.55; }
+    .footer { margin-top: 24px; padding-top: 10px; border-top: 1px solid #e5e7eb; font-size: 10px; color: #9ca3af; text-align: center; }
   </style></head><body>
     <div class="top">
       <img src="${logoUrl}" alt="U.S. Shingle &amp; Metal" />
@@ -671,17 +765,12 @@ async function generatePhotoReportPDF({ clientName, address, repName, date, phot
         <tr><td>Result</td><td><strong>${escapeHtml(resultLabel)}</strong></td></tr>
       </table>
     </div>
-    <div class="photos-section">
-      <div class="photos-header">
-        <h2>📷 Inspection Photos</h2>
-        <span>${photoCount} shown</span>
-      </div>
-      <div class="photos-grid-wrap">
-        <table class="photo-grid">${photoRows}</table>
-      </div>
+    <div class="note">
+      The above-referenced property was inspected by a U.S. Shingle and Metal LLC
+      roofing inspector. Inspection photos are filed on the homeowner's job record.
     </div>
     <div class="footer">
-      U.S. Shingle &amp; Metal LLC · License #CCC1331960 · Photos taken during roof inspection · ${date}
+      U.S. Shingle &amp; Metal LLC · License #CCC1331960 · Inspection date: ${date}
     </div>
   </body></html>`;
 

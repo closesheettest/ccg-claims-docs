@@ -3864,19 +3864,24 @@ function labelToSlug(label) {
 
 // Client-side image compression. Modern phone cameras spit out 4–8 MB
 // JPEGs, which take forever to upload over cell. Scaling the long
-// edge to 1600px and re-encoding at JPEG quality 0.85 typically drops
-// each photo to 300–700 KB with no visible quality loss on the kind
+// edge to 1000px and re-encoding at JPEG quality 0.7 typically drops
+// each photo to ~80–150 KB with no visible quality loss on the kind
 // of detail an inspection needs.
+//
+// Why this small: the cert PDF embeds 10 photos as inline base64. At
+// the previous 1600px/0.85, photos were ~400KB each and the rendered
+// PDF was ~15MB, which OOM'd the cert-generator Lambda. At 1000px/0.7
+// the cert PDF is ~2MB and the Lambda runs comfortably.
 //
 // Uses createImageBitmap with imageOrientation: 'from-image' so EXIF
 // rotation is baked into the bitmap — otherwise portrait photos from
 // some Androids come out sideways after the canvas round-trip.
 //
 // Falls back to the original File on any error (and skips files
-// already under 600 KB or already small enough by dimension).
-async function resizeImageForUpload(file, maxDim = 1600, quality = 0.85) {
+// already under 200 KB or already small enough by dimension).
+async function resizeImageForUpload(file, maxDim = 1000, quality = 0.7) {
   if (!file || !file.type || !file.type.startsWith("image/")) return file;
-  if (file.size < 600 * 1024) return file;
+  if (file.size < 200 * 1024) return file;
   try {
     const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
     const longEdge = Math.max(bitmap.width, bitmap.height);
