@@ -6819,6 +6819,7 @@ const renderSmsTemplate = (key, vars) => {
       }
 
       const photos = Array.isArray(d.photos_to_upload) ? d.photos_to_upload : [];
+      const photosAlreadyInJn = d.photos_already_in_jn || 0;
       const jnJobId = d.jn_job_id;
       const isRetail = !!d.needs_retail_swap || row.result === "retail";
 
@@ -6969,7 +6970,12 @@ const renderSmsTemplate = (key, vars) => {
   // (or 15-min if the user's Netlify plan supports background funcs).
   function fireCertGeneration(jnJobId) {
     if (!jnJobId) return;
-    fetch("/.netlify/functions/generate-and-upload-insp-report", {
+    // Use the -background variant — Netlify gives it a 15-minute
+    // budget vs. the 10s timeout on the regular function. The cert
+    // path (PDFShift + photo downloads + JN upload) routinely runs
+    // 10-15s and was returning 502 to the browser when fired against
+    // the regular endpoint, so the cert never actually completed.
+    fetch("/.netlify/functions/generate-and-upload-insp-report-background", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ jnid: jnJobId }),

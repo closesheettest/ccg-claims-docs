@@ -75,12 +75,44 @@ exports.handler = async (event) => {
 
   // Photo list — same for every result type. Client iterates and
   // fires upload-photo-to-jn per photo.
+  // FIRST: ask JN which photos this job already has, so re-clicks
+  // don't duplicate. Each photo's filename is deterministic (the
+  // last segment of its Supabase Storage path), so we can match by
+  // filename. Adds one JN API call up front but avoids 28 duplicates.
   const photos = Array.isArray(insp.inspection_photos) ? insp.inspection_photos : [];
-  const photosToUpload = photos.map((p) => ({
-    path: p.path,
-    bucket: p.bucket || "signed-documents",
-    label: p.label || "Inspector photo",
-  }));
+  let existingJnFilenames = new Set();
+  try {
+    const listRes = await fetch(
+      `${JN_BASE}/files?related=${encodeURIComponent(insp.jn_job_id)}&size=200`,
+      { headers: jnHeaders },
+    );
+    if (listRes.ok) {
+      const listData = await listRes.json().catch(() => ({}));
+      const files = listData.files || listData.data || listData.results || [];
+      for (const f of files) {
+        const fname = (f.filename || f.name || "").trim().toLowerCase();
+        if (fname) existingJnFilenames.add(fname);
+      }
+    }
+  } catch (e) {
+    console.warn("Existing-files lookup failed:", e.message);
+  }
+
+  let photosAlreadyInJn = 0;
+  const photosToUpload = [];
+  for (const p of photos) {
+    if (!p.path) continue;
+    const filename = (p.path.split("/").pop() || "photo.jpg").toLowerCase();
+    if (existingJnFilenames.has(filename)) {
+      photosAlreadyInJn++;
+      continue;
+    }
+    photosToUpload.push({
+      path: p.path,
+      bucket: p.bucket || "signed-documents",
+      label: p.label || "Inspector photo",
+    });
+  }
 
   // Always PUT cf_string_34 NOW — even for retail. The cert generator
   // refuses to render unless cf_string_34 is one of Damage / No Damage /
@@ -128,6 +160,8 @@ exports.handler = async (event) => {
     // just touches the workflow fields.
     needs_retail_swap: insp.result === "retail",
     photos_to_upload: photosToUpload,
+    photos_already_in_jn: photosAlreadyInJn,
+    photos_total: photos.length,
   });
 };
 
