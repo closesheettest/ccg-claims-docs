@@ -8,7 +8,7 @@ import {
   Send,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
-import { InspectorMobileApp, InspectorsAdminPanel, InspectorSetupPage, ManagerInspectorReports, InspectionAssignmentsPanel, ManagerRoutePlanner, PAHandoffPanel, PAReportPanel } from "./InspectorViews";
+import { InspectorMobileApp, InspectorsAdminPanel, InspectorSetupPage, ManagerInspectorReports, InspectionAssignmentsPanel, ManagerRoutePlanner, PAHandoffPanel, PAReportPanel, SitSoldPaReportPanel } from "./InspectorViews";
 import InspectionPhotosModal from "./InspectionPhotosModal";
 import JnMatchPickerModal from "./JnMatchPickerModal";
 
@@ -10213,6 +10213,7 @@ if (!hasDamage) {
                         { key: "inspector_reports", emoji: "📊", label: "Inspector Reports", desc: "Completed this week by status + per-inspector + by day" },
                         { key: "pa_handoff", emoji: "📤", label: "PA Handoff", desc: "Send damage results to the PA (homeowner info + photos + signed PDF). Test the link or retry sends." },
                         { key: "pa_report", emoji: "🤝", label: "PA Report", desc: "What was sent to the PA, when, and the signed/refused/pending outcome. Filter by date." },
+                        { key: "sit_sold_pa_report", emoji: "📋", label: "Sit Sold PA (Old)", desc: "Records currently at jn_status \"Sit Sold PA\" — what the old PA still has on her plate." },
                       ].map(item => (
                         <button key={item.key} type="button" onClick={() => setManagerSection(item.key)}
                           style={{ padding: "24px 20px", borderRadius: 20, border: "2px solid #e5e7eb", background: "#fff", textAlign: "left", cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
@@ -13275,6 +13276,10 @@ if (!hasDamage) {
 
                   {managerSection === "pa_report" && <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <PAReportPanel />
+                  </Card>}
+
+                  {managerSection === "sit_sold_pa_report" && <Card style={{ padding: 20, background: "#f8fafc" }}>
+                    <SitSoldPaReportPanel />
                   </Card>}
 
                       <div style={{ marginTop: 24 }}>

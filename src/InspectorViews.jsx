@@ -4153,3 +4153,186 @@ export function PAReportPanel() {
     </div>
   );
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// Sit Sold PA report — records currently in JN at status "Sit Sold PA".
+// This is the OLD PA workflow (records the rep manually pushed to PA
+// inside JN before our automated PA Ops Hub integration). Useful for
+// knowing what the old PA still owes us on. Distinct from PAReportPanel
+// which tracks only records sent via the new automated handoff.
+// ─────────────────────────────────────────────────────────────────────
+export function SitSoldPaReportPanel() {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [resultFilter, setResultFilter] = useState("all");
+
+  async function load() {
+    setLoading(true);
+    // Sync runs on a cron so jn_status reflects JN's view as of the
+    // last sync (usually within an hour). We pull all rows at this
+    // status — there's no date bound because the old PA workflow has
+    // no SLA on how long records sit.
+    const { data, error } = await supabase
+      .from("inspections")
+      .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, signed_at, result, result_at, jn_status, jn_job_id, pa_status, pa_status_updated_at, pa_intake_sent_at, cancelled_at")
+      .eq("jn_status", "Sit Sold PA")
+      .is("cancelled_at", null)
+      .order("signed_at", { ascending: false });
+    if (!error && Array.isArray(data)) setRows(data);
+    else setRows([]);
+    setLoading(false);
+  }
+
+  useEffect(() => { load(); }, []);
+
+  const counts = useMemo(() => {
+    const c = { total: rows.length, damage: 0, no_damage: 0, retail: 0, no_result: 0 };
+    for (const r of rows) {
+      const k = (r.result || "").toLowerCase();
+      if (k === "damage") c.damage++;
+      else if (k === "no_damage") c.no_damage++;
+      else if (k === "retail") c.retail++;
+      else c.no_result++;
+    }
+    return c;
+  }, [rows]);
+
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (resultFilter !== "all") {
+        const k = (r.result || "").toLowerCase();
+        if (resultFilter === "no_result" ? !!k : k !== resultFilter) return false;
+      }
+      if (!q) return true;
+      const blob = [r.client_name, r.address, r.city, r.zip, r.sales_rep_name].filter(Boolean).join(" ").toLowerCase();
+      return blob.includes(q);
+    });
+  }, [rows, search, resultFilter]);
+
+  const fmtDateTime = (iso) => iso ? new Date(iso).toLocaleString() : "—";
+  const fmtRelative = (iso) => {
+    if (!iso) return "";
+    const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+    if (days <= 0) return "today";
+    if (days === 1) return "1 day ago";
+    return `${days} days ago`;
+  };
+
+  function resultPill(r) {
+    const k = (r || "").toLowerCase();
+    if (k === "damage") return <span style={{ background: "#dc2626", color: "#fff", borderRadius: 20, padding: "3px 10px", fontSize: 10, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>⚠ DAMAGE</span>;
+    if (k === "no_damage") return <span style={{ background: "#16a34a", color: "#fff", borderRadius: 20, padding: "3px 10px", fontSize: 10, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>✓ NO DAMAGE</span>;
+    if (k === "retail") return <span style={{ background: "#d97706", color: "#fff", borderRadius: 20, padding: "3px 10px", fontSize: 10, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>🏠 RETAIL</span>;
+    return <span style={{ background: "#f3f4f6", color: "#6b7280", border: "1px solid #d1d5db", borderRadius: 20, padding: "3px 10px", fontSize: 10, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>NO RESULT</span>;
+  }
+
+  function csvExport() {
+    const header = ["Signed At","Homeowner","Address","Phone","Email","Sales Rep","Result","Days Since Signed","New PA Status","JN Job"];
+    const lines = [header.join(",")];
+    for (const r of filteredRows) {
+      const signed = r.signed_at ? new Date(r.signed_at).toISOString() : "";
+      const fullAddr = [r.address, r.city, r.state, r.zip].filter(Boolean).join(" ");
+      const daysSince = r.signed_at ? Math.floor((Date.now() - new Date(r.signed_at).getTime()) / 86400000) : "";
+      const escape = (v) => {
+        const s = String(v ?? "");
+        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      };
+      lines.push([signed, r.client_name || "", fullAddr, r.mobile || "", r.email || "", r.sales_rep_name || "", r.result || "", daysSince, r.pa_status || "", r.jn_job_id || ""].map(escape).join(","));
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `sit-sold-pa-${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div>
+      <h2 style={{ marginTop: 0, fontFamily: "'Oswald', sans-serif", fontSize: 22 }}>📋 Sit Sold PA (Old PA)</h2>
+      <p style={{ color: "#6b7280", fontSize: 13, marginTop: 0, lineHeight: 1.5 }}>
+        Records currently at <strong>jn_status = "Sit Sold PA"</strong> in JobNimbus — what the old PA workflow still has on its plate. Pulled live from our last JN sync (usually within an hour). Distinct from the <em>PA Report</em> which tracks the new automated handoff.
+      </p>
+
+      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 16 }}>
+        <input type="text" placeholder="🔍 Search name, address, rep…" value={search} onChange={(e) => setSearch(e.target.value)}
+          style={{ flex: 1, minWidth: 200, padding: "8px 12px", borderRadius: 8, border: "1.5px solid #d1d5db", fontSize: 13, fontFamily: "'Nunito', sans-serif" }} />
+        <button type="button" onClick={load} disabled={loading}
+          style={{ padding: "8px 16px", borderRadius: 8, border: "1.5px solid #0a0a0a", background: "#0a0a0a", color: "#fff", fontSize: 12, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: loading ? "wait" : "pointer" }}>
+          {loading ? "Loading…" : "🔄 Refresh"}
+        </button>
+        <button type="button" onClick={csvExport} disabled={loading || filteredRows.length === 0}
+          style={{ padding: "8px 16px", borderRadius: 8, border: "1.5px solid #0e7490", background: "#ecfeff", color: "#0e7490", fontSize: 12, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: (loading || filteredRows.length === 0) ? "not-allowed" : "pointer" }}>
+          ⬇ Export CSV
+        </button>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(120px, 1fr))", gap: 12, marginBottom: 16 }}>
+        {[
+          { key: "all", label: "All Sit Sold PA", count: counts.total, bg: "#eef1f8", color: "#1a2e5a" },
+          { key: "damage", label: "Damage", count: counts.damage, bg: "#fef2f2", color: "#991b1b" },
+          { key: "retail", label: "Retail", count: counts.retail, bg: "#fef3c7", color: "#92400e" },
+          { key: "no_damage", label: "No Damage", count: counts.no_damage, bg: "#dcfce7", color: "#065f46" },
+          { key: "no_result", label: "No Result", count: counts.no_result, bg: "#f3f4f6", color: "#374151" },
+        ].map((tile) => (
+          <button key={tile.key} type="button" onClick={() => setResultFilter(tile.key)}
+            style={{
+              padding: "14px 16px",
+              borderRadius: 12,
+              border: resultFilter === tile.key ? "2px solid #0a0a0a" : "1.5px solid #e5e7eb",
+              background: tile.bg,
+              color: tile.color,
+              cursor: "pointer",
+              textAlign: "left",
+              fontFamily: "'Oswald', sans-serif",
+            }}>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", opacity: 0.85 }}>{tile.label}</div>
+            <div style={{ fontSize: 28, fontWeight: 700, marginTop: 4 }}>{tile.count}</div>
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div style={{ padding: 20, color: "#6b7280", fontSize: 13 }}>Loading…</div>
+      ) : filteredRows.length === 0 ? (
+        <div style={{ padding: 20, color: "#6b7280", fontSize: 13, background: "#fff", border: "1px dashed #e5e7eb", borderRadius: 12 }}>
+          {rows.length === 0
+            ? 'No records currently at jn_status "Sit Sold PA".'
+            : "No records match your filter."}
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: 10 }}>
+          {filteredRows.map((r) => {
+            const daysSinceSigned = r.signed_at
+              ? Math.floor((Date.now() - new Date(r.signed_at).getTime()) / 86400000)
+              : null;
+            const stale = daysSinceSigned !== null && daysSinceSigned >= 14;
+            return (
+              <div key={r.id} style={{ background: "#fff", border: stale ? "2px solid #fca5a5" : "1px solid #e5e7eb", borderRadius: 12, padding: "12px 16px", display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "start" }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", fontFamily: "'Nunito', sans-serif" }}>{r.client_name || "—"}</div>
+                  <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>{[r.address, r.city, r.state, r.zip].filter(Boolean).join(", ")}</div>
+                  <div style={{ fontSize: 11, color: "#9ca3af", fontFamily: "'Nunito', sans-serif", marginTop: 4 }}>
+                    Rep: {r.sales_rep_name || "—"} · Signed: <strong style={{ color: "#374151" }}>{fmtDateTime(r.signed_at)}</strong> ({fmtRelative(r.signed_at)})
+                    {r.mobile ? <> · 📱 {r.mobile}</> : null}
+                  </div>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                  {resultPill(r.result)}
+                  {stale ? (
+                    <div style={{ fontSize: 10, color: "#dc2626", fontFamily: "'Oswald', sans-serif", fontWeight: 700 }}>
+                      {daysSinceSigned}d STALE
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
