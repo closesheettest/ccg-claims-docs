@@ -147,6 +147,43 @@ exports.handler = async (event) => {
         endpointNotes.push(`${url} → exception: ${e.message}`);
       }
     }
+    // LAST RESORT: scan recent JN jobs for one whose location.name
+    // matches our target — extract that job's location.id. JN's
+    // /account/locations endpoint requires admin scope (401) on
+    // this account, but individual job objects embed the full
+    // location { id, name }, so we can discover it indirectly.
+    if (!resolved) {
+      try {
+        const jobsRes = await fetch("https://app.jobnimbus.com/api1/jobs?size=100", { headers: jnHeaders });
+        if (jobsRes.ok) {
+          const jobsData = await jobsRes.json().catch(() => ({}));
+          const jobs = jobsData.results || jobsData.jobs || jobsData.items || [];
+          const targetLower = targetName.toLowerCase();
+          const sample = jobs.find((j) => {
+            const lname = (j.location?.name || j.location_name || "").trim().toLowerCase();
+            return lname === targetLower;
+          });
+          if (sample) {
+            const rawId = sample.location?.id ?? sample.location_id;
+            const numStr = String(rawId).trim();
+            if (rawId != null && /^\d+$/.test(numStr)) {
+              retailLocationId = numStr;
+              locationLookupNote = `${locationLookupNote ? locationLookupNote + " " : ""}Discovered location id ${retailLocationId} by scanning JN jobs (sample job: ${sample.jnid || sample.id}).`;
+              resolved = true;
+            } else {
+              endpointNotes.push(`jobs-scan → found job in "${targetName}" but its location.id "${rawId}" is non-numeric`);
+            }
+          } else {
+            endpointNotes.push(`jobs-scan (${jobs.length} jobs) → none in "${targetName}". Locations seen: ${Array.from(new Set(jobs.map((j) => j.location?.name || j.location_name).filter(Boolean))).join(", ") || "(none)"}`);
+          }
+        } else {
+          endpointNotes.push(`/jobs scan → ${jobsRes.status}`);
+        }
+      } catch (e) {
+        endpointNotes.push(`/jobs scan exception: ${e.message}`);
+      }
+    }
+
     if (!resolved) {
       locationLookupNote = `${locationLookupNote ? locationLookupNote + " " : ""}Could not resolve "${targetName}" from any JN endpoint. Tried: ${endpointNotes.join("; ")}. Set JN_LOCATION_ID_RETAIL env to the numeric id manually.`;
     }
