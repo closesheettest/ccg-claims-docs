@@ -134,7 +134,51 @@ exports.handler = async (event) => {
   const lastNameNorm = lastName.toLowerCase();
   const firstNameNorm = firstName.toLowerCase();
 
-  // 3a. Fire CONTACT searches in parallel.
+  // 3a-precise. Hit /contacts with an Elasticsearch-style `filter`
+  //   parameter for EXACT field matches first. JN's bare ?search= is
+  //   inconsistent (it missed Carol Jordan even when searching by
+  //   her full name + phone + email). The filter param uses JN's
+  //   indexed fields directly so an exact email/phone match wins
+  //   reliably.
+  //
+  //   We build a list of single-clause filters and OR them by firing
+  //   each as its own request (the API doesn't reliably support `should`
+  //   at the top level, so this is the safe shape).
+  const filterClauses = [];
+  if (email) filterClauses.push({ term: { email } });
+  if (phoneDigits && phoneDigits.length >= 7) {
+    // JN stores phones with formatting; the indexed value is digits
+    // only. Try mobile_phone first, then home_phone as backup.
+    filterClauses.push({ term: { mobile_phone: phoneDigits } });
+    filterClauses.push({ term: { home_phone: phoneDigits } });
+  }
+  if (streetNum && address) {
+    filterClauses.push({ term: { address_line1: address } });
+  }
+  if (zipNorm && lastNameNorm) {
+    filterClauses.push({
+      must: [{ term: { zip: zipNorm } }, { match: { last_name: lastName } }],
+    });
+  }
+
+  const filterResults = await Promise.all(filterClauses.map(async (clause) => {
+    try {
+      // Top-level wrapper: bare clauses get wrapped in `must`, clauses
+      // that already include `must` are passed through.
+      const filterJson = clause.must ? clause : { must: [clause] };
+      const url = `${JN_BASE}/contacts?filter=${encodeURIComponent(JSON.stringify(filterJson))}&size=20`;
+      const r = await fetch(url, { headers: jnHeaders });
+      if (!r.ok) return [];
+      const data = await r.json().catch(() => ({}));
+      return data.results || data.contacts || data.items || [];
+    } catch {
+      return [];
+    }
+  }));
+
+  // 3a. Fire fuzzy CONTACT searches in parallel — backstop for cases
+  //     where the precise filter clauses miss (legacy data, formatting
+  //     differences).
   const contactSearchResults = await Promise.all(contactQueries.map(async (q) => {
     try {
       const r = await fetch(`${JN_BASE}/contacts?search=${encodeURIComponent(q)}&size=20`, {
@@ -150,7 +194,30 @@ exports.handler = async (event) => {
 
   // 3b. Fire JOB searches in parallel. Each hit gets its
   //     primary_contact_id resolved into the contact bucket.
-  const jobSearchResults = await Promise.all(jobQueries.map(async (q) => {
+  //
+  //     We hit JOBS with both ?search= (fuzzy) AND ?filter= (exact
+  //     address_line1 + zip), since job names usually embed the
+  //     full address and filter-by-address is reliable.
+  const jobFilterClauses = [];
+  if (address) jobFilterClauses.push({ term: { address_line1: address } });
+  if (zipNorm && streetNum) {
+    jobFilterClauses.push({
+      must: [{ term: { zip: zipNorm } }, { match: { address_line1: streetNum } }],
+    });
+  }
+  const jobFilterResults = await Promise.all(jobFilterClauses.map(async (clause) => {
+    try {
+      const filterJson = clause.must ? clause : { must: [clause] };
+      const url = `${JN_BASE}/jobs?filter=${encodeURIComponent(JSON.stringify(filterJson))}&size=20`;
+      const r = await fetch(url, { headers: jnHeaders });
+      if (!r.ok) return [];
+      const data = await r.json().catch(() => ({}));
+      return data.results || data.jobs || data.items || [];
+    } catch {
+      return [];
+    }
+  }));
+  const jobFuzzyResults = await Promise.all(jobQueries.map(async (q) => {
     try {
       const r = await fetch(`${JN_BASE}/jobs?search=${encodeURIComponent(q)}&size=20`, {
         headers: jnHeaders,
@@ -162,9 +229,18 @@ exports.handler = async (event) => {
       return [];
     }
   }));
+  const jobSearchResults = [...jobFilterResults, ...jobFuzzyResults];
 
-  // 4a. De-dupe CONTACTS by jnid/id.
+  // 4a. De-dupe CONTACTS by jnid/id. Precise-filter results come
+  //     FIRST so they take priority over the fuzzy-search backstop.
   const byId = new Map();
+  for (const list of filterResults) {
+    for (const c of list) {
+      const id = c.jnid || c.id;
+      if (!id) continue;
+      if (!byId.has(id)) byId.set(id, c);
+    }
+  }
   for (const list of contactSearchResults) {
     for (const c of list) {
       const id = c.jnid || c.id;
