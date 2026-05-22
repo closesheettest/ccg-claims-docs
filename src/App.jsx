@@ -6874,22 +6874,43 @@ const renderSmsTemplate = (key, vars) => {
       // If photos_to_upload is empty, distinguish "no photos at all"
       // from "all already in JN" (dedup) — VERY different stories.
       if (photos.length === 0) {
-        fireCertGeneration(jnJobId);
+        setPushStatus((s) => ({
+          ...s,
+          [row.id]: { stage: "updating", message: "📄 Rendering cert PDF…" },
+        }));
+        const certResult = await runCertChain(jnJobId, row.id);
+        setPushStatus((s) => ({
+          ...s,
+          [row.id]: { stage: "updating", message: certResult.ok ? "✅ Cert uploaded — finishing…" : "⚠ Cert failed — finishing…" },
+        }));
         const swapResult = await fireRetailSwapIfNeeded();
         const photoStatus = photosAlreadyInJn > 0
           ? `✅ All ${photosAlreadyInJn} photos already in JN`
           : "ℹ No photos on file";
         const swapMsg = !isRetail ? "" : buildSwapMsg(swapResult);
+        const certMsg = certResult.ok
+          ? `📄 Cert in JN Documents (${certResult.photoCount ?? "?"} photos)`
+          : `⚠ Cert FAILED: ${certResult.error}`;
+        const pushedAt = new Date().toISOString();
         setPushStatus((s) => ({
           ...s,
           [row.id]: {
             stage: "done",
-            ok: true,
+            ok: certResult.ok,
             message: isRetail
-              ? `${photoStatus}. ${swapMsg} 📄 Cert generating — check JN Documents in ~1 min.`
-              : `✅ JN result set to "${d.cf_string_34_set || row.result}". ${photoStatus}. 📄 Cert generating — check JN Documents in ~1 min.`,
+              ? `${photoStatus}. ${swapMsg} ${certMsg}.`
+              : `✅ JN result set to "${d.cf_string_34_set || row.result}". ${photoStatus}. ${certMsg}.`,
           },
         }));
+        try {
+          await supabase
+            .from("inspections")
+            .update({ jn_pushed_at: pushedAt, jn_photos_in_jn_count: photosAlreadyInJn })
+            .eq("id", row.id);
+          setRecordSearchResults((rs) => rs.map((rr) =>
+            rr.id === row.id ? { ...rr, jn_pushed_at: pushedAt, jn_photos_in_jn_count: photosAlreadyInJn } : rr,
+          ));
+        } catch {}
         setRowBusyId(null);
         return;
       }
@@ -6938,15 +6959,18 @@ const renderSmsTemplate = (key, vars) => {
         }));
       }
 
-      // STEP 3: Fire the cert generator (fire-and-forget — its own Lambda).
+      // STEP 3: Render + upload the cert via the split chain (Lambda A
+      // renders + stashes in Supabase Storage, Lambda B uploads to JN).
+      // Synchronous + awaited so the manager sees the actual outcome
+      // and the "📄 CERT IN JN" badge gets written reliably.
       setPushStatus((s) => ({
         ...s,
-        [row.id]: { stage: "updating", message: "📄 Queueing cert generation…" },
+        [row.id]: { stage: "updating", message: "📄 Rendering cert PDF (1/2)…" },
       }));
-      fireCertGeneration(jnJobId);
+      const certResult = await runCertChain(jnJobId, row.id);
 
-      // STEP 4 (retail only): now the JN job has photos + cert
-      // queued, do the workflow swap (record_type → Lead, location →
+      // STEP 4 (retail only): now the JN job has photos + cert,
+      // do the workflow swap (record_type → Lead, location →
       // US Shingle and Metal LLC, cf_string_34 → Retail).
       let swapResult = null;
       if (isRetail) {
@@ -6971,13 +6995,15 @@ const renderSmsTemplate = (key, vars) => {
       if (photoBits.length === 0) photoBits.push("ℹ no photos");
       parts.push(`Photos: ${photoBits.join(", ")} (of ${d.photos_total ?? photos.length + photosAlreadyInJn} total)`);
       if (firstFailureMsg) parts.push(`First photo error: ${firstFailureMsg}`);
-      parts.push("📄 Cert generating — check JN Documents in ~1 min");
+      parts.push(certResult.ok
+        ? `📄 Cert in JN Documents (${certResult.photoCount ?? "?"} photos)`
+        : `⚠ Cert FAILED: ${certResult.error}`);
 
       setPushStatus((s) => ({
         ...s,
         [row.id]: {
           stage: "done",
-          ok: failed === 0,
+          ok: failed === 0 && certResult.ok,
           message: parts.join(". "),
         },
       }));
@@ -7009,21 +7035,62 @@ const renderSmsTemplate = (key, vars) => {
     }
   };
 
-  // Fire the cert generator for a given JN job. Fire-and-forget —
-  // the cert function runs in its own Lambda with its own 10s budget
-  // (or 15-min if the user's Netlify plan supports background funcs).
-  function fireCertGeneration(jnJobId) {
-    if (!jnJobId) return;
-    // Use the -background variant — Netlify gives it a 15-minute
-    // budget vs. the 10s timeout on the regular function. The cert
-    // path (PDFShift + photo downloads + JN upload) routinely runs
-    // 10-15s and was returning 502 to the browser when fired against
-    // the regular endpoint, so the cert never actually completed.
-    fetch("/.netlify/functions/generate-and-upload-insp-report-background", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jnid: jnJobId }),
-    }).catch((e) => console.warn("Cert kickoff failed:", e));
+  // Cert chain — split into render (Lambda A) and upload (Lambda B)
+  // because PDFShift + photo embed + JN upload combined exceeds the
+  // 10s sync-function budget. Lambda A renders the PDF, stashes it
+  // in Supabase Storage, returns a signed URL. Lambda B fetches the
+  // URL and uploads to JN. Each half completes well under 10s.
+  //
+  // Returns { ok, filename?, photoCount?, error? }. On success it
+  // also writes jn_cert_uploaded_at to the inspection row so the
+  // 📄 CERT IN JN badge appears.
+  async function runCertChain(jnJobId, rowId) {
+    if (!jnJobId) return { ok: false, error: "no jn_job_id" };
+    try {
+      const r1 = await fetch("/.netlify/functions/generate-and-upload-insp-report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jnid: jnJobId, skip_jn_upload: true }),
+      });
+      const t1 = await r1.text();
+      let b1 = {};
+      try { b1 = JSON.parse(t1); } catch {}
+      if (!r1.ok || !b1.ok || !b1.pdf_signed_url) {
+        return { ok: false, error: `render ${r1.status}: ${b1.error || b1.detail || t1.slice(0, 200)}` };
+      }
+      const r2 = await fetch("/.netlify/functions/upload-pdf-to-jn", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jnid: jnJobId,
+          filename: b1.filename,
+          pdf_url: b1.pdf_signed_url,
+          pdf_storage_path: b1.pdf_storage_path,
+        }),
+      });
+      const t2 = await r2.text();
+      let b2 = {};
+      try { b2 = JSON.parse(t2); } catch {}
+      if (!r2.ok || !b2.ok) {
+        return { ok: false, error: `upload ${r2.status}: ${b2.error || t2.slice(0, 200)}`, filename: b1.filename };
+      }
+      // Persist cert-uploaded timestamp.
+      if (rowId) {
+        try {
+          const uploadedAt = new Date().toISOString();
+          await supabase
+            .from("inspections")
+            .update({ jn_cert_uploaded_at: uploadedAt })
+            .eq("id", rowId);
+          setRecordSearchResults((rs) => rs.map((rr) =>
+            rr.id === rowId ? { ...rr, jn_cert_uploaded_at: uploadedAt } : rr,
+          ));
+        } catch {}
+      }
+      return { ok: true, filename: b1.filename, photoCount: b1.photoCount };
+    } catch (e) {
+      return { ok: false, error: e.message || "network" };
+    }
   }
 
   // Manual "Generate Cert" button handler. Unlike fireCertGeneration
