@@ -82,29 +82,15 @@ exports.handler = async (event) => {
     label: p.label || "Inspector photo",
   }));
 
-  // RETAIL: do NOT do the cf_string_34 + record_type + location PUT
-  // here. The client uploads photos first, then fires the cert, THEN
-  // calls process-retail-result for the workflow swap — so photos and
-  // cert land on the JN job while it's still in the "PA / U.S. SHINGLE
-  // - Insurance" location, and the swap happens once everything's
-  // attached. Order matters: if we transitioned the job first, any
-  // photo upload mid-swap could race.
-  if (insp.result === "retail") {
-    return json(200, {
-      ok: true,
-      inspection_id: inspectionId,
-      jn_job_id: insp.jn_job_id,
-      client_name: insp.client_name,
-      result: "retail",
-      jn_updated: false,           // we deliberately haven't PUT yet
-      needs_retail_swap: true,     // tells the client to fire process-retail-result LAST
-      photos_to_upload: photosToUpload,
-    });
-  }
-
-  // DAMAGE / NO_DAMAGE: PUT cf_string_34 now (fast, ~1s) and return
-  // the photo list. Client handles photos + cert.
-  const RESULT_LABELS = { damage: "Damage", no_damage: "No Damage" };
+  // Always PUT cf_string_34 NOW — even for retail. The cert generator
+  // refuses to render unless cf_string_34 is one of Damage / No Damage /
+  // Retail. If we defer this PUT until the final retail swap, the cert
+  // (which we fire BEFORE the swap, to attach it before the location
+  // change) sees an empty result and 400s.
+  //
+  // For retail we set cf_string_34 here too; process-retail-result
+  // does the remaining record_type + location swap later.
+  const RESULT_LABELS = { damage: "Damage", no_damage: "No Damage", retail: "Retail" };
   const cfValue = RESULT_LABELS[insp.result];
   if (!cfValue) {
     return json(400, { ok: false, error: `Unsupported result "${insp.result}"` });
@@ -136,6 +122,11 @@ exports.handler = async (event) => {
     cf_string_34_set: cfValue,
     jn_updated: jnUpdated,
     jn_update_error: jnUpdateError,
+    // True for retail only — tells the client to ALSO fire
+    // process-retail-result at the end for the record_type +
+    // location swap. cf_string_34 is already set so the swap
+    // just touches the workflow fields.
+    needs_retail_swap: insp.result === "retail",
     photos_to_upload: photosToUpload,
   });
 };
