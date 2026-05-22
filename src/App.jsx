@@ -7005,6 +7005,64 @@ const renderSmsTemplate = (key, vars) => {
     }).catch((e) => console.warn("Cert kickoff failed:", e));
   }
 
+  // Manual "Generate Cert" button handler. Unlike fireCertGeneration
+  // (fire-and-forget, background), this AWAITS the regular cert
+  // function and surfaces the actual result. Use when the auto-fire
+  // didn't land the cert in JN Documents within a minute or two —
+  // tells you whether it timed out (Netlify 10s limit), failed for
+  // a specific reason, or actually succeeded.
+  const adminGenerateCertNow = async (row) => {
+    if (!row?.jn_job_id) {
+      setPushStatus((s) => ({ ...s, [row.id]: { stage: "error", message: "No JN job linked yet." } }));
+      return;
+    }
+    setRowBusyId(row.id);
+    setPushStatus((s) => ({
+      ...s,
+      [row.id]: { stage: "updating", message: "📄 Generating cert (this can take 10-20s)…" },
+    }));
+    try {
+      const r = await fetch("/.netlify/functions/generate-and-upload-insp-report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jnid: row.jn_job_id }),
+      });
+      const txt = await r.text();
+      let body = {};
+      try { body = JSON.parse(txt); } catch {}
+      if (r.ok && body.ok) {
+        setPushStatus((s) => ({
+          ...s,
+          [row.id]: {
+            stage: "done",
+            ok: true,
+            message: `✅ Cert generated + uploaded to JN Documents (${body.photoCount ?? "?"} photos). Filename: ${body.filename || "(see JN)"}.`,
+          },
+        }));
+      } else {
+        setPushStatus((s) => ({
+          ...s,
+          [row.id]: {
+            stage: "error",
+            ok: false,
+            message: `❌ Cert failed (HTTP ${r.status}): ${body.error || body.detail || txt.slice(0, 200)}`,
+          },
+        }));
+      }
+    } catch (e) {
+      setPushStatus((s) => ({
+        ...s,
+        [row.id]: {
+          stage: "error",
+          ok: false,
+          message: `❌ Cert error: ${e.message || e}`,
+        },
+      }));
+    } finally {
+      setRowBusyId(null);
+    }
+  };
+
   const submitInspectionResult = async () => {
     if (!resultChoice || !resultInspectorName.trim() || !selectedInspRecord) return;
     setResultSubmitting(true);
@@ -11535,6 +11593,23 @@ if (!hasDamage) {
                                     📸 Photos
                                   </button>
                                 </div>
+
+                                {/* Generate Cert Now — manual fallback when the auto-fire on
+                                    Push to JN didn't land the cert in JN Documents. Awaits the
+                                    regular cert function and surfaces the actual result instead
+                                    of fire-and-forget. */}
+                                {rec.jn_job_id && rec.result ? (
+                                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                                    <button
+                                      type="button"
+                                      disabled={isBusy}
+                                      onClick={(e) => { e.stopPropagation(); adminGenerateCertNow(rec); }}
+                                      title="Manually generate the inspection cert PDF and upload to JN Documents. Awaits the result (10-20s) so you see exactly what happened — use when the auto-fire on Push to JN didn't land."
+                                      style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #7c3aed", background: isBusy ? "#f3f4f6" : "#f5f3ff", color: isBusy ? "#9ca3af" : "#5b21b6", fontSize: 11, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: isBusy ? "not-allowed" : "pointer" }}>
+                                      📄 Cert Now
+                                    </button>
+                                  </div>
+                                ) : null}
 
                                 {/* Edit Record — opens a modal to fix client name, address, sales rep, JN link, result, etc. */}
                                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
