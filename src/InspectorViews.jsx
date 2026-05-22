@@ -3947,3 +3947,209 @@ const dangerBtn = {
   fontSize: 12,
   cursor: "pointer",
 };
+
+// ─────────────────────────────────────────────────────────────────────
+// PA Report — list of homeowners sent to the PA in a date window,
+// with the signed/refused/pending outcome we got back via the
+// pa-ops-hub-status-callback webhook. Useful for closing the loop on
+// what's still waiting on the PA vs. what's resolved.
+// ─────────────────────────────────────────────────────────────────────
+export function PAReportPanel() {
+  // Default: last 30 days (inclusive). Manager can stretch or narrow.
+  const today = new Date();
+  const thirtyAgo = new Date();
+  thirtyAgo.setDate(today.getDate() - 29);
+  const toISODate = (d) => d.toISOString().slice(0, 10);
+  const [fromDate, setFromDate] = useState(toISODate(thirtyAgo));
+  const [toDate, setToDate] = useState(toISODate(today));
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState("all");
+
+  async function load() {
+    setLoading(true);
+    // Query inspections sent to the PA in [fromDate, toDate+1day).
+    // pa_intake_sent_at is the timestamp send-to-pa-ops-hub.js writes
+    // after a successful POST to her endpoint.
+    const fromIso = `${fromDate}T00:00:00Z`;
+    const toEnd = new Date(`${toDate}T00:00:00Z`);
+    toEnd.setDate(toEnd.getDate() + 1);
+    const toIso = toEnd.toISOString();
+    const { data, error } = await supabase
+      .from("inspections")
+      .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, signed_at, result, result_at, pa_intake_sent_at, pa_status, pa_status_updated_at, pa_status_notes, jn_job_id")
+      .gte("pa_intake_sent_at", fromIso)
+      .lt("pa_intake_sent_at", toIso)
+      .order("pa_intake_sent_at", { ascending: false });
+    if (!error && Array.isArray(data)) setRows(data);
+    else setRows([]);
+    setLoading(false);
+  }
+
+  useEffect(() => { load(); }, []);
+
+  const counts = useMemo(() => {
+    const c = { total: rows.length, pending: 0, signed: 0, refused: 0 };
+    for (const r of rows) {
+      const s = (r.pa_status || "pending").toLowerCase();
+      if (s === "signed") c.signed++;
+      else if (s === "refused") c.refused++;
+      else c.pending++;
+    }
+    return c;
+  }, [rows]);
+
+  const filteredRows = useMemo(() => {
+    if (statusFilter === "all") return rows;
+    return rows.filter((r) => (r.pa_status || "pending").toLowerCase() === statusFilter);
+  }, [rows, statusFilter]);
+
+  const fmtDateTime = (iso) => iso ? new Date(iso).toLocaleString() : "—";
+  const fmtRelative = (iso) => {
+    if (!iso) return "";
+    const diffMs = Date.now() - new Date(iso).getTime();
+    const days = Math.floor(diffMs / 86400000);
+    if (days <= 0) return "today";
+    if (days === 1) return "1 day ago";
+    return `${days} days ago`;
+  };
+
+  function statusPill(s) {
+    const status = (s || "pending").toLowerCase();
+    if (status === "signed") {
+      return <span style={{ background: "#199c2e", color: "#fff", borderRadius: 20, padding: "3px 10px", fontSize: 10, fontWeight: 700, fontFamily: "'Oswald', sans-serif", whiteSpace: "nowrap" }}>🤝 SIGNED</span>;
+    }
+    if (status === "refused") {
+      return <span style={{ background: "#6b7280", color: "#fff", borderRadius: 20, padding: "3px 10px", fontSize: 10, fontWeight: 700, fontFamily: "'Oswald', sans-serif", whiteSpace: "nowrap" }}>🚫 REFUSED</span>;
+    }
+    return <span style={{ background: "#fef3c7", color: "#92400e", border: "1px solid #fbbf24", borderRadius: 20, padding: "3px 10px", fontSize: 10, fontWeight: 700, fontFamily: "'Oswald', sans-serif", whiteSpace: "nowrap" }}>⏳ PENDING</span>;
+  }
+
+  function csvExport() {
+    const header = ["Sent At","Homeowner","Address","Sales Rep","PA Status","Status Updated","Days Pending","Notes"];
+    const lines = [header.join(",")];
+    for (const r of filteredRows) {
+      const sent = r.pa_intake_sent_at ? new Date(r.pa_intake_sent_at).toISOString() : "";
+      const updated = r.pa_status_updated_at ? new Date(r.pa_status_updated_at).toISOString() : "";
+      const fullAddr = [r.address, r.city, r.state, r.zip].filter(Boolean).join(" ");
+      const daysPending = r.pa_intake_sent_at && (r.pa_status || "pending").toLowerCase() === "pending"
+        ? Math.floor((Date.now() - new Date(r.pa_intake_sent_at).getTime()) / 86400000)
+        : "";
+      const escape = (v) => {
+        const s = String(v ?? "");
+        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      };
+      lines.push([sent, r.client_name || "", fullAddr, r.sales_rep_name || "", r.pa_status || "pending", updated, daysPending, r.pa_status_notes || ""].map(escape).join(","));
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `pa-report-${fromDate}-to-${toDate}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div>
+      <h2 style={{ marginTop: 0, fontFamily: "'Oswald', sans-serif", fontSize: 22 }}>🤝 PA Report</h2>
+      <p style={{ color: "#6b7280", fontSize: 13, marginTop: 0, lineHeight: 1.5 }}>
+        Every homeowner we sent to the PA in this date range, with the signed / refused / pending outcome she returned. Pending = sent but the PA hasn't marked it yet.
+      </p>
+
+      {/* Date pickers + refresh + CSV */}
+      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 16 }}>
+        <label style={{ fontSize: 12, fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "#374151" }}>From:
+          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)}
+            style={{ marginLeft: 6, padding: "6px 10px", borderRadius: 8, border: "1.5px solid #d1d5db", fontSize: 13, fontFamily: "'Nunito', sans-serif" }} />
+        </label>
+        <label style={{ fontSize: 12, fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "#374151" }}>To:
+          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)}
+            style={{ marginLeft: 6, padding: "6px 10px", borderRadius: 8, border: "1.5px solid #d1d5db", fontSize: 13, fontFamily: "'Nunito', sans-serif" }} />
+        </label>
+        <button type="button" onClick={load} disabled={loading}
+          style={{ padding: "8px 16px", borderRadius: 8, border: "1.5px solid #0a0a0a", background: "#0a0a0a", color: "#fff", fontSize: 12, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: loading ? "wait" : "pointer" }}>
+          {loading ? "Loading…" : "🔄 Refresh"}
+        </button>
+        <button type="button" onClick={csvExport} disabled={loading || filteredRows.length === 0}
+          style={{ padding: "8px 16px", borderRadius: 8, border: "1.5px solid #0e7490", background: "#ecfeff", color: "#0e7490", fontSize: 12, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: (loading || filteredRows.length === 0) ? "not-allowed" : "pointer" }}>
+          ⬇ Export CSV
+        </button>
+      </div>
+
+      {/* Summary tiles + status filter */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(140px, 1fr))", gap: 12, marginBottom: 16 }}>
+        {[
+          { key: "all", label: "Total Sent", count: counts.total, bg: "#eef1f8", color: "#1a2e5a" },
+          { key: "pending", label: "Pending", count: counts.pending, bg: "#fef3c7", color: "#92400e" },
+          { key: "signed", label: "Signed", count: counts.signed, bg: "#dcfce7", color: "#065f46" },
+          { key: "refused", label: "Refused", count: counts.refused, bg: "#f3f4f6", color: "#374151" },
+        ].map((tile) => (
+          <button key={tile.key} type="button" onClick={() => setStatusFilter(tile.key)}
+            style={{
+              padding: "14px 16px",
+              borderRadius: 12,
+              border: statusFilter === tile.key ? "2px solid #0a0a0a" : "1.5px solid #e5e7eb",
+              background: tile.bg,
+              color: tile.color,
+              cursor: "pointer",
+              textAlign: "left",
+              fontFamily: "'Oswald', sans-serif",
+            }}>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", opacity: 0.85 }}>{tile.label}</div>
+            <div style={{ fontSize: 28, fontWeight: 700, marginTop: 4 }}>{tile.count}</div>
+          </button>
+        ))}
+      </div>
+
+      {/* Rows */}
+      {loading ? (
+        <div style={{ padding: 20, color: "#6b7280", fontSize: 13 }}>Loading…</div>
+      ) : filteredRows.length === 0 ? (
+        <div style={{ padding: 20, color: "#6b7280", fontSize: 13, background: "#fff", border: "1px dashed #e5e7eb", borderRadius: 12 }}>
+          {statusFilter === "all"
+            ? "No homeowners were sent to the PA in this date range."
+            : `No homeowners with status "${statusFilter}" in this date range.`}
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: 10 }}>
+          {filteredRows.map((r) => {
+            const status = (r.pa_status || "pending").toLowerCase();
+            const daysPending = status === "pending" && r.pa_intake_sent_at
+              ? Math.floor((Date.now() - new Date(r.pa_intake_sent_at).getTime()) / 86400000)
+              : null;
+            return (
+              <div key={r.id} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "12px 16px", display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "start" }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", fontFamily: "'Nunito', sans-serif" }}>{r.client_name || "—"}</div>
+                  <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>{[r.address, r.city, r.state, r.zip].filter(Boolean).join(", ")}</div>
+                  <div style={{ fontSize: 11, color: "#9ca3af", fontFamily: "'Nunito', sans-serif", marginTop: 4 }}>
+                    Rep: {r.sales_rep_name || "—"} · Sent to PA: <strong style={{ color: "#374151" }}>{fmtDateTime(r.pa_intake_sent_at)}</strong> ({fmtRelative(r.pa_intake_sent_at)})
+                  </div>
+                  {r.pa_status_notes ? (
+                    <div style={{ fontSize: 11, color: "#475569", fontFamily: "'Nunito', sans-serif", marginTop: 6, padding: "6px 10px", background: "#f8fafc", borderRadius: 6, borderLeft: "3px solid #cbd5e1" }}>
+                      PA notes: {r.pa_status_notes}
+                    </div>
+                  ) : null}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                  {statusPill(r.pa_status)}
+                  {r.pa_status_updated_at && status !== "pending" ? (
+                    <div style={{ fontSize: 10, color: "#9ca3af", fontFamily: "'Nunito', sans-serif" }}>
+                      {status} {fmtRelative(r.pa_status_updated_at)}
+                    </div>
+                  ) : null}
+                  {daysPending !== null && daysPending >= 3 ? (
+                    <div style={{ fontSize: 10, color: "#dc2626", fontFamily: "'Oswald', sans-serif", fontWeight: 700 }}>
+                      {daysPending}d waiting
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
