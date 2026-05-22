@@ -6823,6 +6823,32 @@ const renderSmsTemplate = (key, vars) => {
       const jnJobId = d.jn_job_id;
       const isRetail = !!d.needs_retail_swap || row.result === "retail";
 
+      // Build a swap-result message that surfaces what ACTUALLY changed
+      // in JN. The PUT can return 200 even when JN silently ignored
+      // location.id (e.g. lookup couldn't find the location) — we read
+      // fields_set and location_lookup_note from the response so the
+      // manager sees the truth, not just "✅ swap applied".
+      function buildSwapMsg(res) {
+        if (!res) return "";
+        if (!res.jn_updated) {
+          return `⚠ Retail swap failed: ${res.jn_update_error || res.error || "see logs"}.`;
+        }
+        const parts = [];
+        const locationId = res.fields_set?.location_id;
+        if (locationId) {
+          parts.push(`record_type=Lead, location id=${locationId}`);
+        } else {
+          parts.push("record_type=Lead, location UNCHANGED");
+        }
+        let line = `✅ Retail swap applied (${parts.join(", ")}).`;
+        // Show the lookup note (e.g. "Could not find a JN location
+        // named 'US Shingle and Metal LLC'. Available: …") when present.
+        if (res.location_lookup_note && !locationId) {
+          line += ` ${res.location_lookup_note}`;
+        }
+        return line;
+      }
+
       // Helper that runs once everything's settled — for retail we
       // ALSO fire process-retail-result for the workflow swap, AFTER
       // photos + cert have been pushed (so the swap is the last thing
@@ -6845,22 +6871,23 @@ const renderSmsTemplate = (key, vars) => {
       // STEP 2: Fire per-photo uploads in parallel batches. Each photo
       // is its own Lambda — ~2s — so 28 photos in batches of 6 finish
       // in ~10s wall time with progress shown to the manager.
+      // If photos_to_upload is empty, distinguish "no photos at all"
+      // from "all already in JN" (dedup) — VERY different stories.
       if (photos.length === 0) {
-        // No photos — fire cert (in case JN already has photos from
-        // somewhere else) and then the retail swap if applicable.
         fireCertGeneration(jnJobId);
         const swapResult = await fireRetailSwapIfNeeded();
-        const swapMsg = !isRetail ? "" :
-          swapResult?.jn_updated ? " ✅ Retail swap applied." :
-            ` ⚠ Retail swap: ${swapResult?.jn_update_error || swapResult?.error || "see logs"}.`;
+        const photoStatus = photosAlreadyInJn > 0
+          ? `✅ All ${photosAlreadyInJn} photos already in JN`
+          : "ℹ No photos on file";
+        const swapMsg = !isRetail ? "" : buildSwapMsg(swapResult);
         setPushStatus((s) => ({
           ...s,
           [row.id]: {
             stage: "done",
             ok: true,
             message: isRetail
-              ? `No photos on file.${swapMsg} 📄 Cert generating — check JN Documents in ~1 min.`
-              : `✅ JN result set to "${d.cf_string_34_set || row.result}". No photos on file. 📄 Cert generating — check JN Documents in ~1 min.`,
+              ? `${photoStatus}. ${swapMsg} 📄 Cert generating — check JN Documents in ~1 min.`
+              : `✅ JN result set to "${d.cf_string_34_set || row.result}". ${photoStatus}. 📄 Cert generating — check JN Documents in ~1 min.`,
           },
         }));
         setRowBusyId(null);
@@ -6932,21 +6959,17 @@ const renderSmsTemplate = (key, vars) => {
 
       const parts = [];
       if (isRetail) {
-        if (swapResult?.jn_updated) {
-          parts.push(`✅ Retail swap applied (record_type=Lead, location=US Shingle and Metal LLC)`);
-        } else {
-          parts.push(`⚠ Retail swap failed: ${swapResult?.jn_update_error || swapResult?.error || "see logs"}`);
-        }
+        parts.push(buildSwapMsg(swapResult));
       } else {
         parts.push(`✅ JN result set to "${d.cf_string_34_set || row.result}"`);
       }
-      if (failed === 0) {
-        parts.push(`✅ ${uploaded}/${photos.length} photos uploaded to JN`);
-      } else if (uploaded > 0) {
-        parts.push(`⚠ ${uploaded}/${photos.length} photos uploaded (${failed} failed)`);
-      } else {
-        parts.push(`❌ 0/${photos.length} photos uploaded`);
-      }
+      // Photo counts. Mention "already in JN" alongside any new uploads.
+      const photoBits = [];
+      if (uploaded > 0) photoBits.push(`✅ ${uploaded} newly uploaded`);
+      if (failed > 0) photoBits.push(`❌ ${failed} failed`);
+      if (photosAlreadyInJn > 0) photoBits.push(`✅ ${photosAlreadyInJn} already in JN`);
+      if (photoBits.length === 0) photoBits.push("ℹ no photos");
+      parts.push(`Photos: ${photoBits.join(", ")} (of ${d.photos_total ?? photos.length + photosAlreadyInJn} total)`);
       if (firstFailureMsg) parts.push(`First photo error: ${firstFailureMsg}`);
       parts.push("📄 Cert generating — check JN Documents in ~1 min");
 
