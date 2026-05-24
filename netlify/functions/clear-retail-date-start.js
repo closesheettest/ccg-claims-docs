@@ -68,27 +68,29 @@ exports.handler = async (event) => {
   for (const target of TARGETS) {
     const result = { target, matched: null, action: null, error: null };
     try {
-      // Look up the JN job. Search by name — JN's job-search endpoint
-      // takes a `name` query (substring match). We page through up to
-      // 50 hits; if there's more than one we disambiguate by city.
-      const searchUrl = `${JN_BASE}/jobs?size=50&filter=${encodeURIComponent(
-        JSON.stringify({
-          must: [{ match: { name: target.name } }],
-        }),
-      )}`;
-      const sRes = await fetch(searchUrl, { headers });
+      // Look up the JN job. JN's job-search endpoint is /jobs?search=<term>
+      // (matches name + address + other fields, case-insensitive). Try the
+      // full name first; if nothing comes back, retry on just the last
+      // word of the name (catches mismatches like "Zepeda" stored in JN
+      // but spreadsheet shows "Christopher Zepeda" — though usually JN
+      // job names include the full name + address).
       let jobs = [];
-      if (sRes.ok) {
-        const body = await sRes.json().catch(() => ({}));
-        jobs = body.results || body.jobs || body.items || [];
-      } else {
-        // Fallback: brute scan recent jobs and filter by name.
-        const scanRes = await fetch(`${JN_BASE}/jobs?size=100`, { headers });
-        if (scanRes.ok) {
-          const sb = await scanRes.json().catch(() => ({}));
-          const all = sb.results || sb.jobs || sb.items || [];
+      async function tryJnSearch(term) {
+        const r = await fetch(`${JN_BASE}/jobs?search=${encodeURIComponent(term)}&size=50`, { headers });
+        if (!r.ok) return [];
+        const body = await r.json().catch(() => ({}));
+        return body.results || body.jobs || body.items || [];
+      }
+      jobs = await tryJnSearch(target.name);
+      if (jobs.length === 0) {
+        // Fall back to last word only (e.g. "Alphonse" instead of "Paul Alphonse").
+        const parts = target.name.split(/\s+/).filter(Boolean);
+        const lastWord = parts[parts.length - 1];
+        if (lastWord && lastWord.length >= 3 && lastWord !== target.name) {
+          jobs = await tryJnSearch(lastWord);
+          // Narrow back to ones whose name contains the full target.
           const needle = target.name.toLowerCase();
-          jobs = all.filter((j) => (j.name || "").toLowerCase().includes(needle));
+          jobs = jobs.filter((j) => (j.name || "").toLowerCase().includes(needle));
         }
       }
 
