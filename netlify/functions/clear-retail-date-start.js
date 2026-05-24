@@ -171,15 +171,16 @@ exports.handler = async (event) => {
       .filter((r) => r.matched?.jn_job_id)
       .map((r) => r.matched.jn_job_id);
     if (jobIds.length > 0) {
+      const inList = jobIds.map((id) => `"${id}"`).join(",");
+      const url = `${SB_URL}/rest/v1/inspections?jn_job_id=in.(${encodeURIComponent(inList)})&select=jn_job_id,id,result,signed_at,client_name`;
+      const debug = { url, status: null, row_count: null, sample: null, error: null };
       try {
-        // PostgREST `in.(...)` needs string values double-quoted, and
-        // the whole list URI-encoded. The bare-comma form silently
-        // returned 0 rows during the first dry run with results.
-        const inList = jobIds.map((id) => `"${id}"`).join(",");
-        const url = `${SB_URL}/rest/v1/inspections?jn_job_id=in.(${encodeURIComponent(inList)})&select=jn_job_id,id,result,signed_at,client_name`;
         const r = await fetch(url, { headers: sbHeaders });
+        debug.status = r.status;
         if (r.ok) {
           const rows = await r.json().catch(() => []);
+          debug.row_count = Array.isArray(rows) ? rows.length : -1;
+          debug.sample = (rows || []).slice(0, 2);
           const byJobId = new Map();
           for (const row of rows) byJobId.set(row.jn_job_id, row);
           for (const res of results) {
@@ -190,15 +191,42 @@ exports.handler = async (event) => {
             res.matched.app_signed_at = row?.signed_at ?? null;
           }
         } else {
+          debug.error = (await r.text()).slice(0, 300);
           for (const res of results) {
             if (res.matched) res.matched.app_lookup_error = `Supabase ${r.status}`;
           }
         }
       } catch (e) {
+        debug.error = e.message;
         for (const res of results) {
           if (res.matched) res.matched.app_lookup_error = e.message;
         }
       }
+      // Fallback diagnostic: if the in-list returned 0, try one
+      // direct lookup by client_name on the first matched record so we
+      // can see whether the row exists at all (just without jn_job_id
+      // populated).
+      if (debug.row_count === 0 && sbHeaders) {
+        const firstMatched = results.find((r) => r.matched);
+        if (firstMatched) {
+          const cn = firstMatched.matched.name?.split(' - ')[0] || '';
+          try {
+            const nameUrl = `${SB_URL}/rest/v1/inspections?client_name=ilike.${encodeURIComponent(`%${cn}%`)}&select=id,client_name,jn_job_id,result,signed_at&limit=3`;
+            const nr = await fetch(nameUrl, { headers: sbHeaders });
+            debug.name_probe_status = nr.status;
+            if (nr.ok) {
+              const nrows = await nr.json().catch(() => []);
+              debug.name_probe_for = cn;
+              debug.name_probe_rows = nrows;
+            }
+          } catch (e) {
+            debug.name_probe_error = e.message;
+          }
+        }
+      }
+      // Tucked into a module-scoped slot so it surfaces in the
+      // response (arrays don't keep arbitrary props through JSON).
+      globalThis.__sbDebug = debug;
     }
   }
 
@@ -213,7 +241,7 @@ exports.handler = async (event) => {
     errors: results.filter((r) => r.error && r.error !== "no matching JN job found").length,
   };
 
-  return json(200, { ok: true, summary, results });
+  return json(200, { ok: true, summary, supabase_debug: globalThis.__sbDebug || null, results });
 };
 
 function unixToIso(secs) {
