@@ -172,7 +172,11 @@ exports.handler = async (event) => {
       .map((r) => r.matched.jn_job_id);
     if (jobIds.length > 0) {
       try {
-        const url = `${SB_URL}/rest/v1/inspections?jn_job_id=in.(${jobIds.join(",")})&select=jn_job_id,id,result,signed_at,client_name`;
+        // PostgREST `in.(...)` needs string values double-quoted, and
+        // the whole list URI-encoded. The bare-comma form silently
+        // returned 0 rows during the first dry run with results.
+        const inList = jobIds.map((id) => `"${id}"`).join(",");
+        const url = `${SB_URL}/rest/v1/inspections?jn_job_id=in.(${encodeURIComponent(inList)})&select=jn_job_id,id,result,signed_at,client_name`;
         const r = await fetch(url, { headers: sbHeaders });
         if (r.ok) {
           const rows = await r.json().catch(() => []);
