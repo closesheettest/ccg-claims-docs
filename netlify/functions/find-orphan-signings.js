@@ -12,6 +12,34 @@
 //
 // Default window = last 7 days. Dates are signed_at (exclusive `to`).
 //
+// HOW IT WORKS:
+//   For each Supabase signing in the window (excluding cancelled rows):
+//   1. If jn_job_id is already set → trust it, mark in_jn=true.
+//   2. Otherwise, fire 3 parallel /jobs?search queries against JN
+//      ("<lastname> <streetNum>", "<streetNum>", "<lastname>"), dedupe
+//      the combined results, then strict-filter:
+//        a. JN job name must contain the last name
+//        b. JN job name must contain the first name (if any survivor has it)
+//        c. JN job's cf_date_5 (or date_start as fallback) must be within
+//           ±60 min of the Supabase signed_at
+//   3. Anything passing all three filters → in_jn=true. Otherwise → orphan.
+//
+// LIMITATION: JN's /jobs?search endpoint returns roughly the 50 most
+// recent matching jobs per query. For an active JN account, records
+// older than ~2-3 days can fall off the recent set and become
+// undiscoverable from outside even though they exist. So this function
+// is most accurate for FRESH orphans (the day-of or day-after a sync
+// failure) and may false-positive on records >2-3 days old.
+//
+// IF YOU SEE OLDER FALSE-POSITIVE ORPHANS:
+//   - Cross-reference against the "Last Weeks Sales" CSV export from JN's
+//     UI. The CSV is authoritative — it can see older records the API
+//     search can't. If a "supposed orphan" appears in the CSV with a JN
+//     id, it's a false-positive (the JN job exists; the app's local
+//     jn_job_id back-write didn't fire, but that's a separate latent
+//     bug). The orphan list is only actionable if a name does NOT appear
+//     in the CSV.
+//
 // Required env: JOBNIMBUS_API_KEY, VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
 
 const JN_BASE = "https://app.jobnimbus.com/api1";
