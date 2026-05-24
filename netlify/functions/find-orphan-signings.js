@@ -52,49 +52,24 @@ exports.handler = async (event) => {
   }
   const signings = await sbRes.json();
 
-  // 2. Pull JN jobs whose date_start (Sold Date) falls in the window.
-  //    Previously this used date_updated which floated old jobs to the
-  //    top whenever they were touched, blowing past the 2000-row
-  //    safety cap with status-change noise and starving the cap of
-  //    actual sold-this-week jobs. date_start moves only at sign time,
-  //    so the result set is ~one row per signing — no noise, well
-  //    under the cap.
-  const fromUnix = Math.floor(new Date(`${from}T00:00:00Z`).getTime() / 1000) - 86400;
-  const toUnix = Math.floor(new Date(`${to}T00:00:00Z`).getTime() / 1000) + 86400;
-  const jnJobs = [];
-  let pageFrom = 0;
-  const PAGE_SIZE = 100;
-  for (let safety = 0; safety < 30; safety++) {
-    const url = `${JN_BASE}/jobs?size=${PAGE_SIZE}&from=${pageFrom}&sort=-date_start&date_start_after=${fromUnix}&date_start_before=${toUnix}`;
-    const r = await fetch(url, { headers: jnHeaders });
-    if (!r.ok) break;
-    const body = await r.json().catch(() => ({}));
-    const page = body.results || body.jobs || body.items || [];
-    jnJobs.push(...page);
-    if (page.length < PAGE_SIZE) break;
-    pageFrom += PAGE_SIZE;
-  }
-
-  // 3. Build a lowercased name index for fast client-side matching.
-  const jnByName = jnJobs.map((j) => ({
-    jnid: j.jnid || j.id,
-    name: j.name || "",
-    nameLower: (j.name || "").toLowerCase(),
-    date_start: j.date_start,
-  }));
-
-  // Max time delta between Supabase signed_at and JN date_start for a
-  // name-based match to count as "the same record." Real syncs land in
-  // 5-15 seconds; padding to 60 minutes covers retry / delayed-sync
-  // edges while still cleanly rejecting unrelated old JN jobs of the
-  // same person (e.g. Sue fox's months-old job that the prior scan
-  // false-matched against a fresh 5/22 signing).
+  // 2. Per-signing JN lookup. JN's /jobs?search returns the 50 most
+  //    recent jobs that match the term (approximately) — we then
+  //    strict-filter on last name + first name + date_start time
+  //    tolerance to decide if any of them is the same record as our
+  //    Supabase signing. Concurrency-limited so 50+ records finish
+  //    inside Netlify's 10-second function timeout.
+  //
+  //    Why this over a batch scan: JN's account-wide /jobs scan can
+  //    blow past any safety cap with old / unrelated jobs (date_updated
+  //    floats touched-today old jobs to the top; date_start_after/before
+  //    filters don't work). Per-name search lets us trust JN's own
+  //    relevance ranking for the search term, then we just need to
+  //    confirm time + name match client-side.
   const TIME_TOLERANCE_MS = 60 * 60 * 1000;
 
-  function findJnFor(signing) {
+  async function searchJn(signing) {
     if (signing.jn_job_id) {
-      const direct = jnByName.find((j) => j.jnid === signing.jn_job_id);
-      if (direct) return { match: direct, reason: "linked by jn_job_id" };
+      return { match: { jnid: signing.jn_job_id }, reason: "linked by jn_job_id" };
     }
     const name = (signing.client_name || "").trim();
     if (!name) return null;
@@ -102,41 +77,61 @@ exports.handler = async (event) => {
     const firstName = (parts[0] || "").toLowerCase();
     const lastName = (parts[parts.length - 1] || "").toLowerCase();
     if (lastName.length < 2) return null;
-    // Strict: job name must contain the last name.
-    let cands = jnByName.filter((j) => j.nameLower.includes(lastName));
-    // Tighten by first name if any survivor has it.
-    if (firstName && firstName !== lastName) {
-      const tight = cands.filter((j) => j.nameLower.includes(firstName));
-      if (tight.length > 0) cands = tight;
+    const term = lastName.length >= 3 ? lastName : name;
+    try {
+      const r = await fetch(`${JN_BASE}/jobs?search=${encodeURIComponent(term)}&size=50`, { headers: jnHeaders });
+      if (!r.ok) return null;
+      const body = await r.json().catch(() => ({}));
+      const raw = body.results || body.jobs || body.items || [];
+      // Strict: job name must contain the last name.
+      let cands = raw.filter((j) => (j.name || "").toLowerCase().includes(lastName));
+      // Tighten by first name if any survivor has it.
+      if (firstName && firstName !== lastName) {
+        const tight = cands.filter((j) => (j.name || "").toLowerCase().includes(firstName));
+        if (tight.length > 0) cands = tight;
+      }
+      if (cands.length === 0) return null;
+      // Time match: JN's date_start must be within ±60 min of signed_at.
+      // Kills the false-positive case where an old job of the same
+      // person gets matched to a fresh signing.
+      const signedMs = signing.signed_at ? new Date(signing.signed_at).getTime() : null;
+      if (signedMs == null || Number.isNaN(signedMs)) {
+        return { match: cands[0], reason: `name match, no signed_at to compare (${cands.length})` };
+      }
+      const ranked = cands
+        .map((c) => ({
+          c,
+          deltaMs: c.date_start ? Math.abs(c.date_start * 1000 - signedMs) : Number.POSITIVE_INFINITY,
+        }))
+        .filter((x) => x.deltaMs <= TIME_TOLERANCE_MS)
+        .sort((a, b) => a.deltaMs - b.deltaMs);
+      if (ranked.length === 0) return null;
+      const best = ranked[0];
+      return {
+        match: { jnid: best.c.jnid || best.c.id, name: best.c.name, date_start: best.c.date_start },
+        reason: `name + time match (Δ${Math.round(best.deltaMs / 1000)}s)`,
+      };
+    } catch (e) {
+      return { error: e.message };
     }
-    if (cands.length === 0) return null;
-    // Final filter: the JN job's date_start must be within tolerance
-    // of the Supabase signed_at. Without this, old JN records of the
-    // same person false-match recent signings.
-    const signedMs = signing.signed_at ? new Date(signing.signed_at).getTime() : null;
-    if (signedMs == null || Number.isNaN(signedMs)) {
-      return { match: cands[0], reason: `name match, no signed_at to compare (${cands.length})` };
-    }
-    const inWindow = cands
-      .map((c) => ({
-        c,
-        deltaMs: c.date_start ? Math.abs(c.date_start * 1000 - signedMs) : Number.POSITIVE_INFINITY,
-      }))
-      .filter((x) => x.deltaMs <= TIME_TOLERANCE_MS)
-      .sort((a, b) => a.deltaMs - b.deltaMs);
-    if (inWindow.length === 0) {
-      return null;
-    }
-    const best = inWindow[0];
-    const deltaSec = Math.round(best.deltaMs / 1000);
-    return { match: best.c, reason: `name + time match (${cands.length} name candidate${cands.length === 1 ? "" : "s"}, Δ${deltaSec}s)` };
   }
 
-  const checked = signings.map((s) => {
-    const m = findJnFor(s);
-    if (m) return { signing: s, in_jn: true, reason: m.reason, matched_jnid: m.match.jnid };
-    return { signing: s, in_jn: false, reason: "no JN match in window" };
-  });
+  // Process in batches of 8 concurrent JN calls.
+  const CONCURRENCY = 8;
+  const checked = [];
+  for (let i = 0; i < signings.length; i += CONCURRENCY) {
+    const batch = signings.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(batch.map(async (s) => {
+      const m = await searchJn(s);
+      if (m && m.match) return { signing: s, in_jn: true, reason: m.reason, matched_jnid: m.match.jnid };
+      return { signing: s, in_jn: false, reason: m?.error ? `JN error: ${m.error}` : "no JN match in window" };
+    }));
+    checked.push(...results);
+  }
+
+  // jnJobs no longer collected — keep summary field shape stable but
+  // expose 0 so callers know we switched approaches.
+  const jnJobs = [];
 
   const orphans = checked
     .filter((c) => c.in_jn === false)
