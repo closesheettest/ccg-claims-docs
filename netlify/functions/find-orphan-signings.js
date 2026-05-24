@@ -123,6 +123,20 @@ exports.handler = async (event) => {
       inspection_id: c.signing.id,
     }));
 
+  // Compact per-signing list — one line per record so you can eyeball
+  // against a CSV pulled from JN. Sorted by signed_at desc.
+  const all = checked
+    .map((c) => ({
+      client_name: c.signing.client_name,
+      city: c.signing.city,
+      signed_at: c.signing.signed_at,
+      result: c.signing.result,
+      sales_rep: c.signing.sales_rep_name,
+      in_jn: c.in_jn,
+      jnid: c.matched_jnid || c.signing.jn_job_id || null,
+    }))
+    .sort((a, b) => (b.signed_at || "").localeCompare(a.signed_at || ""));
+
   return json(200, {
     ok: true,
     window: { from, to },
@@ -134,6 +148,7 @@ exports.handler = async (event) => {
       jn_jobs_scanned: jnJobs.length,
     },
     orphans,
+    all,
   });
 };
 
