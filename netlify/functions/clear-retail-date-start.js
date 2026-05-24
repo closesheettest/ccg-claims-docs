@@ -209,22 +209,51 @@ exports.handler = async (event) => {
       // from inspections + presence in claims is the expected shape
       // for "Sit Sold Insp" stage. Read-only.
       if (sbHeaders) {
+        // Sanity check first: can we read the claims table at all?
+        try {
+          const sUrl = `${SB_URL}/rest/v1/claims?select=id,homeowner1,address,city,signed_at,jn_job_id&limit=3`;
+          const sr = await fetch(sUrl, { headers: sbHeaders });
+          debug.claims_sanity = {
+            status: sr.status,
+            body: sr.ok ? await sr.json().catch(() => []) : (await sr.text()).slice(0, 300),
+          };
+        } catch (e) {
+          debug.claims_sanity = { error: e.message };
+        }
+
+        // Per-target probes — capture status + body excerpt on failure.
         debug.claims_probes = [];
         for (const t of TARGETS) {
           const lastWord = t.name.split(/\s+/).pop();
-          const probe = { target: t.name, by_full: null, by_last: null, error: null };
+          const probe = {
+            target: t.name,
+            by_full: null,
+            by_full_status: null,
+            by_full_err: null,
+            by_last: null,
+            by_last_status: null,
+            by_last_err: null,
+          };
+          const cols = "id,homeowner1,homeowner2,address,city,state,zip,signed_at,jn_job_id";
           try {
-            const cols = "id,homeowner1,homeowner2,address,city,state,zip,signed_at,jn_job_id";
             const u1 = `${SB_URL}/rest/v1/claims?or=(homeowner1.ilike.${encodeURIComponent(`%${t.name}%`)},homeowner2.ilike.${encodeURIComponent(`%${t.name}%`)})&select=${cols}&limit=3`;
             const r1 = await fetch(u1, { headers: sbHeaders });
+            probe.by_full_status = r1.status;
             if (r1.ok) probe.by_full = await r1.json().catch(() => []);
-            if (probe.by_full && probe.by_full.length === 0 && lastWord && lastWord !== t.name) {
+            else probe.by_full_err = (await r1.text()).slice(0, 200);
+          } catch (e) {
+            probe.by_full_err = e.message;
+          }
+          if ((!probe.by_full || probe.by_full.length === 0) && lastWord && lastWord !== t.name) {
+            try {
               const u2 = `${SB_URL}/rest/v1/claims?or=(homeowner1.ilike.${encodeURIComponent(`%${lastWord}%`)},homeowner2.ilike.${encodeURIComponent(`%${lastWord}%`)})&select=${cols}&limit=3`;
               const r2 = await fetch(u2, { headers: sbHeaders });
+              probe.by_last_status = r2.status;
               if (r2.ok) probe.by_last = await r2.json().catch(() => []);
+              else probe.by_last_err = (await r2.text()).slice(0, 200);
+            } catch (e) {
+              probe.by_last_err = e.message;
             }
-          } catch (e) {
-            probe.error = e.message;
           }
           debug.claims_probes.push(probe);
         }
