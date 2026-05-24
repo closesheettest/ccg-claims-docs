@@ -52,21 +52,20 @@ exports.handler = async (event) => {
   }
   const signings = await sbRes.json();
 
-  // 2. Pull every JN job updated in the date range (one paginated
-  //    scan, sorted by date_updated desc). JN's /jobs?search doesn't
-  //    actually filter — it returns the 50 most recent jobs from the
-  //    account, so per-name searches false-negative on older records.
-  //    Scanning the full date-range list and matching client-side is
-  //    both faster (1 JN call vs 50) and accurate for any age.
-  // Pad the window by 1 day on each side because JN's date_updated
-  // moves whenever a job is touched (status change, etc).
+  // 2. Pull JN jobs whose date_start (Sold Date) falls in the window.
+  //    Previously this used date_updated which floated old jobs to the
+  //    top whenever they were touched, blowing past the 2000-row
+  //    safety cap with status-change noise and starving the cap of
+  //    actual sold-this-week jobs. date_start moves only at sign time,
+  //    so the result set is ~one row per signing — no noise, well
+  //    under the cap.
   const fromUnix = Math.floor(new Date(`${from}T00:00:00Z`).getTime() / 1000) - 86400;
   const toUnix = Math.floor(new Date(`${to}T00:00:00Z`).getTime() / 1000) + 86400;
   const jnJobs = [];
   let pageFrom = 0;
   const PAGE_SIZE = 100;
-  for (let safety = 0; safety < 20; safety++) {
-    const url = `${JN_BASE}/jobs?size=${PAGE_SIZE}&from=${pageFrom}&sort=-date_updated&date_updated_after=${fromUnix}&date_updated_before=${toUnix}`;
+  for (let safety = 0; safety < 30; safety++) {
+    const url = `${JN_BASE}/jobs?size=${PAGE_SIZE}&from=${pageFrom}&sort=-date_start&date_start_after=${fromUnix}&date_start_before=${toUnix}`;
     const r = await fetch(url, { headers: jnHeaders });
     if (!r.ok) break;
     const body = await r.json().catch(() => ({}));
