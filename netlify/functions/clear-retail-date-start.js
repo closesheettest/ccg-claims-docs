@@ -68,30 +68,35 @@ exports.handler = async (event) => {
   for (const target of TARGETS) {
     const result = { target, matched: null, action: null, error: null };
     try {
-      // Look up the JN job. JN's job-search endpoint is /jobs?search=<term>
-      // (matches name + address + other fields, case-insensitive). Try the
-      // full name first; if nothing comes back, retry on just the last
-      // word of the name (catches mismatches like "Zepeda" stored in JN
-      // but spreadsheet shows "Christopher Zepeda" — though usually JN
-      // job names include the full name + address).
-      let jobs = [];
+      // Look up the JN job. JN's /jobs?search=<term> isn't a strict name
+      // match — even when the term doesn't appear anywhere, it returns
+      // the page's worth of recent jobs (every dry-run target came back
+      // with 50 candidates). So we have to STRICTLY post-filter on the
+      // last name (must literally appear in the job's name string), and
+      // require the first name too when present to avoid the
+      // same-last-name and same-city collisions.
+      const parts = target.name.split(/\s+/).filter(Boolean);
+      const firstName = (parts[0] || "").toLowerCase();
+      const lastName = (parts[parts.length - 1] || "").toLowerCase();
       async function tryJnSearch(term) {
         const r = await fetch(`${JN_BASE}/jobs?search=${encodeURIComponent(term)}&size=50`, { headers });
         if (!r.ok) return [];
         const body = await r.json().catch(() => ({}));
         return body.results || body.jobs || body.items || [];
       }
-      jobs = await tryJnSearch(target.name);
-      if (jobs.length === 0) {
-        // Fall back to last word only (e.g. "Alphonse" instead of "Paul Alphonse").
-        const parts = target.name.split(/\s+/).filter(Boolean);
-        const lastWord = parts[parts.length - 1];
-        if (lastWord && lastWord.length >= 3 && lastWord !== target.name) {
-          jobs = await tryJnSearch(lastWord);
-          // Narrow back to ones whose name contains the full target.
-          const needle = target.name.toLowerCase();
-          jobs = jobs.filter((j) => (j.name || "").toLowerCase().includes(needle));
-        }
+      // Query by the more-distinctive last name. JN's search may still
+      // return noise, but it's at least biased toward our intended hit.
+      const raw = await tryJnSearch(lastName.length >= 3 ? lastName : target.name);
+      // Strict filter: the JN job's name field must contain the LAST
+      // name. Catches the false-positive case where /jobs?search just
+      // returned 50 recent jobs unfiltered.
+      let jobs = raw.filter((j) => (j.name || "").toLowerCase().includes(lastName));
+      // If the target's first name is distinct and present in any of
+      // the survivors, tighten further to those — guards against
+      // "Zepeda" matching a different "Zepeda" who happens to be in JN.
+      if (firstName && firstName !== lastName) {
+        const tightened = jobs.filter((j) => (j.name || "").toLowerCase().includes(firstName));
+        if (tightened.length > 0) jobs = tightened;
       }
 
       if (!jobs.length) {
