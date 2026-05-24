@@ -41,9 +41,11 @@ exports.handler = async (event) => {
     "Content-Type": "application/json",
   };
 
-  // 1. Pull every inspection signed in the window.
-  const cols = "id,client_name,city,sales_rep_name,signed_at,result,jn_job_id,address,zip";
-  const sbUrl = `${SB_URL}/rest/v1/inspections?signed_at=gte.${from}&signed_at=lt.${to}&select=${cols}&order=signed_at.desc`;
+  // 1. Pull every inspection signed in the window. Excludes cancelled
+  //    rows (those don't show in the inspector view, and we shouldn't
+  //    count them as missing-from-JN — they're voided drafts).
+  const cols = "id,client_name,city,sales_rep_name,signed_at,result,jn_job_id,address,zip,cancelled_at";
+  const sbUrl = `${SB_URL}/rest/v1/inspections?signed_at=gte.${from}&signed_at=lt.${to}&cancelled_at=is.null&select=${cols}&order=signed_at.desc`;
   const sbRes = await fetch(sbUrl, { headers: sbHeaders });
   if (!sbRes.ok) {
     return json(500, { ok: false, error: `Supabase: ${(await sbRes.text()).slice(0, 300)}` });
@@ -82,6 +84,14 @@ exports.handler = async (event) => {
     date_start: j.date_start,
   }));
 
+  // Max time delta between Supabase signed_at and JN date_start for a
+  // name-based match to count as "the same record." Real syncs land in
+  // 5-15 seconds; padding to 60 minutes covers retry / delayed-sync
+  // edges while still cleanly rejecting unrelated old JN jobs of the
+  // same person (e.g. Sue fox's months-old job that the prior scan
+  // false-matched against a fresh 5/22 signing).
+  const TIME_TOLERANCE_MS = 60 * 60 * 1000;
+
   function findJnFor(signing) {
     if (signing.jn_job_id) {
       const direct = jnByName.find((j) => j.jnid === signing.jn_job_id);
@@ -101,7 +111,26 @@ exports.handler = async (event) => {
       if (tight.length > 0) cands = tight;
     }
     if (cands.length === 0) return null;
-    return { match: cands[0], reason: `name match (${cands.length} candidate${cands.length === 1 ? "" : "s"})` };
+    // Final filter: the JN job's date_start must be within tolerance
+    // of the Supabase signed_at. Without this, old JN records of the
+    // same person false-match recent signings.
+    const signedMs = signing.signed_at ? new Date(signing.signed_at).getTime() : null;
+    if (signedMs == null || Number.isNaN(signedMs)) {
+      return { match: cands[0], reason: `name match, no signed_at to compare (${cands.length})` };
+    }
+    const inWindow = cands
+      .map((c) => ({
+        c,
+        deltaMs: c.date_start ? Math.abs(c.date_start * 1000 - signedMs) : Number.POSITIVE_INFINITY,
+      }))
+      .filter((x) => x.deltaMs <= TIME_TOLERANCE_MS)
+      .sort((a, b) => a.deltaMs - b.deltaMs);
+    if (inWindow.length === 0) {
+      return null;
+    }
+    const best = inWindow[0];
+    const deltaSec = Math.round(best.deltaMs / 1000);
+    return { match: best.c, reason: `name + time match (${cands.length} name candidate${cands.length === 1 ? "" : "s"}, Δ${deltaSec}s)` };
   }
 
   const checked = signings.map((s) => {
