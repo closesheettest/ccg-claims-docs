@@ -50,42 +50,65 @@ exports.handler = async (event) => {
   }
   const signings = await sbRes.json();
 
-  // 2. For each unlinked signing, search JN by last name. Anything
-  //    already linked (jn_job_id non-null) we trust without a JN call.
-  //    Concurrency-limited to 8 parallel requests so 50+ records
-  //    finish inside Netlify's 10s function timeout.
-  async function checkOne(s) {
-    if (s.jn_job_id) return { signing: s, in_jn: true, reason: "has jn_job_id" };
-    const name = (s.client_name || "").trim();
-    if (!name) return { signing: s, in_jn: null, reason: "no client_name" };
+  // 2. Pull every JN job updated in the date range (one paginated
+  //    scan, sorted by date_updated desc). JN's /jobs?search doesn't
+  //    actually filter — it returns the 50 most recent jobs from the
+  //    account, so per-name searches false-negative on older records.
+  //    Scanning the full date-range list and matching client-side is
+  //    both faster (1 JN call vs 50) and accurate for any age.
+  // Pad the window by 1 day on each side because JN's date_updated
+  // moves whenever a job is touched (status change, etc).
+  const fromUnix = Math.floor(new Date(`${from}T00:00:00Z`).getTime() / 1000) - 86400;
+  const toUnix = Math.floor(new Date(`${to}T00:00:00Z`).getTime() / 1000) + 86400;
+  const jnJobs = [];
+  let pageFrom = 0;
+  const PAGE_SIZE = 100;
+  for (let safety = 0; safety < 20; safety++) {
+    const url = `${JN_BASE}/jobs?size=${PAGE_SIZE}&from=${pageFrom}&sort=-date_updated&date_updated_after=${fromUnix}&date_updated_before=${toUnix}`;
+    const r = await fetch(url, { headers: jnHeaders });
+    if (!r.ok) break;
+    const body = await r.json().catch(() => ({}));
+    const page = body.results || body.jobs || body.items || [];
+    jnJobs.push(...page);
+    if (page.length < PAGE_SIZE) break;
+    pageFrom += PAGE_SIZE;
+  }
+
+  // 3. Build a lowercased name index for fast client-side matching.
+  const jnByName = jnJobs.map((j) => ({
+    jnid: j.jnid || j.id,
+    name: j.name || "",
+    nameLower: (j.name || "").toLowerCase(),
+    date_start: j.date_start,
+  }));
+
+  function findJnFor(signing) {
+    if (signing.jn_job_id) {
+      const direct = jnByName.find((j) => j.jnid === signing.jn_job_id);
+      if (direct) return { match: direct, reason: "linked by jn_job_id" };
+    }
+    const name = (signing.client_name || "").trim();
+    if (!name) return null;
     const parts = name.split(/\s+/).filter(Boolean);
     const firstName = (parts[0] || "").toLowerCase();
     const lastName = (parts[parts.length - 1] || "").toLowerCase();
-    const term = lastName.length >= 3 ? lastName : name;
-    try {
-      const r = await fetch(`${JN_BASE}/jobs?search=${encodeURIComponent(term)}&size=50`, { headers: jnHeaders });
-      const body = r.ok ? await r.json().catch(() => ({})) : {};
-      const raw = body.results || body.jobs || body.items || [];
-      let jobs = raw.filter((j) => (j.name || "").toLowerCase().includes(lastName));
-      if (firstName && firstName !== lastName) {
-        const tight = jobs.filter((j) => (j.name || "").toLowerCase().includes(firstName));
-        if (tight.length > 0) jobs = tight;
-      }
-      if (jobs.length === 0) return { signing: s, in_jn: false, reason: "no JN match" };
-      return { signing: s, in_jn: true, reason: `JN match (${jobs.length} candidate${jobs.length === 1 ? "" : "s"})` };
-    } catch (e) {
-      return { signing: s, in_jn: null, reason: `JN error: ${e.message}` };
+    if (lastName.length < 2) return null;
+    // Strict: job name must contain the last name.
+    let cands = jnByName.filter((j) => j.nameLower.includes(lastName));
+    // Tighten by first name if any survivor has it.
+    if (firstName && firstName !== lastName) {
+      const tight = cands.filter((j) => j.nameLower.includes(firstName));
+      if (tight.length > 0) cands = tight;
     }
+    if (cands.length === 0) return null;
+    return { match: cands[0], reason: `name match (${cands.length} candidate${cands.length === 1 ? "" : "s"})` };
   }
 
-  // Process in batches of 8 concurrent requests.
-  const CONCURRENCY = 8;
-  const checked = [];
-  for (let i = 0; i < signings.length; i += CONCURRENCY) {
-    const batch = signings.slice(i, i + CONCURRENCY);
-    const results = await Promise.all(batch.map(checkOne));
-    checked.push(...results);
-  }
+  const checked = signings.map((s) => {
+    const m = findJnFor(s);
+    if (m) return { signing: s, in_jn: true, reason: m.reason, matched_jnid: m.match.jnid };
+    return { signing: s, in_jn: false, reason: "no JN match in window" };
+  });
 
   const orphans = checked
     .filter((c) => c.in_jn === false)
@@ -105,10 +128,10 @@ exports.handler = async (event) => {
     window: { from, to },
     summary: {
       total_signings: signings.length,
-      already_linked: checked.filter((c) => c.in_jn === true && c.reason === "has jn_job_id").length,
-      found_in_jn_via_search: checked.filter((c) => c.in_jn === true && c.reason !== "has jn_job_id").length,
+      already_linked: checked.filter((c) => c.in_jn === true && c.reason === "linked by jn_job_id").length,
+      matched_by_name: checked.filter((c) => c.in_jn === true && c.reason !== "linked by jn_job_id").length,
       orphans: orphans.length,
-      errors: checked.filter((c) => c.in_jn === null).length,
+      jn_jobs_scanned: jnJobs.length,
     },
     orphans,
   });
