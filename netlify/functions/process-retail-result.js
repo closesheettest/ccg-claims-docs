@@ -231,10 +231,18 @@ exports.handler = async (event) => {
 
   // Build the JN PUT body. Location is only included when we have a
   // valid numeric ID — otherwise we leave it alone (better than 400).
+  //
+  // date_start is explicitly NULLED here. On the initial PA sync we
+  // pin date_start to the sold date so "new this week" reports work
+  // for the insurance flow. When a job swaps to Retail it's leaving
+  // that flow entirely (record_type → Lead, location → retail), and
+  // the start-date should clear so JN's retail reports don't pick
+  // these up under the old sold date.
   const putBody = {
     jnid: insp.jn_job_id,
     cf_string_34: "Retail",
     record_type_name: "Lead",
+    date_start: null,
   };
   if (retailLocationId) {
     putBody.location = { id: Number(retailLocationId) };
