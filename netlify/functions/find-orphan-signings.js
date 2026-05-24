@@ -98,17 +98,29 @@ exports.handler = async (event) => {
       if (signedMs == null || Number.isNaN(signedMs)) {
         return { match: cands[0], reason: `name match, no signed_at to compare (${cands.length})` };
       }
+      // Prefer cf_date_5 (the app's sold-date custom field) over the
+      // native date_start — when the sync linked to an existing JN
+      // job, date_start sometimes ends up 0 even though cf_date_5
+      // holds the real sold time. Whichever is non-zero, use.
+      function soldTimeOf(j) {
+        if (j.cf_date_5 && Number(j.cf_date_5) > 0) return Number(j.cf_date_5);
+        if (j.date_start && Number(j.date_start) > 0) return Number(j.date_start);
+        return null;
+      }
       const ranked = cands
-        .map((c) => ({
-          c,
-          deltaMs: c.date_start ? Math.abs(c.date_start * 1000 - signedMs) : Number.POSITIVE_INFINITY,
-        }))
+        .map((c) => {
+          const t = soldTimeOf(c);
+          return {
+            c,
+            deltaMs: t == null ? Number.POSITIVE_INFINITY : Math.abs(t * 1000 - signedMs),
+          };
+        })
         .filter((x) => x.deltaMs <= TIME_TOLERANCE_MS)
         .sort((a, b) => a.deltaMs - b.deltaMs);
       if (ranked.length === 0) return null;
       const best = ranked[0];
       return {
-        match: { jnid: best.c.jnid || best.c.id, name: best.c.name, date_start: best.c.date_start },
+        match: { jnid: best.c.jnid || best.c.id, name: best.c.name, sold_time: soldTimeOf(best.c) },
         reason: `name + time match (Δ${Math.round(best.deltaMs / 1000)}s)`,
       };
     } catch (e) {
