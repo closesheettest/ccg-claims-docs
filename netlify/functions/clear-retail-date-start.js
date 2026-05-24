@@ -51,6 +51,16 @@ exports.handler = async (event) => {
   const JN_KEY = process.env.JOBNIMBUS_API_KEY;
   if (!JN_KEY) return json(500, { ok: false, error: "JOBNIMBUS_API_KEY not set" });
 
+  // Supabase creds — used to look up the app-side inspection.result
+  // for each matched JN job (so the dry-run shows both sides of the
+  // sync). Failure to read isn't fatal; we just leave app_result null.
+  const SB_URL = process.env.VITE_SUPABASE_URL;
+  const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
+  const sbHeaders = SB_URL && SB_KEY ? {
+    apikey: SB_KEY,
+    Authorization: `Bearer ${SB_KEY}`,
+  } : null;
+
   // GET = dry run; POST with ?go=1 = real run. Belt + suspenders so a
   // stray browser GET can't blow up data.
   const qs = new URLSearchParams(event.rawQuery || (event.queryStringParameters
@@ -152,6 +162,40 @@ exports.handler = async (event) => {
       result.error = e.message;
     }
     results.push(result);
+  }
+
+  // Enrich every matched row with the app-side inspection result
+  // (one batched Supabase request — `in.(<id1>,<id2>,...)`).
+  if (sbHeaders) {
+    const jobIds = results
+      .filter((r) => r.matched?.jn_job_id)
+      .map((r) => r.matched.jn_job_id);
+    if (jobIds.length > 0) {
+      try {
+        const url = `${SB_URL}/rest/v1/inspections?jn_job_id=in.(${jobIds.join(",")})&select=jn_job_id,id,result,signed_at,client_name`;
+        const r = await fetch(url, { headers: sbHeaders });
+        if (r.ok) {
+          const rows = await r.json().catch(() => []);
+          const byJobId = new Map();
+          for (const row of rows) byJobId.set(row.jn_job_id, row);
+          for (const res of results) {
+            if (!res.matched) continue;
+            const row = byJobId.get(res.matched.jn_job_id);
+            res.matched.app_result = row?.result ?? null;
+            res.matched.app_inspection_id = row?.id ?? null;
+            res.matched.app_signed_at = row?.signed_at ?? null;
+          }
+        } else {
+          for (const res of results) {
+            if (res.matched) res.matched.app_lookup_error = `Supabase ${r.status}`;
+          }
+        }
+      } catch (e) {
+        for (const res of results) {
+          if (res.matched) res.matched.app_lookup_error = e.message;
+        }
+      }
+    }
   }
 
   const summary = {
