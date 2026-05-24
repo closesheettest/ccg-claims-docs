@@ -202,26 +202,28 @@ exports.handler = async (event) => {
           if (res.matched) res.matched.app_lookup_error = e.message;
         }
       }
-      // Fallback diagnostic: if the in-list returned 0, try one
-      // direct lookup by client_name on the first matched record so we
-      // can see whether the row exists at all (just without jn_job_id
-      // populated).
-      if (debug.row_count === 0 && sbHeaders) {
-        const firstMatched = results.find((r) => r.matched);
-        if (firstMatched) {
-          const cn = firstMatched.matched.name?.split(' - ')[0] || '';
+      // Diagnostic: probe each TARGET by client_name (case-insensitive
+      // substring on full name + last name fallback). Tells us whether
+      // the row exists in inspections at all — even without the JN job
+      // link populated. Strictly read-only.
+      if (sbHeaders) {
+        debug.name_probes = [];
+        for (const t of TARGETS) {
+          const lastWord = t.name.split(/\s+/).pop();
+          const probe = { target: t.name, by_full: null, by_last: null, error: null };
           try {
-            const nameUrl = `${SB_URL}/rest/v1/inspections?client_name=ilike.${encodeURIComponent(`%${cn}%`)}&select=id,client_name,jn_job_id,result,signed_at&limit=3`;
-            const nr = await fetch(nameUrl, { headers: sbHeaders });
-            debug.name_probe_status = nr.status;
-            if (nr.ok) {
-              const nrows = await nr.json().catch(() => []);
-              debug.name_probe_for = cn;
-              debug.name_probe_rows = nrows;
+            const u1 = `${SB_URL}/rest/v1/inspections?client_name=ilike.${encodeURIComponent(`%${t.name}%`)}&select=id,client_name,jn_job_id,result,signed_at,city&limit=3`;
+            const r1 = await fetch(u1, { headers: sbHeaders });
+            if (r1.ok) probe.by_full = await r1.json().catch(() => []);
+            if (probe.by_full && probe.by_full.length === 0 && lastWord && lastWord !== t.name) {
+              const u2 = `${SB_URL}/rest/v1/inspections?client_name=ilike.${encodeURIComponent(`%${lastWord}%`)}&select=id,client_name,jn_job_id,result,signed_at,city&limit=3`;
+              const r2 = await fetch(u2, { headers: sbHeaders });
+              if (r2.ok) probe.by_last = await r2.json().catch(() => []);
             }
           } catch (e) {
-            debug.name_probe_error = e.message;
+            probe.error = e.message;
           }
+          debug.name_probes.push(probe);
         }
       }
       // Tucked into a module-scoped slot so it surfaces in the
