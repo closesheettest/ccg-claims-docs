@@ -1,29 +1,31 @@
 // netlify/functions/clear-retail-date-start.js
 //
-// One-off bulk fix: clear date_start on the JN jobs created from the
-// 5/22-5/23/26 batch of Retail-result inspections. Earlier sync code
-// pinned date_start to the sold date even when the inspection swapped
-// to Retail — the "new this week" reports were picking those up. This
-// function nulls date_start on the matching jobs so the reports skip
-// them. The forward fix lives in process-retail-result.js.
+// Bulk backfill: for the 5/22-5/23/26 batch of 20 PA-signed records,
+// find each one's JN job and write the JN job id onto its
+// inspections.jn_job_id column. The JN sync that ran when these were
+// signed succeeded in creating the JN job, but the follow-up PATCH on
+// the inspection row (App.jsx ~line 5953) silently didn't persist, so
+// all 20 inspections are sitting with jn_job_id = null and the
+// downstream Retail-swap fix can't find them when the inspector
+// eventually classifies the roof.
+//
+// (File name still says "clear-retail-date-start" because the URL is
+// already in the user's shell history — original purpose changed once
+// diagnostics revealed the records are pre-inspection, not Retail.)
 //
 // USAGE:
-//   GET  /.netlify/functions/clear-retail-date-start              → dry run
-//   POST /.netlify/functions/clear-retail-date-start?go=1         → actually update
+//   GET  /.netlify/functions/clear-retail-date-start            → dry run
+//   POST /.netlify/functions/clear-retail-date-start?go=1       → actually PATCH
 //
-// Returns per-row outcome: matched JN job id, before/after date_start,
-// or "not found" / "skipped" with a reason. Dry-run mode does the
-// lookup but never PUTs.
+// Per-target output:
+//   - matched: JN job info + chosen inspection row
+//   - action: what was done (or would be done in dry run) / skip reason
+//   - error: per-target failure message, if any
 //
-// Required env: JOBNIMBUS_API_KEY
+// Required env: JOBNIMBUS_API_KEY, VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
 
 const JN_BASE = "https://app.jobnimbus.com/api1";
 
-// Names captured from the spreadsheet the user pasted. Match against
-// JN job names by case-insensitive substring on the full name (JN
-// names look like "Paul Alphonse - 123 Main St, Orlando FL"). City is
-// kept as a secondary signal — if multiple jobs match the name, we
-// prefer the one whose city/address contains this string.
 const TARGETS = [
   { name: "Paul Alphonse",       city: "Orlando" },
   { name: "Christopher Zepeda",  city: "Ruskin" },
@@ -51,24 +53,27 @@ exports.handler = async (event) => {
   const JN_KEY = process.env.JOBNIMBUS_API_KEY;
   if (!JN_KEY) return json(500, { ok: false, error: "JOBNIMBUS_API_KEY not set" });
 
-  // Supabase creds — used to look up the app-side inspection.result
-  // for each matched JN job (so the dry-run shows both sides of the
-  // sync). Failure to read isn't fatal; we just leave app_result null.
   const SB_URL = process.env.VITE_SUPABASE_URL;
   const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
-  const sbHeaders = SB_URL && SB_KEY ? {
+  if (!SB_URL || !SB_KEY) return json(500, { ok: false, error: "Supabase env not set" });
+  const sbHeaders = {
     apikey: SB_KEY,
     Authorization: `Bearer ${SB_KEY}`,
-  } : null;
+  };
+  const sbWriteHeaders = {
+    ...sbHeaders,
+    "Content-Type": "application/json",
+    Prefer: "return=representation",
+  };
 
-  // GET = dry run; POST with ?go=1 = real run. Belt + suspenders so a
-  // stray browser GET can't blow up data.
+  // GET = dry run. POST ?go=1 = real run. Belt + suspenders so a
+  // stray browser GET can't write to either system.
   const qs = new URLSearchParams(event.rawQuery || (event.queryStringParameters
     ? new URLSearchParams(event.queryStringParameters).toString()
     : ""));
   const dryRun = !(event.httpMethod === "POST" && qs.get("go") === "1");
 
-  const headers = {
+  const jnHeaders = {
     Authorization: `bearer ${JN_KEY}`,
     "Content-Type": "application/json",
   };
@@ -76,46 +81,26 @@ exports.handler = async (event) => {
   const results = [];
 
   for (const target of TARGETS) {
-    const result = { target, matched: null, action: null, error: null };
+    const result = { target, matched: null, inspection: null, action: null, error: null };
     try {
-      // Look up the JN job. JN's /jobs?search=<term> isn't a strict name
-      // match — even when the term doesn't appear anywhere, it returns
-      // the page's worth of recent jobs (every dry-run target came back
-      // with 50 candidates). So we have to STRICTLY post-filter on the
-      // last name (must literally appear in the job's name string), and
-      // require the first name too when present to avoid the
-      // same-last-name and same-city collisions.
+      // === Step 1: find the JN job by name ===
       const parts = target.name.split(/\s+/).filter(Boolean);
       const firstName = (parts[0] || "").toLowerCase();
       const lastName = (parts[parts.length - 1] || "").toLowerCase();
-      async function tryJnSearch(term) {
-        const r = await fetch(`${JN_BASE}/jobs?search=${encodeURIComponent(term)}&size=50`, { headers });
-        if (!r.ok) return [];
-        const body = await r.json().catch(() => ({}));
-        return body.results || body.jobs || body.items || [];
-      }
-      // Query by the more-distinctive last name. JN's search may still
-      // return noise, but it's at least biased toward our intended hit.
-      const raw = await tryJnSearch(lastName.length >= 3 ? lastName : target.name);
-      // Strict filter: the JN job's name field must contain the LAST
-      // name. Catches the false-positive case where /jobs?search just
-      // returned 50 recent jobs unfiltered.
+      const searchTerm = lastName.length >= 3 ? lastName : target.name;
+      const sr = await fetch(`${JN_BASE}/jobs?search=${encodeURIComponent(searchTerm)}&size=50`, { headers: jnHeaders });
+      const raw = sr.ok ? (await sr.json().catch(() => ({}))).results || [] : [];
+      // Post-filter: last name must literally appear in the job name.
       let jobs = raw.filter((j) => (j.name || "").toLowerCase().includes(lastName));
-      // If the target's first name is distinct and present in any of
-      // the survivors, tighten further to those — guards against
-      // "Zepeda" matching a different "Zepeda" who happens to be in JN.
       if (firstName && firstName !== lastName) {
-        const tightened = jobs.filter((j) => (j.name || "").toLowerCase().includes(firstName));
-        if (tightened.length > 0) jobs = tightened;
+        const tight = jobs.filter((j) => (j.name || "").toLowerCase().includes(firstName));
+        if (tight.length > 0) jobs = tight;
       }
-
       if (!jobs.length) {
         result.error = "no matching JN job found";
         results.push(result);
         continue;
       }
-
-      // Prefer jobs whose name OR address contains the target city.
       const cityLc = target.city.toLowerCase();
       const cityMatch = jobs.find((j) =>
         (j.name || "").toLowerCase().includes(cityLc) ||
@@ -127,165 +112,100 @@ exports.handler = async (event) => {
         jn_job_id: jobId,
         name: job.name,
         city: job.city || null,
+        date_start: job.date_start ?? null,
+        date_start_iso: unixToIso(job.date_start),
         cf_string_34: job.cf_string_34 || null,
-        date_start_before: job.date_start ?? null,
-        date_start_iso_before: unixToIso(job.date_start),
-        ambiguous: jobs.length > 1 && !cityMatch,
-        candidate_count: jobs.length,
       };
 
-      if (job.date_start == null) {
-        result.action = "skipped (date_start already empty)";
+      // === Step 2: find the inspection row in Supabase by name ===
+      const cols = "id,client_name,jn_job_id,result,signed_at,city";
+      const ir = await fetch(
+        `${SB_URL}/rest/v1/inspections?client_name=ilike.${encodeURIComponent(`%${target.name}%`)}&select=${cols}&limit=10`,
+        { headers: sbHeaders },
+      );
+      const rows = ir.ok ? (await ir.json().catch(() => [])) : [];
+      if (rows.length === 0) {
+        result.error = "no matching inspections row found in Supabase";
         results.push(result);
         continue;
       }
+      // Pick the inspection whose signed_at is closest to the JN job's
+      // date_start (handles the dup-signing case — e.g. Rainer Jakob
+      // signed twice; only the later signing produced the JN job).
+      const jnTs = (job.date_start || 0) * 1000;
+      const candidates = rows.map((r) => ({
+        ...r,
+        delta_ms: r.signed_at ? Math.abs(new Date(r.signed_at).getTime() - jnTs) : Number.POSITIVE_INFINITY,
+      }));
+      candidates.sort((a, b) => a.delta_ms - b.delta_ms);
+      const insp = candidates[0];
+      result.inspection = {
+        id: insp.id,
+        client_name: insp.client_name,
+        city: insp.city,
+        signed_at: insp.signed_at,
+        jn_job_id_before: insp.jn_job_id,
+        delta_seconds: Number.isFinite(insp.delta_ms) ? Math.round(insp.delta_ms / 1000) : null,
+        other_candidates: candidates.slice(1).map((c) => ({
+          id: c.id,
+          signed_at: c.signed_at,
+          delta_seconds: Number.isFinite(c.delta_ms) ? Math.round(c.delta_ms / 1000) : null,
+        })),
+      };
 
+      // === Step 3: decide action ===
+      if (insp.jn_job_id === jobId) {
+        result.action = "skipped (already linked)";
+        results.push(result);
+        continue;
+      }
+      if (insp.jn_job_id && insp.jn_job_id !== jobId) {
+        result.action = `skipped (inspection already linked to a DIFFERENT jn job ${insp.jn_job_id})`;
+        results.push(result);
+        continue;
+      }
       if (dryRun) {
-        result.action = "WOULD clear date_start (dry run)";
+        result.action = `WOULD link inspection ${insp.id} → jn_job_id ${jobId}`;
         results.push(result);
         continue;
       }
 
-      // PUT date_start: null
-      const putRes = await fetch(`${JN_BASE}/jobs/${jobId}`, {
-        method: "PUT",
-        headers,
-        body: JSON.stringify({ jnid: jobId, date_start: null }),
-      });
-      if (!putRes.ok) {
-        result.error = `JN PUT failed (${putRes.status}): ${(await putRes.text()).slice(0, 200)}`;
+      // === Step 4: PATCH inspections.jn_job_id ===
+      const patchRes = await fetch(
+        `${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(insp.id)}`,
+        {
+          method: "PATCH",
+          headers: sbWriteHeaders,
+          body: JSON.stringify({ jn_job_id: jobId }),
+        },
+      );
+      if (!patchRes.ok) {
+        result.error = `Supabase PATCH failed (${patchRes.status}): ${(await patchRes.text()).slice(0, 200)}`;
         results.push(result);
         continue;
       }
-      result.action = "cleared date_start";
+      result.action = `linked inspection ${insp.id} → jn_job_id ${jobId}`;
     } catch (e) {
       result.error = e.message;
     }
     results.push(result);
   }
 
-  // Enrich every matched row with the app-side inspection result
-  // (one batched Supabase request — `in.(<id1>,<id2>,...)`).
-  if (sbHeaders) {
-    const jobIds = results
-      .filter((r) => r.matched?.jn_job_id)
-      .map((r) => r.matched.jn_job_id);
-    if (jobIds.length > 0) {
-      const inList = jobIds.map((id) => `"${id}"`).join(",");
-      const url = `${SB_URL}/rest/v1/inspections?jn_job_id=in.(${encodeURIComponent(inList)})&select=jn_job_id,id,result,signed_at,client_name`;
-      const debug = { url, status: null, row_count: null, sample: null, error: null };
-      try {
-        const r = await fetch(url, { headers: sbHeaders });
-        debug.status = r.status;
-        if (r.ok) {
-          const rows = await r.json().catch(() => []);
-          debug.row_count = Array.isArray(rows) ? rows.length : -1;
-          debug.sample = (rows || []).slice(0, 2);
-          const byJobId = new Map();
-          for (const row of rows) byJobId.set(row.jn_job_id, row);
-          for (const res of results) {
-            if (!res.matched) continue;
-            const row = byJobId.get(res.matched.jn_job_id);
-            res.matched.app_result = row?.result ?? null;
-            res.matched.app_inspection_id = row?.id ?? null;
-            res.matched.app_signed_at = row?.signed_at ?? null;
-          }
-        } else {
-          debug.error = (await r.text()).slice(0, 300);
-          for (const res of results) {
-            if (res.matched) res.matched.app_lookup_error = `Supabase ${r.status}`;
-          }
-        }
-      } catch (e) {
-        debug.error = e.message;
-        for (const res of results) {
-          if (res.matched) res.matched.app_lookup_error = e.message;
-        }
-      }
-      // Diagnostic: probe each TARGET in the `claims` table by the
-      // homeowner1 field (case-insensitive substring). PA agreements
-      // live in `claims`; the JN job gets created when the PA is
-      // signed and BEFORE any inspection row exists, so the absence
-      // from inspections + presence in claims is the expected shape
-      // for "Sit Sold Insp" stage. Read-only.
-      if (sbHeaders) {
-        // Two probes per target: inspections by client_name, and
-        // claims by homeowner1/homeowner2. Returns the actual rows
-        // (or HTTP error body) so we can see exactly where these
-        // 19 records live (or don't).
-        debug.target_probes = [];
-        for (const t of TARGETS) {
-          const lastWord = t.name.split(/\s+/).pop();
-          const probe = {
-            target: t.name,
-            inspections_by_full: null,
-            inspections_by_full_err: null,
-            inspections_by_last: null,
-            inspections_by_last_err: null,
-            claims_by_full: null,
-            claims_by_full_err: null,
-            claims_by_last: null,
-            claims_by_last_err: null,
-          };
-          const inspCols = "id,client_name,jn_job_id,result,signed_at,city";
-          const claimsCols = "id,homeowner1,homeowner2,address,city,state,zip,signed_at";
-
-          async function safe(url, key) {
-            try {
-              const r = await fetch(url, { headers: sbHeaders });
-              if (r.ok) return await r.json().catch(() => []);
-              probe[`${key}_err`] = `${r.status}: ${(await r.text()).slice(0, 150)}`;
-              return null;
-            } catch (e) {
-              probe[`${key}_err`] = e.message;
-              return null;
-            }
-          }
-
-          // Inspections — by full name
-          probe.inspections_by_full = await safe(
-            `${SB_URL}/rest/v1/inspections?client_name=ilike.${encodeURIComponent(`%${t.name}%`)}&select=${inspCols}&limit=3`,
-            "inspections_by_full",
-          );
-          // Claims — by full name (OR across homeowner1, homeowner2)
-          probe.claims_by_full = await safe(
-            `${SB_URL}/rest/v1/claims?or=(homeowner1.ilike.${encodeURIComponent(`%${t.name}%`)},homeowner2.ilike.${encodeURIComponent(`%${t.name}%`)})&select=${claimsCols}&limit=3`,
-            "claims_by_full",
-          );
-          // Last-word fallbacks if neither full-name probe found anything.
-          if (lastWord && lastWord !== t.name &&
-              (!probe.inspections_by_full || probe.inspections_by_full.length === 0) &&
-              (!probe.claims_by_full || probe.claims_by_full.length === 0)) {
-            probe.inspections_by_last = await safe(
-              `${SB_URL}/rest/v1/inspections?client_name=ilike.${encodeURIComponent(`%${lastWord}%`)}&select=${inspCols}&limit=3`,
-              "inspections_by_last",
-            );
-            probe.claims_by_last = await safe(
-              `${SB_URL}/rest/v1/claims?or=(homeowner1.ilike.${encodeURIComponent(`%${lastWord}%`)},homeowner2.ilike.${encodeURIComponent(`%${lastWord}%`)})&select=${claimsCols}&limit=3`,
-              "claims_by_last",
-            );
-          }
-          debug.target_probes.push(probe);
-        }
-      }
-      // Tucked into a module-scoped slot so it surfaces in the
-      // response (arrays don't keep arbitrary props through JSON).
-      globalThis.__sbDebug = debug;
-    }
-  }
-
   const summary = {
     dry_run: dryRun,
     total_targets: TARGETS.length,
-    matched: results.filter((r) => r.matched).length,
-    cleared: results.filter((r) => r.action === "cleared date_start").length,
-    would_clear: results.filter((r) => r.action === "WOULD clear date_start (dry run)").length,
-    skipped_already_empty: results.filter((r) => r.action?.startsWith("skipped")).length,
-    not_found: results.filter((r) => r.error === "no matching JN job found").length,
-    errors: results.filter((r) => r.error && r.error !== "no matching JN job found").length,
+    matched_jn: results.filter((r) => r.matched).length,
+    matched_inspection: results.filter((r) => r.inspection).length,
+    would_link: results.filter((r) => (r.action || "").startsWith("WOULD link")).length,
+    linked: results.filter((r) => (r.action || "").startsWith("linked")).length,
+    already_linked: results.filter((r) => r.action === "skipped (already linked)").length,
+    skipped_other: results.filter((r) => (r.action || "").startsWith("skipped (inspection already linked to a DIFFERENT")).length,
+    no_jn_match: results.filter((r) => r.error === "no matching JN job found").length,
+    no_insp_match: results.filter((r) => r.error === "no matching inspections row found in Supabase").length,
+    errors: results.filter((r) => r.error && !["no matching JN job found", "no matching inspections row found in Supabase"].includes(r.error)).length,
   };
 
-  return json(200, { ok: true, summary, supabase_debug: globalThis.__sbDebug || null, results });
+  return json(200, { ok: true, summary, results });
 };
 
 function unixToIso(secs) {
