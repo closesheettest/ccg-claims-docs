@@ -77,12 +77,39 @@ exports.handler = async (event) => {
     const firstName = (parts[0] || "").toLowerCase();
     const lastName = (parts[parts.length - 1] || "").toLowerCase();
     if (lastName.length < 2) return null;
-    const term = lastName.length >= 3 ? lastName : name;
+    const streetNum = (signing.address || "").match(/^\s*(\d+)/)?.[1] || null;
+
+    // Fire multiple search queries in parallel. JN's /jobs?search
+    // returns ~50 results regardless of how specific the term is, but
+    // a more selective term (last name + street number, or street
+    // number alone) tends to surface different records than a bare
+    // last-name search. Combining the results gives us the broadest
+    // chance of finding the right JN job for older signings whose
+    // jobs have been displaced from "recent" by intervening activity.
+    const queries = [];
+    if (lastName.length >= 3 && streetNum) queries.push(`${lastName} ${streetNum}`);
+    if (streetNum && streetNum.length >= 3) queries.push(streetNum);
+    queries.push(lastName.length >= 3 ? lastName : name);
+
     try {
-      const r = await fetch(`${JN_BASE}/jobs?search=${encodeURIComponent(term)}&size=50`, { headers: jnHeaders });
-      if (!r.ok) return null;
-      const body = await r.json().catch(() => ({}));
-      const raw = body.results || body.jobs || body.items || [];
+      const responses = await Promise.all(queries.map(async (q) => {
+        const r = await fetch(`${JN_BASE}/jobs?search=${encodeURIComponent(q)}&size=50`, { headers: jnHeaders });
+        if (!r.ok) return [];
+        const body = await r.json().catch(() => ({}));
+        return body.results || body.jobs || body.items || [];
+      }));
+      // Combine + dedupe by jnid.
+      const seenIds = new Set();
+      const raw = [];
+      for (const list of responses) {
+        for (const j of list) {
+          const id = j.jnid || j.id;
+          if (id && !seenIds.has(id)) {
+            seenIds.add(id);
+            raw.push(j);
+          }
+        }
+      }
       // Strict: job name must contain the last name.
       let cands = raw.filter((j) => (j.name || "").toLowerCase().includes(lastName));
       // Tighten by first name if any survivor has it.
