@@ -50,21 +50,14 @@ exports.handler = async (event) => {
   }
   const signings = await sbRes.json();
 
-  // 2. For each, search JN by last name. If anything in JN matches the
-  //    full name (case-insensitive substring), it's NOT an orphan. If
-  //    JN returns zero matches, it IS an orphan.
-  const orphans = [];
-  const checked = [];
-  for (const s of signings) {
-    if (s.jn_job_id) {
-      checked.push({ ...s, in_jn: true, reason: "has jn_job_id" });
-      continue;
-    }
+  // 2. For each unlinked signing, search JN by last name. Anything
+  //    already linked (jn_job_id non-null) we trust without a JN call.
+  //    Concurrency-limited to 8 parallel requests so 50+ records
+  //    finish inside Netlify's 10s function timeout.
+  async function checkOne(s) {
+    if (s.jn_job_id) return { signing: s, in_jn: true, reason: "has jn_job_id" };
     const name = (s.client_name || "").trim();
-    if (!name) {
-      checked.push({ ...s, in_jn: null, reason: "no client_name" });
-      continue;
-    }
+    if (!name) return { signing: s, in_jn: null, reason: "no client_name" };
     const parts = name.split(/\s+/).filter(Boolean);
     const firstName = (parts[0] || "").toLowerCase();
     const lastName = (parts[parts.length - 1] || "").toLowerCase();
@@ -78,33 +71,42 @@ exports.handler = async (event) => {
         const tight = jobs.filter((j) => (j.name || "").toLowerCase().includes(firstName));
         if (tight.length > 0) jobs = tight;
       }
-      if (jobs.length === 0) {
-        orphans.push({
-          client_name: s.client_name,
-          city: s.city,
-          sales_rep_name: s.sales_rep_name,
-          signed_at: s.signed_at,
-          result: s.result,
-          address: s.address,
-          zip: s.zip,
-          inspection_id: s.id,
-        });
-        checked.push({ ...s, in_jn: false, reason: "no JN match" });
-      } else {
-        checked.push({ ...s, in_jn: true, reason: `JN match (${jobs.length} candidate${jobs.length === 1 ? "" : "s"})` });
-      }
+      if (jobs.length === 0) return { signing: s, in_jn: false, reason: "no JN match" };
+      return { signing: s, in_jn: true, reason: `JN match (${jobs.length} candidate${jobs.length === 1 ? "" : "s"})` };
     } catch (e) {
-      checked.push({ ...s, in_jn: null, reason: `JN error: ${e.message}` });
+      return { signing: s, in_jn: null, reason: `JN error: ${e.message}` };
     }
   }
+
+  // Process in batches of 8 concurrent requests.
+  const CONCURRENCY = 8;
+  const checked = [];
+  for (let i = 0; i < signings.length; i += CONCURRENCY) {
+    const batch = signings.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(batch.map(checkOne));
+    checked.push(...results);
+  }
+
+  const orphans = checked
+    .filter((c) => c.in_jn === false)
+    .map((c) => ({
+      client_name: c.signing.client_name,
+      city: c.signing.city,
+      sales_rep_name: c.signing.sales_rep_name,
+      signed_at: c.signing.signed_at,
+      result: c.signing.result,
+      address: c.signing.address,
+      zip: c.signing.zip,
+      inspection_id: c.signing.id,
+    }));
 
   return json(200, {
     ok: true,
     window: { from, to },
     summary: {
       total_signings: signings.length,
-      already_linked: checked.filter((c) => c.in_jn && c.reason === "has jn_job_id").length,
-      found_in_jn_via_search: checked.filter((c) => c.in_jn && c.reason !== "has jn_job_id").length,
+      already_linked: checked.filter((c) => c.in_jn === true && c.reason === "has jn_job_id").length,
+      found_in_jn_via_search: checked.filter((c) => c.in_jn === true && c.reason !== "has jn_job_id").length,
       orphans: orphans.length,
       errors: checked.filter((c) => c.in_jn === null).length,
     },
