@@ -209,53 +209,63 @@ exports.handler = async (event) => {
       // from inspections + presence in claims is the expected shape
       // for "Sit Sold Insp" stage. Read-only.
       if (sbHeaders) {
-        // Sanity check first: can we read the claims table at all?
-        try {
-          const sUrl = `${SB_URL}/rest/v1/claims?select=id,homeowner1,address,city,signed_at,jn_job_id&limit=3`;
-          const sr = await fetch(sUrl, { headers: sbHeaders });
-          debug.claims_sanity = {
-            status: sr.status,
-            body: sr.ok ? await sr.json().catch(() => []) : (await sr.text()).slice(0, 300),
-          };
-        } catch (e) {
-          debug.claims_sanity = { error: e.message };
-        }
-
-        // Per-target probes — capture status + body excerpt on failure.
-        debug.claims_probes = [];
+        // Two probes per target: inspections by client_name, and
+        // claims by homeowner1/homeowner2. Returns the actual rows
+        // (or HTTP error body) so we can see exactly where these
+        // 19 records live (or don't).
+        debug.target_probes = [];
         for (const t of TARGETS) {
           const lastWord = t.name.split(/\s+/).pop();
           const probe = {
             target: t.name,
-            by_full: null,
-            by_full_status: null,
-            by_full_err: null,
-            by_last: null,
-            by_last_status: null,
-            by_last_err: null,
+            inspections_by_full: null,
+            inspections_by_full_err: null,
+            inspections_by_last: null,
+            inspections_by_last_err: null,
+            claims_by_full: null,
+            claims_by_full_err: null,
+            claims_by_last: null,
+            claims_by_last_err: null,
           };
-          const cols = "id,homeowner1,homeowner2,address,city,state,zip,signed_at,jn_job_id";
-          try {
-            const u1 = `${SB_URL}/rest/v1/claims?or=(homeowner1.ilike.${encodeURIComponent(`%${t.name}%`)},homeowner2.ilike.${encodeURIComponent(`%${t.name}%`)})&select=${cols}&limit=3`;
-            const r1 = await fetch(u1, { headers: sbHeaders });
-            probe.by_full_status = r1.status;
-            if (r1.ok) probe.by_full = await r1.json().catch(() => []);
-            else probe.by_full_err = (await r1.text()).slice(0, 200);
-          } catch (e) {
-            probe.by_full_err = e.message;
-          }
-          if ((!probe.by_full || probe.by_full.length === 0) && lastWord && lastWord !== t.name) {
+          const inspCols = "id,client_name,jn_job_id,result,signed_at,city";
+          const claimsCols = "id,homeowner1,homeowner2,address,city,state,zip,signed_at";
+
+          async function safe(url, key) {
             try {
-              const u2 = `${SB_URL}/rest/v1/claims?or=(homeowner1.ilike.${encodeURIComponent(`%${lastWord}%`)},homeowner2.ilike.${encodeURIComponent(`%${lastWord}%`)})&select=${cols}&limit=3`;
-              const r2 = await fetch(u2, { headers: sbHeaders });
-              probe.by_last_status = r2.status;
-              if (r2.ok) probe.by_last = await r2.json().catch(() => []);
-              else probe.by_last_err = (await r2.text()).slice(0, 200);
+              const r = await fetch(url, { headers: sbHeaders });
+              if (r.ok) return await r.json().catch(() => []);
+              probe[`${key}_err`] = `${r.status}: ${(await r.text()).slice(0, 150)}`;
+              return null;
             } catch (e) {
-              probe.by_last_err = e.message;
+              probe[`${key}_err`] = e.message;
+              return null;
             }
           }
-          debug.claims_probes.push(probe);
+
+          // Inspections — by full name
+          probe.inspections_by_full = await safe(
+            `${SB_URL}/rest/v1/inspections?client_name=ilike.${encodeURIComponent(`%${t.name}%`)}&select=${inspCols}&limit=3`,
+            "inspections_by_full",
+          );
+          // Claims — by full name (OR across homeowner1, homeowner2)
+          probe.claims_by_full = await safe(
+            `${SB_URL}/rest/v1/claims?or=(homeowner1.ilike.${encodeURIComponent(`%${t.name}%`)},homeowner2.ilike.${encodeURIComponent(`%${t.name}%`)})&select=${claimsCols}&limit=3`,
+            "claims_by_full",
+          );
+          // Last-word fallbacks if neither full-name probe found anything.
+          if (lastWord && lastWord !== t.name &&
+              (!probe.inspections_by_full || probe.inspections_by_full.length === 0) &&
+              (!probe.claims_by_full || probe.claims_by_full.length === 0)) {
+            probe.inspections_by_last = await safe(
+              `${SB_URL}/rest/v1/inspections?client_name=ilike.${encodeURIComponent(`%${lastWord}%`)}&select=${inspCols}&limit=3`,
+              "inspections_by_last",
+            );
+            probe.claims_by_last = await safe(
+              `${SB_URL}/rest/v1/claims?or=(homeowner1.ilike.${encodeURIComponent(`%${lastWord}%`)},homeowner2.ilike.${encodeURIComponent(`%${lastWord}%`)})&select=${claimsCols}&limit=3`,
+              "claims_by_last",
+            );
+          }
+          debug.target_probes.push(probe);
         }
       }
       // Tucked into a module-scoped slot so it surfaces in the
