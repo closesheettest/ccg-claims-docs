@@ -202,28 +202,31 @@ exports.handler = async (event) => {
           if (res.matched) res.matched.app_lookup_error = e.message;
         }
       }
-      // Diagnostic: probe each TARGET by client_name (case-insensitive
-      // substring on full name + last name fallback). Tells us whether
-      // the row exists in inspections at all — even without the JN job
-      // link populated. Strictly read-only.
+      // Diagnostic: probe each TARGET in the `claims` table by the
+      // homeowner1 field (case-insensitive substring). PA agreements
+      // live in `claims`; the JN job gets created when the PA is
+      // signed and BEFORE any inspection row exists, so the absence
+      // from inspections + presence in claims is the expected shape
+      // for "Sit Sold Insp" stage. Read-only.
       if (sbHeaders) {
-        debug.name_probes = [];
+        debug.claims_probes = [];
         for (const t of TARGETS) {
           const lastWord = t.name.split(/\s+/).pop();
           const probe = { target: t.name, by_full: null, by_last: null, error: null };
           try {
-            const u1 = `${SB_URL}/rest/v1/inspections?client_name=ilike.${encodeURIComponent(`%${t.name}%`)}&select=id,client_name,jn_job_id,result,signed_at,city&limit=3`;
+            const cols = "id,homeowner1,homeowner2,address,city,state,zip,signed_at,jn_job_id";
+            const u1 = `${SB_URL}/rest/v1/claims?or=(homeowner1.ilike.${encodeURIComponent(`%${t.name}%`)},homeowner2.ilike.${encodeURIComponent(`%${t.name}%`)})&select=${cols}&limit=3`;
             const r1 = await fetch(u1, { headers: sbHeaders });
             if (r1.ok) probe.by_full = await r1.json().catch(() => []);
             if (probe.by_full && probe.by_full.length === 0 && lastWord && lastWord !== t.name) {
-              const u2 = `${SB_URL}/rest/v1/inspections?client_name=ilike.${encodeURIComponent(`%${lastWord}%`)}&select=id,client_name,jn_job_id,result,signed_at,city&limit=3`;
+              const u2 = `${SB_URL}/rest/v1/claims?or=(homeowner1.ilike.${encodeURIComponent(`%${lastWord}%`)},homeowner2.ilike.${encodeURIComponent(`%${lastWord}%`)})&select=${cols}&limit=3`;
               const r2 = await fetch(u2, { headers: sbHeaders });
               if (r2.ok) probe.by_last = await r2.json().catch(() => []);
             }
           } catch (e) {
             probe.error = e.message;
           }
-          debug.name_probes.push(probe);
+          debug.claims_probes.push(probe);
         }
       }
       // Tucked into a module-scoped slot so it surfaces in the
