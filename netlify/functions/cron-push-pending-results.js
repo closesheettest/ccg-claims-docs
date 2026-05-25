@@ -181,6 +181,40 @@ const handler = async () => {
     deferred_to_next_run: Math.max(0, pending.length - PER_RUN_CAP),
   };
   console.log("cron-push-pending-results done:", JSON.stringify(summary));
+
+  // Alert admin via SMS if anything failed. Skips silently when no
+  // ADMIN_ALERT_PHONE is configured so the cron stays usable without
+  // the alert wiring. Doesn't fire on 0 failures — no noise on clean
+  // runs.
+  if (failCount > 0 && process.env.ADMIN_ALERT_PHONE) {
+    try {
+      // Compact failure summary that fits in one SMS. Each failure
+      // contributes "Name (first 60 chars of error)"; we cap the
+      // whole message at ~300 chars to stay friendly.
+      const items = failures.slice(0, 5).map((f) => {
+        const errShort = String(f.error || "unknown").slice(0, 60);
+        return `${f.name || f.id} (${errShort})`;
+      });
+      const more = failCount > items.length ? ` +${failCount - items.length} more` : "";
+      const message =
+        `⚠ JN push failures: ${failCount}/${todo.length}\n` +
+        items.join("\n") +
+        more +
+        `\nCheck Netlify logs for full detail.`;
+      await fetch(`${base}/.netlify/functions/ghl-sms`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: process.env.ADMIN_ALERT_PHONE,
+          name: "Admin",
+          message,
+        }),
+      });
+    } catch (e) {
+      console.warn("Admin SMS alert failed:", e.message);
+    }
+  }
+
   return { statusCode: 200, body: JSON.stringify(summary) };
 };
 
