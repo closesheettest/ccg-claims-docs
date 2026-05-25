@@ -49,13 +49,17 @@ const handler = async () => {
 
   // 1. Pull every inspection that NEEDS pushing.
   //    Filters mirror the UI's bulk button.
+  //    EXCLUDES jn_status="Sit Sold PA" — those are legacy records
+  //    from the old PA workflow whose JN jobs may not exist anymore
+  //    (404s on push). Admin handles those manually if needed.
   const url =
     `${SB_URL}/rest/v1/inspections` +
     `?result=in.(damage,no_damage,retail)` +
     `&jn_job_id=not.is.null` +
     `&jn_pushed_at=is.null` +
     `&cancelled_at=is.null` +
-    `&select=id,client_name,result,jn_job_id` +
+    `&or=(jn_status.is.null,jn_status.neq.Sit%20Sold%20PA)` +
+    `&select=id,client_name,result,jn_job_id,jn_status` +
     `&order=result_at.asc` +
     `&limit=100`;
   const sbRes = await fetch(url, { headers: sbHeaders });

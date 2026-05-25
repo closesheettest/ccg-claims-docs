@@ -6807,7 +6807,7 @@ const renderSmsTemplate = (key, vars) => {
     if (bulkPushBusy) return;
     // Find rows on the current page that need pushing.
     const candidates = recordSearchResults.filter((r) =>
-      r.result && r.jn_job_id && !r.jn_pushed_at && !r.cancelled_at,
+      r.result && r.jn_job_id && !r.jn_pushed_at && !r.cancelled_at && r.jn_status !== "Sit Sold PA",
     );
     if (candidates.length === 0) {
       setBulkPushSummary({ ok: 0, failed: 0, skipped: 0, message: "Nothing pending to push." });
@@ -11106,7 +11106,7 @@ if (!hasDamage) {
         const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
         const { data: results, error } = await supabase
           .from("inspections")
-          .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed, jn_job_id, cancelled_at, signed_pdfs, pa_status, pa_status_updated_at, jn_pushed_at, jn_cert_uploaded_at, jn_photos_in_jn_count")
+          .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed, jn_job_id, cancelled_at, signed_pdfs, pa_status, pa_status_updated_at, jn_status, jn_pushed_at, jn_cert_uploaded_at, jn_photos_in_jn_count")
           .gte("signed_at", thirtyDaysAgo)
           .order("result_at", { ascending: false, nullsFirst: false });
         if (error) throw error;
@@ -11247,7 +11247,7 @@ if (!hasDamage) {
           const dayEnd   = new Date(`${lookupDate}T23:59:59.999`).toISOString();
           const { data: results, error } = await supabase
             .from("inspections")
-            .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed, jn_job_id, cancelled_at, signed_pdfs, pa_status, pa_status_updated_at, jn_pushed_at, jn_cert_uploaded_at, jn_photos_in_jn_count")
+            .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed, jn_job_id, cancelled_at, signed_pdfs, pa_status, pa_status_updated_at, jn_status, jn_pushed_at, jn_cert_uploaded_at, jn_photos_in_jn_count")
             .gte("signed_at", dayStart)
             .lte("signed_at", dayEnd)
             .order("signed_at", { ascending: false });
@@ -11453,7 +11453,7 @@ if (!hasDamage) {
                           // Mirror the same filter the bulk handler uses so
                           // the badge count is honest about what would fire.
                           const pendingCount = recordSearchResults.filter((r) =>
-                            r.result && r.jn_job_id && !r.jn_pushed_at && !r.cancelled_at,
+                            r.result && r.jn_job_id && !r.jn_pushed_at && !r.cancelled_at && r.jn_status !== "Sit Sold PA",
                           ).length;
                           if (pendingCount === 0 && !bulkPushBusy && !bulkPushSummary) return null;
                           return (
