@@ -101,8 +101,34 @@ const handler = async () => {
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d.ok || !d.jn_updated) {
-        failures.push({ id: rec.id, name: rec.client_name, error: d.error || d.jn_update_error || `HTTP ${r.status}` });
+        const errMsg = d.error || d.jn_update_error || `HTTP ${r.status}`;
+        failures.push({ id: rec.id, name: rec.client_name, error: errMsg });
         failCount++;
+        // 404 from JN means the jn_job_id on this record points to a
+        // job that no longer exists in JN (deleted, or legacy PA
+        // workflow where the original job was archived elsewhere).
+        // Retrying every hour forever doesn't help — auto-archive so
+        // the record drops out of the pending pool. Admin can find
+        // it in the cancelled list and revive if needed.
+        if (/\b404\b/.test(errMsg)) {
+          try {
+            await fetch(
+              `${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(rec.id)}`,
+              {
+                method: "PATCH",
+                headers: sbHeaders,
+                body: JSON.stringify({
+                  cancelled_at: new Date().toISOString(),
+                  cancel_reason: "Auto-archived: JN job not found on push (likely legacy PA — admin can manually re-sync if needed)",
+                  jn_status: "Lost",
+                }),
+              },
+            );
+            console.log(`Auto-archived ${rec.id} (${rec.client_name}) — JN 404`);
+          } catch (e) {
+            console.warn("Auto-archive failed:", rec.id, e.message);
+          }
+        }
         return;
       }
       // Stamp jn_pushed_at so subsequent runs skip this row. The
