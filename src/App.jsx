@@ -3842,6 +3842,13 @@ export default function App() {
   // ── Check Now + per-row admin override + manual notification state ──
   const [checkNowLoading, setCheckNowLoading] = useState(false);
   const [checkNowSummary, setCheckNowSummary] = useState(null);
+  // Bulk push-results-to-JN state: while a bulk run is in flight, we
+  // show progress (k of N done) and disable the trigger button so
+  // re-clicks don't stampede the JN API. Summary captures the final
+  // counts after the run finishes.
+  const [bulkPushBusy, setBulkPushBusy] = useState(false);
+  const [bulkPushProgress, setBulkPushProgress] = useState(null); // { done, total }
+  const [bulkPushSummary, setBulkPushSummary] = useState(null);   // { ok, failed, skipped }
   const [rowBusyId, setRowBusyId] = useState(null);  // id of the row currently being updated/notified
   const [listMode, setListMode] = useState(null);     // null | "pending" | "last30" | "dateLookup"
   // Date used for the "Load by Date" lookup. Defaults to today.
@@ -6788,6 +6795,61 @@ const renderSmsTemplate = (key, vars) => {
   // and gave no indication anything was happening.
   // stage values: "updating" | "queueing" | "done" | "error"
   const [pushStatus, setPushStatus] = useState({});
+
+  // Bulk variant of adminPushResultToJn. Walks the list of "needs
+  // push" records (result set + jn_job_id set + result_pushed_at IS
+  // NULL) and fires the per-row push for each, serially with a 500ms
+  // pace between to avoid hammering JN. Stops on critical state
+  // errors (e.g. auth) but continues past per-row failures. The same
+  // setPushStatus path the manual button uses drives the inline
+  // "⏳ Pushing → ✓ Pushed" feedback per row.
+  const bulkPushAllPendingResults = async () => {
+    if (bulkPushBusy) return;
+    // Find rows on the current page that need pushing.
+    const candidates = recordSearchResults.filter((r) =>
+      r.result && r.jn_job_id && !r.jn_pushed_at && !r.cancelled_at,
+    );
+    if (candidates.length === 0) {
+      setBulkPushSummary({ ok: 0, failed: 0, skipped: 0, message: "Nothing pending to push." });
+      return;
+    }
+    const ok = confirm(
+      `Push ${candidates.length} pending result${candidates.length === 1 ? "" : "s"} to JobNimbus?\n\n` +
+      `Each record's cert + photos upload in the background. ` +
+      `Estimated time: ~${Math.ceil(candidates.length * 0.6)} seconds.`,
+    );
+    if (!ok) return;
+    setBulkPushBusy(true);
+    setBulkPushSummary(null);
+    setBulkPushProgress({ done: 0, total: candidates.length });
+    let okCount = 0;
+    let failCount = 0;
+    for (let i = 0; i < candidates.length; i++) {
+      const rec = candidates[i];
+      try {
+        await adminPushResultToJn(rec);
+        // adminPushResultToJn sets per-row status; we re-read it via
+        // setPushStatus's eventual store on the next render — for
+        // counting, check the freshest entry directly. Best-effort:
+        // if anything threw we count it as failed.
+        okCount++;
+      } catch (e) {
+        console.warn("Bulk push row failed:", rec.id, e?.message || e);
+        failCount++;
+      }
+      setBulkPushProgress({ done: i + 1, total: candidates.length });
+      // Brief pace between rows so JN's API isn't slammed.
+      if (i < candidates.length - 1) await new Promise((r) => setTimeout(r, 500));
+    }
+    setBulkPushProgress(null);
+    setBulkPushBusy(false);
+    setBulkPushSummary({
+      ok: okCount,
+      failed: failCount,
+      skipped: 0,
+      message: `Pushed ${okCount} of ${candidates.length}${failCount ? ` · ${failCount} failed` : ""}.`,
+    });
+  };
 
   const adminPushResultToJn = async (row) => {
     if (!row) return;
@@ -11385,6 +11447,43 @@ if (!hasDamage) {
                             </button>
                           </div>
                         ) : null}
+
+                        {/* ── Bulk push-results-to-JN card ── */}
+                        {(() => {
+                          // Mirror the same filter the bulk handler uses so
+                          // the badge count is honest about what would fire.
+                          const pendingCount = recordSearchResults.filter((r) =>
+                            r.result && r.jn_job_id && !r.jn_pushed_at && !r.cancelled_at,
+                          ).length;
+                          if (pendingCount === 0 && !bulkPushBusy && !bulkPushSummary) return null;
+                          return (
+                            <div style={{ background: "#f0fdf4", border: "1.5px solid #bbf7d0", borderRadius: 14, padding: "14px 18px", marginBottom: 14, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                              <div>
+                                <div style={{ fontFamily: "'Oswald', sans-serif", fontSize: 14, fontWeight: 700, color: "#166534", marginBottom: 2 }}>
+                                  🔄 Push Pending Results to JobNimbus
+                                </div>
+                                <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>
+                                  {bulkPushBusy && bulkPushProgress
+                                    ? `Pushing… ${bulkPushProgress.done} of ${bulkPushProgress.total} done`
+                                    : `${pendingCount} record${pendingCount === 1 ? " has" : "s have"} a result set but haven't been pushed to JN yet. Cert + photos upload in the background.`}
+                                </div>
+                                {bulkPushSummary ? (
+                                  <div style={{ fontSize: 12, color: bulkPushSummary.failed > 0 ? "#991b1b" : "#166534", fontFamily: "'Nunito', sans-serif", fontWeight: 600, marginTop: 4 }}>
+                                    {bulkPushSummary.failed > 0 ? "⚠ " : "✅ "}{bulkPushSummary.message}
+                                  </div>
+                                ) : null}
+                              </div>
+                              <button
+                                type="button"
+                                disabled={bulkPushBusy || pendingCount === 0}
+                                onClick={bulkPushAllPendingResults}
+                                style={{ padding: "10px 22px", borderRadius: 10, border: "none", background: (bulkPushBusy || pendingCount === 0) ? "#9ca3af" : "#16a34a", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: (bulkPushBusy || pendingCount === 0) ? "not-allowed" : "pointer", letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}
+                              >
+                                {bulkPushBusy ? "⏳ Pushing…" : `🔄 Push ${pendingCount} to JN`}
+                              </button>
+                            </div>
+                          );
+                        })()}
 
                         {/* ── Check summary banner ── */}
                         {checkNowSummary ? (

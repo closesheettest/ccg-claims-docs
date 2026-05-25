@@ -4,3 +4,10 @@
 [functions]
   node_bundler = "esbuild"
   external_node_modules = ["sharp"]
+
+# Scheduled function: pushes any inspector-classified results that
+# haven't reached JN yet. Runs hourly at :05. The function file also
+# declares this via exports.config.schedule; this toml entry keeps
+# the cadence visible from project root.
+[functions."cron-push-pending-results"]
+  schedule = "5 * * * *"

@@ -145,6 +145,7 @@ exports.handler = async (event) => {
     jnUpdateError = `JN PUT exception: ${e.message}`;
   }
 
+
   return json(200, {
     ok: jnUpdated,
     inspection_id: inspectionId,
