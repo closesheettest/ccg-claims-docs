@@ -6807,7 +6807,7 @@ const renderSmsTemplate = (key, vars) => {
     if (bulkPushBusy) return;
     // Find rows on the current page that need pushing.
     const candidates = recordSearchResults.filter((r) =>
-      r.result && r.jn_job_id && !r.jn_pushed_at && !r.cancelled_at && r.jn_status !== "Sit Sold PA",
+      r.result && r.jn_job_id && !r.jn_pushed_at && !r.cancelled_at,
     );
     if (candidates.length === 0) {
       setBulkPushSummary({ ok: 0, failed: 0, skipped: 0, message: "Nothing pending to push." });
@@ -11453,7 +11453,7 @@ if (!hasDamage) {
                           // Mirror the same filter the bulk handler uses so
                           // the badge count is honest about what would fire.
                           const pendingCount = recordSearchResults.filter((r) =>
-                            r.result && r.jn_job_id && !r.jn_pushed_at && !r.cancelled_at && r.jn_status !== "Sit Sold PA",
+                            r.result && r.jn_job_id && !r.jn_pushed_at && !r.cancelled_at,
                           ).length;
                           if (pendingCount === 0 && !bulkPushBusy && !bulkPushSummary) return null;
                           return (

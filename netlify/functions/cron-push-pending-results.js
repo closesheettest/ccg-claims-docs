@@ -48,17 +48,19 @@ const handler = async () => {
   };
 
   // 1. Pull every inspection that NEEDS pushing.
-  //    Filters mirror the UI's bulk button.
-  //    EXCLUDES jn_status="Sit Sold PA" — those are legacy records
-  //    from the old PA workflow whose JN jobs may not exist anymore
-  //    (404s on push). Admin handles those manually if needed.
+  //    Both "Sit Sold PA" (legacy workflow — homeowner signed an
+  //    older PA) and "Sit Sold Insp" (current workflow) records get
+  //    processed. The retail-swap logic in process-retail-result
+  //    handles either correctly — if the inspection result is Retail,
+  //    the original PA is dropped regardless of which workflow it
+  //    came from. Real zombies (jn_job_id pointing to a deleted JN
+  //    job) get auto-archived via the 404 handler below.
   const url =
     `${SB_URL}/rest/v1/inspections` +
     `?result=in.(damage,no_damage,retail)` +
     `&jn_job_id=not.is.null` +
     `&jn_pushed_at=is.null` +
     `&cancelled_at=is.null` +
-    `&or=(jn_status.is.null,jn_status.neq.Sit%20Sold%20PA)` +
     `&select=id,client_name,result,jn_job_id,jn_status` +
     `&order=result_at.asc` +
     `&limit=100`;
