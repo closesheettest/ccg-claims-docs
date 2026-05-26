@@ -34,6 +34,11 @@ exports.handler = async (event) => {
     ? new URLSearchParams(event.queryStringParameters).toString()
     : ""));
   const dryRun = !(event.httpMethod === "POST" && qs.get("go") === "1");
+  // force=1 overwrites cf_date_22 even when already populated.
+  // Used to replace stale manual entries (the inspector used to type
+  // the date in JN's UI before the app started pushing it) with the
+  // canonical result_at from Supabase.
+  const force = qs.get("force") === "1";
 
   // Date window — default last 30 days so the 16-from-last-week batch
   // (and anything else from the past month) is covered.
@@ -89,9 +94,9 @@ exports.handler = async (event) => {
       const currentValue = job[INSPECTED_DATE_FIELD];
       const inspectedUnix = Math.floor(new Date(rec.result_at).getTime() / 1000);
 
-      if (currentValue && Number(currentValue) > 0) {
-        // Already populated — don't overwrite. Could be a manual JN edit
-        // or a recent push that already had the forward fix.
+      if (currentValue && Number(currentValue) > 0 && !force) {
+        // Already populated AND not in force mode — don't overwrite.
+        // Manual JN edits and previous correct pushes stay untouched.
         return {
           record: rec,
           ok: true,
@@ -101,12 +106,21 @@ exports.handler = async (event) => {
         };
       }
 
+      // In force mode, surface the existing value alongside the new one
+      // so the dry-run output makes the change auditable.
+      const existingIso = currentValue && Number(currentValue) > 0
+        ? new Date(Number(currentValue) * 1000).toISOString()
+        : null;
+
       if (dryRun) {
         return {
           record: rec,
           ok: true,
-          action: `WOULD set cf_date_22=${inspectedUnix} (${new Date(inspectedUnix * 1000).toISOString()})`,
+          action: existingIso
+            ? `WOULD OVERWRITE cf_date_22: ${existingIso} → ${new Date(inspectedUnix * 1000).toISOString()}`
+            : `WOULD set cf_date_22=${inspectedUnix} (${new Date(inspectedUnix * 1000).toISOString()})`,
           would_set: inspectedUnix,
+          existing_value_iso: existingIso,
         };
       }
 
@@ -139,9 +153,11 @@ exports.handler = async (event) => {
 
   const summary = {
     dry_run: dryRun,
+    force,
     window: { from, to },
     candidates: records.length,
     would_set: results.filter((r) => r.action?.startsWith("WOULD set")).length,
+    would_overwrite: results.filter((r) => r.action?.startsWith("WOULD OVERWRITE")).length,
     set: results.filter((r) => r.action?.startsWith("set ")).length,
     skipped_already_set: results.filter((r) => r.action?.startsWith("skipped")).length,
     errors: results.filter((r) => !r.ok).length,
