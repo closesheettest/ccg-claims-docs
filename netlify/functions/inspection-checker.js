@@ -226,7 +226,7 @@ exports.handler = async (event) => {
       let record = null;
 
       const sbRes = await fetch(
-        `${SB_URL}/rest/v1/inspections?jn_job_id=eq.${jnJobId}&select=id,client_name,address,city,state,zip,mobile,email,sales_rep_id,sales_rep_email,inspection_result,docs_signed&limit=1`,
+        `${SB_URL}/rest/v1/inspections?jn_job_id=eq.${jnJobId}&select=id,client_name,address,city,state,zip,mobile,email,sales_rep_id,sales_rep_email,inspection_result,result,result_at,docs_signed&limit=1`,
         { headers: sbHeaders }
       );
       if (sbRes.ok) {
@@ -243,7 +243,7 @@ exports.handler = async (event) => {
 
         if (nameFromJob) {
           const fbRes = await fetch(
-            `${SB_URL}/rest/v1/inspections?client_name=ilike.*${encodeURIComponent(nameFromJob)}*&select=id,client_name,address,city,state,zip,mobile,email,sales_rep_id,sales_rep_email,inspection_result,docs_signed&limit=1`,
+            `${SB_URL}/rest/v1/inspections?client_name=ilike.*${encodeURIComponent(nameFromJob)}*&select=id,client_name,address,city,state,zip,mobile,email,sales_rep_id,sales_rep_email,inspection_result,result,result_at,docs_signed&limit=1`,
             { headers: sbHeaders }
           );
           if (fbRes.ok) {
@@ -420,12 +420,28 @@ exports.handler = async (event) => {
       }
 
       // ── 7. Update Supabase ───────────────────────────────────
-      // Pass JN's date_updated through so result_at reflects WHEN
-      // the inspection actually happened on JN's side — not when
-      // "Check Now" was clicked. Without this, results inspected
-      // last week but synced this week showed up under "this week"
-      // in the inspector reports.
-      await updateInspectionResult(record.id, newResult, emailSent, job.date_updated);
+      // SKIP if the local record already has the same result. The
+      // inspector classified via the app (the normal flow), which
+      // set result + result_at correctly at submission time and
+      // then pushed cf_string_34 to JN. When this checker later
+      // sees the cf_string_34 on JN, the local side is already
+      // synced — re-writing would clobber the inspector's original
+      // result_at with NOW, breaking the inspector reports'
+      // "this week / last week" buckets.
+      //
+      // We only update when local result is missing OR different
+      // (covers the edge case: admin manually changed cf_string_34
+      // in JN without going through the app).
+      const resultMap = { "Damage": "damage", "No Damage": "no_damage", "Retail": "retail" };
+      const uiResultForCompare = resultMap[newResult] || null;
+      if (record.result === uiResultForCompare) {
+        console.log(`Skipping ${jnJobId} (${record.client_name}) — local already has result=${record.result}`);
+      } else {
+        // Pass JN's date_updated through so result_at reflects WHEN
+        // the inspection actually happened on JN's side (for the
+        // admin-edited-in-JN case).
+        await updateInspectionResult(record.id, newResult, emailSent, job.date_updated);
+      }
 
       results.push({
         job: jnJobId,
