@@ -238,10 +238,19 @@ exports.handler = async (event) => {
   // that flow entirely (record_type → Lead, location → retail), and
   // the start-date should clear so JN's retail reports don't pick
   // these up under the old sold date.
+  // Status MUST flip from 597 (PA workflow's Sit Sold Insp) to 599
+  // (Lead workflow's Sit Sold Insp). Same display name, different
+  // workflow binding. Without this, the record sits at a status that
+  // doesn't belong to its new record_type and JN reports miss it
+  // until admin manually re-clicks the dropdown option to re-bind.
+  // 599 was identified by comparing a dropdown-clicked record
+  // (Robert abbatecola) against an unfixed one (Maria class).
   const putBody = {
     jnid: insp.jn_job_id,
     cf_string_34: "Retail",
     record_type_name: "Lead",
+    status: 599,
+    status_name: "Sit Sold Insp",
     date_start: null,
   };
   if (retailLocationId) {
