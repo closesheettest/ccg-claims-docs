@@ -420,7 +420,12 @@ exports.handler = async (event) => {
       }
 
       // ── 7. Update Supabase ───────────────────────────────────
-      await updateInspectionResult(record.id, newResult, emailSent);
+      // Pass JN's date_updated through so result_at reflects WHEN
+      // the inspection actually happened on JN's side — not when
+      // "Check Now" was clicked. Without this, results inspected
+      // last week but synced this week showed up under "this week"
+      // in the inspector reports.
+      await updateInspectionResult(record.id, newResult, emailSent, job.date_updated);
 
       results.push({
         job: jnJobId,
@@ -947,7 +952,7 @@ async function generateDamagePDF({ clientName, address, repName, date, photos, r
 function buildDamagePDF() { return null; } // unused, kept for compat
 
 // ── Update Supabase ──────────────────────────────────────────────
-async function updateInspectionResult(recordId, result, notified) {
+async function updateInspectionResult(recordId, result, notified, jnDateUpdatedSecs) {
   // Normalize JN result ("Damage" / "No Damage" / "Retail") to the lowercase
   // snake_case format the app UI expects in `result` column.
   const resultMap = {
@@ -957,10 +962,20 @@ async function updateInspectionResult(recordId, result, notified) {
   };
   const uiResult = resultMap[result] || null;
 
+  // result_at should reflect WHEN the inspection actually happened on
+  // JN's side (so the inspector reports' "this week" / "last week"
+  // filters bucket by inspection date, not by sync date). If we have
+  // JN's date_updated (Unix seconds), use it. Otherwise fall back to
+  // now — that's the legacy behavior and still better than null.
+  let resultAtIso = new Date().toISOString();
+  if (jnDateUpdatedSecs && Number(jnDateUpdatedSecs) > 0) {
+    resultAtIso = new Date(Number(jnDateUpdatedSecs) * 1000).toISOString();
+  }
+
   const payload = {
     inspection_result: result,           // raw JN value (legacy)
     result: uiResult,                    // UI-facing normalized value
-    result_at: new Date().toISOString(), // so it shows as non-pending in the UI
+    result_at: resultAtIso,              // so it shows as non-pending in the UI
   };
   if (notified) payload.inspection_notified_at = new Date().toISOString();
   await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${recordId}`, {
