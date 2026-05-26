@@ -460,11 +460,18 @@ exports.handler = async (event) => {
     // Status IDs from PA workflow (id:37)
     // 597 = Sit Sold Insp, 598 = Sit Sold PA
     const statusId = hasPADocs ? 598 : 597;
+    const statusName = hasPADocs ? "Sit Sold PA" : "Sit Sold Insp";
 
+    // Send BOTH the numeric `status` AND the `status_name` string.
+    // Sending status alone has caused some records to display
+    // correctly in JN's UI but be missed by status-filtered reports —
+    // admin had to re-click the dropdown option to "bind" them to the
+    // workflow status. Sending both keeps the binding explicit.
     const jobPayload = {
       name: `${isTest ? "[TEST] " : ""}${fullName} - ${address}`.trim(),
       record_type_name: "PA",
       status: statusId,
+      status_name: statusName,
       primary: { id: contactId },
       location: { id: locationId },
       source_name: leadSource || "Inspection",
