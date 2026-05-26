@@ -2279,9 +2279,14 @@ function startOfDay(d) {
   return x;
 }
 function startOfWeek(d) {
-  // Sunday-based week (US convention).
+  // Monday-based week (work-week convention — matches the rest of the
+  // codebase's report logic in App.jsx). For today's date, returns
+  // Monday at local 00:00. If today IS Monday, returns today.
   const x = startOfDay(d);
-  x.setDate(x.getDate() - x.getDay());
+  const day = x.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+  // For Mon-based: Sunday = 6 days back, Monday = 0, Tuesday = 1, etc.
+  const offset = day === 0 ? 6 : day - 1;
+  x.setDate(x.getDate() - offset);
   return x;
 }
 function dayKey(d) {
