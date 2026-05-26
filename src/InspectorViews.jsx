@@ -2539,6 +2539,45 @@ function InspectorReports({ me, onBack }) {
               <span><span style={{ display: "inline-block", width: 10, height: 10, background: STATUS_META.retail.color, borderRadius: 2, marginRight: 4 }}></span>Retail</span>
             </div>
           </section>
+
+          {/* Detail list — every inspection that makes up the totals.
+              Sorted newest-first by result_at. Lets admin verify the
+              report is counting the records they expect. */}
+          <section style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, fontFamily: "'Oswald', sans-serif" }}>
+              Inspections ({rows.length})
+            </div>
+            {rows.length === 0 ? (
+              <div style={{ fontSize: 12, color: "#6b7280" }}>
+                No inspections in this range.
+              </div>
+            ) : (
+              <div style={{ display: "grid", gap: 6 }}>
+                {rows.map((r) => {
+                  const meta = STATUS_META[r.result] || { label: r.result, color: "#6b7280", bg: "#f3f4f6", emoji: "•" };
+                  return (
+                    <div key={r.id} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto auto", gap: 10, alignItems: "center", padding: "8px 10px", background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 8 }}>
+                      <div style={{ fontSize: 16, lineHeight: 1 }} aria-hidden="true">{meta.emoji}</div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {r.client_name || "—"}
+                        </div>
+                        <div style={{ fontSize: 11, color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {r.address || ""}
+                        </div>
+                      </div>
+                      <div style={{ background: meta.bg, color: meta.color, fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 12, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                        {meta.label}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#6b7280", whiteSpace: "nowrap" }}>
+                        {fmtShort(r.result_at)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
         </>
       )}
     </div>
@@ -2861,6 +2900,50 @@ export function ManagerInspectorReports() {
               <span><span style={{ display: "inline-block", width: 10, height: 10, background: STATUS_META.no_damage.color, borderRadius: 2, marginRight: 4 }}></span>No damage</span>
               <span><span style={{ display: "inline-block", width: 10, height: 10, background: STATUS_META.retail.color, borderRadius: 2, marginRight: 4 }}></span>Retail</span>
             </div>
+          </section>
+
+          {/* Detail list — every inspection counted in the totals.
+              Manager view shows the inspector name alongside each row
+              so admin can verify which inspector did each one without
+              scrolling back to the "By inspector" table. */}
+          <section style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, fontFamily: "'Oswald', sans-serif" }}>
+              Inspections ({rows.length})
+            </div>
+            {rows.length === 0 ? (
+              <div style={{ fontSize: 12, color: "#6b7280" }}>
+                No inspections in this range.
+              </div>
+            ) : (
+              <div style={{ display: "grid", gap: 6 }}>
+                {rows.map((r) => {
+                  const meta = STATUS_META[r.result] || { label: r.result, color: "#6b7280", bg: "#f3f4f6", emoji: "•" };
+                  const inspName = nameById.get(r.inspector_id) || "(removed inspector)";
+                  return (
+                    <div key={r.id} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto auto", gap: 10, alignItems: "center", padding: "8px 10px", background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 8 }}>
+                      <div style={{ fontSize: 16, lineHeight: 1 }} aria-hidden="true">{meta.emoji}</div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {r.client_name || "—"}
+                          <span style={{ fontSize: 11, fontWeight: 500, color: "#6b7280", marginLeft: 8 }}>
+                            · {inspName}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 11, color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {r.address || ""}
+                        </div>
+                      </div>
+                      <div style={{ background: meta.bg, color: meta.color, fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 12, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                        {meta.label}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#6b7280", whiteSpace: "nowrap" }}>
+                        {fmtShort(r.result_at)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </section>
         </>
       )}
