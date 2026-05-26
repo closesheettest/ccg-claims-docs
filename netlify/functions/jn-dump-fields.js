@@ -62,6 +62,16 @@ exports.handler = async (event) => {
       }
     }
 
+    // Surface every field whose name has "status", "record_type", or
+    // "workflow" in it. JN sometimes stores the bound workflow status
+    // separately from the loose status value — having both visible
+    // here lets us see if they're aligned.
+    const statusFields = Object.fromEntries(
+      Object.entries(job).filter(([k]) =>
+        /status|record_type|workflow|stage|state/i.test(k),
+      ),
+    );
+
     return json(200, {
       ok: true,
       jn_job_id: id,
@@ -75,6 +85,9 @@ exports.handler = async (event) => {
         date_start: job.date_start,
         date_end: job.date_end,
       },
+      // EVERY status/record-type/workflow-related field — for diagnosing
+      // the "displays correct, reports miss" status-binding bug.
+      status_block: statusFields,
       cf_dates: cfDates,
       cf_strings: cfStrings,
       cf_other: cfOther,
