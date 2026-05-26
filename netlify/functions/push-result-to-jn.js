@@ -55,7 +55,7 @@ exports.handler = async (event) => {
   };
 
   const inspRes = await fetch(
-    `${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}&select=id,jn_job_id,client_name,result,inspection_photos&limit=1`,
+    `${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}&select=id,jn_job_id,client_name,result,result_at,inspection_photos&limit=1`,
     { headers: sbHeaders },
   );
   if (!inspRes.ok) {
@@ -128,13 +128,26 @@ exports.handler = async (event) => {
     return json(400, { ok: false, error: `Unsupported result "${insp.result}"` });
   }
 
+  // Also stamp cf_date_22 ("Inspected Date" in JN's UI) with result_at
+  // converted to Unix seconds, so JN's job record shows when the
+  // inspector actually classified. If result_at is missing for some
+  // reason, fall back to now — better than leaving the JN field blank.
+  const inspectedUnix = (() => {
+    const src = insp.result_at ? new Date(insp.result_at).getTime() : Date.now();
+    return Number.isFinite(src) ? Math.floor(src / 1000) : Math.floor(Date.now() / 1000);
+  })();
+
   let jnUpdated = false;
   let jnUpdateError = null;
   try {
     const putRes = await fetch(`${JN_BASE}/jobs/${insp.jn_job_id}`, {
       method: "PUT",
       headers: jnHeaders,
-      body: JSON.stringify({ jnid: insp.jn_job_id, cf_string_34: cfValue }),
+      body: JSON.stringify({
+        jnid: insp.jn_job_id,
+        cf_string_34: cfValue,
+        cf_date_22: inspectedUnix,
+      }),
     });
     if (putRes.ok) {
       jnUpdated = true;
