@@ -981,7 +981,7 @@ function RepTimeOfDayStrip({ buckets }) {
           <span>{it.emoji}</span>
           <span>{it.data.count}</span>
           {it.data.latest && (
-            <span style={{ fontWeight: 500, opacity: 0.8 }}>· last {fmtTimeShort(it.data.latest)}</span>
+            <span style={{ fontWeight: 500, opacity: 0.8 }}>· latest {fmtTimeShort(it.data.latest)}</span>
           )}
         </span>
       ))}

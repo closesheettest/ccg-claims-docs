@@ -132,7 +132,7 @@ const renderRepBlock = (rep, signings, repTotal) => {
     <span style="display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,0.85);color:#075985;padding:3px 8px;border-radius:999px;border:1px solid #bae6fd;font-size:10px;font-weight:700;margin-right:5px">
       <span>${emoji}</span>
       <span>${data.count}</span>
-      ${data.latest ? `<span style="font-weight:500;opacity:0.8">&middot; last ${esc(fmtRepTime(data.latest))}</span>` : ""}
+      ${data.latest ? `<span style="font-weight:500;opacity:0.8">&middot; latest ${esc(fmtRepTime(data.latest))}</span>` : ""}
     </span>` : "";
   const repStrip = `
     <div style="margin-top:6px;font-family:Arial,sans-serif">
