@@ -1,20 +1,27 @@
 // netlify/functions/find-orphan-signings.js
 //
-// READ-ONLY diagnostic. Finds inspections signed in a date range that
-// have NO matching JN job — i.e. records where the JN sync's first
-// step (create the job) silently failed. Different from records that
-// have a JN job but a missing jn_job_id back-write — those still
-// exist on the JN side; orphans don't.
+// Finds inspections signed in a date range that have NO matching JN job
+// — i.e. records where the JN sync's first step (create the job)
+// silently failed. Also AUTO-HEALS rows that have a JN job but a missing
+// jn_job_id back-write — by default writes the match back to Supabase
+// so the admin's "Sync to JN" / "Not in JN" indicator clears itself.
 //
 // USAGE:
 //   GET /.netlify/functions/find-orphan-signings
 //   GET /.netlify/functions/find-orphan-signings?from=2026-05-18&to=2026-05-25
+//   GET /.netlify/functions/find-orphan-signings?auto_link=false
 //
 // Default window = last 7 days. Dates are signed_at (exclusive `to`).
 //
+// auto_link defaults to TRUE — every time the function runs (incl. the
+// daily-orphan-alert cron) any row whose jn_job_id is null but whose JN
+// job is findable by name gets the link written back. Side-effect-free
+// for already-linked rows. Pass auto_link=false to disable the writes
+// when you just want a read-only diagnostic.
+//
 // HOW IT WORKS:
 //   For each Supabase signing in the window (excluding cancelled rows):
-//   1. If jn_job_id is already set → trust it, mark in_jn=true.
+//   1. If jn_job_id is already set → trust it, mark in_jn=true. No write.
 //   2. Otherwise, fire 3 parallel /jobs?search queries against JN
 //      ("<lastname> <streetNum>", "<streetNum>", "<lastname>"), dedupe
 //      the combined results, then strict-filter:
@@ -22,7 +29,10 @@
 //        b. JN job name must contain the first name (if any survivor has it)
 //        c. JN job's cf_date_5 (or date_start as fallback) must be within
 //           ±60 min of the Supabase signed_at
-//   3. Anything passing all three filters → in_jn=true. Otherwise → orphan.
+//   3. Anything passing all three filters → in_jn=true. Also PATCH the
+//      Supabase row to set jn_job_id (+ jn_pushed_at if missing) so the
+//      app stops showing it as "Not in JN" — this is the auto-heal step.
+//   4. No filter matches → orphan (no JN job at all).
 //
 // LIMITATION: JN's /jobs?search endpoint returns roughly the 50 most
 // recent matching jobs per query. For an active JN account, records
@@ -196,6 +206,60 @@ exports.handler = async (event) => {
     checked.push(...results);
   }
 
+  // Auto-heal: any row that matched-by-name (i.e. JN job exists but our
+  // row's jn_job_id was null) gets the link written back to Supabase.
+  // We only PATCH rows that DIDN'T have a jn_job_id originally — never
+  // overwrite an existing one, even if our search found a different
+  // candidate (that would be operator error to investigate separately).
+  //
+  // Opt-out via ?auto_link=false for true read-only diagnostic runs.
+  const autoLink = (qs.auto_link || "").toLowerCase() !== "false";
+  let autoLinked = 0;
+  const autoLinkFailures = [];
+  if (autoLink) {
+    const toLink = checked.filter(
+      (c) => c.in_jn === true && c.reason !== "linked by jn_job_id" && c.matched_jnid && !c.signing.jn_job_id,
+    );
+    for (const c of toLink) {
+      try {
+        const patchRes = await fetch(
+          `${SB_URL}/rest/v1/inspections?id=eq.${c.signing.id}&jn_job_id=is.null`,
+          {
+            method: "PATCH",
+            headers: { ...sbHeaders, "Content-Type": "application/json", Prefer: "return=minimal" },
+            body: JSON.stringify({
+              jn_job_id: c.matched_jnid,
+              // Stamp jn_pushed_at at the original signed_at if we don't
+              // have a better timestamp — this is when JN actually got
+              // the record, even if the back-write was late.
+              jn_pushed_at: c.signing.signed_at || new Date().toISOString(),
+            }),
+          },
+        );
+        if (!patchRes.ok) {
+          autoLinkFailures.push({
+            client_name: c.signing.client_name,
+            inspection_id: c.signing.id,
+            jnid: c.matched_jnid,
+            error: `HTTP ${patchRes.status}: ${(await patchRes.text()).slice(0, 200)}`,
+          });
+          continue;
+        }
+        autoLinked++;
+        // Tag the result so the response shows what got patched.
+        c.auto_linked = true;
+        console.log(`auto-link: ${c.signing.client_name} → ${c.matched_jnid}`);
+      } catch (e) {
+        autoLinkFailures.push({
+          client_name: c.signing.client_name,
+          inspection_id: c.signing.id,
+          jnid: c.matched_jnid,
+          error: e.message || String(e),
+        });
+      }
+    }
+  }
+
   // jnJobs no longer collected — keep summary field shape stable but
   // expose 0 so callers know we switched approaches.
   const jnJobs = [];
@@ -234,9 +298,12 @@ exports.handler = async (event) => {
       total_signings: signings.length,
       already_linked: checked.filter((c) => c.in_jn === true && c.reason === "linked by jn_job_id").length,
       matched_by_name: checked.filter((c) => c.in_jn === true && c.reason !== "linked by jn_job_id").length,
+      auto_linked: autoLinked,
+      auto_link_failures: autoLinkFailures.length,
       orphans: orphans.length,
       jn_jobs_scanned: jnJobs.length,
     },
+    auto_link_failures: autoLinkFailures.slice(0, 20),
     orphans,
     all,
   });
