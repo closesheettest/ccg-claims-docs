@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Field Guide — Inspecting a Roof</title>
+<style>
+  :root {
+    --navy: #13294b;
+    --navy-dark: #0a1730;
+    --red: #b8324f;
+    --gold: #d4a142;
+    --emerald: #059669;
+    --emerald-light: #d1fae5;
+    --violet: #7c3aed;
+    --violet-light: #ede9fe;
+    --red-strong: #dc2626;
+    --red-light: #fee2e2;
+    --amber-light: #fef3c7;
+    --slate-50: #f8fafc;
+    --slate-100: #f1f5f9;
+    --slate-200: #e2e8f0;
+    --slate-300: #cbd5e1;
+    --slate-500: #64748b;
+    --slate-700: #334155;
+    --slate-900: #0f172a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    color: var(--slate-900);
+    line-height: 1.5;
+    background: var(--slate-50);
+    font-size: 16px;
+    -webkit-text-size-adjust: 100%;
+  }
+  .stripe { height: 4px; background: var(--red); }
+  .page { max-width: 640px; margin: 0 auto; padding: 20px 18px 80px; }
+
+  header.title {
+    margin-bottom: 16px;
+  }
+  header.title h1 {
+    color: var(--navy);
+    margin: 0 0 6px;
+    font-size: 26px;
+    letter-spacing: -0.01em;
+    line-height: 1.15;
+  }
+  header.title p {
+    color: var(--slate-500);
+    margin: 0;
+    font-size: 15px;
+  }
+
+  /* Section dividers */
+  h2 {
+    color: var(--navy);
+    margin: 32px 0 12px;
+    font-size: 19px;
+    padding-bottom: 6px;
+    border-bottom: 2px solid var(--slate-200);
+  }
+
+  /* Step cards */
+  .step {
+    background: #fff;
+    border: 1px solid var(--slate-200);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 12px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  }
+  .step-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+  .step-num {
+    flex-shrink: 0;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: var(--navy);
+    color: #fff;
+    font-weight: 700;
+    font-size: 17px;
+    display: grid;
+    place-items: center;
+  }
+  .step h3 {
+    margin: 0;
+    color: var(--navy);
+    font-size: 17px;
+    line-height: 1.25;
+  }
+  .step p { margin: 6px 0; }
+  .step ul { margin: 8px 0; padding-left: 22px; }
+  .step li { margin: 4px 0; }
+
+  /* Callouts */
+  .tip {
+    background: var(--amber-light);
+    border-left: 4px solid var(--gold);
+    padding: 10px 12px;
+    margin: 10px 0;
+    border-radius: 6px;
+    font-size: 14px;
+  }
+  .tip strong { color: var(--navy-dark); }
+
+  /* Result type cards */
+  .result {
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 12px;
+    border-left: 6px solid;
+    background: #fff;
+    border-top: 1px solid var(--slate-200);
+    border-right: 1px solid var(--slate-200);
+    border-bottom: 1px solid var(--slate-200);
+  }
+  .result h3 {
+    margin: 0 0 6px;
+    font-size: 18px;
+  }
+  .result.damage { border-left-color: var(--red-strong); }
+  .result.damage h3 { color: var(--red-strong); }
+  .result.retail { border-left-color: var(--violet); }
+  .result.retail h3 { color: var(--violet); }
+  .result.no-damage { border-left-color: var(--emerald); }
+  .result.no-damage h3 { color: var(--emerald); }
+
+  /* Sticky bottom CTA */
+  .open-app {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--navy);
+    color: #fff;
+    text-align: center;
+    padding: 14px 16px;
+    font-weight: 700;
+    font-size: 16px;
+    text-decoration: none;
+    box-shadow: 0 -2px 10px rgba(0,0,0,0.15);
+    z-index: 50;
+  }
+  .open-app:active { background: var(--navy-dark); }
+
+  /* Photo checklist */
+  .checklist {
+    background: #f0f9ff;
+    border: 1px solid #bae6fd;
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin: 12px 0;
+    font-size: 14px;
+  }
+  .checklist h4 {
+    margin: 0 0 6px;
+    color: #075985;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .checklist ul { margin: 0; padding-left: 20px; }
+  .checklist li { margin: 3px 0; }
+
+  /* TOC at top */
+  .toc {
+    background: #fff;
+    border: 1px solid var(--slate-200);
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin: 16px 0 24px;
+    font-size: 14px;
+  }
+  .toc h4 {
+    margin: 0 0 8px;
+    color: var(--slate-500);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .toc a {
+    display: block;
+    color: var(--navy);
+    text-decoration: none;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--slate-100);
+  }
+  .toc a:last-child { border-bottom: 0; }
+  .toc a:active { color: var(--red); }
+</style>
+</head>
+<body>
+<div class="stripe"></div>
+<main class="page">
+  <header class="title">
+    <h1>Field Guide — Inspecting a Roof</h1>
+    <p>U.S. Shingle &amp; Metal · Quick reference for everything from claim to submit. Bookmark this on your phone.</p>
+  </header>
+
+  <nav class="toc" aria-label="On this page">
+    <h4>Jump to</h4>
+    <a href="#open-app">▸ Opening the app + signing in</a>
+    <a href="#claim">▸ Claiming an inspection</a>
+    <a href="#wizard">▸ The 6-step photo wizard</a>
+    <a href="#result">▸ Picking the result (3 types)</a>
+    <a href="#tips">▸ Photo &amp; safety tips</a>
+    <a href="#problems">▸ When something goes wrong</a>
+  </nav>
+
+  <!-- ─── Opening the app ─────────────────────────────────── -->
+  <h2 id="open-app">📱 Opening the app + signing in</h2>
+
+  <div class="step">
+    <div class="step-head">
+      <div class="step-num">1</div>
+      <h3>Open the Free Roof Inspections app on your phone</h3>
+    </div>
+    <p>Tap the link the office texted you, or open <strong>free-roof-inspections.netlify.app</strong> in your phone's browser. Add it to your home screen so it opens like a real app.</p>
+  </div>
+
+  <div class="step">
+    <div class="step-head">
+      <div class="step-num">2</div>
+      <h3>Pick your name</h3>
+    </div>
+    <p>First time only — you'll see a list of all active inspectors. Tap your name. The app remembers you on this phone, so you won't have to do this again unless you "Switch user."</p>
+    <div class="tip">
+      <strong>Don't see your name?</strong> Your manager needs to mark you "active" and you need to finish your setup link (confirm your home address). Text your manager.
+    </div>
+  </div>
+
+  <!-- ─── Claiming an inspection ────────────────────────────── -->
+  <h2 id="claim">🎯 Claiming an inspection</h2>
+
+  <div class="step">
+    <div class="step-head">
+      <div class="step-num">3</div>
+      <h3>Look at "Available near me"</h3>
+    </div>
+    <p>Every signed inspection that isn't claimed yet shows up here, sorted by distance from your home base. Each card shows the homeowner, address, and how far away it is.</p>
+  </div>
+
+  <div class="step">
+    <div class="step-head">
+      <div class="step-num">4</div>
+      <h3>Tap "Claim" on the one you want</h3>
+    </div>
+    <p>The job is now assigned to you. It moves to your <strong>"My active claims"</strong> list and disappears from everyone else's "Available."</p>
+    <div class="tip">
+      <strong>⏰ Claim, then go.</strong> If you claim a job and don't finish it by end-of-day, the system auto-releases it back to the pool and your manager gets pinged. Don't claim jobs you can't get to today.
+    </div>
+  </div>
+
+  <!-- ─── Photo wizard ─────────────────────────────────────── -->
+  <h2 id="wizard">📷 The 6-step photo wizard</h2>
+  <p style="color:var(--slate-700); font-size:15px; margin-top:-4px">When you arrive at the property, open the inspection from "My active claims" and tap <strong>Start inspection</strong>. The app walks you through each photo, one screen at a time.</p>
+
+  <div class="step">
+    <div class="step-head">
+      <div class="step-num">1</div>
+      <h3>📷 House number</h3>
+    </div>
+    <p>Stand on the sidewalk or driveway. Take <strong>one clear, in-focus photo</strong> of the house number on the front of the house (or on the mailbox). Confirms we're at the right address.</p>
+  </div>
+
+  <div class="step">
+    <div class="step-head">
+      <div class="step-num">2</div>
+      <h3>📷 Front of the house</h3>
+    </div>
+    <p>Back up far enough to see the <strong>whole front</strong> of the house in the frame — roof + walls + driveway. One photo, straight-on if possible.</p>
+  </div>
+
+  <div class="step">
+    <div class="step-head">
+      <div class="step-num">3</div>
+      <h3>🏠 How many stories?</h3>
+    </div>
+    <p>Tap <strong>1 story</strong> or <strong>2 stories</strong>. Count the floors of the house, not the roof slopes. Ranch = 1. Bedrooms upstairs = 2.</p>
+    <div class="tip">
+      <strong>If 2 stories:</strong> You'll do the 1st-floor roof first (all 4 sides), then climb up and do the 2nd-floor roof the same way. The app will tell you when to climb.
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-head">
+      <div class="step-num">4</div>
+      <h3>📷 Roof overview — from the FAR LEFT</h3>
+    </div>
+    <p>Climb up. Walk all the way to the <strong>far left</strong> of the roof. From there, take <strong>one wide photo</strong> capturing as much of the roof as you can see. This is the "before we zoom in" shot.</p>
+  </div>
+
+  <div class="step">
+    <div class="step-head">
+      <div class="step-num">5</div>
+      <h3>📷 Each slope — overview, then close-ups</h3>
+    </div>
+    <p>You'll work <strong>clockwise from the LEFT side</strong>: left → front → right → rear. For each side:</p>
+    <ul>
+      <li>Tell the app how many slopes are on that side</li>
+      <li>For each slope:
+        <ul>
+          <li><strong>One overview photo</strong> — stand back, capture the whole slope in one shot</li>
+          <li><strong>Detail photos</strong> — move in close, take as many as needed of anything you see (hail strikes, lifted shingles, granule loss, exposed nails, soft spots, wear marks)</li>
+        </ul>
+      </li>
+    </ul>
+    <div class="checklist">
+      <h4>What "close-up detail" should capture</h4>
+      <ul>
+        <li>Hail strikes / round dents in shingles</li>
+        <li>Lifted, torn, or missing shingles</li>
+        <li>Bare spots where granules are gone</li>
+        <li>Exposed nail heads</li>
+        <li>Mossy or soft spots underfoot</li>
+        <li>Flashing pulled away from valleys, chimneys, vents</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-head">
+      <div class="step-num">6</div>
+      <h3>If 2-story: do it all again on the 2nd-floor roof</h3>
+    </div>
+    <p>When the 1st floor is finished, the app shows a green ✅ "1st floor finished" screen. Climb up to the 2nd-floor roof and tap continue. Same sequence: overview from far left, then slopes clockwise.</p>
+  </div>
+
+  <!-- ─── Result types ─────────────────────────────────────── -->
+  <h2 id="result">🧾 Picking the result</h2>
+  <p style="color:var(--slate-700); font-size:15px; margin-top:-4px">After the last slope, the app asks: <strong>what did you find?</strong> Pick one of three.</p>
+
+  <article class="result damage">
+    <h3>🚨 Damage — file PA claim</h3>
+    <p style="margin:0">Clear <strong>storm damage</strong> — hail strikes you can see, wind-lifted or torn shingles, missing pieces. This triggers the PA (Public Adjuster) claim path — homeowner's insurance gets a packet with all your photos.</p>
+  </article>
+
+  <article class="result retail">
+    <h3>💰 Retail — homeowner pays</h3>
+    <p>Significant <strong>wear &amp; tear</strong> but no storm damage. The homeowner pays for replacement out of pocket.</p>
+    <p style="margin:0"><strong>You'll be asked for 10 more close-up photos</strong> of the worst spots before submitting — show the worn-out areas in detail so the sales rep can have a real conversation about it.</p>
+  </article>
+
+  <article class="result no-damage">
+    <h3>✓ No damage</h3>
+    <p style="margin:0">Roof is sound, nothing to file. Homeowner gets a free <strong>no-damage certificate</strong> showing the roof has 5+ years of life — protects them from "your roof is too old" letters from their insurance.</p>
+  </article>
+
+  <div class="tip" style="background:#e0e7ff; border-left-color: var(--navy)">
+    <strong>Honest is always right.</strong> If you're not sure between Retail and Damage, look back at your detail photos. Hail strikes = Damage. Bare granule patches with no impact marks = Retail. Don't force a category — your photos tell the truth.
+  </div>
+
+  <!-- ─── Photo + safety tips ───────────────────────────────── -->
+  <h2 id="tips">💡 Photo &amp; safety tips</h2>
+
+  <div class="step">
+    <h3 style="margin:0; color:var(--navy)">Good photos = fewer callbacks</h3>
+    <ul>
+      <li><strong>Tap the part of the screen you want in focus</strong> before you take the shot. Phones default to focusing on the center, which is usually sky.</li>
+      <li><strong>Shoot with the sun behind you</strong> when you can — backlit photos hide hail strikes.</li>
+      <li><strong>For close-ups</strong>, get within arm's reach. Phones can't zoom and stay sharp — physically move closer.</li>
+      <li><strong>Steady your phone</strong> against your forearm. A blurry detail photo is a useless detail photo.</li>
+    </ul>
+  </div>
+
+  <div class="step">
+    <h3 style="margin:0; color:var(--navy)">Stay safe up there</h3>
+    <ul>
+      <li>If the roof feels soft or wet, <strong>get off</strong>. Mark as Retail or No Damage from the ground if you have to — your safety is the only thing.</li>
+      <li>Never inspect in active rain or lightning.</li>
+      <li>Watch for power lines, skylights, and rotted edges.</li>
+      <li>If you can't safely access part of the roof, photograph it from the ground or the ladder — the app accepts any photo. Note in your detail photos that you couldn't access X.</li>
+    </ul>
+  </div>
+
+  <!-- ─── When something goes wrong ────────────────────────── -->
+  <h2 id="problems">🛟 When something goes wrong</h2>
+
+  <div class="step">
+    <h3 style="margin:0; color:var(--navy)">I claimed the wrong inspection</h3>
+    <p style="margin:6px 0 0">From your "My active claims" list, tap the inspection and look for "Release back to pool." That puts it back in everyone's "Available."</p>
+  </div>
+
+  <div class="step">
+    <h3 style="margin:0; color:var(--navy)">The app froze / I lost reception mid-inspection</h3>
+    <p style="margin:6px 0 0">Photos you've already taken in this session are stored on your phone, not lost. Close the app, reopen it, and the wizard picks back up where you left off. Submit when you have signal again.</p>
+  </div>
+
+  <div class="step">
+    <h3 style="margin:0; color:var(--navy)">I took a bad photo by accident</h3>
+    <p style="margin:6px 0 0">Tap the <strong>✕</strong> on the photo thumbnail to remove it before tapping the green "Got it — next" button. Once you move to the next step, that photo is locked in.</p>
+  </div>
+
+  <div class="step">
+    <h3 style="margin:0; color:var(--navy)">I'm there but the homeowner isn't home</h3>
+    <p style="margin:6px 0 0">You can still do the full external inspection — you don't need anyone to let you in. Take the photos, submit the result, and the office handles the follow-up call.</p>
+  </div>
+
+  <p style="text-align:center; color:var(--slate-500); font-size:13px; margin-top:32px">
+    Questions? Text your manager. U.S. Shingle &amp; Metal field training.
+  </p>
+</main>
+
+<a href="/" class="open-app">↗ Open the inspection app</a>
+</body>
+</html>
