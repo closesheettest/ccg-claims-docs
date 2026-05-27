@@ -56,6 +56,18 @@ function renderTemplate(body, vars) {
     .replace(/\{repPhone\}/g,  vars.repPhone  || "");
 }
 
+// Netlify v2 scheduled function — runs every 15 minutes. This handles
+// both directions of the JN↔Supabase sync:
+//   • JN result classification (Damage / No Damage / Retail) flowing
+//     INTO Supabase + firing the rep notifications.
+//   • JN status === "Lost" flowing INTO Supabase as cancelled_at, so
+//     a homeowner cancellation marked in JN automatically pulls the
+//     roof out of the inspector mobile app's "Available near me" list
+//     without anyone having to open the admin app.
+// 15-min cadence picked over hourly so a cancellation never sits in
+// the inspector pool for more than 15 minutes after JN is updated.
+exports.config = { schedule: "*/15 * * * *" };
+
 exports.handler = async (event) => {
   console.log("=== Inspection Checker Start ===");
 

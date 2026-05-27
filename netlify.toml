@@ -18,3 +18,14 @@
 # there are no orphans.
 [functions."daily-orphan-alert"]
   schedule = "0 12 * * *"
+
+# Scheduled function: bi-directional JN ↔ Supabase sync. Runs every 15
+# minutes. Brings inspection results (Damage / No Damage / Retail) from
+# JN into the app + fires rep notifications, AND brings JN "Lost" status
+# changes back as cancelled_at on inspections (so the roof drops out of
+# the inspector mobile app's "Available near me" pool without anyone
+# having to open the admin app first). The function file also declares
+# this via exports.config.schedule; this toml entry keeps the cadence
+# visible from project root.
+[functions."inspection-checker"]
+  schedule = "*/15 * * * *"
