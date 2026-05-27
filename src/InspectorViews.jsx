@@ -371,6 +371,41 @@ export function InspectorsAdminPanel() {
     setSendingEmailId(null);
   }
 
+  // Send the field-guide link (/inspector-guide/) to one active
+  // inspector on demand. Same SMS-or-email channel auto-pick as the
+  // other inspector messaging. Confirm before firing because it
+  // texts a real human and they'll see the message on their phone.
+  async function sendGuide(insp) {
+    if (!insp.active) {
+      setMessage({ kind: "error", text: `${insp.name} isn't active. Activate them first.` });
+      return;
+    }
+    if (!insp.email && !insp.phone) {
+      setMessage({ kind: "error", text: `${insp.name} has no email or phone on file.` });
+      return;
+    }
+    const dest = insp.phone ? `📱 SMS to ${insp.phone}` : `📧 email to ${insp.email}`;
+    if (!confirm(`Send the field guide to ${insp.name}? (${dest})`)) return;
+    setSendingEmailId(insp.id);
+    try {
+      const res = await fetch("/.netlify/functions/send-inspector-guide", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inspectorId: insp.id, channel: "auto" }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!body.ok) {
+        setMessage({ kind: "error", text: body.error || `Send failed (status ${res.status})` });
+      } else {
+        const destSent = body.channel_used === "sms" ? `📱 SMS to ${body.phone}` : `📧 email to ${body.email}`;
+        setMessage({ kind: "success", text: `Field guide sent to ${insp.name} (${destSent}).` });
+      }
+    } catch (e) {
+      setMessage({ kind: "error", text: e.message || "Network error" });
+    }
+    setSendingEmailId(null);
+  }
+
   async function loadInspectors() {
     setLoading(true);
     const { data, error } = await supabase
@@ -607,6 +642,7 @@ export function InspectorsAdminPanel() {
                 onUpdate={(patch) => updateInspector(insp, patch)}
                 onDelete={() => deleteInspector(insp)}
                 onSendUpdateLink={() => sendUpdateLink(insp)}
+                onSendGuide={() => sendGuide(insp)}
               />
             ))}
           </div>
@@ -625,7 +661,7 @@ export function InspectorsAdminPanel() {
   );
 }
 
-function InspectorRow({ insp, sendingEmail, onToggle, onUpdate, onDelete, onSendUpdateLink }) {
+function InspectorRow({ insp, sendingEmail, onToggle, onUpdate, onDelete, onSendUpdateLink, onSendGuide }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({
     name: insp.name,
@@ -702,6 +738,30 @@ function InspectorRow({ insp, sendingEmail, onToggle, onUpdate, onDelete, onSend
                   : setupDone
                     ? "📧/📱 Send update email/text"
                     : "📧/📱 Send setup email/text"}
+              </button>
+            )}
+            {/* Send field guide — only shown for active inspectors,
+                disabled while another send is in flight. Re-sends the
+                /inspector-guide/ link they already got at activation. */}
+            {insp.active && onSendGuide && (
+              <button
+                type="button"
+                onClick={onSendGuide}
+                disabled={sendingEmail || !hasContact}
+                style={{
+                  ...secondaryBtn,
+                  fontSize: 11,
+                  background: !hasContact ? "#f3f4f6" : "#fff",
+                  opacity: !hasContact ? 0.55 : 1,
+                  cursor: !hasContact ? "not-allowed" : "pointer",
+                }}
+                title={
+                  !hasContact
+                    ? "Add a phone number via Edit first"
+                    : `Re-send the field guide via ${insp.phone ? "SMS to " + insp.phone : "email to " + insp.email}`
+                }
+              >
+                {sendingEmail ? "Sending…" : "📖 Send guide"}
               </button>
             )}
             <button
