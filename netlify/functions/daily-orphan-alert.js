@@ -81,32 +81,102 @@ exports.handler = async (event) => {
     `daily-orphan-alert: window ${from}..${to}, ${finderData.summary?.total_signings || 0} signings, ${orphans.length} orphans`
   );
 
-  // 3. Quiet day → no SMS. Important: don't fire on zero, otherwise the
-  //    cron becomes noise the admin starts to ignore.
-  if (orphans.length === 0) {
-    return json(200, { ok: true, orphans: 0, alerted: false });
+  // 3. ALSO check for "stuck certs" — inspections classified 24+ hours
+  //    ago whose cert never made it to JN. The hourly cron
+  //    cron-retry-missing-certs is supposed to handle these
+  //    automatically; if a row is STILL stuck 24h later, something is
+  //    genuinely broken (PDFShift down, JN API issues, etc.) and it
+  //    needs Neal's eyes. Daily heartbeat means he sees it next
+  //    morning, not days later.
+  const SB_URL_2 = process.env.VITE_SUPABASE_URL;
+  const SB_KEY_2 = process.env.VITE_SUPABASE_ANON_KEY;
+  let stuckCerts = [];
+  if (SB_URL_2 && SB_KEY_2) {
+    try {
+      const cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const q =
+        `select=client_name,address,city,sales_rep_name,result,result_at,jn_job_id` +
+        `&inspector_id=not.is.null` +
+        `&result=not.is.null` +
+        `&jn_job_id=not.is.null` +
+        `&cancelled_at=is.null` +
+        `&jn_cert_uploaded_at=is.null` +
+        `&result_at=lt.${encodeURIComponent(cutoff24h)}` +
+        `&order=result_at.asc` +
+        `&limit=20`;
+      const sbRes = await fetch(`${SB_URL_2}/rest/v1/inspections?${q}`, {
+        headers: { apikey: SB_KEY_2, Authorization: `Bearer ${SB_KEY_2}` },
+      });
+      if (sbRes.ok) {
+        stuckCerts = await sbRes.json();
+      } else {
+        console.warn("Stuck-cert query failed:", sbRes.status);
+      }
+    } catch (e) {
+      console.warn("Stuck-cert query threw:", e.message);
+    }
+  }
+  console.log(`daily-orphan-alert: ${stuckCerts.length} stuck certs (24h+)`);
+
+  // 4. Quiet day → no SMS. Now requires BOTH lists empty before staying
+  //    silent so we don't miss a stuck cert on a day with no orphans.
+  if (orphans.length === 0 && stuckCerts.length === 0) {
+    return json(200, {
+      ok: true,
+      orphans: 0,
+      stuck_certs: 0,
+      alerted: false,
+    });
   }
 
-  // 4. Compose ONE SMS summarizing the orphans. Each line: name + city +
-  //    rep. Kept short so it fits comfortably in two SMS segments even
-  //    with 5+ orphans. If somehow we get >8 orphans, truncate and note
-  //    the overflow — the admin still needs to open the app to fix them.
-  const PER_ITEM_LIMIT = 8;
-  const items = orphans.slice(0, PER_ITEM_LIMIT).map((o) => {
-    const name = o.client_name || "?";
-    const city = o.city || "";
-    const rep = o.sales_rep_name || "Unassigned";
-    return `• ${name}${city ? " · " + city : ""} (${rep})`;
-  });
-  const more =
-    orphans.length > PER_ITEM_LIMIT
-      ? `\n+${orphans.length - PER_ITEM_LIMIT} more — see app`
-      : "";
-  const message =
-    `⚠ ${orphans.length} JN sync orphan${orphans.length === 1 ? "" : "s"} from yesterday:\n` +
-    items.join("\n") +
-    more +
-    `\n\nOpen the app → record list → click "Sync to JN" on each.`;
+  // 5. Compose ONE SMS combining both lists. Each line: name · city ·
+  //    rep. Capped per category so the message stays under ~3 SMS
+  //    segments even on a bad day.
+  const PER_ITEM_LIMIT = 6;
+  const sections = [];
+
+  if (orphans.length > 0) {
+    const items = orphans.slice(0, PER_ITEM_LIMIT).map((o) => {
+      const name = o.client_name || "?";
+      const city = o.city || "";
+      const rep = o.sales_rep_name || "Unassigned";
+      return `• ${name}${city ? " · " + city : ""} (${rep})`;
+    });
+    const more =
+      orphans.length > PER_ITEM_LIMIT
+        ? `\n+${orphans.length - PER_ITEM_LIMIT} more`
+        : "";
+    sections.push(
+      `⚠ ${orphans.length} JN sync orphan${orphans.length === 1 ? "" : "s"}:\n` +
+        items.join("\n") +
+        more +
+        `\nFix: app → record list → "Sync to JN".`,
+    );
+  }
+
+  if (stuckCerts.length > 0) {
+    const items = stuckCerts.slice(0, PER_ITEM_LIMIT).map((s) => {
+      const name = s.client_name || "?";
+      const city = s.city || "";
+      const result = s.result || "?";
+      const ageHours = Math.round(
+        (Date.now() - new Date(s.result_at).getTime()) / 3600000,
+      );
+      return `• ${name}${city ? " · " + city : ""} (${result}, ${ageHours}h stuck)`;
+    });
+    const more =
+      stuckCerts.length > PER_ITEM_LIMIT
+        ? `\n+${stuckCerts.length - PER_ITEM_LIMIT} more`
+        : "";
+    sections.push(
+      `🛟 ${stuckCerts.length} cert${stuckCerts.length === 1 ? "" : "s"} stuck 24h+:\n` +
+        items.join("\n") +
+        more +
+        `\nThe hourly retry has been failing on these. Check Netlify logs OR fire generate-and-upload-insp-report manually with the jnid.`,
+    );
+  }
+
+  const message = sections.join("\n\n");
 
   // 5. Send SMS to ADMIN_ALERT_PHONE (comma-sep list ok). Skips silently
   //    if the env var isn't set so this cron stays usable on a fresh
@@ -121,9 +191,11 @@ exports.handler = async (event) => {
     return json(200, {
       ok: true,
       orphans: orphans.length,
+      stuck_certs: stuckCerts.length,
       alerted: false,
       note: "ADMIN_ALERT_PHONE not configured; no SMS sent.",
       orphan_names: orphans.map((o) => o.client_name),
+      stuck_names: stuckCerts.map((s) => s.client_name),
     });
   }
 
@@ -145,8 +217,10 @@ exports.handler = async (event) => {
   return json(200, {
     ok: true,
     orphans: orphans.length,
+    stuck_certs: stuckCerts.length,
     alerted: sentTo,
     orphan_names: orphans.map((o) => o.client_name),
+    stuck_names: stuckCerts.map((s) => s.client_name),
   });
 };
 
