@@ -830,6 +830,61 @@ function CardContent({ children, style }) {
   return <div style={{ padding: 24, paddingTop: 12, ...(style || {}) }}>{children}</div>;
 }
 
+// Time-of-day breakdown — three colored chips showing how this period's
+// signings split across morning (<12pm), afternoon (12pm-5pm), evening
+// (5:01pm+). Used at the top of the Weekly Report. The "Unknown" bucket
+// only renders if it's non-zero so a clean week stays clean. Same data
+// shape ({morning, afternoon, evening, unknown}) is also rendered in
+// the PDF — keep generate-weekly-report-pdf.js in sync if you change
+// the labels or icons here.
+function TimeOfDayBreakdown({ buckets, total }) {
+  if (!buckets || !total) return null;
+  const pct = (n) => total > 0 ? Math.round((n / total) * 100) : 0;
+  // Inline style for each chip — soft tinted background per part of day
+  // so the busiest bucket pops at a glance.
+  const chip = (bg, fg, border) => ({
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "8px 14px",
+    borderRadius: 999,
+    background: bg,
+    color: fg,
+    border: `1px solid ${border}`,
+    fontFamily: "'Nunito', sans-serif",
+    fontWeight: 700,
+    fontSize: 13,
+  });
+  const items = [
+    { key: "morning",   label: "🌅 Morning",   range: "before noon",      n: buckets.morning,   bg: "#fef3c7", fg: "#92400e", bd: "#fcd34d" },
+    { key: "afternoon", label: "☀️ Afternoon", range: "12 PM – 5 PM",     n: buckets.afternoon, bg: "#dbeafe", fg: "#1e40af", bd: "#93c5fd" },
+    { key: "evening",   label: "🌙 Evening",   range: "after 5 PM",       n: buckets.evening,   bg: "#ede9fe", fg: "#5b21b6", bd: "#c4b5fd" },
+  ];
+  return (
+    <div style={{ marginBottom: 14, padding: "12px 14px", background: "#f8fafc", borderRadius: 10, border: "1px solid #e2e8f0" }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#475569", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8 }}>
+        Time of day · {total} signing{total === 1 ? "" : "s"}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        {items.map((it) => (
+          <span key={it.key} style={chip(it.bg, it.fg, it.bd)} title={`${it.label.replace(/^\S+\s/, "")} = ${it.range}`}>
+            <span>{it.label}</span>
+            <span style={{ opacity: 0.85 }}>·</span>
+            <span><strong>{it.n}</strong> ({pct(it.n)}%)</span>
+          </span>
+        ))}
+        {buckets.unknown > 0 && (
+          <span style={chip("#f1f5f9", "#475569", "#cbd5e1")} title="Signings missing a parseable timestamp">
+            <span>❔ Unknown</span>
+            <span style={{ opacity: 0.85 }}>·</span>
+            <span><strong>{buckets.unknown}</strong> ({pct(buckets.unknown)}%)</span>
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Label({ children }) {
   return (
     <label
@@ -4890,11 +4945,31 @@ export default function App() {
         repTotals[rep] = byRep[rep].reduce((sum, r) => sum + r.earned, 0);
       });
 
+      // Time-of-day buckets, computed in LOCAL time (Date.getHours/Minutes
+      // already returns the browser's local wallclock). The user spec:
+      //   • Morning   → before 12:00 PM  (anything earlier counts here too)
+      //   • Afternoon → 12:00 PM through 5:00 PM inclusive
+      //   • Evening   → 5:01 PM onward
+      // unknown = signings missing or with un-parseable signedAt; those
+      // never reach the report's rep grouping today, but the bucket
+      // exists as a safety net so the totals always reconcile.
+      const timeBuckets = { morning: 0, afternoon: 0, evening: 0, unknown: 0 };
+      for (const r of rows) {
+        if (!r.signedAt) { timeBuckets.unknown++; continue; }
+        const d = new Date(r.signedAt);
+        if (Number.isNaN(d.getTime())) { timeBuckets.unknown++; continue; }
+        const minutesOfDay = d.getHours() * 60 + d.getMinutes();
+        if (minutesOfDay < 12 * 60) timeBuckets.morning++;
+        else if (minutesOfDay <= 17 * 60) timeBuckets.afternoon++;
+        else timeBuckets.evening++;
+      }
+
       setReportData({
         byRep,
         repTotals,
         totalRows: rows.length,
         totalEarned: rows.reduce((sum, r) => sum + r.earned, 0),
+        timeBuckets,
         startDate, endDate,
         claimsError,
         inspError,
@@ -12120,6 +12195,12 @@ if (!hasDamage) {
                         </div>
                         {reportData.claimsError ? <div style={{ color: "#ef4444", fontSize: 12, marginBottom: 8 }}>⚠️ Claims error: {reportData.claimsError}</div> : null}
                         {reportData.inspError ? <div style={{ color: "#ef4444", fontSize: 12, marginBottom: 8 }}>⚠️ Inspections error: {reportData.inspError}</div> : null}
+                        {/* Time-of-day breakdown — when reps are actually
+                            in the field. Each chip shows count + percent.
+                            Hidden when there are no signings. */}
+                        {reportData.totalRows > 0 && reportData.timeBuckets && (
+                          <TimeOfDayBreakdown buckets={reportData.timeBuckets} total={reportData.totalRows} />
+                        )}
                         {/* Grid columns: when PA forms are disabled, drop the LOR
                             and PA columns since they'd always be ○. Earned column
                             stays but rows with $0 render blank instead of "$0". */}

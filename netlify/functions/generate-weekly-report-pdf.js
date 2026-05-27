@@ -112,7 +112,7 @@ const renderRepBlock = (rep, signings, repTotal) => {
 // rendered inline rather than via PDFShift's margin-box feature so we don't
 // need to coordinate a separate header template.
 const buildReportHtml = (reportData) => {
-  const { startDate, endDate, totalRows, totalEarned, byRep, repTotals } = reportData;
+  const { startDate, endDate, totalRows, totalEarned, byRep, repTotals, timeBuckets } = reportData;
 
   // Sort reps by total earnings desc — biggest contributors first
   const repNames = Object.keys(byRep || {}).sort(
@@ -122,6 +122,30 @@ const buildReportHtml = (reportData) => {
   const repSections = repNames.length === 0
     ? `<div style="text-align:center;padding:40px 0;color:#9ca3af;font-size:14px">No signings recorded this period.</div>`
     : repNames.map(rep => renderRepBlock(rep, byRep[rep], repTotals[rep] || 0)).join("");
+
+  // Time-of-day breakdown block — matches the on-screen UI's
+  // TimeOfDayBreakdown component (App.jsx). Keep the labels, ranges,
+  // and color palette in sync. Hidden entirely when totalRows = 0 or
+  // when timeBuckets wasn't supplied (older clients).
+  const tb = timeBuckets || { morning: 0, afternoon: 0, evening: 0, unknown: 0 };
+  const tbTotal = totalRows || 0;
+  const pct = (n) => tbTotal > 0 ? Math.round((n / tbTotal) * 100) : 0;
+  const tbChip = (label, range, n, bg, fg, border) => `
+    <span style="display:inline-block;padding:7px 12px;border-radius:999px;background:${bg};color:${fg};border:1px solid ${border};font-size:11px;font-weight:700;margin-right:6px">
+      ${label} <span style="opacity:0.75">(${esc(range)})</span> &middot; <strong>${n}</strong> (${pct(n)}%)
+    </span>`;
+  const timeBreakdownBlock = tbTotal > 0 ? `
+    <div style="margin-bottom:16px;padding:12px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px">
+      <div style="font-size:9px;font-weight:700;color:#475569;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:8px">
+        Time of day &middot; ${tbTotal} signing${tbTotal === 1 ? "" : "s"}
+      </div>
+      <div>
+        ${tbChip("🌅 Morning",   "before noon",       tb.morning,   "#fef3c7", "#92400e", "#fcd34d")}
+        ${tbChip("☀️ Afternoon", "12 PM – 5 PM",     tb.afternoon, "#dbeafe", "#1e40af", "#93c5fd")}
+        ${tbChip("🌙 Evening",   "after 5 PM",        tb.evening,   "#ede9fe", "#5b21b6", "#c4b5fd")}
+        ${tb.unknown > 0 ? tbChip("❔ Unknown", "no timestamp", tb.unknown, "#f1f5f9", "#475569", "#cbd5e1") : ""}
+      </div>
+    </div>` : "";
 
   const generatedAt = new Date().toLocaleString("en-US");
 
@@ -161,6 +185,9 @@ const buildReportHtml = (reportData) => {
         <div style="font-size:22px;font-weight:700;color:#1a2e5a;margin-top:2px">${repNames.length}</div>
       </div>
     </div>
+
+    <!-- Time-of-day breakdown -->
+    ${timeBreakdownBlock}
 
     <!-- Per-rep breakdown -->
     ${repSections}
