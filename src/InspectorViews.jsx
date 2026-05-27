@@ -622,32 +622,97 @@ export function InspectorsAdminPanel() {
         </div>
       </section>
 
-      {/* List inspectors */}
-      <section style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, background: "#fff" }}>
-        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>
-          👷 All inspectors ({inspectors.length})
-        </div>
-        {loading ? (
-          <div style={{ fontSize: 13, color: "#6b7280" }}>Loading…</div>
-        ) : inspectors.length === 0 ? (
-          <div style={{ fontSize: 13, color: "#6b7280" }}>No inspectors yet — add one above.</div>
-        ) : (
-          <div style={{ display: "grid", gap: 8 }}>
-            {inspectors.map((insp) => (
-              <InspectorRow
-                key={insp.id}
-                insp={insp}
-                sendingEmail={sendingEmailId === insp.id}
-                onToggle={() => toggleActive(insp)}
-                onUpdate={(patch) => updateInspector(insp, patch)}
-                onDelete={() => deleteInspector(insp)}
-                onSendUpdateLink={() => sendUpdateLink(insp)}
-                onSendGuide={() => sendGuide(insp)}
-              />
-            ))}
-          </div>
-        )}
-      </section>
+      {/* List inspectors — grouped so the active ones are always at
+          the top (you mostly come here to send guides / deactivate
+          someone). Three buckets:
+            • Active: in the field, currently dispatchable.
+            • Ready to activate: setup done, just needs the flip.
+            • Setup pending: still need to confirm their home address.
+          Inside each bucket, sort by name (matches the DB query).
+          Each group renders only when non-empty, so a clean state
+          where everyone's active shows just one section. */}
+      {(() => {
+        const active = inspectors.filter((i) => i.active);
+        const readyToActivate = inspectors.filter(
+          (i) => !i.active && i.info_updated_at,
+        );
+        const setupPending = inspectors.filter(
+          (i) => !i.active && !i.info_updated_at,
+        );
+        const renderGroup = (label, color, list, hint) => (
+          <section
+            key={label}
+            style={{
+              border: "1px solid #e5e7eb",
+              borderRadius: 12,
+              padding: 16,
+              background: "#fff",
+              marginBottom: 12,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 4 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color }}>
+                {label} ({list.length})
+              </div>
+            </div>
+            {hint && (
+              <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 10 }}>{hint}</div>
+            )}
+            <div style={{ display: "grid", gap: 8 }}>
+              {list.map((insp) => (
+                <InspectorRow
+                  key={insp.id}
+                  insp={insp}
+                  sendingEmail={sendingEmailId === insp.id}
+                  onToggle={() => toggleActive(insp)}
+                  onUpdate={(patch) => updateInspector(insp, patch)}
+                  onDelete={() => deleteInspector(insp)}
+                  onSendUpdateLink={() => sendUpdateLink(insp)}
+                  onSendGuide={() => sendGuide(insp)}
+                />
+              ))}
+            </div>
+          </section>
+        );
+        if (loading) {
+          return (
+            <section style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, background: "#fff" }}>
+              <div style={{ fontSize: 13, color: "#6b7280" }}>Loading…</div>
+            </section>
+          );
+        }
+        if (inspectors.length === 0) {
+          return (
+            <section style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, background: "#fff" }}>
+              <div style={{ fontSize: 13, color: "#6b7280" }}>
+                No inspectors yet — sync from JN above.
+              </div>
+            </section>
+          );
+        }
+        return (
+          <>
+            {active.length > 0 && renderGroup(
+              "⭐ Active inspectors",
+              "#047857",
+              active,
+              "In the field. These show up in the inspector mobile app's picker.",
+            )}
+            {readyToActivate.length > 0 && renderGroup(
+              "⏳ Ready to activate",
+              "#92400e",
+              readyToActivate,
+              "Setup is complete — one click on Activate and they're live.",
+            )}
+            {setupPending.length > 0 && renderGroup(
+              "🛠️ Setup pending",
+              "#475569",
+              setupPending,
+              "Still need to confirm their home address. Send them the setup link to get them moving.",
+            )}
+          </>
+        );
+      })()}
 
       {/* Assignments moved to their own admin tile (📋 Assign
           Inspections). Keep this section as a one-line pointer so
