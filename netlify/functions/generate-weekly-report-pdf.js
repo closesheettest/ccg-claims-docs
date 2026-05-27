@@ -83,14 +83,64 @@ const renderSigningRow = (s, idx) => {
 };
 
 // Build a single rep block: header pill + table of signings.
+// Bucketize one rep's signings the same way computeTimeBuckets does in
+// App.jsx. Duplicated rather than imported because this is a Netlify
+// function and the React source isn't bundled here.
+const computeRepBuckets = (signings) => {
+  const out = {
+    morning:   { count: 0, latest: null },
+    afternoon: { count: 0, latest: null },
+    evening:   { count: 0, latest: null },
+  };
+  const bump = (k, signedAt) => {
+    out[k].count++;
+    if (signedAt && (!out[k].latest || signedAt > out[k].latest)) out[k].latest = signedAt;
+  };
+  for (const s of signings || []) {
+    if (!s.signedAt) continue;
+    const d = new Date(s.signedAt);
+    if (Number.isNaN(d.getTime())) continue;
+    const m = d.getHours() * 60 + d.getMinutes();
+    if (m < 12 * 60) bump("morning", s.signedAt);
+    else if (m <= 17 * 60) bump("afternoon", s.signedAt);
+    else bump("evening", s.signedAt);
+  }
+  return out;
+};
+
+const fmtRepTime = (iso) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+};
+
 const renderRepBlock = (rep, signings, repTotal) => {
   const rowCount = signings.length;
   const rows = signings.map((s, i) => renderSigningRow(s, i)).join("");
+
+  // Per-rep mini time-of-day strip — small pills, only non-zero buckets
+  // shown. Mirrors RepTimeOfDayStrip in App.jsx.
+  const repBuckets = computeRepBuckets(signings);
+  const pill = (emoji, data) => data.count > 0 ? `
+    <span style="display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,0.85);color:#075985;padding:3px 8px;border-radius:999px;border:1px solid #bae6fd;font-size:10px;font-weight:700;margin-right:5px">
+      <span>${emoji}</span>
+      <span>${data.count}</span>
+      ${data.latest ? `<span style="font-weight:500;opacity:0.8">&middot; last ${esc(fmtRepTime(data.latest))}</span>` : ""}
+    </span>` : "";
+  const repStrip = `
+    <div style="margin-top:6px;font-family:Arial,sans-serif">
+      ${pill("🌅", repBuckets.morning)}${pill("☀️", repBuckets.afternoon)}${pill("🌙", repBuckets.evening)}
+    </div>`;
+
   return `
     <div style="margin-bottom:18px;page-break-inside:avoid">
-      <div style="background:#dbeafe;color:#1e40af;padding:8px 14px;border-radius:8px;display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <div style="font-size:13px;font-weight:700">${esc(rep)}</div>
-        <div style="font-size:11px">${rowCount} signing${rowCount !== 1 ? "s" : ""} · <strong>${fmtUSD(repTotal)}</strong></div>
+      <div style="background:#dbeafe;color:#1e40af;padding:8px 14px;border-radius:8px;margin-bottom:6px">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+          <div style="font-size:13px;font-weight:700">${esc(rep)}</div>
+          <div style="font-size:11px">${rowCount} signing${rowCount !== 1 ? "s" : ""} &middot; <strong>${fmtUSD(repTotal)}</strong></div>
+        </div>
+        ${repStrip}
       </div>
       <table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden">
         <thead>
@@ -125,25 +175,59 @@ const buildReportHtml = (reportData) => {
 
   // Time-of-day breakdown block — matches the on-screen UI's
   // TimeOfDayBreakdown component (App.jsx). Keep the labels, ranges,
-  // and color palette in sync. Hidden entirely when totalRows = 0 or
-  // when timeBuckets wasn't supplied (older clients).
-  const tb = timeBuckets || { morning: 0, afternoon: 0, evening: 0, unknown: 0 };
+  // and color palette in sync. Hidden when totalRows = 0.
+  //
+  // The bucket data shape is { count, latest } — see computeTimeBuckets
+  // in App.jsx. A small back-compat shim treats older clients (which
+  // sent just numbers) as { count: N, latest: null }.
   const tbTotal = totalRows || 0;
   const pct = (n) => tbTotal > 0 ? Math.round((n / tbTotal) * 100) : 0;
-  const tbChip = (label, range, n, bg, fg, border) => `
-    <span style="display:inline-block;padding:7px 12px;border-radius:999px;background:${bg};color:${fg};border:1px solid ${border};font-size:11px;font-weight:700;margin-right:6px">
-      ${label} <span style="opacity:0.75">(${esc(range)})</span> &middot; <strong>${n}</strong> (${pct(n)}%)
-    </span>`;
+  // Normalize either shape into { count, latest } so the template
+  // below can be uniform.
+  const tbNormalize = (raw) => {
+    if (raw == null) return { count: 0, latest: null };
+    if (typeof raw === "number") return { count: raw, latest: null };
+    return { count: raw.count || 0, latest: raw.latest || null };
+  };
+  const fmtTimeShort = (iso) => {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  };
+  const tb = {
+    morning:   tbNormalize(timeBuckets?.morning),
+    afternoon: tbNormalize(timeBuckets?.afternoon),
+    evening:   tbNormalize(timeBuckets?.evening),
+    unknown:   tbNormalize(timeBuckets?.unknown),
+  };
+
+  // Each bucket renders as a small vertical card: label, time range,
+  // count + percent, latest signing time. Cards sit side-by-side with
+  // flex; on a Letter-sized PDF page they fit comfortably in one row.
+  const tbCard = (label, range, data, bg, fg, border) => `
+    <div style="flex:1 1 0;min-width:0;padding:10px 12px;border-radius:10px;background:${bg};color:${fg};border:1px solid ${border};font-family:Arial,sans-serif">
+      <div style="font-weight:700;font-size:12px">${label}</div>
+      <div style="font-size:10px;opacity:0.85;margin-top:1px">${esc(range)}</div>
+      <div style="font-size:15px;font-weight:700;margin-top:6px">
+        ${data.count} <span style="font-weight:600;font-size:11px;opacity:0.85">(${pct(data.count)}%)</span>
+      </div>
+      <div style="font-size:10px;margin-top:4px;opacity:0.85">
+        ${data.latest
+          ? `Latest: <strong>${esc(fmtTimeShort(data.latest))}</strong>`
+          : `<span style="font-style:italic;opacity:0.7">No signings</span>`}
+      </div>
+    </div>`;
   const timeBreakdownBlock = tbTotal > 0 ? `
     <div style="margin-bottom:16px;padding:12px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px">
       <div style="font-size:9px;font-weight:700;color:#475569;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:8px">
         Time of day &middot; ${tbTotal} signing${tbTotal === 1 ? "" : "s"}
       </div>
-      <div>
-        ${tbChip("🌅 Morning",   "before noon",       tb.morning,   "#fef3c7", "#92400e", "#fcd34d")}
-        ${tbChip("☀️ Afternoon", "12 PM – 5 PM",     tb.afternoon, "#dbeafe", "#1e40af", "#93c5fd")}
-        ${tbChip("🌙 Evening",   "after 5 PM",        tb.evening,   "#ede9fe", "#5b21b6", "#c4b5fd")}
-        ${tb.unknown > 0 ? tbChip("❔ Unknown", "no timestamp", tb.unknown, "#f1f5f9", "#475569", "#cbd5e1") : ""}
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${tbCard("🌅 Morning",   "before noon",       tb.morning,   "#fef3c7", "#92400e", "#fcd34d")}
+        ${tbCard("☀️ Afternoon", "12 PM – 5 PM",     tb.afternoon, "#dbeafe", "#1e40af", "#93c5fd")}
+        ${tbCard("🌙 Evening",   "after 5 PM",        tb.evening,   "#ede9fe", "#5b21b6", "#c4b5fd")}
+        ${tb.unknown.count > 0 ? tbCard("❔ Unknown", "no timestamp", tb.unknown, "#f1f5f9", "#475569", "#cbd5e1") : ""}
       </div>
     </div>` : "";
 

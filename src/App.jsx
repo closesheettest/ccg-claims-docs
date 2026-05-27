@@ -830,35 +830,81 @@ function CardContent({ children, style }) {
   return <div style={{ padding: 24, paddingTop: 12, ...(style || {}) }}>{children}</div>;
 }
 
-// Time-of-day breakdown — three colored chips showing how this period's
+// Bucketize a list of signing rows into morning / afternoon / evening
+// (per the user's spec: <12pm, 12-5pm inclusive, 5:01pm+) using LOCAL
+// time. Each bucket tracks both the count AND the latest signedAt
+// timestamp seen — so the UI can render "Latest: 11:42 AM" under
+// each bucket.
+//
+// Shape returned:
+//   { morning:   { count, latest },
+//     afternoon: { count, latest },
+//     evening:   { count, latest },
+//     unknown:   { count, latest: null } }
+//
+// Used by both the top-of-report breakdown AND each rep's mini-header
+// breakdown. Keep the PDF generator's bucketize loop in sync.
+function computeTimeBuckets(rows) {
+  const out = {
+    morning:   { count: 0, latest: null },
+    afternoon: { count: 0, latest: null },
+    evening:   { count: 0, latest: null },
+    unknown:   { count: 0, latest: null },
+  };
+  const bump = (k, signedAt) => {
+    out[k].count++;
+    if (signedAt && (!out[k].latest || signedAt > out[k].latest)) {
+      out[k].latest = signedAt;
+    }
+  };
+  for (const r of rows || []) {
+    if (!r.signedAt) { bump("unknown", null); continue; }
+    const d = new Date(r.signedAt);
+    if (Number.isNaN(d.getTime())) { bump("unknown", null); continue; }
+    const m = d.getHours() * 60 + d.getMinutes();
+    if (m < 12 * 60) bump("morning", r.signedAt);
+    else if (m <= 17 * 60) bump("afternoon", r.signedAt);
+    else bump("evening", r.signedAt);
+  }
+  return out;
+}
+
+// Format a signedAt ISO into "11:42 AM" local time — used under each
+// bucket card to surface "latest signing in this window."
+function fmtTimeShort(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
+
+// Time-of-day breakdown — three colored cards showing how this period's
 // signings split across morning (<12pm), afternoon (12pm-5pm), evening
 // (5:01pm+). Used at the top of the Weekly Report. The "Unknown" bucket
 // only renders if it's non-zero so a clean week stays clean. Same data
-// shape ({morning, afternoon, evening, unknown}) is also rendered in
-// the PDF — keep generate-weekly-report-pdf.js in sync if you change
-// the labels or icons here.
+// shape (computeTimeBuckets output) is also rendered in the PDF — keep
+// generate-weekly-report-pdf.js in sync if you change the labels or
+// icons here.
 function TimeOfDayBreakdown({ buckets, total }) {
   if (!buckets || !total) return null;
   const pct = (n) => total > 0 ? Math.round((n / total) * 100) : 0;
-  // Inline style for each chip — soft tinted background per part of day
-  // so the busiest bucket pops at a glance.
-  const chip = (bg, fg, border) => ({
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 6,
-    padding: "8px 14px",
-    borderRadius: 999,
+  // Each bucket is now a small vertical card showing 4 pieces of info:
+  // label+emoji, time range, count + percent, and latest signing time.
+  // Cards flex-wrap on narrow screens so phones get a column stack.
+  const card = (bg, fg, border) => ({
+    flex: "1 1 180px",
+    minWidth: 0,
+    padding: "10px 12px",
+    borderRadius: 10,
     background: bg,
     color: fg,
     border: `1px solid ${border}`,
     fontFamily: "'Nunito', sans-serif",
-    fontWeight: 700,
-    fontSize: 13,
   });
   const items = [
-    { key: "morning",   label: "🌅 Morning",   range: "before noon",      n: buckets.morning,   bg: "#fef3c7", fg: "#92400e", bd: "#fcd34d" },
-    { key: "afternoon", label: "☀️ Afternoon", range: "12 PM – 5 PM",     n: buckets.afternoon, bg: "#dbeafe", fg: "#1e40af", bd: "#93c5fd" },
-    { key: "evening",   label: "🌙 Evening",   range: "after 5 PM",       n: buckets.evening,   bg: "#ede9fe", fg: "#5b21b6", bd: "#c4b5fd" },
+    { key: "morning",   label: "🌅 Morning",   range: "before noon",  data: buckets.morning,   bg: "#fef3c7", fg: "#92400e", bd: "#fcd34d" },
+    { key: "afternoon", label: "☀️ Afternoon", range: "12 PM – 5 PM", data: buckets.afternoon, bg: "#dbeafe", fg: "#1e40af", bd: "#93c5fd" },
+    { key: "evening",   label: "🌙 Evening",   range: "after 5 PM",   data: buckets.evening,   bg: "#ede9fe", fg: "#5b21b6", bd: "#c4b5fd" },
   ];
   return (
     <div style={{ marginBottom: 14, padding: "12px 14px", background: "#f8fafc", borderRadius: 10, border: "1px solid #e2e8f0" }}>
@@ -867,20 +913,64 @@ function TimeOfDayBreakdown({ buckets, total }) {
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
         {items.map((it) => (
-          <span key={it.key} style={chip(it.bg, it.fg, it.bd)} title={`${it.label.replace(/^\S+\s/, "")} = ${it.range}`}>
-            <span>{it.label}</span>
-            <span style={{ opacity: 0.85 }}>·</span>
-            <span><strong>{it.n}</strong> ({pct(it.n)}%)</span>
-          </span>
+          <div key={it.key} style={card(it.bg, it.fg, it.bd)}>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>{it.label}</div>
+            <div style={{ fontSize: 11, opacity: 0.85, marginTop: 1 }}>{it.range}</div>
+            <div style={{ fontSize: 16, fontWeight: 700, marginTop: 6 }}>
+              {it.data.count} <span style={{ fontWeight: 600, fontSize: 13, opacity: 0.85 }}>({pct(it.data.count)}%)</span>
+            </div>
+            <div style={{ fontSize: 11, marginTop: 4, opacity: 0.85 }}>
+              {it.data.latest
+                ? <>Latest: <strong>{fmtTimeShort(it.data.latest)}</strong></>
+                : <span style={{ fontStyle: "italic", opacity: 0.7 }}>No signings</span>}
+            </div>
+          </div>
         ))}
-        {buckets.unknown > 0 && (
-          <span style={chip("#f1f5f9", "#475569", "#cbd5e1")} title="Signings missing a parseable timestamp">
-            <span>❔ Unknown</span>
-            <span style={{ opacity: 0.85 }}>·</span>
-            <span><strong>{buckets.unknown}</strong> ({pct(buckets.unknown)}%)</span>
-          </span>
+        {buckets.unknown && buckets.unknown.count > 0 && (
+          <div style={card("#f1f5f9", "#475569", "#cbd5e1")}>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>❔ Unknown</div>
+            <div style={{ fontSize: 11, opacity: 0.85, marginTop: 1 }}>no timestamp</div>
+            <div style={{ fontSize: 16, fontWeight: 700, marginTop: 6 }}>
+              {buckets.unknown.count} <span style={{ fontWeight: 600, fontSize: 13, opacity: 0.85 }}>({pct(buckets.unknown.count)}%)</span>
+            </div>
+          </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// Compact per-rep time-of-day strip. Lives inside the rep header (which
+// also shows name + signing count + earned). Sized small so the header
+// stays a single visual unit. Only renders non-zero buckets so a rep
+// who only worked mornings doesn't see empty afternoon/evening pills.
+function RepTimeOfDayStrip({ buckets }) {
+  if (!buckets) return null;
+  const items = [
+    { key: "morning",   emoji: "🌅", data: buckets.morning },
+    { key: "afternoon", emoji: "☀️", data: buckets.afternoon },
+    { key: "evening",   emoji: "🌙", data: buckets.evening },
+  ].filter((it) => it.data && it.data.count > 0);
+  if (items.length === 0) return null;
+  return (
+    <div style={{
+      display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6,
+      fontFamily: "'Nunito', sans-serif", fontSize: 11,
+    }}>
+      {items.map((it) => (
+        <span key={it.key} style={{
+          display: "inline-flex", alignItems: "center", gap: 4,
+          background: "rgba(255,255,255,0.85)", color: "#075985",
+          padding: "3px 8px", borderRadius: 999, border: "1px solid #bae6fd",
+          fontWeight: 700,
+        }}>
+          <span>{it.emoji}</span>
+          <span>{it.data.count}</span>
+          {it.data.latest && (
+            <span style={{ fontWeight: 500, opacity: 0.8 }}>· last {fmtTimeShort(it.data.latest)}</span>
+          )}
+        </span>
+      ))}
     </div>
   );
 }
@@ -4945,24 +5035,11 @@ export default function App() {
         repTotals[rep] = byRep[rep].reduce((sum, r) => sum + r.earned, 0);
       });
 
-      // Time-of-day buckets, computed in LOCAL time (Date.getHours/Minutes
-      // already returns the browser's local wallclock). The user spec:
-      //   • Morning   → before 12:00 PM  (anything earlier counts here too)
-      //   • Afternoon → 12:00 PM through 5:00 PM inclusive
-      //   • Evening   → 5:01 PM onward
-      // unknown = signings missing or with un-parseable signedAt; those
-      // never reach the report's rep grouping today, but the bucket
-      // exists as a safety net so the totals always reconcile.
-      const timeBuckets = { morning: 0, afternoon: 0, evening: 0, unknown: 0 };
-      for (const r of rows) {
-        if (!r.signedAt) { timeBuckets.unknown++; continue; }
-        const d = new Date(r.signedAt);
-        if (Number.isNaN(d.getTime())) { timeBuckets.unknown++; continue; }
-        const minutesOfDay = d.getHours() * 60 + d.getMinutes();
-        if (minutesOfDay < 12 * 60) timeBuckets.morning++;
-        else if (minutesOfDay <= 17 * 60) timeBuckets.afternoon++;
-        else timeBuckets.evening++;
-      }
+      // Time-of-day buckets — see computeTimeBuckets helper for the
+      // bucketing rule + the count/latest data shape. Same function
+      // is used per-rep in the rep header rendering, so the math is
+      // identical in both places.
+      const timeBuckets = computeTimeBuckets(rows);
 
       setReportData({
         byRep,
@@ -12211,14 +12288,22 @@ if (!hasDamage) {
                           {!PA_FORMS_DISABLED && <div style={{ textAlign: "center" }}>PA</div>}
                           <div style={{ textAlign: "right" }}>Earned</div>
                         </div>
-                        {Object.keys(reportData.byRep).sort((a,b) => reportData.repTotals[b] - reportData.repTotals[a]).map(rep => (
+                        {Object.keys(reportData.byRep).sort((a,b) => reportData.repTotals[b] - reportData.repTotals[a]).map(rep => {
+                          // Per-rep time-of-day, computed inline from this
+                          // rep's signing rows. Cheap (handful of rows
+                          // each) so no need to pre-compute into reportData.
+                          const repBuckets = computeTimeBuckets(reportData.byRep[rep]);
+                          return (
                           <div key={rep} style={{ marginBottom: 16 }}>
-                            <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", padding: "8px 12px", background: "#e0f2fe", borderRadius: 10, marginBottom: 6, display: "flex", justifyContent: "space-between" }}>
-                              <span>👤 {rep}</span>
-                              <span style={{ fontSize: 12, color: "#0369a1" }}>
-                                {reportData.byRep[rep].length} signing{reportData.byRep[rep].length !== 1 ? "s" : ""}
-                                {reportData.repTotals[rep] > 0 ? <> · <strong>${reportData.repTotals[rep].toLocaleString()}</strong></> : null}
-                              </span>
+                            <div style={{ padding: "8px 12px", background: "#e0f2fe", borderRadius: 10, marginBottom: 6 }}>
+                              <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+                                <span>👤 {rep}</span>
+                                <span style={{ fontSize: 12, color: "#0369a1" }}>
+                                  {reportData.byRep[rep].length} signing{reportData.byRep[rep].length !== 1 ? "s" : ""}
+                                  {reportData.repTotals[rep] > 0 ? <> · <strong>${reportData.repTotals[rep].toLocaleString()}</strong></> : null}
+                                </span>
+                              </div>
+                              <RepTimeOfDayStrip buckets={repBuckets} />
                             </div>
                             {reportData.byRep[rep].map((s, i) => {
                               const renderCheck = (status, signedAtHint) => {
@@ -12258,7 +12343,8 @@ if (!hasDamage) {
                               );
                             })}
                           </div>
-                        ))}
+                          );
+                        })}
                         <div style={{ marginTop: 12, padding: "10px 14px", background: "#f9fafb", borderRadius: 8, display: "flex", gap: 16, flexWrap: "wrap", fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>
                           <div><span style={{ color: "#16a34a", fontWeight: 700 }}>✅</span> signed this period</div>
                           <div><span style={{ color: "#9ca3af" }}>✅</span> signed previously</div>
