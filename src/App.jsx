@@ -12,6 +12,50 @@ import { InspectorMobileApp, InspectorsAdminPanel, InspectorSetupPage, ManagerIn
 import InspectionPhotosModal from "./InspectionPhotosModal";
 import JnMatchPickerModal from "./JnMatchPickerModal";
 
+// Resilient POST to /jobnimbus-sync. The original signing flow fired
+// the JN sync fire-and-forget with a single attempt — a 429 rate-limit,
+// brief JN timeout, or the homeowner closing the tab right after sign
+// would leave us with a Supabase row but no JN job (an "orphan"). On
+// 2026-05-26 this happened twice in one day before anyone noticed.
+//
+// Now: 3 attempts with 1s / 3s / 10s backoff. Each attempt is logged
+// so the browser console shows the full trail when something fails.
+// Returns { ok, data, status } on success of any attempt, or
+// { ok: false, error, attempts } if every attempt failed.
+//
+// Still safe to call without `await` — the homeowner UX is unchanged
+// because the existing call sites only consume the result inside a
+// .then(). They just now get more resilient retry behavior for free.
+async function postJnSyncWithRetry(payload, label = "jn-sync") {
+  const delaysMs = [1000, 3000, 10000];
+  let lastErr = null;
+  for (let attempt = 1; attempt <= delaysMs.length + 1; attempt++) {
+    try {
+      const r = await fetch("/.netlify/functions/jobnimbus-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (r.ok && data.jobId) {
+        if (attempt > 1) console.log(`✓ ${label} succeeded on attempt ${attempt}`);
+        return { ok: true, data, status: r.status, attempts: attempt };
+      }
+      lastErr = `HTTP ${r.status} ${data.error || "(no jobId returned)"}`;
+      console.warn(`✗ ${label} attempt ${attempt} failed: ${lastErr}`);
+    } catch (e) {
+      lastErr = e.message || String(e);
+      console.warn(`✗ ${label} attempt ${attempt} threw: ${lastErr}`);
+    }
+    // Don't sleep after the final attempt — we're about to exit.
+    if (attempt <= delaysMs.length) {
+      await new Promise((res) => setTimeout(res, delaysMs[attempt - 1]));
+    }
+  }
+  console.error(`❌ ${label} failed after ${delaysMs.length + 1} attempts: ${lastErr}`);
+  return { ok: false, error: lastErr, attempts: delaysMs.length + 1 };
+}
+
 // Inject Oswald font
 if (typeof document !== "undefined" && !document.getElementById("oswald-font")) {
   const link = document.createElement("link");
@@ -5924,31 +5968,35 @@ const renderSmsTemplate = (key, vars) => {
       }
 
       // ── Job Nimbus sync ──────────────────────────────────────────────────
-      // Fire JN sync and capture job ID to update Supabase record
-      fetch("/.netlify/functions/jobnimbus-sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          leadSource: data.leadSource || "Inspection",
-          docsSignedList: ["insp"],
-          homeowner1: inspData.clientName || data.homeowner1 || "",
-          homeowner2: "",
-          phone: inspData.mobile || data.phone || "",
-          email: inspData.email || data.signerEmail || "",
-          address: inspData.address || data.address || "",
-          city: inspData.city || data.city || "",
-          state: inspData.state || data.state || "",
-          zip: inspData.zip || data.zip || "",
-          salesRepName: data.salesRepName || "",
-          salesRepId: data.salesRepId || "",
-          pdfBase64: base64Content,
-          pdfFilename: "Free-Roof-Inspection-Agreement.pdf",
-          isTest: isTestMode,
-          testOverrideEmail: isTestMode ? testOverrideEmail : undefined,
-          testOverridePhone: isTestMode ? testOverridePhone : undefined,
-        }),
-      }).then(async r => {
-        const d = await r.json().catch(() => ({}));
+      // Fire JN sync (with 3-attempt retry/backoff) and capture job ID to
+      // update Supabase. Promise is intentionally not awaited so the
+      // signing UX continues immediately — the helper handles retries
+      // in the background and saves the jn_job_id when it lands.
+      postJnSyncWithRetry({
+        leadSource: data.leadSource || "Inspection",
+        docsSignedList: ["insp"],
+        homeowner1: inspData.clientName || data.homeowner1 || "",
+        homeowner2: "",
+        phone: inspData.mobile || data.phone || "",
+        email: inspData.email || data.signerEmail || "",
+        address: inspData.address || data.address || "",
+        city: inspData.city || data.city || "",
+        state: inspData.state || data.state || "",
+        zip: inspData.zip || data.zip || "",
+        salesRepName: data.salesRepName || "",
+        salesRepId: data.salesRepId || "",
+        pdfBase64: base64Content,
+        pdfFilename: "Free-Roof-Inspection-Agreement.pdf",
+        isTest: isTestMode,
+        testOverrideEmail: isTestMode ? testOverrideEmail : undefined,
+        testOverridePhone: isTestMode ? testOverridePhone : undefined,
+      }, "JN sync (inspection)").then(async (res) => {
+        if (!res.ok) {
+          // All retries exhausted — the daily orphan-check cron will
+          // catch this and text Neal. Nothing more to do client-side.
+          return;
+        }
+        const d = res.data;
         console.log("JN sync (inspection):", d);
         // Save jn_job_id and docs_signed back to Supabase so checker can match.
         // Uses the captured Supabase record id from the insert above — much
@@ -5971,7 +6019,7 @@ const renderSmsTemplate = (key, vars) => {
           if (updateErr) console.warn("Fallback jn_job_id save failed:", updateErr.message);
           else console.log("Saved jn_job_id via fallback:", d.jobId);
         }
-      }).catch(e => console.warn("JN sync non-fatal:", e));
+      }).catch(e => console.warn("JN sync handler failed:", e));
 
       // Reset inspection sig fields
       setInspSig("");
@@ -6493,32 +6541,30 @@ const renderSmsTemplate = (key, vars) => {
       // ── Job Nimbus sync ──────────────────────────────────────────────────
       // Find the inspection PDF attachment if it was generated
       const inspAttachment = attachments.find(a => a.filename && a.filename.toLowerCase().includes("inspection"));
-      fetch("/.netlify/functions/jobnimbus-sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          leadSource: data.leadSource || "Inspection",
-          docsSignedList: selectedDocs,
-          homeowner1: data.homeowner1 || "",
-          homeowner2: data.homeowner2 || "",
-          phone: data.phone || "",
-          email: data.signerEmail || "",
-          address: data.address || "",
-          city: data.city || "",
-          state: data.state || "",
-          zip: data.zip || "",
-          salesRepName: data.salesRepName || "",
-          salesRepId: data.salesRepId || "",
-          pdfBase64: inspAttachment?.content || null,
-          pdfFilename: inspAttachment?.filename || null,
-          isTest: isTestMode,
-          testOverrideEmail: isTestMode ? testOverrideEmail : undefined,
-          testOverridePhone: isTestMode ? testOverridePhone : undefined,
-        }),
-      }).then(async r => {
-        const d = await r.json().catch(() => ({}));
-        console.log("JN sync (submitDoc):", d);
-      }).catch(e => console.warn("JN sync non-fatal:", e));
+      // Same 3-attempt retry helper as the inspection-only flow above —
+      // see the comment block on postJnSyncWithRetry for rationale.
+      postJnSyncWithRetry({
+        leadSource: data.leadSource || "Inspection",
+        docsSignedList: selectedDocs,
+        homeowner1: data.homeowner1 || "",
+        homeowner2: data.homeowner2 || "",
+        phone: data.phone || "",
+        email: data.signerEmail || "",
+        address: data.address || "",
+        city: data.city || "",
+        state: data.state || "",
+        zip: data.zip || "",
+        salesRepName: data.salesRepName || "",
+        salesRepId: data.salesRepId || "",
+        pdfBase64: inspAttachment?.content || null,
+        pdfFilename: inspAttachment?.filename || null,
+        isTest: isTestMode,
+        testOverrideEmail: isTestMode ? testOverrideEmail : undefined,
+        testOverridePhone: isTestMode ? testOverridePhone : undefined,
+      }, "JN sync (submitDoc)").then((res) => {
+        if (res.ok) console.log("JN sync (submitDoc):", res.data);
+        // Failure case is logged by the helper; orphan cron picks it up.
+      }).catch(e => console.warn("JN sync handler failed:", e));
 
       window.scrollTo({ top: 0, behavior: "smooth" });
       if (isSigningFromLink) {
