@@ -29,3 +29,13 @@
 # visible from project root.
 [functions."inspection-checker"]
   schedule = "*/15 * * * *"
+
+# Scheduled function: hourly safety net for cert PDFs that should have
+# been uploaded to JN but weren't. The normal flow fires the cert via a
+# background function the moment the inspector hits submit; once in a
+# while that drops on the floor (PDFShift / JN file upload hiccup).
+# This cron finds those orphaned certs and re-fires the generator, so
+# nobody has to manually spot + re-fire. Runs at :20 to stagger from
+# the other crons. Silent on clean hours.
+[functions."cron-retry-missing-certs"]
+  schedule = "20 * * * *"
