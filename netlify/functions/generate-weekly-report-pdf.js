@@ -84,27 +84,33 @@ const renderSigningRow = (s, idx) => {
 
 // Build a single rep block: header pill + table of signings.
 // Bucketize one rep's signings the same way computeTimeBuckets does in
-// App.jsx. Duplicated rather than imported because this is a Netlify
-// function and the React source isn't bundled here.
+// App.jsx. "Latest" = latest hour-of-day (NOT chronologically most
+// recent) — see the App.jsx comment for the reasoning. Duplicated
+// rather than imported because this is a Netlify function and the
+// React source isn't bundled here.
 const computeRepBuckets = (signings) => {
   const out = {
-    morning:   { count: 0, latest: null },
-    afternoon: { count: 0, latest: null },
-    evening:   { count: 0, latest: null },
+    morning:   { count: 0, latest: null, _m: -1 },
+    afternoon: { count: 0, latest: null, _m: -1 },
+    evening:   { count: 0, latest: null, _m: -1 },
   };
-  const bump = (k, signedAt) => {
+  const bump = (k, signedAt, m) => {
     out[k].count++;
-    if (signedAt && (!out[k].latest || signedAt > out[k].latest)) out[k].latest = signedAt;
+    if (signedAt != null && m != null && m > out[k]._m) {
+      out[k].latest = signedAt;
+      out[k]._m = m;
+    }
   };
   for (const s of signings || []) {
     if (!s.signedAt) continue;
     const d = new Date(s.signedAt);
     if (Number.isNaN(d.getTime())) continue;
     const m = d.getHours() * 60 + d.getMinutes();
-    if (m < 12 * 60) bump("morning", s.signedAt);
-    else if (m <= 17 * 60) bump("afternoon", s.signedAt);
-    else bump("evening", s.signedAt);
+    if (m < 12 * 60) bump("morning", s.signedAt, m);
+    else if (m <= 17 * 60) bump("afternoon", s.signedAt, m);
+    else bump("evening", s.signedAt, m);
   }
+  for (const k of Object.keys(out)) delete out[k]._m;
   return out;
 };
 

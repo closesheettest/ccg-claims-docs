@@ -845,27 +845,41 @@ function CardContent({ children, style }) {
 // Used by both the top-of-report breakdown AND each rep's mini-header
 // breakdown. Keep the PDF generator's bucketize loop in sync.
 function computeTimeBuckets(rows) {
+  // Each bucket tracks count + "latest hour-of-day signing" (NOT
+  // chronologically-most-recent). So if Wednesday has an evening
+  // signing at 6:06 PM and Tuesday has one at 7:56 PM in the same
+  // report window, the "Latest" for Evening reports 7:56 PM —
+  // because that's the latest clock-time a rep has gotten someone
+  // signed in the evening, which is the question being asked.
+  //
+  // _latestMinutes is internal — strips it off before returning so
+  // callers see just { count, latest }.
   const out = {
-    morning:   { count: 0, latest: null },
-    afternoon: { count: 0, latest: null },
-    evening:   { count: 0, latest: null },
-    unknown:   { count: 0, latest: null },
+    morning:   { count: 0, latest: null, _latestMinutes: -1 },
+    afternoon: { count: 0, latest: null, _latestMinutes: -1 },
+    evening:   { count: 0, latest: null, _latestMinutes: -1 },
+    unknown:   { count: 0, latest: null, _latestMinutes: -1 },
   };
-  const bump = (k, signedAt) => {
+  const bump = (k, signedAt, minutesOfDay) => {
     out[k].count++;
-    if (signedAt && (!out[k].latest || signedAt > out[k].latest)) {
+    if (signedAt != null && minutesOfDay != null && minutesOfDay > out[k]._latestMinutes) {
       out[k].latest = signedAt;
+      out[k]._latestMinutes = minutesOfDay;
     }
   };
   for (const r of rows || []) {
-    if (!r.signedAt) { bump("unknown", null); continue; }
+    if (!r.signedAt) { bump("unknown", null, null); continue; }
     const d = new Date(r.signedAt);
-    if (Number.isNaN(d.getTime())) { bump("unknown", null); continue; }
+    if (Number.isNaN(d.getTime())) { bump("unknown", null, null); continue; }
     const m = d.getHours() * 60 + d.getMinutes();
-    if (m < 12 * 60) bump("morning", r.signedAt);
-    else if (m <= 17 * 60) bump("afternoon", r.signedAt);
-    else bump("evening", r.signedAt);
+    if (m < 12 * 60) bump("morning", r.signedAt, m);
+    else if (m <= 17 * 60) bump("afternoon", r.signedAt, m);
+    else bump("evening", r.signedAt, m);
   }
+  // Drop the internal _latestMinutes from the returned shape so the
+  // public surface stays { count, latest } and the React/PDF renderers
+  // don't need to know about the bookkeeping.
+  for (const k of Object.keys(out)) delete out[k]._latestMinutes;
   return out;
 }
 
