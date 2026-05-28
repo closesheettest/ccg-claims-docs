@@ -5,9 +5,19 @@
 // the PA's Ops Hub intake endpoint. The PA's app then has a record they
 // can pick up for back-office review.
 //
-// Endpoint (per PA's spec):
-//   POST https://bgeovgtzwgtcyfemnsvh.supabase.co/functions/v1/submit-intake
+// Endpoint (per PA's spec, updated 2026-05-28 per Kortni Sales):
+//   POST https://propertydamageinspection.com/api/public/partner/intake
 //   Content-Type: multipart/form-data
+//   Authorization: Bearer <PA_OPS_HUB_AUTH_TOKEN>
+//
+// History: previously routed to the PA's Supabase edge function
+// (bgeovgtzwgtcyfemnsvh.supabase.co/functions/v1/submit-intake) which
+// was their ClaimOps intake. The new endpoint goes to Field Ops review
+// instead, per Kortni's 2026-05-28 spec update. Payload structure +
+// field names are unchanged — only the URL and the bearer token differ.
+//
+// To override without a redeploy, set the PA_INTAKE_URL env var; the
+// hardcoded fallback below stays as the documented production URL.
 //
 // Required fields:
 //   source=field_partner_hub
@@ -43,8 +53,11 @@ const JN_BASE = 'https://app.jobnimbus.com/api1'
 const JN_KEY = process.env.JOBNIMBUS_API_KEY
 const SB_URL = process.env.VITE_SUPABASE_URL
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY
+// Resolves to PA_INTAKE_URL env var if set (lets us flip endpoints
+// without a code push); otherwise the documented production URL.
 const PA_INTAKE_URL =
-  'https://bgeovgtzwgtcyfemnsvh.supabase.co/functions/v1/submit-intake'
+  process.env.PA_INTAKE_URL ||
+  'https://propertydamageinspection.com/api/public/partner/intake'
 const SIGNED_BUCKET = 'signed-documents'
 
 const sbHeaders = {
