@@ -205,7 +205,20 @@ async function createJob(apiKey, payload) {
 // Search JN for a job by name. Used when createJob returns
 // "Duplicate job exists" — we link our Supabase row to the
 // already-existing job instead of failing the sync.
-async function findJobByName(apiKey, name) {
+//
+// IMPORTANT: returns ONLY an EXACT name match (case-insensitive).
+// We do NOT fall back to list[0]. JN's /jobs?search= endpoint is a
+// fuzzy ranker — it will happily rank a different homeowner's job
+// near the top if they share a rep or recent activity. Blindly
+// linking to list[0] caused a real mis-attach (Oswaldo Cabrera's
+// signing got linked to Priscilla Montalvo Garcia's job because
+// they shared rep William Hernandez). If exact match fails, we
+// return null so the calling code re-throws the original error
+// instead of silently linking to the wrong job.
+//
+// Optional defense-in-depth: pass `expectedAddress` to filter
+// candidates whose `address_line1` doesn't match.
+async function findJobByName(apiKey, name, expectedAddress = null) {
   if (!name) return null;
   try {
     const q = encodeURIComponent(name.trim());
@@ -216,7 +229,22 @@ async function findJobByName(apiKey, name) {
     if (!Array.isArray(list) || list.length === 0) return null;
     const target = name.trim().toLowerCase();
     const exact = list.find((j) => (j.name || j.display_name || "").trim().toLowerCase() === target);
-    return exact || list[0] || null;
+    if (!exact) {
+      console.log(`findJobByName: no exact match for "${name}" — refusing to fuzzy-link (was returning list[0] which caused mis-attaches)`);
+      return null;
+    }
+    // If an expected address was passed, validate it matches before
+    // returning. Catches the case where two unrelated homeowners
+    // share an identical job-name string (rare but possible).
+    if (expectedAddress && exact.address_line1) {
+      const a = (exact.address_line1 || "").trim().toLowerCase();
+      const b = (expectedAddress || "").trim().toLowerCase();
+      if (a && b && a !== b) {
+        console.log(`findJobByName: name matched but address mismatch — refusing to link. JN address="${exact.address_line1}" expected="${expectedAddress}"`);
+        return null;
+      }
+    }
+    return exact;
   } catch (e) {
     console.warn("findJobByName error:", e.message);
     return null;
@@ -518,12 +546,15 @@ exports.handler = async (event) => {
       } catch (createErr) {
         const isDup = (createErr.message || "").toLowerCase().includes("duplicate");
         if (!isDup) throw createErr;
-        console.log("Job duplicate-name error from JN — searching by name to link");
-        const existing = await findJobByName(apiKey, jobPayload.name);
-        if (!existing) throw createErr;
+        console.log("Job duplicate-name error from JN — searching by name to link (with address verification)");
+        const existing = await findJobByName(apiKey, jobPayload.name, address);
+        if (!existing) {
+          console.log("findJobByName returned null — surfacing the original duplicate error instead of silently mis-attaching");
+          throw createErr;
+        }
         jobId = existing.jnid || existing.id;
         linkedExisting = true;
-        console.log("Linked to existing JN job (by name):", jobId);
+        console.log("Linked to existing JN job (by name + address verified):", jobId);
       }
     }
     if (!jobId) throw new Error("Job created but no ID returned");
