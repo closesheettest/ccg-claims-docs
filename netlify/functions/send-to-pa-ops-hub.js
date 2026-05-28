@@ -79,14 +79,38 @@ exports.handler = async (event) => {
   }
   if (missing.length) return json(500, { ok: false, error: `Missing env vars: ${missing.join(', ')}` })
 
+  // Accept either inspectionId (UUID — production trigger) or address
+  // (lookup helper — convenient for manual one-off retries when you
+  // don't have the UUID handy). Address path picks the MOST RECENT
+  // damage inspection at that address.
   let inspectionId
+  let lookupAddress
   try {
     const body = JSON.parse(event.body || '{}')
     inspectionId = (body.inspectionId || '').trim()
+    lookupAddress = (body.address || '').trim()
   } catch {
     return json(400, { ok: false, error: 'Invalid JSON body' })
   }
-  if (!inspectionId) return json(400, { ok: false, error: 'inspectionId required' })
+  if (!inspectionId && !lookupAddress) {
+    return json(400, { ok: false, error: 'inspectionId or address required' })
+  }
+
+  // Address fallback — find the most recent damage inspection at the
+  // given address and use its UUID.
+  if (!inspectionId && lookupAddress) {
+    console.log('=== send-to-pa-ops-hub — looking up inspectionId by address:', lookupAddress)
+    const lookup = await fetchInspectionIdByAddress(lookupAddress)
+    if (!lookup.id) {
+      return json(404, {
+        ok: false,
+        error: 'No damage inspection found matching that address',
+        detail: lookup.error || `Searched for address ILIKE %${lookupAddress}% with result=damage; no match.`,
+      })
+    }
+    inspectionId = lookup.id
+    console.log('=== send-to-pa-ops-hub — resolved address to inspectionId:', inspectionId)
+  }
 
   console.log('=== send-to-pa-ops-hub START — inspectionId:', inspectionId)
 
@@ -293,6 +317,30 @@ async function fetchInspection(id) {
     return { row: null, status: 200, error: `no row matched id=${id}` }
   }
   return { row, status: 200 }
+}
+
+// Address fallback for manual retries — find the most recent damage
+// inspection whose address contains the given string. ILIKE so we
+// match "5826 58th Street Court" against "5826 58th St Ct" etc. Only
+// damage results since this function only ever submits damage PDNs.
+async function fetchInspectionIdByAddress(addressFragment) {
+  const enc = encodeURIComponent(`%${addressFragment.trim()}%`)
+  const url = `${SB_URL}/rest/v1/inspections?address=ilike.${enc}&result=eq.damage&order=signed_at.desc&limit=1&select=id,address,client_name,signed_at`
+  let res
+  try {
+    res = await fetch(url, { headers: sbHeaders })
+  } catch (e) {
+    return { id: null, error: `network error: ${e.message || e}` }
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    return { id: null, error: text.slice(0, 400) || `HTTP ${res.status}` }
+  }
+  const arr = await res.json().catch(() => [])
+  const row = Array.isArray(arr) ? arr[0] : null
+  if (!row) return { id: null, error: 'no damage inspection found at that address' }
+  console.log(`fetchInspectionIdByAddress matched ${row.client_name} @ ${row.address} (id=${row.id}, signed_at=${row.signed_at})`)
+  return { id: row.id }
 }
 
 async function downloadFromSupabaseStorage(bucket, path) {
