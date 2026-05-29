@@ -11910,6 +11910,43 @@ if (!hasDamage) {
                                       style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #dc2626", background: (isBusy || !paButtonReady) ? "#f3f4f6" : "#fff", color: (isBusy || !paButtonReady) ? "#9ca3af" : "#dc2626", fontSize: 11, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: (isBusy || !paButtonReady) ? "not-allowed" : "pointer" }}>
                                       📧 Notify PA
                                     </button>
+                                    {/* Pre-send photo count — what the PA payload will include.
+                                        Counts ALL sources: max of (inspection_photos length, JN photo
+                                        count) since the PA send unions both and dedupes. Color-coded
+                                        so dangerously-low records jump out before Neal triggers PA:
+                                          green  = 10+ photos (good)
+                                          amber  =  4-9      (low, double-check)
+                                          red    =  0-3      (almost certainly a missed-capture bug)
+                                    */}
+                                    {(() => {
+                                      const sbCount = Array.isArray(rec.inspection_photos) ? rec.inspection_photos.length : 0
+                                      const jnCount = rec.jn_photos_in_jn_count || 0
+                                      const total = Math.max(sbCount, jnCount)
+                                      const tier =
+                                        total >= 10 ? { bg: "#dcfce7", color: "#166534", border: "#16a34a", icon: "✓" } :
+                                        total >= 4  ? { bg: "#fef9c3", color: "#854d0e", border: "#eab308", icon: "⚠" } :
+                                                      { bg: "#fee2e2", color: "#991b1b", border: "#dc2626", icon: "❗" }
+                                      return (
+                                        <div
+                                          title={`Photos to PA: ${total} (${sbCount} in Supabase, ${jnCount} in JN — unioned + deduped on send)`}
+                                          style={{
+                                            marginTop: 3,
+                                            background: tier.bg,
+                                            color: tier.color,
+                                            border: `1px solid ${tier.border}`,
+                                            borderRadius: 6,
+                                            padding: "2px 7px",
+                                            fontSize: 10,
+                                            fontWeight: 700,
+                                            fontFamily: "'Oswald', sans-serif",
+                                            letterSpacing: "0.03em",
+                                            whiteSpace: "nowrap",
+                                          }}
+                                        >
+                                          {tier.icon} {total} photo{total === 1 ? '' : 's'}
+                                        </div>
+                                      )
+                                    })()}
                                     <div style={{ fontSize: 9, color: rec.last_notified_pa_at ? "#059669" : "#9ca3af", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>{formatAgo(rec.last_notified_pa_at)}</div>
                                   </div>
                                 ) : null}
