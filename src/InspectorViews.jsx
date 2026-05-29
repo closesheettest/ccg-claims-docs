@@ -1407,6 +1407,13 @@ export function PAHandoffPanel() {
   // results: { [inspectionId]: { ok, body, ts } }
   const [results, setResults] = useState({});
   const [message, setMessage] = useState(null);
+  // Real-time JN photo counts fetched after page load. Keyed by
+  // jn_job_id. Lets the photo-count badge show the truth for
+  // pre-wizard records that have photos in JN but no
+  // inspection_photos rows in Supabase. Empty object before fetch
+  // completes — badge falls back to cached jn_photos_in_jn_count
+  // until then.
+  const [liveJnCounts, setLiveJnCounts] = useState({});
   // Inline-edit state for the row currently being patched (phone +
   // email + name + address). When editingId is set, the row swaps
   // its summary block for an editable form.
@@ -1467,6 +1474,25 @@ export function PAHandoffPanel() {
       setMessage({ kind: "error", text: error.message });
     } else {
       setInspections(data || []);
+      // Fire-and-forget: pull real-time JN photo counts in the
+      // background. Pre-wizard records have photos in JN but no
+      // metadata in Supabase, so without this they'd show 0 in
+      // the badge even though plenty of photos exist. We do this
+      // AFTER setInspections so the page renders fast (cached
+      // counts) and updates seamlessly when the JN call returns.
+      const jnIds = (data || []).map((r) => r.jn_job_id).filter(Boolean)
+      if (jnIds.length > 0) {
+        fetch('/.netlify/functions/jn-photo-counts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jn_job_ids: jnIds }),
+        })
+          .then((r) => r.ok ? r.json() : null)
+          .then((body) => {
+            if (body?.counts) setLiveJnCounts(body.counts)
+          })
+          .catch(() => { /* silent — badge falls back to cached count */ })
+      }
     }
     setLoading(false);
   }
@@ -1624,26 +1650,37 @@ export function PAHandoffPanel() {
                           BEFORE Neal taps Send to PA. */}
                       {(() => {
                         const sbCount = Array.isArray(insp.inspection_photos) ? insp.inspection_photos.length : 0
-                        const jnCount = insp.jn_photos_in_jn_count || 0
+                        // Use the live JN count if we've fetched it,
+                        // else fall back to the cached column. Live wins
+                        // because pre-wizard records have photos in JN
+                        // but a stale 0 in jn_photos_in_jn_count.
+                        const liveJn = insp.jn_job_id != null ? liveJnCounts[insp.jn_job_id] : undefined
+                        const jnCount = liveJn != null ? liveJn : (insp.jn_photos_in_jn_count || 0)
                         const total = Math.max(sbCount, jnCount)
+                        const stillFetching = insp.jn_job_id && liveJn == null && Object.keys(liveJnCounts).length === 0
                         const tier =
                           total >= 10 ? { bg: "#dcfce7", color: "#166534", border: "#16a34a", icon: "✓" } :
                           total >= 4  ? { bg: "#fef9c3", color: "#854d0e", border: "#eab308", icon: "⚠" } :
                                         { bg: "#fee2e2", color: "#991b1b", border: "#dc2626", icon: "❗" }
                         return (
                           <span
-                            title={`Photos to PA: ${total} (Supabase: ${sbCount} · JN: ${jnCount} — unioned + deduped on send, capped at 20)`}
+                            title={
+                              stillFetching
+                                ? "Fetching live JN photo count…"
+                                : `Photos to PA: ${total} (Supabase: ${sbCount} · JN live: ${jnCount} — unioned + deduped on send, capped at 20)`
+                            }
                             style={{
-                              background: tier.bg,
-                              color: tier.color,
-                              border: `1px solid ${tier.border}`,
+                              background: stillFetching ? "#f3f4f6" : tier.bg,
+                              color: stillFetching ? "#6b7280" : tier.color,
+                              border: `1px solid ${stillFetching ? "#d1d5db" : tier.border}`,
                               borderRadius: 5,
                               padding: "1px 7px",
                               fontWeight: 700,
                               letterSpacing: "0.02em",
+                              opacity: stillFetching ? 0.7 : 1,
                             }}
                           >
-                            {tier.icon} 📸 {total} photo{total === 1 ? '' : 's'}
+                            {stillFetching ? "⏳" : tier.icon} 📸 {stillFetching ? "…" : `${total} photo${total === 1 ? '' : 's'}`}
                           </span>
                         )
                       })()}
