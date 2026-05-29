@@ -81,18 +81,38 @@ exports.handler = async (event) => {
   }
 
   if (dryRun) {
+    // Hit JN once per record to get a fast photo COUNT (no downloads).
+    // Surfaces records with suspiciously few photos so we can spot
+    // an inspector-workflow problem (vs just a bookkeeping gap).
+    const enriched = await Promise.all(
+      targets.map(async (r) => {
+        const photoCount = await countJnPhotos(r.jn_job_id)
+        return {
+          id: r.id,
+          client_name: r.client_name,
+          address: r.address,
+          signed_at: r.signed_at,
+          jn_job_id: r.jn_job_id,
+          jn_photo_count: photoCount,
+          flag_low_photos: photoCount < 10 ? '⚠ FEWER THAN 10 PHOTOS' : null,
+        }
+      }),
+    )
+    // Summary distribution so Neal can see at a glance.
+    const distribution = {
+      '0_photos': enriched.filter((r) => r.jn_photo_count === 0).length,
+      '1_to_3': enriched.filter((r) => r.jn_photo_count >= 1 && r.jn_photo_count <= 3).length,
+      '4_to_9': enriched.filter((r) => r.jn_photo_count >= 4 && r.jn_photo_count <= 9).length,
+      '10_to_19': enriched.filter((r) => r.jn_photo_count >= 10 && r.jn_photo_count <= 19).length,
+      '20_plus': enriched.filter((r) => r.jn_photo_count >= 20).length,
+    }
     return json(200, {
       ok: true,
       dry_run: true,
       scanned: allRows.length,
       would_backfill: targets.length,
-      records: targets.map((r) => ({
-        id: r.id,
-        client_name: r.client_name,
-        address: r.address,
-        signed_at: r.signed_at,
-        jn_job_id: r.jn_job_id,
-      })),
+      photo_count_distribution: distribution,
+      records: enriched.sort((a, b) => a.jn_photo_count - b.jn_photo_count),
     })
   }
 
@@ -174,6 +194,23 @@ exports.handler = async (event) => {
     errors: results.filter((r) => r.status === 'error').length,
   }
   return json(200, { ok: true, summary, results })
+}
+
+// Count image files on a JN job without downloading them — much
+// faster than fetchJnPhotos for the dry-run summary.
+async function countJnPhotos(jnJobId) {
+  try {
+    const listRes = await fetch(
+      `${JN_BASE}/files?related=${jnJobId}&type=2&size=50`,
+      { headers: jnHeaders },
+    )
+    if (!listRes.ok) return -1  // signals error vs zero
+    const data = await listRes.json()
+    const files = data.files || data.data || data.results || []
+    return files.filter((f) => (f.content_type || '').startsWith('image/')).length
+  } catch {
+    return -1
+  }
 }
 
 async function fetchJnPhotos(jnJobId) {
