@@ -148,13 +148,36 @@ exports.handler = async (event) => {
     console.warn('Inspection has no signed_pdfs.insp — submitting without PDF attachment')
   }
 
-  // ── 3. Fetch inspection photos from JN (best-effort) ──────────────
+  // ── 3. Fetch inspection photos ────────────────────────────────────
+  //
+  // Two sources, in priority order:
+  //   1. JN (primary) — every linked job has its photos mirrored from
+  //      the inspector app on upload. When jn_job_id is set we pull
+  //      from there.
+  //   2. Inspector-app photos in Supabase Storage (fallback) — every
+  //      photo the inspector takes also lives in the
+  //      inspection_photos[] JSON column on the inspections row
+  //      (bucket: signed-documents, path: inspection-photos/<id>/...).
+  //      Used when (a) the record isn't linked to a JN job yet, or
+  //      (b) the JN fetch returned 0 photos for any reason. This is
+  //      what makes the PA payload include photos for orphaned /
+  //      mis-linked records.
   let photos = []
   if (insp.jn_job_id && JN_KEY) {
     photos = await fetchJnPhotos(insp.jn_job_id)
     console.log('JN photos fetched:', photos.length)
   } else {
-    console.warn('No jn_job_id or missing JOBNIMBUS_API_KEY — submitting without photos')
+    console.log('No jn_job_id or missing JOBNIMBUS_API_KEY — skipping JN photo fetch')
+  }
+
+  if (photos.length === 0 && Array.isArray(insp.inspection_photos) && insp.inspection_photos.length > 0) {
+    console.log(`Falling back to Supabase Storage — inspection_photos has ${insp.inspection_photos.length} entries`)
+    photos = await fetchInspectionAppPhotos(insp.inspection_photos)
+    console.log('Supabase Storage photos fetched:', photos.length)
+  }
+
+  if (photos.length === 0) {
+    console.warn('No photos available from JN or Supabase Storage — submitting PA intake without photos')
   }
 
   // ── 4. Build the multipart/form-data body ─────────────────────────
@@ -405,6 +428,51 @@ async function fetchJnPhotos(jnJobId) {
     return results.filter(Boolean)
   } catch (e) {
     console.warn('fetchJnPhotos error:', e.message)
+    return []
+  }
+}
+
+// Fallback photo source — pull photos directly from Supabase Storage
+// when no JN photos are available (orphaned records, mis-linked
+// records, or JN job that hasn't mirrored its photos yet). Each
+// entry in inspection_photos has `bucket` + `path`. We download the
+// raw bytes and return them in the same shape as fetchJnPhotos so
+// the calling code doesn't care which source delivered them.
+async function fetchInspectionAppPhotos(photoRows) {
+  try {
+    const rows = (photoRows || []).slice(0, 20)
+    const downloads = rows.map(async (row) => {
+      if (!row?.path) return null
+      const bucket = row.bucket || SIGNED_BUCKET
+      try {
+        const dl = await downloadFromSupabaseStorage(bucket, row.path)
+        if (!dl?.buffer || !dl.buffer.length) return null
+        // Best-effort content type from the extension on the path.
+        const lower = String(row.path).toLowerCase()
+        const contentType =
+          lower.endsWith('.png') ? 'image/png' :
+          lower.endsWith('.webp') ? 'image/webp' :
+          lower.endsWith('.heic') ? 'image/heic' :
+          'image/jpeg'
+        // Filename from the last path segment so the PA's queue
+        // shows a recognizable name (rep can correlate to the
+        // inspector-app upload if they look it up later).
+        const segs = String(row.path).split('/')
+        const filename = segs[segs.length - 1] || `inspection-photo-${Date.now()}.jpg`
+        return {
+          buffer: dl.buffer,
+          contentType,
+          filename,
+        }
+      } catch (e) {
+        console.warn('Supabase photo download error for', row.path, ':', e.message)
+        return null
+      }
+    })
+    const results = await Promise.all(downloads)
+    return results.filter(Boolean)
+  } catch (e) {
+    console.warn('fetchInspectionAppPhotos error:', e.message)
     return []
   }
 }
