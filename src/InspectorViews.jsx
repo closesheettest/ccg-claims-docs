@@ -3469,6 +3469,58 @@ function InspectorJobDetail({ me, jobId, onBack }) {
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
+      {/* PHOTO PROCESSING BANNER — sticky to the top of the wizard
+          so the inspector sees it no matter which stage they're on
+          or where they're looking on the screen. Appears the moment
+          they tap Capture and stays until every resize is done.
+          Without this banner, an inspector who captured a photo and
+          then tapped Submit within ~500ms would silently lose that
+          photo because the React photos state hadn't updated yet —
+          which is what produced the 3-photo Damage records for
+          Carlos Gomez and Kenneth Laws. */}
+      {pendingAdds > 0 && (
+        <div
+          style={{
+            position: "sticky",
+            top: 0,
+            zIndex: 100,
+            background: "#fbbf24",
+            color: "#1f1300",
+            padding: "12px 14px",
+            borderRadius: 10,
+            border: "2px solid #d97706",
+            boxShadow: "0 4px 10px rgba(0,0,0,0.15)",
+            fontWeight: 700,
+            fontSize: 15,
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            animation: "pulse 1.4s ease-in-out infinite",
+          }}
+        >
+          <div
+            style={{
+              width: 20,
+              height: 20,
+              border: "3px solid #1f1300",
+              borderTopColor: "transparent",
+              borderRadius: "50%",
+              animation: "spin 0.9s linear infinite",
+              flexShrink: 0,
+            }}
+          />
+          <div>
+            <div>Processing {pendingAdds} photo{pendingAdds === 1 ? '' : 's'}…</div>
+            <div style={{ fontSize: 12, fontWeight: 600, marginTop: 2, opacity: 0.85 }}>
+              ⚠ Don't tap Submit yet — wait until this disappears so all photos save.
+            </div>
+          </div>
+          <style>{`
+            @keyframes spin { to { transform: rotate(360deg); } }
+            @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.85 } }
+          `}</style>
+        </div>
+      )}
       <button
         type="button"
         onClick={() => {
