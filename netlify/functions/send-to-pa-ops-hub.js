@@ -174,7 +174,12 @@ exports.handler = async (event) => {
   form.append('property_address', insp.address || '')
   form.append('property_city', insp.city || '')
   form.append('property_state', insp.state || '')
+  // Field Ops endpoint validator (2026-05-29) requires `property_postal_code`
+  // OR `zip` (NOT property_zip — the old ClaimOps name). Send all three for
+  // belt-and-suspenders compatibility across either validator.
   form.append('property_zip', insp.zip || '')
+  form.append('property_postal_code', insp.zip || '')
+  form.append('zip', insp.zip || '')
   // PA's intake spec calls this `phone` (not `homeowner_phone`).
   // The 400 from their validator literally lists "homeowner_name,
   // phone, and property_address are required" — match the field
