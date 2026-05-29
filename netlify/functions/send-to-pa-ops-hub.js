@@ -148,50 +148,35 @@ exports.handler = async (event) => {
     console.warn('Inspection has no signed_pdfs.insp — submitting without PDF attachment')
   }
 
-  // ── 3. Fetch inspection photos from BOTH sources ──────────────────
+  // ── 3. Fetch inspection photos ────────────────────────────────────
   //
-  // Pulls from both sources in parallel and unions the results so no
-  // photo gets missed regardless of where it lives:
-  //   - Supabase Storage (the SOURCE OF TRUTH) — every photo the
-  //     inspector takes via the app uploads directly here. Paths
-  //     live in the inspection_photos[] JSON column on the
-  //     inspections row.
-  //   - JobNimbus files (mirror + any office-added photos) — when
-  //     jn_job_id is set, we fetch the linked job's image files.
-  //     This catches photos uploaded directly to JN by the office
-  //     that may not be in Supabase.
+  // Strategy: try Supabase first (source of truth — every photo the
+  // inspector wizard captured lives there). Fall back to JobNimbus
+  // ONLY when Supabase is empty (pre-wizard records and
+  // mis-linked/orphaned records).
   //
-  // Dedup is by buffer byte length — identical files have identical
-  // sizes. Cheap, no hashing, good enough since the same photo gets
-  // mirrored byte-for-byte between Supabase and JN. Cap the merged
-  // result at 20 (Field Ops' cap).
-  const [supabasePhotos, jnPhotos] = await Promise.all([
-    Array.isArray(insp.inspection_photos) && insp.inspection_photos.length > 0
-      ? fetchInspectionAppPhotos(insp.inspection_photos)
-      : Promise.resolve([]),
-    insp.jn_job_id && JN_KEY
-      ? fetchJnPhotos(insp.jn_job_id)
-      : Promise.resolve([]),
-  ])
-  console.log(`Supabase Storage photos: ${supabasePhotos.length} · JN photos: ${jnPhotos.length}`)
-
-  // Union with size-based dedup. Supabase wins on duplicates since
-  // it's the source of truth — that order matters because the JN
-  // copy can be re-encoded/recompressed during mirror.
-  const seenSizes = new Set()
-  const photos = []
-  for (const p of [...supabasePhotos, ...jnPhotos]) {
-    if (!p?.buffer) continue
-    if (photos.length >= 20) break
-    const size = p.buffer.length
-    if (seenSizes.has(size)) continue
-    seenSizes.add(size)
-    photos.push(p)
+  // Earlier this morning I tried to union BOTH sources for max
+  // coverage, but that meant downloading up to 40 photos per send
+  // (20 from each) — which blew past Netlify's 30-second function
+  // timeout on records like Paul Guzman who has 20 in both. The
+  // sequential primary/fallback approach hits the timeout safely
+  // because each record only downloads from ONE source.
+  //
+  // Trade-off: if Supabase has a few photos and JN has additional
+  // unique ones (e.g. office added some directly), we only send
+  // Supabase's set. Acceptable — JN is a mirror in the wizard
+  // flow, not a separate set; mismatches are an edge case.
+  let photos = []
+  if (Array.isArray(insp.inspection_photos) && insp.inspection_photos.length > 0) {
+    photos = await fetchInspectionAppPhotos(insp.inspection_photos)
+    console.log(`Supabase Storage photos: ${photos.length} (from inspection_photos column)`)
   }
-  console.log(`Merged + deduped photos sent to PA: ${photos.length}`)
-
+  if (photos.length === 0 && insp.jn_job_id && JN_KEY) {
+    photos = await fetchJnPhotos(insp.jn_job_id)
+    console.log(`JN photos (fallback — Supabase had none): ${photos.length}`)
+  }
   if (photos.length === 0) {
-    console.warn('No photos available from JN or Supabase Storage — submitting PA intake without photos')
+    console.warn('No photos available from Supabase or JN — submitting PA intake without photos')
   }
 
   // ── 4. Build the multipart/form-data body ─────────────────────────
