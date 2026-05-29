@@ -116,9 +116,17 @@ exports.handler = async (event) => {
     })
   }
 
-  // 2. For each target, pull JN photos, upload to Supabase, write column
+  // 2. For each target, pull JN photos, upload to Supabase, write column.
+  // Default cap: 1 record per invocation. Netlify functions time out at
+  // 30 seconds and each record can have 50+ photos × (download + upload)
+  // = way too much to do in a single call. Caller paginates by hitting
+  // the URL repeatedly — function returns `remaining` so the caller
+  // knows when to stop.
+  const limit = parseInt(params.limit || '1', 10) || 1
+  const work = targets.slice(0, limit)
+  const remaining = targets.length - work.length
   const results = []
-  for (const insp of targets) {
+  for (const insp of work) {
     try {
       const jnPhotos = await fetchJnPhotos(insp.jn_job_id)
       if (jnPhotos.length === 0) {
@@ -193,7 +201,16 @@ exports.handler = async (event) => {
     failed: results.filter((r) => r.status === 'failed').length,
     errors: results.filter((r) => r.status === 'error').length,
   }
-  return json(200, { ok: true, summary, results })
+  return json(200, {
+    ok: true,
+    processed: work.length,
+    remaining,
+    next_action: remaining > 0
+      ? 'Re-hit the same URL to process the next batch. Repeat until remaining=0.'
+      : 'Done — every record is backfilled.',
+    summary,
+    results,
+  })
 }
 
 // Count image files on a JN job without downloading them — much
