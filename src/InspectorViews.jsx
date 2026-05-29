@@ -1459,7 +1459,7 @@ export function PAHandoffPanel() {
     // free-text the PA's callback included with a Refused outcome.
     const { data, error } = await supabase
       .from("inspections")
-      .select("id, client_name, address, city, state, zip, signed_at, result, result_at, jn_job_id, signed_pdfs, sales_rep_name, mobile, email, pa_status, pa_status_updated_at, pa_intake_sent_at, pa_status_notes")
+      .select("id, client_name, address, city, state, zip, signed_at, result, result_at, jn_job_id, signed_pdfs, sales_rep_name, mobile, email, pa_status, pa_status_updated_at, pa_intake_sent_at, pa_status_notes, inspection_photos, jn_photos_in_jn_count")
       .eq("result", "damage")
       .order("result_at", { ascending: false, nullsFirst: false })
       .limit(200);
@@ -1614,10 +1614,39 @@ export function PAHandoffPanel() {
                         )}
                       </div>
                     )}
-                    <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                       <span style={{ color: hasPdf ? "#059669" : "#b45309" }}>{hasPdf ? "✓ Signed PDF" : "⚠ No signed PDF"}</span>
                       <span style={{ color: hasJn ? "#059669" : "#b45309" }}>{hasJn ? "✓ JN linked" : "⚠ No JN link"}</span>
                       <span style={{ color: hasPhone ? "#059669" : "#dc2626", fontWeight: hasPhone ? 400 : 700 }}>{hasPhone ? "✓ Phone" : "⚠ NO PHONE — PA will reject"}</span>
+                      {/* Pre-send photo count — exact number the PA payload
+                          will include (union of inspection_photos + JN).
+                          Color-coded so dangerously-low records jump out
+                          BEFORE Neal taps Send to PA. */}
+                      {(() => {
+                        const sbCount = Array.isArray(insp.inspection_photos) ? insp.inspection_photos.length : 0
+                        const jnCount = insp.jn_photos_in_jn_count || 0
+                        const total = Math.max(sbCount, jnCount)
+                        const tier =
+                          total >= 10 ? { bg: "#dcfce7", color: "#166534", border: "#16a34a", icon: "✓" } :
+                          total >= 4  ? { bg: "#fef9c3", color: "#854d0e", border: "#eab308", icon: "⚠" } :
+                                        { bg: "#fee2e2", color: "#991b1b", border: "#dc2626", icon: "❗" }
+                        return (
+                          <span
+                            title={`Photos to PA: ${total} (Supabase: ${sbCount} · JN: ${jnCount} — unioned + deduped on send, capped at 20)`}
+                            style={{
+                              background: tier.bg,
+                              color: tier.color,
+                              border: `1px solid ${tier.border}`,
+                              borderRadius: 5,
+                              padding: "1px 7px",
+                              fontWeight: 700,
+                              letterSpacing: "0.02em",
+                            }}
+                          >
+                            {tier.icon} 📸 {total} photo{total === 1 ? '' : 's'}
+                          </span>
+                        )
+                      })()}
                     </div>
                   </div>
                   <div style={{ display: "grid", gap: 6, alignContent: "flex-start" }}>
