@@ -3151,6 +3151,20 @@ function InspectorJobDetail({ me, jobId, onBack }) {
   // a slow phone connection inspectors thought the app was frozen.
   // Shape: { stage: "starting" | "uploading" | "saving", uploaded, total }
   const [submitProgress, setSubmitProgress] = useState(null);
+  // Counts how many addPhotos() calls are still resizing photos in
+  // the background. When > 0, photos have been CAPTURED by the
+  // inspector but the resize-then-setPhotos chain hasn't finished
+  // updating React state yet. If Submit fires while this > 0, the
+  // submit's `photos` snapshot is stale and we lose the just-captured
+  // shots. Tracked with a ref so reads are synchronous and don't
+  // require a re-render to be accurate. Submit waits on this counter
+  // to drain before proceeding.
+  const pendingAddsRef = useRef(0);
+  // Bumped each time pendingAddsRef changes so the Submit button
+  // disables in the UI while resizes are still in flight (defense
+  // in depth — even if the inspector taps Submit, the click is a
+  // no-op until the state settles).
+  const [pendingAdds, setPendingAdds] = useState(0);
 
   const slopeCountKey = (story, side) => `${story}_${side}`;
   const getSlopeCount = (story, side) => slopeCounts[slopeCountKey(story, side)] || 0;
@@ -3245,17 +3259,30 @@ function InspectorJobDetail({ me, jobId, onBack }) {
   // of 1600px at JPEG quality 0.85 BEFORE stashing it in state, so
   // by submit time the upload payload is already small.
   async function addPhotos(files, metadata) {
-    const additions = await Promise.all(Array.from(files).map(async (rawFile) => {
-      const file = await resizeImageForUpload(rawFile);
-      return {
-        file,
-        previewUrl: URL.createObjectURL(file),
-        uploaded: false,
-        path: null,
-        ...metadata,
-      };
-    }));
-    setPhotos((prev) => [...prev, ...additions]);
+    // Bump in-flight counter BEFORE we await. If the inspector taps
+    // Submit while we're still resizing, submit() polls this counter
+    // and waits for it to drain before reading `photos` from state —
+    // otherwise the just-captured photos would be missing from the
+    // snapshot and silently dropped. Decrement happens in a try/
+    // finally so the counter doesn't get stuck if resize throws.
+    pendingAddsRef.current += 1
+    setPendingAdds(pendingAddsRef.current)
+    try {
+      const additions = await Promise.all(Array.from(files).map(async (rawFile) => {
+        const file = await resizeImageForUpload(rawFile);
+        return {
+          file,
+          previewUrl: URL.createObjectURL(file),
+          uploaded: false,
+          path: null,
+          ...metadata,
+        };
+      }));
+      setPhotos((prev) => [...prev, ...additions]);
+    } finally {
+      pendingAddsRef.current -= 1
+      setPendingAdds(pendingAddsRef.current)
+    }
   }
 
   function removePhoto(i) {
@@ -3303,6 +3330,38 @@ function InspectorJobDetail({ me, jobId, onBack }) {
     }
     setSubmitting(true);
     setSubmitMsg(null);
+
+    // ── RACE FIX ──
+    // If any addPhotos() calls are still resizing photos in the
+    // background, wait for them to finish before we snapshot the
+    // photos array. Without this, an inspector who taps Submit
+    // within ~500ms of the last Capture would lose those photos —
+    // resize hasn't called setPhotos yet, so React state doesn't
+    // include them. This is what caused Carlos Gomez and Kenneth
+    // Laws to land in JN with only 3 photos despite the inspectors
+    // capturing more.
+    if (pendingAddsRef.current > 0) {
+      setSubmitProgress({ stage: "starting", uploaded: 0, total: 0 });
+      // Tight poll — usually drains in 50-200ms after the last
+      // capture. Cap at 10s as a runaway-guard; if a resize truly
+      // never finishes, we surface a clear error instead of hanging.
+      const deadline = Date.now() + 10000;
+      while (pendingAddsRef.current > 0) {
+        if (Date.now() > deadline) {
+          setSubmitMsg({
+            kind: "error",
+            text: `${pendingAddsRef.current} photo(s) are still processing. Wait a moment and try Submit again.`,
+          });
+          setSubmitting(false);
+          setSubmitProgress(null);
+          return;
+        }
+        // 50ms poll keeps the UI responsive without hammering CPU.
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    }
+    // ── END RACE FIX ──
+
     setSubmitProgress({ stage: "starting", uploaded: 0, total: photos.length });
     try {
       // 1. Upload photos to Supabase Storage in PARALLEL batches.
@@ -3701,19 +3760,23 @@ function InspectorJobDetail({ me, jobId, onBack }) {
             <button
               type="button"
               onClick={submit}
-              disabled={submitting}
+              disabled={submitting || pendingAdds > 0}
               style={{
                 padding: "20px 20px",
-                background: submitting ? "#9ca3af" : "#13294b",
+                background: (submitting || pendingAdds > 0) ? "#9ca3af" : "#13294b",
                 color: "#fff",
                 border: "none",
                 borderRadius: 12,
                 fontWeight: 700,
                 fontSize: 20,
-                cursor: submitting ? "wait" : "pointer",
+                cursor: (submitting || pendingAdds > 0) ? "wait" : "pointer",
               }}
             >
-              {submitting ? "Submitting…" : "Submit inspection →"}
+              {submitting
+                ? "Submitting…"
+                : pendingAdds > 0
+                  ? `Processing ${pendingAdds} photo${pendingAdds === 1 ? '' : 's'}…`
+                  : "Submit inspection →"}
             </button>
           )}
         </section>
