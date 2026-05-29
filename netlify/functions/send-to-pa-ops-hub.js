@@ -148,33 +148,47 @@ exports.handler = async (event) => {
     console.warn('Inspection has no signed_pdfs.insp — submitting without PDF attachment')
   }
 
-  // ── 3. Fetch inspection photos ────────────────────────────────────
+  // ── 3. Fetch inspection photos from BOTH sources ──────────────────
   //
-  // Two sources, in priority order:
-  //   1. JN (primary) — every linked job has its photos mirrored from
-  //      the inspector app on upload. When jn_job_id is set we pull
-  //      from there.
-  //   2. Inspector-app photos in Supabase Storage (fallback) — every
-  //      photo the inspector takes also lives in the
-  //      inspection_photos[] JSON column on the inspections row
-  //      (bucket: signed-documents, path: inspection-photos/<id>/...).
-  //      Used when (a) the record isn't linked to a JN job yet, or
-  //      (b) the JN fetch returned 0 photos for any reason. This is
-  //      what makes the PA payload include photos for orphaned /
-  //      mis-linked records.
-  let photos = []
-  if (insp.jn_job_id && JN_KEY) {
-    photos = await fetchJnPhotos(insp.jn_job_id)
-    console.log('JN photos fetched:', photos.length)
-  } else {
-    console.log('No jn_job_id or missing JOBNIMBUS_API_KEY — skipping JN photo fetch')
-  }
+  // Pulls from both sources in parallel and unions the results so no
+  // photo gets missed regardless of where it lives:
+  //   - Supabase Storage (the SOURCE OF TRUTH) — every photo the
+  //     inspector takes via the app uploads directly here. Paths
+  //     live in the inspection_photos[] JSON column on the
+  //     inspections row.
+  //   - JobNimbus files (mirror + any office-added photos) — when
+  //     jn_job_id is set, we fetch the linked job's image files.
+  //     This catches photos uploaded directly to JN by the office
+  //     that may not be in Supabase.
+  //
+  // Dedup is by buffer byte length — identical files have identical
+  // sizes. Cheap, no hashing, good enough since the same photo gets
+  // mirrored byte-for-byte between Supabase and JN. Cap the merged
+  // result at 20 (Field Ops' cap).
+  const [supabasePhotos, jnPhotos] = await Promise.all([
+    Array.isArray(insp.inspection_photos) && insp.inspection_photos.length > 0
+      ? fetchInspectionAppPhotos(insp.inspection_photos)
+      : Promise.resolve([]),
+    insp.jn_job_id && JN_KEY
+      ? fetchJnPhotos(insp.jn_job_id)
+      : Promise.resolve([]),
+  ])
+  console.log(`Supabase Storage photos: ${supabasePhotos.length} · JN photos: ${jnPhotos.length}`)
 
-  if (photos.length === 0 && Array.isArray(insp.inspection_photos) && insp.inspection_photos.length > 0) {
-    console.log(`Falling back to Supabase Storage — inspection_photos has ${insp.inspection_photos.length} entries`)
-    photos = await fetchInspectionAppPhotos(insp.inspection_photos)
-    console.log('Supabase Storage photos fetched:', photos.length)
+  // Union with size-based dedup. Supabase wins on duplicates since
+  // it's the source of truth — that order matters because the JN
+  // copy can be re-encoded/recompressed during mirror.
+  const seenSizes = new Set()
+  const photos = []
+  for (const p of [...supabasePhotos, ...jnPhotos]) {
+    if (!p?.buffer) continue
+    if (photos.length >= 20) break
+    const size = p.buffer.length
+    if (seenSizes.has(size)) continue
+    seenSizes.add(size)
+    photos.push(p)
   }
+  console.log(`Merged + deduped photos sent to PA: ${photos.length}`)
 
   if (photos.length === 0) {
     console.warn('No photos available from JN or Supabase Storage — submitting PA intake without photos')
