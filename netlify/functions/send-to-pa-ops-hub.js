@@ -73,6 +73,29 @@ exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return json(405, { ok: false, error: 'Method not allowed' })
   }
+
+  // ── Kill switch ────────────────────────────────────────────────
+  // Set env var PA_HANDOFF_DISABLED=true on Netlify to disable ALL
+  // automatic PA sends. The auto-fire from submitInspectionResult
+  // (App.jsx) and any manual "Send to PA" buttons on PA Handoff
+  // both call this function — flipping the env var stops every
+  // path in one place, no code push or redeploy needed (env var
+  // changes are picked up on next invocation).
+  //
+  // To turn back on: delete the env var or set to anything else.
+  // ?force=1 query param overrides the gate (for one-off recovery).
+  const params = event.queryStringParameters || {}
+  const force = params.force === '1' || params.force === 'true'
+  const disabled = (process.env.PA_HANDOFF_DISABLED || '').toLowerCase() === 'true'
+  if (disabled && !force) {
+    console.log('PA handoff disabled via PA_HANDOFF_DISABLED env var — skipping send')
+    return json(200, {
+      ok: true,
+      skipped: true,
+      reason: 'PA handoff is currently disabled. Set PA_HANDOFF_DISABLED=false (or delete the env var) to re-enable, or add ?force=1 to override for a one-off.',
+    })
+  }
+
   const missing = []
   for (const k of ['VITE_SUPABASE_URL', 'VITE_SUPABASE_ANON_KEY']) {
     if (!process.env[k]) missing.push(k)
