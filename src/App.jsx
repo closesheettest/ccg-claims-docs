@@ -5068,11 +5068,25 @@ export default function App() {
         );
         if (tmsRes.ok) {
           const tmsData = await tmsRes.json();
+          // Mirror the TMS backfill function's name-normalization so the
+          // name-fallback path here recognizes the same variants the
+          // backfill collides on. Strip quoted/parenthetical nicknames
+          // (James "Jimmy" Bates → "james bates"), then strip remaining
+          // punctuation and collapse whitespace.
+          const normalizeName = (s) =>
+            String(s || "")
+              .toLowerCase()
+              .replace(/["“”]([^"“”]*)["“”]/g, "")
+              .replace(/'([^']*)'/g, "")
+              .replace(/\(([^)]*)\)/g, "")
+              .replace(/[^\p{L}\p{N}\s]/gu, " ")
+              .replace(/\s+/g, " ")
+              .trim();
           const zoneByJnId = {};
-          const zoneByNameDirect = {};
+          const zoneByNormalizedName = {};
           for (const r of tmsData.reps || []) {
             if (r.jobnimbus_id) zoneByJnId[r.jobnimbus_id] = r.zone;
-            if (r.name) zoneByNameDirect[r.name.toLowerCase()] = r.zone;
+            if (r.name) zoneByNormalizedName[normalizeName(r.name)] = r.zone;
           }
           // CCG sales_reps as the bridge to map CCG-side rep names →
           // jobnimbus_id → TMS zone. If the bridge has a name we
@@ -5083,7 +5097,7 @@ export default function App() {
           for (const sr of salesReps || []) {
             if (!sr.name) continue;
             const jnZone = sr.jobnimbus_id ? zoneByJnId[sr.jobnimbus_id] : null;
-            const nameZone = zoneByNameDirect[sr.name.toLowerCase()];
+            const nameZone = zoneByNormalizedName[normalizeName(sr.name)];
             const zone = jnZone || nameZone;
             if (zone) zoneByName[sr.name] = zone;
           }
