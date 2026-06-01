@@ -12403,63 +12403,109 @@ if (!hasDamage) {
                           {!PA_FORMS_DISABLED && <div style={{ textAlign: "center" }}>PA</div>}
                           <div style={{ textAlign: "right" }}>Earned</div>
                         </div>
-                        {Object.keys(reportData.byRep).sort((a,b) => reportData.repTotals[b] - reportData.repTotals[a]).map(rep => {
-                          // Per-rep time-of-day, computed inline from this
-                          // rep's signing rows. Cheap (handful of rows
-                          // each) so no need to pre-compute into reportData.
-                          const repBuckets = computeTimeBuckets(reportData.byRep[rep]);
-                          return (
-                          <div key={rep} style={{ marginBottom: 16 }}>
-                            <div style={{ padding: "8px 12px", background: "#e0f2fe", borderRadius: 10, marginBottom: 6 }}>
-                              <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-                                <span>👤 {rep}</span>
-                                <span style={{ fontSize: 12, color: "#0369a1" }}>
-                                  {reportData.byRep[rep].length} signing{reportData.byRep[rep].length !== 1 ? "s" : ""}
-                                  {reportData.repTotals[rep] > 0 ? <> · <strong>${reportData.repTotals[rep].toLocaleString()}</strong></> : null}
-                                </span>
-                              </div>
-                              <RepTimeOfDayStrip buckets={repBuckets} />
-                            </div>
-                            {reportData.byRep[rep].map((s, i) => {
-                              const renderCheck = (status, signedAtHint) => {
-                                if (status === "current") return <span style={{ color: "#16a34a", fontSize: 18, fontWeight: 700 }}>✅</span>;
-                                if (status === "prior")   return <span style={{ color: "#9ca3af", fontSize: 18 }} title={signedAtHint ? "Signed " + new Date(signedAtHint).toLocaleDateString() : "Signed previously"}>✅</span>;
-                                return <span style={{ color: "#d1d5db", fontSize: 16 }}>○</span>;
-                              };
-                              // Cancelled rows get a faded look, a red CANCELLED tag,
-                              // and $0 in the earned column. The row stays visible so
-                              // the rep can see what was lost — totals already excluded
-                              // it via earned=0 at calc time, so this is purely visual.
-                              const rowBg = s.cancelled
-                                ? (i % 2 === 0 ? "#fef2f2" : "#fee2e2")
-                                : (i % 2 === 0 ? "#fff" : "#f9fafb");
-                              const rowOpacity = s.cancelled ? 0.78 : 1;
+                        {(() => {
+                          // Zone visual identity — mirrors src/lib/zones.js
+                          // in TMS and the ZONE_PALETTE in generate-weekly-
+                          // report-pdf.js so on-screen, PDF, and the rest
+                          // of the training app share the same per-zone
+                          // colors. Keep the three palettes aligned.
+                          const ZONE_ORDER = ["Zone 1", "Zone 2", "Zone 3", "Zone 4", "No Zone"];
+                          const ZONE_PALETTE = {
+                            "Zone 1":  { bg: "#dbeafe", fg: "#1e40af", border: "#93c5fd", label: "NE / N-Central FL" },
+                            "Zone 2":  { bg: "#ede9fe", fg: "#5b21b6", border: "#c4b5fd", label: "Central / E-Central FL" },
+                            "Zone 3":  { bg: "#d1fae5", fg: "#065f46", border: "#6ee7b7", label: "Gulf / SW FL" },
+                            "Zone 4":  { bg: "#fce7f3", fg: "#9d174d", border: "#f9a8d4", label: "SE FL" },
+                            "No Zone": { bg: "#f3f4f6", fg: "#4b5563", border: "#d1d5db", label: "No assigned zone" },
+                          };
+                          // Fallback to a single No-Zone bucket if byZone
+                          // didn't make it into reportData (older cached
+                          // state from before the Phase 3 deploy).
+                          const byZone = reportData.byZone || { "No Zone": reportData.byRep };
+                          return ZONE_ORDER
+                            .filter(z => byZone[z] && Object.keys(byZone[z]).length > 0)
+                            .map(zone => {
+                              const repsInZone = byZone[zone];
+                              const repNames = Object.keys(repsInZone).sort((a, b) =>
+                                (repsInZone[b]?.length || 0) - (repsInZone[a]?.length || 0)
+                              );
+                              const totalSignings = repNames.reduce(
+                                (sum, rep) => sum + (repsInZone[rep]?.length || 0), 0
+                              );
+                              const palette = ZONE_PALETTE[zone];
                               return (
-                                <div key={i} style={{ display: "grid", gridTemplateColumns: PA_FORMS_DISABLED ? "1fr 40px 64px" : "1fr 40px 40px 40px 64px", gap: 8, padding: "8px 12px", background: rowBg, opacity: rowOpacity, borderRadius: 8, marginBottom: 4, alignItems: "center", border: s.cancelled ? "1px solid #fecaca" : "1px solid #f3f4f6" }}>
-                                  <div>
-                                    <div style={{ fontSize: 13, fontWeight: 700, color: "#111827", fontFamily: "'Nunito', sans-serif", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                                      <span style={s.cancelled ? { textDecoration: "line-through", color: "#6b7280" } : null}>{s.name}</span>
-                                      {s.cancelled ? <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 5, fontWeight: 700, background: "#dc2626", color: "#fff", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.04em" }}>CANCELLED</span> : null}
+                                <div key={zone} style={{ marginBottom: 20 }}>
+                                  {/* Zone banner header — territory ID at a glance */}
+                                  <div style={{ background: palette.bg, color: palette.fg, border: `1px solid ${palette.border}`, padding: "10px 14px", borderRadius: 10, marginBottom: 10 }}>
+                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 6 }}>
+                                      <div style={{ fontSize: 15, fontWeight: 800, fontFamily: "'Oswald', sans-serif", letterSpacing: "0.02em" }}>📍 {zone}</div>
+                                      <div style={{ fontSize: 11, fontWeight: 600 }}>
+                                        {repNames.length} rep{repNames.length !== 1 ? "s" : ""} · {totalSignings} signing{totalSignings !== 1 ? "s" : ""}
+                                      </div>
                                     </div>
-                                    <div style={{ fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>{s.address}</div>
-                                    <div style={{ fontSize: 11, color: "#9ca3af", fontFamily: "'Nunito', sans-serif" }}>
-                                      {s.signedAt ? new Date(s.signedAt).toLocaleString() : ""}
-                                      {s.inspStatus === "prior" && s.inspSignedAt ? ` · Insp signed ${new Date(s.inspSignedAt).toLocaleDateString()}` : ""}
-                                      {s.cancelled && s.cancelledAt ? ` · Cancelled ${new Date(s.cancelledAt).toLocaleDateString()}` : ""}
+                                    <div style={{ fontSize: 10, opacity: 0.85, marginTop: 2 }}>{palette.label}</div>
+                                  </div>
+                                  {/* Per-rep blocks — same body as before, just sourced from byZone[zone] */}
+                                  {repNames.map(rep => {
+                                    // Per-rep time-of-day, computed inline. Cheap
+                                    // (handful of rows each) so no need to pre-
+                                    // compute into reportData.
+                                    const repBuckets = computeTimeBuckets(repsInZone[rep]);
+                                    return (
+                                    <div key={rep} style={{ marginBottom: 16 }}>
+                                      <div style={{ padding: "8px 12px", background: "#e0f2fe", borderRadius: 10, marginBottom: 6 }}>
+                                        <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+                                          <span>👤 {rep}</span>
+                                          <span style={{ fontSize: 12, color: "#0369a1" }}>
+                                            {repsInZone[rep].length} signing{repsInZone[rep].length !== 1 ? "s" : ""}
+                                            {(reportData.repTotals?.[rep] || 0) > 0 ? <> · <strong>${reportData.repTotals[rep].toLocaleString()}</strong></> : null}
+                                          </span>
+                                        </div>
+                                        <RepTimeOfDayStrip buckets={repBuckets} />
+                                      </div>
+                                      {repsInZone[rep].map((s, i) => {
+                                        const renderCheck = (status, signedAtHint) => {
+                                          if (status === "current") return <span style={{ color: "#16a34a", fontSize: 18, fontWeight: 700 }}>✅</span>;
+                                          if (status === "prior")   return <span style={{ color: "#9ca3af", fontSize: 18 }} title={signedAtHint ? "Signed " + new Date(signedAtHint).toLocaleDateString() : "Signed previously"}>✅</span>;
+                                          return <span style={{ color: "#d1d5db", fontSize: 16 }}>○</span>;
+                                        };
+                                        // Cancelled rows get a faded look, a red CANCELLED tag,
+                                        // and $0 in the earned column. The row stays visible so
+                                        // the rep can see what was lost — totals already excluded
+                                        // it via earned=0 at calc time, so this is purely visual.
+                                        const rowBg = s.cancelled
+                                          ? (i % 2 === 0 ? "#fef2f2" : "#fee2e2")
+                                          : (i % 2 === 0 ? "#fff" : "#f9fafb");
+                                        const rowOpacity = s.cancelled ? 0.78 : 1;
+                                        return (
+                                          <div key={i} style={{ display: "grid", gridTemplateColumns: PA_FORMS_DISABLED ? "1fr 40px 64px" : "1fr 40px 40px 40px 64px", gap: 8, padding: "8px 12px", background: rowBg, opacity: rowOpacity, borderRadius: 8, marginBottom: 4, alignItems: "center", border: s.cancelled ? "1px solid #fecaca" : "1px solid #f3f4f6" }}>
+                                            <div>
+                                              <div style={{ fontSize: 13, fontWeight: 700, color: "#111827", fontFamily: "'Nunito', sans-serif", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                                <span style={s.cancelled ? { textDecoration: "line-through", color: "#6b7280" } : null}>{s.name}</span>
+                                                {s.cancelled ? <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 5, fontWeight: 700, background: "#dc2626", color: "#fff", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.04em" }}>CANCELLED</span> : null}
+                                              </div>
+                                              <div style={{ fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>{s.address}</div>
+                                              <div style={{ fontSize: 11, color: "#9ca3af", fontFamily: "'Nunito', sans-serif" }}>
+                                                {s.signedAt ? new Date(s.signedAt).toLocaleString() : ""}
+                                                {s.inspStatus === "prior" && s.inspSignedAt ? ` · Insp signed ${new Date(s.inspSignedAt).toLocaleDateString()}` : ""}
+                                                {s.cancelled && s.cancelledAt ? ` · Cancelled ${new Date(s.cancelledAt).toLocaleDateString()}` : ""}
+                                              </div>
+                                            </div>
+                                            <div style={{ textAlign: "center" }}>{renderCheck(s.inspStatus, s.inspSignedAt)}</div>
+                                            {!PA_FORMS_DISABLED && <div style={{ textAlign: "center" }}>{renderCheck(s.lorStatus)}</div>}
+                                            {!PA_FORMS_DISABLED && <div style={{ textAlign: "center" }}>{renderCheck(s.pacStatus)}</div>}
+                                            <div style={{ textAlign: "right", fontSize: 13, fontWeight: 700, color: "#166534", fontFamily: "'Nunito', sans-serif" }}>
+                                              {s.earned > 0 ? `$${s.earned}` : ""}
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
                                     </div>
-                                  </div>
-                                  <div style={{ textAlign: "center" }}>{renderCheck(s.inspStatus, s.inspSignedAt)}</div>
-                                  {!PA_FORMS_DISABLED && <div style={{ textAlign: "center" }}>{renderCheck(s.lorStatus)}</div>}
-                                  {!PA_FORMS_DISABLED && <div style={{ textAlign: "center" }}>{renderCheck(s.pacStatus)}</div>}
-                                  <div style={{ textAlign: "right", fontSize: 13, fontWeight: 700, color: "#166534", fontFamily: "'Nunito', sans-serif" }}>
-                                    {s.earned > 0 ? `$${s.earned}` : ""}
-                                  </div>
+                                    );
+                                  })}
                                 </div>
                               );
-                            })}
-                          </div>
-                          );
-                        })}
+                            });
+                        })()}
                         <div style={{ marginTop: 12, padding: "10px 14px", background: "#f9fafb", borderRadius: 8, display: "flex", gap: 16, flexWrap: "wrap", fontSize: 11, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>
                           <div><span style={{ color: "#16a34a", fontWeight: 700 }}>✅</span> signed this period</div>
                           <div><span style={{ color: "#9ca3af" }}>✅</span> signed previously</div>
