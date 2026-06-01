@@ -164,20 +164,71 @@ const renderRepBlock = (rep, signings, repTotal) => {
   `;
 };
 
+// Per-zone color palette — used by the zone-header banner so each
+// territory pops visually in the PDF and prints legibly in B&W.
+// Order + names mirror TMS's src/lib/zones.js so the two systems
+// share the same identity for each region.
+const ZONE_PALETTE = {
+  "Zone 1":  { bg: "#dbeafe", fg: "#1e40af", border: "#93c5fd", label: "NE / N-Central FL" },
+  "Zone 2":  { bg: "#ede9fe", fg: "#5b21b6", border: "#c4b5fd", label: "Central / E-Central FL" },
+  "Zone 3":  { bg: "#d1fae5", fg: "#065f46", border: "#6ee7b7", label: "Gulf / SW FL" },
+  "Zone 4":  { bg: "#fce7f3", fg: "#9d174d", border: "#f9a8d4", label: "SE FL" },
+  "No Zone": { bg: "#f3f4f6", fg: "#4b5563", border: "#d1d5db", label: "No assigned zone" },
+};
+const ZONE_ORDER = ["Zone 1", "Zone 2", "Zone 3", "Zone 4", "No Zone"];
+
+// Render one Zone block — banner header + the existing per-rep blocks
+// for every rep in that zone. Activity counts lead (signings,
+// per-zone totals); earnings stay in each rep's block for backwards-
+// compat but no longer drive the layout.
+const renderZoneSection = (zone, repsInZone, repTotals) => {
+  const repNames = Object.keys(repsInZone).sort(
+    (a, b) => (repsInZone[b].length || 0) - (repsInZone[a].length || 0)
+  );
+  if (repNames.length === 0) return "";
+  const totalSignings = repNames.reduce((sum, rep) => sum + (repsInZone[rep]?.length || 0), 0);
+  const palette = ZONE_PALETTE[zone] || ZONE_PALETTE["No Zone"];
+  const repBlocks = repNames.map(rep => renderRepBlock(rep, repsInZone[rep], repTotals?.[rep] || 0)).join("");
+  return `
+    <div style="margin-bottom:24px">
+      <div style="background:${palette.bg};color:${palette.fg};border:1px solid ${palette.border};padding:10px 16px;border-radius:10px;margin-bottom:10px;page-break-after:avoid">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px">
+          <div style="font-size:16px;font-weight:800;letter-spacing:0.02em">📍 ${esc(zone)}</div>
+          <div style="font-size:11px;font-weight:600">${repNames.length} rep${repNames.length === 1 ? "" : "s"} &middot; ${totalSignings} signing${totalSignings === 1 ? "" : "s"}</div>
+        </div>
+        <div style="font-size:10px;opacity:0.85;margin-top:2px">${esc(palette.label)}</div>
+      </div>
+      ${repBlocks}
+    </div>`;
+};
+
 // Build the full report HTML — page-styled for Letter, headers and footers
 // rendered inline rather than via PDFShift's margin-box feature so we don't
 // need to coordinate a separate header template.
 const buildReportHtml = (reportData) => {
-  const { startDate, endDate, totalRows, totalEarned, byRep, repTotals, timeBuckets } = reportData;
+  const { startDate, endDate, totalRows, totalEarned, byRep, byZone, repTotals, timeBuckets } = reportData;
 
-  // Sort reps by total earnings desc — biggest contributors first
-  const repNames = Object.keys(byRep || {}).sort(
-    (a, b) => (repTotals?.[b] || 0) - (repTotals?.[a] || 0)
-  );
-
-  const repSections = repNames.length === 0
-    ? `<div style="text-align:center;padding:40px 0;color:#9ca3af;font-size:14px">No signings recorded this period.</div>`
-    : repNames.map(rep => renderRepBlock(rep, byRep[rep], repTotals[rep] || 0)).join("");
+  // Prefer the zone-grouped structure (added 2026-05-31). Falls back
+  // to the flat per-rep layout if byZone wasn't provided (e.g., an
+  // older client building reports against this function).
+  let repSections;
+  let repNames;
+  if (byZone && typeof byZone === "object") {
+    repNames = Object.values(byZone).flatMap(z => Object.keys(z || {}));
+    const renderedZones = ZONE_ORDER
+      .filter(zone => byZone[zone] && Object.keys(byZone[zone]).length > 0)
+      .map(zone => renderZoneSection(zone, byZone[zone], repTotals))
+      .join("");
+    repSections = renderedZones || `<div style="text-align:center;padding:40px 0;color:#9ca3af;font-size:14px">No signings recorded this period.</div>`;
+  } else {
+    // Legacy flat per-rep path.
+    repNames = Object.keys(byRep || {}).sort(
+      (a, b) => (repTotals?.[b] || 0) - (repTotals?.[a] || 0)
+    );
+    repSections = repNames.length === 0
+      ? `<div style="text-align:center;padding:40px 0;color:#9ca3af;font-size:14px">No signings recorded this period.</div>`
+      : repNames.map(rep => renderRepBlock(rep, byRep[rep], repTotals[rep] || 0)).join("");
+  }
 
   // Time-of-day breakdown block — matches the on-screen UI's
   // TimeOfDayBreakdown component (App.jsx). Keep the labels, ranges,

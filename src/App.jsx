@@ -5043,6 +5043,69 @@ export default function App() {
       });
       Object.values(byRep).forEach(arr => arr.sort((a, b) => new Date(b.signedAt) - new Date(a.signedAt)));
 
+      // ────────────────────────────────────────────────────────────────
+      // Zone enrichment — fetch each rep's Zone from TMS so the report
+      // can group reps by territory (Zone 1 → Zone 4 → No Zone).
+      //
+      // Two-step resolution (resilient to either side missing data):
+      //   1. TMS /rep-zones returns { jobnimbus_id, zone } per active
+      //      rep. Build a jobnimbus_id → zone map.
+      //   2. Local sales_reps gives us { name, jobnimbus_id }. Cross-
+      //      reference: for each CCG rep name → JN ID → TMS zone.
+      //      Falls back to direct name match if the JN ID join fails
+      //      (e.g., a TMS rep whose JN ID hasn't been backfilled yet).
+      //
+      // Best-effort: if TMS is down or returns 500, we just leave the
+      // map empty and every rep falls into "No Zone". The report still
+      // renders, it just looks like the pre-zone version of itself.
+      //
+      // Re-fetched on every report build so reassigning a Zone on TMS
+      // is reflected immediately in the next report — no caching.
+      const zoneByName = {};
+      try {
+        const tmsRes = await fetch(
+          "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones"
+        );
+        if (tmsRes.ok) {
+          const tmsData = await tmsRes.json();
+          const zoneByJnId = {};
+          const zoneByNameDirect = {};
+          for (const r of tmsData.reps || []) {
+            if (r.jobnimbus_id) zoneByJnId[r.jobnimbus_id] = r.zone;
+            if (r.name) zoneByNameDirect[r.name.toLowerCase()] = r.zone;
+          }
+          // CCG sales_reps as the bridge to map CCG-side rep names →
+          // jobnimbus_id → TMS zone. If the bridge has a name we
+          // recognize, we get robust JN-ID-based zone resolution.
+          const { data: salesReps } = await supabase
+            .from("sales_reps")
+            .select("name, jobnimbus_id");
+          for (const sr of salesReps || []) {
+            if (!sr.name) continue;
+            const jnZone = sr.jobnimbus_id ? zoneByJnId[sr.jobnimbus_id] : null;
+            const nameZone = zoneByNameDirect[sr.name.toLowerCase()];
+            const zone = jnZone || nameZone;
+            if (zone) zoneByName[sr.name] = zone;
+          }
+        }
+      } catch (e) {
+        console.warn("TMS rep-zones fetch failed — report will render without zone grouping:", e);
+      }
+
+      // Group reps INTO zones for the PDF section ordering. Empty zones
+      // are dropped by the renderer. "No Zone" catches:
+      //   - Reps not in TMS (William Hernandez under post-cutoff policy)
+      //   - Reps in TMS but with no region/zone assigned
+      //   - "Unassigned" rows (no rep on the inspection record)
+      const ZONE_ORDER = ["Zone 1", "Zone 2", "Zone 3", "Zone 4", "No Zone"];
+      const byZone = {};
+      for (const z of ZONE_ORDER) byZone[z] = {};
+      Object.entries(byRep).forEach(([rep, repRows]) => {
+        const zone = zoneByName[rep] || "No Zone";
+        if (!byZone[zone]) byZone[zone] = {};
+        byZone[zone][rep] = repRows;
+      });
+
       // Per-rep totals
       const repTotals = {};
       Object.keys(byRep).forEach(rep => {
@@ -5057,6 +5120,7 @@ export default function App() {
 
       setReportData({
         byRep,
+        byZone,
         repTotals,
         totalRows: rows.length,
         totalEarned: rows.reduce((sum, r) => sum + r.earned, 0),
