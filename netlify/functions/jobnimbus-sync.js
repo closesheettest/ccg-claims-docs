@@ -589,17 +589,60 @@ exports.handler = async (event) => {
       console.log("Skipped follow-up PUT to preserve manual JN edits on linked job");
     }
 
-    // ── Upload PDF ──────────────────────────────────────────────────────
+    // ── Upload signed agreement PDF ─────────────────────────────────────
+    // The contact + job are created above; this attaches the signed
+    // inspection agreement to the job. Historically this step silently
+    // no-op'd: if the upload failed — or the client never produced a PDF —
+    // we still returned success:true, so the contact+job synced with NO
+    // agreement and nobody knew until the inspector showed up to a job
+    // with no paperwork (see the Mark Hamersly incident, 2026-06).
+    //
+    // Now: (1) retry the upload a few times to ride out a transient JN/S3
+    // blip, and (2) surface the outcome explicitly so a missing agreement
+    // is caught — by the response flags below and the daily-orphan-alert
+    // catch-net, never swallowed.
+    const agreementExpected = hasInsp;            // a signed INSP agreement should exist
+    const havePdf = !!(pdfBase64 && pdfFilename); // the client actually sent one
     let fileResult = { success: false, error: "skipped" };
-    if (pdfBase64 && pdfFilename && hasInsp) {
-      fileResult = await uploadFileToJob(apiKey, jobId, pdfFilename, pdfBase64);
+    if (agreementExpected && havePdf) {
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        fileResult = await uploadFileToJob(apiKey, jobId, pdfFilename, pdfBase64);
+        if (fileResult.success) break;
+        console.warn(`Agreement upload attempt ${attempt}/3 failed: ${fileResult.error}`);
+        if (attempt < 3) await new Promise((r) => setTimeout(r, attempt * 750));
+      }
+    }
+
+    // Three distinct end states for the agreement:
+    //   uploaded  — attached to the JN job (the happy path)
+    //   missing   — INSP was signed but the client sent no PDF at all
+    //               (the PDF pipeline failed before sync — Mark's case)
+    //   failed    — we had a PDF but every upload attempt failed
+    const agreementUploaded = fileResult.success === true;
+    const agreementMissing = agreementExpected && !havePdf;
+    const agreementFailed = agreementExpected && havePdf && !agreementUploaded;
+    if (agreementMissing) {
+      console.error(
+        `❌ AGREEMENT MISSING — INSP signed but no PDF in payload. Contact+job synced WITHOUT agreement. job=${jobId} name="${fullName}" rep="${salesRepName}"`,
+      );
+    }
+    if (agreementFailed) {
+      console.error(
+        `❌ AGREEMENT UPLOAD FAILED after 3 attempts: ${fileResult.error}. job=${jobId} name="${fullName}" rep="${salesRepName}"`,
+      );
     }
 
     console.log("=== JN Sync Complete ===");
-    console.log("Contact:", contactId, contactAction, "| Job:", jobId, "| Status:", status, "| File:", fileResult, "| Linked existing:", linkedExisting);
+    console.log("Contact:", contactId, contactAction, "| Job:", jobId, "| Status:", status, "| File:", fileResult, "| Agreement uploaded:", agreementUploaded, "| Linked existing:", linkedExisting);
     return {
       statusCode: 200,
-      body: JSON.stringify({ success: true, contactId, contactAction, jobId, status, fileResult, linkedExisting }),
+      body: JSON.stringify({
+        success: true,
+        contactId, contactAction, jobId, status, fileResult, linkedExisting,
+        // Explicit agreement outcome — the client and any catch-net can act
+        // on these instead of assuming success:true means the doc landed.
+        agreementExpected, agreementUploaded, agreementMissing, agreementFailed,
+      }),
     };
   } catch (err) {
     console.error("=== JN Sync ERROR ===", err.message);

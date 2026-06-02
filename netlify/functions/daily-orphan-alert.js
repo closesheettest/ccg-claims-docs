@@ -118,13 +118,50 @@ exports.handler = async (event) => {
   }
   console.log(`daily-orphan-alert: ${stuckCerts.length} stuck certs (24h+)`);
 
-  // 4. Quiet day → no SMS. Now requires BOTH lists empty before staying
-  //    silent so we don't miss a stuck cert on a day with no orphans.
-  if (orphans.length === 0 && stuckCerts.length === 0) {
+  // 3b. ALSO check for "missing agreements" — inspections that DID reach
+  //     JobNimbus (jn_job_id set) but whose signed inspection agreement
+  //     never archived (signed_pdfs.insp is null). This is the Mark
+  //     Hamersly failure mode (2026-06): contact+job synced, the homeowner
+  //     signed, but the agreement PDF was never produced/attached — so the
+  //     inspector drove out to a job with no paperwork. The signing flow
+  //     archives the agreement within seconds of signing, so by the next
+  //     morning any synced+non-cancelled inspection still missing its insp
+  //     PDF is genuinely broken, not just slow. Same 36h window as orphans.
+  let missingAgreements = [];
+  if (SB_URL_2 && SB_KEY_2) {
+    try {
+      const since = new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString();
+      const q =
+        `select=client_name,address,city,sales_rep_name,signed_at,jn_job_id,signed_pdfs` +
+        `&jn_job_id=not.is.null` +
+        `&cancelled_at=is.null` +
+        `&signed_at=gte.${encodeURIComponent(since)}` +
+        `&signed_pdfs->>insp=is.null` +
+        `&order=signed_at.asc` +
+        `&limit=20`;
+      const sbRes = await fetch(`${SB_URL_2}/rest/v1/inspections?${q}`, {
+        headers: { apikey: SB_KEY_2, Authorization: `Bearer ${SB_KEY_2}` },
+      });
+      if (sbRes.ok) {
+        missingAgreements = await sbRes.json();
+      } else {
+        console.warn("Missing-agreement query failed:", sbRes.status);
+      }
+    } catch (e) {
+      console.warn("Missing-agreement query threw:", e.message);
+    }
+  }
+  console.log(`daily-orphan-alert: ${missingAgreements.length} missing agreements (synced, no insp PDF)`);
+
+  // 4. Quiet day → no SMS. Requires ALL lists empty before staying silent
+  //    so we don't miss a stuck cert or missing agreement on an
+  //    otherwise-quiet day.
+  if (orphans.length === 0 && stuckCerts.length === 0 && missingAgreements.length === 0) {
     return json(200, {
       ok: true,
       orphans: 0,
       stuck_certs: 0,
+      missing_agreements: 0,
       alerted: false,
     });
   }
@@ -176,6 +213,25 @@ exports.handler = async (event) => {
     );
   }
 
+  if (missingAgreements.length > 0) {
+    const items = missingAgreements.slice(0, PER_ITEM_LIMIT).map((m) => {
+      const name = m.client_name || "?";
+      const city = m.city || "";
+      const rep = m.sales_rep_name || "Unassigned";
+      return `• ${name}${city ? " · " + city : ""} (${rep})`;
+    });
+    const more =
+      missingAgreements.length > PER_ITEM_LIMIT
+        ? `\n+${missingAgreements.length - PER_ITEM_LIMIT} more`
+        : "";
+    sections.push(
+      `📄 ${missingAgreements.length} signed, agreement may be MISSING:\n` +
+        items.join("\n") +
+        more +
+        `\nThese synced to JN but the signed agreement never archived — usually means it never attached to the JN job either. Open each JN job: if the agreement isn't there, the homeowner must re-sign (rep returns or send a re-sign link) before the inspector goes out.`,
+    );
+  }
+
   const message = sections.join("\n\n");
 
   // 5. Send SMS to ADMIN_ALERT_PHONE (comma-sep list ok). Skips silently
@@ -192,10 +248,12 @@ exports.handler = async (event) => {
       ok: true,
       orphans: orphans.length,
       stuck_certs: stuckCerts.length,
+      missing_agreements: missingAgreements.length,
       alerted: false,
       note: "ADMIN_ALERT_PHONE not configured; no SMS sent.",
       orphan_names: orphans.map((o) => o.client_name),
       stuck_names: stuckCerts.map((s) => s.client_name),
+      missing_agreement_names: missingAgreements.map((m) => m.client_name),
     });
   }
 
@@ -218,9 +276,11 @@ exports.handler = async (event) => {
     ok: true,
     orphans: orphans.length,
     stuck_certs: stuckCerts.length,
+    missing_agreements: missingAgreements.length,
     alerted: sentTo,
     orphan_names: orphans.map((o) => o.client_name),
     stuck_names: stuckCerts.map((s) => s.client_name),
+    missing_agreement_names: missingAgreements.map((m) => m.client_name),
   });
 };
 
