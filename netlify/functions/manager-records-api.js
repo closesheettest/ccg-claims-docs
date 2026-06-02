@@ -112,13 +112,17 @@ async function buildRecords(manager) {
   // PostgREST `in.(name1,name2,…)` filter on sales_rep_name.
   const repListParam = repNames.map((n) => `"${n.replace(/"/g, '\\"')}"`).join(',')
 
+  // Order by id desc as a proxy for "newest first" — id is a serial
+  // primary key so it correlates with creation time, AND unlike
+  // signed_at/result_at it has no NULLs that get demoted to the
+  // bottom (which is what was hiding unsigned deals from the list).
   const [claims, inspections] = await Promise.all([
     fetchTable('claims', {
       select:
         'id,client_name,address,city,state,zip,mobile,sales_rep_name,sales_rep_id,' +
         'signed_at,result,result_at,jn_status,jn_job_id,docs_signed,signed_pdfs,cancelled_at',
       filter: `sales_rep_name=in.(${repListParam})`,
-      order: 'signed_at.desc.nullslast',
+      order: 'id.desc',
       limit: 500,
     }),
     fetchTable('inspections', {
@@ -126,7 +130,7 @@ async function buildRecords(manager) {
         'id,client_name,address,city,state,zip,mobile,sales_rep_name,sales_rep_email,' +
         'inspection_result,result,result_at,jn_status,jn_job_id,docs_signed,signed_pdfs,cancelled_at',
       filter: `sales_rep_name=in.(${repListParam})`,
-      order: 'result_at.desc.nullslast',
+      order: 'id.desc',
       limit: 500,
     }),
   ])

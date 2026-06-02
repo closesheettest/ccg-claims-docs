@@ -211,9 +211,9 @@ export default function ManagerRecordsView({ token }) {
           <strong style={{ display: 'block', marginBottom: 4 }}>⚠ How to use this page</strong>
           <ul style={{ margin: 0, paddingLeft: 22, lineHeight: 1.55 }}>
             <li>Tap a deal in the list to see what's already in JobNimbus on the right.</li>
-            <li><strong>Photos missing in JN?</strong> Tap the <strong>Push to JN Photos</strong> button.</li>
-            <li><strong>No certificate in JN?</strong> Tap the <strong>Cert Now</strong> button.</li>
-            <li><strong>Wrong homeowner name or address?</strong> Tap <strong>Edit</strong>.</li>
+            <li><strong>Photos missing in JN?</strong> Tap <strong>📸 Send Photos to JN</strong> — re-uploads them.</li>
+            <li><strong>No certificate in JN?</strong> Tap <strong>📄 Send Cert to JN</strong> — generates it and uploads.</li>
+            <li><strong>Wrong homeowner name or address?</strong> Tap <strong>✏️ Edit Details</strong>.</li>
             <li>If a row has a ⚠ next to it, something needs your attention. If a row has ✅ it's all good — no action needed.</li>
           </ul>
         </section>
@@ -384,14 +384,20 @@ function DealRow({ deal, selected, onSelect, theme }) {
           </div>
           {/* Action buttons — Phase 1 stubs */}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
-            <StubButton label="Push to JN Photos" caption="Resend the inspection photos to JobNimbus."
-              what="Phase 2 will re-fire the photo upload to JobNimbus for this deal."
+            <StubButton
+              label="📸 Send Photos to JN"
+              caption="Re-uploads the inspection photos to JobNimbus."
+              what="Phase 2 will re-fire the photo upload to JobNimbus so this deal's pictures appear under the JN job."
             />
-            <StubButton label="Cert Now" caption="Regenerate the certificate and push it to JN."
-              what="Phase 2 will regenerate the certificate PDF and upload it to JN."
+            <StubButton
+              label="📄 Send Cert to JN"
+              caption="Generates the certificate PDF and uploads it to JobNimbus."
+              what="Phase 2 will regenerate the certificate PDF (the official roof inspection certificate) and upload it to the JN job so the homeowner gets the right document."
             />
-            <StubButton label="Edit" caption="Fix a typo in the homeowner's name or address."
-              what="Phase 2 will open the edit modal so you can fix details."
+            <StubButton
+              label="✏️ Edit Details"
+              caption="Fix homeowner name, address, or phone if it was typed wrong."
+              what="Phase 2 will open an edit form so you can correct the homeowner's name, address, or phone number."
             />
           </div>
         </div>
