@@ -79,10 +79,17 @@ async function fetchManager(token) {
 // Records build — Phase 1 read-only
 
 async function buildRecords(manager) {
-  // 1. Get every rep in this manager's zone (TMS is the source of truth
-  //    for rep → zone). Fall back to "no zone enrichment" if TMS is
-  //    down — we'll show no deals rather than the wrong deals.
-  const repsInZone = await fetchRepsInZone(manager.zone)
+  // 1. Get every rep in this manager's zone, bridged through CCG's
+  //    sales_reps table so we use CCG-side names (CCG is the constant
+  //    per Neal — TMS names like 'James "Jimmy" Bates' don't always
+  //    match the claims table's 'James Bates'). Bridge logic:
+  //      TMS rep.jobnimbus_id + .name + .zone
+  //        →  match against CCG sales_reps (jobnimbus_id primary,
+  //           normalized name fallback)
+  //        →  resulting CCG names get used in the IN filter below.
+  //    Same pattern as generate-weekly-report-pdf.js so the two
+  //    surfaces agree on who's in whose zone.
+  const repsInZone = await fetchRepsInZoneBridged(manager.zone)
 
   // 2. Pull all relevant claims + inspections for those reps. We pull
   //    a fixed-size window (latest 500 per source) so the page stays
@@ -180,18 +187,71 @@ async function buildRecords(manager) {
 // ────────────────────────────────────────────────────────────────────
 // Helpers
 
-async function fetchRepsInZone(zone) {
+// Bridged rep → zone lookup. Returns CCG-side rep names that belong
+// to the target zone. Mirrors generate-weekly-report-pdf.js so both
+// surfaces resolve the same way.
+//
+// Resolution order per CCG sales_reps row:
+//   1. jobnimbus_id match against TMS (most reliable — JN IDs don't
+//      have nickname noise)
+//   2. normalized-name match against TMS (strips quoted/parenthetical
+//      nicknames: 'James "Jimmy" Bates' → 'james bates')
+// If neither matches, the rep falls into "No Zone" and won't show on
+// any manager view — admin needs to backfill their JN ID in TMS.
+async function fetchRepsInZoneBridged(targetZone) {
+  // a) TMS reps → maps from JN ID + normalized name to zone string
+  let tmsReps = []
   try {
     const res = await fetch(TMS_REP_ZONES_URL)
-    if (!res.ok) return []
-    const data = await res.json()
-    return (data.reps || [])
-      .filter((r) => r.zone === zone)
-      .map((r) => ({ name: r.name, jobnimbus_id: r.jobnimbus_id || null }))
+    if (res.ok) {
+      const j = await res.json()
+      tmsReps = j.reps || []
+    }
   } catch (e) {
     console.warn('TMS rep-zones fetch failed:', e.message || e)
-    return []
   }
+  const zoneByJnId = {}
+  const zoneByNormalizedName = {}
+  for (const r of tmsReps) {
+    if (r.jobnimbus_id) zoneByJnId[r.jobnimbus_id] = r.zone
+    if (r.name) zoneByNormalizedName[normalizeName(r.name)] = r.zone
+  }
+
+  // b) CCG sales_reps — our local roster of who's allowed to sign
+  //    homeowners. Use their CCG-side name in the claims filter.
+  const salesReps = await fetchTable('sales_reps', {
+    select: 'name,jobnimbus_id',
+    limit: 1000,
+  })
+  const result = []
+  for (const sr of salesReps || []) {
+    if (!sr.name) continue
+    const jnZone = sr.jobnimbus_id ? zoneByJnId[sr.jobnimbus_id] : null
+    const nameZone = zoneByNormalizedName[normalizeName(sr.name)]
+    const zone = jnZone || nameZone
+    if (zone === targetZone) {
+      result.push({ name: sr.name, jobnimbus_id: sr.jobnimbus_id || null })
+    }
+  }
+  return result
+}
+
+// Normalize for fuzzy name matching across systems. Strips:
+//   • Quoted nicknames:  James "Jimmy" Bates → James Bates
+//   • Parenthetical:     Mike (Junior) Smith → Mike Smith
+//   • Curly quotes:      James "Jimmy" Bates → James Bates
+//   • Punctuation, multi-space, case
+// Same shape as the function in generate-weekly-report-pdf.js so the
+// two surfaces collapse identical name variants to the same key.
+function normalizeName(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/["“”]([^"“”]*)["“”]/g, '')
+    .replace(/'([^']*)'/g, '')
+    .replace(/\(([^)]*)\)/g, '')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 async function fetchTable(table, { select, filter, order, limit }) {
