@@ -50,6 +50,6 @@ on conflict (zone) do update
 select
   zone,
   name,
-  'https://ccg-claims-docs.netlify.app/?manager=' || token::text as records_url
+  'https://free-roof-inspections.netlify.app/?manager=' || token::text as records_url
 from regional_managers
 order by zone;
