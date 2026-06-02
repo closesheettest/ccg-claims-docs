@@ -39,6 +39,20 @@ const ZONE_COLORS = {
 }
 const NEUTRAL = { deep: '#475569', light: '#e2e8f0' }
 
+// Team names per zone — must match TMS lib/zones.js ZONE_TEAMS.
+// When a manager names their team, add the entry here AND in TMS so
+// both surfaces show the same label.
+const ZONE_TEAMS = {
+  'Zone 1': 'SQUAD',
+}
+// Render zone label as "TEAM (Zone N)" if the zone has a team name,
+// else fall back to just "Zone N". Mirrors teamLabel() in TMS.
+function teamLabel(zone) {
+  if (!zone) return ''
+  const team = ZONE_TEAMS[zone]
+  return team ? `${team} (${zone})` : zone
+}
+
 export default function ManagerRecordsView({ token }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -136,7 +150,7 @@ export default function ManagerRecordsView({ token }) {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 12 }}>
             <div>
               <h1 style={{ fontSize: 24, fontWeight: 800, margin: 0 }}>
-                Hi {data.manager.name} — {data.manager.zone} Records
+                Hi {data.manager.name} — {teamLabel(data.manager.zone)} Records
               </h1>
               <p style={{ margin: '4px 0 0', opacity: 0.9, fontSize: 14 }}>
                 You're seeing every deal one of <strong>your</strong> reps sold.
@@ -144,7 +158,7 @@ export default function ManagerRecordsView({ token }) {
                 {data.totals.reps} rep{data.totals.reps === 1 ? '' : 's'})
               </p>
             </div>
-            <Pill label="ZONE" value={data.manager.zone} bg="#fff" fg={zoneTheme.deep} />
+            <Pill label="TEAM" value={teamLabel(data.manager.zone)} bg="#fff" fg={zoneTheme.deep} />
           </div>
         </header>
 
@@ -337,7 +351,7 @@ export default function ManagerRecordsView({ token }) {
         `}</style>
 
         <footer style={{ textAlign: 'center', color: '#94a3b8', fontSize: 11, marginTop: 30 }}>
-          U.S. Shingle &amp; Metal — Zone {data.manager.zone.replace('Zone ', '')} Manager Records · Phase 1 (read-only preview)
+          U.S. Shingle &amp; Metal — {teamLabel(data.manager.zone)} Manager Records · Phase 1 (read-only preview)
         </footer>
       </div>
     </div>
