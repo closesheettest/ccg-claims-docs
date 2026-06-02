@@ -17,7 +17,16 @@
 //
 // Detection criteria — all must be true:
 //   • inspector_id     IS NOT NULL  (app ran on this job)
-//   • result           IS NOT NULL  (classified)
+//   • result           IS one of the three terminal outcomes — see
+//                      VALID_RESULTS below. We used to accept any
+//                      non-null result, but that caught rows where
+//                      `result` was a pre-inspection placeholder
+//                      like 'Needs Service' (e.g. Priscilla Montalvo
+//                      Garcia 2026-06-02). The cert generator can't
+//                      do anything with those, so they'd fail every
+//                      hour and spam the admin SMS. Lock the filter
+//                      to the three values the cert template knows
+//                      how to render.
 //   • jn_job_id        IS NOT NULL  (JN job exists)
 //   • cancelled_at     IS NULL      (not voided)
 //   • jn_cert_uploaded_at IS NULL   (cert not in JN yet)
@@ -65,11 +74,21 @@ exports.handler = async (event) => {
   //    fire — if the result was set just seconds ago, the background
   //    function might still be running. Wait 15 min before assuming
   //    it dropped.
+  //
+  //    The result IN filter is the defensive fix for the Priscilla-
+  //    style false alarm. Pre-inspection placeholder strings like
+  //    'Needs Service' / 'Needs Sales Visit' / 'Needs <anything>'
+  //    sometimes land in `result` before the inspector classifies.
+  //    The cert generator can't render those (only the three real
+  //    inspection outcomes have certificate templates), so retrying
+  //    them is wasted work + a daily false-positive admin SMS.
+  const VALID_RESULTS = ['No Damage', 'Wear & Tear', 'Storm Damage'];
+  const resultInParam = VALID_RESULTS.map((r) => `"${r}"`).join(',');
   const cutoffIso = new Date(Date.now() - 15 * 60 * 1000).toISOString();
   const q =
     `select=id,client_name,address,jn_job_id,result,result_at,inspector_id` +
     `&inspector_id=not.is.null` +
-    `&result=not.is.null` +
+    `&result=in.(${encodeURIComponent(resultInParam)})` +
     `&jn_job_id=not.is.null` +
     `&cancelled_at=is.null` +
     `&jn_cert_uploaded_at=is.null` +
