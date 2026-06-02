@@ -62,6 +62,13 @@ export default function ManagerRecordsView({ token }) {
   const [selectedDealId, setSelectedDealId] = useState(null)
   const [openReps, setOpenReps] = useState({}) // repName → bool
 
+  // "Message my team" composer state.
+  const [showMessenger, setShowMessenger] = useState(false)
+  const [messageText, setMessageText] = useState('')
+  const [deselected, setDeselected] = useState({}) // repName → true means UNCHECKED
+  const [sending, setSending] = useState(false)
+  const [sendResult, setSendResult] = useState(null)
+
   useEffect(() => {
     let cancelled = false
     setLoading(true)
@@ -129,6 +136,46 @@ export default function ManagerRecordsView({ token }) {
     }
     return null
   }, [selectedDealId, data])
+
+  // Reps we can actually text — active + has a phone on file.
+  const textableReps = useMemo(
+    () => (data?.repsInZone || []).filter((r) => r.active && r.phone),
+    [data],
+  )
+  const selectedNames = useMemo(
+    () => textableReps.filter((r) => !deselected[r.name]).map((r) => r.name),
+    [textableReps, deselected],
+  )
+
+  async function sendTeamMessage(mode) {
+    const msg = messageText.trim()
+    if (!msg) { alert('Type a message first.'); return }
+    if (selectedNames.length === 0) { alert('Pick at least one rep to send to.'); return }
+    const who = `${selectedNames.length} rep${selectedNames.length === 1 ? '' : 's'}`
+    const blurb =
+      mode === 'broadcast'
+        ? `Send this as a one-way BROADCAST to ${who}? They won't see your number and can't reply.`
+        : `Send this to ${who} with your number attached so they can reply to you?`
+    if (!window.confirm(blurb)) return
+
+    setSending(true)
+    setSendResult(null)
+    try {
+      const r = await fetch('/.netlify/functions/manager-records-api', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'message_team', token, message: msg, mode, recipients: selectedNames }),
+      })
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok || !j.ok) throw new Error(j.error || `Server error (${r.status})`)
+      setSendResult({ ok: true, sent: j.sent, total: j.total, mode, failures: j.failures || [] })
+      if ((j.failures || []).length === 0) setMessageText('')
+    } catch (e) {
+      setSendResult({ ok: false, error: e.message || 'Send failed' })
+    } finally {
+      setSending(false)
+    }
+  }
 
   if (loading) return <CenterMsg theme={NEUTRAL}>Loading your records…</CenterMsg>
   if (error) return <CenterMsg theme={NEUTRAL} bad>{error}</CenterMsg>
@@ -230,6 +277,147 @@ export default function ManagerRecordsView({ token }) {
             <li><strong>Wrong homeowner name or address?</strong> Tap <strong>✏️ Edit Details</strong>.</li>
             <li>If a row has a ⚠ next to it, something needs your attention. If a row has ✅ it's all good — no action needed.</li>
           </ul>
+        </section>
+
+        {/* ─────────── Message my team ─────────── */}
+        <section style={{
+          background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12,
+          marginBottom: 14, overflow: 'hidden',
+        }}>
+          <button
+            type="button"
+            onClick={() => setShowMessenger((v) => !v)}
+            style={{
+              width: '100%', background: zoneTheme.light, border: 'none',
+              padding: '12px 16px', textAlign: 'left', cursor: 'pointer',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            }}
+          >
+            <span style={{ fontWeight: 800, fontSize: 15, color: zoneTheme.deep }}>
+              ✉️ Message my team
+              <span style={{ fontWeight: 600, color: '#475569', fontSize: 13 }}>
+                {' '}· text your {textableReps.length} rep{textableReps.length === 1 ? '' : 's'}
+              </span>
+            </span>
+            <span style={{ fontSize: 18, color: zoneTheme.deep }}>{showMessenger ? '▾' : '▸'}</span>
+          </button>
+
+          {showMessenger && (
+            <div style={{ padding: 16 }}>
+              {textableReps.length === 0 ? (
+                <p style={{ margin: 0, color: '#64748b', fontSize: 13.5 }}>
+                  None of your reps have a phone number on file yet, so there's
+                  no one to text. Once reps are added with a mobile number
+                  they'll show up here.
+                </p>
+              ) : (
+                <>
+                  <textarea
+                    value={messageText}
+                    onChange={(e) => setMessageText(e.target.value)}
+                    placeholder="Type your message to the team…"
+                    rows={3}
+                    style={{
+                      width: '100%', boxSizing: 'border-box', padding: '10px 12px',
+                      border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 14,
+                      resize: 'vertical', outline: 'none', fontFamily: 'inherit',
+                    }}
+                  />
+
+                  {/* Rep checklist — everyone on by default; uncheck to skip. */}
+                  <div style={{ margin: '10px 0 4px', fontSize: 12, fontWeight: 700, color: '#475569' }}>
+                    Sending to ({selectedNames.length} of {textableReps.length}):
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+                    {textableReps.map((r) => {
+                      const on = !deselected[r.name]
+                      return (
+                        <label
+                          key={r.name}
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 6,
+                            background: on ? zoneTheme.light : '#f1f5f9',
+                            border: `1px solid ${on ? zoneTheme.deep : '#cbd5e1'}`,
+                            color: on ? zoneTheme.deep : '#94a3b8',
+                            borderRadius: 999, padding: '5px 12px', fontSize: 13,
+                            fontWeight: 700, cursor: 'pointer',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={on}
+                            onChange={() =>
+                              setDeselected((s) => ({ ...s, [r.name]: on ? true : false }))
+                            }
+                            style={{ cursor: 'pointer' }}
+                          />
+                          {r.name}
+                        </label>
+                      )
+                    })}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      disabled={sending}
+                      onClick={() => sendTeamMessage('conversational')}
+                      style={{
+                        background: zoneTheme.deep, color: '#fff', border: 'none',
+                        borderRadius: 8, padding: '10px 16px', fontSize: 14, fontWeight: 700,
+                        cursor: sending ? 'wait' : 'pointer', opacity: sending ? 0.6 : 1,
+                      }}
+                      title="Reps get your number at the end so they can reply straight to you."
+                    >
+                      💬 Send — replies come to me
+                    </button>
+                    <button
+                      type="button"
+                      disabled={sending}
+                      onClick={() => sendTeamMessage('broadcast')}
+                      style={{
+                        background: '#fff', color: '#0f172a', border: '1px solid #cbd5e1',
+                        borderRadius: 8, padding: '10px 16px', fontSize: 14, fontWeight: 700,
+                        cursor: sending ? 'wait' : 'pointer', opacity: sending ? 0.6 : 1,
+                      }}
+                      title="One-way announcement. Your number is not shown and reps can't reply."
+                    >
+                      📢 Broadcast — no replies
+                    </button>
+                  </div>
+
+                  <p style={{ margin: '10px 0 0', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>
+                    <strong>Send</strong> attaches your number so reps can text you back.{' '}
+                    <strong>Broadcast</strong> is a one-way announcement — your number stays
+                    hidden and no replies come through.
+                  </p>
+
+                  {sending && (
+                    <p style={{ margin: '10px 0 0', fontSize: 13, color: zoneTheme.deep, fontWeight: 700 }}>
+                      Sending…
+                    </p>
+                  )}
+                  {sendResult && !sending && (
+                    sendResult.ok ? (
+                      <p style={{ margin: '10px 0 0', fontSize: 13, color: '#166534', fontWeight: 700 }}>
+                        ✅ Sent to {sendResult.sent} of {sendResult.total}
+                        {sendResult.mode === 'broadcast' ? ' (broadcast)' : ' (with your number)'}.
+                        {sendResult.failures.length > 0 && (
+                          <span style={{ color: '#b45309' }}>
+                            {' '}{sendResult.failures.length} didn't go through — check the numbers.
+                          </span>
+                        )}
+                      </p>
+                    ) : (
+                      <p style={{ margin: '10px 0 0', fontSize: 13, color: '#991b1b', fontWeight: 700 }}>
+                        ⚠ {sendResult.error}
+                      </p>
+                    )
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </section>
 
         {/* ─────────── Search + filter ─────────── */}

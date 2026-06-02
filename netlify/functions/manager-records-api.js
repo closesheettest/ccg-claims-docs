@@ -11,8 +11,14 @@
 //   POST { action: 'whoami',  token }
 //     → { ok, manager: { zone, name, phone } }
 //   POST { action: 'records', token }
-//     → { ok, manager, repsInZone: [name…], dealsByRep: {rep: [d…]},
+//     → { ok, manager, repsInZone: [{name,phone,…}…], dealsByRep: {…},
 //         pendingSignatures: [d…], totals: { … } }
+//   POST { action: 'message_team', token, message, mode, recipients }
+//     → texts the manager's zone reps. mode 'broadcast' = one-way, no
+//       manager number. mode 'conversational' = appends "Reply to
+//       <Manager>: <phone>" so reps can text back. recipients is an
+//       optional array of rep names to limit the send (default: all
+//       textable reps in the zone). → { ok, mode, sent, total, failures }
 //
 // Zone resolution: rep name → TMS /rep-zones → zone string. Matches
 // the same logic generate-weekly-report-pdf.js uses so the two views
@@ -55,6 +61,9 @@ export const handler = async (event) => {
   }
   if (action === 'records') {
     return await buildRecords(manager)
+  }
+  if (action === 'message_team') {
+    return await messageTeam(manager, body)
   }
   return json(400, { ok: false, error: `Unknown action: ${action}` })
 }
@@ -224,7 +233,7 @@ async function fetchRepsInZoneBridged(targetZone) {
   // b) CCG sales_reps — our local roster of who's allowed to sign
   //    homeowners. Use their CCG-side name in the claims filter.
   const salesReps = await fetchTable('sales_reps', {
-    select: 'name,jobnimbus_id',
+    select: 'name,jobnimbus_id,phone,active',
     limit: 1000,
   })
   const result = []
@@ -234,7 +243,12 @@ async function fetchRepsInZoneBridged(targetZone) {
     const nameZone = zoneByNormalizedName[normalizeName(sr.name)]
     const zone = jnZone || nameZone
     if (zone === targetZone) {
-      result.push({ name: sr.name, jobnimbus_id: sr.jobnimbus_id || null })
+      result.push({
+        name: sr.name,
+        jobnimbus_id: sr.jobnimbus_id || null,
+        phone: sr.phone || null,
+        active: sr.active !== false, // null/undefined treated as active
+      })
     }
   }
   return result
@@ -326,6 +340,88 @@ function needsAttention(d) {
   if (signedHoursAgo != null && signedHoursAgo > 24 && !d.jn_job_id) return true
   if (signedHoursAgo != null && signedHoursAgo > 24 && d.jn_status === 'Awaiting Cert') return true
   return false
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Manager → team SMS
+//
+// Texts the reps in the manager's own zone. Two modes:
+//   • broadcast      — one-way blast, manager's number NOT included, so
+//                      reps can't reply to the manager (announcements).
+//   • conversational — appends "Reply to <Manager>: <phone>" so reps can
+//                      text the manager back directly.
+//
+// Recipients are always re-derived server-side from the manager's zone
+// roster — the client only sends rep *names* to limit the send, never
+// raw phone numbers, so a manager can never blast an arbitrary number
+// through the company line.
+
+async function messageTeam(manager, body) {
+  const message = String(body.message || '').trim()
+  if (!message) return json(400, { ok: false, error: 'message required' })
+  const mode = body.mode === 'broadcast' ? 'broadcast' : 'conversational'
+
+  // Optional allow-list of rep names the manager kept checked. Absent ⇒
+  // everyone textable in the zone.
+  const picked =
+    Array.isArray(body.recipients) && body.recipients.length > 0
+      ? new Set(body.recipients.map((n) => normalizeName(n)))
+      : null
+
+  const reps = await fetchRepsInZoneBridged(manager.zone)
+  const targets = reps.filter(
+    (r) =>
+      r.active &&
+      r.phone &&
+      (!picked || picked.has(normalizeName(r.name))),
+  )
+  if (targets.length === 0) {
+    return json(200, { ok: true, mode, sent: 0, total: 0, note: 'No textable reps matched' })
+  }
+
+  // Conversational mode tacks the manager's callback number onto the end.
+  const finalMessage =
+    mode === 'conversational' && manager.phone
+      ? `${message}\n\n— Reply to ${manager.name}: ${prettyPhone(manager.phone)}`
+      : message
+
+  // Dry run: report who would get it + the exact text, send nothing.
+  if (body.dry) {
+    return json(200, {
+      ok: true, dry: true, mode, total: targets.length,
+      recipients: targets.map((r) => r.name), preview: finalMessage,
+    })
+  }
+
+  const base =
+    process.env.URL || process.env.DEPLOY_URL || process.env.PUBLIC_SITE_URL || ''
+
+  let sent = 0
+  const failures = []
+  for (const r of targets) {
+    try {
+      const res = await fetch(`${base}/.netlify/functions/ghl-sms`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: r.phone, name: r.name, message: finalMessage }),
+      })
+      if (res.ok) sent++
+      else failures.push({ name: r.name, status: res.status })
+    } catch (e) {
+      failures.push({ name: r.name, error: e.message })
+    }
+  }
+
+  console.log(`messageTeam (${manager.zone}, ${mode}): sent ${sent}/${targets.length}`, failures.length ? failures : '')
+  return json(200, { ok: true, mode, sent, total: targets.length, failures })
+}
+
+// +19418375657 → (941) 837-5657 ; leaves anything non-standard as-is.
+function prettyPhone(phone) {
+  const d = String(phone || '').replace(/\D/g, '')
+  const ten = d.length === 11 && d.startsWith('1') ? d.slice(1) : d
+  if (ten.length !== 10) return String(phone || '')
+  return `(${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${ten.slice(6)}`
 }
 
 function json(status, body) {
