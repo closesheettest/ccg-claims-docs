@@ -36,6 +36,7 @@ const TMS_REP_ZONES_URL =
 const ZONE_TEAMS = {
   'Zone 1': 'SQUAD',
   'Zone 3': 'SHARKS',
+  'Zone 4': 'HURRICANE',
 }
 // All zones we want to show even at zero, in display order. Keeps the
 // bar stable Monday morning when nobody's signed yet.

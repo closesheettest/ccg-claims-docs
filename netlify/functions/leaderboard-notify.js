@@ -121,7 +121,7 @@ export const handler = async (event) => {
 }
 
 // Per-team flair on the lead line; generic trophy for any unnamed zone.
-const LEAD_EMOJI = { SHARKS: '🦈', SQUAD: '💥' }
+const LEAD_EMOJI = { SHARKS: '🦈', SQUAD: '💥', HURRICANE: '🌀' }
 // Full https:// so phones reliably turn it into a tappable link — SMS
 // can't hide a URL behind "click here" text the way email can.
 const DASHBOARD_URL = 'https://us-shingle-rep-dashboard.netlify.app'
