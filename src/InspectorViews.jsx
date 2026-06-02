@@ -3457,7 +3457,14 @@ function InspectorJobDetail({ me, jobId, onBack }) {
             .from(SIGNED_BUCKET)
             .upload(path, p.file, {
               contentType: p.file.type || "image/jpeg",
-              upsert: false,
+              // upsert MUST be true: attempt 1 often writes the file
+              // server-side but the client sees a network error on a weak
+              // signal; attempt 2 then re-PUTs the SAME path. With upsert
+              // false that returns "resource already exists", throws, and
+              // halts every remaining photo. The path already carries
+              // job + label + timestamp + index, so it's unique per photo
+              // — upsert only ever overwrites the identical retry.
+              upsert: true,
             });
           if (!error) {
             uploadedPhotos[i] = { path, label: p.label };
