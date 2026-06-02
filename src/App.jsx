@@ -11,6 +11,18 @@ import { supabase } from "./lib/supabase";
 import { InspectorMobileApp, InspectorsAdminPanel, InspectorSetupPage, ManagerInspectorReports, InspectionAssignmentsPanel, ManagerRoutePlanner, PAHandoffPanel, PAReportPanel, SitSoldPaReportPanel } from "./InspectorViews";
 import InspectionPhotosModal from "./InspectionPhotosModal";
 import JnMatchPickerModal from "./JnMatchPickerModal";
+import ManagerRecordsView from "./ManagerRecordsView";
+
+// Zone-scoped Regional Manager records page is reached via
+// ?manager=<token>. When that token is in the URL, we short-circuit
+// the entire rep-facing app and render ManagerRecordsView instead —
+// the manager never sees the intake / signing / homepage flow.
+// Token is validated server-side in /.netlify/functions/manager-records-api.
+function getManagerTokenFromUrl() {
+  if (typeof window === "undefined") return null;
+  const t = new URLSearchParams(window.location.search).get("manager");
+  return t && t.trim() ? t.trim() : null;
+}
 
 // Resilient POST to /jobnimbus-sync. The original signing flow fired
 // the JN sync fire-and-forget with a single attempt — a 429 rate-limit,
@@ -3900,6 +3912,15 @@ export default function App() {
   // BEFORE all the heavy claim-intake state initializes.
   if (typeof window !== "undefined") {
     const params = new URLSearchParams(window.location.search);
+    // Regional Manager records page — token-gated zone-scoped view.
+    // Tony / Richard / Chad / Sam each get a URL like
+    // /?manager=<token>; tapping it opens this view instead of the
+    // rep intake homepage. Token is validated server-side in the
+    // manager-records-api function.
+    const managerToken = params.get("manager");
+    if (managerToken && managerToken.trim()) {
+      return <ManagerRecordsView token={managerToken.trim()} />;
+    }
     const inspectorSetupToken = params.get("inspector_setup");
     if (inspectorSetupToken) {
       return (
