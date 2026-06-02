@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@netlify/blobs": "^8.2.0",
     "@supabase/supabase-js": "^2.49.1",
     "html2pdf.js": "^0.10.3",
     "lucide-react": "^0.379.0",

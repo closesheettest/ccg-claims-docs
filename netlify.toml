@@ -39,3 +39,14 @@
 # the other crons. Silent on clean hours.
 [functions."cron-retry-missing-certs"]
   schedule = "20 * * * *"
+
+# Scheduled function: leaderboard hype texts. Every 5 minutes it checks
+# the weekly team standings (via zone-leaderboard) and, when a NEW team
+# takes strict 1st place, texts all active sales reps + regional
+# managers a "<team> just took 1st place" message so the field feels the
+# race move. Last leader is remembered in Netlify Blobs; silent unless
+# the lead actually changes hands. The SMS fan-out runs in the separate
+# leaderboard-blast-background function. The function file also declares
+# this via exports.config.schedule; this toml entry keeps it visible.
+[functions."leaderboard-notify"]
+  schedule = "*/5 * * * *"
