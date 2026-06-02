@@ -27,14 +27,21 @@
 //   • Manual GET /.netlify/functions/leaderboard-notify for debugging;
 //     add ?dry=1 to detect + report without sending.
 //
-// Required env: VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY (used by the
-// leaderboard fn it calls) and URL (auto-set by Netlify, base for the
-// internal function calls).
+// State (last-known leader) lives in one row of the Supabase
+// leaderboard_state table — same anon-key REST access every other
+// function here uses, so no extra infra or env. One-time setup SQL:
+//
+//   create table if not exists leaderboard_state (
+//     id text primary key, zone text, team text, count int,
+//     week text, updated_at timestamptz default now());
+//   grant select, insert, update on leaderboard_state to anon;
+//
+// Required env: VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY and URL
+// (auto-set by Netlify, base for the internal function calls).
 
-import { getStore } from '@netlify/blobs'
-
-const STORE = 'leaderboard'
-const KEY = 'leader'
+const SB_URL = process.env.VITE_SUPABASE_URL
+const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY
+const STATE_ID = 'leader'
 
 export const handler = async (event) => {
   const dry = !!(event?.queryStringParameters?.dry)
@@ -61,13 +68,7 @@ export const handler = async (event) => {
 
   // 2. Read the remembered leader (week-stamped). Different week ⇒ treat
   //    as no prior leader so the first strict lead of the week fires.
-  const store = getStore(STORE)
-  let prev = null
-  try {
-    prev = await store.get(KEY, { type: 'json' })
-  } catch (e) {
-    console.warn('Blobs read failed (treating as no prior leader):', e.message || e)
-  }
+  const prev = await readState()
   const prevZone = prev && prev.week === week ? prev.zone : null
 
   const changed = hasStrictLeader && top.zone !== prevZone
@@ -75,12 +76,9 @@ export const handler = async (event) => {
   // 3. Persist current state. On a strict leader, store it. On a tie /
   //    all-zero, keep this week's prior leader but reset across weeks.
   const nextState = hasStrictLeader
-    ? { zone: top.zone, team: top.team, count: top.count, week }
-    : { zone: prevZone, week }
-  if (!dry) {
-    try { await store.setJSON(KEY, nextState) }
-    catch (e) { console.warn('Blobs write failed:', e.message || e) }
-  }
+    ? { id: STATE_ID, zone: top.zone, team: top.team, count: top.count, week }
+    : { id: STATE_ID, zone: prevZone, team: null, count: null, week }
+  if (!dry) await writeState(nextState)
 
   if (!changed) {
     return json(200, {
@@ -139,6 +137,47 @@ function buildMessage(top, runner) {
   lines.push('Who’s next?!')
   lines.push(`👉 Click here for the full details: ${DASHBOARD_URL}`)
   return lines.join('\n')
+}
+
+// ── Leader state in Supabase (single row, id='leader') ──────────────
+// A read failure or missing row is treated as "no prior leader" — worst
+// case we fire one extra hype text, never a crash.
+
+async function readState() {
+  if (!SB_URL || !SB_KEY) return null
+  try {
+    const res = await fetch(
+      `${SB_URL}/rest/v1/leaderboard_state?id=eq.${STATE_ID}&select=zone,week&limit=1`,
+      { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } },
+    )
+    if (!res.ok) { console.warn('state read failed:', res.status); return null }
+    const rows = await res.json().catch(() => [])
+    return rows[0] || null
+  } catch (e) {
+    console.warn('state read threw:', e.message || e)
+    return null
+  }
+}
+
+async function writeState(state) {
+  if (!SB_URL || !SB_KEY) return
+  try {
+    // Upsert on the primary key so the single 'leader' row is updated in
+    // place (resolution=merge-duplicates).
+    const res = await fetch(`${SB_URL}/rest/v1/leaderboard_state`, {
+      method: 'POST',
+      headers: {
+        apikey: SB_KEY,
+        Authorization: `Bearer ${SB_KEY}`,
+        'Content-Type': 'application/json',
+        Prefer: 'resolution=merge-duplicates,return=minimal',
+      },
+      body: JSON.stringify(state),
+    })
+    if (!res.ok) console.warn('state write failed:', res.status, await res.text().catch(() => ''))
+  } catch (e) {
+    console.warn('state write threw:', e.message || e)
+  }
 }
 
 function json(status, body) {
