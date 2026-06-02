@@ -124,7 +124,9 @@ export const handler = async (event) => {
 
 // Per-team flair on the lead line; generic trophy for any unnamed zone.
 const LEAD_EMOJI = { SHARKS: '🦈', SQUAD: '💥' }
-const DASHBOARD_URL = 'us-shingle-rep-dashboard.netlify.app'
+// Full https:// so phones reliably turn it into a tappable link — SMS
+// can't hide a URL behind "click here" text the way email can.
+const DASHBOARD_URL = 'https://us-shingle-rep-dashboard.netlify.app'
 
 function buildMessage(top, runner) {
   const lead = LEAD_EMOJI[top.team] || '🏆'
@@ -135,7 +137,7 @@ function buildMessage(top, runner) {
     lines.push(`🥈 ${runner.team} right behind at ${runner.count}.`)
   }
   lines.push('Who’s next?!')
-  lines.push(`👉 Your dashboard tells the full story: ${DASHBOARD_URL}`)
+  lines.push(`👉 Click here for the full details: ${DASHBOARD_URL}`)
   return lines.join('\n')
 }
 
