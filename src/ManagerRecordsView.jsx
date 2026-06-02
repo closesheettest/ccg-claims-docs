@@ -369,7 +369,14 @@ function DealRow({ deal, selected, onSelect, theme }) {
           <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>
             {deal.homeowner_name || '(no name on record)'}
           </div>
-          <div style={{ color: '#475569', fontSize: 12.5, marginTop: 2 }}>
+          {/* At-a-glance JN state badges — one per piece of data the
+              manager is responsible for. Each badge has a tone (green
+              done / amber pending / red missing / gray n/a) so the
+              eye can sweep the column. Hover for the long-form
+              meaning. Computed from local data only — no JN API
+              calls per row. */}
+          <BadgeRow deal={deal} />
+          <div style={{ color: '#475569', fontSize: 12.5, marginTop: 6 }}>
             {[deal.address, deal.city, deal.zip].filter(Boolean).join(' · ') || '(no address)'}
           </div>
           <div style={{ color: '#64748b', fontSize: 11.5, marginTop: 4 }}>
@@ -390,6 +397,100 @@ function DealRow({ deal, selected, onSelect, theme }) {
         </div>
       </div>
     </div>
+  )
+}
+
+// One row of small status pills per deal. Each pill answers a
+// yes/no/pending question the manager cares about. Tones:
+//   done   — green   — locally we can confirm this is good
+//   pending— amber   — requested / partially done / awaiting JN
+//   missing— red     — should be there, isn't
+//   na     — gray    — doesn't apply to this deal (e.g. no PA forms)
+function BadgeRow({ deal }) {
+  const badges = []
+
+  // JN job — is this deal in JobNimbus at all?
+  if (deal.jn_job_id) {
+    badges.push({ label: 'JN', tone: 'done', title: `Linked to JN job ${deal.jn_job_id}` })
+  } else if (deal.signed_at) {
+    const hoursAgo = (Date.now() - new Date(deal.signed_at).getTime()) / 3_600_000
+    if (hoursAgo > 24) {
+      badges.push({ label: 'JN', tone: 'missing', title: 'Signed >24h ago but never made it into JN' })
+    } else {
+      badges.push({ label: 'JN', tone: 'pending', title: 'Signed — JN sync in progress' })
+    }
+  } else {
+    badges.push({ label: 'JN', tone: 'na', title: 'Not signed yet — JN sync hasn\'t been attempted' })
+  }
+
+  // Cert — is the certificate in JN?
+  const certStatuses = ['Cert Sent', 'Cert Uploaded', 'Awaiting Signature', 'Completed', 'Won']
+  if (deal.jn_status && certStatuses.includes(deal.jn_status)) {
+    badges.push({ label: 'Cert', tone: 'done', title: `Cert tracked in JN (${deal.jn_status})` })
+  } else if (deal.jn_status === 'Awaiting Cert') {
+    badges.push({ label: 'Cert', tone: 'pending', title: 'JN flagged as awaiting cert — may need a re-push' })
+  } else if (deal.signed_at && deal.jn_job_id) {
+    badges.push({ label: 'Cert', tone: 'pending', title: 'Signed + in JN — cert status not yet confirmed' })
+  } else {
+    badges.push({ label: 'Cert', tone: 'na', title: 'Cert generation hasn\'t started' })
+  }
+
+  // Inspection result — what did the inspector find?
+  const result = deal.inspection_result || deal.result
+  if (result) {
+    const tone = /storm/i.test(result) ? 'pending' : 'done'
+    badges.push({ label: result, tone, title: `Inspection result: ${result}` })
+  }
+
+  // LOR + PAC — only show if the deal had PA forms requested.
+  const docs = String(deal.docs_signed || '').toLowerCase()
+  if (docs.includes('lor')) {
+    if (deal.signed_at) {
+      badges.push({ label: 'LOR', tone: 'done', title: 'Letter of Representation signed' })
+    } else {
+      badges.push({ label: 'LOR', tone: 'pending', title: 'Letter of Representation — signature pending' })
+    }
+  }
+  if (docs.includes('pac')) {
+    if (deal.signed_at) {
+      badges.push({ label: 'PAC', tone: 'done', title: 'Public Adjuster Contract signed' })
+    } else {
+      badges.push({ label: 'PAC', tone: 'pending', title: 'Public Adjuster Contract — signature pending' })
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+      {badges.map((b, i) => (
+        <Badge key={i} label={b.label} tone={b.tone} title={b.title} />
+      ))}
+    </div>
+  )
+}
+
+function Badge({ label, tone, title }) {
+  const palette = {
+    done:    { bg: '#dcfce7', fg: '#166534', border: '#86efac' },  // green
+    pending: { bg: '#fef3c7', fg: '#92400e', border: '#fcd34d' },  // amber
+    missing: { bg: '#fee2e2', fg: '#991b1b', border: '#fca5a5' },  // red
+    na:      { bg: '#f1f5f9', fg: '#64748b', border: '#cbd5e1' },  // gray
+  }[tone] || { bg: '#f1f5f9', fg: '#64748b', border: '#cbd5e1' }
+  const dot = { done: '✓', pending: '⏰', missing: '✗', na: '—' }[tone] || '·'
+  return (
+    <span
+      title={title}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 4,
+        background: palette.bg, color: palette.fg,
+        border: `1px solid ${palette.border}`,
+        borderRadius: 999, padding: '2px 8px',
+        fontSize: 11, fontWeight: 700,
+        lineHeight: 1.3, whiteSpace: 'nowrap',
+      }}
+    >
+      <span style={{ fontSize: 10 }}>{dot}</span>
+      {label}
+    </span>
   )
 }
 
