@@ -152,10 +152,19 @@ exports.handler = async (event) => {
       });
       const body = await r.json().catch(() => ({}));
       if (!r.ok || !body.ok) {
+        const errText = body.error || `status ${r.status}`;
         failures.push({
           client_name: rec.client_name,
           jn_job_id: rec.jn_job_id,
-          error: body.error || `status ${r.status}`,
+          error: errText,
+          // "No photos found" can't be fixed by retrying — the inspector
+          // classified a result but never uploaded photos, so no cert
+          // can render until photos arrive (e.g. CYMONE Taylor Valmond
+          // 2026-06-02). Don't SMS-spam every hour on it; we still
+          // attempt generation each run so it auto-clears the moment
+          // photos appear, and the daily orphan alert surfaces it once
+          // a day for a human to chase the missing photos.
+          noPhotos: /no photos found/i.test(errText),
         });
         continue;
       }
@@ -191,17 +200,21 @@ exports.handler = async (event) => {
     }
   }
 
-  // 4. Quiet by default. Only text admin if a retry FAILED — successes
-  //    are the silent happy path. Same pattern as cron-push-pending-results.
-  if (failures.length > 0 && process.env.ADMIN_ALERT_PHONE && base) {
+  // 4. Quiet by default. Only text admin if a retry FAILED for a reason
+  //    retrying could fix — successes are the silent happy path, and
+  //    "no photos" failures are excluded (a human chasing photos is the
+  //    only fix; the daily orphan alert covers those once a day). Same
+  //    quiet-on-success pattern as cron-push-pending-results.
+  const alertable = failures.filter((f) => !f.noPhotos);
+  if (alertable.length > 0 && process.env.ADMIN_ALERT_PHONE && base) {
     try {
-      const items = failures.slice(0, 5).map((f) => {
+      const items = alertable.slice(0, 5).map((f) => {
         const err = String(f.error || "unknown").slice(0, 60);
         return `${f.client_name || f.jn_job_id} (${err})`;
       });
-      const more = failures.length > items.length ? ` +${failures.length - items.length} more` : "";
+      const more = alertable.length > items.length ? ` +${alertable.length - items.length} more` : "";
       const message =
-        `⚠ Cert-retry failures: ${failures.length}/${candidates.length}\n` +
+        `⚠ Cert-retry failures: ${alertable.length}/${candidates.length}\n` +
         items.join("\n") +
         more +
         `\nCheck Netlify logs for full detail.`;
@@ -221,8 +234,9 @@ exports.handler = async (event) => {
     }
   }
 
+  const noPhotoCount = failures.filter((f) => f.noPhotos).length;
   console.log(
-    `cron-retry-missing-certs: scanned=${candidates.length} succeeded=${succeeded} failed=${failures.length}`,
+    `cron-retry-missing-certs: scanned=${candidates.length} succeeded=${succeeded} failed=${failures.length} (no-photo, non-alerted=${noPhotoCount})`,
   );
   return json(200, {
     ok: true,
