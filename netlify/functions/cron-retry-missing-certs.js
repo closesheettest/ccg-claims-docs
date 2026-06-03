@@ -120,6 +120,31 @@ exports.handler = async (event) => {
   const successes = [];
   for (const rec of candidates) {
     try {
+      // 2a. Re-push cf_string_34 to JN FIRST. The cert generator refuses
+      //     to render unless the JN job's cf_string_34 is set to one of
+      //     the three result labels. We've seen rows where jn_pushed_at
+      //     was stamped but the JN field never actually landed (8 certs
+      //     stuck 24h+, 2026-06-03), which left them in a dead zone:
+      //     cron-push-pending-results skips them (jn_pushed_at set) and
+      //     the generator 400s ("Needs Inspection"). push-result-to-jn
+      //     is idempotent, so re-firing it here is safe and self-heals
+      //     that case. (Retail's record_type/location swap is left to
+      //     the push cron / manual flow — the cert only needs cf_string_34.)
+      const pushRes = await fetch(`${base}/.netlify/functions/push-result-to-jn`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inspectionId: rec.id }),
+      });
+      const pushBody = await pushRes.json().catch(() => ({}));
+      if (!pushRes.ok || !pushBody.jn_updated) {
+        failures.push({
+          client_name: rec.client_name,
+          jn_job_id: rec.jn_job_id,
+          error: `cf_string_34 push failed: ${pushBody.jn_update_error || pushBody.error || `status ${pushRes.status}`}`,
+        });
+        continue;
+      }
+
       const r = await fetch(`${base}/.netlify/functions/generate-and-upload-insp-report`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

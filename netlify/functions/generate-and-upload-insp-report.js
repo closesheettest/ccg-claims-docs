@@ -308,8 +308,14 @@ async function fetchSupabasePhotosByJnId(jnJobId, { resultLabel } = {}) {
     return [];
   }
   try {
+    // A single JN job can have more than one inspections row (the
+    // double-submit dupe pattern — e.g. Rainer jakob 2026-06-03: one
+    // real row with 42 photos + one empty phantom row, 0 photos). A
+    // bare limit=1 with no ordering returned the phantom and the cert
+    // 400'd with "No photos found". Pull all non-cancelled rows and
+    // pick the one that actually has photos.
     const lookupRes = await fetch(
-      `${SB_URL}/rest/v1/inspections?jn_job_id=eq.${encodeURIComponent(jnJobId)}&select=inspection_photos&limit=1`,
+      `${SB_URL}/rest/v1/inspections?jn_job_id=eq.${encodeURIComponent(jnJobId)}&cancelled_at=is.null&select=inspection_photos`,
       { headers: sbHeaders },
     );
     if (!lookupRes.ok) {
@@ -317,7 +323,10 @@ async function fetchSupabasePhotosByJnId(jnJobId, { resultLabel } = {}) {
       return [];
     }
     const rows = await lookupRes.json().catch(() => []);
-    const raw = rows?.[0]?.inspection_photos;
+    const photoCounts = (Array.isArray(rows) ? rows : []).map((r) =>
+      Array.isArray(r.inspection_photos) ? r.inspection_photos : [],
+    );
+    const raw = photoCounts.sort((a, b) => b.length - a.length)[0] || [];
     if (!Array.isArray(raw) || raw.length === 0) return [];
 
     // For Retail inspections the inspector is prompted to walk the
