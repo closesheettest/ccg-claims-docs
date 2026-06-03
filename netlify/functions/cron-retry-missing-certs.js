@@ -26,7 +26,12 @@
 //                      do anything with those, so they'd fail every
 //                      hour and spam the admin SMS. Lock the filter
 //                      to the three values the cert template knows
-//                      how to render.
+//                      how to render. NOTE: these are the lowercase
+//                      DB tokens ('damage'/'retail'/'no_damage'), NOT
+//                      the Title-Case cert display labels — an earlier
+//                      version filtered on display names that never
+//                      matched any row, so the catch-net silently
+//                      retried nothing and certs piled up.
 //   • jn_job_id        IS NOT NULL  (JN job exists)
 //   • cancelled_at     IS NULL      (not voided)
 //   • jn_cert_uploaded_at IS NULL   (cert not in JN yet)
@@ -82,7 +87,7 @@ exports.handler = async (event) => {
   //    The cert generator can't render those (only the three real
   //    inspection outcomes have certificate templates), so retrying
   //    them is wasted work + a daily false-positive admin SMS.
-  const VALID_RESULTS = ['No Damage', 'Wear & Tear', 'Storm Damage'];
+  const VALID_RESULTS = ['damage', 'retail', 'no_damage'];
   const resultInParam = VALID_RESULTS.map((r) => `"${r}"`).join(',');
   const cutoffIso = new Date(Date.now() - 15 * 60 * 1000).toISOString();
   const q =
