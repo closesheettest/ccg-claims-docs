@@ -3181,6 +3181,18 @@ const SIDE_LABELS = {
   rear: "REAR-facing",
 };
 
+// Build an Apple Maps driving-directions URL for a job. Uses geocoded
+// lat/lng when present (most precise), else the full address string.
+// maps.apple.com universal links open the Maps app on iPhone and the web
+// map on other devices, so this is safe to hand any inspector.
+function mapsDirectionsUrl(job) {
+  if (job?.latitude != null && job?.longitude != null) {
+    return `https://maps.apple.com/?daddr=${job.latitude},${job.longitude}&dirflg=d`;
+  }
+  const dest = [job?.address, job?.city, job?.state, job?.zip].filter(Boolean).join(", ");
+  return `https://maps.apple.com/?daddr=${encodeURIComponent(dest)}&dirflg=d`;
+}
+
 function InspectorJobDetail({ me, jobId, onBack }) {
   const [job, setJob] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -3657,12 +3669,40 @@ function InspectorJobDetail({ me, jobId, onBack }) {
 
       <div style={{ padding: 14, background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb" }}>
         <div style={{ fontSize: 18, fontWeight: 700 }}>{job.client_name}</div>
-        <div style={{ fontSize: 13, color: "#374151", marginTop: 4 }}>
+        {/* Tappable address → opens Apple Maps with driving directions to
+            the home. Prefer geocoded lat/lng when we have it (most precise),
+            otherwise hand Maps the full address string. The maps.apple.com
+            universal link opens the Maps app on iPhone and the web map
+            elsewhere, so it's safe for any device. */}
+        <a
+          href={mapsDirectionsUrl(job)}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ display: "block", fontSize: 13, color: "#1d4ed8", marginTop: 4, textDecoration: "none" }}
+        >
           📍 {job.address}<br />
           {job.city}, {job.state} {job.zip}
-        </div>
+        </a>
+        <a
+          href={mapsDirectionsUrl(job)}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            display: "inline-block",
+            marginTop: 8,
+            padding: "8px 14px",
+            background: "#0a84ff",
+            color: "#fff",
+            borderRadius: 10,
+            fontSize: 14,
+            fontWeight: 700,
+            textDecoration: "none",
+          }}
+        >
+          🧭 Directions (Apple Maps)
+        </a>
         {job.sales_rep_name && (
-          <div style={{ fontSize: 12, color: "#6b7280", marginTop: 6 }}>
+          <div style={{ fontSize: 12, color: "#6b7280", marginTop: 8 }}>
             Rep: {job.sales_rep_name}{job.mobile && <> · {job.mobile}</>}
           </div>
         )}
