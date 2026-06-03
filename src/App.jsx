@@ -4042,6 +4042,11 @@ export default function App() {
   // useRef flips immediately so the second invocation early-returns.
   // (Goldstein triple-submit on 2026-05-20 — 3 inserts in 37ms.)
   const inspSubmittingRef = useRef(false);
+  // Same re-entrancy guard for the signing/claim flow (submitDoc). The
+  // inspection flow got this after the Goldstein triple-submit; submitDoc
+  // didn't, which let the Laura vanegas double-submit through on 2026-05-28
+  // (4 inspection rows + 2 JN contacts/jobs in 4ms).
+  const docSubmittingRef = useRef(false);
   const [inspectionOnly, setInspectionOnly] = useState(false);
   const [duplicateRecord, setDuplicateRecord] = useState(null);
   const [inspSubmitAttempted, setInspSubmitAttempted] = useState(false);
@@ -6340,6 +6345,13 @@ const renderSmsTemplate = (key, vars) => {
   };
 
   const submitDoc = async () => {
+    // Synchronous re-entrancy guard — flips BEFORE the try so a fast
+    // double-tap (or React StrictMode double-firing the SendingScreen
+    // onMount) can't slip a second call through. The second call bails
+    // here without entering the try, so it never runs the finally below
+    // and can't clear the owning call's lock. The finally always releases.
+    if (docSubmittingRef.current) return;
+    docSubmittingRef.current = true;
     try {
       setSubmitAttempted(true);
       if (!pendingSend && !isSigningComplete) {
@@ -6846,6 +6858,8 @@ const renderSmsTemplate = (key, vars) => {
     } catch (err) {
       setIsSubmitting(false);
       alert(err?.message || "Something went wrong. Please try again.");
+    } finally {
+      docSubmittingRef.current = false;
     }
   };
 
