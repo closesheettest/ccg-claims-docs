@@ -6253,6 +6253,10 @@ const renderSmsTemplate = (key, vars) => {
         salesRepId: data.salesRepId || "",
         pdfBase64: base64Content,
         pdfFilename: "Free-Roof-Inspection-Agreement.pdf",
+        // Lets the sync function write jn_job_id back server-side, so a
+        // closed browser tab can't strand the row (the client write-back
+        // below still runs as a redundant fast path).
+        inspectionId: newInspId,
         isTest: isTestMode,
         testOverrideEmail: isTestMode ? testOverrideEmail : undefined,
         testOverridePhone: isTestMode ? testOverridePhone : undefined,

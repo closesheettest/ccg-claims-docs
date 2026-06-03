@@ -416,6 +416,13 @@ exports.handler = async (event) => {
     // JN with their ORIGINAL signed_at, not today's date. Accepts a
     // Unix-seconds integer OR an ISO 8601 string.
     soldDate,
+    // Optional: the Supabase inspections.id this signing came from. When
+    // present, we write jn_job_id back to that row HERE, server-side, the
+    // moment the JN job exists — instead of relying on the rep's browser
+    // staying open long enough to do it. Browser-side back-write still
+    // runs too (harmless redundancy); this closes the gap when the tab
+    // is closed mid-sync, which stranded records like Heidi/Stephen.
+    inspectionId,
     isTest, testOverrideEmail, testOverridePhone,
   } = body;
 
@@ -692,13 +699,52 @@ exports.handler = async (event) => {
       );
     }
 
+    // ── Server-side jn_job_id write-back ────────────────────────────────
+    // The reliable half of the fix: persist the link the instant the JN
+    // job exists, so a closed browser tab can't strand the row. Only
+    // patches rows where jn_job_id IS NULL (never clobbers an existing
+    // link). Non-fatal — failure here just falls back to the browser
+    // write + the daily orphan cron.
+    let dbLinked = false;
+    if (inspectionId && jobId) {
+      const SB_URL = process.env.VITE_SUPABASE_URL;
+      const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
+      if (SB_URL && SB_KEY) {
+        try {
+          const patchRes = await fetch(
+            `${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}&jn_job_id=is.null`,
+            {
+              method: "PATCH",
+              headers: {
+                apikey: SB_KEY,
+                Authorization: `Bearer ${SB_KEY}`,
+                "Content-Type": "application/json",
+                Prefer: "return=minimal",
+              },
+              body: JSON.stringify({ jn_job_id: jobId, docs_signed: "insp" }),
+            },
+          );
+          dbLinked = patchRes.ok;
+          if (!patchRes.ok) {
+            console.warn("Server-side jn_job_id write-back failed:", patchRes.status, (await patchRes.text()).slice(0, 200));
+          } else {
+            console.log("Server-side jn_job_id write-back OK:", jobId, "→ inspection", inspectionId);
+          }
+        } catch (e) {
+          console.warn("Server-side jn_job_id write-back threw:", e.message);
+        }
+      } else {
+        console.warn("Supabase env missing — skipping server-side write-back");
+      }
+    }
+
     console.log("=== JN Sync Complete ===");
-    console.log("Contact:", contactId, contactAction, "| Job:", jobId, "| Status:", status, "| File:", fileResult, "| Agreement uploaded:", agreementUploaded, "| Linked existing:", linkedExisting);
+    console.log("Contact:", contactId, contactAction, "| Job:", jobId, "| Status:", status, "| File:", fileResult, "| Agreement uploaded:", agreementUploaded, "| Linked existing:", linkedExisting, "| DB linked:", dbLinked);
     return {
       statusCode: 200,
       body: JSON.stringify({
         success: true,
-        contactId, contactAction, jobId, status, fileResult, linkedExisting,
+        contactId, contactAction, jobId, status, fileResult, linkedExisting, dbLinked,
         // Explicit agreement outcome — the client and any catch-net can act
         // on these instead of assuming success:true means the doc landed.
         agreementExpected, agreementUploaded, agreementMissing, agreementFailed,

@@ -105,41 +105,61 @@ exports.handler = async (event) => {
   //    confirm time + name match client-side.
   const TIME_TOLERANCE_MS = 60 * 60 * 1000;
 
+  // Reliable exact-field lookup. JN's ?filter= hits indexed fields and
+  // returns the job even when the fuzzy ?search= misses it — the bug
+  // that stranded these orphans (search returns ~50 recent jobs and
+  // routinely omits the one we want).
+  async function jnJobFilter(filterObj) {
+    try {
+      const url = `${JN_BASE}/jobs?filter=${encodeURIComponent(JSON.stringify(filterObj))}&size=20`;
+      const r = await fetch(url, { headers: jnHeaders });
+      if (!r.ok) return [];
+      const b = await r.json().catch(() => ({}));
+      return b.results || b.jobs || b.items || [];
+    } catch {
+      return [];
+    }
+  }
+  async function jnJobSearch(q) {
+    try {
+      const r = await fetch(`${JN_BASE}/jobs?search=${encodeURIComponent(q)}&size=50`, { headers: jnHeaders });
+      if (!r.ok) return [];
+      const b = await r.json().catch(() => ({}));
+      return b.results || b.jobs || b.items || [];
+    } catch {
+      return [];
+    }
+  }
+
   async function searchJn(signing) {
     if (signing.jn_job_id) {
       return { match: { jnid: signing.jn_job_id }, reason: "linked by jn_job_id" };
     }
     const name = (signing.client_name || "").trim();
-    if (!name) return null;
     const parts = name.split(/\s+/).filter(Boolean);
-    const firstName = (parts[0] || "").toLowerCase();
     const lastName = (parts[parts.length - 1] || "").toLowerCase();
-    if (lastName.length < 2) return null;
-    const streetNum = (signing.address || "").match(/^\s*(\d+)/)?.[1] || null;
-
-    // Fire multiple search queries in parallel. JN's /jobs?search
-    // returns ~50 results regardless of how specific the term is, but
-    // a more selective term (last name + street number, or street
-    // number alone) tends to surface different records than a bare
-    // last-name search. Combining the results gives us the broadest
-    // chance of finding the right JN job for older signings whose
-    // jobs have been displaced from "recent" by intervening activity.
-    const queries = [];
-    if (lastName.length >= 3 && streetNum) queries.push(`${lastName} ${streetNum}`);
-    if (streetNum && streetNum.length >= 3) queries.push(streetNum);
-    queries.push(lastName.length >= 3 ? lastName : name);
+    const address = (signing.address || "").trim();
+    const streetNum = address.match(/^\s*(\d+)/)?.[1] || null;
+    if (!name && !address) return null;
 
     try {
-      const responses = await Promise.all(queries.map(async (q) => {
-        const r = await fetch(`${JN_BASE}/jobs?search=${encodeURIComponent(q)}&size=50`, { headers: jnHeaders });
-        if (!r.ok) return [];
-        const body = await r.json().catch(() => ({}));
-        return body.results || body.jobs || body.items || [];
-      }));
+      // Candidate source 1 (reliable): exact address_line1 filter.
+      // Candidate source 2 (backstop): fuzzy last-name / street searches,
+      //   for rows whose JN address_line1 differs in formatting (St vs
+      //   Street) so the exact filter misses.
+      const fuzzyQueries = [];
+      if (lastName.length >= 3 && streetNum) fuzzyQueries.push(`${lastName} ${streetNum}`);
+      if (streetNum && streetNum.length >= 3) fuzzyQueries.push(streetNum);
+      if (name) fuzzyQueries.push(lastName.length >= 3 ? lastName : name);
+      const candLists = await Promise.all([
+        address ? jnJobFilter({ must: [{ term: { address_line1: address } }] }) : Promise.resolve([]),
+        ...fuzzyQueries.map((q) => jnJobSearch(q)),
+      ]);
+
       // Combine + dedupe by jnid.
       const seenIds = new Set();
       const raw = [];
-      for (const list of responses) {
+      for (const list of candLists) {
         for (const j of list) {
           const id = j.jnid || j.id;
           if (id && !seenIds.has(id)) {
@@ -148,46 +168,57 @@ exports.handler = async (event) => {
           }
         }
       }
-      // Strict: job name must contain the last name.
-      let cands = raw.filter((j) => (j.name || "").toLowerCase().includes(lastName));
-      // Tighten by first name if any survivor has it.
-      if (firstName && firstName !== lastName) {
-        const tight = cands.filter((j) => (j.name || "").toLowerCase().includes(firstName));
-        if (tight.length > 0) cands = tight;
-      }
-      if (cands.length === 0) return null;
-      // Time match: JN's date_start must be within ±60 min of signed_at.
-      // Kills the false-positive case where an old job of the same
-      // person gets matched to a fresh signing.
-      const signedMs = signing.signed_at ? new Date(signing.signed_at).getTime() : null;
-      if (signedMs == null || Number.isNaN(signedMs)) {
-        return { match: cands[0], reason: `name match, no signed_at to compare (${cands.length})` };
-      }
+      if (raw.length === 0) return null;
+
       // Prefer cf_date_5 (the app's sold-date custom field) over the
       // native date_start — when the sync linked to an existing JN
       // job, date_start sometimes ends up 0 even though cf_date_5
       // holds the real sold time. Whichever is non-zero, use.
-      function soldTimeOf(j) {
+      const soldTimeOf = (j) => {
         if (j.cf_date_5 && Number(j.cf_date_5) > 0) return Number(j.cf_date_5);
         if (j.date_start && Number(j.date_start) > 0) return Number(j.date_start);
         return null;
-      }
-      const ranked = cands
-        .map((c) => {
-          const t = soldTimeOf(c);
-          return {
-            c,
-            deltaMs: t == null ? Number.POSITIVE_INFINITY : Math.abs(t * 1000 - signedMs),
-          };
-        })
-        .filter((x) => x.deltaMs <= TIME_TOLERANCE_MS)
-        .sort((a, b) => a.deltaMs - b.deltaMs);
-      if (ranked.length === 0) return null;
-      const best = ranked[0];
-      return {
-        match: { jnid: best.c.jnid || best.c.id, name: best.c.name, sold_time: soldTimeOf(best.c) },
-        reason: `name + time match (Δ${Math.round(best.deltaMs / 1000)}s)`,
       };
+      const addrNorm = address.toLowerCase();
+      const nameHit = (j) => lastName.length >= 2 && (j.name || "").toLowerCase().includes(lastName);
+      const addrHit = (j) => addrNorm && (j.address_line1 || "").trim().toLowerCase() === addrNorm;
+
+      const signedMs = signing.signed_at ? new Date(signing.signed_at).getTime() : null;
+      const scored = raw.map((j) => {
+        const t = soldTimeOf(j);
+        const deltaMs =
+          signedMs == null || t == null ? Number.POSITIVE_INFINITY : Math.abs(t * 1000 - signedMs);
+        return { j, deltaMs, name: nameHit(j) ? 1 : 0, addr: addrHit(j) ? 1 : 0 };
+      });
+
+      // Tier 1: a job created within ±60min of this signing. That time
+      // proximity is the decisive guard against matching an OLD job of
+      // the same person to a fresh signing. Among those, prefer
+      // address-exact, then name match, then smallest delta.
+      const timed = scored
+        .filter((s) => s.deltaMs <= TIME_TOLERANCE_MS)
+        .sort((a, b) => b.addr - a.addr || b.name - a.name || a.deltaMs - b.deltaMs);
+      if (timed.length) {
+        const best = timed[0];
+        return {
+          match: { jnid: best.j.jnid || best.j.id, name: best.j.name },
+          reason: `time match (Δ${Math.round(best.deltaMs / 1000)}s${best.addr ? ", addr-exact" : ""})`,
+        };
+      }
+
+      // Tier 2: no usable time signal on either side, but exactly one
+      // candidate is an exact address + name match. Safe to link.
+      const fallback = scored.filter(
+        (s) => s.addr && s.name && s.deltaMs === Number.POSITIVE_INFINITY,
+      );
+      if (fallback.length === 1) {
+        const best = fallback[0];
+        return {
+          match: { jnid: best.j.jnid || best.j.id, name: best.j.name },
+          reason: "address+name match (no time signal)",
+        };
+      }
+      return null;
     } catch (e) {
       return { error: e.message };
     }
