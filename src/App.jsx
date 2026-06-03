@@ -4118,11 +4118,12 @@ export default function App() {
     inspOnlyHeadline: "Inspection Booked — We'll Be In Touch! 🏠",
     inspOnlyOpening: "Thank you for signing your Free Roof Inspection Agreement with U.S. Shingle & Metal LLC. Your inspector will be in touch shortly to schedule a visit.",
     inspOnlySteps: JSON.stringify([
-      "📞 Your sales rep will contact you within 24 hours to schedule the inspection.",
+      "⏳ Because of the high demand of inspections, this can be up to 7 days before you hear anything about the results.",
       "🏠 A licensed inspector will visit your property and document any roof damage.",
       "📊 All findings and photos are forwarded to a licensed Public Adjuster for review.",
       "✅ If storm damage is confirmed, you'll be contacted about your options for filing a claim.",
       "💚 No damage found? No problem — the inspection is completely free with no obligation.",
+      "🚪 If no storm damage is present, a rep will come out to your house to deliver and explain the inspection.",
     ]),
     inspOnlyClosing: "Thank you for trusting U.S. Shingle & Metal LLC. We'll be in touch soon! 🏠",
     ussWelcomeHeading: "What Happens Next",
