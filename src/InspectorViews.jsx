@@ -3231,6 +3231,13 @@ function InspectorJobDetail({ me, jobId, onBack }) {
   // in depth — even if the inspector taps Submit, the click is a
   // no-op until the state settles).
   const [pendingAdds, setPendingAdds] = useState(0);
+  // "Homeowner backed out" Lost flow — available at any stage. When the
+  // inspector arrives and the homeowner has changed their mind, they open
+  // this panel, type WHY, and we mark the job Lost (here + in JobNimbus)
+  // instead of walking the photo wizard. Reason is required.
+  const [lostPanelOpen, setLostPanelOpen] = useState(false);
+  const [lostReason, setLostReason] = useState("");
+  const [lostSubmitting, setLostSubmitting] = useState(false);
 
   const slopeCountKey = (story, side) => `${story}_${side}`;
   const getSlopeCount = (story, side) => slopeCounts[slopeCountKey(story, side)] || 0;
@@ -3525,6 +3532,42 @@ function InspectorJobDetail({ me, jobId, onBack }) {
     }
   }
 
+  // Mark the job Lost (homeowner backed out). No photos — just a required
+  // reason. Saves the reason to our records and, server-side, flips the JN
+  // job to "Lost" and drops the reason in as a JN Note.
+  async function submitLost() {
+    const reason = lostReason.trim();
+    if (!reason) {
+      setSubmitMsg({ kind: "error", text: "Add a reason before marking Lost." });
+      return;
+    }
+    setLostSubmitting(true);
+    setSubmitMsg(null);
+    try {
+      const res = await fetch("/.netlify/functions/inspector-submit-result", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          inspectionId: jobId,
+          result: "lost",
+          lost_reason: reason,
+          inspector_name: me.name,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.ok) {
+        setSubmitMsg({ kind: "error", text: body.error || `Could not mark Lost: ${res.status}` });
+        return;
+      }
+      setSubmitMsg({ kind: "success", text: "Marked Lost — reason saved and JobNimbus updated." });
+      setTimeout(() => { onBack(); }, 1600);
+    } catch (e) {
+      setSubmitMsg({ kind: "error", text: e.message || "Unknown error" });
+    } finally {
+      setLostSubmitting(false);
+    }
+  }
+
   if (loading) return <div style={{ padding: 16, color: "#6b7280" }}>Loading job…</div>;
   if (!job) return (
     <div style={{ padding: 16 }}>
@@ -3624,6 +3667,98 @@ function InspectorJobDetail({ me, jobId, onBack }) {
           </div>
         )}
       </div>
+
+      {/* HOMEOWNER BACKED OUT — Lost flow. Available the moment the job
+          opens so an inspector who arrives to a changed-mind homeowner
+          can bail out without walking the photo wizard. Requires a reason,
+          which we save and also push to JobNimbus (job → Lost + a Note). */}
+      {!lostPanelOpen ? (
+        <button
+          type="button"
+          onClick={() => { setSubmitMsg(null); setLostPanelOpen(true); }}
+          disabled={submitting}
+          style={{
+            alignSelf: "flex-start",
+            padding: "10px 14px",
+            background: "#fff",
+            color: "#991b1b",
+            border: "1px solid #fca5a5",
+            borderRadius: 10,
+            fontSize: 14,
+            fontWeight: 700,
+            cursor: submitting ? "default" : "pointer",
+            opacity: submitting ? 0.55 : 1,
+          }}
+        >
+          🚫 Homeowner backed out — mark Lost
+        </button>
+      ) : (
+        <section style={{ padding: 16, background: "#fef2f2", border: "2px solid #fca5a5", borderRadius: 12, display: "grid", gap: 12 }}>
+          <div style={{ fontSize: 18, fontWeight: 700, color: "#991b1b" }}>
+            🚫 Mark this inspection Lost
+          </div>
+          <div style={{ fontSize: 14, color: "#7f1d1d", lineHeight: 1.5 }}>
+            Use this if the homeowner changed their mind or won't let you inspect.
+            Tell us what happened — this note is saved and sent to the office.
+          </div>
+          <textarea
+            value={lostReason}
+            onChange={(e) => setLostReason(e.target.value)}
+            placeholder="e.g. Homeowner says spouse no longer wants an inspection."
+            rows={4}
+            disabled={lostSubmitting}
+            style={{
+              width: "100%",
+              padding: 12,
+              fontSize: 15,
+              border: "1px solid #fca5a5",
+              borderRadius: 8,
+              resize: "vertical",
+              fontFamily: "inherit",
+              boxSizing: "border-box",
+            }}
+          />
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={submitLost}
+              disabled={lostSubmitting || !lostReason.trim()}
+              style={{
+                padding: "12px 18px",
+                background: lostReason.trim() ? "#dc2626" : "#fca5a5",
+                color: "#fff",
+                border: "none",
+                borderRadius: 10,
+                fontSize: 15,
+                fontWeight: 700,
+                cursor: lostSubmitting || !lostReason.trim() ? "default" : "pointer",
+              }}
+            >
+              {lostSubmitting ? "Saving…" : "Confirm — mark Lost"}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setLostPanelOpen(false); setLostReason(""); }}
+              disabled={lostSubmitting}
+              style={{ ...secondaryBtn, opacity: lostSubmitting ? 0.55 : 1 }}
+            >
+              Cancel
+            </button>
+          </div>
+          {submitMsg && (
+            <div style={{
+              padding: "10px 12px",
+              borderRadius: 8,
+              fontSize: 14,
+              background: submitMsg.kind === "success" ? "#ecfdf5" : "#fff",
+              border: `1px solid ${submitMsg.kind === "success" ? "#86efac" : "#fca5a5"}`,
+              color: submitMsg.kind === "success" ? "#065f46" : "#991b1b",
+            }}>
+              {submitMsg.text}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Progress strip — shows the current step + total photos so far */}
       <div style={{

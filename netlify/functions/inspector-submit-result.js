@@ -50,14 +50,21 @@ exports.handler = async (event) => {
   const inspectionId = (body.inspectionId || "").trim();
   const result = (body.result || "").trim();
   const inspectorName = (body.inspector_name || "").trim();
+  // Free-text reason, required only when result === "lost".
+  const lostReason = (body.lost_reason || "").trim();
   const photoPaths = Array.isArray(body.photo_paths) ? body.photo_paths : [];
   // Optional per-photo labels — when present, used as the JN file
   // description so attachments are named like "Left slope 1 damage"
   // instead of the generic "Inspector roof photo".
   const photoLabels = Array.isArray(body.photo_labels) ? body.photo_labels : [];
   if (!inspectionId) return json(400, { ok: false, error: "inspectionId required" });
-  if (!["damage", "no_damage", "retail"].includes(result)) {
-    return json(400, { ok: false, error: "result must be damage | no_damage | retail" });
+  if (!["damage", "no_damage", "retail", "lost"].includes(result)) {
+    return json(400, { ok: false, error: "result must be damage | no_damage | retail | lost" });
+  }
+  // A Lost result MUST carry a reason — that's the whole point of the
+  // button (homeowner backed out at the door, etc.). No reason → reject.
+  if (result === "lost" && !lostReason) {
+    return json(400, { ok: false, error: "lost_reason is required for a Lost result" });
   }
 
   const SB_URL = process.env.VITE_SUPABASE_URL;
@@ -84,6 +91,79 @@ exports.handler = async (event) => {
   const rows = await inspRes.json();
   const insp = rows?.[0];
   if (!insp) return json(404, { ok: false, error: "Inspection not found" });
+
+  // ── LOST short-circuit ──
+  // A "Lost" result means the inspection never happened (homeowner
+  // changed their mind at the door, no-show, etc.). There are no roof
+  // photos, no cert, and no PA/retail fan-out — just record WHY and
+  // reflect it in JN. Handle it here so none of the photo/cert logic
+  // below runs.
+  if (result === "lost") {
+    const lostUpdates = {
+      result: "lost",
+      result_at: new Date().toISOString(),
+      lost_reason: lostReason,
+    };
+    if (inspectorName) lostUpdates.inspector_name = inspectorName;
+    const lostRes = await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${inspectionId}`, {
+      method: "PATCH",
+      headers: sbHeaders,
+      body: JSON.stringify(lostUpdates),
+    });
+    if (!lostRes.ok) {
+      return json(500, { ok: false, error: `Could not save Lost result: ${await lostRes.text()}` });
+    }
+
+    // Reflect in JN (best-effort): set the result field to "Lost" and drop
+    // a Note on the job with the inspector's reason so the office sees why
+    // the job died without leaving the app. These are AWAITED — on Netlify
+    // the Lambda freezes the moment the handler returns, so a fire-and-
+    // forget fetch would be killed mid-flight and the note would never land.
+    let jnResultUpdated = false;
+    let jnNoteAdded = false;
+    if (insp.jn_job_id) {
+      try {
+        const r = await fetch(`${JN_BASE}/jobs/${insp.jn_job_id}`, {
+          method: "PUT",
+          headers: jnHeaders,
+          body: JSON.stringify({ jnid: insp.jn_job_id, cf_string_34: "Lost" }),
+        });
+        if (r.ok) jnResultUpdated = true;
+        else console.warn(`Lost cf_string_34 PUT failed (${r.status}):`, (await r.text()).slice(0, 200));
+      } catch (e) {
+        console.warn("Lost cf_string_34 PUT exception:", e.message);
+      }
+
+      const noteText =
+        `🚫 Inspection LOST${inspectorName ? ` (inspector: ${inspectorName})` : ""}: ${lostReason}`;
+      try {
+        const r = await fetch(`${JN_BASE}/activities`, {
+          method: "POST",
+          headers: jnHeaders,
+          body: JSON.stringify({
+            record_type_name: "Note",
+            note: noteText,
+            primary: { id: insp.jn_job_id, type: "job" },
+            related: [{ id: insp.jn_job_id, type: "job" }],
+            is_status_change: false,
+          }),
+        });
+        if (r.ok) jnNoteAdded = true;
+        else console.warn(`Lost JN note POST failed (${r.status}):`, (await r.text()).slice(0, 200));
+      } catch (e) {
+        console.warn("Lost JN note POST exception:", e.message);
+      }
+    }
+
+    return json(200, {
+      ok: true,
+      inspection_id: inspectionId,
+      result: "lost",
+      jn_result_updated: jnResultUpdated,
+      jn_note_added: jnNoteAdded,
+    });
+  }
+  // ── END LOST ──
 
   // 2. Update the inspection result.
   const updates = {

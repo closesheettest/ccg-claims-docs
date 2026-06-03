@@ -235,6 +235,8 @@ function AddressAutocomplete({ value, onChange, onPlaceSelected, placeholder, st
   const [verified, setVerified] = React.useState(false);
   const [loadError, setLoadError] = React.useState(null);
   const [ready, setReady] = React.useState(false);
+  // True when the rep picked a city/region-only suggestion (no street).
+  const [streetMissing, setStreetMissing] = React.useState(false);
 
   React.useEffect(() => {
     let mounted = true;
@@ -271,6 +273,18 @@ function AddressAutocomplete({ value, onChange, onPlaceSelected, placeholder, st
               else if (types.includes("postal_code")) zip = c.longText || c.shortText || "";
             }
             const fullAddr = [streetNum, route].filter(Boolean).join(" ");
+            // Guard against city/region-only picks. Google will happily return
+            // a "locality" suggestion (just a city) with NO street_number and
+            // NO route — that yields a blank street while city/state/zip fill,
+            // which is exactly how Katherine's and Paul's address-less records
+            // slipped through. Treat any pick with no street as NOT verified,
+            // warn the rep, and do NOT overwrite a usable address with "".
+            if (!fullAddr) {
+              setVerified(false);
+              setStreetMissing(true);
+              return;
+            }
+            setStreetMissing(false);
             setVerified(true);
             onPlaceSelected?.({ address: fullAddr, city, state, zip, formatted: place.formattedAddress || fullAddr });
           } catch (err) {
@@ -362,6 +376,10 @@ function AddressAutocomplete({ value, onChange, onPlaceSelected, placeholder, st
           {!ready ? (
             <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4, fontFamily: "'Nunito', sans-serif" }}>
               Loading address search…
+            </div>
+          ) : streetMissing ? (
+            <div style={{ fontSize: 11, color: "#dc2626", marginTop: 4, fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
+              ⚠️ That's just a city — pick the full STREET address (with house number) from the dropdown.
             </div>
           ) : verified && value ? (
             <div style={{ fontSize: 11, color: "#166534", marginTop: 4, fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
@@ -6097,7 +6115,7 @@ const renderSmsTemplate = (key, vars) => {
     if (inspSubmittingRef.current) return;
     inspSubmittingRef.current = true;
     setInspSubmitAttempted(true);
-    if (!effectiveInspSig || !inspData.clientName || !inspData.address) {
+    if (!effectiveInspSig || !inspData.clientName || !(inspData.address || "").trim()) {
       inspSubmittingRef.current = false;
       return;
     }
@@ -6487,6 +6505,16 @@ const renderSmsTemplate = (key, vars) => {
       let archiveInspectionId = null;
 
       if (selectedDocs.includes("insp")) {
+        // Final guard: never write an inspection without a street address.
+        // The step-5 wizard gate already requires it, but this is the last
+        // line of defense so an address-less record can't reach the
+        // inspector queue (where it strands with no place to route to).
+        if (!(data.address || "").trim()) {
+          setIsSubmitting(false);
+          setPendingSend(false);
+          alert("A street address is required before signing. Go back and pick the full street address (with house number) from the dropdown.");
+          return;
+        }
         // Save to inspections table
         const { data: insertedInsp, error: inspInsertErr } = await supabase.from("inspections").insert([{
           client_name: [data.homeowner1, data.homeowner2].filter(Boolean).join(" & "),
