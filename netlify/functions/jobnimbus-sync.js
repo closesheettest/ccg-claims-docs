@@ -3,6 +3,16 @@
 
 const JN_BASE = "https://app.jobnimbus.com/api1";
 
+// JN location id 3 = "U.S. SHINGLE - Insurance" — the home for every
+// inspection/PA job this app creates. Retail leads (incl. "Credit Denial")
+// live on location id 1 ("U.S. SHINGLE"). We key the duplicate-job guard
+// on this so a homeowner who already has a *retail* job at the address
+// gets a NEW inspection job created under the same contact, rather than
+// the inspection linking onto — and eventually overwriting — their retail
+// credit-denial job. One contact ends up owning both: the retail job
+// (history preserved) and the insurance inspection.
+const INSURANCE_LOCATION_ID = 3;
+
 // TEMPORARY: mirror of PA_FORMS_DISABLED in src/App.jsx. While true,
 // this server forces the JN status to "Sit Sold Insp" no matter what
 // docsSignedList the client sent — guarantees no claim ever gets
@@ -48,13 +58,23 @@ function normalizeZip(z) {
   return m ? m[0] : "";
 }
 
-async function findContact(apiKey, address, zip, firstName, lastName) {
+// Last 10 digits of a phone number — strips formatting and any leading
+// country code so "(904) 442-4428", "9044424428" and "+19044424428" all
+// compare equal.
+function normalizePhone(p) {
+  const digits = String(p || "").replace(/\D/g, "");
+  return digits.length >= 10 ? digits.slice(-10) : "";
+}
+
+async function findContact(apiKey, address, zip, firstName, lastName, phone, email) {
   try {
     const streetNum = (address || "").trim().split(/\s+/)[0] || "";
     const targetAddrNorm = normalizeAddress(address);
     const targetZip5 = normalizeZip(zip);
     const fnLower = (firstName || "").toLowerCase().trim();
     const lnLower = (lastName || "").toLowerCase().trim();
+    const targetPhone10 = normalizePhone(phone);
+    const targetEmail = (email || "").toLowerCase().trim();
 
     // Helper: does this contact look like a match for our homeowner?
     function isMatch(c) {
@@ -62,6 +82,15 @@ async function findContact(apiKey, address, zip, firstName, lastName) {
       const cZip5 = normalizeZip(c.zip);
       const cFn = (c.first_name || "").toLowerCase().trim();
       const cLn = (c.last_name || "").toLowerCase().trim();
+
+      // Strongest: same email or same phone is an identity match regardless
+      // of address/name spelling — this is what catches the homeowner who
+      // came in months earlier as a retail lead (e.g. last name typo'd) so
+      // we reuse that contact instead of spawning a duplicate.
+      const cEmail = (c.email || "").toLowerCase().trim();
+      if (targetEmail && cEmail && cEmail === targetEmail) return "email";
+      const cPhones = [c.mobile_phone, c.home_phone, c.work_phone].map(normalizePhone).filter(Boolean);
+      if (targetPhone10 && cPhones.includes(targetPhone10)) return "phone";
 
       // Strong: normalized address contains the street number AND zip matches (or no zip on either side)
       const streetNumHit = streetNum && cAddrNorm.includes(streetNum.toLowerCase());
@@ -97,8 +126,8 @@ async function findContact(apiKey, address, zip, firstName, lastName) {
           const tier = isMatch(c);
           if (tier) ranked.push({ c, tier });
         }
-        // Prefer strong-addr over anything else.
-        const order = { "strong-addr": 0, "medium-addr": 1, "name-exact": 2, "name+streetnum": 3 };
+        // Prefer identity (email/phone) > strong-addr > everything else.
+        const order = { email: 0, phone: 1, "strong-addr": 2, "medium-addr": 3, "name-exact": 4, "name+streetnum": 5 };
         ranked.sort((a, b) => order[a.tier] - order[b.tier]);
         if (ranked[0]) {
           const top = ranked[0];
@@ -124,6 +153,28 @@ async function findContact(apiKey, address, zip, firstName, lastName) {
             console.log(`Found by ${tier} (name search):`, c.jnid || c.id, c.display_name);
             return c;
           }
+        }
+      }
+    }
+
+    // Pass 3 & 4: search JN by phone digits, then by email. These are the
+    // identity signals the dedup previously lacked — a homeowner whose
+    // retail lead was filed under a misspelled name (so name + street-num
+    // search missed it) is still caught here, preventing a duplicate
+    // contact.
+    for (const q of [targetPhone10, targetEmail].filter(Boolean)) {
+      const res = await fetch(`${JN_BASE}/contacts?search=${encodeURIComponent(q)}&size=20`, {
+        headers: jnHeaders(apiKey),
+      });
+      if (!res.ok) continue;
+      const d = await res.json().catch(() => ({}));
+      const contacts = d.results || d.contacts || d.items || [];
+      console.log(`Identity search "${q}" returned:`, contacts.length, "contacts");
+      for (const c of contacts) {
+        const tier = isMatch(c);
+        if (tier) {
+          console.log(`Found by ${tier} (identity search):`, c.jnid || c.id, c.display_name);
+          return c;
         }
       }
     }
@@ -154,16 +205,25 @@ async function findJobOnContactByAddress(apiKey, contactId, address) {
     const data = await r.json().catch(() => ({}));
     const list = data.results || data.jobs || data.items || [];
     if (!Array.isArray(list) || list.length === 0) return null;
+    // Only INSURANCE-location jobs count as "ours" to link/re-sync onto.
+    // A retail job at the same address (e.g. a Credit Denial lead on
+    // location 1) is deliberately ignored so the inspection becomes a
+    // separate job under this same contact instead of overwriting it.
+    const inspJobs = list.filter((j) => (j.location && j.location.id) === INSURANCE_LOCATION_ID);
+    if (inspJobs.length === 0) {
+      console.log("findJobOnContactByAddress: contact has jobs but none on the insurance location — will create a new inspection job");
+      return null;
+    }
     const targetNorm = normalizeAddress(address);
     const streetNum = (address || "").trim().split(/\s+/)[0] || "";
     // Prefer an exact normalized-address match; fall back to street-num.
-    const exact = list.find((j) => {
+    const exact = inspJobs.find((j) => {
       const jAddrNorm = normalizeAddress([j.address_line1, j.city].filter(Boolean).join(" "));
       return targetNorm && jAddrNorm && (jAddrNorm === targetNorm || jAddrNorm.includes(targetNorm) || targetNorm.includes(jAddrNorm));
     });
     if (exact) return exact;
     if (streetNum) {
-      const partial = list.find((j) => {
+      const partial = inspJobs.find((j) => {
         const jAddrNorm = normalizeAddress([j.address_line1, j.city].filter(Boolean).join(" "));
         return jAddrNorm.includes(streetNum.toLowerCase());
       });
@@ -419,7 +479,7 @@ exports.handler = async (event) => {
 
     // ── Always search first ─────────────────────────────────────────────
     console.log("Searching for existing contact...");
-    const existing = await findContact(apiKey, address, zip, firstName, lastName);
+    const existing = await findContact(apiKey, address, zip, firstName, lastName, phone, email);
 
     let contactId = null;
     let contactAction = "none";
