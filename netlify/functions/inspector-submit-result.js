@@ -27,7 +27,8 @@
 //                    JOBNIMBUS_API_KEY.
 
 const JN_BASE = "https://app.jobnimbus.com/api1";
-const JN_FILES_BASE = "https://api.jobnimbus.com/files/v1/uploads/url";
+const JN_FILES_UPLOADS = "https://api.jobnimbus.com/files/v1/uploads";
+const JN_FILES_BASE = `${JN_FILES_UPLOADS}/url`;
 const SIGNED_BUCKET = "signed-documents";
 
 exports.handler = async (event) => {
@@ -115,60 +116,25 @@ exports.handler = async (event) => {
     for (let i = 0; i < photoPaths.length; i++) {
       const path = photoPaths[i];
       const label = photoLabels[i] || "Inspector roof photo";
-      try {
-        // Download from Supabase Storage. Storage object URL pattern:
-        // {SB_URL}/storage/v1/object/{bucket}/{path}
-        const dlRes = await fetch(
-          `${SB_URL}/storage/v1/object/${SIGNED_BUCKET}/${path}`,
-          { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } },
-        );
-        if (!dlRes.ok) {
-          jnErrors.push({ path, step: "download", status: dlRes.status });
-          continue;
-        }
-        const buf = Buffer.from(await dlRes.arrayBuffer());
-        const filename = path.split("/").pop() || "photo.jpg";
-        const contentType = filename.endsWith(".png") ? "image/png" : "image/jpeg";
-
-        // JN file upload: 2-step. Ask JN for a presigned URL, then PUT
-        // the bytes to that URL. The `description` uses the wizard
-        // label so JN attachments are human-readable.
-        const initRes = await fetch(JN_FILES_BASE, {
-          method: "POST",
-          headers: jnHeaders,
-          body: JSON.stringify({
-            related: [insp.jn_job_id],
-            type: 1,
-            filename,
-            description: label,
-          }),
-        });
-        if (!initRes.ok) {
-          jnErrors.push({ path, step: "init", status: initRes.status, detail: (await initRes.text()).slice(0, 200) });
-          continue;
-        }
-        const initJson = await initRes.json().catch(() => ({}));
-        const presignedUrl = initJson.url || initJson.upload_url || initJson.presigned_url;
-        if (!presignedUrl) {
-          jnErrors.push({ path, step: "init", error: "no presigned URL" });
-          continue;
-        }
-        const putRes = await fetch(presignedUrl, {
-          method: "PUT",
-          headers: { "Content-Type": contentType },
-          body: buf,
-        });
-        if (!putRes.ok) {
-          jnErrors.push({ path, step: "s3_put", status: putRes.status });
-          continue;
-        }
-        jnUploaded++;
-      } catch (e) {
-        jnErrors.push({ path, error: e.message || "Unknown" });
-      }
+      const r = await uploadPhotoToJn({
+        sbUrl: SB_URL, sbKey: SB_KEY, jnHeaders,
+        jobId: insp.jn_job_id, path, label,
+      });
+      if (r.success) jnUploaded++;
+      else jnErrors.push({ path, ...r.error });
     }
   }
-  // We're done iterating photoPaths here; loop variables are scoped.
+  // Surface a JN photo-upload shortfall loudly. Historically this step
+  // failed silently — JN returns the presigned URL nested under `data`,
+  // so reading only top-level `url` found nothing and every photo was
+  // skipped while the function still returned ok (the Mark Hamersly
+  // incident, 2026-06). Now the upload reads the right field, retries
+  // transient blips, and any remaining gap is logged + returned.
+  if (insp.jn_job_id && photoPaths.length > 0 && jnUploaded < photoPaths.length) {
+    console.error(
+      `⚠ JN PHOTO SHORTFALL: ${jnUploaded}/${photoPaths.length} uploaded for job ${insp.jn_job_id} ("${insp.client_name}"). Errors: ${JSON.stringify(jnErrors).slice(0, 500)}`,
+    );
+  }
 
   // 4. Push the result back to JN and trigger the result-specific
   //    fan-out. Everything fire-and-forget so the inspector's
@@ -256,6 +222,7 @@ exports.handler = async (event) => {
     inspection_id: inspectionId,
     result,
     photos_added: photoPaths.length,
+    jn_photos_expected: insp.jn_job_id ? photoPaths.length : 0,
     jn_photos_uploaded: jnUploaded,
     jn_errors: jnErrors,
     jn_result_updated: jnResultUpdated,
@@ -264,6 +231,74 @@ exports.handler = async (event) => {
     retail_jn_fired: retailJnFired,
   });
 };
+
+// Upload one Supabase-Storage photo to a JN job. 3-step JN flow:
+//   1. POST .../uploads/url  → presigned S3 URL + file jnid (NESTED under
+//      `data` — the original code read top-level `url` and silently found
+//      nothing, so no photo ever uploaded).
+//   2. PUT the bytes to that URL.
+//   3. POST .../uploads/<jnid>/complete → JN finalizes + renders the
+//      attachment/thumbnail.
+// Each photo gets up to 3 attempts so a transient JN 5xx/429 doesn't drop
+// it. Returns { success } or { success:false, error:{ step, ... } }.
+async function uploadPhotoToJn({ sbUrl, sbKey, jnHeaders, jobId, path, label }) {
+  const transient = (s) => s === 429 || (s >= 500 && s <= 599);
+  let lastErr = { step: "unknown" };
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const dlRes = await fetch(`${sbUrl}/storage/v1/object/${SIGNED_BUCKET}/${path}`, {
+        headers: { apikey: sbKey, Authorization: `Bearer ${sbKey}` },
+      });
+      if (!dlRes.ok) { lastErr = { step: "download", status: dlRes.status }; break; }
+      const buf = Buffer.from(await dlRes.arrayBuffer());
+      const filename = path.split("/").pop() || "photo.jpg";
+      const contentType = filename.endsWith(".png") ? "image/png" : "image/jpeg";
+
+      const initRes = await fetch(JN_FILES_BASE, {
+        method: "POST",
+        headers: jnHeaders,
+        body: JSON.stringify({ related: [jobId], type: 1, filename, description: label }),
+      });
+      if (!initRes.ok) {
+        lastErr = { step: "init", status: initRes.status, detail: (await initRes.text()).slice(0, 200) };
+        if (transient(initRes.status) && attempt < 3) { await sleep(attempt * 800); continue; }
+        break;
+      }
+      const initJson = await initRes.json().catch(() => ({}));
+      const presignedUrl = initJson.data?.url || initJson.url || initJson.upload_url || initJson.presigned_url;
+      const fileJnid = initJson.data?.jnid || initJson.jnid;
+      if (!presignedUrl) { lastErr = { step: "init", error: "no presigned URL" }; break; }
+
+      const putRes = await fetch(presignedUrl, {
+        method: "PUT",
+        headers: { "Content-Type": contentType },
+        body: buf,
+      });
+      if (!putRes.ok) {
+        lastErr = { step: "s3_put", status: putRes.status };
+        if (transient(putRes.status) && attempt < 3) { await sleep(attempt * 800); continue; }
+        break;
+      }
+
+      // Finalize so JN renders the attachment. Best-effort: the bytes are
+      // already in S3, so a complete-step blip doesn't fail the upload.
+      if (fileJnid) {
+        await fetch(`${JN_FILES_UPLOADS}/${fileJnid}/complete`, {
+          method: "POST", headers: jnHeaders, body: "{}",
+        }).catch(() => {});
+      }
+      return { success: true };
+    } catch (e) {
+      lastErr = { step: "exception", error: e.message || "Unknown" };
+      if (attempt < 3) { await sleep(attempt * 800); continue; }
+    }
+  }
+  return { success: false, error: lastErr };
+}
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
 function json(status, body) {
   return {
