@@ -83,7 +83,14 @@ export const handler = async (event) => {
     const matched = []
     let unattributed = 0
     for (const j of jobs) {
-      const status = String(j.status_name || '').trim().toLowerCase()
+      // Normalize the JN status before matching: JN names several stages
+      // with separators/punctuation ("Sit - Sold", not "Sit Sold"), so a
+      // plain lowercase compare missed sold deals. Collapse everything
+      // non-alphanumeric to single spaces so "Sit - Sold" → "sit sold".
+      const status = String(j.status_name || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim()
       if (!SOLD_STATUSES.has(status)) continue
       const soldMs = soldDateMs(j)
       if (soldMs == null || soldMs < startMs || soldMs > endMs) continue
