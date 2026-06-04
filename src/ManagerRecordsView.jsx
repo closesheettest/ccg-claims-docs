@@ -59,6 +59,7 @@ export default function ManagerRecordsView({ token }) {
   const [selectedDealId, setSelectedDealId] = useState(null)
   const [openReps, setOpenReps] = useState({}) // repName → bool
   const [cancelledOpen, setCancelledOpen] = useState(false)
+  const [companyLeadsOpen, setCompanyLeadsOpen] = useState(true)
 
   useEffect(() => {
     let cancelled = false
@@ -319,27 +320,41 @@ export default function ManagerRecordsView({ token }) {
                 background: '#fff', border: '2px solid #f59e0b', borderRadius: 12,
                 marginBottom: 14, overflow: 'hidden',
               }}>
-                <div style={{ background: '#fffbeb', padding: '12px 16px', borderBottom: '1px solid #fde68a' }}>
-                  <div style={{ fontSize: 15, fontWeight: 800, color: '#92400e' }}>
-                    🤝 Pass Out Company Leads ({filteredCompanyLeads.length})
+                <button
+                  type="button"
+                  onClick={() => setCompanyLeadsOpen((v) => !v)}
+                  style={{
+                    width: '100%', background: '#fffbeb', border: 'none',
+                    borderBottom: companyLeadsOpen ? '1px solid #fde68a' : 'none',
+                    padding: '12px 16px', textAlign: 'left', cursor: 'pointer',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
+                  }}
+                >
+                  <span>
+                    <span style={{ display: 'block', fontSize: 15, fontWeight: 800, color: '#92400e' }}>
+                      🤝 Pass Out Company Leads ({filteredCompanyLeads.length})
+                    </span>
+                    <span style={{ display: 'block', fontSize: 12.5, color: '#92400e', marginTop: 2 }}>
+                      Retail inspections from reps who aren't active — get a rep over there to set an appointment and sell it.
+                    </span>
+                  </span>
+                  <span style={{ fontSize: 18, color: '#92400e', marginLeft: 8 }}>{companyLeadsOpen ? '▾' : '▸'}</span>
+                </button>
+                {companyLeadsOpen && (
+                  <div>
+                    {filteredCompanyLeads.map((d) => (
+                      <DealRow
+                        key={`cl-${d.source}-${d.id}`}
+                        deal={d}
+                        selected={d.id === selectedDealId}
+                        onSelect={() => setSelectedDealId((prev) => (prev === d.id ? null : d.id))}
+                        theme={zoneTheme}
+                        token={token}
+                        onDealPatch={patchDeal}
+                      />
+                    ))}
                   </div>
-                  <div style={{ fontSize: 12.5, color: '#92400e', marginTop: 2 }}>
-                    Retail inspections from reps who aren't active — get a rep over there to set an appointment and sell it.
-                  </div>
-                </div>
-                <div>
-                  {filteredCompanyLeads.map((d) => (
-                    <DealRow
-                      key={`cl-${d.source}-${d.id}`}
-                      deal={d}
-                      selected={d.id === selectedDealId}
-                      onSelect={() => setSelectedDealId((prev) => (prev === d.id ? null : d.id))}
-                      theme={zoneTheme}
-                      token={token}
-                      onDealPatch={patchDeal}
-                    />
-                  ))}
-                </div>
+                )}
               </section>
             )}
 
