@@ -58,6 +58,7 @@ export default function ManagerRecordsView({ token }) {
   const [filter, setFilter] = useState('all') // 'all' | 'attention'
   const [selectedDealId, setSelectedDealId] = useState(null)
   const [openReps, setOpenReps] = useState({}) // repName → bool
+  const [cancelledOpen, setCancelledOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -134,6 +135,17 @@ export default function ManagerRecordsView({ token }) {
     [data],
   )
 
+  // Cancelled deals — their own bucket, search applies. Shown collapsed at
+  // the bottom so dead deals don't clutter anyone's active work.
+  const filteredCancelled = useMemo(() => {
+    const list = data?.cancelledDeals || []
+    const q = query.trim().toLowerCase()
+    if (!q) return list
+    return list.filter((d) =>
+      `${d.homeowner_name} ${d.address} ${d.city} ${d.zip}`.toLowerCase().includes(q),
+    )
+  }, [data, query])
+
   const selectedDeal = useMemo(() => {
     if (!selectedDealId || !data) return null
     for (const deals of Object.values(data.dealsByRep || {})) {
@@ -141,6 +153,9 @@ export default function ManagerRecordsView({ token }) {
       if (hit) return hit
     }
     for (const d of data.companyLeads || []) {
+      if (d.id === selectedDealId) return d
+    }
+    for (const d of data.cancelledDeals || []) {
       if (d.id === selectedDealId) return d
     }
     return null
@@ -328,7 +343,7 @@ export default function ManagerRecordsView({ token }) {
               </section>
             )}
 
-            {sortedReps.length === 0 && filteredCompanyLeads.length === 0 ? (
+            {sortedReps.length === 0 && filteredCompanyLeads.length === 0 && filteredCancelled.length === 0 ? (
               <div style={{
                 background: '#fff', border: '1px dashed #cbd5e1', borderRadius: 12,
                 padding: 24, textAlign: 'center', color: '#475569',
@@ -397,6 +412,53 @@ export default function ManagerRecordsView({ token }) {
                 </section>
               )
             })}
+
+            {/* Cancelled deals — their own collapsed bucket at the very
+                bottom so dead deals never clutter a rep's active work. */}
+            {filteredCancelled.length > 0 && (
+              <section style={{
+                background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12,
+                marginTop: 14, overflow: 'hidden',
+              }}>
+                <button
+                  type="button"
+                  onClick={() => setCancelledOpen((v) => !v)}
+                  style={{
+                    width: '100%', background: '#f8fafc', border: 'none',
+                    padding: '12px 16px', textAlign: 'left',
+                    display: 'flex', justifyContent: 'space-between',
+                    alignItems: 'center', cursor: 'pointer', fontSize: 15,
+                  }}
+                >
+                  <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <span style={{
+                      display: 'inline-block', width: 8, height: 8, borderRadius: 4,
+                      background: '#94a3b8',
+                    }} />
+                    <strong style={{ color: '#64748b' }}>Cancelled</strong>
+                    <span style={{ color: '#64748b', fontSize: 13 }}>
+                      · {filteredCancelled.length} deal{filteredCancelled.length === 1 ? '' : 's'}
+                    </span>
+                  </span>
+                  <span style={{ fontSize: 18, color: '#64748b' }}>{cancelledOpen ? '▾' : '▸'}</span>
+                </button>
+                {cancelledOpen && (
+                  <div>
+                    {filteredCancelled.map((d) => (
+                      <DealRow
+                        key={`cx-${d.source}-${d.id}`}
+                        deal={d}
+                        selected={d.id === selectedDealId}
+                        onSelect={() => setSelectedDealId((prev) => (prev === d.id ? null : d.id))}
+                        theme={zoneTheme}
+                        token={token}
+                        onDealPatch={patchDeal}
+                      />
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
           </div>
 
           {/* RIGHT — Detail panel. Absolutely positioned so it sits

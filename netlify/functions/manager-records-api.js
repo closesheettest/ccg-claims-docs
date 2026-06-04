@@ -367,12 +367,27 @@ async function buildRecords(manager) {
     // else: hidden until it becomes Retail or an approved Damage claim.
   }
 
+  // 4c. Cancelled deals get their own bucket — pulled out of every rep
+  //     group (and out of company leads) so a dead deal never clutters a
+  //     rep's active work or keeps an inactive rep on the page. Shown in a
+  //     separate collapsed "Cancelled" section at the bottom.
+  const cancelledDeals = []
+  const cancelledKeys = new Set()
+  for (const d of deals) {
+    if (d.cancelled_at) {
+      cancelledDeals.push(d)
+      cancelledKeys.add(`${d.source}:${d.id}`)
+    }
+  }
+
   // 5. Group by rep — sorted by deal count desc so the busiest reps
   //    bubble up. Within each rep, deals are already in date-desc
-  //    order from the PostgREST query. Every deal from a non-rep is
-  //    excluded (company leads + the hidden in-progress ones alike).
+  //    order from the PostgREST query. Cancelled deals and every deal
+  //    from a non-rep (company leads + hidden in-progress alike) are
+  //    excluded.
   const dealsByRep = {}
   for (const d of deals) {
+    if (cancelledKeys.has(`${d.source}:${d.id}`)) continue
     if (hiddenInactiveKeys.has(`${d.source}:${d.id}`)) continue
     const rep = d.sales_rep_name || '— Unknown —'
     if (!dealsByRep[rep]) dealsByRep[rep] = []
@@ -391,6 +406,7 @@ async function buildRecords(manager) {
       (d) => !hiddenInactiveKeys.has(`${d.source}:${d.id}`) && needsAttention(d),
     ).length,
     company_leads: companyLeads.length,
+    cancelled: cancelledDeals.length,
     reps: Object.keys(dealsByRep).length,
   }
 
@@ -400,6 +416,7 @@ async function buildRecords(manager) {
     repsInZone,
     dealsByRep,
     companyLeads,
+    cancelledDeals,
     inactiveReps,
     pendingSignatures,
     totals,
