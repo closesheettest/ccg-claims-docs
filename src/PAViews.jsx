@@ -1049,6 +1049,9 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
   const [fields, setFields] = useState({});      // epoch seconds | string | null
   const [photos, setPhotos] = useState([]);
   const [photoSource, setPhotoSource] = useState(null);
+  // True when this deal's photos are already copied into our storage, so
+  // the "Save these photos to the app" button is hidden (nothing to do).
+  const [photosInApp, setPhotosInApp] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState(null);
   const [savingKey, setSavingKey] = useState(null);
@@ -1079,8 +1082,11 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
       } else if (body.copied > 0) {
         setBackfillMsg({ kind: "success", text: `Saved ${body.copied} photo${body.copied === 1 ? "" : "s"} to the app. They'll now load instantly.` });
         setPhotoSource("app");
+        setPhotosInApp(true);
       } else {
         setBackfillMsg({ kind: "success", text: body.skipped_reason === "no_jn_photos" ? "No JobNimbus photos to copy." : "Already saved app-side." });
+        // Already in the app — hide the now-pointless save button.
+        if (body.skipped_reason !== "no_jn_photos") setPhotosInApp(true);
       }
     } catch (e) {
       setBackfillMsg({ kind: "error", text: e.message || "Network error" });
@@ -1112,6 +1118,7 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
           setFields(body.fields || {});
           setPhotos(body.photos || []);
           setPhotoSource(body.photo_source || null);
+          setPhotosInApp(!!body.photos_in_app);
         } else {
           // Fall back to local cache if JN read failed.
           setFields(row.pa_fields || {});
@@ -1322,7 +1329,7 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
             {/* Backfill: this deal's photos live only in JobNimbus (an older
                 inspection done before in-app capture). Offer a one-tap copy
                 into our storage so they load instantly from then on. */}
-            {photoSource === "jobnimbus" && photos.length > 0 && (
+            {photoSource === "jobnimbus" && photos.length > 0 && !photosInApp && (
               <div style={{ marginBottom: 10 }}>
                 <button type="button" onClick={backfillPhotos} disabled={backfilling}
                   style={{ ...secondaryBtn, fontSize: 12, fontWeight: 700, padding: "8px 12px" }}>

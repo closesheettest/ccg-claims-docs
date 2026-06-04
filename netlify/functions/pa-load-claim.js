@@ -150,16 +150,21 @@ exports.handler = async (event) => {
   //    entirely on the fields-only fast path (Decision queue cards).
   let photos = [];
   let photoSource = null;
+  // Whether this deal's photos are ALREADY copied into our own storage
+  // (inspection_photos populated). When true, the "Save these photos to
+  // the app" backfill button is pointless — the client uses this to hide
+  // it so a PA isn't offered a save that just answers "already saved".
+  const photosInApp = Array.isArray(insp?.inspection_photos) && insp.inspection_photos.length > 0;
   if (!skipPhotos) {
     photos = await fetchJobPhotos(jnJobId, jnHeaders);
     photoSource = photos.length > 0 ? "jobnimbus" : null;
-    if (photos.length === 0 && Array.isArray(insp?.inspection_photos) && insp.inspection_photos.length > 0) {
+    if (photos.length === 0 && photosInApp) {
       photos = await signSupabasePhotos(insp.inspection_photos, SB_URL, sbHeaders);
       if (photos.length > 0) photoSource = "app";
     }
   }
 
-  return json(200, { ok: true, jn_job_id: jnJobId, fields, photos, photo_source: photoSource, jn_error: jnError });
+  return json(200, { ok: true, jn_job_id: jnJobId, fields, photos, photo_source: photoSource, photos_in_app: photosInApp, jn_error: jnError });
 };
 
 // Build temporary signed URLs for app-captured photos stored in Supabase
