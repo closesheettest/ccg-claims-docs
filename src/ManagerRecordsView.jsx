@@ -378,10 +378,8 @@ export default function ManagerRecordsView({ token }) {
 // Sub-components
 
 function DealRow({ deal, selected, onSelect, theme, token, onDealPatch }) {
-  const attention = isAttention(deal)
-  const pending = isPending(deal)
-  const badgeColor = attention ? '#f59e0b' : '#10b981'
-  const badgeIcon = attention ? (pending ? '⏰' : '⚠') : '✅'
+  const action = actionFor(deal)
+  const tone = ACTION_TONE[action.tone]
 
   // Per-deal push state. busy = which action is running; msg = result.
   const [busy, setBusy] = useState(null) // 'photos' | 'cert' | null
@@ -445,8 +443,8 @@ function DealRow({ deal, selected, onSelect, theme, token, onDealPatch }) {
       }}
       onClick={onSelect}
     >
-      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-        <span style={{ fontSize: 18, color: badgeColor }}>{badgeIcon}</span>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'stretch' }}>
+        <span style={{ fontSize: 18, color: tone.fg, lineHeight: 1.3 }}>{action.icon}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>
             {deal.homeowner_name || '(no name on record)'}
@@ -466,8 +464,10 @@ function DealRow({ deal, selected, onSelect, theme, token, onDealPatch }) {
               result, PA result, and exactly what's in JobNimbus. */}
           <DealFacts deal={deal} push={push} />
 
-          <div style={{ color: '#64748b', fontSize: 11.5, marginTop: 4 }}>
-            {describeDealStatus(deal)}
+          {/* Bold, plain-English instruction — the manager's “what do I
+              do?” answer, color-matched to the status chip. */}
+          <div style={{ marginTop: 6, fontSize: 13, fontWeight: 700, color: tone.fg }}>
+            {action.detail}
           </div>
 
           {/* Action buttons — live JN pushes. */}
@@ -514,6 +514,24 @@ function DealRow({ deal, selected, onSelect, theme, token, onDealPatch }) {
               {msg.ok ? '✓ ' : '✗ '}{msg.text}
             </div>
           )}
+        </div>
+
+        {/* Large status chip — fills the blank space on the right so the
+            manager can tell at a glance whether this deal needs them. */}
+        <div
+          style={{
+            flexShrink: 0,
+            width: 132,
+            display: 'flex', flexDirection: 'column',
+            justifyContent: 'center', alignItems: 'center',
+            textAlign: 'center', gap: 4,
+            borderRadius: 12, padding: '12px 8px',
+            background: tone.bg, color: tone.fg,
+            border: `1.5px solid ${tone.border}`,
+          }}
+        >
+          <span style={{ fontSize: 30, lineHeight: 1 }}>{action.icon}</span>
+          <span style={{ fontSize: 13, fontWeight: 800, letterSpacing: 0.4 }}>{action.headline}</span>
         </div>
       </div>
     </div>
@@ -929,6 +947,80 @@ function describeMissingDocs(d) {
   if (docs.includes('lor')) missing.push('LOR')
   if (docs.includes('pac')) missing.push('PAC')
   return missing.length > 0 ? `${missing.join(' + ')} pending` : 'docs pending'
+}
+
+// The big, plain-English verdict for one deal: does the manager need to
+// do something, and if so what? Drives the large status chip + the bold
+// instruction line on each card. Kept decisive (action-needed vs. all-set
+// vs. nothing-to-do-yet) so a manager never has to guess.
+function actionFor(deal) {
+  if (deal.cancelled_at) {
+    return { tone: 'na', icon: '—', headline: 'CANCELLED', detail: 'No action needed.' }
+  }
+  const push = jnPushParts(deal)
+
+  // PA-form signatures requested but never signed — needs a phone call.
+  if (isPending(deal)) {
+    return {
+      tone: 'bad', icon: '⚠', headline: 'ACTION NEEDED',
+      detail: `Call the homeowner and finish ${describeMissingDocs(deal)}.`,
+    }
+  }
+
+  if (deal.source === 'inspection') {
+    // Signed but never made it into JobNimbus.
+    if (deal.signed_at && !push.inJn) {
+      return {
+        tone: 'bad', icon: '⚠', headline: 'ACTION NEEDED',
+        detail: 'Not in JobNimbus yet — tap “Send Photos to JN”.',
+      }
+    }
+    // In JN but the certificate hasn't been uploaded.
+    if (push.inJn && !push.cert) {
+      return {
+        tone: 'bad', icon: '⚠', headline: 'ACTION NEEDED',
+        detail: 'Certificate not in JobNimbus — tap “Send Cert to JN”.',
+      }
+    }
+    // Everything that should be in JN is in JN.
+    if (push.inJn && push.cert) {
+      return {
+        tone: 'good', icon: '✓', headline: 'ALL SET',
+        detail: 'Photos + certificate are in JobNimbus — nothing to do.',
+      }
+    }
+    return {
+      tone: 'na', icon: '•', headline: 'IN PROGRESS',
+      detail: 'Not signed yet — nothing to do right now.',
+    }
+  }
+
+  // Claim-track (PA pipeline). The manager can't push photos/cert here,
+  // so the only thing to flag is a deal that never linked to JN.
+  if (push.inJn) {
+    return {
+      tone: 'good', icon: '✓', headline: 'ALL SET',
+      detail: 'In JobNimbus and moving through the PA pipeline — nothing to do.',
+    }
+  }
+  if (deal.signed_at) {
+    return {
+      tone: 'warn', icon: '!', headline: 'CHECK',
+      detail: 'Signed but not linked in JobNimbus — let the office know.',
+    }
+  }
+  return {
+    tone: 'na', icon: '•', headline: 'IN PROGRESS',
+    detail: 'Not signed yet — nothing to do right now.',
+  }
+}
+
+// Color palette for an action tone.
+const ACTION_TONE = {
+  good: { fg: '#166534', bg: '#dcfce7', border: '#86efac' },
+  bad:  { fg: '#991b1b', bg: '#fee2e2', border: '#fca5a5' },
+  warn: { fg: '#92400e', bg: '#fef3c7', border: '#fcd34d' },
+  na:   { fg: '#475569', bg: '#f1f5f9', border: '#cbd5e1' },
 }
 
 function describeDealStatus(d) {
