@@ -631,9 +631,10 @@ function PARow({ pa, busy, onToggle, onResend, onUpdate, onDelete }) {
 function PADecisionRow({ deal, activePas, priorPaName, busy, onAssign, onDismiss }) {
   const [paId, setPaId] = useState("");
   const [note, setNote] = useState("");
-  // PA-filed date (from JN, cf_date_20). undefined = still loading,
-  // null = not recorded, number = epoch seconds.
-  const [filedDate, setFiledDate] = useState(undefined);
+  // Dates that help the reassignment decision. undefined = still loading,
+  // null = not recorded, number = epoch seconds (from JN).
+  const [filedDate, setFiledDate] = useState(undefined);      // PA-filed (cf_date_20)
+  const [inspectedDate, setInspectedDate] = useState(undefined); // inspected (cf_date_22)
   // Photos load lazily on the button tap (keeps the queue fast with many
   // cards). null = not loaded yet.
   const [photosOpen, setPhotosOpen] = useState(false);
@@ -641,9 +642,16 @@ function PADecisionRow({ deal, activePas, priorPaName, busy, onAssign, onDismiss
   const [photosLoading, setPhotosLoading] = useState(false);
   const [photosErr, setPhotosErr] = useState(null);
   const addr = [deal.address, deal.city, deal.state, deal.zip].filter(Boolean).join(", ");
+  const fmtIso = (iso) => { if (!iso) return null; const d = new Date(iso); return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString("en-US"); };
+  const signedDisp = fmtIso(deal.signed_at);
+  const resultLabel = { damage: "Damage", no_damage: "No Damage", retail: "Retail", lost: "Lost" }[deal.result] || (deal.result || "—");
+  const resultColor = deal.result === "damage" ? "#991b1b" : deal.result === "retail" ? "#1e40af" : "#475569";
+  const resultBg = deal.result === "damage" ? "#fef2f2" : deal.result === "retail" ? "#eff6ff" : "#f1f5f9";
+  const resultBorder = deal.result === "damage" ? "#fca5a5" : deal.result === "retail" ? "#bfdbfe" : "#e2e8f0";
+  const dateChip = (epoch) => epoch === undefined ? "…" : epoch ? epochToDisplay(epoch) : "not recorded";
 
-  // Auto-load just the PA-filed date so the manager can see how far the
-  // prior PA got before deciding where it goes. skipPhotos keeps it light.
+  // Auto-load the PA-filed + inspected dates so the manager can see how far
+  // the prior PA got before deciding where it goes. skipPhotos keeps it light.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -653,8 +661,11 @@ function PADecisionRow({ deal, activePas, priorPaName, busy, onAssign, onDismiss
           body: JSON.stringify({ inspectionId: deal.id, skipPhotos: true }),
         });
         const b = await res.json().catch(() => ({}));
-        if (!cancelled) setFiledDate(b.ok ? (b.fields?.pa_filed ?? null) : null);
-      } catch { if (!cancelled) setFiledDate(null); }
+        if (!cancelled) {
+          setFiledDate(b.ok ? (b.fields?.pa_filed ?? null) : null);
+          setInspectedDate(b.ok ? (b.fields?.inspected_date ?? null) : null);
+        }
+      } catch { if (!cancelled) { setFiledDate(null); setInspectedDate(null); } }
     })();
     return () => { cancelled = true; };
   }, [deal.id]);
@@ -692,8 +703,17 @@ function PADecisionRow({ deal, activePas, priorPaName, busy, onAssign, onDismiss
                 was: {priorPaName}
               </span>
             )}
+            <span style={{ fontSize: 11, fontWeight: 700, color: resultColor, background: resultBg, border: `1px solid ${resultBorder}`, borderRadius: 999, padding: "2px 8px" }}>
+              🏠 {resultLabel}
+            </span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#475569", background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 999, padding: "2px 8px" }}>
+              🔍 Inspected: {dateChip(inspectedDate)}
+            </span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#475569", background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 999, padding: "2px 8px" }}>
+              🖊 Signed: {signedDisp || "—"}
+            </span>
             <span style={{ fontSize: 11, fontWeight: 700, color: filedDate ? "#065f46" : "#64748b", background: filedDate ? "#ecfdf5" : "#f1f5f9", border: `1px solid ${filedDate ? "#86efac" : "#e2e8f0"}`, borderRadius: 999, padding: "2px 8px" }}>
-              📋 PA filed: {filedDate === undefined ? "…" : filedDate ? epochToDisplay(filedDate) : "not recorded"}
+              📋 PA filed: {dateChip(filedDate)}
             </span>
           </div>
         </div>

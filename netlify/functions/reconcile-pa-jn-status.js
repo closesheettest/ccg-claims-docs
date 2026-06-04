@@ -139,16 +139,27 @@ exports.handler = async (event) => {
 
   // ── Phase B: comprehensive "Sit Sold PA" scan, JN-side ──────────────
   // Phase A only sees our bounded local set and misses deals JN currently
-  // has at "Sit Sold PA" but that we (a) have assigned to a PA, or (b)
-  // never had in the live window. Ask JN directly by status filter for
-  // EVERY Sit Sold PA job, then park each matching local row that isn't
-  // already parked or manager-resolved — regardless of pa_id (these are
-  // the old-PA plates US Shingle wants to reassign).
-  let sitSoldScanned = 0;
+  // has at "Sit Sold PA" but that we (a) have assigned to a PA, (b) never
+  // had in the live window, or (c) never had at all (older deals signed
+  // before in-app inspection capture). Ask JN directly by status filter
+  // for EVERY Sit Sold PA job, then:
+  //   • matching local row, not parked/resolved → PARK it (any pa_id).
+  //   • no local row + DAMAGE                    → CREATE a stub record and
+  //                                                park it (so historical
+  //                                                JN-only damage deals show
+  //                                                in the queue too). Non-
+  //                                                damage JN-only deals are
+  //                                                skipped — a PA won't take
+  //                                                them. New deals always
+  //                                                have an app record, so
+  //                                                this create path only
+  //                                                ever backfills history.
+  let sitSoldScanned = 0, parkedSitSoldCreated = 0;
+  const createErrors = [];
   try {
     const SS_FILTER = JSON.stringify({ must: [{ term: { status_name: "Sit Sold PA" } }] });
     const PAGE = 100, MAX_PAGES = 20;
-    const ssJnIds = [];
+    const ssJobs = [];  // slim job objects (need result + address to create stubs)
     let from = 0;
     for (let p = 0; p < MAX_PAGES; p++) {
       let r;
@@ -158,30 +169,48 @@ exports.handler = async (event) => {
       if (!r.ok) break;
       const d = await r.json().catch(() => ({}));
       const pageJobs = d.results || d.jobs || d.items || [];
-      for (const j of pageJobs) { const id = j.jnid || j.id; if (id) ssJnIds.push(id); }
+      for (const j of pageJobs) {
+        const id = j.jnid || j.id;
+        if (!id) continue;
+        ssJobs.push({
+          jnid: id,
+          result: (j.cf_string_34 || "").toLowerCase().replace(/\s+/g, "_"),
+          client_name: j.primary?.name || j.name || j.display_name || "",
+          address: j.address_line1 || "",
+          city: j.city || "",
+          state: j.state_text || "",
+          zip: j.zip || "",
+          date_created: j.date_created || null,
+        });
+      }
       if (pageJobs.length < PAGE) break;
       from += PAGE;
     }
-    sitSoldScanned = ssJnIds.length;
+    sitSoldScanned = ssJobs.length;
+    const jobByJnId = Object.fromEntries(ssJobs.map((j) => [j.jnid, j]));
+    const allJnIds = ssJobs.map((j) => j.jnid);
 
-    // Look up our matching rows in chunks; park the not-yet-parked,
-    // not-manager-resolved ones.
-    for (let i = 0; i < ssJnIds.length; i += 100) {
-      const inList = ssJnIds.slice(i, i + 100).map((id) => `"${id}"`).join(",");
-      let localRows = [];
+    // Process in chunks. For each chunk we need the FULL existence picture
+    // (no decision-state filter) so we can tell "exists but parkable" from
+    // "doesn't exist at all → maybe create".
+    for (let i = 0; i < allJnIds.length; i += 100) {
+      const chunk = allJnIds.slice(i, i + 100);
+      const inList = chunk.map((id) => `"${id}"`).join(",");
+      let existing = [];
       try {
         const lr = await fetch(
           `${SB_URL}/rest/v1/inspections` +
-          `?select=id,client_name,pa_id` +
-          `&jn_job_id=in.(${encodeURIComponent(inList)})` +
-          `&pa_decision_needed=is.false` +
-          `&pa_decision_resolved_at=is.null`,
+          `?select=id,client_name,jn_job_id,pa_id,pa_decision_needed,pa_decision_resolved_at` +
+          `&jn_job_id=in.(${encodeURIComponent(inList)})`,
           { headers: sbHeaders },
         );
-        if (lr.ok) localRows = await lr.json();
-      } catch { localRows = []; }
+        if (lr.ok) existing = await lr.json();
+      } catch { existing = []; }
+      const existingByJnId = Object.fromEntries(existing.map((r) => [r.jn_job_id, r]));
 
-      await Promise.all(localRows.map(async (row) => {
+      // (1) Park existing rows that aren't already parked/resolved.
+      const toPark = existing.filter((r) => !r.pa_decision_needed && !r.pa_decision_resolved_at);
+      await Promise.all(toPark.map(async (row) => {
         const patch = {
           pa_decision_needed: true,
           pa_decision_reason: row.pa_id ? "Sit Sold PA — was assigned to a PA" : "Sit Sold PA (old PA)",
@@ -198,6 +227,44 @@ exports.handler = async (event) => {
           changed.push({ id: row.id, client: row.client_name, kind: "parked_sit_sold" });
         }
       }));
+
+      // (2) Create stubs for DAMAGE jobs that have no local row at all.
+      const toCreate = chunk
+        .filter((id) => !existingByJnId[id])
+        .map((id) => jobByJnId[id])
+        .filter((j) => j && j.result === "damage");
+      await Promise.all(toCreate.map(async (j) => {
+        const insert = {
+          jn_job_id: j.jnid,
+          client_name: j.client_name || "(JobNimbus deal)",
+          address: j.address,
+          city: j.city,
+          state: j.state,
+          zip: j.zip,
+          result: "damage",
+          signed_at: j.date_created ? new Date(j.date_created * 1000).toISOString() : null,
+          jn_status: "Sit Sold PA",
+          lead_source: "JN Sit Sold PA backfill",
+          pa_decision_needed: true,
+          pa_decision_reason: "Sit Sold PA (JobNimbus-only, no app record)",
+          pa_decision_at: nowIso,
+        };
+        const ins = await fetch(`${SB_URL}/rest/v1/inspections`, {
+          method: "POST",
+          headers: { ...sbHeaders, Prefer: "return=representation" },
+          body: JSON.stringify(insert),
+        });
+        if (ins.ok) {
+          const created = await ins.json().catch(() => []);
+          const id = Array.isArray(created) ? created[0]?.id : null;
+          parkedSitSold++;
+          parkedSitSoldCreated++;
+          changed.push({ id, client: j.client_name, kind: "parked_sit_sold_created" });
+        } else if (createErrors.length < 5) {
+          const t = await ins.text().catch(() => "");
+          createErrors.push({ client: j.client_name, status: ins.status, detail: t.slice(0, 200) });
+        }
+      }));
     }
   } catch { /* Phase B is best-effort; Phase A results still return */ }
 
@@ -208,6 +275,8 @@ exports.handler = async (event) => {
     lost_cancelled: lostCancelled,
     parked_lost: parkedLost,
     parked_sit_sold: parkedSitSold,
+    parked_sit_sold_created: parkedSitSoldCreated,
+    create_errors: createErrors,
     changed,
   });
 };
