@@ -10635,13 +10635,13 @@ if (!hasDamage) {
                       ];
                       const MANAGER_TILES = [
                         // ── Signing & Sales ──
-                        { group: "signing", key: "reps", emoji: "👥", label: "Sales Rep Manager", desc: "Add, import, activate reps" },
-                        { group: "signing", key: "review", emoji: "📝", label: "Review Page Text", desc: "Headlines, document descriptions" },
-                        { group: "signing", key: "thankyou", emoji: "🎉", label: "Thank You Pages", desc: "Post-inspection, pre-inspection, USS" },
-                        { group: "signing", key: "sms", emoji: "💬", label: "SMS Templates", desc: "Auto-messages for each inspection result" },
+                        { group: "signing", key: "reps", emoji: "👥", label: "Sales Rep Manager", desc: "Add, import, and activate reps. \"Add\" reads from JobNimbus." },
+                        { group: "signing", key: "review", emoji: "📝", label: "Review Page Text", desc: "What the homeowner sees before signing, explaining the document." },
+                        { group: "signing", key: "thankyou", emoji: "🎉", label: "Thank You Pages", desc: "Customize what's sent to homeowners and when (SMS / email)." },
+                        { group: "signing", key: "sms", emoji: "💬", label: "SMS Templates", desc: "All communication to reps and homeowners — customize it here." },
                         { group: "signing", key: "report", emoji: "📊", label: "Weekly Report", desc: "View signings by rep and date range" },
                         { group: "signing", key: "analytics", emoji: "📈", label: "Submission Analytics", desc: "Totals, category % and avg days per rep" },
-                        { group: "signing", key: "dupes", emoji: "👯", label: "Find Duplicates", desc: "Address-based deduper — pick which to keep, delete the rest" },
+                        { group: "signing", key: "dupes", emoji: "👯", label: "Find Duplicates", desc: "⚠️ DO NOT USE unless you've been trained on it. Address-based deduper — deletes records." },
                         { group: "signing", key: "browseall", emoji: "📚", label: "Browse All Records", desc: "Step through every record one-by-one to verify accuracy" },
                         // ── Inspections ──
                         { group: "inspections", key: "inspectors", emoji: "🔍", label: "Inspectors", desc: "Roster — sync from JN, edit, activate/deactivate" },
