@@ -1286,37 +1286,34 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
           PA expand it on demand. The toggle row doubles as a signpost
           that there's more content underneath. */}
       <div style={{ padding: 14, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, marginBottom: 12 }}>
-        <button type="button"
-          onClick={() => setPhotosShown((v) => !v)}
-          disabled={photos.length === 0}
-          style={{
-            width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
-            gap: 8, padding: 0, background: "none", border: "none",
-            cursor: photos.length === 0 ? "default" : "pointer", textAlign: "left",
-          }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: "#475569", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-            Inspection photos ({photos.length})
-            {photoSource === "app" && (
-              <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: "#0e7490", textTransform: "none", letterSpacing: 0 }}>
-                · from inspection app
-              </span>
-            )}
-            {photoSource === "jobnimbus" && (
-              <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: "#92400e", textTransform: "none", letterSpacing: 0 }}>
-                · from JobNimbus
-              </span>
-            )}
-          </span>
-          {photos.length > 0 && (
-            <span style={{
-              flexShrink: 0, fontSize: 12, fontWeight: 800, color: "#1d4ed8",
-              fontFamily: "'Oswald', sans-serif", letterSpacing: "0.02em",
-              display: "inline-flex", alignItems: "center", gap: 4,
-            }}>
-              {photosShown ? "Hide ▲" : "Show ▼"}
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: photos.length > 0 ? 10 : 0 }}>
+          Inspection photos ({photos.length})
+          {photoSource === "app" && (
+            <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: "#0e7490", textTransform: "none", letterSpacing: 0 }}>
+              · from inspection app
             </span>
           )}
-        </button>
+          {photoSource === "jobnimbus" && (
+            <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: "#92400e", textTransform: "none", letterSpacing: 0 }}>
+              · from JobNimbus
+            </span>
+          )}
+        </div>
+        {photos.length > 0 && (
+          <button type="button"
+            onClick={() => setPhotosShown((v) => !v)}
+            style={{
+              width: "100%", display: "flex", alignItems: "center", justifyContent: "center",
+              gap: 8, padding: "16px 18px", borderRadius: 12,
+              background: photosShown ? "#eff6ff" : "#1d4ed8",
+              border: photosShown ? "2px solid #1d4ed8" : "none",
+              color: photosShown ? "#1d4ed8" : "#fff",
+              cursor: "pointer", fontFamily: "'Oswald', sans-serif",
+              fontSize: 18, fontWeight: 800, letterSpacing: "0.03em",
+            }}>
+            {photosShown ? `Hide Pictures ▲` : `📷 Show Pictures (${photos.length}) ▼`}
+          </button>
+        )}
 
         {photos.length === 0 ? (
           <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 8 }}>No photos found for this inspection yet.</div>
