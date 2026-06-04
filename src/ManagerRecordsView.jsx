@@ -130,6 +130,20 @@ export default function ManagerRecordsView({ token }) {
     return null
   }, [selectedDealId, data])
 
+  // Optimistically fold a successful JN push back into local state so the
+  // push-status badges flip the instant the upload finishes (the server
+  // stamp persists it for the next reload).
+  const patchDeal = (dealId, patch) => {
+    setData((prev) => {
+      if (!prev?.dealsByRep) return prev
+      const dealsByRep = {}
+      for (const [rep, deals] of Object.entries(prev.dealsByRep)) {
+        dealsByRep[rep] = deals.map((d) => (d.id === dealId ? { ...d, ...patch } : d))
+      }
+      return { ...prev, dealsByRep }
+    })
+  }
+
   if (loading) return <CenterMsg theme={NEUTRAL}>Loading your records…</CenterMsg>
   if (error) return <CenterMsg theme={NEUTRAL} bad>{error}</CenterMsg>
   if (!data) return null
@@ -317,6 +331,8 @@ export default function ManagerRecordsView({ token }) {
                           selected={d.id === selectedDealId}
                           onSelect={() => setSelectedDealId(d.id)}
                           theme={zoneTheme}
+                          token={token}
+                          onDealPatch={patchDeal}
                         />
                       ))}
                     </div>
@@ -351,7 +367,7 @@ export default function ManagerRecordsView({ token }) {
         `}</style>
 
         <footer style={{ textAlign: 'center', color: '#94a3b8', fontSize: 11, marginTop: 30 }}>
-          U.S. Shingle &amp; Metal — {teamLabel(data.manager.zone)} Manager Records · Phase 1 (read-only preview)
+          U.S. Shingle &amp; Metal — {teamLabel(data.manager.zone)} Manager Records
         </footer>
       </div>
     </div>
@@ -361,11 +377,63 @@ export default function ManagerRecordsView({ token }) {
 // ────────────────────────────────────────────────────────────────────
 // Sub-components
 
-function DealRow({ deal, selected, onSelect, theme }) {
+function DealRow({ deal, selected, onSelect, theme, token, onDealPatch }) {
   const attention = isAttention(deal)
   const pending = isPending(deal)
   const badgeColor = attention ? '#f59e0b' : '#10b981'
   const badgeIcon = attention ? (pending ? '⏰' : '⚠') : '✅'
+
+  // Per-deal push state. busy = which action is running; msg = result.
+  const [busy, setBusy] = useState(null) // 'photos' | 'cert' | null
+  const [msg, setMsg] = useState(null) // { ok: bool, text }
+
+  const push = jnPushParts(deal)
+  // Photos are pushed FROM the inspector record, so we need a real
+  // inspection id + a result. Claim-track deals don't carry one.
+  const canPushPhotos = deal.source === 'inspection' && !!deal.inspection_result
+  // The cert renders from the JN job itself, so it only needs a JN job id.
+  const canPushCert = !!deal.jn_job_id
+
+  async function runPhotos(e) {
+    e.stopPropagation()
+    if (busy) return
+    setBusy('photos'); setMsg(null)
+    try {
+      const r = await pushPhotosToJn(deal)
+      const patch = { jn_pushed_at: new Date().toISOString(), jn_job_id: r.jnJobId }
+      await stampJn(token, deal.id, patch)
+      onDealPatch(deal.id, patch)
+      setMsg({
+        ok: true,
+        text: r.lost
+          ? 'Marked Lost in JN — no photos to upload.'
+          : `Photos sent: ${r.uploaded} uploaded` +
+            (r.alreadyIn ? `, ${r.alreadyIn} already in JN` : '') +
+            (r.failed ? `, ${r.failed} failed` : '') + '.',
+      })
+    } catch (err) {
+      setMsg({ ok: false, text: err.message || 'Photo push failed.' })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function runCert(e) {
+    e.stopPropagation()
+    if (busy) return
+    setBusy('cert'); setMsg(null)
+    try {
+      await pushCertToJn(deal)
+      const patch = { jn_cert_uploaded_at: new Date().toISOString() }
+      await stampJn(token, deal.id, patch)
+      onDealPatch(deal.id, patch)
+      setMsg({ ok: true, text: 'Certificate generated and uploaded to JobNimbus.' })
+    } catch (err) {
+      setMsg({ ok: false, text: err.message || 'Cert push failed.' })
+    } finally {
+      setBusy(null)
+    }
+  }
 
   return (
     <div
@@ -393,30 +461,118 @@ function DealRow({ deal, selected, onSelect, theme }) {
           <div style={{ color: '#475569', fontSize: 12.5, marginTop: 6 }}>
             {[deal.address, deal.city, deal.zip].filter(Boolean).join(' · ') || '(no address)'}
           </div>
+
+          {/* Readable per-customer labels: signed date, inspection
+              result, PA result, and exactly what's in JobNimbus. */}
+          <DealFacts deal={deal} push={push} />
+
           <div style={{ color: '#64748b', fontSize: 11.5, marginTop: 4 }}>
             {describeDealStatus(deal)}
           </div>
-          {/* Action buttons — Phase 1 stubs */}
+
+          {/* Action buttons — live JN pushes. */}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
-            <StubButton
-              label="📸 Send Photos to JN"
-              caption="Re-uploads the inspection photos to JobNimbus."
-              what="Phase 2 will re-fire the photo upload to JobNimbus so this deal's pictures appear under the JN job."
+            <ActionButton
+              label={busy === 'photos' ? '⏳ Sending Photos…' : push.photos ? '📸 Re-send Photos to JN' : '📸 Send Photos to JN'}
+              onClick={runPhotos}
+              disabled={!canPushPhotos || !!busy}
+              tone={push.photos ? 'done' : 'primary'}
+              title={
+                !canPushPhotos
+                  ? 'Photos are pushed from the inspector record — not available for this deal.'
+                  : 'Re-uploads the inspection photos to the JobNimbus job (skips any already there).'
+              }
             />
-            <StubButton
-              label="📄 Send Cert to JN"
-              caption="Generates the certificate PDF and uploads it to JobNimbus."
-              what="Phase 2 will regenerate the certificate PDF (the official roof inspection certificate) and upload it to the JN job so the homeowner gets the right document."
+            <ActionButton
+              label={busy === 'cert' ? '⏳ Sending Cert…' : push.cert ? '📄 Re-send Cert to JN' : '📄 Send Cert to JN'}
+              onClick={runCert}
+              disabled={!canPushCert || !!busy}
+              tone={push.cert ? 'done' : 'primary'}
+              title={
+                !canPushCert
+                  ? 'This deal isn’t in JobNimbus yet — send photos first to create the job.'
+                  : 'Generates the roof inspection certificate PDF and uploads it to the JobNimbus job.'
+              }
             />
             <StubButton
               label="✏️ Edit Details"
               caption="Fix homeowner name, address, or phone if it was typed wrong."
-              what="Phase 2 will open an edit form so you can correct the homeowner's name, address, or phone number."
+              what="An edit form for correcting the homeowner's name, address, or phone is coming soon. For now, ping the office to fix a typo."
             />
           </div>
+
+          {msg && (
+            <div
+              style={{
+                marginTop: 8, fontSize: 12, fontWeight: 600,
+                padding: '6px 10px', borderRadius: 8,
+                background: msg.ok ? '#dcfce7' : '#fee2e2',
+                color: msg.ok ? '#166534' : '#991b1b',
+                border: `1px solid ${msg.ok ? '#86efac' : '#fca5a5'}`,
+              }}
+            >
+              {msg.ok ? '✓ ' : '✗ '}{msg.text}
+            </div>
+          )}
         </div>
       </div>
     </div>
+  )
+}
+
+// Readable label grid the manager scans per customer.
+function DealFacts({ deal, push }) {
+  const rows = [
+    ['Signed', deal.signed_at ? fmtDate(deal.signed_at) : 'Not signed yet'],
+    ['Inspection', deal.inspection_result || '—'],
+    ['PA result', paResultLabel(deal)],
+    ['In JobNimbus', jnPushLabel(push)],
+  ]
+  return (
+    <div
+      style={{
+        marginTop: 6,
+        display: 'grid',
+        gridTemplateColumns: 'auto 1fr',
+        columnGap: 8,
+        rowGap: 2,
+        fontSize: 12,
+      }}
+    >
+      {rows.map(([k, v]) => (
+        <React.Fragment key={k}>
+          <span style={{ color: '#64748b', fontWeight: 600, whiteSpace: 'nowrap' }}>{k}:</span>
+          <span style={{ color: '#0f172a' }}>{v}</span>
+        </React.Fragment>
+      ))}
+    </div>
+  )
+}
+
+// Human-readable PA decision. PA only applies to insurance-track deals;
+// non-PA deals show a dash.
+function paResultLabel(deal) {
+  if (!deal.pa_status) return '—'
+  const reason = deal.pa_decision_reason ? ` (${deal.pa_decision_reason})` : ''
+  return `${deal.pa_status}${reason}`
+}
+
+// One-line "what's actually in JN" summary for the facts grid.
+function jnPushLabel(push) {
+  if (!push.inJn) {
+    return <span style={{ color: '#b91c1c', fontWeight: 700 }}>Not pushed yet</span>
+  }
+  const item = (ok, label) => (
+    <span style={{ color: ok ? '#166534' : '#b45309', fontWeight: 700, marginRight: 8 }}>
+      {ok ? '✓' : '✗'} {label}
+    </span>
+  )
+  return (
+    <span>
+      {item(true, 'Job')}
+      {item(push.photos, 'Photos')}
+      {item(push.cert, 'Cert')}
+    </span>
   )
 }
 
@@ -445,7 +601,9 @@ function BadgeRow({ deal }) {
 
   // Cert — is the certificate in JN?
   const certStatuses = ['Cert Sent', 'Cert Uploaded', 'Awaiting Signature', 'Completed', 'Won']
-  if (deal.jn_status && certStatuses.includes(deal.jn_status)) {
+  if (deal.jn_cert_uploaded_at) {
+    badges.push({ label: 'Cert', tone: 'done', title: `Cert uploaded to JN ${fmtDate(deal.jn_cert_uploaded_at)}` })
+  } else if (deal.jn_status && certStatuses.includes(deal.jn_status)) {
     badges.push({ label: 'Cert', tone: 'done', title: `Cert tracked in JN (${deal.jn_status})` })
   } else if (deal.jn_status === 'Awaiting Cert') {
     badges.push({ label: 'Cert', tone: 'pending', title: 'JN flagged as awaiting cert — may need a re-push' })
@@ -520,7 +678,7 @@ function StubButton({ label, caption, what }) {
       type="button"
       onClick={(e) => {
         e.stopPropagation()
-        alert(`${label}\n\n${what}\n\nFor now this button is just a preview — no JN changes happen.`)
+        alert(`${label}\n\n${what}`)
       }}
       style={{
         background: '#fff', border: '1px solid #cbd5e1', borderRadius: 6,
@@ -528,6 +686,27 @@ function StubButton({ label, caption, what }) {
         cursor: 'pointer',
       }}
       title={caption}
+    >
+      {label}
+    </button>
+  )
+}
+
+// Live action button (real JN push). tone: 'primary' (blue, action
+// needed) | 'done' (green outline, already pushed — re-push offered).
+function ActionButton({ label, onClick, disabled, tone, title }) {
+  const styles = disabled
+    ? { background: '#f1f5f9', color: '#94a3b8', border: '1px solid #e2e8f0', cursor: 'not-allowed' }
+    : tone === 'done'
+      ? { background: '#ecfdf5', color: '#065f46', border: '1px solid #6ee7b7', cursor: 'pointer' }
+      : { background: '#1d4ed8', color: '#fff', border: '1px solid #1d4ed8', cursor: 'pointer' }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      style={{ ...styles, borderRadius: 6, padding: '4px 10px', fontSize: 12, fontWeight: 700 }}
     >
       {label}
     </button>
@@ -549,6 +728,8 @@ function DealDetail({ deal, theme }) {
         ) : <NotIn />} />
         <Field label="Status" value={deal.jn_status || <NotIn />} />
         <Field label="Result" value={deal.inspection_result || <NotIn />} />
+        <Field label="Photos pushed" value={deal.jn_pushed_at ? fmtDateTime(deal.jn_pushed_at) : <NotIn />} />
+        <Field label="Cert uploaded" value={deal.jn_cert_uploaded_at ? fmtDateTime(deal.jn_cert_uploaded_at) : <NotIn />} />
         <Field label="Docs in CCG" value={deal.docs_signed || <NotIn />} />
         <Field label="Signed at" value={fmtDateTime(deal.signed_at)} />
       </div>
@@ -562,6 +743,7 @@ function DealDetail({ deal, theme }) {
         <Field label="Phone" value={deal.phone ? <a href={`tel:${deal.phone}`} style={{ color: '#0f172a' }}>{deal.phone}</a> : <em>—</em>} />
         <Field label="Rep" value={deal.sales_rep_name || <em>—</em>} />
         <Field label="Result at" value={fmtDateTime(deal.result_at)} />
+        <Field label="PA result" value={deal.pa_status ? paResultLabel(deal) : <em>—</em>} />
         <Field label="Source" value={deal.source} />
       </div>
     </div>
@@ -624,6 +806,105 @@ function CenterMsg({ children, theme, bad }) {
 // ────────────────────────────────────────────────────────────────────
 // Pure helpers — mirror the backend's bucketing rules so the UI and the
 // totals on the API response agree on what's pending / attention.
+
+// What's actually in JobNimbus for this deal, derived from the real
+// push timestamps the admin flow stamps (jn_pushed_at = result+photos
+// synced; jn_cert_uploaded_at = cert in the Documents tab). jn_status
+// is a secondary signal for older rows stamped before those columns.
+function jnPushParts(deal) {
+  const certStatuses = ['Cert Sent', 'Cert Uploaded', 'Awaiting Signature', 'Completed', 'Won']
+  return {
+    inJn: !!deal.jn_job_id,
+    photos: !!deal.jn_pushed_at,
+    cert: !!deal.jn_cert_uploaded_at || (!!deal.jn_status && certStatuses.includes(deal.jn_status)),
+  }
+}
+
+// ── Live JN push orchestration (mirrors the admin flow in App.jsx) ──
+// All endpoints are POST + JSON and need no auth beyond reaching the URL.
+
+const JSON_HEADERS = { 'Content-Type': 'application/json' }
+
+async function postJson(fn, payload) {
+  const res = await fetch(`/.netlify/functions/${fn}`, {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok || body.ok === false) {
+    throw new Error(body.error || `${fn} failed (${res.status})`)
+  }
+  return body
+}
+
+// Re-sync the result + upload the inspection photos to JN. Creates the
+// JN job first if the deal isn't linked yet. Returns a small summary.
+async function pushPhotosToJn(deal) {
+  let jnJobId = deal.jn_job_id
+  if (!jnJobId) {
+    const synced = await postJson('retry-jn-sync', { inspectionId: deal.id })
+    jnJobId = synced.jobId
+    if (!jnJobId) throw new Error('Could not create the JobNimbus job.')
+  }
+  const pushed = await postJson('push-result-to-jn', { inspectionId: deal.id })
+  jnJobId = pushed.jn_job_id || jnJobId
+  if (pushed.lost) return { jnJobId, lost: true, uploaded: 0, failed: 0, alreadyIn: 0 }
+
+  const toUpload = pushed.photos_to_upload || []
+  let uploaded = 0
+  let failed = 0
+  // Upload in small parallel batches (mirrors App.jsx's batch-of-6).
+  for (let i = 0; i < toUpload.length; i += 6) {
+    const batch = toUpload.slice(i, i + 6)
+    const results = await Promise.all(
+      batch.map(async (p) => {
+        try {
+          const r = await fetch('/.netlify/functions/upload-photo-to-jn', {
+            method: 'POST',
+            headers: JSON_HEADERS,
+            body: JSON.stringify({ jn_job_id: jnJobId, path: p.path, bucket: p.bucket, label: p.label }),
+          })
+          const b = await r.json().catch(() => ({}))
+          return r.ok && b.ok !== false
+        } catch {
+          return false
+        }
+      }),
+    )
+    for (const ok of results) ok ? uploaded++ : failed++
+  }
+  return { jnJobId, lost: false, uploaded, failed, alreadyIn: pushed.photos_already_in_jn || 0 }
+}
+
+// Generate the certificate PDF and upload it to the JN job's Documents
+// tab. Two-step chain to fit Netlify's per-call time budget.
+async function pushCertToJn(deal) {
+  const jnJobId = deal.jn_job_id
+  if (!jnJobId) throw new Error('This deal isn’t in JobNimbus yet.')
+  const gen = await postJson('generate-and-upload-insp-report', { jnid: jnJobId, skip_jn_upload: true })
+  await postJson('upload-pdf-to-jn', {
+    jnid: jnJobId,
+    filename: gen.filename,
+    pdf_url: gen.pdf_signed_url,
+    pdf_storage_path: gen.pdf_storage_path,
+  })
+  return { jnJobId }
+}
+
+// Persist the "made it into JN" stamps so the status sticks on reload.
+// Token-gated server-side; best-effort (the JN push already succeeded).
+async function stampJn(token, id, fields) {
+  try {
+    await fetch('/.netlify/functions/manager-records-api', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ action: 'mark-jn-progress', token, id, fields }),
+    })
+  } catch {
+    /* non-fatal — local state already reflects the push */
+  }
+}
 
 function isPending(d) {
   if (d.cancelled_at) return false

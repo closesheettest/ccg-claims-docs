@@ -56,7 +56,45 @@ export const handler = async (event) => {
   if (action === 'records') {
     return await buildRecords(manager)
   }
+  if (action === 'mark-jn-progress') {
+    return await markJnProgress(body)
+  }
   return json(400, { ok: false, error: `Unknown action: ${action}` })
+}
+
+// After a manager successfully pushes photos/cert to JN from the records
+// page, persist the same "made it into JN" stamps the admin flow writes,
+// so the push-status badges stick across a reload. Token-gated (the
+// manager is already validated above). Only whitelisted timestamp columns
+// can be written, and only on the inspections table.
+async function markJnProgress(body) {
+  const id = body.id
+  if (!id) return json(400, { ok: false, error: 'id required' })
+  const incoming = body.fields || {}
+  const ALLOWED = ['jn_pushed_at', 'jn_cert_uploaded_at', 'jn_job_id']
+  const patch = {}
+  for (const k of ALLOWED) {
+    if (incoming[k] !== undefined) patch[k] = incoming[k]
+  }
+  if (Object.keys(patch).length === 0) {
+    return json(400, { ok: false, error: 'no writable fields' })
+  }
+  const url = `${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(id)}`
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      apikey: SB_KEY,
+      Authorization: `Bearer ${SB_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify(patch),
+  })
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '')
+    return json(500, { ok: false, error: `stamp failed: ${res.status} ${txt}` })
+  }
+  return json(200, { ok: true })
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -128,7 +166,10 @@ async function buildRecords(manager) {
     fetchTable('inspections', {
       select:
         'id,client_name,address,city,state,zip,mobile,sales_rep_name,sales_rep_email,' +
-        'inspection_result,result,result_at,jn_status,jn_job_id,docs_signed,signed_pdfs,cancelled_at',
+        'inspection_result,result,result_at,signed_at,jn_status,jn_job_id,docs_signed,signed_pdfs,cancelled_at,' +
+        // PA outcome + real JN-push timestamps (these columns live on
+        // inspections, not claims — claim rows leave them null).
+        'pa_status,pa_decision_at,pa_decision_reason,jn_pushed_at,jn_cert_uploaded_at',
       filter: `sales_rep_name=in.(${repListParam})`,
       order: 'id.desc',
       limit: 500,
@@ -297,6 +338,14 @@ function normalizeDeal(row, source) {
     docs_signed: row.docs_signed || null, // comma-separated 'insp,lor,pac'
     signed_pdfs: row.signed_pdfs || null, // jsonb / array of urls
     cancelled_at: row.cancelled_at || null,
+    // PA outcome (inspections only) — the public-adjuster decision.
+    pa_status: row.pa_status || null,
+    pa_decision_at: row.pa_decision_at || null,
+    pa_decision_reason: row.pa_decision_reason || null,
+    // Real "made it into JN" timestamps — drive the push-status badges
+    // and the enable/disable state of the per-deal push buttons.
+    jn_pushed_at: row.jn_pushed_at || null,
+    jn_cert_uploaded_at: row.jn_cert_uploaded_at || null,
   }
 }
 
