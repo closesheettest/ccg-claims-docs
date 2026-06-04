@@ -1057,6 +1057,10 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
   const [releasing, setReleasing] = useState(false);
   const [backfilling, setBackfilling] = useState(false);
   const [backfillMsg, setBackfillMsg] = useState(null);
+  // Photos start collapsed so the long grid doesn't bury the
+  // milestone fields below it — the PA sees a "Show photos" button
+  // and immediately knows there's more to scroll to.
+  const [photosShown, setPhotosShown] = useState(false);
 
   // Copy this deal's JN-only photos into our own storage so it looks like
   // a modern app-captured inspection. Only offered when the photos we're
@@ -1270,54 +1274,80 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
         );
       })()}
 
-      {/* Photos */}
+      {/* Photos — collapsed by default. The grid is long enough to hide
+          the milestone fields below it, so we keep it folded and let the
+          PA expand it on demand. The toggle row doubles as a signpost
+          that there's more content underneath. */}
       <div style={{ padding: 14, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, marginBottom: 12 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-          Inspection photos ({photos.length})
-          {photoSource === "app" && (
-            <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: "#0e7490", textTransform: "none", letterSpacing: 0 }}>
-              · from inspection app
+        <button type="button"
+          onClick={() => setPhotosShown((v) => !v)}
+          disabled={photos.length === 0}
+          style={{
+            width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+            gap: 8, padding: 0, background: "none", border: "none",
+            cursor: photos.length === 0 ? "default" : "pointer", textAlign: "left",
+          }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: "#475569", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+            Inspection photos ({photos.length})
+            {photoSource === "app" && (
+              <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: "#0e7490", textTransform: "none", letterSpacing: 0 }}>
+                · from inspection app
+              </span>
+            )}
+            {photoSource === "jobnimbus" && (
+              <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: "#92400e", textTransform: "none", letterSpacing: 0 }}>
+                · from JobNimbus
+              </span>
+            )}
+          </span>
+          {photos.length > 0 && (
+            <span style={{
+              flexShrink: 0, fontSize: 12, fontWeight: 800, color: "#1d4ed8",
+              fontFamily: "'Oswald', sans-serif", letterSpacing: "0.02em",
+              display: "inline-flex", alignItems: "center", gap: 4,
+            }}>
+              {photosShown ? "Hide ▲" : "Show ▼"}
             </span>
           )}
-          {photoSource === "jobnimbus" && (
-            <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: "#92400e", textTransform: "none", letterSpacing: 0 }}>
-              · from JobNimbus
-            </span>
-          )}
-        </div>
-
-        {/* Backfill: this deal's photos live only in JobNimbus (an older
-            inspection done before in-app capture). Offer a one-tap copy
-            into our storage so they load instantly from then on. */}
-        {photoSource === "jobnimbus" && photos.length > 0 && (
-          <div style={{ marginBottom: 10 }}>
-            <button type="button" onClick={backfillPhotos} disabled={backfilling}
-              style={{ ...secondaryBtn, fontSize: 12, fontWeight: 700, padding: "8px 12px" }}>
-              {backfilling ? "Saving photos…" : "⬇ Save these photos to the app"}
-            </button>
-            <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 4 }}>
-              Older inspection — photos currently live in JobNimbus. Save a copy so they load instantly here.
-            </div>
-          </div>
-        )}
-        {backfillMsg && (
-          <div style={{ padding: "8px 12px", borderRadius: 8, fontSize: 12, marginBottom: 10,
-            background: backfillMsg.kind === "success" ? "#ecfdf5" : "#fef2f2",
-            border: `1px solid ${backfillMsg.kind === "success" ? "#86efac" : "#fca5a5"}`,
-            color: backfillMsg.kind === "success" ? "#065f46" : "#991b1b" }}>
-            {backfillMsg.text}
-          </div>
-        )}
+        </button>
 
         {photos.length === 0 ? (
-          <div style={{ fontSize: 12, color: "#94a3b8" }}>No photos found for this inspection yet.</div>
+          <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 8 }}>No photos found for this inspection yet.</div>
+        ) : !photosShown ? (
+          <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 8 }}>
+            Tap “Show” to view all {photos.length} photos. Scroll down for the insurance milestone fields.
+          </div>
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: wide ? "repeat(auto-fill, minmax(200px, 1fr))" : "1fr 1fr", gap: 6 }}>
-            {photos.map((src, i) => (
-              <a key={i} href={src} target="_blank" rel="noreferrer" style={{ display: "block" }}>
-                <img src={src} alt={`Inspection photo ${i + 1}`} style={{ width: "100%", borderRadius: 8, border: "1px solid #e5e7eb", display: "block" }} />
-              </a>
-            ))}
+          <div style={{ marginTop: 10 }}>
+            {/* Backfill: this deal's photos live only in JobNimbus (an older
+                inspection done before in-app capture). Offer a one-tap copy
+                into our storage so they load instantly from then on. */}
+            {photoSource === "jobnimbus" && photos.length > 0 && (
+              <div style={{ marginBottom: 10 }}>
+                <button type="button" onClick={backfillPhotos} disabled={backfilling}
+                  style={{ ...secondaryBtn, fontSize: 12, fontWeight: 700, padding: "8px 12px" }}>
+                  {backfilling ? "Saving photos…" : "⬇ Save these photos to the app"}
+                </button>
+                <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 4 }}>
+                  Older inspection — photos currently live in JobNimbus. Save a copy so they load instantly here.
+                </div>
+              </div>
+            )}
+            {backfillMsg && (
+              <div style={{ padding: "8px 12px", borderRadius: 8, fontSize: 12, marginBottom: 10,
+                background: backfillMsg.kind === "success" ? "#ecfdf5" : "#fef2f2",
+                border: `1px solid ${backfillMsg.kind === "success" ? "#86efac" : "#fca5a5"}`,
+                color: backfillMsg.kind === "success" ? "#065f46" : "#991b1b" }}>
+                {backfillMsg.text}
+              </div>
+            )}
+            <div style={{ display: "grid", gridTemplateColumns: wide ? "repeat(auto-fill, minmax(200px, 1fr))" : "1fr 1fr", gap: 6 }}>
+              {photos.map((src, i) => (
+                <a key={i} href={src} target="_blank" rel="noreferrer" style={{ display: "block" }}>
+                  <img src={src} alt={`Inspection photo ${i + 1}`} style={{ width: "100%", borderRadius: 8, border: "1px solid #e5e7eb", display: "block" }} />
+                </a>
+              ))}
+            </div>
           </div>
         )}
       </div>
