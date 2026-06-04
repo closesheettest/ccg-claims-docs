@@ -612,6 +612,7 @@ function PAPipelineDetail({ me, jobId, onBack }) {
   const [job, setJob] = useState(null);
   const [fields, setFields] = useState({});      // epoch seconds | string | null
   const [photos, setPhotos] = useState([]);
+  const [photoSource, setPhotoSource] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState(null);
   const [savingKey, setSavingKey] = useState(null);
@@ -642,6 +643,7 @@ function PAPipelineDetail({ me, jobId, onBack }) {
         if (body.ok) {
           setFields(body.fields || {});
           setPhotos(body.photos || []);
+          setPhotoSource(body.photo_source || null);
         } else {
           // Fall back to local cache if JN read failed.
           setFields(row.pa_fields || {});
@@ -734,9 +736,14 @@ function PAPipelineDetail({ me, jobId, onBack }) {
       <div style={{ padding: 14, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, marginBottom: 12 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.04em" }}>
           Inspection photos ({photos.length})
+          {photoSource === "app" && (
+            <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: "#0e7490", textTransform: "none", letterSpacing: 0 }}>
+              · from inspection app
+            </span>
+          )}
         </div>
         {photos.length === 0 ? (
-          <div style={{ fontSize: 12, color: "#94a3b8" }}>No photos found on the JobNimbus job.</div>
+          <div style={{ fontSize: 12, color: "#94a3b8" }}>No photos found for this inspection yet.</div>
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
             {photos.map((src, i) => (

@@ -55,7 +55,7 @@ exports.handler = async (event) => {
   };
 
   const inspRes = await fetch(
-    `${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}&select=id,jn_job_id,client_name,result,result_at,inspection_photos&limit=1`,
+    `${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}&select=id,jn_job_id,client_name,result,result_at,inspection_photos,inspector_name&limit=1`,
     { headers: sbHeaders },
   );
   if (!inspRes.ok) {
@@ -137,17 +137,25 @@ exports.handler = async (event) => {
     return Number.isFinite(src) ? Math.floor(src / 1000) : Math.floor(Date.now() / 1000);
   })();
 
+  // Also stamp cf_string_43 ("Inspected By") with the inspector's name
+  // when we have it, so JN's job — and the PA portal — shows who did the
+  // inspection. Only set it when present (office-classified records that
+  // never went through the inspector app won't have a name).
+  const inspectedBy = (insp.inspector_name || "").trim();
+
   let jnUpdated = false;
   let jnUpdateError = null;
   try {
+    const putBody = {
+      jnid: insp.jn_job_id,
+      cf_string_34: cfValue,
+      cf_date_22: inspectedUnix,
+    };
+    if (inspectedBy) putBody.cf_string_43 = inspectedBy;
     const putRes = await fetch(`${JN_BASE}/jobs/${insp.jn_job_id}`, {
       method: "PUT",
       headers: jnHeaders,
-      body: JSON.stringify({
-        jnid: insp.jn_job_id,
-        cf_string_34: cfValue,
-        cf_date_22: inspectedUnix,
-      }),
+      body: JSON.stringify(putBody),
     });
     if (putRes.ok) {
       jnUpdated = true;

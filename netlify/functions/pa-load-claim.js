@@ -54,16 +54,21 @@ exports.handler = async (event) => {
   const SB_URL = process.env.VITE_SUPABASE_URL;
   const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
   const JN_KEY = process.env.JOBNIMBUS_API_KEY;
+  const sbHeaders = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
 
-  if (!jnJobId && inspectionId) {
-    const sbHeaders = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
+  // Always pull our inspection row when we have an id — it's the fallback
+  // source for Inspected By / Inspected Date and for app-side photos
+  // (captured in our app, stored in Supabase Storage) when JN has none.
+  let insp = null;
+  if (inspectionId) {
     const lookup = await fetch(
-      `${SB_URL}/rest/v1/inspections?id=eq.${inspectionId}&select=jn_job_id&limit=1`,
+      `${SB_URL}/rest/v1/inspections?id=eq.${inspectionId}&select=jn_job_id,inspector_name,result_at,inspection_photos&limit=1`,
       { headers: sbHeaders },
     );
     if (lookup.ok) {
       const rows = await lookup.json();
-      jnJobId = rows?.[0]?.jn_job_id || "";
+      insp = rows?.[0] || null;
+      if (!jnJobId) jnJobId = insp?.jn_job_id || "";
     }
   }
   if (!jnJobId) return json(400, { ok: false, error: "No jnJobId (and inspectionId had none)" });
@@ -96,11 +101,68 @@ exports.handler = async (event) => {
     jnError = e.message || "JN job read error";
   }
 
-  // 2. Photos (best-effort; never fail the load over photos).
-  const photos = await fetchJobPhotos(jnJobId, jnHeaders);
+  // 1b. Fill Inspected By / Inspected Date from our record when JN is
+  //     blank — these are set by the inspector flow on our side but older
+  //     records (classified before the cf_string_43 push shipped) have
+  //     them missing in JN. Self-heal: write the fallback back to JN so
+  //     it shows up there too, then return the merged value.
+  const heal = {};
+  if (!fields.inspected_by && insp?.inspector_name) {
+    fields.inspected_by = String(insp.inspector_name).trim();
+    if (fields.inspected_by) heal.cf_string_43 = fields.inspected_by;
+  }
+  if (!fields.inspected_date && insp?.result_at) {
+    const t = new Date(insp.result_at).getTime();
+    if (Number.isFinite(t)) {
+      fields.inspected_date = Math.floor(t / 1000);
+      heal.cf_date_22 = fields.inspected_date;
+    }
+  }
+  if (Object.keys(heal).length > 0) {
+    try {
+      await fetch(`${JN_BASE}/jobs/${jnJobId}`, {
+        method: "PUT",
+        headers: jnHeaders,
+        body: JSON.stringify({ jnid: jnJobId, ...heal }),
+      });
+    } catch { /* best-effort backfill; the value still returns below */ }
+  }
 
-  return json(200, { ok: true, jn_job_id: jnJobId, fields, photos, jn_error: jnError });
+  // 2. Photos. Prefer JN (canonical). If JN has none, fall back to the
+  //    app-side photos we captured in our app (Supabase Storage) so the
+  //    PA still sees the roof even before/if JN upload lagged.
+  let photos = await fetchJobPhotos(jnJobId, jnHeaders);
+  let photoSource = photos.length > 0 ? "jobnimbus" : null;
+  if (photos.length === 0 && Array.isArray(insp?.inspection_photos) && insp.inspection_photos.length > 0) {
+    photos = await signSupabasePhotos(insp.inspection_photos, SB_URL, sbHeaders);
+    if (photos.length > 0) photoSource = "app";
+  }
+
+  return json(200, { ok: true, jn_job_id: jnJobId, fields, photos, photo_source: photoSource, jn_error: jnError });
 };
+
+// Build temporary signed URLs for app-captured photos stored in Supabase
+// Storage. Each entry is { path, bucket }. Returns absolute URLs the
+// browser can use directly in <img src>.
+async function signSupabasePhotos(items, sbUrl, sbHeaders) {
+  const out = [];
+  for (const p of items.slice(0, 24)) {
+    if (!p?.path) continue;
+    const bucket = p.bucket || "signed-documents";
+    try {
+      const res = await fetch(`${sbUrl}/storage/v1/object/sign/${bucket}/${p.path}`, {
+        method: "POST",
+        headers: sbHeaders,
+        body: JSON.stringify({ expiresIn: 3600 }),
+      });
+      if (!res.ok) continue;
+      const body = await res.json().catch(() => ({}));
+      const rel = body.signedURL || body.signedUrl;
+      if (rel) out.push(rel.startsWith("http") ? rel : `${sbUrl}/storage/v1${rel.startsWith("/") ? "" : "/"}${rel}`);
+    } catch { /* skip this one */ }
+  }
+  return out;
+}
 
 async function fetchJobPhotos(jnJobId, jnHeaders) {
   try {

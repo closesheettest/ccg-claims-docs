@@ -247,13 +247,20 @@ exports.handler = async (event) => {
     // through process-retail-result which handles cf_string_34 + the
     // record_type/location transitions in one PUT.
     if (result === "damage" || result === "no_damage") {
+      // Push the result PLUS the Inspected Date (cf_date_22 = result_at)
+      // and Inspected By (cf_string_43 = inspector name) in the same PUT,
+      // so JN's job — and the PA portal that reads it — shows who did the
+      // inspection and when, not just the Damage/No Damage classification.
+      const cfBody = {
+        jnid: insp.jn_job_id,
+        cf_string_34: RESULT_LABELS[result],
+        cf_date_22: Math.floor(Date.now() / 1000),
+      };
+      if (inspectorName) cfBody.cf_string_43 = inspectorName;
       fetch(`${JN_BASE}/jobs/${insp.jn_job_id}`, {
         method: "PUT",
         headers: jnHeaders,
-        body: JSON.stringify({
-          jnid: insp.jn_job_id,
-          cf_string_34: RESULT_LABELS[result],
-        }),
+        body: JSON.stringify(cfBody),
       })
         .then(async (r) => {
           if (!r.ok) {
