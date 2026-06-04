@@ -117,11 +117,31 @@ export default function ManagerRecordsView({ token }) {
     })
   }, [filteredDealsByRep])
 
+  // Company leads to pass out (Retail from inactive reps). Search applies;
+  // the attention filter doesn't — they're their own bucket, always shown
+  // at the very top so the manager can hand them to an active rep.
+  const filteredCompanyLeads = useMemo(() => {
+    const list = data?.companyLeads || []
+    const q = query.trim().toLowerCase()
+    if (!q) return list
+    return list.filter((d) =>
+      `${d.homeowner_name} ${d.address} ${d.city} ${d.zip}`.toLowerCase().includes(q),
+    )
+  }, [data, query])
+
+  const inactiveRepSet = useMemo(
+    () => new Set(data?.inactiveReps || []),
+    [data],
+  )
+
   const selectedDeal = useMemo(() => {
-    if (!selectedDealId || !data?.dealsByRep) return null
-    for (const deals of Object.values(data.dealsByRep)) {
+    if (!selectedDealId || !data) return null
+    for (const deals of Object.values(data.dealsByRep || {})) {
       const hit = deals.find((d) => d.id === selectedDealId)
       if (hit) return hit
+    }
+    for (const d of data.companyLeads || []) {
+      if (d.id === selectedDealId) return d
     }
     return null
   }, [selectedDealId, data])
@@ -131,12 +151,15 @@ export default function ManagerRecordsView({ token }) {
   // stamp persists it for the next reload).
   const patchDeal = (dealId, patch) => {
     setData((prev) => {
-      if (!prev?.dealsByRep) return prev
+      if (!prev) return prev
       const dealsByRep = {}
-      for (const [rep, deals] of Object.entries(prev.dealsByRep)) {
+      for (const [rep, deals] of Object.entries(prev.dealsByRep || {})) {
         dealsByRep[rep] = deals.map((d) => (d.id === dealId ? { ...d, ...patch } : d))
       }
-      return { ...prev, dealsByRep }
+      const companyLeads = (prev.companyLeads || []).map((d) =>
+        d.id === dealId ? { ...d, ...patch } : d,
+      )
+      return { ...prev, dealsByRep, companyLeads }
     })
   }
 
@@ -273,7 +296,39 @@ export default function ManagerRecordsView({ token }) {
              className="mgr-grid">
           {/* LEFT — Rep groups */}
           <div>
-            {sortedReps.length === 0 ? (
+            {/* Pass Out Company Leads — pinned to the very top. Retail
+                inspections signed by an inactive/departed rep that need
+                handing to an active rep. */}
+            {filteredCompanyLeads.length > 0 && (
+              <section style={{
+                background: '#fff', border: '2px solid #f59e0b', borderRadius: 12,
+                marginBottom: 14, overflow: 'hidden',
+              }}>
+                <div style={{ background: '#fffbeb', padding: '12px 16px', borderBottom: '1px solid #fde68a' }}>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: '#92400e' }}>
+                    🤝 Pass Out Company Leads ({filteredCompanyLeads.length})
+                  </div>
+                  <div style={{ fontSize: 12.5, color: '#92400e', marginTop: 2 }}>
+                    Retail inspections from reps who aren't active — get a rep over there to set an appointment and sell it.
+                  </div>
+                </div>
+                <div>
+                  {filteredCompanyLeads.map((d) => (
+                    <DealRow
+                      key={`cl-${d.source}-${d.id}`}
+                      deal={d}
+                      selected={d.id === selectedDealId}
+                      onSelect={() => setSelectedDealId((prev) => (prev === d.id ? null : d.id))}
+                      theme={zoneTheme}
+                      token={token}
+                      onDealPatch={patchDeal}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {sortedReps.length === 0 && filteredCompanyLeads.length === 0 ? (
               <div style={{
                 background: '#fff', border: '1px dashed #cbd5e1', borderRadius: 12,
                 padding: 24, textAlign: 'center', color: '#475569',
@@ -283,6 +338,7 @@ export default function ManagerRecordsView({ token }) {
             ) : sortedReps.map(([rep, deals]) => {
               const attentionCount = deals.filter(isAttention).length
               const isOpen = openReps[rep] ?? false
+              const repInactive = inactiveRepSet.has(rep)
               return (
                 <section key={rep} style={{
                   background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12,
@@ -301,9 +357,16 @@ export default function ManagerRecordsView({ token }) {
                     <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                       <span style={{
                         display: 'inline-block', width: 8, height: 8, borderRadius: 4,
-                        background: attentionCount > 0 ? '#f59e0b' : '#10b981',
+                        background: repInactive ? '#94a3b8' : (attentionCount > 0 ? '#f59e0b' : '#10b981'),
                       }} />
-                      <strong>{rep}</strong>
+                      <strong style={repInactive ? { color: '#64748b' } : undefined}>{rep}</strong>
+                      {repInactive && (
+                        <span style={{
+                          fontSize: 11, fontWeight: 700, color: '#64748b',
+                          background: '#f1f5f9', border: '1px solid #cbd5e1',
+                          borderRadius: 999, padding: '1px 7px',
+                        }}>inactive</span>
+                      )}
                       <span style={{ color: '#64748b', fontSize: 13 }}>
                         · {deals.length} deal{deals.length === 1 ? '' : 's'}
                         {attentionCount > 0 && (

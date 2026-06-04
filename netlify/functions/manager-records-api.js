@@ -240,7 +240,7 @@ async function buildRecords(manager) {
   // primary key so it correlates with creation time, AND unlike
   // signed_at/result_at it has no NULLs that get demoted to the
   // bottom (which is what was hiding unsigned deals from the list).
-  const [claims, inspections] = await Promise.all([
+  const [claims, inspections, inspectorRows] = await Promise.all([
     fetchTable('claims', {
       select:
         'id,client_name,address,city,state,zip,mobile,sales_rep_name,sales_rep_id,' +
@@ -260,7 +260,27 @@ async function buildRecords(manager) {
       order: 'id.desc',
       limit: 500,
     }),
+    // The inspectors table is the real rep roster and carries the
+    // active/inactive flag (sales_reps does not — it's just the
+    // name↔zone bridge). A signer flipped inactive there is "not a
+    // rep" anymore; their Retail inspections become company leads to
+    // pass out. Matched by JN user id (reliable) or normalized name.
+    fetchTable('inspectors', { select: 'name,jn_user_id,active', limit: 1000 }),
   ])
+
+  const inactiveNames = new Set()
+  const inactiveJnIds = new Set()
+  for (const r of inspectorRows || []) {
+    if (r.active === false) {
+      if (r.name) inactiveNames.add(normalizeName(r.name))
+      if (r.jn_user_id) inactiveJnIds.add(r.jn_user_id)
+    }
+  }
+  const isInactiveSigner = (d) =>
+    (d.sales_rep_id && inactiveJnIds.has(d.sales_rep_id)) ||
+    inactiveNames.has(normalizeName(d.sales_rep_name || ''))
+  const isRetail = (d) => /retail/i.test(String(d.inspection_result || d.result || ''))
+  const isLost = (d) => /lost/i.test(String(d.inspection_result || d.result || ''))
 
   // 3. Merge claims + inspections into a normalized "deal" shape so
   //    the UI doesn't have to special-case both. Inspection-only deals
@@ -288,20 +308,44 @@ async function buildRecords(manager) {
     }
   }
 
+  // 4b. Company leads to pass out: Retail inspections signed by an
+  //     inactive/departed rep. These aren't anyone's deal to work yet —
+  //     they get pinned to the top of the manager page for reassignment
+  //     to an active rep, and are pulled OUT of the per-rep grouping so
+  //     an inactive person never shows up as a working sales rep.
+  const companyLeads = []
+  const companyLeadKeys = new Set()
+  for (const d of deals) {
+    if (d.cancelled_at || isLost(d)) continue
+    if (isInactiveSigner(d) && isRetail(d)) {
+      companyLeads.push(d)
+      companyLeadKeys.add(`${d.source}:${d.id}`)
+    }
+  }
+
   // 5. Group by rep — sorted by deal count desc so the busiest reps
   //    bubble up. Within each rep, deals are already in date-desc
-  //    order from the PostgREST query.
+  //    order from the PostgREST query. Company leads are excluded.
   const dealsByRep = {}
   for (const d of deals) {
+    if (companyLeadKeys.has(`${d.source}:${d.id}`)) continue
     const rep = d.sales_rep_name || '— Unknown —'
     if (!dealsByRep[rep]) dealsByRep[rep] = []
     dealsByRep[rep].push(d)
   }
+  // Which of the remaining rep groups are inactive people (so the UI can
+  // grey them out / tag them rather than show a green "active rep" dot).
+  const inactiveReps = Object.keys(dealsByRep).filter((rep) =>
+    inactiveNames.has(normalizeName(rep)),
+  )
 
   const totals = {
     deals: deals.length,
     pending_signatures: pendingSignatures.length,
-    needs_attention: deals.filter((d) => needsAttention(d)).length,
+    needs_attention: deals.filter(
+      (d) => !companyLeadKeys.has(`${d.source}:${d.id}`) && needsAttention(d),
+    ).length,
+    company_leads: companyLeads.length,
     reps: Object.keys(dealsByRep).length,
   }
 
@@ -310,6 +354,8 @@ async function buildRecords(manager) {
     manager,
     repsInZone,
     dealsByRep,
+    companyLeads,
+    inactiveReps,
     pendingSignatures,
     totals,
   })
