@@ -4680,6 +4680,10 @@ export function ConfirmResultsPanel() {
   // Lazily-loaded signed photo URLs, keyed by inspection id.
   const [photoUrls, setPhotoUrls] = useState({});
   const [photosOpen, setPhotosOpen] = useState({});
+  // Manager's corrected result per inspection id (defaults to the
+  // stored result). When it differs from the stored result, Confirm
+  // re-files the JN job to match the new call.
+  const [overrides, setOverrides] = useState({});
 
   useEffect(() => { loadHeld(); }, []);
 
@@ -4724,8 +4728,29 @@ export function ConfirmResultsPanel() {
   async function act(insp, action) {
     const verb = action === "confirm" ? "confirm" : "reject";
     const alreadyFired = !!insp.jn_pushed_at;
+    const chosen = overrides[insp.id] || insp.result;
+    const isChange = action === "confirm" && chosen !== insp.result;
     let warn;
-    if (action === "confirm") {
+    if (action === "confirm" && isChange) {
+      // Manager corrected the inspector's call. Spell out exactly what
+      // re-filing the JN job will do — including the irreversible bits.
+      const lines = [
+        `Change ${insp.client_name} from "${labelForResult(insp.result)}" to "${labelForResult(chosen)}"?`,
+        ``,
+        `This will re-file the JobNimbus job to match the new call:`,
+        `• set the inspection-result field to "${labelForResult(chosen)}"`,
+        `• replace the certificate PDF`,
+      ];
+      if (insp.result === "retail" && chosen !== "retail") {
+        lines.push(`• move the job back to the insurance workflow (record type, status, location)`);
+      }
+      if (chosen === "retail") lines.push(`• run the retail swap (record type → Lead, retail location)`);
+      if (chosen === "damage") lines.push(`• send a NEW PA Ops Hub damage notice`);
+      if (insp.result === "damage") {
+        lines.push(``, `⚠️ A PA Ops Hub damage notice already went out for this one — it CANNOT be auto-recalled. You'll need to tell the PA it's no longer a damage claim.`);
+      }
+      warn = lines.join("\n");
+    } else if (action === "confirm") {
       warn = alreadyFired
         ? `Mark ${insp.client_name}'s "${labelForResult(insp.result)}" as reviewed?\n\nThis one already went to JobNimbus earlier, so nothing will be re-sent — it's just cleared from this list.`
         : `Confirm ${insp.client_name}'s "${labelForResult(insp.result)}" result?\n\nThis pushes to JobNimbus and fires everything that normally happens on submit (photos, cert${insp.result === "damage" ? ", PA Ops Hub PDN" : insp.result === "retail" ? ", retail swap" : ""}).`;
@@ -4738,10 +4763,12 @@ export function ConfirmResultsPanel() {
     setBusyId(insp.id);
     setMessage(null);
     try {
+      const payload = { inspectionId: insp.id, action };
+      if (isChange) payload.override_result = chosen;
       const res = await fetch("/.netlify/functions/confirm-inspection-result", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inspectionId: insp.id, action }),
+        body: JSON.stringify(payload),
       });
       const body = await res.json().catch(() => ({}));
       if (!body.ok) {
@@ -4751,9 +4778,11 @@ export function ConfirmResultsPanel() {
         setMessage({
           kind: "success",
           text: action === "confirm"
-            ? (body.already_fired
-                ? `${insp.client_name} marked reviewed — it was already in JobNimbus, nothing re-sent.`
-                : `Confirmed ${insp.client_name} — result fired to JobNimbus.`)
+            ? (body.changed
+                ? `${insp.client_name} changed to "${labelForResult(chosen)}" and re-filed in JobNimbus.`
+                : body.already_fired
+                  ? `${insp.client_name} marked reviewed — it was already in JobNimbus, nothing re-sent.`
+                  : `Confirmed ${insp.client_name} — result fired to JobNimbus.`)
             : `Rejected ${insp.client_name} — result cleared, job re-opened.`,
         });
         await loadHeld();
@@ -4772,8 +4801,11 @@ export function ConfirmResultsPanel() {
         </div>
         <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
           Results submitted by gated inspectors (the "Confirm" toggle is ON for them in the
-          Inspectors roster). Nothing has been sent to JobNimbus yet. Review the call, then
-          Confirm to fire it or Reject to clear it and re-open the job.
+          Inspectors roster). Review the call, then Confirm to fire it or Reject to clear it
+          and re-open the job. If the inspector got it wrong, use "→ correct to:" to change the
+          result first — Confirm then re-files JobNimbus (result field, certificate, and the
+          right workflow/PDN) to match. Rows already in JobNimbus show an "Already in JN" badge;
+          confirming those without a change just marks them reviewed (nothing re-sent).
         </div>
       </div>
 
@@ -4822,6 +4854,32 @@ export function ConfirmResultsPanel() {
                     </div>
                     <div style={{ fontSize: 12, color: "#374151", marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                       <span style={resultBadgeStyle(insp.result)}>{labelForResult(insp.result)}</span>
+                      {(() => {
+                        const chosen = overrides[insp.id] || insp.result;
+                        const changed = chosen !== insp.result;
+                        return (
+                          <label style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "#475569" }}>
+                            <span>→ correct to:</span>
+                            <select
+                              value={chosen}
+                              onChange={(e) => setOverrides((m) => ({ ...m, [insp.id]: e.target.value }))}
+                              style={{
+                                fontSize: 11,
+                                padding: "2px 6px",
+                                borderRadius: 6,
+                                border: `1px solid ${changed ? "#f59e0b" : "#cbd5e1"}`,
+                                background: changed ? "#fffbeb" : "#fff",
+                                fontWeight: changed ? 700 : 400,
+                              }}
+                            >
+                              <option value="damage">Damage</option>
+                              <option value="no_damage">No Damage</option>
+                              <option value="retail">Retail</option>
+                              <option value="lost">Lost</option>
+                            </select>
+                          </label>
+                        );
+                      })()}
                       {insp.inspector_name && <span>👤 {insp.inspector_name}</span>}
                       {insp.result_at && <span>🕑 {new Date(insp.result_at).toLocaleString()}</span>}
                       {photos.length > 0 && <span>📷 {photos.length}</span>}
@@ -4864,7 +4922,13 @@ export function ConfirmResultsPanel() {
                       disabled={busy}
                       style={{ ...primaryBtn, fontSize: 12, padding: "8px 14px", opacity: busy ? 0.6 : 1, cursor: busy ? "wait" : "pointer" }}
                     >
-                      {busy ? "Working…" : insp.jn_pushed_at ? "✓ Mark reviewed" : "✓ Confirm & fire"}
+                      {busy
+                        ? "Working…"
+                        : (overrides[insp.id] && overrides[insp.id] !== insp.result)
+                          ? "✓ Change & re-file"
+                          : insp.jn_pushed_at
+                            ? "✓ Mark reviewed"
+                            : "✓ Confirm & fire"}
                     </button>
                     <button
                       type="button"

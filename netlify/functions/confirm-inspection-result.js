@@ -28,6 +28,8 @@
 // Required env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY,
 //               JOBNIMBUS_API_KEY, URL (or PUBLIC_SITE_URL).
 
+const JN_BASE = "https://app.jobnimbus.com/api1";
+
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return json(405, { ok: false, error: "Method not allowed" });
@@ -44,9 +46,18 @@ exports.handler = async (event) => {
   }
   const inspectionId = (body.inspectionId || "").trim();
   const action = (body.action || "confirm").trim();
+  // Optional: manager corrected the inspector's call before confirming.
+  // When set and different from the stored result, the confirm path
+  // re-files the JN job to match the NEW result instead of just
+  // clearing the hold (see CHANGE flow below).
+  const overrideResult = (body.override_result || "").trim();
+  const VALID_RESULTS = ["damage", "no_damage", "retail", "lost"];
   if (!inspectionId) return json(400, { ok: false, error: "inspectionId required" });
   if (!["confirm", "reject"].includes(action)) {
     return json(400, { ok: false, error: 'action must be "confirm" or "reject"' });
+  }
+  if (overrideResult && !VALID_RESULTS.includes(overrideResult)) {
+    return json(400, { ok: false, error: `override_result must be one of ${VALID_RESULTS.join(", ")}` });
   }
 
   const SB_URL = process.env.VITE_SUPABASE_URL;
@@ -98,6 +109,13 @@ exports.handler = async (event) => {
     return json(400, { ok: false, error: "No result on this held inspection — nothing to confirm." });
   }
 
+  // Did the manager correct the inspector's call? A real change means we
+  // re-file JN to match the NEW result (undo the old result's structural
+  // swap, set the new result field, replace the cert, fire the new
+  // downstream) — even if the row was already pushed once.
+  const changing = overrideResult && overrideResult !== insp.result;
+  const changeNotes = [];
+
   // SAFETY RAIL — already-fired short-circuit.
   // If this row was already pushed to JN once (jn_pushed_at is set), it
   // got into the confirm queue retroactively (e.g. a manager flagged an
@@ -105,7 +123,9 @@ exports.handler = async (event) => {
   // duplicate the PA Ops Hub PDN, re-upload the cert, etc. So we DON'T
   // re-fire — Confirm here just means "reviewed, looks good": clear the
   // hold and stamp confirmed_at. Nothing is re-sent to JN.
-  if (insp.jn_pushed_at) {
+  // EXCEPTION: when the manager is CHANGING the result, we must re-file
+  // regardless of jn_pushed_at, so skip the short-circuit.
+  if (!changing && insp.jn_pushed_at) {
     await stampConfirmed(SB_URL, sbHeaders, inspectionId, true);
     return json(200, {
       ok: true,
@@ -120,6 +140,41 @@ exports.handler = async (event) => {
 
   if (!base) {
     return json(500, { ok: false, error: "No base URL configured — cannot fan out." });
+  }
+
+  // ── CHANGE flow ──
+  // Manager corrected the inspector's result. Persist the new result
+  // FIRST (every downstream building-block function reads result fresh
+  // from Supabase), then undo any structural swap the OLD result applied
+  // to the JN job. Execution then falls through to the normal fan-out
+  // below — which now fires for the NEW result (correct cf_string_34,
+  // a fresh cert, and the new result's downstream).
+  if (changing) {
+    const oldResult = insp.result;
+    const pr = await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}`, {
+      method: "PATCH",
+      headers: sbHeaders,
+      body: JSON.stringify({ result: overrideResult }),
+    });
+    if (!pr.ok) {
+      return json(500, { ok: false, error: `Could not save corrected result: ${await pr.text()}` });
+    }
+    insp.result = overrideResult; // local copy for the result-specific checks below
+    changeNotes.push(`result changed ${oldResult} → ${overrideResult}`);
+
+    // If the OLD result was retail, it moved the JN job into the retail
+    // workflow (record_type Lead, status 599, retail location, date_start
+    // nulled). Moving away from retail must restore the insurance/PA
+    // workflow or the job stays misfiled.
+    if (oldResult === "retail" && overrideResult !== "retail") {
+      changeNotes.push(await reverseRetailSwap(insp.jn_job_id));
+    }
+    // NOTE: if the OLD result was "damage", a PA Ops Hub PDN already went
+    // to the external partner and CANNOT be recalled here — the UI warns
+    // the manager about this before they confirm.
+    if (oldResult === "damage") {
+      changeNotes.push("⚠️ prior PA Ops Hub damage notice was already sent and cannot be auto-recalled");
+    }
   }
 
   const steps = { jn_pushed: false, photos_uploaded: 0, photos_total: 0, cert_fired: false, pa_pdn_fired: false, retail_fired: false };
@@ -144,7 +199,7 @@ exports.handler = async (event) => {
   // Lost results are done after the push (no photos, no cert, no fan-out).
   if (insp.result === "lost") {
     await stampConfirmed(SB_URL, sbHeaders, inspectionId, steps.jn_pushed);
-    return json(200, { ok: steps.jn_pushed, action: "confirm", inspection_id: inspectionId, result: "lost", steps, errors });
+    return json(200, { ok: steps.jn_pushed, action: "confirm", inspection_id: inspectionId, result: "lost", changed: changing, change_notes: changeNotes, steps, errors });
   }
 
   // 2. Upload each photo JN doesn't already have.
@@ -216,10 +271,55 @@ exports.handler = async (event) => {
     inspection_id: inspectionId,
     client_name: insp.client_name,
     result: insp.result,
+    changed: changing,
+    change_notes: changeNotes,
     steps,
     errors,
   });
 };
+
+// Undo the retail swap (process-retail-result) so a job corrected away
+// from "retail" goes back into the insurance/PA workflow. Restores
+// record_type "PA", status 597 (Sit Sold Insp), insurance location id 3,
+// and date_start from cf_date_5 (the original sold date). Best-effort —
+// returns a human-readable note for the response.
+async function reverseRetailSwap(jnJobId) {
+  if (!jnJobId) return "no jn_job_id — retail swap not reversed";
+  const jnHeaders = {
+    Authorization: `bearer ${process.env.JOBNIMBUS_API_KEY}`,
+    "Content-Type": "application/json",
+  };
+  // Read the job to recover the sold date so date_start can be restored.
+  let dateStart = null;
+  try {
+    const r = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(jnJobId)}`, { headers: jnHeaders });
+    if (r.ok) {
+      const j = await r.json().catch(() => ({}));
+      const raw = j.cf_date_5 || j.date_start || null;
+      if (raw && Number(raw) > 0) dateStart = Number(raw);
+    }
+  } catch { /* fall through — restore without date_start */ }
+
+  const putBody = {
+    jnid: jnJobId,
+    record_type_name: "PA",
+    status: 597,
+    status_name: "Sit Sold Insp",
+    location: { id: 3 },
+  };
+  if (dateStart) putBody.date_start = dateStart;
+  try {
+    const r = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(jnJobId)}`, {
+      method: "PUT",
+      headers: jnHeaders,
+      body: JSON.stringify(putBody),
+    });
+    if (!r.ok) return `retail swap reverse FAILED (HTTP ${r.status}): ${(await r.text()).slice(0, 160)}`;
+    return `retail swap reversed → record_type PA, status Sit Sold Insp, insurance location${dateStart ? ", date_start restored" : ""}`;
+  } catch (e) {
+    return `retail swap reverse exception: ${e.message}`;
+  }
+}
 
 // Clear pending_confirmation, stamp confirmed_at, and (on a successful
 // JN push) stamp jn_pushed_at so the hourly cron doesn't re-push.
