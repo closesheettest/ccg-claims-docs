@@ -11909,7 +11909,7 @@ if (!hasDamage) {
                                 onClick={bulkPushAllPendingResults}
                                 style={{ padding: "10px 22px", borderRadius: 10, border: "none", background: (bulkPushBusy || pendingCount === 0) ? "#9ca3af" : "#16a34a", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: (bulkPushBusy || pendingCount === 0) ? "not-allowed" : "pointer", letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}
                               >
-                                {bulkPushBusy ? "⏳ Pushing…" : `🔄 Push ${pendingCount} to JN`}
+                                {bulkPushBusy ? "⏳ Pushing…" : `🔄 Push ALL ${pendingCount} to JN`}
                               </button>
                             </div>
                           );
@@ -12272,24 +12272,38 @@ if (!hasDamage) {
                                 {rec.jn_job_id && rec.result ? (() => {
                                   const status = pushStatus[rec.id];
                                   const inFlight = status && (status.stage === "updating" || status.stage === "queueing");
+                                  // Persisted push state — survives page reloads. Without
+                                  // this, the button only knew about pushes done in THIS
+                                  // session (pushStatus), so an already-pushed row would
+                                  // reset to "🔄 Push to JN" after a refresh even while the
+                                  // right-side "✓ JN PUSHED" pill said otherwise. That
+                                  // mismatch made managers re-click rows that were done.
+                                  const alreadyPushed = !!rec.jn_pushed_at;
                                   const label = inFlight
                                     ? "⏳ Pushing…"
                                     : status?.stage === "done"
                                       ? "✓ Pushed"
-                                      : "🔄 Push to JN";
+                                      : alreadyPushed
+                                        ? "✓ Pushed — Re-push?"
+                                        : "🔄 Push to JN";
+                                  // Treat a persisted push like a success (green) unless a
+                                  // fresh in-session attempt explicitly failed.
+                                  const lookSuccess = status?.ok === true || (alreadyPushed && status?.ok !== false);
                                   return (
                                     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, maxWidth: 220 }}>
                                       <button
                                         type="button"
                                         disabled={isBusy || inFlight}
                                         onClick={(e) => { e.stopPropagation(); adminPushResultToJn(rec); }}
-                                        title={`Push the local result (${rec.result}) to JN. Updates the JN inspection-result field instantly; cert + photos upload in the background.`}
+                                        title={alreadyPushed
+                                          ? `Already pushed to JN ${new Date(rec.jn_pushed_at).toLocaleString()}. Click only if you need to re-push (re-uploads cert + photos).`
+                                          : `Push the local result (${rec.result}) to JN. Updates the JN inspection-result field instantly; cert + photos upload in the background.`}
                                         style={{
                                           padding: "6px 12px",
                                           borderRadius: 8,
-                                          border: `1px solid ${status?.ok === false ? "#dc2626" : "#0e7490"}`,
-                                          background: (isBusy || inFlight) ? "#f3f4f6" : (status?.ok === true ? "#ecfdf5" : status?.ok === false ? "#fef2f2" : "#ecfeff"),
-                                          color: (isBusy || inFlight) ? "#9ca3af" : (status?.ok === false ? "#991b1b" : "#0e7490"),
+                                          border: `1px solid ${status?.ok === false ? "#dc2626" : lookSuccess ? "#10b981" : "#0e7490"}`,
+                                          background: (isBusy || inFlight) ? "#f3f4f6" : (lookSuccess ? "#ecfdf5" : status?.ok === false ? "#fef2f2" : "#ecfeff"),
+                                          color: (isBusy || inFlight) ? "#9ca3af" : (status?.ok === false ? "#991b1b" : lookSuccess ? "#065f46" : "#0e7490"),
                                           fontSize: 11,
                                           fontFamily: "'Oswald', sans-serif",
                                           fontWeight: 700,
