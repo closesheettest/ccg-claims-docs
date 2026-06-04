@@ -740,7 +740,7 @@ function DealFacts({ deal, push }) {
     ['Signed', deal.signed_at ? fmtDate(deal.signed_at) : 'Not signed yet'],
     ['Inspection', result || (deal.signed_at ? 'Awaiting result' : '—')],
     ['PA result', paResultLabel(deal)],
-    ['In JobNimbus', jnPushLabel(push, !!result)],
+    ['In JobNimbus', jnPushLabel(push, !!result, photosRequired(result))],
   ]
   return (
     <div
@@ -774,7 +774,7 @@ function paResultLabel(deal) {
 // One-line "what's actually in JN" summary for the facts grid. Before an
 // inspection result is back, Photos/Cert show a neutral "—" (they can't
 // exist yet) rather than a red ✗ that would imply something's missing.
-function jnPushLabel(push, hasResult) {
+function jnPushLabel(push, hasResult, photosReq = true) {
   if (!push.inJn) {
     return <span style={{ color: '#b91c1c', fontWeight: 700 }}>Not pushed yet</span>
   }
@@ -790,10 +790,13 @@ function jnPushLabel(push, hasResult) {
       </span>
     )
   }
+  // Photos column is hidden once we know the result is "No Damage" —
+  // photos aren't owed there, so flagging them would just confuse.
+  const showPhotos = !hasResult || photosReq
   return (
     <span>
       {item('yes', 'Job')}
-      {item(hasResult ? (push.photos ? 'yes' : 'no') : 'na', 'Photos')}
+      {showPhotos && item(hasResult ? (push.photos ? 'yes' : 'no') : 'na', 'Photos')}
       {item(hasResult ? (push.cert ? 'yes' : 'no') : 'na', 'Cert')}
     </span>
   )
@@ -1135,6 +1138,15 @@ function isLostResult(deal) {
   return /lost/i.test(inspectionResult(deal))
 }
 
+// Are roof photos owed to JobNimbus for this result? Photos are evidence
+// of damage — a "No Damage" inspection has none to show, so photos are
+// optional there and only the certificate is owed (if photos happen to
+// exist that's fine, we just don't flag their absence). Damage + Retail
+// still expect photos. No result yet → nothing owed.
+function photosRequired(resultRaw) {
+  return !!resultRaw && !/no\s*damage/i.test(resultRaw)
+}
+
 // Business-facing summary for an inspected deal: WHAT came back and what
 // the company does next with it. Drives the big chip's headline + the
 // note line under it. This is deliberately separate from the manager's
@@ -1232,8 +1244,9 @@ function actionFor(deal) {
     // instruction line + whichever action button is owed (action.need).
     const resultRaw = inspectionResult(deal)
     const meta = resultChip(resultRaw)
+    const wantPhotos = photosRequired(resultRaw) // No Damage → cert only
     let tone, detail, need
-    if (!push.photos) {
+    if (wantPhotos && !push.photos) {
       tone = 'bad'; need = 'photos'
       detail = `Inspection came back “${resultRaw}” — photos not in JobNimbus yet. Tap “Send Photos to JN”.`
     } else if (!push.cert) {
@@ -1241,7 +1254,9 @@ function actionFor(deal) {
       detail = `Inspection came back “${resultRaw}” — certificate not in JobNimbus yet. Tap “Send Cert to JN”.`
     } else {
       tone = 'good'; need = null
-      detail = `Photos + certificate for the “${resultRaw}” inspection are in JobNimbus — nothing to do.`
+      detail = wantPhotos
+        ? `Photos + certificate for the “${resultRaw}” inspection are in JobNimbus — nothing to do.`
+        : `Certificate for the “${resultRaw}” inspection is in JobNimbus — nothing to do. (No Damage — photos not needed.)`
     }
     return {
       tone,            // drives the red/green instruction line + button

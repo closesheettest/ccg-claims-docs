@@ -473,10 +473,15 @@ function needsAttention(d) {
   // Not inspected yet — only a stale (>24h) orphaned sync is owed.
   if (!hasResult) return !inJn && signedHoursAgo > 24
 
-  // Inspected — photos + certificate are owed until both land in JN.
-  const photosIn = !!d.jn_pushed_at
+  // Inspected — the certificate is always owed until it lands in JN.
+  // Photos are owed too, EXCEPT for "No Damage" (no damage = no photos to
+  // show, so photos are optional there). Mirrors the frontend's
+  // photosRequired() so the attention count agrees with the per-rep rows.
+  const result = String(d.inspection_result || d.result || '')
+  const photosReq = !/no\s*damage/i.test(result)
   const certIn = !!d.jn_cert_uploaded_at || (!!d.jn_status && CERT_STATUSES.includes(d.jn_status))
-  return !photosIn || !certIn
+  if (photosReq && !d.jn_pushed_at) return true
+  return !certIn
 }
 
 function json(status, body) {
