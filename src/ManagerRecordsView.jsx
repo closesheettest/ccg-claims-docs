@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 // Zone-scoped Regional Manager records page.
 //
@@ -140,6 +140,56 @@ export default function ManagerRecordsView({ token }) {
     })
   }
 
+  // Position the detail panel directly to the RIGHT of the clicked row
+  // (instead of pinning it to the top of the column, which left it "way
+  // above" the deal a manager tapped near the bottom of a long list).
+  const gridRef = useRef(null)
+  const detailRef = useRef(null)
+  const [detailTop, setDetailTop] = useState(16)
+  const [gridMinH, setGridMinH] = useState(0)
+
+  useLayoutEffect(() => {
+    const grid = gridRef.current
+    if (!grid) return
+    // On narrow screens the panel stacks below the list (CSS handles it),
+    // so don't bother offsetting it there.
+    const isNarrow = typeof window !== 'undefined' &&
+      window.matchMedia('(max-width: 900px)').matches
+    if (!selectedDealId || isNarrow) {
+      setDetailTop(16)
+      setGridMinH(0)
+      return
+    }
+    const row = grid.querySelector(`[data-deal-id="${selectedDealId}"]`)
+    if (!row) return
+    const top = row.getBoundingClientRect().top - grid.getBoundingClientRect().top
+    const clamped = Math.max(0, top)
+    setDetailTop(clamped)
+    // Reserve enough height so an absolutely-positioned panel near the
+    // bottom of the list doesn't overlap the footer.
+    const h = detailRef.current ? detailRef.current.offsetHeight : 0
+    setGridMinH(clamped + h + 8)
+  }, [selectedDealId, openReps, query, filter, data])
+
+  // Keep the panel aligned to its row when the window resizes.
+  useEffect(() => {
+    function onResize() {
+      const grid = gridRef.current
+      if (!grid || !selectedDealId) return
+      const isNarrow = window.matchMedia('(max-width: 900px)').matches
+      if (isNarrow) { setDetailTop(16); setGridMinH(0); return }
+      const row = grid.querySelector(`[data-deal-id="${selectedDealId}"]`)
+      if (!row) return
+      const top = row.getBoundingClientRect().top - grid.getBoundingClientRect().top
+      const clamped = Math.max(0, top)
+      setDetailTop(clamped)
+      const h = detailRef.current ? detailRef.current.offsetHeight : 0
+      setGridMinH(clamped + h + 8)
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [selectedDealId])
+
   if (loading) return <CenterMsg theme={NEUTRAL}>Loading your records…</CenterMsg>
   if (error) return <CenterMsg theme={NEUTRAL} bad>{error}</CenterMsg>
   if (!data) return null
@@ -218,7 +268,8 @@ export default function ManagerRecordsView({ token }) {
         </section>
 
         {/* ─────────── Two-column layout (mobile: stacked) ─────────── */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 380px)', gap: 14, alignItems: 'start' }}
+        <div ref={gridRef}
+             style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 380px', gap: 14, alignItems: 'start', position: 'relative', minHeight: gridMinH || undefined }}
              className="mgr-grid">
           {/* LEFT — Rep groups */}
           <div>
@@ -272,7 +323,7 @@ export default function ManagerRecordsView({ token }) {
                           key={d.id}
                           deal={d}
                           selected={d.id === selectedDealId}
-                          onSelect={() => setSelectedDealId(d.id)}
+                          onSelect={() => setSelectedDealId((prev) => (prev === d.id ? null : d.id))}
                           theme={zoneTheme}
                           token={token}
                           onDealPatch={patchDeal}
@@ -285,27 +336,50 @@ export default function ManagerRecordsView({ token }) {
             })}
           </div>
 
-          {/* RIGHT — Detail panel */}
-          <aside style={{
-            position: 'sticky', top: 16,
-            background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12,
-            padding: 16, minHeight: 200, fontSize: 13.5,
-          }}>
-            {!selectedDeal ? (
-              <div style={{ color: '#94a3b8', textAlign: 'center', padding: '40px 8px' }}>
-                <div style={{ fontSize: 36, marginBottom: 8 }}>👈</div>
-                <p style={{ margin: 0 }}>Tap a deal on the left to see what's in JobNimbus.</p>
-              </div>
-            ) : (
+          {/* RIGHT — Detail panel. Absolutely positioned so it sits
+              directly to the right of the row the manager tapped. Only
+              rendered while a deal is selected — tapping the same deal
+              again clears the selection and the panel disappears. */}
+          {selectedDeal && (
+            <aside
+              ref={detailRef}
+              className="mgr-detail"
+              style={{
+                position: 'absolute', top: detailTop, right: 0, width: 380,
+                background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12,
+                padding: 16, minHeight: 200, fontSize: 13.5,
+                boxShadow: '0 4px 14px rgba(15,23,42,0.10)',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setSelectedDealId(null)}
+                aria-label="Close"
+                style={{
+                  position: 'absolute', top: 8, right: 10,
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  fontSize: 18, lineHeight: 1, color: '#94a3b8',
+                }}
+              >
+                ✕
+              </button>
               <DealDetail deal={selectedDeal} theme={zoneTheme} />
-            )}
-          </aside>
+            </aside>
+          )}
         </div>
 
-        {/* Responsive stack — at narrow widths, force grid to 1 column */}
+        {/* Responsive stack — at narrow widths, force grid to 1 column and
+            let the detail panel flow inline below the list instead of
+            floating to the right. */}
         <style>{`
           @media (max-width: 900px) {
-            .mgr-grid { grid-template-columns: 1fr !important; }
+            .mgr-grid { grid-template-columns: 1fr !important; min-height: 0 !important; }
+            .mgr-detail {
+              position: static !important;
+              top: auto !important;
+              width: auto !important;
+              margin-top: 12px;
+            }
           }
         `}</style>
 
@@ -378,6 +452,7 @@ function DealRow({ deal, selected, onSelect, theme, token, onDealPatch }) {
 
   return (
     <div
+      data-deal-id={deal.id}
       style={{
         borderTop: '1px solid #e2e8f0',
         padding: '12px 16px',
