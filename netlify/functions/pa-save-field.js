@@ -25,10 +25,20 @@
 
 const JN_BASE = "https://app.jobnimbus.com/api1";
 
+// PA sign-up status ("Intro to Customer" dropdown in JobNimbus). The
+// company is adding this dropdown to JN; once it exists, set this to the
+// real cf_ key (run Phase 0 discovery or read it off the job) and the
+// value will push to JN automatically. Until then it's null, so saves are
+// cached locally only (the PA's pick still shows in the app). The dropdown
+// OPTIONS in JN must match these strings EXACTLY: "Pending" (default),
+// "Signed", "Refused to Sign".
+const PA_SIGNUP_CF = null; // TODO: e.g. "cf_string_XX" once JN builds the dropdown.
+
 // PA portal field key → { cf: JobNimbus custom-field key, type }.
 // Confirmed Phase 0 (2026-06-03). Dates are unix epoch SECONDS; clear
 // with 0. Strings clear with "".
 const FIELD_MAP = {
+  pa_signup:           { cf: PA_SIGNUP_CF, type: "string" }, // Pending | Signed | Refused to Sign
   inspection:          { cf: "cf_string_34", type: "string" }, // result (auto-set by inspector)
   inspected_date:      { cf: "cf_date_22",   type: "date" },
   inspected_by:        { cf: "cf_string_43", type: "string" },
@@ -117,26 +127,35 @@ exports.handler = async (event) => {
     return json(400, { ok: false, error: "No JobNimbus job linked to this record" });
   }
 
-  // 2. PUT the single custom field to JN.
+  // 2. PUT the single custom field to JN — UNLESS this field's JN custom
+  //    field hasn't been created yet (spec.cf is null, e.g. pa_signup
+  //    before the "Intro to Customer" dropdown ships). In that case we
+  //    skip the JN write and cache locally only; it'll sync to JN the
+  //    moment PA_SIGNUP_CF is wired in.
   let jnUpdated = false;
   let jnError = null;
-  try {
-    const putRes = await fetch(`${JN_BASE}/jobs/${insp.jn_job_id}`, {
-      method: "PUT",
-      headers: { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ jnid: insp.jn_job_id, [spec.cf]: jnValue }),
-    });
-    if (putRes.ok) {
-      jnUpdated = true;
-    } else {
-      jnError = `JN PUT returned ${putRes.status}: ${(await putRes.text()).slice(0, 200)}`;
+  let jnSkipped = false;
+  if (!spec.cf) {
+    jnSkipped = true;
+  } else {
+    try {
+      const putRes = await fetch(`${JN_BASE}/jobs/${insp.jn_job_id}`, {
+        method: "PUT",
+        headers: { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ jnid: insp.jn_job_id, [spec.cf]: jnValue }),
+      });
+      if (putRes.ok) {
+        jnUpdated = true;
+      } else {
+        jnError = `JN PUT returned ${putRes.status}: ${(await putRes.text()).slice(0, 200)}`;
+      }
+    } catch (e) {
+      jnError = e.message || "JN PUT network error";
     }
-  } catch (e) {
-    jnError = e.message || "JN PUT network error";
-  }
 
-  if (!jnUpdated) {
-    return json(502, { ok: false, error: jnError || "JN update failed", field, cf_key: spec.cf });
+    if (!jnUpdated) {
+      return json(502, { ok: false, error: jnError || "JN update failed", field, cf_key: spec.cf });
+    }
   }
 
   // 3. Cache the value locally (merge into pa_fields jsonb).
@@ -147,7 +166,7 @@ exports.handler = async (event) => {
     body: JSON.stringify({ pa_fields: merged }),
   }).catch(() => {});
 
-  return json(200, { ok: true, field, cf_key: spec.cf, jn_updated: true, value });
+  return json(200, { ok: true, field, cf_key: spec.cf, jn_updated: jnUpdated, jn_skipped: jnSkipped, value });
 };
 
 function json(status, body) {

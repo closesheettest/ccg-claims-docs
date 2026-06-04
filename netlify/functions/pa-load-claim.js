@@ -18,8 +18,14 @@
 
 const JN_BASE = "https://app.jobnimbus.com/api1";
 
+// PA sign-up status ("Intro to Customer" dropdown). null until JN builds
+// the dropdown — mirror of pa-save-field.js PA_SIGNUP_CF. Until then the
+// value lives in our pa_fields cache and we default to "Pending".
+const PA_SIGNUP_CF = null;
+
 // field key → JN cf_ key + type. Mirror of pa-save-field.js FIELD_MAP.
 const FIELD_MAP = {
+  pa_signup:           { cf: PA_SIGNUP_CF, type: "string" },
   inspection:          { cf: "cf_string_34", type: "string" },
   inspected_date:      { cf: "cf_date_22",   type: "date" },
   inspected_by:        { cf: "cf_string_43", type: "string" },
@@ -62,7 +68,7 @@ exports.handler = async (event) => {
   let insp = null;
   if (inspectionId) {
     const lookup = await fetch(
-      `${SB_URL}/rest/v1/inspections?id=eq.${inspectionId}&select=jn_job_id,inspector_name,result_at,inspection_photos&limit=1`,
+      `${SB_URL}/rest/v1/inspections?id=eq.${inspectionId}&select=jn_job_id,inspector_name,result_at,inspection_photos,pa_fields&limit=1`,
       { headers: sbHeaders },
     );
     if (lookup.ok) {
@@ -99,6 +105,13 @@ exports.handler = async (event) => {
     }
   } catch (e) {
     jnError = e.message || "JN job read error";
+  }
+
+  // 1a. PA sign-up status. Its JN dropdown ("Intro to Customer") may not
+  //     be wired yet (PA_SIGNUP_CF null), so JN returns nothing — fall
+  //     back to our local pa_fields cache, then default to "Pending".
+  if (!fields.pa_signup) {
+    fields.pa_signup = insp?.pa_fields?.pa_signup || "Pending";
   }
 
   // 1b. Fill Inspected By / Inspected Date from our record when JN is

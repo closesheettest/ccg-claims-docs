@@ -63,6 +63,22 @@ const dangerBtn = {
   cursor: "pointer",
 };
 
+// PA sign-up status — the PA's FIRST action after claiming a deal: they
+// talk to the homeowner, who either signs up with them or refuses. Maps
+// to JN's "Intro to Customer" dropdown. These strings must match the JN
+// dropdown options EXACTLY (see pa-save-field.js PA_SIGNUP_CF note).
+const PA_SIGNUP_OPTIONS = ["Pending", "Signed", "Refused to Sign"];
+function signupColor(opt) {
+  if (opt === "Signed") return "#047857";
+  if (opt === "Refused to Sign") return "#991b1b";
+  return "#92400e"; // Pending
+}
+function signupBg(opt) {
+  if (opt === "Signed") return "#ecfdf5";
+  if (opt === "Refused to Sign") return "#fef2f2";
+  return "#fffbeb"; // Pending
+}
+
 // The 8 PA-editable milestone fields (the Insurance section minus the 3
 // auto-set context fields). Order matches the JN "Insurance" section.
 const PA_FIELDS = [
@@ -730,6 +746,39 @@ function PAPipelineDetail({ me, jobId, onBack }) {
         <ContextRow label="Inspection" value={fields.inspection || "Damage"} />
         <ContextRow label="Inspected Date" value={epochToDisplay(fields.inspected_date)} />
         <ContextRow label="Inspected By" value={fields.inspected_by || "—"} />
+      </div>
+
+      {/* PA sign-up — the PA's first action: did the homeowner sign with you? */}
+      <div style={{ padding: 14, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, marginBottom: 12 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+          PA Sign-Up
+        </div>
+        <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 10 }}>
+          Did the homeowner sign up with you?
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          {PA_SIGNUP_OPTIONS.map((opt) => {
+            const active = (fields.pa_signup || "Pending") === opt;
+            const isSaving = savingKey === "pa_signup";
+            return (
+              <button key={opt} type="button" disabled={isSaving}
+                onClick={() => saveField("pa_signup", opt)}
+                style={{
+                  flex: 1, padding: "10px 8px", borderRadius: 8, fontSize: 13, fontWeight: 700,
+                  cursor: isSaving ? "default" : "pointer",
+                  border: active ? "2px solid" : "1px solid #d1d5db",
+                  borderColor: active ? signupColor(opt) : "#d1d5db",
+                  background: active ? signupBg(opt) : "#fff",
+                  color: active ? signupColor(opt) : "#374151",
+                }}>
+                {opt}
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ fontSize: 11, marginTop: 8, color: savedKey === "pa_signup" ? "#047857" : "#94a3b8" }}>
+          {savingKey === "pa_signup" ? "Saving…" : savedKey === "pa_signup" ? "✓ Saved" : `Current: ${fields.pa_signup || "Pending"}`}
+        </div>
       </div>
 
       {/* Photos */}
