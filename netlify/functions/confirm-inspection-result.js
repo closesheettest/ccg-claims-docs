@@ -61,7 +61,7 @@ exports.handler = async (event) => {
   // Fetch the held inspection.
   const inspRes = await fetch(
     `${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}` +
-      `&select=id,jn_job_id,client_name,result,result_at,inspection_photos,inspector_name,lost_reason,pending_confirmation&limit=1`,
+      `&select=id,jn_job_id,client_name,result,result_at,inspection_photos,inspector_name,lost_reason,pending_confirmation,jn_pushed_at&limit=1`,
     { headers: sbHeaders },
   );
   if (!inspRes.ok) {
@@ -97,6 +97,27 @@ exports.handler = async (event) => {
   if (!insp.result) {
     return json(400, { ok: false, error: "No result on this held inspection — nothing to confirm." });
   }
+
+  // SAFETY RAIL — already-fired short-circuit.
+  // If this row was already pushed to JN once (jn_pushed_at is set), it
+  // got into the confirm queue retroactively (e.g. a manager flagged an
+  // inspector's back-catalog for review). Re-running the fan-out would
+  // duplicate the PA Ops Hub PDN, re-upload the cert, etc. So we DON'T
+  // re-fire — Confirm here just means "reviewed, looks good": clear the
+  // hold and stamp confirmed_at. Nothing is re-sent to JN.
+  if (insp.jn_pushed_at) {
+    await stampConfirmed(SB_URL, sbHeaders, inspectionId, true);
+    return json(200, {
+      ok: true,
+      action: "confirm",
+      inspection_id: inspectionId,
+      client_name: insp.client_name,
+      result: insp.result,
+      already_fired: true,
+      message: "Already pushed to JobNimbus earlier — marked reviewed. Nothing was re-sent.",
+    });
+  }
+
   if (!base) {
     return json(500, { ok: false, error: "No base URL configured — cannot fan out." });
   }

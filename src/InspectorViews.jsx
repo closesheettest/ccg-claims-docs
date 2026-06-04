@@ -4687,7 +4687,7 @@ export function ConfirmResultsPanel() {
     setLoading(true);
     const { data, error } = await supabase
       .from("inspections")
-      .select("id, client_name, address, city, state, zip, result, result_at, inspector_name, lost_reason, inspection_photos, jn_job_id")
+      .select("id, client_name, address, city, state, zip, result, result_at, inspector_name, lost_reason, inspection_photos, jn_job_id, jn_pushed_at")
       .eq("pending_confirmation", true)
       .order("result_at", { ascending: true });
     if (error) {
@@ -4723,9 +4723,17 @@ export function ConfirmResultsPanel() {
 
   async function act(insp, action) {
     const verb = action === "confirm" ? "confirm" : "reject";
-    const warn = action === "confirm"
-      ? `Confirm ${insp.client_name}'s "${labelForResult(insp.result)}" result?\n\nThis pushes to JobNimbus and fires everything that normally happens on submit (photos, cert${insp.result === "damage" ? ", PA Ops Hub PDN" : insp.result === "retail" ? ", retail swap" : ""}).`
-      : `Reject ${insp.client_name}'s "${labelForResult(insp.result)}" result?\n\nThe result is cleared so the job can be re-inspected. Nothing is sent to JobNimbus.`;
+    const alreadyFired = !!insp.jn_pushed_at;
+    let warn;
+    if (action === "confirm") {
+      warn = alreadyFired
+        ? `Mark ${insp.client_name}'s "${labelForResult(insp.result)}" as reviewed?\n\nThis one already went to JobNimbus earlier, so nothing will be re-sent — it's just cleared from this list.`
+        : `Confirm ${insp.client_name}'s "${labelForResult(insp.result)}" result?\n\nThis pushes to JobNimbus and fires everything that normally happens on submit (photos, cert${insp.result === "damage" ? ", PA Ops Hub PDN" : insp.result === "retail" ? ", retail swap" : ""}).`;
+    } else {
+      warn = alreadyFired
+        ? `Reject ${insp.client_name}'s "${labelForResult(insp.result)}" result?\n\n⚠️ This already went to JobNimbus — rejecting clears it in our app and re-opens the job, but it does NOT undo what's already in JobNimbus. You'll need to fix the JN job manually.`
+        : `Reject ${insp.client_name}'s "${labelForResult(insp.result)}" result?\n\nThe result is cleared so the job can be re-inspected. Nothing is sent to JobNimbus.`;
+    }
     if (!confirm(warn)) return;
     setBusyId(insp.id);
     setMessage(null);
@@ -4743,7 +4751,9 @@ export function ConfirmResultsPanel() {
         setMessage({
           kind: "success",
           text: action === "confirm"
-            ? `Confirmed ${insp.client_name} — result fired to JobNimbus.`
+            ? (body.already_fired
+                ? `${insp.client_name} marked reviewed — it was already in JobNimbus, nothing re-sent.`
+                : `Confirmed ${insp.client_name} — result fired to JobNimbus.`)
             : `Rejected ${insp.client_name} — result cleared, job re-opened.`,
         });
         await loadHeld();
@@ -4815,6 +4825,22 @@ export function ConfirmResultsPanel() {
                       {insp.inspector_name && <span>👤 {insp.inspector_name}</span>}
                       {insp.result_at && <span>🕑 {new Date(insp.result_at).toLocaleString()}</span>}
                       {photos.length > 0 && <span>📷 {photos.length}</span>}
+                      {insp.jn_pushed_at && (
+                        <span
+                          style={{
+                            background: "#ecfdf5",
+                            color: "#065f46",
+                            border: "1px solid #6ee7b7",
+                            borderRadius: 999,
+                            padding: "2px 8px",
+                            fontSize: 11,
+                            fontWeight: 700,
+                          }}
+                          title={`Pushed to JobNimbus ${new Date(insp.jn_pushed_at).toLocaleString()} — confirming will NOT re-send.`}
+                        >
+                          ✅ Already in JN
+                        </span>
+                      )}
                     </div>
                     {insp.result === "lost" && insp.lost_reason && (
                       <div style={{ fontSize: 12, color: "#92400e", marginTop: 6, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "6px 10px" }}>
@@ -4838,7 +4864,7 @@ export function ConfirmResultsPanel() {
                       disabled={busy}
                       style={{ ...primaryBtn, fontSize: 12, padding: "8px 14px", opacity: busy ? 0.6 : 1, cursor: busy ? "wait" : "pointer" }}
                     >
-                      {busy ? "Working…" : "✓ Confirm & fire"}
+                      {busy ? "Working…" : insp.jn_pushed_at ? "✓ Mark reviewed" : "✓ Confirm & fire"}
                     </button>
                     <button
                       type="button"
