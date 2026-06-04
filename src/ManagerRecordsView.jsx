@@ -472,6 +472,15 @@ function DealRow({ deal, selected, onSelect, theme, token, onDealPatch }) {
   const canPushPhotos = action.need === 'photos'
   const canPushCert = action.need === 'cert'
 
+  // Before an inspection result exists there are no roof photos — the
+  // "photos" push is really just re-syncing the signed agreement/info
+  // into JN. Label it "Send Info to JN" so a manager isn't told to send
+  // photos that don't exist yet. Once a result is in, it's real photos.
+  const hasResult = !!(deal.inspection_result || deal.result)
+  const photosLabel = busy === 'photos'
+    ? (hasResult ? '⏳ Sending Photos…' : '⏳ Sending Info…')
+    : (hasResult ? '📸 Send Photos to JN' : '📤 Send Info to JN')
+
   async function runPhotos(e) {
     e.stopPropagation()
     if (busy) return
@@ -485,9 +494,11 @@ function DealRow({ deal, selected, onSelect, theme, token, onDealPatch }) {
         ok: true,
         text: r.lost
           ? 'Marked Lost in JN — no photos to upload.'
-          : `Photos sent: ${r.uploaded} uploaded` +
-            (r.alreadyIn ? `, ${r.alreadyIn} already in JN` : '') +
-            (r.failed ? `, ${r.failed} failed` : '') + '.',
+          : !hasResult
+            ? 'Synced to JobNimbus — the job + agreement info are now in JN.'
+            : `Photos sent: ${r.uploaded} uploaded` +
+              (r.alreadyIn ? `, ${r.alreadyIn} already in JN` : '') +
+              (r.failed ? `, ${r.failed} failed` : '') + '.',
       })
     } catch (err) {
       setMsg({ ok: false, text: err.message || 'Photo push failed.' })
@@ -554,14 +565,16 @@ function DealRow({ deal, selected, onSelect, theme, token, onDealPatch }) {
           {/* Action buttons — live JN pushes. */}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
             <ActionButton
-              label={busy === 'photos' ? '⏳ Sending Photos…' : '📸 Send Photos to JN'}
+              label={photosLabel}
               onClick={runPhotos}
               disabled={!canPushPhotos || !!busy}
               tone="primary"
               title={
                 !canPushPhotos
-                  ? 'Nothing to push right now — photos are only owed once the inspection result comes in.'
-                  : 'Uploads the inspection photos to the JobNimbus job (skips any already there).'
+                  ? 'Nothing to push right now — this lights up only when info or photos still need to reach JobNimbus.'
+                  : hasResult
+                    ? 'Uploads the inspection photos to the JobNimbus job (skips any already there).'
+                    : 'Re-syncs this signed deal into JobNimbus (creates the job + pushes the agreement info).'
               }
             />
             <ActionButton
@@ -1150,7 +1163,7 @@ function actionFor(deal) {
     if (!push.inJn) {
       return {
         tone: 'bad', icon: '⚠', headline: 'ACTION NEEDED',
-        detail: 'Signed but never made it into JobNimbus — tap “Send Photos to JN” to re-sync.',
+        detail: 'Signed but never made it into JobNimbus — tap “Send Info to JN” to re-sync.',
         need: 'photos',
       }
     }
