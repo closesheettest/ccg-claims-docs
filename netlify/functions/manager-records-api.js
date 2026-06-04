@@ -27,6 +27,8 @@
 
 const SB_URL = process.env.VITE_SUPABASE_URL
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY
+const JN_BASE = 'https://app.jobnimbus.com/api1'
+const JN_KEY = process.env.JOBNIMBUS_API_KEY
 const TMS_REP_ZONES_URL =
   'https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones'
 
@@ -67,6 +69,9 @@ export const handler = async (event) => {
   }
   if (action === 'mark-lost') {
     return await markLost(body)
+  }
+  if (action === 'assign-lead') {
+    return await assignLead(body)
   }
   return json(400, { ok: false, error: `Unknown action: ${action}` })
 }
@@ -144,6 +149,64 @@ async function markLost(body) {
   if (!res.ok) {
     const txt = await res.text().catch(() => '')
     return json(500, { ok: false, error: `mark-lost failed: ${res.status} ${txt}` })
+  }
+  return json(200, { ok: true })
+}
+
+// Assign a deal to a rep from the manager page. Sets the JobNimbus job's
+// "Sales Rep" (sales_rep, a JN user id) and "Assigned To" (owners, an
+// array of {id}) so the rep sees the job in JN — then reflects the new
+// rep name onto our row so the lead drops out of "company leads" and
+// lands in that rep's section on the next load. Token-gated above.
+async function assignLead(body) {
+  const id = body.id
+  if (!id) return json(400, { ok: false, error: 'id required' })
+  const jnJobId = String(body.jnJobId || '').trim()
+  if (!jnJobId) {
+    return json(400, { ok: false, error: 'This deal isn’t in JobNimbus yet — push it to JN first.' })
+  }
+  const salesRepJnId = String(body.salesRepJnId || '').trim()
+  const salesRepName = String(body.salesRepName || '').trim()
+  const assignedJnId = String(body.assignedJnId || '').trim()
+  if (!salesRepJnId && !assignedJnId) {
+    return json(400, { ok: false, error: 'Pick a rep to assign.' })
+  }
+  if (!JN_KEY) {
+    return json(500, { ok: false, error: 'Server misconfigured (missing JobNimbus key)' })
+  }
+
+  // 1. Update the JN job. sales_rep + owners both take a JN user id.
+  const putBody = { jnid: jnJobId }
+  if (salesRepJnId) putBody.sales_rep = salesRepJnId
+  if (assignedJnId) putBody.owners = [{ id: assignedJnId }]
+  const jnRes = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(jnJobId)}`, {
+    method: 'PUT',
+    headers: { Authorization: `bearer ${JN_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(putBody),
+  })
+  if (!jnRes.ok) {
+    const txt = await jnRes.text().catch(() => '')
+    return json(502, { ok: false, error: `JobNimbus update failed: ${jnRes.status} ${txt}` })
+  }
+
+  // 2. Reflect the new sales rep on our record so the lead moves into
+  //    that rep's section (grouping is by sales_rep_name). Best-effort —
+  //    the JN push already succeeded.
+  if (salesRepName) {
+    const table = body.source === 'claim' ? 'claims' : 'inspections'
+    const patch = { sales_rep_name: salesRepName }
+    if (salesRepJnId) patch.sales_rep_id = salesRepJnId
+    const url = `${SB_URL}/rest/v1/${table}?id=eq.${encodeURIComponent(id)}`
+    await fetch(url, {
+      method: 'PATCH',
+      headers: {
+        apikey: SB_KEY,
+        Authorization: `Bearer ${SB_KEY}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify(patch),
+    }).catch(() => {})
   }
   return json(200, { ok: true })
 }
@@ -399,6 +462,15 @@ async function buildRecords(manager) {
     inactiveNames.has(normalizeName(rep)),
   )
 
+  // Active, in-zone reps that have a JobNimbus user id — the choices the
+  // manager picks from when assigning a company lead. Excludes anyone
+  // flipped inactive in either roster and anyone missing a JN id (can't
+  // push without one).
+  const assignableReps = (repsInZone || [])
+    .filter((r) => r.name && r.jobnimbus_id && !inactiveNames.has(normalizeName(r.name)))
+    .map((r) => ({ name: r.name, jobnimbus_id: r.jobnimbus_id }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+
   const totals = {
     deals: deals.length,
     pending_signatures: pendingSignatures.length,
@@ -418,6 +490,7 @@ async function buildRecords(manager) {
     companyLeads,
     cancelledDeals,
     inactiveReps,
+    assignableReps,
     pendingSignatures,
     totals,
   })

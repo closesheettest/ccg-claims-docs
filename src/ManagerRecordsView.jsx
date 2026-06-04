@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 // Zone-scoped Regional Manager records page.
 //
@@ -59,12 +59,15 @@ export default function ManagerRecordsView({ token }) {
   const [selectedDealId, setSelectedDealId] = useState(null)
   const [openReps, setOpenReps] = useState({}) // repName → bool
   const [cancelledOpen, setCancelledOpen] = useState(false)
-  const [companyLeadsOpen, setCompanyLeadsOpen] = useState(true)
+  const [companyLeadsOpen, setCompanyLeadsOpen] = useState(false)
 
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    fetch('/.netlify/functions/manager-records-api', {
+  // Load (or reload) the records. Exposed so a successful assign can
+  // refresh the page — the reassigned lead then drops out of company
+  // leads and shows under its new rep. `quiet` skips the full-page
+  // spinner so a reload doesn't blank the screen mid-action.
+  const loadData = useCallback((quiet = false) => {
+    if (!quiet) setLoading(true)
+    return fetch('/.netlify/functions/manager-records-api', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'records', token }),
@@ -72,21 +75,22 @@ export default function ManagerRecordsView({ token }) {
       .then(async (r) => {
         const j = await r.json().catch(() => ({}))
         if (!r.ok || !j.ok) throw new Error(j.error || `Server error (${r.status})`)
-        if (!cancelled) {
-          setData(j)
-          // Auto-open every rep that has an attention-needing deal so
-          // the manager doesn't have to expand them manually.
-          const open = {}
+        setData(j)
+        // Auto-open every rep that has an attention-needing deal so
+        // the manager doesn't have to expand them manually.
+        setOpenReps((prev) => {
+          const open = { ...prev }
           for (const [rep, deals] of Object.entries(j.dealsByRep || {})) {
             if (deals.some((d) => isAttention(d))) open[rep] = true
           }
-          setOpenReps(open)
-        }
+          return open
+        })
       })
-      .catch((e) => !cancelled && setError(e.message || 'Failed to load'))
-      .finally(() => !cancelled && setLoading(false))
-    return () => { cancelled = true }
+      .catch((e) => setError(e.message || 'Failed to load'))
+      .finally(() => { if (!quiet) setLoading(false) })
   }, [token])
+
+  useEffect(() => { loadData() }, [loadData])
 
   const zoneTheme = data?.manager?.zone
     ? ZONE_COLORS[data.manager.zone] || NEUTRAL
@@ -351,6 +355,8 @@ export default function ManagerRecordsView({ token }) {
                         theme={zoneTheme}
                         token={token}
                         onDealPatch={patchDeal}
+                        assignReps={data.assignableReps || []}
+                        onAssigned={() => loadData(true)}
                       />
                     ))}
                   </div>
@@ -420,6 +426,8 @@ export default function ManagerRecordsView({ token }) {
                           theme={zoneTheme}
                           token={token}
                           onDealPatch={patchDeal}
+                          assignReps={data.assignableReps || []}
+                          onAssigned={() => loadData(true)}
                         />
                       ))}
                     </div>
@@ -534,7 +542,7 @@ export default function ManagerRecordsView({ token }) {
 // ────────────────────────────────────────────────────────────────────
 // Sub-components
 
-function DealRow({ deal, selected, onSelect, theme, token, onDealPatch }) {
+function DealRow({ deal, selected, onSelect, theme, token, onDealPatch, assignReps = [], onAssigned }) {
   const action = actionFor(deal)
   const tone = ACTION_TONE[action.tone]
   // The big chip can carry its own color (e.g. the result category) that's
@@ -552,6 +560,42 @@ function DealRow({ deal, selected, onSelect, theme, token, onDealPatch }) {
   const [saving, setSaving] = useState(false)
   const [lostNote, setLostNote] = useState('')
   const [lostBusy, setLostBusy] = useState(false)
+
+  // Assign-to-rep state. Sales rep = JN "Sales Rep" field; assignee = JN
+  // "Assigned To" (owner). Default the owner to the chosen sales rep.
+  const [assignRep, setAssignRep] = useState('')   // jobnimbus_id
+  const [assignOwner, setAssignOwner] = useState('') // jobnimbus_id
+  const [assignBusy, setAssignBusy] = useState(false)
+
+  async function pushAssign(e) {
+    e.stopPropagation()
+    if (assignBusy) return
+    const repId = assignRep
+    const ownerId = assignOwner || assignRep // default owner to the rep
+    if (!repId && !ownerId) {
+      setMsg({ ok: false, text: 'Pick a rep to assign first.' }); return
+    }
+    if (!deal.jn_job_id) {
+      setMsg({ ok: false, text: 'This deal isn’t in JobNimbus yet — push it to JN first.' }); return
+    }
+    const repObj = assignReps.find((r) => r.jobnimbus_id === repId)
+    setAssignBusy(true); setMsg(null)
+    try {
+      await postJson('manager-records-api', {
+        action: 'assign-lead', token,
+        id: deal.id, source: deal.source, jnJobId: deal.jn_job_id,
+        salesRepJnId: repId || '', salesRepName: repObj ? repObj.name : '',
+        assignedJnId: ownerId || '',
+      })
+      setMsg({ ok: true, text: `Assigned to ${repObj ? repObj.name : 'rep'} in JobNimbus.` })
+      setEditing(false)
+      if (onAssigned) onAssigned() // reload so it moves into their section
+    } catch (err) {
+      setMsg({ ok: false, text: err.message || 'Assign failed.' })
+    } finally {
+      setAssignBusy(false)
+    }
+  }
 
   function openEdit(e) {
     e.stopPropagation()
@@ -801,6 +845,65 @@ function DealRow({ deal, selected, onSelect, theme, token, onDealPatch }) {
                   Cancel
                 </button>
               </div>
+
+              {/* Assign to a rep — sets the JobNimbus Sales Rep + Assigned
+                  To fields and pushes them so the rep sees the job in JN.
+                  On success the page reloads and the lead lands in that
+                  rep's section. */}
+              {assignReps.length > 0 && (
+                <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid #e2e8f0' }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#1e40af', marginBottom: 6 }}>
+                    Assign this lead to a rep
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: '#475569' }}>
+                      Sales Rep
+                      <select
+                        value={assignRep}
+                        onChange={(e) => setAssignRep(e.target.value)}
+                        style={{
+                          display: 'block', width: '100%', marginTop: 3, boxSizing: 'border-box',
+                          padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 13,
+                        }}
+                      >
+                        <option value="">— pick a rep —</option>
+                        {assignReps.map((r) => (
+                          <option key={r.jobnimbus_id} value={r.jobnimbus_id}>{r.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: '#475569' }}>
+                      Assign Job To
+                      <select
+                        value={assignOwner}
+                        onChange={(e) => setAssignOwner(e.target.value)}
+                        style={{
+                          display: 'block', width: '100%', marginTop: 3, boxSizing: 'border-box',
+                          padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 13,
+                        }}
+                      >
+                        <option value="">— same as Sales Rep —</option>
+                        {assignReps.map((r) => (
+                          <option key={r.jobnimbus_id} value={r.jobnimbus_id}>{r.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={pushAssign}
+                    disabled={assignBusy || (!assignRep && !assignOwner)}
+                    style={{
+                      marginTop: 8, background: '#1d4ed8', color: '#fff', border: '1px solid #1d4ed8',
+                      borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 700,
+                      cursor: (assignBusy || (!assignRep && !assignOwner)) ? 'not-allowed' : 'pointer',
+                      opacity: (assignBusy || (!assignRep && !assignOwner)) ? 0.7 : 1,
+                    }}
+                  >
+                    {assignBusy ? 'Pushing to JobNimbus…' : '🚀 Push Assignment to JobNimbus'}
+                  </button>
+                </div>
+              )}
 
               {/* Mark Lost — for test deals / homeowners who backed out. */}
               <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid #e2e8f0' }}>
