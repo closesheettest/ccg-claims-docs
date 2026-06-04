@@ -56,6 +56,9 @@ exports.handler = async (event) => {
   }
   let jnJobId = (body.jnJobId || "").trim();
   const inspectionId = (body.inspectionId || "").trim();
+  // Fields-only fast path: the PA Decision queue cards only need the
+  // PA-filed date, so they skip the (slower) photo resolution.
+  const skipPhotos = body.skipPhotos === true;
 
   const SB_URL = process.env.VITE_SUPABASE_URL;
   const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
@@ -143,12 +146,17 @@ exports.handler = async (event) => {
 
   // 2. Photos. Prefer JN (canonical). If JN has none, fall back to the
   //    app-side photos we captured in our app (Supabase Storage) so the
-  //    PA still sees the roof even before/if JN upload lagged.
-  let photos = await fetchJobPhotos(jnJobId, jnHeaders);
-  let photoSource = photos.length > 0 ? "jobnimbus" : null;
-  if (photos.length === 0 && Array.isArray(insp?.inspection_photos) && insp.inspection_photos.length > 0) {
-    photos = await signSupabasePhotos(insp.inspection_photos, SB_URL, sbHeaders);
-    if (photos.length > 0) photoSource = "app";
+  //    PA still sees the roof even before/if JN upload lagged. Skipped
+  //    entirely on the fields-only fast path (Decision queue cards).
+  let photos = [];
+  let photoSource = null;
+  if (!skipPhotos) {
+    photos = await fetchJobPhotos(jnJobId, jnHeaders);
+    photoSource = photos.length > 0 ? "jobnimbus" : null;
+    if (photos.length === 0 && Array.isArray(insp?.inspection_photos) && insp.inspection_photos.length > 0) {
+      photos = await signSupabasePhotos(insp.inspection_photos, SB_URL, sbHeaders);
+      if (photos.length > 0) photoSource = "app";
+    }
   }
 
   return json(200, { ok: true, jn_job_id: jnJobId, fields, photos, photo_source: photoSource, jn_error: jnError });

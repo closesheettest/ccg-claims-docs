@@ -94,6 +94,9 @@ exports.handler = async (event) => {
       status = (job.status_name || "").trim().toLowerCase();
     } catch { return; }
 
+    // Lost only here. Sit Sold PA is handled comprehensively in Phase B
+    // below (a JN-side status scan that also catches deals currently
+    // assigned to a PA and ones outside this local "live" window).
     let patch = null, kind = null;
     if (status === "lost") {
       patch = {
@@ -113,15 +116,6 @@ exports.handler = async (event) => {
         kind = "lost_cancelled";
         lostCancelled++;
       }
-    } else if (status === "sit sold pa" && !row.pa_id) {
-      patch = {
-        pa_decision_needed: true,
-        pa_decision_reason: "Old PA — Sit Sold PA",
-        pa_decision_at: nowIso,
-        jn_status: "Sit Sold PA",
-      };
-      kind = "parked_sit_sold";
-      parkedSitSold++;
     }
     if (!patch) return;
 
@@ -143,9 +137,74 @@ exports.handler = async (event) => {
     await Promise.all(rows.slice(i, i + BATCH).map(checkOne));
   }
 
+  // ── Phase B: comprehensive "Sit Sold PA" scan, JN-side ──────────────
+  // Phase A only sees our bounded local set and misses deals JN currently
+  // has at "Sit Sold PA" but that we (a) have assigned to a PA, or (b)
+  // never had in the live window. Ask JN directly by status filter for
+  // EVERY Sit Sold PA job, then park each matching local row that isn't
+  // already parked or manager-resolved — regardless of pa_id (these are
+  // the old-PA plates US Shingle wants to reassign).
+  let sitSoldScanned = 0;
+  try {
+    const SS_FILTER = JSON.stringify({ must: [{ term: { status_name: "Sit Sold PA" } }] });
+    const PAGE = 100, MAX_PAGES = 20;
+    const ssJnIds = [];
+    let from = 0;
+    for (let p = 0; p < MAX_PAGES; p++) {
+      let r;
+      try {
+        r = await fetch(`${JN_BASE}/jobs?filter=${encodeURIComponent(SS_FILTER)}&size=${PAGE}&from=${from}`, { headers: jnHeaders });
+      } catch { break; }
+      if (!r.ok) break;
+      const d = await r.json().catch(() => ({}));
+      const pageJobs = d.results || d.jobs || d.items || [];
+      for (const j of pageJobs) { const id = j.jnid || j.id; if (id) ssJnIds.push(id); }
+      if (pageJobs.length < PAGE) break;
+      from += PAGE;
+    }
+    sitSoldScanned = ssJnIds.length;
+
+    // Look up our matching rows in chunks; park the not-yet-parked,
+    // not-manager-resolved ones.
+    for (let i = 0; i < ssJnIds.length; i += 100) {
+      const inList = ssJnIds.slice(i, i + 100).map((id) => `"${id}"`).join(",");
+      let localRows = [];
+      try {
+        const lr = await fetch(
+          `${SB_URL}/rest/v1/inspections` +
+          `?select=id,client_name,pa_id` +
+          `&jn_job_id=in.(${encodeURIComponent(inList)})` +
+          `&pa_decision_needed=is.false` +
+          `&pa_decision_resolved_at=is.null`,
+          { headers: sbHeaders },
+        );
+        if (lr.ok) localRows = await lr.json();
+      } catch { localRows = []; }
+
+      await Promise.all(localRows.map(async (row) => {
+        const patch = {
+          pa_decision_needed: true,
+          pa_decision_reason: row.pa_id ? "Sit Sold PA — was assigned to a PA" : "Sit Sold PA (old PA)",
+          pa_decision_at: nowIso,
+          jn_status: "Sit Sold PA",
+        };
+        const up = await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${row.id}`, {
+          method: "PATCH",
+          headers: { ...sbHeaders, Prefer: "return=minimal" },
+          body: JSON.stringify(patch),
+        });
+        if (up.ok) {
+          parkedSitSold++;
+          changed.push({ id: row.id, client: row.client_name, kind: "parked_sit_sold" });
+        }
+      }));
+    }
+  } catch { /* Phase B is best-effort; Phase A results still return */ }
+
   return json(200, {
     ok: true,
     examined: rows.length,
+    sit_sold_scanned: sitSoldScanned,
     lost_cancelled: lostCancelled,
     parked_lost: parkedLost,
     parked_sit_sold: parkedSitSold,

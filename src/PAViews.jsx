@@ -160,9 +160,10 @@ export function PAAdminPanel() {
         setMessage({ kind: "error", text: body.error || `Refresh failed (status ${res.status})` });
       } else {
         const moved = (body.parked_lost || 0) + (body.parked_sit_sold || 0);
+        const ss = body.sit_sold_scanned || 0;
         setMessage({
           kind: "success",
-          text: `Checked ${body.examined} deal${body.examined === 1 ? "" : "s"} against JobNimbus — ${moved} newly parked for a decision, ${body.lost_cancelled || 0} Lost deal${body.lost_cancelled === 1 ? "" : "s"} cleared from the pool.`,
+          text: `Checked ${body.examined} live deal${body.examined === 1 ? "" : "s"} + scanned ${ss} Sit Sold PA job${ss === 1 ? "" : "s"} in JobNimbus — ${moved} newly parked for a decision, ${body.lost_cancelled || 0} Lost deal${body.lost_cancelled === 1 ? "" : "s"} cleared from the pool.`,
         });
         await loadDecisions();
       }
@@ -630,7 +631,52 @@ function PARow({ pa, busy, onToggle, onResend, onUpdate, onDelete }) {
 function PADecisionRow({ deal, activePas, priorPaName, busy, onAssign, onDismiss }) {
   const [paId, setPaId] = useState("");
   const [note, setNote] = useState("");
+  // PA-filed date (from JN, cf_date_20). undefined = still loading,
+  // null = not recorded, number = epoch seconds.
+  const [filedDate, setFiledDate] = useState(undefined);
+  // Photos load lazily on the button tap (keeps the queue fast with many
+  // cards). null = not loaded yet.
+  const [photosOpen, setPhotosOpen] = useState(false);
+  const [photos, setPhotos] = useState(null);
+  const [photosLoading, setPhotosLoading] = useState(false);
+  const [photosErr, setPhotosErr] = useState(null);
   const addr = [deal.address, deal.city, deal.state, deal.zip].filter(Boolean).join(", ");
+
+  // Auto-load just the PA-filed date so the manager can see how far the
+  // prior PA got before deciding where it goes. skipPhotos keeps it light.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/.netlify/functions/pa-load-claim", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ inspectionId: deal.id, skipPhotos: true }),
+        });
+        const b = await res.json().catch(() => ({}));
+        if (!cancelled) setFiledDate(b.ok ? (b.fields?.pa_filed ?? null) : null);
+      } catch { if (!cancelled) setFiledDate(null); }
+    })();
+    return () => { cancelled = true; };
+  }, [deal.id]);
+
+  async function togglePhotos() {
+    if (photosOpen) { setPhotosOpen(false); return; }
+    setPhotosOpen(true);
+    if (photos === null && !photosLoading) {
+      setPhotosLoading(true); setPhotosErr(null);
+      try {
+        const res = await fetch("/.netlify/functions/pa-load-claim", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ inspectionId: deal.id }),
+        });
+        const b = await res.json().catch(() => ({}));
+        if (b.ok) setPhotos(b.photos || []);
+        else { setPhotos([]); setPhotosErr(b.error || "Couldn't load photos"); }
+      } catch (e) { setPhotos([]); setPhotosErr(e.message || "Network error"); }
+      setPhotosLoading(false);
+    }
+  }
+
   return (
     <div style={{ padding: 12, background: "#fff", border: "1px solid #fde68a", borderRadius: 10 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
@@ -646,6 +692,9 @@ function PADecisionRow({ deal, activePas, priorPaName, busy, onAssign, onDismiss
                 was: {priorPaName}
               </span>
             )}
+            <span style={{ fontSize: 11, fontWeight: 700, color: filedDate ? "#065f46" : "#64748b", background: filedDate ? "#ecfdf5" : "#f1f5f9", border: `1px solid ${filedDate ? "#86efac" : "#e2e8f0"}`, borderRadius: 999, padding: "2px 8px" }}>
+              📋 PA filed: {filedDate === undefined ? "…" : filedDate ? epochToDisplay(filedDate) : "not recorded"}
+            </span>
           </div>
         </div>
       </div>
@@ -659,10 +708,34 @@ function PADecisionRow({ deal, activePas, priorPaName, busy, onAssign, onDismiss
             style={{ ...primaryBtn, opacity: !paId ? 0.55 : 1, cursor: !paId ? "not-allowed" : "pointer", whiteSpace: "nowrap" }}>
             {busy ? "…" : "Assign →"}
           </button>
+          <button type="button" onClick={togglePhotos} style={{ ...secondaryBtn, fontSize: 12, whiteSpace: "nowrap" }}>
+            {photosOpen ? "Hide photos" : `📷 Photos${photos ? ` (${photos.length})` : ""}`}
+          </button>
           <button type="button" disabled={busy} onClick={onDismiss} style={{ ...secondaryBtn, fontSize: 12, whiteSpace: "nowrap" }}>
             Dismiss
           </button>
         </div>
+
+        {photosOpen && (
+          <div style={{ padding: 8, background: "#fafaf9", border: "1px solid #f3f4f6", borderRadius: 8 }}>
+            {photosLoading ? (
+              <div style={{ fontSize: 12, color: "#94a3b8" }}>Loading photos…</div>
+            ) : photosErr ? (
+              <div style={{ fontSize: 12, color: "#991b1b" }}>{photosErr}</div>
+            ) : (photos && photos.length === 0) ? (
+              <div style={{ fontSize: 12, color: "#94a3b8" }}>No photos found for this inspection.</div>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 6 }}>
+                {(photos || []).map((src, i) => (
+                  <a key={i} href={src} target="_blank" rel="noreferrer" style={{ display: "block" }}>
+                    <img src={src} alt={`Inspection photo ${i + 1}`} style={{ width: "100%", borderRadius: 6, border: "1px solid #e5e7eb", display: "block" }} />
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2}
           placeholder="Note for the PA (shows in their portal) — e.g. why it's being reassigned"
           style={{ ...inputStyle, resize: "vertical", fontFamily: "'Nunito', sans-serif" }} />
