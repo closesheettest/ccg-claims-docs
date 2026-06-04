@@ -291,6 +291,21 @@ async function buildRecords(manager) {
     inactiveNames.has(normalizeName(d.sales_rep_name || ''))
   const isRetail = (d) => /retail/i.test(String(d.inspection_result || d.result || ''))
   const isLost = (d) => /lost/i.test(String(d.inspection_result || d.result || ''))
+  // Damage = the word "damage" but NOT "no damage" (which contains it).
+  const isDamage = (d) => {
+    const r = String(d.inspection_result || d.result || '')
+    return /damage/i.test(r) && !/no\s*damage/i.test(r)
+  }
+  // "Insurance approved" — a Damage claim the carrier/PA brought back
+  // approved. A non-rep's Damage deal stays HIDDEN until this is true;
+  // then it becomes a company lead (get a rep over to do paperwork +
+  // upsell). TODO(neal-trigger): Neal is confirming the exact signal.
+  // Until then we match an explicit "approved" in pa_status or jn_status
+  // (conservative — nothing surfaces early). Swap this one helper when
+  // he gives the trigger.
+  const isInsuranceApproved = (d) =>
+    /approv/i.test(String(d.pa_status || '')) ||
+    /approv/i.test(String(d.jn_status || ''))
 
   // 3. Merge claims + inspections into a normalized "deal" shape so
   //    the UI doesn't have to special-case both. Inspection-only deals
@@ -323,22 +338,42 @@ async function buildRecords(manager) {
   //     they get pinned to the top of the manager page for reassignment
   //     to an active rep, and are pulled OUT of the per-rep grouping so
   //     an inactive person never shows up as a working sales rep.
+  //     A non-rep never appears as a working rep: ALL of their deals are
+  //     pulled out of the per-rep grouping (hiddenInactiveKeys). Of those,
+  //     only the ones that are actionable surface as company leads —
+  //       • Retail            → hand to a rep to sell  (company_lead_kind 'retail')
+  //       • Damage + APPROVED → hand to a rep for paperwork + upsell
+  //                             (company_lead_kind 'insurance_approved')
+  //     Everything else from a non-rep (No Damage, still-pending Damage,
+  //     unsigned) just disappears until it qualifies.
   const companyLeads = []
   const companyLeadKeys = new Set()
+  const hiddenInactiveKeys = new Set()
   for (const d of deals) {
-    if (d.cancelled_at || isLost(d)) continue
-    if (isInactiveSigner(d) && isRetail(d)) {
+    if (d.cancelled_at) continue
+    if (!isInactiveSigner(d)) continue
+    // Non-rep — never show them as a working sales rep.
+    hiddenInactiveKeys.add(`${d.source}:${d.id}`)
+    if (isLost(d)) continue
+    if (isRetail(d)) {
+      d.company_lead_kind = 'retail'
+      companyLeads.push(d)
+      companyLeadKeys.add(`${d.source}:${d.id}`)
+    } else if (isDamage(d) && isInsuranceApproved(d)) {
+      d.company_lead_kind = 'insurance_approved'
       companyLeads.push(d)
       companyLeadKeys.add(`${d.source}:${d.id}`)
     }
+    // else: hidden until it becomes Retail or an approved Damage claim.
   }
 
   // 5. Group by rep — sorted by deal count desc so the busiest reps
   //    bubble up. Within each rep, deals are already in date-desc
-  //    order from the PostgREST query. Company leads are excluded.
+  //    order from the PostgREST query. Every deal from a non-rep is
+  //    excluded (company leads + the hidden in-progress ones alike).
   const dealsByRep = {}
   for (const d of deals) {
-    if (companyLeadKeys.has(`${d.source}:${d.id}`)) continue
+    if (hiddenInactiveKeys.has(`${d.source}:${d.id}`)) continue
     const rep = d.sales_rep_name || '— Unknown —'
     if (!dealsByRep[rep]) dealsByRep[rep] = []
     dealsByRep[rep].push(d)
@@ -353,7 +388,7 @@ async function buildRecords(manager) {
     deals: deals.length,
     pending_signatures: pendingSignatures.length,
     needs_attention: deals.filter(
-      (d) => !companyLeadKeys.has(`${d.source}:${d.id}`) && needsAttention(d),
+      (d) => !hiddenInactiveKeys.has(`${d.source}:${d.id}`) && needsAttention(d),
     ).length,
     company_leads: companyLeads.length,
     reps: Object.keys(dealsByRep).length,

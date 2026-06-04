@@ -1260,6 +1260,32 @@ function actionFor(deal) {
     return { tone: 'na', icon: '—', headline: 'LOST', detail: 'Marked lost — no action needed.', need: null }
   }
 
+  // Company lead to pass out (signed by a non-rep). These aren't a JN
+  // data chore for the manager — they're a lead to hand to an active rep.
+  // So we skip the photos/cert logic entirely and just show the verdict +
+  // the hand-off instruction.
+  //   retail             → get a rep over to set an appointment + sell
+  //   insurance_approved → Damage claim came back approved: get a rep
+  //                        over to do the paperwork + upsell
+  if (deal.company_lead_kind) {
+    if (deal.company_lead_kind === 'insurance_approved') {
+      return {
+        tone: 'na', need: null,
+        detail: 'Insurance approved — hand this to an active rep to do the paperwork and upsell.',
+        icon: '✅', headline: 'INSURANCE APPROVED',
+        chipNote: 'Get a rep over there to do paperwork and upsell.',
+        chipTone: 'good',
+      }
+    }
+    const meta = resultChip(inspectionResult(deal)) // retail messaging
+    return {
+      tone: 'na', need: null,
+      detail: 'Company lead — hand this to an active rep to work.',
+      icon: meta.icon, headline: meta.headline,
+      chipNote: meta.chipNote, chipTone: meta.chipTone,
+    }
+  }
+
   // NOTE: LOR/PAC signatures are the Public Adjuster's responsibility,
   // not the manager's (or the rep's) — so they are deliberately NOT a
   // manager action item here. The manager's job on this page is getting
