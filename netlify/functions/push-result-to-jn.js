@@ -55,7 +55,7 @@ exports.handler = async (event) => {
   };
 
   const inspRes = await fetch(
-    `${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}&select=id,jn_job_id,client_name,result,result_at,inspection_photos,inspector_name&limit=1`,
+    `${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}&select=id,jn_job_id,client_name,result,result_at,inspection_photos,inspector_name,lost_reason&limit=1`,
     { headers: sbHeaders },
   );
   if (!inspRes.ok) {
@@ -69,6 +69,65 @@ exports.handler = async (event) => {
   }
   if (!insp.jn_job_id) {
     return json(400, { ok: false, error: "Inspection has no jn_job_id — run Sync to JN first to link the record" });
+  }
+
+  // LOST short-circuit. A "Lost" result has no photos and no cert — the
+  // cert generator only renders Damage / No Damage / Retail. So instead
+  // of failing with "Unsupported result", mirror the inspector Lost path:
+  // set cf_string_34 = "Lost" and drop a Note with the reason. Returns a
+  // success shape (empty photos, no retail swap) so the client finalizes
+  // cleanly without trying to upload photos or render a cert.
+  if (insp.result === "lost") {
+    const lostReason = (insp.lost_reason || "").trim() || "(no reason given)";
+    const inspectedBy = (insp.inspector_name || "").trim();
+    let jnUpdated = false;
+    let jnNoteAdded = false;
+    let jnError = null;
+    try {
+      const r = await fetch(`${JN_BASE}/jobs/${insp.jn_job_id}`, {
+        method: "PUT",
+        headers: jnHeaders,
+        body: JSON.stringify({ jnid: insp.jn_job_id, cf_string_34: "Lost" }),
+      });
+      if (r.ok) jnUpdated = true;
+      else jnError = `cf_string_34 PUT failed (${r.status}): ${(await r.text()).slice(0, 200)}`;
+    } catch (e) {
+      jnError = `cf_string_34 PUT exception: ${e.message}`;
+    }
+    const noteText = `🚫 Inspection LOST${inspectedBy ? ` (inspector: ${inspectedBy})` : ""}: ${lostReason}`;
+    try {
+      const r = await fetch(`${JN_BASE}/activities`, {
+        method: "POST",
+        headers: jnHeaders,
+        body: JSON.stringify({
+          record_type_name: "Note",
+          note: noteText,
+          primary: { id: insp.jn_job_id, type: "job" },
+          related: [{ id: insp.jn_job_id, type: "job" }],
+          is_status_change: false,
+        }),
+      });
+      if (r.ok) jnNoteAdded = true;
+      else jnError = (jnError ? jnError + "; " : "") + `note POST failed (${r.status}): ${(await r.text()).slice(0, 200)}`;
+    } catch (e) {
+      jnError = (jnError ? jnError + "; " : "") + `note POST exception: ${e.message}`;
+    }
+    return json(200, {
+      ok: jnUpdated,
+      inspection_id: inspectionId,
+      jn_job_id: insp.jn_job_id,
+      client_name: insp.client_name,
+      result: "lost",
+      lost: true,
+      cf_string_34_set: "Lost",
+      jn_updated: jnUpdated,
+      jn_note_added: jnNoteAdded,
+      jn_update_error: jnError,
+      needs_retail_swap: false,
+      photos_to_upload: [],
+      photos_already_in_jn: 0,
+      photos_total: 0,
+    });
   }
 
   const base = (process.env.URL || process.env.PUBLIC_SITE_URL || "").replace(/\/$/, "");

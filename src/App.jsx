@@ -7254,6 +7254,32 @@ const renderSmsTemplate = (key, vars) => {
       const jnJobId = d.jn_job_id;
       const isRetail = !!d.needs_retail_swap || row.result === "retail";
 
+      // LOST: the server already set cf_string_34="Lost" + posted the
+      // reason note. There are no photos and no cert for a lost record,
+      // so finalize here and skip the photo/cert/retail chain below.
+      if (d.lost || row.result === "lost") {
+        const pushedAt = new Date().toISOString();
+        const noteMsg = d.jn_note_added ? "reason note added" : "note not added";
+        setPushStatus((s) => ({
+          ...s,
+          [row.id]: {
+            stage: "done",
+            ok: !!d.jn_updated,
+            message: d.jn_updated
+              ? `✅ JN result set to "Lost" (${noteMsg}).`
+              : `⚠ ${d.jn_update_error || "JN update failed"}`,
+          },
+        }));
+        try {
+          await supabase.from("inspections").update({ jn_pushed_at: pushedAt }).eq("id", row.id);
+          setRecordSearchResults((rs) => rs.map((rr) =>
+            rr.id === row.id ? { ...rr, jn_pushed_at: pushedAt } : rr,
+          ));
+        } catch {}
+        setRowBusyId(null);
+        return;
+      }
+
       // Build a swap-result message that surfaces what ACTUALLY changed
       // in JN. The PUT can return 200 even when JN silently ignored
       // location.id (e.g. lookup couldn't find the location) — we read

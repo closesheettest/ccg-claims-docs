@@ -153,6 +153,21 @@ exports.handler = async (event) => {
       } catch (e) {
         console.warn("Lost JN note POST exception:", e.message);
       }
+
+      // Stamp jn_pushed_at on a successful sync so this lost record drops
+      // out of the manager's "pending push" queue — otherwise a later
+      // "Push to JN" would re-post a DUPLICATE Lost note.
+      if (jnResultUpdated) {
+        try {
+          await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${inspectionId}`, {
+            method: "PATCH",
+            headers: sbHeaders,
+            body: JSON.stringify({ jn_pushed_at: new Date().toISOString() }),
+          });
+        } catch (e) {
+          console.warn("Lost jn_pushed_at stamp failed:", e.message);
+        }
+      }
     }
 
     return json(200, {
