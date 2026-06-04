@@ -1207,38 +1207,68 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
         <ContextRow label="Inspected By" value={fields.inspected_by || "—"} />
       </div>
 
-      {/* PA sign-up — the PA's first action: did the homeowner sign with you? */}
-      <div style={{ padding: 14, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, marginBottom: 12 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-          PA Sign-Up
-        </div>
-        <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 10 }}>
-          Did the homeowner sign up with you?
-        </div>
-        <div style={{ display: "flex", gap: 6 }}>
-          {PA_SIGNUP_OPTIONS.map((opt) => {
-            const active = (fields.pa_signup || "Pending") === opt;
-            const isSaving = savingKey === "pa_signup";
-            return (
-              <button key={opt} type="button" disabled={isSaving}
-                onClick={() => saveField("pa_signup", opt)}
-                style={{
-                  flex: 1, padding: "10px 8px", borderRadius: 8, fontSize: 13, fontWeight: 700,
-                  cursor: isSaving ? "default" : "pointer",
-                  border: active ? "2px solid" : "1px solid #d1d5db",
-                  borderColor: active ? signupColor(opt) : "#d1d5db",
-                  background: active ? signupBg(opt) : "#fff",
-                  color: active ? signupColor(opt) : "#374151",
-                }}>
-                {opt}
-              </button>
-            );
-          })}
-        </div>
-        <div style={{ fontSize: 11, marginTop: 8, color: savedKey === "pa_signup" ? "#047857" : "#94a3b8" }}>
-          {savingKey === "pa_signup" ? "Saving…" : savedKey === "pa_signup" ? "✓ Saved" : `Current: ${fields.pa_signup || "Pending"}`}
-        </div>
-      </div>
+      {/* PA sign-up — the PA's first action: did the homeowner sign with you?
+          Made deliberately loud: while the answer is still "Pending" the whole
+          card glows amber with a pulsing "ACTION NEEDED" banner so a PA opening
+          a deal cannot miss the one thing we need from them. Once they answer
+          it calms down to the chosen state's color. */}
+      {(() => {
+        const current = fields.pa_signup || "Pending";
+        const isPending = current === "Pending";
+        const isSaving = savingKey === "pa_signup";
+        return (
+          <div style={{
+            padding: 20,
+            background: isPending ? "#fffbeb" : "#fff",
+            border: isPending ? "3px solid #f59e0b" : "2px solid #e5e7eb",
+            borderRadius: 14,
+            marginBottom: 16,
+            boxShadow: isPending ? "0 0 0 4px rgba(245,158,11,0.15)" : "none",
+          }}>
+            {isPending && (
+              <div style={{
+                display: "inline-block", marginBottom: 10, padding: "4px 12px",
+                background: "#f59e0b", color: "#fff", borderRadius: 999,
+                fontSize: 12, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase",
+                fontFamily: "'Oswald', sans-serif",
+              }}>
+                ⚠ Action needed
+              </div>
+            )}
+            <div style={{ fontSize: 22, fontWeight: 800, color: "#0f172a", fontFamily: "'Oswald', sans-serif", lineHeight: 1.15, marginBottom: 4 }}>
+              Did the homeowner sign up with you?
+            </div>
+            <div style={{ fontSize: 13, color: "#64748b", marginBottom: 16 }}>
+              Tap your answer below — this is the first thing we need from you on this deal.
+            </div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              {PA_SIGNUP_OPTIONS.map((opt) => {
+                const active = current === opt;
+                return (
+                  <button key={opt} type="button" disabled={isSaving}
+                    onClick={() => saveField("pa_signup", opt)}
+                    style={{
+                      flex: "1 1 120px", padding: "18px 12px", borderRadius: 12, fontSize: 16, fontWeight: 800,
+                      cursor: isSaving ? "default" : "pointer",
+                      fontFamily: "'Oswald', sans-serif", letterSpacing: "0.02em",
+                      border: active ? "3px solid" : "2px solid #cbd5e1",
+                      borderColor: active ? signupColor(opt) : "#cbd5e1",
+                      background: active ? signupBg(opt) : "#fff",
+                      color: active ? signupColor(opt) : "#334155",
+                      boxShadow: active ? "0 2px 8px rgba(0,0,0,0.08)" : "none",
+                      transition: "all 0.12s ease",
+                    }}>
+                    {opt}
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ fontSize: 13, marginTop: 12, fontWeight: 700, color: savedKey === "pa_signup" ? "#047857" : isPending ? "#b45309" : "#64748b" }}>
+              {savingKey === "pa_signup" ? "Saving…" : savedKey === "pa_signup" ? "✓ Saved" : `Current answer: ${current}`}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Photos */}
       <div style={{ padding: 14, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, marginBottom: 12 }}>
