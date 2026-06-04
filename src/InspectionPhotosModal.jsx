@@ -75,6 +75,11 @@ export default function InspectionPhotosModal({ inspectionId, onClose }) {
             category: p.category || guessCategoryFromPath(path),
           };
         }));
+        // Number duplicate labels for display so repeated shots are
+        // distinguishable ("1st slope detail" → "1st slope detail 1",
+        // "… 2", "… 3"). Labels that appear once are left untouched.
+        const numbered = numberDuplicateLabels(enriched.map((p) => p.label || ""));
+        enriched.forEach((p, i) => { p.displayLabel = numbered[i]; });
         setPhotos(enriched);
       } catch (e) {
         setError(e.message || "Could not load photos");
@@ -198,12 +203,12 @@ export default function InspectionPhotosModal({ inspectionId, onClose }) {
                         textDecoration: "none",
                         color: "inherit",
                       }}
-                      title={p.label || p.path}
+                      title={p.displayLabel || p.label || p.path}
                     >
                       {p.signedUrl ? (
                         <img
                           src={p.signedUrl}
-                          alt={p.label || "Inspection photo"}
+                          alt={p.displayLabel || p.label || "Inspection photo"}
                           style={{ width: "100%", aspectRatio: "1", objectFit: "cover", display: "block", background: "#f1f5f9" }}
                           loading="lazy"
                         />
@@ -214,7 +219,7 @@ export default function InspectionPhotosModal({ inspectionId, onClose }) {
                       )}
                       <div style={{ padding: "8px 10px" }}>
                         <div style={{ fontSize: 12, fontWeight: 700, color: "#0f172a", lineHeight: 1.3 }}>
-                          {p.label || "(no label)"}
+                          {p.displayLabel || p.label || "(no label)"}
                         </div>
                         {p.captured_at && (
                           <div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>
@@ -232,6 +237,24 @@ export default function InspectionPhotosModal({ inspectionId, onClose }) {
       </div>
     </div>
   );
+}
+
+// Append a running number to any label that appears more than once, in
+// order ("1st slope detail" → "1st slope detail 1", "… 2", "… 3").
+// Labels that appear only once (e.g. "1st slope overview") are left as
+// is. Empty labels stay empty so the "(no label)" fallback still shows.
+// Display-only — the stored labels are never modified.
+function numberDuplicateLabels(labels) {
+  const counts = {};
+  for (const l of labels) if (l) counts[l] = (counts[l] || 0) + 1;
+  const seen = {};
+  return labels.map((l) => {
+    if (l && counts[l] > 1) {
+      seen[l] = (seen[l] || 0) + 1;
+      return `${l} ${seen[l]}`;
+    }
+    return l;
+  });
 }
 
 // Older inspection_photos rows (pre-wizard) may not include a

@@ -2879,6 +2879,9 @@ function InspectorReportDetail({ insp, onBack }) {
           if (data?.signedUrl) out.push({ url: data.signedUrl, label: p.label || "" });
         } catch { /* skip a photo that won't sign */ }
       }
+      // Number duplicate labels for display (e.g. "1st slope detail 1/2/3").
+      const numbered = numberPhotoLabels(out.map((o) => o.label));
+      out.forEach((o, i) => { o.label = numbered[i]; });
       if (!cancelled) { setUrls(out); setLoading(false); }
     })();
     return () => { cancelled = true; };
@@ -4711,6 +4714,9 @@ export function ConfirmResultsPanel() {
           if (data?.signedUrl) urls.push({ url: data.signedUrl, label: p.label || "" });
         } catch { /* skip a photo that won't sign */ }
       }
+      // Number duplicate labels for display (e.g. "1st slope detail 1/2/3").
+      const numbered = numberPhotoLabels(urls.map((u) => u.label));
+      urls.forEach((u, i) => { u.label = numbered[i]; });
       setPhotoUrls((m) => ({ ...m, [insp.id]: urls }));
     }
   }
@@ -4870,6 +4876,25 @@ export function ConfirmResultsPanel() {
       )}
     </div>
   );
+}
+
+// Disambiguate duplicate photo labels for display. Any label that
+// appears more than once in the list gets a running number appended
+// in order ("1st slope detail" → "1st slope detail 1", "… 2", "… 3").
+// Labels that appear only once (e.g. "1st slope overview") are left
+// untouched. Empty labels are left empty so the caller's fallback
+// ("Photo N") still applies. Display-only — stored labels are unchanged.
+function numberPhotoLabels(labels) {
+  const counts = {};
+  for (const l of labels) if (l) counts[l] = (counts[l] || 0) + 1;
+  const seen = {};
+  return labels.map((l) => {
+    if (l && counts[l] > 1) {
+      seen[l] = (seen[l] || 0) + 1;
+      return `${l} ${seen[l]}`;
+    }
+    return l;
+  });
 }
 
 function labelForResult(r) {
