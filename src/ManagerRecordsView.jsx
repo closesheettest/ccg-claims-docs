@@ -422,7 +422,7 @@ function DealRow({ deal, selected, onSelect, theme, token, onDealPatch }) {
               tone="primary"
               title={
                 !canPushPhotos
-                  ? 'Nothing to push right now — photos are only owed once an inspection comes back with damage.'
+                  ? 'Nothing to push right now — photos are only owed once the inspection result comes in.'
                   : 'Uploads the inspection photos to the JobNimbus job (skips any already there).'
               }
             />
@@ -433,7 +433,7 @@ function DealRow({ deal, selected, onSelect, theme, token, onDealPatch }) {
               tone="primary"
               title={
                 !canPushCert
-                  ? 'Nothing to push right now — the certificate is only owed once damage photos are in JobNimbus.'
+                  ? 'Nothing to push right now — the certificate is only owed once the photos are in JobNimbus.'
                   : 'Generates the roof inspection certificate PDF and uploads it to the JobNimbus job.'
               }
             />
@@ -868,10 +868,6 @@ function isAttention(d) {
 function inspectionResult(deal) {
   return deal.inspection_result || deal.result || ''
 }
-function isDamageResult(deal) {
-  const r = inspectionResult(deal)
-  return /damage/i.test(r) && !/no\s*damage/i.test(r)
-}
 function isLostResult(deal) {
   return /lost/i.test(inspectionResult(deal))
 }
@@ -883,10 +879,11 @@ function isLostResult(deal) {
 // Lifecycle (inspection-source deal):
 //   signed → auto-pushed to JN (job + agreement + fields)
 //     → "NEEDS INSPECTION"  (grey, nothing to do — wait on the inspector)
-//   inspection comes back "Damage" → photos + cert must reach JN
-//     → if either is missing: "DAMAGE" (red, ACTION NEEDED, button lights up)
+//   inspection comes back (Damage / No Damage / Retail — any result)
+//     → photos + the certificate are owed to JN
+//     → if either is missing: red ACTION NEEDED, the matching button lights up
 //     → once both are in JN: "ALL SET" (green)
-//   "No Damage" / "Retail" / "Lost" → no PA push owed → grey, nothing to do.
+//   "Lost" → dead deal → grey, nothing to do.
 //
 // action.need is 'photos' | 'cert' | null — only the matching button is
 // enabled; everything else stays grey so the manager only ever taps the
@@ -927,35 +924,32 @@ function actionFor(deal) {
         need: null,
       }
     }
-    // Inspection came back as damage → photos + cert are owed to JN.
-    if (isDamageResult(deal)) {
-      if (!push.photos) {
-        return {
-          tone: 'bad', icon: '⚠', headline: 'DAMAGE',
-          detail: 'Damage found — photos not in JobNimbus yet. Tap “Send Photos to JN”.',
-          need: 'photos',
-        }
-      }
-      if (!push.cert) {
-        return {
-          tone: 'bad', icon: '⚠', headline: 'DAMAGE',
-          detail: 'Damage found — certificate not in JobNimbus yet. Tap “Send Cert to JN”.',
-          need: 'cert',
-        }
-      }
-      return {
-        tone: 'good', icon: '✓', headline: 'ALL SET',
-        detail: 'Damage photos + certificate are in JobNimbus — nothing to do.',
-        need: null,
-      }
-    }
-    // Lost / No Damage / Retail — no PA push owed, nothing for the manager.
+    // Lost is the only dead end — nothing owed.
     if (isLostResult(deal)) {
       return { tone: 'na', icon: '—', headline: 'LOST', detail: 'Marked lost — no action needed.', need: null }
     }
+    // Inspection came back (Damage / No Damage / Retail). Every result
+    // owes photos + the certificate to JobNimbus. The status chip shows
+    // the result so the manager sees WHAT came back; red until both land.
+    const resultRaw = inspectionResult(deal)
+    const resultLabel = resultRaw.toUpperCase()
+    if (!push.photos) {
+      return {
+        tone: 'bad', icon: '⚠', headline: resultLabel,
+        detail: `Inspection came back “${resultRaw}” — photos not in JobNimbus yet. Tap “Send Photos to JN”.`,
+        need: 'photos',
+      }
+    }
+    if (!push.cert) {
+      return {
+        tone: 'bad', icon: '⚠', headline: resultLabel,
+        detail: `Inspection came back “${resultRaw}” — certificate not in JobNimbus yet. Tap “Send Cert to JN”.`,
+        need: 'cert',
+      }
+    }
     return {
-      tone: 'good', icon: '✓', headline: inspectionResult(deal).toUpperCase(),
-      detail: `Inspection came back “${inspectionResult(deal)}” — nothing to do.`,
+      tone: 'good', icon: '✓', headline: 'ALL SET',
+      detail: `Photos + certificate for the “${resultRaw}” inspection are in JobNimbus — nothing to do.`,
       need: null,
     }
   }
