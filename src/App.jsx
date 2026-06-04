@@ -8,7 +8,7 @@ import {
   Send,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
-import { InspectorMobileApp, InspectorsAdminPanel, InspectorSetupPage, ManagerInspectorReports, InspectionAssignmentsPanel, ManagerRoutePlanner, PAHandoffPanel, PAReportPanel, SitSoldPaReportPanel } from "./InspectorViews";
+import { InspectorMobileApp, InspectorsAdminPanel, InspectorSetupPage, ManagerInspectorReports, InspectionAssignmentsPanel, ManagerRoutePlanner, PAHandoffPanel, PAReportPanel, SitSoldPaReportPanel, ConfirmResultsPanel } from "./InspectorViews";
 import { PAMobileApp, PAAdminPanel } from "./PAViews";
 import InspectionPhotosModal from "./InspectionPhotosModal";
 import JnMatchPickerModal from "./JnMatchPickerModal";
@@ -10672,6 +10672,7 @@ if (!hasDamage) {
                         // ── Inspections ──
                         { group: "inspections", key: "inspectors", emoji: "🔍", label: "Inspectors", desc: "Roster — sync from JN, edit, activate/deactivate" },
                         { group: "inspections", key: "assign_inspections", emoji: "📋", label: "Assign Inspections", desc: "Hand out pending jobs, take them away, release" },
+                        { group: "inspections", key: "confirm_results", emoji: "🔒", label: "Confirm Results", desc: "Review held results from gated inspectors before anything fires to JN" },
                         { group: "inspections", key: "inspector_routes", emoji: "🗺", label: "Inspector Routes", desc: "Optimize the day's route from home or current location" },
                         { group: "inspections", key: "inspector_reports", emoji: "📊", label: "Inspector Reports", desc: "Completed this week by status + per-inspector + by day" },
                         { group: "inspections", key: "lookup", emoji: "🔍", label: "Record Lookup & Results", desc: "Find inspections, record damage/no damage" },
@@ -13901,6 +13902,10 @@ if (!hasDamage) {
 
                   {managerSection === "assign_inspections" && <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <InspectionAssignmentsPanel />
+                  </Card>}
+
+                  {managerSection === "confirm_results" && <Card style={{ padding: 20, background: "#f8fafc" }}>
+                    <ConfirmResultsPanel />
                   </Card>}
 
                   {managerSection === "inspector_routes" && <Card style={{ padding: 20, background: "#f8fafc" }}>

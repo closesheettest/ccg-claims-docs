@@ -82,7 +82,7 @@ exports.handler = async (event) => {
 
   // 1. Fetch the inspection.
   const inspRes = await fetch(
-    `${SB_URL}/rest/v1/inspections?id=eq.${inspectionId}&select=id,jn_job_id,client_name,inspection_photos&limit=1`,
+    `${SB_URL}/rest/v1/inspections?id=eq.${inspectionId}&select=id,jn_job_id,client_name,inspection_photos,inspector_id&limit=1`,
     { headers: sbHeaders },
   );
   if (!inspRes.ok) {
@@ -91,6 +91,77 @@ exports.handler = async (event) => {
   const rows = await inspRes.json();
   const insp = rows?.[0];
   if (!insp) return json(404, { ok: false, error: "Inspection not found" });
+
+  // ── MANAGER-CONFIRMATION HOLD ──
+  // If the inspector who claimed this job is flagged requires_confirmation
+  // (e.g. a brand-new inspector we don't fully trust yet), we DON'T fire
+  // ANY downstream action — no JN status push, no cert, no PA Ops Hub PDN,
+  // no retail swap, no photo upload to JN. We only record what they
+  // submitted (result + reason + photo metadata) into Supabase and flag
+  // the row pending_confirmation=true. A manager then reviews it in the
+  // "Inspections to confirm" tile and either Confirms (which replays the
+  // full fan-out via confirm-inspection-result) or Rejects it.
+  //
+  // The hourly cron-push-pending-results is also gated on
+  // pending_confirmation=false, so a held row can't sneak out that way.
+  //
+  // Skipped when mode === "confirm" (the manager's confirm call comes
+  // back through confirm-inspection-result, not here) and for rows with
+  // no inspector_id (office-classified records never hit this path).
+  const mode = (body.mode || "submit").trim();
+  if (mode !== "confirm" && insp.inspector_id) {
+    let requiresConfirmation = false;
+    try {
+      const ir = await fetch(
+        `${SB_URL}/rest/v1/inspectors?id=eq.${encodeURIComponent(insp.inspector_id)}&select=requires_confirmation&limit=1`,
+        { headers: sbHeaders },
+      );
+      if (ir.ok) {
+        const irows = await ir.json();
+        requiresConfirmation = !!irows?.[0]?.requires_confirmation;
+      }
+    } catch (e) {
+      console.warn("requires_confirmation lookup failed:", e.message);
+    }
+
+    if (requiresConfirmation) {
+      const heldUpdates = {
+        result,
+        result_at: new Date().toISOString(),
+        pending_confirmation: true,
+      };
+      if (inspectorName) heldUpdates.inspector_name = inspectorName;
+      if (result === "lost") {
+        heldUpdates.lost_reason = lostReason;
+      } else {
+        const prevPhotos = Array.isArray(insp.inspection_photos) ? insp.inspection_photos : [];
+        const newPhotos = photoPaths.map((p, i) => ({
+          path: p,
+          bucket: SIGNED_BUCKET,
+          captured_at: new Date().toISOString(),
+          label: photoLabels[i] || null,
+        }));
+        heldUpdates.inspection_photos = [...prevPhotos, ...newPhotos];
+      }
+      const heldRes = await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${inspectionId}`, {
+        method: "PATCH",
+        headers: sbHeaders,
+        body: JSON.stringify(heldUpdates),
+      });
+      if (!heldRes.ok) {
+        return json(500, { ok: false, error: `Could not save held result: ${await heldRes.text()}` });
+      }
+      return json(200, {
+        ok: true,
+        held: true,
+        pending_confirmation: true,
+        inspection_id: inspectionId,
+        result,
+        message: "Submitted. A manager will review and confirm before anything is sent.",
+      });
+    }
+  }
+  // ── END HOLD ──
 
   // ── LOST short-circuit ──
   // A "Lost" result means the inspection never happened (homeowner

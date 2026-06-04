@@ -90,6 +90,10 @@ exports.handler = async (event) => {
     } else {
       // Insert new — active=false so routing doesn't include them
       // until manager flips active AND they complete setup.
+      // requires_confirmation=true so a brand-new inspector's results
+      // are HELD for manager confirmation by default (auto-gate). The
+      // manager flips this OFF once they trust the inspector. Existing
+      // rows are never touched, so veterans keep firing automatically.
       if (!dryRun) {
         const ins = await fetch(`${SB_URL}/rest/v1/inspectors`, {
           method: "POST",
@@ -99,6 +103,7 @@ exports.handler = async (event) => {
             jn_user_id: u.id,
             email: u.email || null,
             active: false,
+            requires_confirmation: true,
           }),
         });
         if (!ins.ok) {

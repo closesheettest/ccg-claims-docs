@@ -61,6 +61,11 @@ const handler = async () => {
     `&jn_job_id=not.is.null` +
     `&jn_pushed_at=is.null` +
     `&cancelled_at=is.null` +
+    // Skip rows held for manager confirmation — a flagged inspector's
+    // result must NOT push to JN until a manager confirms it. The
+    // confirm flow clears pending_confirmation, after which this cron
+    // (or the confirm function itself) pushes it normally.
+    `&pending_confirmation=eq.false` +
     `&select=id,client_name,result,jn_job_id,jn_status` +
     `&order=result_at.asc` +
     `&limit=100`;

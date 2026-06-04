@@ -518,6 +518,28 @@ export function InspectorsAdminPanel() {
     }
   }
 
+  // Flip the per-inspector "manager must confirm" gate. When ON, the
+  // inspector's result submissions are HELD (saved with
+  // pending_confirmation=true) and NOTHING fires to JN / PA Ops Hub /
+  // retail until a manager confirms it from the "Inspections to
+  // confirm" tile. New inspectors default ON; trusted veterans get
+  // flipped OFF here so their results fire instantly like before.
+  async function toggleRequiresConfirmation(insp) {
+    const next = !insp.requires_confirmation;
+    const { error } = await supabase
+      .from("inspectors")
+      .update({ requires_confirmation: next })
+      .eq("id", insp.id);
+    if (error) return setMessage({ kind: "error", text: error.message });
+    setMessage({
+      kind: "success",
+      text: next
+        ? `${insp.name}: results will now be HELD for manager confirmation before anything fires.`
+        : `${insp.name}: results will now fire automatically (no manager confirmation).`,
+    });
+    loadInspectors();
+  }
+
   async function updateInspector(insp, patch) {
     const { error } = await supabase
       .from("inspectors")
@@ -665,6 +687,7 @@ export function InspectorsAdminPanel() {
                   insp={insp}
                   sendingEmail={sendingEmailId === insp.id}
                   onToggle={() => toggleActive(insp)}
+                  onToggleConfirm={() => toggleRequiresConfirmation(insp)}
                   onUpdate={(patch) => updateInspector(insp, patch)}
                   onDelete={() => deleteInspector(insp)}
                   onSendUpdateLink={() => sendUpdateLink(insp)}
@@ -726,7 +749,7 @@ export function InspectorsAdminPanel() {
   );
 }
 
-function InspectorRow({ insp, sendingEmail, onToggle, onUpdate, onDelete, onSendUpdateLink, onSendGuide }) {
+function InspectorRow({ insp, sendingEmail, onToggle, onToggleConfirm, onUpdate, onDelete, onSendUpdateLink, onSendGuide }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({
     name: insp.name,
@@ -766,6 +789,14 @@ function InspectorRow({ insp, sendingEmail, onToggle, onUpdate, onDelete, onSend
               ) : (
                 <span style={{ fontSize: 10, padding: "2px 8px", background: "#fef3c7", color: "#92400e", borderRadius: 999, fontWeight: 700 }}>
                   ⏳ Setup pending
+                </span>
+              )}
+              {insp.requires_confirmation && (
+                <span
+                  style={{ fontSize: 10, padding: "2px 8px", background: "#fee2e2", color: "#991b1b", borderRadius: 999, fontWeight: 700 }}
+                  title="This inspector's results are held for manager confirmation before anything fires to JN."
+                >
+                  🔒 Confirm required
                 </span>
               )}
             </div>
@@ -827,6 +858,26 @@ function InspectorRow({ insp, sendingEmail, onToggle, onUpdate, onDelete, onSend
                 }
               >
                 {sendingEmail ? "Sending…" : "📖 Send guide"}
+              </button>
+            )}
+            {onToggleConfirm && (
+              <button
+                type="button"
+                onClick={onToggleConfirm}
+                style={{
+                  ...secondaryBtn,
+                  fontSize: 11,
+                  background: insp.requires_confirmation ? "#fee2e2" : "#fff",
+                  borderColor: insp.requires_confirmation ? "#fca5a5" : "#d1d5db",
+                  color: insp.requires_confirmation ? "#991b1b" : "#374151",
+                }}
+                title={
+                  insp.requires_confirmation
+                    ? "ON — this inspector's results are HELD until a manager confirms them. Click to let their results fire automatically."
+                    : "OFF — this inspector's results fire automatically. Click to require a manager to confirm before anything fires."
+                }
+              >
+                {insp.requires_confirmation ? "🔒 Confirm: ON" : "🔓 Confirm: OFF"}
               </button>
             )}
             <button
@@ -2505,6 +2556,9 @@ function InspectorReports({ me, onBack }) {
   const [rows, setRows] = useState([]);
   const [pendingCount, setPendingCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  // When set, show the photo detail for one inspection instead of the
+  // roll-up. Tapping a row in the detail list opens this.
+  const [selected, setSelected] = useState(null);
 
   const { fromIso, toIso, label } = useMemo(() => {
     const now = new Date();
@@ -2536,7 +2590,7 @@ function InspectorReports({ me, onBack }) {
       // Completed inspections (this inspector, has a result, within range).
       const completed = await supabase
         .from("inspections")
-        .select("id, client_name, address, result, result_at, lost_reason")
+        .select("id, client_name, address, city, state, zip, result, result_at, lost_reason, inspection_photos")
         .eq("inspector_id", me.id)
         .not("result", "is", null)
         .gte("result_at", fromIso)
@@ -2576,6 +2630,12 @@ function InspectorReports({ me, onBack }) {
   }, [rows]);
 
   const maxDayTotal = Math.max(1, ...byDay.map((d) => d.total));
+
+  // Drill-in: one inspection's photos. Replaces the roll-up until the
+  // inspector taps "← Back to reports".
+  if (selected) {
+    return <InspectorReportDetail insp={selected} onBack={() => setSelected(null)} />;
+  }
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
@@ -2747,8 +2807,15 @@ function InspectorReports({ me, onBack }) {
               <div style={{ display: "grid", gap: 6 }}>
                 {rows.map((r) => {
                   const meta = STATUS_META[r.result] || { label: r.result, color: "#6b7280", bg: "#f3f4f6", emoji: "•" };
+                  const photoCount = Array.isArray(r.inspection_photos) ? r.inspection_photos.length : 0;
                   return (
-                    <div key={r.id} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto auto", gap: 10, alignItems: "center", padding: "8px 10px", background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 8 }}>
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => setSelected(r)}
+                      style={{ display: "grid", gridTemplateColumns: "auto 1fr auto auto", gap: 10, alignItems: "center", padding: "8px 10px", background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 8, textAlign: "left", cursor: "pointer", width: "100%", font: "inherit" }}
+                      title="Tap to view this inspection's photos"
+                    >
                       <div style={{ fontSize: 16, lineHeight: 1 }} aria-hidden="true">{meta.emoji}</div>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -2756,6 +2823,9 @@ function InspectorReports({ me, onBack }) {
                         </div>
                         <div style={{ fontSize: 11, color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {r.address || ""}
+                        </div>
+                        <div style={{ fontSize: 11, color: photoCount > 0 ? "#0e7490" : "#9ca3af", marginTop: 2, fontWeight: 600 }}>
+                          {photoCount > 0 ? `📷 ${photoCount} photo${photoCount === 1 ? "" : "s"} · tap to view` : "No photos"}
                         </div>
                         {r.result === "lost" && r.lost_reason && (
                           <div style={{ fontSize: 11, color: "#b91c1c", marginTop: 2, whiteSpace: "normal", lineHeight: 1.35 }}>
@@ -2766,10 +2836,11 @@ function InspectorReports({ me, onBack }) {
                       <div style={{ background: meta.bg, color: meta.color, fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 12, textTransform: "uppercase", letterSpacing: "0.04em" }}>
                         {meta.label}
                       </div>
-                      <div style={{ fontSize: 11, color: "#6b7280", whiteSpace: "nowrap" }}>
-                        {fmtShort(r.result_at)}
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+                        <span style={{ fontSize: 11, color: "#6b7280" }}>{fmtShort(r.result_at)}</span>
+                        <span style={{ fontSize: 16, color: "#9ca3af", lineHeight: 1 }} aria-hidden="true">›</span>
                       </div>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
@@ -2777,6 +2848,100 @@ function InspectorReports({ me, onBack }) {
           </section>
         </>
       )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// INSPECTOR REPORT DETAIL — one inspection's photos. Opened by tapping
+// a row in the inspector's own Reports list. Photos live in a private
+// bucket, so we mint short-lived signed URLs to display them. Read-only
+// (the inspector already submitted the result).
+// ─────────────────────────────────────────────────────────────────────
+function InspectorReportDetail({ insp, onBack }) {
+  const [urls, setUrls] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const meta = STATUS_META[insp.result] || { label: insp.result, color: "#6b7280", bg: "#f3f4f6", emoji: "•" };
+  const photos = Array.isArray(insp.inspection_photos) ? insp.inspection_photos : [];
+  const addr = [insp.address, insp.city, insp.state, insp.zip].filter(Boolean).join(", ");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const out = [];
+      for (const p of photos) {
+        if (!p?.path) continue;
+        try {
+          const { data } = await supabase.storage
+            .from(p.bucket || SIGNED_BUCKET)
+            .createSignedUrl(p.path, 3600);
+          if (data?.signedUrl) out.push({ url: data.signedUrl, label: p.label || "" });
+        } catch { /* skip a photo that won't sign */ }
+      }
+      if (!cancelled) { setUrls(out); setLoading(false); }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [insp.id]);
+
+  return (
+    <div style={{ display: "grid", gap: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+        <button type="button" onClick={onBack} style={{ ...secondaryBtn, fontSize: 12 }}>
+          ← Back to reports
+        </button>
+        <div style={{ background: meta.bg, color: meta.color, fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 999, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+          {meta.emoji} {meta.label}
+        </div>
+      </div>
+
+      <div>
+        <div style={{ fontSize: 18, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>
+          {insp.client_name || "—"}
+        </div>
+        {addr && <div style={{ fontSize: 13, color: "#6b7280", marginTop: 2 }}>{addr}</div>}
+        {insp.result_at && (
+          <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 2 }}>
+            Completed {new Date(insp.result_at).toLocaleString()}
+          </div>
+        )}
+        {insp.result === "lost" && insp.lost_reason && (
+          <div style={{ fontSize: 12, color: "#92400e", marginTop: 8, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "8px 10px" }}>
+            📝 {insp.lost_reason}
+          </div>
+        )}
+      </div>
+
+      <section style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 14 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, fontFamily: "'Oswald', sans-serif" }}>
+          Photos ({photos.length})
+        </div>
+        {loading ? (
+          <div style={{ fontSize: 12, color: "#6b7280" }}>Loading photos…</div>
+        ) : photos.length === 0 ? (
+          <div style={{ fontSize: 12, color: "#6b7280" }}>No photos were taken for this inspection.</div>
+        ) : urls.length === 0 ? (
+          <div style={{ fontSize: 12, color: "#b91c1c" }}>Couldn't load the photos. Pull to refresh and try again.</div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8 }}>
+            {urls.map((p, i) => (
+              <a key={i} href={p.url} target="_blank" rel="noreferrer" title={p.label || `Photo ${i + 1}`} style={{ display: "block" }}>
+                <img
+                  src={p.url}
+                  alt={p.label || `Photo ${i + 1}`}
+                  style={{ width: "100%", aspectRatio: "1", objectFit: "cover", borderRadius: 8, border: "1px solid #e5e7eb" }}
+                />
+                {p.label && (
+                  <div style={{ fontSize: 10, color: "#6b7280", marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {p.label}
+                  </div>
+                )}
+              </a>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
@@ -4491,6 +4656,242 @@ async function resizeImageForUpload(file, maxDim = 1000, quality = 0.7) {
     console.warn("Image resize failed, using original:", e);
     return file;
   }
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// CONFIRM RESULTS — manager tile. Lists inspections that were HELD
+// because the submitting inspector is gated (requires_confirmation).
+// Nothing fired to JN / PA Ops Hub / retail yet. The manager reviews
+// the call (result + photos + any lost reason) and either:
+//   • Confirm → replays the full fan-out (push to JN, upload photos,
+//     cert, PA PDN / retail swap) via confirm-inspection-result.
+//   • Reject  → wipes the bad result so the job re-opens; fires nothing.
+// Dashboard-only (no SMS alerts), per the agreed design.
+// ═════════════════════════════════════════════════════════════════════
+
+export function ConfirmResultsPanel() {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState(null);
+  const [busyId, setBusyId] = useState(null);
+  // Lazily-loaded signed photo URLs, keyed by inspection id.
+  const [photoUrls, setPhotoUrls] = useState({});
+  const [photosOpen, setPhotosOpen] = useState({});
+
+  useEffect(() => { loadHeld(); }, []);
+
+  async function loadHeld() {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("inspections")
+      .select("id, client_name, address, city, state, zip, result, result_at, inspector_name, lost_reason, inspection_photos, jn_job_id")
+      .eq("pending_confirmation", true)
+      .order("result_at", { ascending: true });
+    if (error) {
+      setMessage({ kind: "error", text: error.message });
+      setRows([]);
+    } else {
+      setRows(data || []);
+    }
+    setLoading(false);
+  }
+
+  async function togglePhotos(insp) {
+    const open = !photosOpen[insp.id];
+    setPhotosOpen((p) => ({ ...p, [insp.id]: open }));
+    if (open && !photoUrls[insp.id]) {
+      const photos = Array.isArray(insp.inspection_photos) ? insp.inspection_photos : [];
+      const urls = [];
+      for (const p of photos) {
+        if (!p?.path) continue;
+        try {
+          const { data } = await supabase.storage
+            .from(p.bucket || SIGNED_BUCKET)
+            .createSignedUrl(p.path, 3600);
+          if (data?.signedUrl) urls.push({ url: data.signedUrl, label: p.label || "" });
+        } catch { /* skip a photo that won't sign */ }
+      }
+      setPhotoUrls((m) => ({ ...m, [insp.id]: urls }));
+    }
+  }
+
+  async function act(insp, action) {
+    const verb = action === "confirm" ? "confirm" : "reject";
+    const warn = action === "confirm"
+      ? `Confirm ${insp.client_name}'s "${labelForResult(insp.result)}" result?\n\nThis pushes to JobNimbus and fires everything that normally happens on submit (photos, cert${insp.result === "damage" ? ", PA Ops Hub PDN" : insp.result === "retail" ? ", retail swap" : ""}).`
+      : `Reject ${insp.client_name}'s "${labelForResult(insp.result)}" result?\n\nThe result is cleared so the job can be re-inspected. Nothing is sent to JobNimbus.`;
+    if (!confirm(warn)) return;
+    setBusyId(insp.id);
+    setMessage(null);
+    try {
+      const res = await fetch("/.netlify/functions/confirm-inspection-result", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inspectionId: insp.id, action }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!body.ok) {
+        const errDetail = Array.isArray(body.errors) && body.errors.length ? ` (${body.errors.join("; ")})` : "";
+        setMessage({ kind: "error", text: `${verb} failed: ${body.error || `status ${res.status}`}${errDetail}` });
+      } else {
+        setMessage({
+          kind: "success",
+          text: action === "confirm"
+            ? `Confirmed ${insp.client_name} — result fired to JobNimbus.`
+            : `Rejected ${insp.client_name} — result cleared, job re-opened.`,
+        });
+        await loadHeld();
+      }
+    } catch (e) {
+      setMessage({ kind: "error", text: e.message || "Network error" });
+    }
+    setBusyId(null);
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 16 }}>
+      <div>
+        <div style={{ fontSize: 18, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>
+          🔒 Inspections to confirm
+        </div>
+        <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
+          Results submitted by gated inspectors (the "Confirm" toggle is ON for them in the
+          Inspectors roster). Nothing has been sent to JobNimbus yet. Review the call, then
+          Confirm to fire it or Reject to clear it and re-open the job.
+        </div>
+      </div>
+
+      {message && (
+        <div
+          style={{
+            padding: "10px 14px",
+            borderRadius: 10,
+            fontSize: 13,
+            background: message.kind === "success" ? "#ecfdf5" : "#fef2f2",
+            border: `1px solid ${message.kind === "success" ? "#86efac" : "#fca5a5"}`,
+            color: message.kind === "success" ? "#065f46" : "#991b1b",
+          }}
+        >
+          {message.text}
+        </div>
+      )}
+
+      {loading ? (
+        <div style={{ fontSize: 13, color: "#6b7280" }}>Loading…</div>
+      ) : rows.length === 0 ? (
+        <section style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 20, background: "#fff", textAlign: "center" }}>
+          <div style={{ fontSize: 32, marginBottom: 6 }}>✅</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#065f46" }}>Nothing waiting</div>
+          <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
+            No held results right now. Gated inspectors' submissions will show up here.
+          </div>
+        </section>
+      ) : (
+        <div style={{ display: "grid", gap: 10 }}>
+          {rows.map((insp) => {
+            const photos = Array.isArray(insp.inspection_photos) ? insp.inspection_photos : [];
+            const open = !!photosOpen[insp.id];
+            const urls = photoUrls[insp.id] || [];
+            const busy = busyId === insp.id;
+            return (
+              <section
+                key={insp.id}
+                style={{ border: "1px solid #fca5a5", borderRadius: 12, padding: 14, background: "#fff" }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+                  <div style={{ flex: "1 1 240px" }}>
+                    <div style={{ fontWeight: 800, fontSize: 15 }}>{insp.client_name || "(no name)"}</div>
+                    <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
+                      {[insp.address, insp.city, insp.state, insp.zip].filter(Boolean).join(", ") || "(no address)"}
+                    </div>
+                    <div style={{ fontSize: 12, color: "#374151", marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                      <span style={resultBadgeStyle(insp.result)}>{labelForResult(insp.result)}</span>
+                      {insp.inspector_name && <span>👤 {insp.inspector_name}</span>}
+                      {insp.result_at && <span>🕑 {new Date(insp.result_at).toLocaleString()}</span>}
+                      {photos.length > 0 && <span>📷 {photos.length}</span>}
+                    </div>
+                    {insp.result === "lost" && insp.lost_reason && (
+                      <div style={{ fontSize: 12, color: "#92400e", marginTop: 6, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "6px 10px" }}>
+                        📝 {insp.lost_reason}
+                      </div>
+                    )}
+                    {photos.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => togglePhotos(insp)}
+                        style={{ ...secondaryBtn, fontSize: 11, marginTop: 8 }}
+                      >
+                        {open ? "Hide photos" : `View ${photos.length} photo${photos.length === 1 ? "" : "s"}`}
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      onClick={() => act(insp, "confirm")}
+                      disabled={busy}
+                      style={{ ...primaryBtn, fontSize: 12, padding: "8px 14px", opacity: busy ? 0.6 : 1, cursor: busy ? "wait" : "pointer" }}
+                    >
+                      {busy ? "Working…" : "✓ Confirm & fire"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => act(insp, "reject")}
+                      disabled={busy}
+                      style={{ ...dangerBtn, fontSize: 12, padding: "8px 14px", opacity: busy ? 0.6 : 1, cursor: busy ? "wait" : "pointer" }}
+                    >
+                      ✗ Reject
+                    </button>
+                  </div>
+                </div>
+                {open && (
+                  <div style={{ marginTop: 10 }}>
+                    {urls.length === 0 ? (
+                      <div style={{ fontSize: 12, color: "#6b7280" }}>Loading photos…</div>
+                    ) : (
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 8 }}>
+                        {urls.map((p, i) => (
+                          <a key={i} href={p.url} target="_blank" rel="noreferrer" title={p.label}>
+                            <img
+                              src={p.url}
+                              alt={p.label || `Photo ${i + 1}`}
+                              style={{ width: "100%", aspectRatio: "1", objectFit: "cover", borderRadius: 8, border: "1px solid #e5e7eb" }}
+                            />
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </section>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function labelForResult(r) {
+  return r === "damage" ? "Damage"
+    : r === "no_damage" ? "No Damage"
+    : r === "retail" ? "Retail"
+    : r === "lost" ? "Lost"
+    : (r || "—");
+}
+
+function resultBadgeStyle(r) {
+  const map = {
+    damage: { bg: "#fef2f2", fg: "#991b1b", bd: "#fca5a5" },
+    no_damage: { bg: "#eff6ff", fg: "#1e40af", bd: "#93c5fd" },
+    retail: { bg: "#f0fdf4", fg: "#166534", bd: "#86efac" },
+    lost: { bg: "#f3f4f6", fg: "#374151", bd: "#d1d5db" },
+  };
+  const c = map[r] || { bg: "#f3f4f6", fg: "#374151", bd: "#d1d5db" };
+  return {
+    fontSize: 11, fontWeight: 800, padding: "2px 8px", borderRadius: 999,
+    background: c.bg, color: c.fg, border: `1px solid ${c.bd}`,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────
