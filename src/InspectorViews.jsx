@@ -1156,6 +1156,7 @@ export function ManagerRoutePlanner() {
       const { data } = await supabase
         .from("inspectors")
         .select("id, name, latitude, longitude, active")
+        .eq("active", true)
         .order("name");
       if (cancelled) return;
       const list = data || [];
