@@ -125,8 +125,67 @@ export function PAAdminPanel() {
   const [message, setMessage] = useState(null);
   const [syncing, setSyncing] = useState(false);
   const [busyId, setBusyId] = useState(null);
+  const [backfill, setBackfill] = useState(null); // {running, done, total, copied, failed}
 
   useEffect(() => { loadPas(); }, []);
+
+  // One-off: copy JN-only inspection photos into our own storage for every
+  // historical DAMAGE deal that doesn't have app-side photos yet. Self-
+  // limiting — new inspections capture app-side, so this set only shrinks.
+  // Fans out to pull-jn-photos-to-app per record (small concurrency) to
+  // avoid any single-function timeout.
+  async function runPhotoBackfill() {
+    if (!confirm(
+      "Copy JobNimbus photos into the app for all older DAMAGE deals that " +
+      "don't have app-side photos yet?\n\nThis is safe to run repeatedly — " +
+      "deals that already have app photos are skipped.",
+    )) return;
+
+    setBackfill({ running: true, done: 0, total: 0, copied: 0, failed: 0 });
+    // Find damage deals with a JN job but no app-side photos. inspection_photos
+    // is jsonb; fetch the candidates and filter client-side (null OR empty).
+    const { data, error } = await supabase
+      .from("inspections")
+      .select("id, inspection_photos")
+      .eq("result", "damage")
+      .not("jn_job_id", "is", null)
+      .limit(2000);
+    if (error) { setBackfill(null); setMessage({ kind: "error", text: error.message }); return; }
+    const targets = (data || []).filter(
+      (r) => !Array.isArray(r.inspection_photos) || r.inspection_photos.length === 0,
+    );
+    if (targets.length === 0) {
+      setBackfill(null);
+      setMessage({ kind: "success", text: "Nothing to backfill — every damage deal already has app-side photos." });
+      return;
+    }
+
+    setBackfill({ running: true, done: 0, total: targets.length, copied: 0, failed: 0 });
+    let done = 0, copied = 0, failed = 0;
+    const CONCURRENCY = 4;
+    let idx = 0;
+    async function worker() {
+      while (idx < targets.length) {
+        const t = targets[idx++];
+        try {
+          const res = await fetch("/.netlify/functions/pull-jn-photos-to-app", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ inspectionId: t.id }),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (body.ok) copied += body.copied || 0; else failed++;
+        } catch { failed++; }
+        done++;
+        setBackfill({ running: true, done, total: targets.length, copied, failed });
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, targets.length) }, worker));
+    setBackfill(null);
+    setMessage({
+      kind: failed > 0 ? "error" : "success",
+      text: `Photo backfill done — processed ${done} deal${done === 1 ? "" : "s"}, copied ${copied} photo${copied === 1 ? "" : "s"}${failed > 0 ? `, ${failed} failed` : ""}.`,
+    });
+  }
 
   async function loadPas() {
     setLoading(true);
@@ -302,8 +361,27 @@ export function PAAdminPanel() {
           >
             👁 Preview as PA
           </button>
+          <button
+            type="button"
+            onClick={runPhotoBackfill}
+            disabled={!!backfill?.running}
+            style={{ ...secondaryBtn, padding: "6px 12px", fontSize: 11, whiteSpace: "nowrap" }}
+            title="Copy JobNimbus photos into the app for older damage deals that don't have app-side photos yet."
+          >
+            {backfill?.running
+              ? `⬇ Saving ${backfill.done}/${backfill.total}…`
+              : "⬇ Backfill JN photos"}
+          </button>
         </div>
       </div>
+
+      {backfill?.running && (
+        <div style={{ padding: "10px 14px", borderRadius: 10, fontSize: 13, background: "#eff6ff", border: "1px solid #bfdbfe", color: "#1e3a8a" }}>
+          Copying JobNimbus photos into the app… {backfill.done} of {backfill.total} deals done
+          {backfill.copied > 0 ? ` · ${backfill.copied} photos saved` : ""}
+          {backfill.failed > 0 ? ` · ${backfill.failed} failed` : ""}. Keep this tab open.
+        </div>
+      )}
 
       {message && (
         <div style={{
@@ -692,6 +770,34 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
   const [savedKey, setSavedKey] = useState(null);
   const [fieldErr, setFieldErr] = useState(null);
   const [releasing, setReleasing] = useState(false);
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillMsg, setBackfillMsg] = useState(null);
+
+  // Copy this deal's JN-only photos into our own storage so it looks like
+  // a modern app-captured inspection. Only offered when the photos we're
+  // showing came live from JobNimbus (photoSource === "jobnimbus").
+  async function backfillPhotos() {
+    setBackfilling(true);
+    setBackfillMsg(null);
+    try {
+      const res = await fetch("/.netlify/functions/pull-jn-photos-to-app", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inspectionId: jobId }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!body.ok) {
+        setBackfillMsg({ kind: "error", text: body.error || `Failed (status ${res.status})` });
+      } else if (body.copied > 0) {
+        setBackfillMsg({ kind: "success", text: `Saved ${body.copied} photo${body.copied === 1 ? "" : "s"} to the app. They'll now load instantly.` });
+        setPhotoSource("app");
+      } else {
+        setBackfillMsg({ kind: "success", text: body.skipped_reason === "no_jn_photos" ? "No JobNimbus photos to copy." : "Already saved app-side." });
+      }
+    } catch (e) {
+      setBackfillMsg({ kind: "error", text: e.message || "Network error" });
+    }
+    setBackfilling(false);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -847,7 +953,36 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
               · from inspection app
             </span>
           )}
+          {photoSource === "jobnimbus" && (
+            <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: "#92400e", textTransform: "none", letterSpacing: 0 }}>
+              · from JobNimbus
+            </span>
+          )}
         </div>
+
+        {/* Backfill: this deal's photos live only in JobNimbus (an older
+            inspection done before in-app capture). Offer a one-tap copy
+            into our storage so they load instantly from then on. */}
+        {photoSource === "jobnimbus" && photos.length > 0 && (
+          <div style={{ marginBottom: 10 }}>
+            <button type="button" onClick={backfillPhotos} disabled={backfilling}
+              style={{ ...secondaryBtn, fontSize: 12, fontWeight: 700, padding: "8px 12px" }}>
+              {backfilling ? "Saving photos…" : "⬇ Save these photos to the app"}
+            </button>
+            <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 4 }}>
+              Older inspection — photos currently live in JobNimbus. Save a copy so they load instantly here.
+            </div>
+          </div>
+        )}
+        {backfillMsg && (
+          <div style={{ padding: "8px 12px", borderRadius: 8, fontSize: 12, marginBottom: 10,
+            background: backfillMsg.kind === "success" ? "#ecfdf5" : "#fef2f2",
+            border: `1px solid ${backfillMsg.kind === "success" ? "#86efac" : "#fca5a5"}`,
+            color: backfillMsg.kind === "success" ? "#065f46" : "#991b1b" }}>
+            {backfillMsg.text}
+          </div>
+        )}
+
         {photos.length === 0 ? (
           <div style={{ fontSize: 12, color: "#94a3b8" }}>No photos found for this inspection yet.</div>
         ) : (
