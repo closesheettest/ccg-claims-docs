@@ -397,6 +397,10 @@ export default function ManagerRecordsView({ token }) {
 function DealRow({ deal, selected, onSelect, theme, token, onDealPatch }) {
   const action = actionFor(deal)
   const tone = ACTION_TONE[action.tone]
+  // The big chip can carry its own color (e.g. the result category) that's
+  // distinct from the red/green instruction-line tone. Falls back to the
+  // action tone when no chip-specific tone is set.
+  const chipTone = ACTION_TONE[action.chipTone] || tone
 
   // Per-deal push state. busy = which action is running; msg = result.
   const [busy, setBusy] = useState(null) // 'photos' | 'cert' | null
@@ -714,12 +718,15 @@ function DealRow({ deal, selected, onSelect, theme, token, onDealPatch }) {
             justifyContent: 'center', alignItems: 'center',
             textAlign: 'center', gap: 4,
             borderRadius: 12, padding: '12px 8px',
-            background: tone.bg, color: tone.fg,
-            border: `1.5px solid ${tone.border}`,
+            background: chipTone.bg, color: chipTone.fg,
+            border: `1.5px solid ${chipTone.border}`,
           }}
         >
           <span style={{ fontSize: 30, lineHeight: 1 }}>{action.icon}</span>
           <span style={{ fontSize: 13, fontWeight: 800, letterSpacing: 0.4 }}>{action.headline}</span>
+          {action.chipNote && (
+            <span style={{ fontSize: 11, fontWeight: 600, lineHeight: 1.25 }}>{action.chipNote}</span>
+          )}
         </div>
       </div>
     </div>
@@ -912,7 +919,13 @@ function DealDetail({ deal, theme }) {
             {deal.jn_job_id} ↗
           </a>
         ) : <NotIn />} />
-        <Field label="Status" value={deal.jn_status || <NotIn />} />
+        {/* jn_status is just JobNimbus's free-text status string and is
+            very often null even when the job, photos, and cert are all
+            in JN — so an empty one means "no status set", not "not in
+            JN". Show a neutral dash, never the red "not in JN" flag
+            (that lives on Job ID / Photos / Cert, which actually prove
+            presence). */}
+        <Field label="Status" value={deal.jn_status || '—'} />
         <Field label="Result" value={result || <Waiting />} />
         <Field label="Photos pushed" value={!hasResult ? <Waiting /> : (deal.jn_pushed_at ? fmtDateTime(deal.jn_pushed_at) : <NotIn />)} />
         <Field label="Cert uploaded" value={!hasResult ? <Waiting /> : (deal.jn_cert_uploaded_at ? fmtDateTime(deal.jn_cert_uploaded_at) : <NotIn />)} />
@@ -1107,7 +1120,10 @@ async function stampJn(token, id, fields) {
 // missing from JobNimbus). LOR/PAC signatures are the PA's job, not the
 // manager's, so they never count here.
 function isAttention(d) {
-  return actionFor(d).tone === 'bad'
+  // The chip can now be a non-red color (e.g. blue DAMAGE) while the
+  // manager still owes a JN push, so gate attention on whether there's an
+  // actual task (action.need) rather than the chip/instruction tone.
+  return actionFor(d).need !== null
 }
 
 // Raw inspection result as JobNimbus stores it: "Damage" | "No Damage" |
@@ -1117,6 +1133,30 @@ function inspectionResult(deal) {
 }
 function isLostResult(deal) {
   return /lost/i.test(inspectionResult(deal))
+}
+
+// Business-facing summary for an inspected deal: WHAT came back and what
+// the company does next with it. Drives the big chip's headline + the
+// note line under it. This is deliberately separate from the manager's
+// JobNimbus data task (photos/cert) — that shows as the red instruction
+// line + the action button, only when something's actually owed.
+//   Damage    → it's a claim, going to the Public Adjuster.
+//   Retail    → no insurance angle; get a rep out to sell the job.
+//   No Damage → nothing to sell; mine it for referrals.
+function resultChip(resultRaw) {
+  const r = String(resultRaw || '').toLowerCase()
+  // "no damage" contains "damage" — check it first.
+  if (r.includes('no damage')) {
+    return { headline: 'NO DAMAGE', chipNote: 'Get a rep over there for referrals.', chipTone: 'na', icon: '🤝' }
+  }
+  if (r.includes('damage')) {
+    return { headline: 'DAMAGE', chipNote: 'Going to the PA.', chipTone: 'info', icon: '📋' }
+  }
+  if (r.includes('retail')) {
+    return { headline: 'RETAIL', chipNote: 'Get a rep over there to get an appointment and sell it.', chipTone: 'warn', icon: '🏠' }
+  }
+  // Unknown result string — show it raw, neutral, no business note.
+  return { headline: String(resultRaw || '').toUpperCase(), chipNote: null, chipTone: 'na', icon: '•' }
 }
 
 // The big, plain-English verdict for one deal: does the manager need to
@@ -1176,29 +1216,33 @@ function actionFor(deal) {
         need: null,
       }
     }
-    // Inspection came back (Damage / No Damage / Retail). Every result
-    // owes photos + the certificate to JobNimbus. The status chip shows
-    // the result so the manager sees WHAT came back; red until both land.
+    // Inspection came back (Damage / No Damage / Retail). The big chip
+    // now shows the RESULT + the business next-step (resultChip), so the
+    // manager sees what came back and what happens with it at a glance.
+    // Independently, every result owes photos + the certificate to
+    // JobNimbus — that's the manager's data task, surfaced as the red
+    // instruction line + whichever action button is owed (action.need).
     const resultRaw = inspectionResult(deal)
-    const resultLabel = resultRaw.toUpperCase()
+    const meta = resultChip(resultRaw)
+    let tone, detail, need
     if (!push.photos) {
-      return {
-        tone: 'bad', icon: '⚠', headline: resultLabel,
-        detail: `Inspection came back “${resultRaw}” — photos not in JobNimbus yet. Tap “Send Photos to JN”.`,
-        need: 'photos',
-      }
-    }
-    if (!push.cert) {
-      return {
-        tone: 'bad', icon: '⚠', headline: resultLabel,
-        detail: `Inspection came back “${resultRaw}” — certificate not in JobNimbus yet. Tap “Send Cert to JN”.`,
-        need: 'cert',
-      }
+      tone = 'bad'; need = 'photos'
+      detail = `Inspection came back “${resultRaw}” — photos not in JobNimbus yet. Tap “Send Photos to JN”.`
+    } else if (!push.cert) {
+      tone = 'bad'; need = 'cert'
+      detail = `Inspection came back “${resultRaw}” — certificate not in JobNimbus yet. Tap “Send Cert to JN”.`
+    } else {
+      tone = 'good'; need = null
+      detail = `Photos + certificate for the “${resultRaw}” inspection are in JobNimbus — nothing to do.`
     }
     return {
-      tone: 'good', icon: '✓', headline: 'ALL SET',
-      detail: `Photos + certificate for the “${resultRaw}” inspection are in JobNimbus — nothing to do.`,
-      need: null,
+      tone,            // drives the red/green instruction line + button
+      need,            // 'photos' | 'cert' | null — which button lights up
+      detail,
+      icon: meta.icon, // chip shows the result, not a generic ⚠/✓
+      headline: meta.headline,
+      chipNote: meta.chipNote,
+      chipTone: meta.chipTone,
     }
   }
 
@@ -1231,6 +1275,9 @@ const ACTION_TONE = {
   bad:  { fg: '#991b1b', bg: '#fee2e2', border: '#fca5a5' },
   warn: { fg: '#92400e', bg: '#fef3c7', border: '#fcd34d' },
   na:   { fg: '#475569', bg: '#f1f5f9', border: '#cbd5e1' },
+  // Blue — a damage claim heading to the Public Adjuster (informational,
+  // not an action and not a problem).
+  info: { fg: '#1e40af', bg: '#dbeafe', border: '#93c5fd' },
 }
 
 function fmtDate(iso) {
