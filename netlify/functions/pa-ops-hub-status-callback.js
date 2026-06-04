@@ -87,10 +87,20 @@ exports.handler = async (event) => {
   }
 
   // ── 3. Update the inspection ───────────────────────────────────────
+  const nowIso = new Date().toISOString()
   const patch = {
     pa_status: status,
-    pa_status_updated_at: new Date().toISOString(),
+    pa_status_updated_at: nowIso,
     pa_status_notes: notes,
+  }
+  // A refusal from the external PA Ops Hub isn't a dead end — park the deal
+  // in the "PA Decision Needed" queue so US Shingle can reassign it to an
+  // active internal PA. (A manager who later reinstates it sets
+  // pa_decision_resolved_at, which the reconcile cron then respects.)
+  if (status === 'refused') {
+    patch.pa_decision_needed = true
+    patch.pa_decision_reason = 'PA Ops Hub: refused to sign'
+    patch.pa_decision_at = nowIso
   }
   const url = `${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}`
   const res = await fetch(url, {

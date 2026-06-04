@@ -166,7 +166,7 @@ exports.handler = async (event) => {
       const jnJobId = job.jnid || job.id;
       // Find the inspection record linked to this job
       const sbRes = await fetch(
-        `${SB_URL}/rest/v1/inspections?jn_job_id=eq.${jnJobId}&select=id,client_name,address,cancelled_at,jn_status&limit=1`,
+        `${SB_URL}/rest/v1/inspections?jn_job_id=eq.${jnJobId}&select=id,client_name,address,cancelled_at,jn_status,pa_id,pa_decision_resolved_at&limit=1`,
         { headers: sbHeaders }
       );
       if (!sbRes.ok) continue;
@@ -178,17 +178,32 @@ exports.handler = async (event) => {
         console.log("Already cancelled, skipping:", rec.client_name);
         continue;
       }
-      // Mark cancelled
+      // Skip if a manager deliberately reinstated this deal to a new PA out
+      // of the "PA Decision Needed" queue. JN may still read "Lost", but the
+      // manager overrode that locally — don't yank it back from the new PA.
+      if (rec.pa_decision_resolved_at) {
+        console.log("Manager-reinstated, skipping Lost re-cancel:", rec.client_name);
+        continue;
+      }
+      // Mark cancelled. If a PA had claimed this deal (pa_id set), also park
+      // it in the "PA Decision Needed" queue so US Shingle can reassign it
+      // — a claimed deal that went Lost is exactly that trigger.
+      const lostPatch = {
+        cancelled_at: new Date().toISOString(),
+        cancel_reason: "JN status changed to Lost",
+        jn_status: "Lost",
+      };
+      if (rec.pa_id) {
+        lostPatch.pa_decision_needed = true;
+        lostPatch.pa_decision_reason = "Was assigned to a PA, then marked Lost in JN";
+        lostPatch.pa_decision_at = new Date().toISOString();
+      }
       const updateRes = await fetch(
         `${SB_URL}/rest/v1/inspections?id=eq.${rec.id}`,
         {
           method: "PATCH",
           headers: { ...sbHeaders, Prefer: "return=minimal" },
-          body: JSON.stringify({
-            cancelled_at: new Date().toISOString(),
-            cancel_reason: "JN status changed to Lost",
-            jn_status: "Lost",
-          }),
+          body: JSON.stringify(lostPatch),
         }
       );
       if (!updateRes.ok) {

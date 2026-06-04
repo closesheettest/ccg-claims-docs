@@ -126,8 +126,98 @@ export function PAAdminPanel() {
   const [syncing, setSyncing] = useState(false);
   const [busyId, setBusyId] = useState(null);
   const [backfill, setBackfill] = useState(null); // {running, done, total, copied, failed}
+  const [decisions, setDecisions] = useState([]);
+  const [decisionsLoading, setDecisionsLoading] = useState(true);
+  const [reconciling, setReconciling] = useState(false);
 
-  useEffect(() => { loadPas(); }, []);
+  useEffect(() => { loadPas(); loadDecisions(); }, []);
+
+  // Deals parked in the "PA Decision Needed" queue — claimed-then-Lost,
+  // Sit Sold PA (old PA), Ops-Hub refused, or a deactivated PA's deals.
+  async function loadDecisions() {
+    setDecisionsLoading(true);
+    const { data, error } = await supabase
+      .from("inspections")
+      .select("id, client_name, address, city, state, zip, county, signed_at, jn_job_id, result, pa_id, pa_decision_reason, pa_decision_at, jn_status, pa_status")
+      .eq("pa_decision_needed", true)
+      .order("pa_decision_at", { ascending: false })
+      .limit(300);
+    if (!error) setDecisions(data || []);
+    setDecisionsLoading(false);
+  }
+
+  // Pull live JN status for PA-relevant damage deals so old deals that
+  // quietly went Lost (outside the 15-min cron's update window) get pulled
+  // into this queue now instead of lingering as claimable.
+  async function refreshFromJn() {
+    setReconciling(true);
+    try {
+      const res = await fetch("/.netlify/functions/reconcile-pa-jn-status", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!body.ok) {
+        setMessage({ kind: "error", text: body.error || `Refresh failed (status ${res.status})` });
+      } else {
+        const moved = (body.parked_lost || 0) + (body.parked_sit_sold || 0);
+        setMessage({
+          kind: "success",
+          text: `Checked ${body.examined} deal${body.examined === 1 ? "" : "s"} against JobNimbus — ${moved} newly parked for a decision, ${body.lost_cancelled || 0} Lost deal${body.lost_cancelled === 1 ? "" : "s"} cleared from the pool.`,
+        });
+        await loadDecisions();
+      }
+    } catch (e) {
+      setMessage({ kind: "error", text: e.message || "Network error" });
+    }
+    setReconciling(false);
+  }
+
+  // Assign a parked deal to an active PA: reactivate it (clear the Lost/
+  // cancelled + decision flags), route it to that PA, and attach the note
+  // that shows in their portal. pa_decision_resolved_at guards the JN
+  // reconcile/Lost cron from immediately re-pulling it.
+  async function assignDeal(deal, paId, note) {
+    setBusyId(deal.id);
+    const nowIso = new Date().toISOString();
+    const { error } = await supabase
+      .from("inspections")
+      .update({
+        pa_id: paId,
+        pa_claimed_at: nowIso,
+        cancelled_at: null,
+        cancel_reason: null,
+        pa_decision_needed: false,
+        pa_decision_reason: null,
+        pa_decision_at: null,
+        pa_decision_resolved_at: nowIso,
+        pa_assignment_note: (note || "").trim() || null,
+      })
+      .eq("id", deal.id);
+    setBusyId(null);
+    if (error) { setMessage({ kind: "error", text: error.message }); return; }
+    const paName = pas.find((p) => p.id === paId)?.name || "the PA";
+    setMessage({ kind: "success", text: `Assigned ${deal.client_name || "deal"} to ${paName}. It now shows in their portal.` });
+    await loadDecisions();
+  }
+
+  // Dismiss without assigning — clears it from the queue (keeps it cancelled
+  // if it was Lost). Use when a deal genuinely shouldn't go to any PA.
+  async function dismissDeal(deal) {
+    if (!confirm(`Remove "${deal.client_name || "this deal"}" from the decision queue without assigning it to a PA?`)) return;
+    setBusyId(deal.id);
+    const { error } = await supabase
+      .from("inspections")
+      .update({
+        pa_decision_needed: false,
+        pa_decision_reason: null,
+        pa_decision_resolved_at: new Date().toISOString(),
+      })
+      .eq("id", deal.id);
+    setBusyId(null);
+    if (error) { setMessage({ kind: "error", text: error.message }); return; }
+    setMessage({ kind: "success", text: `Removed ${deal.client_name || "deal"} from the decision queue.` });
+    await loadDecisions();
+  }
 
   // One-off: copy JN-only inspection photos into our own storage for every
   // historical DAMAGE deal that doesn't have app-side photos yet. Self-
@@ -229,21 +319,30 @@ export function PAAdminPanel() {
     const { error } = await supabase.from("pas").update({ active: !pa.active }).eq("id", pa.id);
     if (error) { setBusyId(null); return setMessage({ kind: "error", text: error.message }); }
 
-    // On deactivation: release the PA's pending (not-yet-resolved) claims
-    // back to the pool so another PA can pick them up.
+    // On deactivation: park the PA's active claims in the "PA Decision
+    // Needed" queue (instead of dumping them back into the open pool) so a
+    // manager decides where each one goes. Keep pa_id so the queue can show
+    // who had it. Only touch live claims (not already cancelled/parked).
     if (wasActive) {
-      const { data: released } = await supabase
+      const { data: parked } = await supabase
         .from("inspections")
-        .update({ pa_id: null, pa_claimed_at: null })
+        .update({
+          pa_decision_needed: true,
+          pa_decision_reason: `PA ${pa.name} deactivated`,
+          pa_decision_at: new Date().toISOString(),
+        })
         .eq("pa_id", pa.id)
+        .is("cancelled_at", null)
+        .eq("pa_decision_needed", false)
         .select("id");
       await loadPas();
+      await loadDecisions();
       setBusyId(null);
-      const n = released?.length || 0;
+      const n = parked?.length || 0;
       setMessage({
         kind: "success",
         text: n > 0
-          ? `Deactivated ${pa.name}. Released ${n} claim${n === 1 ? "" : "s"} back to the pool.`
+          ? `Deactivated ${pa.name}. Moved ${n} deal${n === 1 ? "" : "s"} to "PA Decision Needed" to reassign.`
           : `Deactivated ${pa.name}.`,
       });
       return;
@@ -394,6 +493,47 @@ export function PAAdminPanel() {
         </div>
       )}
 
+      {/* ── PA Decision Needed ──────────────────────────────────────── */}
+      <section style={{ border: "1px solid #fcd34d", borderRadius: 12, padding: 16, background: "#fffbeb" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 6 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: "#92400e", fontFamily: "'Oswald', sans-serif" }}>
+              ⚖️ PA Decision Needed ({decisions.length})
+            </div>
+            <div style={{ fontSize: 12, color: "#92400e", marginTop: 4 }}>
+              Deals pulled off the PA portal for a U.S. Shingle decision — went Lost in JN while assigned,
+              old Sit Sold PA records, PA Ops Hub refusals, or a deactivated PA's deals. Assign each to an
+              active adjuster (with a note) and it shows up in their portal.
+            </div>
+          </div>
+          <button type="button" onClick={refreshFromJn} disabled={reconciling}
+            style={{ ...secondaryBtn, fontSize: 11, whiteSpace: "nowrap" }}
+            title="Check live JobNimbus status for PA deals and pull any newly-Lost ones into this queue.">
+            {reconciling ? "Checking JN…" : "🔄 Refresh from JN"}
+          </button>
+        </div>
+
+        {decisionsLoading ? (
+          <div style={{ fontSize: 13, color: "#92400e" }}>Loading…</div>
+        ) : decisions.length === 0 ? (
+          <div style={{ fontSize: 13, color: "#92400e" }}>Nothing waiting on a decision right now.</div>
+        ) : (
+          <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+            {decisions.map((deal) => (
+              <PADecisionRow
+                key={deal.id}
+                deal={deal}
+                activePas={pas.filter((p) => p.active)}
+                priorPaName={deal.pa_id ? (pas.find((p) => p.id === deal.pa_id)?.name || null) : null}
+                busy={busyId === deal.id}
+                onAssign={(paId, note) => assignDeal(deal, paId, note)}
+                onDismiss={() => dismissDeal(deal)}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
       <section style={{ border: "1px solid #bfdbfe", borderRadius: 12, padding: 16, background: "#eff6ff" }}>
         <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6, color: "#1e3a8a" }}>➕ Don't see an adjuster below?</div>
         <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: "#1e3a8a", lineHeight: 1.6 }}>
@@ -481,6 +621,52 @@ function PARow({ pa, busy, onToggle, onResend, onUpdate, onDelete }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// One row in the PA Decision Needed queue — shows why it's here + who had
+// it, and lets the manager assign it to an active PA with a note.
+function PADecisionRow({ deal, activePas, priorPaName, busy, onAssign, onDismiss }) {
+  const [paId, setPaId] = useState("");
+  const [note, setNote] = useState("");
+  const addr = [deal.address, deal.city, deal.state, deal.zip].filter(Boolean).join(", ");
+  return (
+    <div style={{ padding: 12, background: "#fff", border: "1px solid #fde68a", borderRadius: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>{deal.client_name || "(no name)"}</div>
+          <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>{addr || "—"}</div>
+          <div style={{ marginTop: 6, display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#92400e", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 999, padding: "2px 8px" }}>
+              {deal.pa_decision_reason || "Needs decision"}
+            </span>
+            {priorPaName && (
+              <span style={{ fontSize: 11, fontWeight: 700, color: "#475569", background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 999, padding: "2px 8px" }}>
+                was: {priorPaName}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+      <div style={{ display: "grid", gap: 6, marginTop: 10 }}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <select value={paId} onChange={(e) => setPaId(e.target.value)} style={{ ...inputStyle, width: "auto", flex: 1, minWidth: 160 }}>
+            <option value="">Assign to active PA…</option>
+            {activePas.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <button type="button" disabled={busy || !paId} onClick={() => onAssign(paId, note)}
+            style={{ ...primaryBtn, opacity: !paId ? 0.55 : 1, cursor: !paId ? "not-allowed" : "pointer", whiteSpace: "nowrap" }}>
+            {busy ? "…" : "Assign →"}
+          </button>
+          <button type="button" disabled={busy} onClick={onDismiss} style={{ ...secondaryBtn, fontSize: 12, whiteSpace: "nowrap" }}>
+            Dismiss
+          </button>
+        </div>
+        <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2}
+          placeholder="Note for the PA (shows in their portal) — e.g. why it's being reassigned"
+          style={{ ...inputStyle, resize: "vertical", fontFamily: "'Nunito', sans-serif" }} />
+      </div>
     </div>
   );
 }
@@ -592,13 +778,19 @@ function PAJobList({ me, onOpenJob, wide }) {
       supabase.from("inspections")
         .select("id, client_name, address, city, state, zip, county, signed_at, jn_job_id, result, pa_id")
         .eq("result", "damage").is("pa_id", null).not("jn_job_id", "is", null)
+        // Keep Lost/cancelled deals and anything parked for a US Shingle
+        // decision OUT of the claimable pool.
+        .is("cancelled_at", null).eq("pa_decision_needed", false)
         // Available is sorted alphabetically by county (deals without a
         // county yet fall to the bottom), then newest first within a county.
         .order("county", { ascending: true, nullsFirst: false })
         .order("signed_at", { ascending: false }).limit(200),
       supabase.from("inspections")
-        .select("id, client_name, address, city, state, zip, county, signed_at, jn_job_id, result, pa_id, pa_claimed_at, pa_fields")
-        .eq("pa_id", me.id).order("pa_claimed_at", { ascending: false }).limit(200),
+        .select("id, client_name, address, city, state, zip, county, signed_at, jn_job_id, result, pa_id, pa_claimed_at, pa_fields, pa_assignment_note")
+        // A claimed deal that later goes Lost or gets pulled for a decision
+        // (pa_decision_needed) drops out of the PA's claims automatically.
+        .eq("pa_id", me.id).is("cancelled_at", null).eq("pa_decision_needed", false)
+        .order("pa_claimed_at", { ascending: false }).limit(200),
     ]);
     setPool(poolRes.data || []);
     setMine(mineRes.data || []);
@@ -806,7 +998,7 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
       setLoadErr(null);
       const { data: row, error } = await supabase
         .from("inspections")
-        .select("id, client_name, address, city, state, zip, signed_at, jn_job_id, result, sales_rep_name, mobile, email, pa_id, pa_fields")
+        .select("id, client_name, address, city, state, zip, signed_at, jn_job_id, result, sales_rep_name, mobile, email, pa_id, pa_fields, pa_assignment_note")
         .eq("id", jobId).maybeSingle();
       if (cancelled) return;
       if (error || !row) { setLoadErr(error?.message || "Claim not found."); setLoading(false); return; }
@@ -888,6 +1080,17 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
   return (
     <div>
       <button type="button" onClick={onBack} style={{ ...secondaryBtn, marginBottom: 12 }}>← Back to my claims</button>
+
+      {/* Note from US Shingle — set when a manager assigned this deal to
+          you out of the decision queue (e.g. reassigned from another PA). */}
+      {job.pa_assignment_note && (
+        <div style={{ padding: 14, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 12, marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#1e3a8a", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+            📌 Note from U.S. Shingle
+          </div>
+          <div style={{ fontSize: 14, color: "#1e3a8a", whiteSpace: "pre-wrap" }}>{job.pa_assignment_note}</div>
+        </div>
+      )}
 
       {/* Job info */}
       <div style={{ padding: 14, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, marginBottom: 12 }}>
