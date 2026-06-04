@@ -13,6 +13,9 @@
 //   POST { action: 'records', token }
 //     → { ok, manager, repsInZone: [name…], dealsByRep: {rep: [d…]},
 //         pendingSignatures: [d…], totals: { … } }
+//   POST { action: 'mark-jn-progress', token, id, fields }   (stamp JN push)
+//   POST { action: 'update-deal', token, id, source, fields } (edit contact)
+//   POST { action: 'mark-lost', token, id, source, reason }   (kill a deal)
 //
 // Zone resolution: rep name → TMS /rep-zones → zone string. Matches
 // the same logic generate-weekly-report-pdf.js uses so the two views
@@ -59,7 +62,90 @@ export const handler = async (event) => {
   if (action === 'mark-jn-progress') {
     return await markJnProgress(body)
   }
+  if (action === 'update-deal') {
+    return await updateDeal(body)
+  }
+  if (action === 'mark-lost') {
+    return await markLost(body)
+  }
   return json(400, { ok: false, error: `Unknown action: ${action}` })
+}
+
+// Edit a deal's contact details from the manager page. Whitelisted
+// fields only, mapped to the underlying table columns. Works on either
+// the inspections or claims row depending on which source the deal came
+// from. Token-gated (the manager is validated above).
+async function updateDeal(body) {
+  const id = body.id
+  if (!id) return json(400, { ok: false, error: 'id required' })
+  const table = body.source === 'claim' ? 'claims' : 'inspections'
+  const f = body.fields || {}
+  // manager-facing field → DB column
+  const MAP = {
+    homeowner_name: 'client_name',
+    address: 'address',
+    city: 'city',
+    state: 'state',
+    zip: 'zip',
+    phone: 'mobile',
+  }
+  const patch = {}
+  for (const [k, col] of Object.entries(MAP)) {
+    if (f[k] !== undefined) patch[col] = f[k] === '' ? null : f[k]
+  }
+  if (Object.keys(patch).length === 0) {
+    return json(400, { ok: false, error: 'no writable fields' })
+  }
+  const url = `${SB_URL}/rest/v1/${table}?id=eq.${encodeURIComponent(id)}`
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      apikey: SB_KEY,
+      Authorization: `Bearer ${SB_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify(patch),
+  })
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '')
+    return json(500, { ok: false, error: `update failed: ${res.status} ${txt}` })
+  }
+  return json(200, { ok: true })
+}
+
+// Mark a deal Lost from the manager page (e.g. a test deal that never
+// should have been signed). DB-only path used for claim-track deals —
+// inspection-track deals go through inspector-submit-result on the
+// client so the Lost result also reflects into JobNimbus. Sets result =
+// 'lost' + cancelled_at so the deal drops out of the attention list.
+async function markLost(body) {
+  const id = body.id
+  if (!id) return json(400, { ok: false, error: 'id required' })
+  const table = body.source === 'claim' ? 'claims' : 'inspections'
+  const reason = String(body.reason || '').trim()
+  if (!reason) return json(400, { ok: false, error: 'reason required' })
+  const now = new Date().toISOString()
+  const patch = { result: 'lost', result_at: now, cancelled_at: now }
+  // lost_reason exists on inspections (written by inspector-submit-result);
+  // don't write it to claims where the column may not exist.
+  if (table === 'inspections') patch.lost_reason = reason
+  const url = `${SB_URL}/rest/v1/${table}?id=eq.${encodeURIComponent(id)}`
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      apikey: SB_KEY,
+      Authorization: `Bearer ${SB_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify(patch),
+  })
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '')
+    return json(500, { ok: false, error: `mark-lost failed: ${res.status} ${txt}` })
+  }
+  return json(200, { ok: true })
 }
 
 // After a manager successfully pushes photos/cert to JN from the records
@@ -368,6 +454,7 @@ function isPendingSignatures(d) {
 // The UI uses this to badge rows in red + auto-expand the rep group.
 function needsAttention(d) {
   if (d.cancelled_at) return false
+  if (String(d.inspection_result || d.result || '').toLowerCase() === 'lost') return false
   if (isPendingSignatures(d)) return true
   const signedHoursAgo = d.signed_at
     ? (Date.now() - new Date(d.signed_at).getTime()) / 3_600_000

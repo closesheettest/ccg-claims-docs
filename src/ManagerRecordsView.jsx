@@ -402,6 +402,69 @@ function DealRow({ deal, selected, onSelect, theme, token, onDealPatch }) {
   const [busy, setBusy] = useState(null) // 'photos' | 'cert' | null
   const [msg, setMsg] = useState(null) // { ok: bool, text }
 
+  // Inline edit / mark-lost state.
+  const [editing, setEditing] = useState(false)
+  const [form, setForm] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [lostNote, setLostNote] = useState('')
+  const [lostBusy, setLostBusy] = useState(false)
+
+  function openEdit(e) {
+    e.stopPropagation()
+    setForm({
+      homeowner_name: deal.homeowner_name || '',
+      address: deal.address || '',
+      city: deal.city || '',
+      state: deal.state || '',
+      zip: deal.zip || '',
+      phone: deal.phone || '',
+    })
+    setLostNote('')
+    setMsg(null)
+    setEditing((v) => !v)
+  }
+
+  async function saveEdit(e) {
+    e.stopPropagation()
+    if (saving) return
+    setSaving(true); setMsg(null)
+    try {
+      await postJson('manager-records-api', {
+        action: 'update-deal', token, id: deal.id, source: deal.source, fields: form,
+      })
+      onDealPatch(deal.id, { ...form })
+      setMsg({ ok: true, text: 'Saved.' })
+      setEditing(false)
+    } catch (err) {
+      setMsg({ ok: false, text: err.message || 'Save failed.' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function markLost(e) {
+    e.stopPropagation()
+    if (lostBusy) return
+    const note = lostNote.trim()
+    if (!note) { setMsg({ ok: false, text: 'Add a quick note on why it’s lost (e.g. “it was a test”).' }); return }
+    setLostBusy(true); setMsg(null)
+    try {
+      if (deal.source === 'inspection') {
+        // Reuse the inspector Lost flow — also reflects "Lost" into JN.
+        await postJson('inspector-submit-result', { inspectionId: deal.id, result: 'lost', lost_reason: note })
+      } else {
+        await postJson('manager-records-api', { action: 'mark-lost', token, id: deal.id, source: deal.source, reason: note })
+      }
+      onDealPatch(deal.id, { inspection_result: 'lost', result: 'lost', cancelled_at: new Date().toISOString() })
+      setMsg({ ok: true, text: 'Marked lost — it’s off your list.' })
+      setEditing(false)
+    } catch (err) {
+      setMsg({ ok: false, text: err.message || 'Could not mark lost.' })
+    } finally {
+      setLostBusy(false)
+    }
+  }
+
   const push = jnPushParts(deal)
   // Buttons stay grey unless the verdict says THIS action is the thing
   // that's owed. Right after signing a deal sits in "NEEDS INSPECTION"
@@ -512,12 +575,106 @@ function DealRow({ deal, selected, onSelect, theme, token, onDealPatch }) {
                   : 'Generates the roof inspection certificate PDF and uploads it to the JobNimbus job.'
               }
             />
-            <StubButton
-              label="✏️ Edit Details"
-              caption="Fix homeowner name, address, or phone if it was typed wrong."
-              what="An edit form for correcting the homeowner's name, address, or phone is coming soon. For now, ping the office to fix a typo."
-            />
+            <button
+              type="button"
+              onClick={openEdit}
+              title="Fix the homeowner name, address, or phone — or mark the deal Lost."
+              style={{
+                background: editing ? '#1e293b' : '#fff',
+                color: editing ? '#fff' : '#1e293b',
+                border: '1px solid #cbd5e1', borderRadius: 6,
+                padding: '4px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+              }}
+            >
+              ✏️ Edit Details
+            </button>
           </div>
+
+          {editing && form && (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                marginTop: 8, padding: 12, borderRadius: 10,
+                border: '1px solid #e2e8f0', background: '#f8fafc',
+              }}
+            >
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                {[
+                  ['homeowner_name', 'Homeowner name', 2],
+                  ['address', 'Street address', 2],
+                  ['city', 'City', 1],
+                  ['state', 'State', 1],
+                  ['zip', 'Zip', 1],
+                  ['phone', 'Phone', 1],
+                ].map(([k, label, span]) => (
+                  <label key={k} style={{ gridColumn: span === 2 ? '1 / -1' : 'auto', fontSize: 11, fontWeight: 700, color: '#475569' }}>
+                    {label}
+                    <input
+                      value={form[k]}
+                      onChange={(e) => setForm((s) => ({ ...s, [k]: e.target.value }))}
+                      style={{
+                        display: 'block', width: '100%', marginTop: 3, boxSizing: 'border-box',
+                        padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 13,
+                      }}
+                    />
+                  </label>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+                <button
+                  type="button"
+                  onClick={saveEdit}
+                  disabled={saving}
+                  style={{
+                    background: '#1d4ed8', color: '#fff', border: '1px solid #1d4ed8',
+                    borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 700,
+                    cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1,
+                  }}
+                >
+                  {saving ? 'Saving…' : 'Save changes'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditing(false)}
+                  style={{
+                    background: '#fff', color: '#475569', border: '1px solid #cbd5e1',
+                    borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+
+              {/* Mark Lost — for test deals / homeowners who backed out. */}
+              <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: '#991b1b', marginBottom: 4 }}>
+                  Not a real deal? Mark it Lost
+                </div>
+                <textarea
+                  value={lostNote}
+                  onChange={(e) => setLostNote(e.target.value)}
+                  placeholder="Why is this lost?  e.g. it was a test"
+                  rows={2}
+                  style={{
+                    width: '100%', boxSizing: 'border-box', padding: '6px 8px',
+                    border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 13, resize: 'vertical',
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={markLost}
+                  disabled={lostBusy}
+                  style={{
+                    marginTop: 6, background: '#b91c1c', color: '#fff', border: '1px solid #b91c1c',
+                    borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 700,
+                    cursor: lostBusy ? 'not-allowed' : 'pointer', opacity: lostBusy ? 0.7 : 1,
+                  }}
+                >
+                  {lostBusy ? 'Marking…' : '🚫 Mark as Lost'}
+                </button>
+              </div>
+            </div>
+          )}
 
           {msg && (
             <div
@@ -693,26 +850,6 @@ function Badge({ label, tone, title }) {
       <span style={{ fontSize: 10 }}>{dot}</span>
       {label}
     </span>
-  )
-}
-
-function StubButton({ label, caption, what }) {
-  return (
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation()
-        alert(`${label}\n\n${what}`)
-      }}
-      style={{
-        background: '#fff', border: '1px solid #cbd5e1', borderRadius: 6,
-        padding: '4px 10px', fontSize: 12, fontWeight: 600, color: '#1e293b',
-        cursor: 'pointer',
-      }}
-      title={caption}
-    >
-      {label}
-    </button>
   )
 }
 
@@ -967,6 +1104,11 @@ function actionFor(deal) {
   if (deal.cancelled_at) {
     return { tone: 'na', icon: '—', headline: 'CANCELLED', detail: 'No action needed.', need: null }
   }
+  // Lost deals (homeowner backed out, or a test deal a manager killed)
+  // short-circuit regardless of JN/inspection state — nothing is owed.
+  if (isLostResult(deal)) {
+    return { tone: 'na', icon: '—', headline: 'LOST', detail: 'Marked lost — no action needed.', need: null }
+  }
 
   // NOTE: LOR/PAC signatures are the Public Adjuster's responsibility,
   // not the manager's (or the rep's) — so they are deliberately NOT a
@@ -998,10 +1140,6 @@ function actionFor(deal) {
         detail: 'In JobNimbus — waiting on the inspection. Nothing to do yet.',
         need: null,
       }
-    }
-    // Lost is the only dead end — nothing owed.
-    if (isLostResult(deal)) {
-      return { tone: 'na', icon: '—', headline: 'LOST', detail: 'Marked lost — no action needed.', need: null }
     }
     // Inspection came back (Damage / No Damage / Retail). Every result
     // owes photos + the certificate to JobNimbus. The status chip shows
