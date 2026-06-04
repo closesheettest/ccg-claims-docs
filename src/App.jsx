@@ -8,7 +8,7 @@ import {
   Send,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
-import { InspectorMobileApp, InspectorsAdminPanel, InspectorSetupPage, ManagerInspectorReports, InspectionAssignmentsPanel, ManagerRoutePlanner, PAHandoffPanel, PAReportPanel, SitSoldPaReportPanel } from "./InspectorViews";
+import { InspectorMobileApp, InspectorsAdminPanel, InspectorSetupPage, ManagerInspectorReports, InspectionAssignmentsPanel, ManagerRoutePlanner, PAHandoffPanel, SitSoldPaReportPanel } from "./InspectorViews";
 import { PAMobileApp, PAAdminPanel } from "./PAViews";
 import InspectionPhotosModal from "./InspectionPhotosModal";
 import JnMatchPickerModal from "./JnMatchPickerModal";
@@ -10652,10 +10652,9 @@ if (!hasDamage) {
                         { group: "inspections", key: "jnreport", emoji: "📄", label: "JN Inspection Report", desc: "Generate insp report PDF with photos and upload to JN" },
                         { group: "inspections", key: "bulkreport", emoji: "📦", label: "Bulk Inspection Reports", desc: "Run insp reports across every JN job with a chosen status" },
                         // ── Public Adjuster ──
-                        { group: "pa", key: "pamgmt", emoji: "📋", label: "PA Management", desc: "PA workflow on/off, PA-related settings" },
-                        { group: "pa", key: "public_adjusters", emoji: "🧑‍⚖️", label: "Public Adjusters", desc: "Roster — sync from JN, activate (sends portal link). PAs claim damage deals + fill insurance milestones." },
-                        { group: "pa", key: "pa_handoff", emoji: "📤", label: "PA Handoff", desc: "Send damage results to the PA (homeowner info + photos + signed PDF). Test the link or retry sends." },
-                        { group: "pa", key: "pa_report", emoji: "🤝", label: "PA Report", desc: "What was sent to the PA, when, and the signed/refused/pending outcome. Filter by date." },
+                        { group: "pa", key: "pamgmt", emoji: "🔌", label: "PA Management", desc: "Turn the in-app PA paperwork (LoR + PA Authorization signing) on or off." },
+                        { group: "pa", key: "public_adjusters", emoji: "🧑‍⚖️", label: "Public Adjusters", desc: "View the portal as a PA sees it, decide which records go into the portal, and assign a PA." },
+                        { group: "pa", key: "pa_handoff", emoji: "📤", label: "PA Handoff", desc: "Send a customer's info to a PA — with the outcome summary (sent / pending / signed / refused) at the top." },
                         { group: "pa", key: "sit_sold_pa_report", emoji: "📋", label: "Sit Sold PA (Old)", desc: "Records currently at jn_status \"Sit Sold PA\" — what the old PA still has on her plate." },
                         // ── Settings ──
                         { group: "settings", key: "security", emoji: "⚙️", label: "Security & Notifications", desc: "PIN, activity email" },
@@ -13877,10 +13876,6 @@ if (!hasDamage) {
 
                   {managerSection === "pa_handoff" && <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <PAHandoffPanel />
-                  </Card>}
-
-                  {managerSection === "pa_report" && <Card style={{ padding: 20, background: "#f8fafc" }}>
-                    <PAReportPanel />
                   </Card>}
 
                   {managerSection === "sit_sold_pa_report" && <Card style={{ padding: 20, background: "#f8fafc" }}>

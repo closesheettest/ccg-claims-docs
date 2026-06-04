@@ -1527,6 +1527,27 @@ export function PAHandoffPanel() {
 
   if (loading) return <div style={{ padding: 16, color: "#6b7280" }}>Loading damage inspections…</div>;
 
+  // Outcome summary across everything actually sent to a PA (pa_intake_sent_at
+  // set). Moved here from the old standalone "PA Report" tile so the
+  // sent/pending/signed/refused picture sits right above the list.
+  const sent = inspections.filter((i) => i.pa_intake_sent_at);
+  const sentCounts = sent.reduce(
+    (a, i) => {
+      const s = (i.pa_status || "pending").toLowerCase();
+      if (s === "signed") a.signed++;
+      else if (s === "refused") a.refused++;
+      else a.pending++;
+      return a;
+    },
+    { total: sent.length, pending: 0, signed: 0, refused: 0 },
+  );
+  const summaryTiles = [
+    { label: "Sent to PA", value: sentCounts.total, color: "#111827", bg: "#f3f4f6", border: "#e5e7eb" },
+    { label: "Pending", value: sentCounts.pending, color: "#92400e", bg: "#fffbeb", border: "#fcd34d" },
+    { label: "Signed", value: sentCounts.signed, color: "#065f46", bg: "#ecfdf5", border: "#86efac" },
+    { label: "Refused", value: sentCounts.refused, color: "#991b1b", bg: "#fef2f2", border: "#fca5a5" },
+  ];
+
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <div>
@@ -1534,8 +1555,18 @@ export function PAHandoffPanel() {
           📤 PA Handoff
         </div>
         <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4, lineHeight: 1.5 }}>
-          Every damage-result inspection. Click <strong>Send to PA</strong> to fire the PA Ops Hub submission — homeowner info + signed Free Roof Inspection PDF + every photo on the JN job. Use this to test the link, retry a failed auto-send, or hand off older damage records that pre-date the in-app inspector flow (their photos still live in JN, so the same path works).
+          Send a customer's info to a PA — homeowner info + signed Free Roof Inspection PDF + every photo on the JN job. Use this to test the link, retry a failed send, or hand off older damage records that pre-date the in-app inspector flow (their photos still live in JN, so the same path works).
         </div>
+      </div>
+
+      {/* Outcome summary (was the separate "PA Report" tile) */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+        {summaryTiles.map((t) => (
+          <div key={t.label} style={{ padding: "12px 14px", borderRadius: 12, background: t.bg, border: `1px solid ${t.border}`, textAlign: "center" }}>
+            <div style={{ fontSize: 24, fontWeight: 800, color: t.color, fontFamily: "'Oswald', sans-serif", lineHeight: 1 }}>{t.value}</div>
+            <div style={{ fontSize: 11, color: t.color, marginTop: 4, textTransform: "uppercase", letterSpacing: "0.04em", fontWeight: 700 }}>{t.label}</div>
+          </div>
+        ))}
       </div>
 
       {message && (
