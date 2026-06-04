@@ -4194,6 +4194,8 @@ export default function App() {
   const [managerUnlocked, setManagerUnlocked] = useState(false);
   const [managerTYTab, setManagerTYTab] = useState("post_inspection");
   const [managerSection, setManagerSection] = useState("home");
+  // Which side of the manager home the user is browsing: signing / inspections / pa / settings.
+  const [managerTab, setManagerTab] = useState("signing");
 
   // ── Browse All Records — paginated full-list audit tool for managers ──
   // Shows every inspection in the system in chronological order. Each row
@@ -10621,38 +10623,72 @@ if (!hasDamage) {
               ) : (
                 <div>
                   {managerSection === "home" ? (
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 8 }}>
-                      {[
-                        { key: "security", emoji: "⚙️", label: "Security & Notifications", desc: "PIN, activity email" },
-                        { key: "pamgmt", emoji: "📋", label: "PA Management", desc: "PA workflow on/off, PA-related settings" },
-                        { key: "sms", emoji: "💬", label: "SMS Templates", desc: "Auto-messages for each inspection result" },
-                        { key: "review", emoji: "📝", label: "Review Page Text", desc: "Headlines, document descriptions" },
-                        { key: "thankyou", emoji: "🎉", label: "Thank You Pages", desc: "Post-inspection, pre-inspection, USS" },
-                        { key: "reps", emoji: "👥", label: "Sales Rep Manager", desc: "Add, import, activate reps" },
-                        { key: "lookup", emoji: "🔍", label: "Record Lookup & Results", desc: "Find inspections, record damage/no damage" },
-                        { key: "report", emoji: "📊", label: "Weekly Report", desc: "View signings by rep and date range" },
-                        { key: "analytics", emoji: "📈", label: "Submission Analytics", desc: "Totals, category % and avg days per rep" },
-                        { key: "browseall", emoji: "📚", label: "Browse All Records", desc: "Step through every record one-by-one to verify accuracy" },
-                        { key: "dupes", emoji: "👯", label: "Find Duplicates", desc: "Address-based deduper — pick which to keep, delete the rest" },
-                        { key: "jnreport", emoji: "📄", label: "JN Inspection Report", desc: "Generate insp report PDF with photos and upload to JN" },
-                        { key: "bulkreport", emoji: "📦", label: "Bulk Inspection Reports", desc: "Run insp reports across every JN job with a chosen status" },
-                        { key: "inspectors", emoji: "🔍", label: "Inspectors", desc: "Roster — sync from JN, edit, activate/deactivate" },
-                        { key: "assign_inspections", emoji: "📋", label: "Assign Inspections", desc: "Hand out pending jobs, take them away, release" },
-                        { key: "inspector_routes", emoji: "🗺", label: "Inspector Routes", desc: "Optimize the day's route from home or current location" },
-                        { key: "inspector_reports", emoji: "📊", label: "Inspector Reports", desc: "Completed this week by status + per-inspector + by day" },
-                        { key: "public_adjusters", emoji: "🧑‍⚖️", label: "Public Adjusters", desc: "Roster — sync from JN, activate (sends portal link). PAs claim damage deals + fill insurance milestones." },
-                        { key: "pa_handoff", emoji: "📤", label: "PA Handoff", desc: "Send damage results to the PA (homeowner info + photos + signed PDF). Test the link or retry sends." },
-                        { key: "pa_report", emoji: "🤝", label: "PA Report", desc: "What was sent to the PA, when, and the signed/refused/pending outcome. Filter by date." },
-                        { key: "sit_sold_pa_report", emoji: "📋", label: "Sit Sold PA (Old)", desc: "Records currently at jn_status \"Sit Sold PA\" — what the old PA still has on her plate." },
-                      ].map(item => (
-                        <button key={item.key} type="button" onClick={() => setManagerSection(item.key)}
-                          style={{ padding: "24px 20px", borderRadius: 20, border: "2px solid #e5e7eb", background: "#fff", textAlign: "left", cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
-                          <div style={{ fontSize: 36, marginBottom: 10 }}>{item.emoji}</div>
-                          <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>{item.label}</div>
-                          <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>{item.desc}</div>
-                        </button>
-                      ))}
-                    </div>
+                    (() => {
+                      // Manager tools grouped by the three "sides" of the app
+                      // (plus Settings), so a new user sees one area at a time
+                      // instead of one big jumble of buttons.
+                      const MANAGER_TABS = [
+                        { key: "signing",     emoji: "🖊", label: "Signing & Sales" },
+                        { key: "inspections", emoji: "🔍", label: "Inspections" },
+                        { key: "pa",          emoji: "🤝", label: "Public Adjuster" },
+                        { key: "settings",    emoji: "⚙️", label: "Settings" },
+                      ];
+                      const MANAGER_TILES = [
+                        // ── Signing & Sales ──
+                        { group: "signing", key: "reps", emoji: "👥", label: "Sales Rep Manager", desc: "Add, import, activate reps" },
+                        { group: "signing", key: "review", emoji: "📝", label: "Review Page Text", desc: "Headlines, document descriptions" },
+                        { group: "signing", key: "thankyou", emoji: "🎉", label: "Thank You Pages", desc: "Post-inspection, pre-inspection, USS" },
+                        { group: "signing", key: "sms", emoji: "💬", label: "SMS Templates", desc: "Auto-messages for each inspection result" },
+                        { group: "signing", key: "report", emoji: "📊", label: "Weekly Report", desc: "View signings by rep and date range" },
+                        { group: "signing", key: "analytics", emoji: "📈", label: "Submission Analytics", desc: "Totals, category % and avg days per rep" },
+                        { group: "signing", key: "dupes", emoji: "👯", label: "Find Duplicates", desc: "Address-based deduper — pick which to keep, delete the rest" },
+                        { group: "signing", key: "browseall", emoji: "📚", label: "Browse All Records", desc: "Step through every record one-by-one to verify accuracy" },
+                        // ── Inspections ──
+                        { group: "inspections", key: "inspectors", emoji: "🔍", label: "Inspectors", desc: "Roster — sync from JN, edit, activate/deactivate" },
+                        { group: "inspections", key: "assign_inspections", emoji: "📋", label: "Assign Inspections", desc: "Hand out pending jobs, take them away, release" },
+                        { group: "inspections", key: "inspector_routes", emoji: "🗺", label: "Inspector Routes", desc: "Optimize the day's route from home or current location" },
+                        { group: "inspections", key: "inspector_reports", emoji: "📊", label: "Inspector Reports", desc: "Completed this week by status + per-inspector + by day" },
+                        { group: "inspections", key: "lookup", emoji: "🔍", label: "Record Lookup & Results", desc: "Find inspections, record damage/no damage" },
+                        { group: "inspections", key: "jnreport", emoji: "📄", label: "JN Inspection Report", desc: "Generate insp report PDF with photos and upload to JN" },
+                        { group: "inspections", key: "bulkreport", emoji: "📦", label: "Bulk Inspection Reports", desc: "Run insp reports across every JN job with a chosen status" },
+                        // ── Public Adjuster ──
+                        { group: "pa", key: "pamgmt", emoji: "📋", label: "PA Management", desc: "PA workflow on/off, PA-related settings" },
+                        { group: "pa", key: "public_adjusters", emoji: "🧑‍⚖️", label: "Public Adjusters", desc: "Roster — sync from JN, activate (sends portal link). PAs claim damage deals + fill insurance milestones." },
+                        { group: "pa", key: "pa_handoff", emoji: "📤", label: "PA Handoff", desc: "Send damage results to the PA (homeowner info + photos + signed PDF). Test the link or retry sends." },
+                        { group: "pa", key: "pa_report", emoji: "🤝", label: "PA Report", desc: "What was sent to the PA, when, and the signed/refused/pending outcome. Filter by date." },
+                        { group: "pa", key: "sit_sold_pa_report", emoji: "📋", label: "Sit Sold PA (Old)", desc: "Records currently at jn_status \"Sit Sold PA\" — what the old PA still has on her plate." },
+                        // ── Settings ──
+                        { group: "settings", key: "security", emoji: "⚙️", label: "Security & Notifications", desc: "PIN, activity email" },
+                      ];
+                      const tiles = MANAGER_TILES.filter(t => t.group === managerTab);
+                      return (
+                        <div style={{ marginTop: 8 }}>
+                          {/* Tab bar — one row per side of the app */}
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20, borderBottom: "2px solid #e5e7eb", paddingBottom: 12 }}>
+                            {MANAGER_TABS.map(tab => {
+                              const active = managerTab === tab.key;
+                              return (
+                                <button key={tab.key} type="button" onClick={() => setManagerTab(tab.key)}
+                                  style={{ padding: "10px 18px", borderRadius: 12, border: active ? "2px solid #0a0a0a" : "2px solid #e5e7eb", background: active ? "#0a0a0a" : "#fff", color: active ? "#fff" : "#374151", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.03em", display: "flex", alignItems: "center", gap: 7 }}>
+                                  <span style={{ fontSize: 16 }}>{tab.emoji}</span>{tab.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {/* Tiles for the selected tab */}
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                            {tiles.map(item => (
+                              <button key={item.key} type="button" onClick={() => setManagerSection(item.key)}
+                                style={{ padding: "24px 20px", borderRadius: 20, border: "2px solid #e5e7eb", background: "#fff", textAlign: "left", cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+                                <div style={{ fontSize: 36, marginBottom: 10 }}>{item.emoji}</div>
+                                <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>{item.label}</div>
+                                <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>{item.desc}</div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()
                   ) : (
                     <div>
                       <button type="button" onClick={() => setManagerSection("home")}
