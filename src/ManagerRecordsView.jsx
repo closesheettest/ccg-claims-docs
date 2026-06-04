@@ -720,7 +720,7 @@ function DealFacts({ deal, push }) {
     ['Signed', deal.signed_at ? fmtDate(deal.signed_at) : 'Not signed yet'],
     ['Inspection', result || (deal.signed_at ? 'Awaiting result' : '—')],
     ['PA result', paResultLabel(deal)],
-    ['In JobNimbus', jnPushLabel(push)],
+    ['In JobNimbus', jnPushLabel(push, !!result)],
   ]
   return (
     <div
@@ -751,21 +751,30 @@ function paResultLabel(deal) {
   return `${deal.pa_status}${reason}`
 }
 
-// One-line "what's actually in JN" summary for the facts grid.
-function jnPushLabel(push) {
+// One-line "what's actually in JN" summary for the facts grid. Before an
+// inspection result is back, Photos/Cert show a neutral "—" (they can't
+// exist yet) rather than a red ✗ that would imply something's missing.
+function jnPushLabel(push, hasResult) {
   if (!push.inJn) {
     return <span style={{ color: '#b91c1c', fontWeight: 700 }}>Not pushed yet</span>
   }
-  const item = (ok, label) => (
-    <span style={{ color: ok ? '#166534' : '#b45309', fontWeight: 700, marginRight: 8 }}>
-      {ok ? '✓' : '✗'} {label}
-    </span>
-  )
+  const item = (state, label) => {
+    const m = {
+      yes: { c: '#166534', mark: '✓' },
+      no: { c: '#b45309', mark: '✗' },
+      na: { c: '#94a3b8', mark: '—' },
+    }[state]
+    return (
+      <span style={{ color: m.c, fontWeight: 700, marginRight: 8 }}>
+        {m.mark} {label}
+      </span>
+    )
+  }
   return (
     <span>
-      {item(true, 'Job')}
-      {item(push.photos, 'Photos')}
-      {item(push.cert, 'Cert')}
+      {item('yes', 'Job')}
+      {item(hasResult ? (push.photos ? 'yes' : 'no') : 'na', 'Photos')}
+      {item(hasResult ? (push.cert ? 'yes' : 'no') : 'na', 'Cert')}
     </span>
   )
 }
@@ -778,6 +787,7 @@ function jnPushLabel(push) {
 //   na     — gray    — doesn't apply to this deal (e.g. no PA forms)
 function BadgeRow({ deal }) {
   const badges = []
+  const hasResult = !!(deal.inspection_result || deal.result)
 
   // JN job — is this deal in JobNimbus at all?
   if (deal.jn_job_id) {
@@ -801,10 +811,10 @@ function BadgeRow({ deal }) {
     badges.push({ label: 'Cert', tone: 'done', title: `Cert tracked in JN (${deal.jn_status})` })
   } else if (deal.jn_status === 'Awaiting Cert') {
     badges.push({ label: 'Cert', tone: 'pending', title: 'JN flagged as awaiting cert — may need a re-push' })
-  } else if (deal.signed_at && deal.jn_job_id) {
-    badges.push({ label: 'Cert', tone: 'pending', title: 'Signed + in JN — cert status not yet confirmed' })
+  } else if (deal.signed_at && deal.jn_job_id && hasResult) {
+    badges.push({ label: 'Cert', tone: 'pending', title: 'Inspected + in JN — cert status not yet confirmed' })
   } else {
-    badges.push({ label: 'Cert', tone: 'na', title: 'Cert generation hasn\'t started' })
+    badges.push({ label: 'Cert', tone: 'na', title: hasResult ? 'Cert generation hasn\'t started' : 'Waiting on the inspection — no cert yet' })
   }
 
   // Inspection result — what did the inspector find?
@@ -875,6 +885,8 @@ function ActionButton({ label, onClick, disabled, tone, title }) {
 }
 
 function DealDetail({ deal, theme }) {
+  const result = deal.inspection_result || deal.result
+  const hasResult = !!result
   return (
     <div>
       <div style={{ marginBottom: 12 }}>
@@ -888,9 +900,9 @@ function DealDetail({ deal, theme }) {
           </a>
         ) : <NotIn />} />
         <Field label="Status" value={deal.jn_status || <NotIn />} />
-        <Field label="Result" value={deal.inspection_result || <NotIn />} />
-        <Field label="Photos pushed" value={deal.jn_pushed_at ? fmtDateTime(deal.jn_pushed_at) : <NotIn />} />
-        <Field label="Cert uploaded" value={deal.jn_cert_uploaded_at ? fmtDateTime(deal.jn_cert_uploaded_at) : <NotIn />} />
+        <Field label="Result" value={result || <Waiting />} />
+        <Field label="Photos pushed" value={!hasResult ? <Waiting /> : (deal.jn_pushed_at ? fmtDateTime(deal.jn_pushed_at) : <NotIn />)} />
+        <Field label="Cert uploaded" value={!hasResult ? <Waiting /> : (deal.jn_cert_uploaded_at ? fmtDateTime(deal.jn_cert_uploaded_at) : <NotIn />)} />
         <Field label="Docs in CCG" value={deal.docs_signed || <NotIn />} />
         <Field label="Signed at" value={fmtDateTime(deal.signed_at)} />
       </div>
@@ -922,6 +934,11 @@ function Field({ label, value }) {
 
 function NotIn() {
   return <span style={{ color: '#dc2626', fontWeight: 700 }}>— not in JN —</span>
+}
+
+// Neutral "this can't exist yet — waiting on the inspection" placeholder.
+function Waiting() {
+  return <span style={{ color: '#94a3b8', fontWeight: 600 }}>— awaiting inspection —</span>
 }
 
 function FilterChip({ active, onClick, children, theme }) {
@@ -974,10 +991,15 @@ function CenterMsg({ children, theme, bad }) {
 // is a secondary signal for older rows stamped before those columns.
 function jnPushParts(deal) {
   const certStatuses = ['Cert Sent', 'Cert Uploaded', 'Awaiting Signature', 'Completed', 'Won']
+  // jn_pushed_at is ALSO stamped at sign→JN sync time (find-orphan-signings
+  // sets it to signed_at), so on its own it can't tell us roof photos are
+  // in JN. Roof photos only exist after an inspection result, so don't
+  // treat photos as pushed until there's a result.
+  const hasResult = !!(deal.inspection_result || deal.result)
   return {
     inJn: !!deal.jn_job_id,
-    photos: !!deal.jn_pushed_at,
-    cert: !!deal.jn_cert_uploaded_at || (!!deal.jn_status && certStatuses.includes(deal.jn_status)),
+    photos: hasResult && !!deal.jn_pushed_at,
+    cert: hasResult && (!!deal.jn_cert_uploaded_at || (!!deal.jn_status && certStatuses.includes(deal.jn_status))),
   }
 }
 
