@@ -1,0 +1,813 @@
+// Public Adjuster (PA) portal — two views in one file, modeled on the
+// inspector portal (InspectorViews.jsx):
+//
+//   <PAAdminPanel />  — manager-side. Sync PAs from JobNimbus, activate
+//     (auto-texts/emails the private ?mode=pa link), edit contact info,
+//     resend link, delete. Lives inside the manager view in App.jsx.
+//
+//   <PAMobileApp />   — PA-side. Mobile-first. The PA picks their name,
+//     sees the pool of unclaimed DAMAGE deals, claims the ones they want,
+//     and on each claim fills in the 8 "Insurance" milestone date fields
+//     (PA filed, INS approved, ISS uploaded, correction needed, install
+//     paperwork, move back to retail, advanced, second advance). Each
+//     save pushes straight to the JobNimbus job via pa-save-field. The
+//     Inspection / Inspected Date / Inspected By fields are shown as
+//     read-only context (already set by the inspector flow).
+//
+// Data model (run docs/sql/2026-06-03-public-adjusters.sql first):
+//   pas(id, name, jn_user_id, email, phone, active, registration_token,
+//       info_updated_at, app_link_sent_at, notes, created_at)
+//   inspections gets: pa_id uuid (null = in the pool), pa_claimed_at,
+//                     pa_fields jsonb (local cache of pushed values).
+
+import React, { useEffect, useState } from "react";
+import { supabase } from "./lib/supabase";
+
+// ── Local styles (self-contained; mirror InspectorViews) ───────────────
+const inputStyle = {
+  padding: "8px 10px",
+  border: "1px solid #d1d5db",
+  borderRadius: 8,
+  fontSize: 14,
+  fontFamily: "'Nunito', sans-serif",
+  width: "100%",
+  boxSizing: "border-box",
+};
+const primaryBtn = {
+  padding: "8px 14px",
+  background: "#13294b",
+  color: "#fff",
+  border: "none",
+  borderRadius: 8,
+  fontWeight: 700,
+  fontSize: 13,
+  cursor: "pointer",
+  fontFamily: "'Oswald', sans-serif",
+};
+const secondaryBtn = {
+  padding: "6px 10px",
+  background: "#fff",
+  color: "#374151",
+  border: "1px solid #d1d5db",
+  borderRadius: 8,
+  fontSize: 12,
+  cursor: "pointer",
+};
+const dangerBtn = {
+  padding: "6px 10px",
+  background: "#fff",
+  color: "#991b1b",
+  border: "1px solid #fca5a5",
+  borderRadius: 8,
+  fontSize: 12,
+  cursor: "pointer",
+};
+
+// The 8 PA-editable milestone fields (the Insurance section minus the 3
+// auto-set context fields). Order matches the JN "Insurance" section.
+const PA_FIELDS = [
+  { key: "pa_filed",            label: "PA - Filed" },
+  { key: "ins_approved",        label: "INS - Approved" },
+  { key: "iss_uploaded",        label: "ISS Uploaded" },
+  { key: "correction_needed",   label: "Correction Needed" },
+  { key: "install_paperwork",   label: "Install Paperwork" },
+  { key: "move_back_to_retail", label: "Move Back to Retail" },
+  { key: "advanced",            label: "Advanced" },
+  { key: "second_advance",      label: "Second Advance" },
+];
+
+// ── Date helpers. JN custom dates are unix epoch SECONDS. We anchor the
+//    day to NOON UTC so converting to/from a <input type=date> never
+//    shifts a day across US timezones. ───────────────────────────────
+function epochToDateInput(epoch) {
+  if (!epoch) return "";
+  const d = new Date(epoch * 1000);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+function dateInputToEpoch(s) {
+  if (!s) return null;
+  const [y, m, d] = s.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  return Math.floor(Date.UTC(y, m - 1, d, 12, 0, 0) / 1000);
+}
+function epochToDisplay(epoch) {
+  if (!epoch) return "—";
+  return new Date(epoch * 1000).toLocaleDateString("en-US", {
+    month: "short", day: "numeric", year: "numeric", timeZone: "UTC",
+  });
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// ADMIN PANEL — manager-only.
+// ═════════════════════════════════════════════════════════════════════
+export function PAAdminPanel() {
+  const [pas, setPas] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState(null);
+  const [syncing, setSyncing] = useState(false);
+  const [busyId, setBusyId] = useState(null);
+
+  useEffect(() => { loadPas(); }, []);
+
+  async function loadPas() {
+    setLoading(true);
+    const { data, error } = await supabase.from("pas").select("*").order("name", { ascending: true });
+    if (error) { setMessage({ kind: "error", text: error.message }); setLoading(false); return; }
+    setPas(data || []);
+    setLoading(false);
+  }
+
+  async function syncFromJn() {
+    if (!confirm(
+      "Pull the user list from JobNimbus?\n\nNew JN users get added as " +
+      "INACTIVE public adjusters (you choose who to activate). Existing " +
+      "rows have their name + email refreshed without touching their " +
+      "active status or phone.",
+    )) return;
+    setSyncing(true);
+    try {
+      const res = await fetch("/.netlify/functions/sync-pas-from-jn", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!body.ok) {
+        setMessage({ kind: "error", text: body.error || `Sync failed (status ${res.status})` });
+      } else {
+        setMessage({
+          kind: "success",
+          text: `Synced ${body.total_jn_users} JN users — ${body.inserted} new (inactive), ${body.updated} refreshed${body.skipped ? `, ${body.skipped} skipped` : ""}.`,
+        });
+        await loadPas();
+      }
+    } catch (e) {
+      setMessage({ kind: "error", text: e.message || "Network error" });
+    }
+    setSyncing(false);
+  }
+
+  async function toggleActive(pa) {
+    const wasActive = !!pa.active;
+    setBusyId(pa.id);
+    const { error } = await supabase.from("pas").update({ active: !pa.active }).eq("id", pa.id);
+    if (error) { setBusyId(null); return setMessage({ kind: "error", text: error.message }); }
+
+    // On deactivation: release the PA's pending (not-yet-resolved) claims
+    // back to the pool so another PA can pick them up.
+    if (wasActive) {
+      const { data: released } = await supabase
+        .from("inspections")
+        .update({ pa_id: null, pa_claimed_at: null })
+        .eq("pa_id", pa.id)
+        .select("id");
+      await loadPas();
+      setBusyId(null);
+      const n = released?.length || 0;
+      setMessage({
+        kind: "success",
+        text: n > 0
+          ? `Deactivated ${pa.name}. Released ${n} claim${n === 1 ? "" : "s"} back to the pool.`
+          : `Deactivated ${pa.name}.`,
+      });
+      return;
+    }
+
+    // On activation: auto-send the portal link.
+    await loadPas();
+    if (!pa.email && !pa.phone) {
+      setBusyId(null);
+      setMessage({ kind: "success", text: `Activated ${pa.name}. No email/phone on file — add one via Edit, then Resend link.` });
+      return;
+    }
+    try {
+      const res = await fetch("/.netlify/functions/send-pa-app-invite", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paId: pa.id, channel: "auto" }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!body.ok) {
+        setMessage({ kind: "error", text: `Activated, but link send failed: ${body.error || `status ${res.status}`}` });
+      } else {
+        const dest = body.channel_used === "sms" ? `📱 SMS to ${body.phone}` : `📧 email to ${body.email}`;
+        setMessage({ kind: "success", text: `Activated ${pa.name} — portal link sent (${dest}).` });
+      }
+    } catch (e) {
+      setMessage({ kind: "error", text: `Activated, but link send failed: ${e.message || "Network error"}` });
+    }
+    setBusyId(null);
+  }
+
+  async function resendLink(pa) {
+    if (!pa.email && !pa.phone) {
+      return setMessage({ kind: "error", text: `${pa.name} has no email or phone on file. Add one via Edit first.` });
+    }
+    setBusyId(pa.id);
+    try {
+      const res = await fetch("/.netlify/functions/send-pa-app-invite", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paId: pa.id, channel: "auto" }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!body.ok) {
+        setMessage({ kind: "error", text: body.error || `Send failed (status ${res.status})` });
+      } else {
+        const dest = body.channel_used === "sms" ? `📱 SMS to ${body.phone}` : `📧 email to ${body.email}`;
+        setMessage({ kind: "success", text: `Portal link sent (${dest}).` });
+        await loadPas();
+      }
+    } catch (e) {
+      setMessage({ kind: "error", text: e.message || "Network error" });
+    }
+    setBusyId(null);
+  }
+
+  async function updatePa(pa, patch) {
+    const { error } = await supabase.from("pas").update(patch).eq("id", pa.id);
+    if (error) return setMessage({ kind: "error", text: error.message });
+    loadPas();
+  }
+
+  async function deletePa(pa) {
+    if (!confirm(`Delete public adjuster "${pa.name}"? Any deals they've claimed will be released back to the pool.`)) return;
+    await supabase.from("inspections").update({ pa_id: null, pa_claimed_at: null }).eq("pa_id", pa.id);
+    const { error } = await supabase.from("pas").delete().eq("id", pa.id);
+    if (error) return setMessage({ kind: "error", text: error.message });
+    setMessage({ kind: "success", text: `Removed ${pa.name}.` });
+    loadPas();
+  }
+
+  const active = pas.filter((p) => p.active);
+  const inactive = pas.filter((p) => !p.active);
+
+  const renderGroup = (label, color, list, hint) => (
+    <section key={label} style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, background: "#fff", marginBottom: 12 }}>
+      <div style={{ fontSize: 14, fontWeight: 700, color, marginBottom: hint ? 4 : 10 }}>
+        {label} ({list.length})
+      </div>
+      {hint && <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 10 }}>{hint}</div>}
+      <div style={{ display: "grid", gap: 8 }}>
+        {list.map((pa) => (
+          <PARow
+            key={pa.id}
+            pa={pa}
+            busy={busyId === pa.id}
+            onToggle={() => toggleActive(pa)}
+            onResend={() => resendLink(pa)}
+            onUpdate={(patch) => updatePa(pa, patch)}
+            onDelete={() => deletePa(pa)}
+          />
+        ))}
+      </div>
+    </section>
+  );
+
+  return (
+    <div style={{ display: "grid", gap: 18 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 18, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>🧑‍⚖️ Public Adjusters</div>
+          <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
+            Pull adjusters from JobNimbus, then activate the ones you want. Activating
+            texts/emails them a private portal link where they claim the damage deals
+            they want and fill in each insurance milestone — which writes straight to JobNimbus.
+          </div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+          <button type="button" onClick={syncFromJn} disabled={syncing} style={{ ...primaryBtn, padding: "8px 16px", fontSize: 13, whiteSpace: "nowrap" }}>
+            {syncing ? "Syncing…" : "🔄 Sync from JN"}
+          </button>
+          <button
+            type="button"
+            onClick={() => window.open("/?mode=pa", "_blank")}
+            style={{ ...secondaryBtn, padding: "6px 12px", fontSize: 11, whiteSpace: "nowrap" }}
+            title="Opens the PA portal in a new tab for QA."
+          >
+            👁 Preview as PA
+          </button>
+        </div>
+      </div>
+
+      {message && (
+        <div style={{
+          padding: "10px 14px", borderRadius: 10, fontSize: 13,
+          background: message.kind === "success" ? "#ecfdf5" : "#fef2f2",
+          border: `1px solid ${message.kind === "success" ? "#86efac" : "#fca5a5"}`,
+          color: message.kind === "success" ? "#065f46" : "#991b1b",
+        }}>
+          {message.text}
+        </div>
+      )}
+
+      <section style={{ border: "1px solid #bfdbfe", borderRadius: 12, padding: 16, background: "#eff6ff" }}>
+        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6, color: "#1e3a8a" }}>➕ Don't see an adjuster below?</div>
+        <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: "#1e3a8a", lineHeight: 1.6 }}>
+          <li>Add them as a user in <strong>JobNimbus</strong> first (with their email).</li>
+          <li>Come back here and click <strong>🔄 Sync from JN</strong>.</li>
+          <li>Open <strong>Edit</strong> on their row, add their mobile number, save.</li>
+          <li>Click <strong>Activate</strong> — they get the portal link by text/email automatically.</li>
+        </ol>
+      </section>
+
+      {loading ? (
+        <section style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, background: "#fff" }}>
+          <div style={{ fontSize: 13, color: "#6b7280" }}>Loading…</div>
+        </section>
+      ) : pas.length === 0 ? (
+        <section style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, background: "#fff" }}>
+          <div style={{ fontSize: 13, color: "#6b7280" }}>No public adjusters yet — sync from JN above.</div>
+        </section>
+      ) : (
+        <>
+          {active.length > 0 && renderGroup("⭐ Active adjusters", "#047857", active, "Live. These can claim damage deals in the portal.")}
+          {inactive.length > 0 && renderGroup("💤 Inactive", "#475569", inactive, "Not live yet. Add a phone via Edit, then Activate to send them their link.")}
+        </>
+      )}
+    </div>
+  );
+}
+
+function PARow({ pa, busy, onToggle, onResend, onUpdate, onDelete }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({ name: pa.name, email: pa.email ?? "", phone: pa.phone ?? "" });
+  const hasContact = !!(pa.phone || pa.email);
+  return (
+    <div style={{ padding: 10, background: pa.active ? "#fff" : "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: 8, opacity: pa.active ? 1 : 0.75 }}>
+      {!editing ? (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "center" }}>
+          <div>
+            <div style={{ fontWeight: 700, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span>{pa.name}</span>
+              {!pa.active && <span style={{ fontSize: 10, color: "#6b7280" }}>(inactive)</span>}
+              {pa.app_link_sent_at && (
+                <span style={{ fontSize: 10, padding: "2px 8px", background: "#dbeafe", color: "#1e40af", borderRadius: 999, fontWeight: 700 }}>
+                  🔗 link sent
+                </span>
+              )}
+            </div>
+            <div style={{ fontSize: 11, color: "#6b7280" }}>
+              {pa.email && <>📧 {pa.email} · </>}
+              {pa.phone ? <>📱 {pa.phone}</> : "no phone on file"}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {pa.active && (
+              <button type="button" onClick={onResend} disabled={busy || !hasContact}
+                style={{ ...secondaryBtn, fontSize: 11, opacity: !hasContact ? 0.55 : 1, cursor: !hasContact ? "not-allowed" : "pointer" }}
+                title={!hasContact ? "Add a phone or email via Edit first" : "Re-send the portal link"}>
+                {busy ? "…" : "🔗 Resend link"}
+              </button>
+            )}
+            <button type="button" onClick={onToggle} disabled={busy}
+              style={{ ...secondaryBtn, fontSize: 11 }}
+              title={pa.active ? "Deactivate — their link stops working and claims return to the pool" : "Activate and text/email the portal link"}>
+              {busy ? "…" : pa.active ? "Deactivate" : "Activate"}
+            </button>
+            <button type="button" onClick={() => setEditing(true)} style={{ ...secondaryBtn, fontSize: 11 }}>Edit</button>
+            <button type="button" onClick={onDelete} style={{ ...dangerBtn, fontSize: 11 }}>Delete</button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: 6 }}>
+          <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} style={inputStyle} placeholder="Name" />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+            <input type="email" value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value })} style={inputStyle} placeholder="Email" />
+            <input type="tel" value={draft.phone} onChange={(e) => setDraft({ ...draft, phone: e.target.value })} style={inputStyle} placeholder="Phone (e.g. +18135551234)" />
+          </div>
+          <div style={{ fontSize: 11, color: "#6b7280", marginTop: -2 }}>
+            Add the adjuster's <b>mobile number</b> (or email), then Save and click <b>Activate</b>.
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button type="button" style={primaryBtn} onClick={() => {
+              onUpdate({ name: draft.name.trim(), email: draft.email.trim() || null, phone: draft.phone.trim() || null });
+              setEditing(false);
+            }}>Save</button>
+            <button type="button" style={secondaryBtn} onClick={() => setEditing(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// PA MOBILE APP — ?mode=pa
+// ═════════════════════════════════════════════════════════════════════
+export function PAMobileApp() {
+  const [stage, setStage] = useState("pick"); // pick | list | detail | inactive
+  const [pas, setPas] = useState([]);
+  const [me, setMe] = useState(null);
+  const [inactiveName, setInactiveName] = useState("");
+
+  useEffect(() => {
+    supabase.from("pas").select("*").eq("active", true).order("name").then(async ({ data }) => {
+      const list = data || [];
+      setPas(list);
+      const stored = localStorage.getItem("ccg_pa_id");
+      if (!stored) return;
+      const found = list.find((p) => p.id === stored);
+      if (found) { setMe(found); setStage("list"); return; }
+      const { data: raw } = await supabase.from("pas").select("id,name,active").eq("id", stored).maybeSingle();
+      if (raw) { setInactiveName(raw.name || ""); setStage("inactive"); }
+    });
+  }, []);
+
+  function pickMe(pa) { setMe(pa); localStorage.setItem("ccg_pa_id", pa.id); setStage("list"); }
+  function signOut() { localStorage.removeItem("ccg_pa_id"); setMe(null); setInactiveName(""); setStage("pick"); }
+
+  return (
+    <div style={{ maxWidth: 480, margin: "0 auto", padding: 16, fontFamily: "'Nunito', sans-serif", minHeight: "100vh", background: "#f9fafb" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>🧑‍⚖️ Adjuster</div>
+        {me && <button type="button" onClick={signOut} style={{ ...secondaryBtn, fontSize: 11 }}>Switch user</button>}
+      </div>
+
+      {stage === "inactive" && (
+        <div style={{ padding: 24, background: "#fff", border: "1px solid #fca5a5", borderRadius: 12, textAlign: "center" }}>
+          <div style={{ fontSize: 32, marginBottom: 8 }}>🚫</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "#991b1b", marginBottom: 6 }}>
+            {inactiveName ? `Hi ${inactiveName} —` : "Hi —"} your adjuster account is not active.
+          </div>
+          <div style={{ fontSize: 13, color: "#64748b", marginBottom: 16 }}>
+            Your U.S. Shingle contact has deactivated this account. Reach out to get reactivated.
+          </div>
+          <button type="button" onClick={signOut} style={{ ...secondaryBtn, fontSize: 12 }}>Sign out</button>
+        </div>
+      )}
+
+      {stage === "pick" && <PAPickName pas={pas} onPick={pickMe} />}
+
+      {stage === "list" && me && (
+        <PAJobList me={me} onOpenJob={(jobId) => setStage({ kind: "detail", jobId })} />
+      )}
+
+      {stage && stage.kind === "detail" && me && (
+        <PAPipelineDetail me={me} jobId={stage.jobId} onBack={() => setStage("list")} />
+      )}
+    </div>
+  );
+}
+
+function PAPickName({ pas, onPick }) {
+  if (pas.length === 0) {
+    return <div style={{ padding: 24, textAlign: "center", color: "#6b7280" }}>No adjusters set up yet. Ask your U.S. Shingle contact to add you.</div>;
+  }
+  return (
+    <div>
+      <div style={{ fontSize: 14, color: "#6b7280", marginBottom: 12 }}>Tap your name to continue.</div>
+      <div style={{ display: "grid", gap: 8 }}>
+        {pas.map((p) => (
+          <button key={p.id} type="button" onClick={() => onPick(p)}
+            style={{ padding: 16, fontSize: 16, fontWeight: 700, background: "#fff", border: "2px solid #e5e7eb", borderRadius: 12, textAlign: "left", cursor: "pointer" }}>
+            🧑‍⚖️ {p.name}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PAJobList({ me, onOpenJob }) {
+  const [pool, setPool] = useState([]);
+  const [mine, setMine] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState("mine"); // mine | pool
+  const [claimingId, setClaimingId] = useState(null);
+  const [msg, setMsg] = useState(null);
+
+  async function load() {
+    setLoading(true);
+    const [poolRes, mineRes] = await Promise.all([
+      supabase.from("inspections")
+        .select("id, client_name, address, city, state, zip, signed_at, jn_job_id, result, pa_id")
+        .eq("result", "damage").is("pa_id", null).not("jn_job_id", "is", null)
+        .order("signed_at", { ascending: false }).limit(200),
+      supabase.from("inspections")
+        .select("id, client_name, address, city, state, zip, signed_at, jn_job_id, result, pa_id, pa_claimed_at, pa_fields")
+        .eq("pa_id", me.id).order("pa_claimed_at", { ascending: false }).limit(200),
+    ]);
+    setPool(poolRes.data || []);
+    setMine(mineRes.data || []);
+    setLoading(false);
+    if (poolRes.error) setMsg({ kind: "error", text: poolRes.error.message });
+    if (mineRes.error) setMsg({ kind: "error", text: mineRes.error.message });
+  }
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [me.id]);
+
+  async function claim(job) {
+    setClaimingId(job.id);
+    setMsg(null);
+    const { data, error } = await supabase
+      .from("inspections")
+      .update({ pa_id: me.id, pa_claimed_at: new Date().toISOString() })
+      .eq("id", job.id)
+      .is("pa_id", null)
+      .select("id");
+    setClaimingId(null);
+    if (error) { setMsg({ kind: "error", text: error.message }); return; }
+    if (!data || data.length === 0) {
+      setMsg({ kind: "error", text: "Someone else just claimed that one. Refreshing…" });
+      load();
+      return;
+    }
+    onOpenJob(job.id);
+  }
+
+  const list = tab === "mine" ? mine : pool;
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+        <button type="button" onClick={() => setTab("mine")}
+          style={{ ...secondaryBtn, flex: 1, padding: "10px", fontSize: 13, fontWeight: 700,
+            background: tab === "mine" ? "#13294b" : "#fff", color: tab === "mine" ? "#fff" : "#374151",
+            borderColor: tab === "mine" ? "#13294b" : "#d1d5db" }}>
+          📂 My claims ({mine.length})
+        </button>
+        <button type="button" onClick={() => setTab("pool")}
+          style={{ ...secondaryBtn, flex: 1, padding: "10px", fontSize: 13, fontWeight: 700,
+            background: tab === "pool" ? "#13294b" : "#fff", color: tab === "pool" ? "#fff" : "#374151",
+            borderColor: tab === "pool" ? "#13294b" : "#d1d5db" }}>
+          📥 Available ({pool.length})
+        </button>
+      </div>
+
+      {msg && (
+        <div style={{ padding: "8px 12px", borderRadius: 8, fontSize: 12, marginBottom: 10,
+          background: msg.kind === "success" ? "#ecfdf5" : "#fef2f2",
+          border: `1px solid ${msg.kind === "success" ? "#86efac" : "#fca5a5"}`,
+          color: msg.kind === "success" ? "#065f46" : "#991b1b" }}>
+          {msg.text}
+        </div>
+      )}
+
+      {loading ? (
+        <div style={{ padding: 24, textAlign: "center", color: "#6b7280" }}>Loading…</div>
+      ) : list.length === 0 ? (
+        <div style={{ padding: 24, textAlign: "center", color: "#6b7280", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12 }}>
+          {tab === "mine" ? "You haven't claimed any deals yet. Check the Available tab." : "No unclaimed damage deals right now."}
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: 8 }}>
+          {list.map((job) => (
+            <PAJobCard
+              key={job.id}
+              job={job}
+              mine={tab === "mine"}
+              claiming={claimingId === job.id}
+              onClaim={() => claim(job)}
+              onOpen={() => onOpenJob(job.id)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PAJobCard({ job, mine, claiming, onClaim, onOpen }) {
+  const addr = [job.address, job.city, job.state, job.zip].filter(Boolean).join(", ");
+  const progress = mine ? milestoneProgress(job.pa_fields) : null;
+  return (
+    <div style={{ padding: 12, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>{job.client_name || "(no name)"}</div>
+          <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>{addr || "—"}</div>
+          {mine && (
+            <div style={{ fontSize: 11, color: "#0e7490", marginTop: 6, fontWeight: 700 }}>
+              {progress} of {PA_FIELDS.length} milestones filled
+            </div>
+          )}
+        </div>
+        <span style={{ fontSize: 10, padding: "3px 8px", background: "#fef2f2", color: "#991b1b", borderRadius: 999, fontWeight: 700, whiteSpace: "nowrap" }}>
+          DAMAGE
+        </span>
+      </div>
+      <div style={{ marginTop: 10 }}>
+        {mine ? (
+          <button type="button" onClick={onOpen} style={{ ...primaryBtn, width: "100%", padding: "10px", fontSize: 14 }}>
+            Open pipeline →
+          </button>
+        ) : (
+          <button type="button" onClick={onClaim} disabled={claiming}
+            style={{ ...primaryBtn, width: "100%", padding: "10px", fontSize: 14, background: claiming ? "#94a3b8" : "#047857" }}>
+            {claiming ? "Claiming…" : "✋ Claim this deal"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function milestoneProgress(paFields) {
+  if (!paFields) return 0;
+  return PA_FIELDS.filter((f) => paFields[f.key]).length;
+}
+
+// ── Pipeline detail: one claimed deal. Photos + context + the 8 editable
+//    milestone date fields with per-field autosave to JN. ─────────────
+function PAPipelineDetail({ me, jobId, onBack }) {
+  const [job, setJob] = useState(null);
+  const [fields, setFields] = useState({});      // epoch seconds | string | null
+  const [photos, setPhotos] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadErr, setLoadErr] = useState(null);
+  const [savingKey, setSavingKey] = useState(null);
+  const [savedKey, setSavedKey] = useState(null);
+  const [fieldErr, setFieldErr] = useState(null);
+  const [releasing, setReleasing] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setLoadErr(null);
+      const { data: row, error } = await supabase
+        .from("inspections")
+        .select("id, client_name, address, city, state, zip, signed_at, jn_job_id, result, sales_rep_name, mobile, email, pa_id, pa_fields")
+        .eq("id", jobId).maybeSingle();
+      if (cancelled) return;
+      if (error || !row) { setLoadErr(error?.message || "Claim not found."); setLoading(false); return; }
+      setJob(row);
+      // Pull current JN field values + photos.
+      try {
+        const res = await fetch("/.netlify/functions/pa-load-claim", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ inspectionId: jobId }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (body.ok) {
+          setFields(body.fields || {});
+          setPhotos(body.photos || []);
+        } else {
+          // Fall back to local cache if JN read failed.
+          setFields(row.pa_fields || {});
+          setLoadErr(body.error || "Couldn't read live JobNimbus values — showing last saved.");
+        }
+      } catch (e) {
+        if (!cancelled) { setFields(row.pa_fields || {}); setLoadErr("Network error reading JobNimbus — showing last saved."); }
+      }
+      if (!cancelled) setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [jobId]);
+
+  async function saveField(key, epochOrNull) {
+    setSavingKey(key);
+    setSavedKey(null);
+    setFieldErr(null);
+    // optimistic
+    setFields((f) => ({ ...f, [key]: epochOrNull }));
+    try {
+      const res = await fetch("/.netlify/functions/pa-save-field", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inspectionId: jobId, paId: me.id, field: key, value: epochOrNull }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!body.ok) {
+        setFieldErr(`Couldn't save ${PA_FIELDS.find((f) => f.key === key)?.label || key}: ${body.error || res.status}`);
+      } else {
+        setSavedKey(key);
+        setTimeout(() => setSavedKey((k) => (k === key ? null : k)), 1800);
+      }
+    } catch (e) {
+      setFieldErr(e.message || "Network error");
+    }
+    setSavingKey(null);
+  }
+
+  async function release() {
+    if (!confirm("Release this deal back to the pool? Your milestone entries stay in JobNimbus, but the deal returns to the Available list for any adjuster to claim.")) return;
+    setReleasing(true);
+    const { error } = await supabase
+      .from("inspections")
+      .update({ pa_id: null, pa_claimed_at: null })
+      .eq("id", jobId).eq("pa_id", me.id);
+    setReleasing(false);
+    if (error) { setFieldErr(error.message); return; }
+    onBack();
+  }
+
+  if (loading) return <div style={{ padding: 24, textAlign: "center", color: "#6b7280" }}>Loading claim…</div>;
+  if (loadErr && !job) {
+    return (
+      <div>
+        <button type="button" onClick={onBack} style={{ ...secondaryBtn, marginBottom: 12 }}>← Back</button>
+        <div style={{ padding: 16, background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 12, color: "#991b1b" }}>{loadErr}</div>
+      </div>
+    );
+  }
+
+  const addr = [job.address, job.city, job.state, job.zip].filter(Boolean).join(", ");
+  const mapsUrl = `https://maps.apple.com/?daddr=${encodeURIComponent(addr)}&dirflg=d`;
+
+  return (
+    <div>
+      <button type="button" onClick={onBack} style={{ ...secondaryBtn, marginBottom: 12 }}>← Back to my claims</button>
+
+      {/* Job info */}
+      <div style={{ padding: 14, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, marginBottom: 12 }}>
+        <div style={{ fontWeight: 700, fontSize: 17, fontFamily: "'Oswald', sans-serif" }}>{job.client_name || "(no name)"}</div>
+        {addr && (
+          <a href={mapsUrl} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: "#1d4ed8", textDecoration: "underline", display: "inline-block", marginTop: 4 }}>
+            {addr}
+          </a>
+        )}
+        <div style={{ fontSize: 12, color: "#6b7280", marginTop: 6 }}>
+          {job.sales_rep_name && <>Rep: {job.sales_rep_name} · </>}
+          <span style={{ color: "#991b1b", fontWeight: 700 }}>DAMAGE</span>
+        </div>
+      </div>
+
+      {/* Context (auto-set by inspector) */}
+      <div style={{ padding: 14, background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, marginBottom: 12 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.04em" }}>From the inspection</div>
+        <ContextRow label="Inspection" value={fields.inspection || "Damage"} />
+        <ContextRow label="Inspected Date" value={epochToDisplay(fields.inspected_date)} />
+        <ContextRow label="Inspected By" value={fields.inspected_by || "—"} />
+      </div>
+
+      {/* Photos */}
+      <div style={{ padding: 14, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, marginBottom: 12 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+          Inspection photos ({photos.length})
+        </div>
+        {photos.length === 0 ? (
+          <div style={{ fontSize: 12, color: "#94a3b8" }}>No photos found on the JobNimbus job.</div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+            {photos.map((src, i) => (
+              <a key={i} href={src} target="_blank" rel="noreferrer" style={{ display: "block" }}>
+                <img src={src} alt={`Inspection photo ${i + 1}`} style={{ width: "100%", borderRadius: 8, border: "1px solid #e5e7eb", display: "block" }} />
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Editable milestones */}
+      <div style={{ padding: 14, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, marginBottom: 12 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+          Insurance milestones
+        </div>
+        <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 12 }}>
+          Set the date each milestone happens. Every change saves straight to JobNimbus.
+        </div>
+        {loadErr && (
+          <div style={{ padding: "8px 12px", borderRadius: 8, fontSize: 12, marginBottom: 10, background: "#fffbeb", border: "1px solid #fcd34d", color: "#92400e" }}>
+            {loadErr}
+          </div>
+        )}
+        {fieldErr && (
+          <div style={{ padding: "8px 12px", borderRadius: 8, fontSize: 12, marginBottom: 10, background: "#fef2f2", border: "1px solid #fca5a5", color: "#991b1b" }}>
+            {fieldErr}
+          </div>
+        )}
+        <div style={{ display: "grid", gap: 10 }}>
+          {PA_FIELDS.map((f) => (
+            <div key={f.key} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "center" }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{f.label}</div>
+                <div style={{ fontSize: 11, color: savedKey === f.key ? "#047857" : "#94a3b8" }}>
+                  {savingKey === f.key ? "Saving…" : savedKey === f.key ? "✓ Saved to JobNimbus" : fields[f.key] ? epochToDisplay(fields[f.key]) : "Not set"}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                <input
+                  type="date"
+                  value={epochToDateInput(fields[f.key])}
+                  disabled={savingKey === f.key}
+                  onChange={(e) => saveField(f.key, dateInputToEpoch(e.target.value))}
+                  style={{ ...inputStyle, width: 160, fontSize: 14 }}
+                />
+                {fields[f.key] && (
+                  <button type="button" title="Clear" disabled={savingKey === f.key}
+                    onClick={() => saveField(f.key, null)}
+                    style={{ ...secondaryBtn, padding: "6px 8px", fontSize: 12 }}>
+                    ✕
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <button type="button" onClick={release} disabled={releasing} style={{ ...dangerBtn, width: "100%", padding: "10px", fontSize: 13 }}>
+        {releasing ? "Releasing…" : "Release this deal back to the pool"}
+      </button>
+    </div>
+  );
+}
+
+function ContextRow({ label, value }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "4px 0", fontSize: 13 }}>
+      <span style={{ color: "#64748b" }}>{label}</span>
+      <span style={{ fontWeight: 700, color: "#0f172a", textAlign: "right" }}>{value}</span>
+    </div>
+  );
+}

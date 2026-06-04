@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 import { InspectorMobileApp, InspectorsAdminPanel, InspectorSetupPage, ManagerInspectorReports, InspectionAssignmentsPanel, ManagerRoutePlanner, PAHandoffPanel, PAReportPanel, SitSoldPaReportPanel } from "./InspectorViews";
+import { PAMobileApp, PAAdminPanel } from "./PAViews";
 import InspectionPhotosModal from "./InspectionPhotosModal";
 import JnMatchPickerModal from "./JnMatchPickerModal";
 import ManagerRecordsView from "./ManagerRecordsView";
@@ -3949,6 +3950,14 @@ export default function App() {
           }}
         />
       );
+    }
+    // ?mode=pa lands a Public Adjuster straight into their portal
+    // (the private link we text/email them on activation). Self-
+    // contained component — short-circuit before the heavy rep-intake
+    // state, same pattern as the manager + inspector-setup pages.
+    const portalMode = params.get("mode");
+    if (portalMode === "pa") {
+      return <PAMobileApp />;
     }
   }
 
@@ -10631,6 +10640,7 @@ if (!hasDamage) {
                         { key: "assign_inspections", emoji: "📋", label: "Assign Inspections", desc: "Hand out pending jobs, take them away, release" },
                         { key: "inspector_routes", emoji: "🗺", label: "Inspector Routes", desc: "Optimize the day's route from home or current location" },
                         { key: "inspector_reports", emoji: "📊", label: "Inspector Reports", desc: "Completed this week by status + per-inspector + by day" },
+                        { key: "public_adjusters", emoji: "🧑‍⚖️", label: "Public Adjusters", desc: "Roster — sync from JN, activate (sends portal link). PAs claim damage deals + fill insurance milestones." },
                         { key: "pa_handoff", emoji: "📤", label: "PA Handoff", desc: "Send damage results to the PA (homeowner info + photos + signed PDF). Test the link or retry sends." },
                         { key: "pa_report", emoji: "🤝", label: "PA Report", desc: "What was sent to the PA, when, and the signed/refused/pending outcome. Filter by date." },
                         { key: "sit_sold_pa_report", emoji: "📋", label: "Sit Sold PA (Old)", desc: "Records currently at jn_status \"Sit Sold PA\" — what the old PA still has on her plate." },
@@ -13819,6 +13829,10 @@ if (!hasDamage) {
 
                   {managerSection === "inspector_routes" && <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <ManagerRoutePlanner />
+                  </Card>}
+
+                  {managerSection === "public_adjusters" && <Card style={{ padding: 20, background: "#f8fafc" }}>
+                    <PAAdminPanel />
                   </Card>}
 
                   {managerSection === "inspector_reports" && <Card style={{ padding: 20, background: "#f8fafc" }}>
