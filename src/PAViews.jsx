@@ -583,6 +583,26 @@ function PAJobList({ me, onOpenJob, wide }) {
         <div style={{ padding: 24, textAlign: "center", color: "#6b7280", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12 }}>
           {tab === "mine" ? "You haven't claimed any deals yet. Check the Available tab." : "No unclaimed damage deals right now."}
         </div>
+      ) : tab === "pool" ? (
+        // Available — grouped under a sticky county header (list is already
+        // sorted by county server-side, so consecutive grouping works).
+        <div style={{ display: "grid", gap: 16 }}>
+          {groupByCounty(list).map((g) => (
+            <div key={g.county}>
+              <div style={{ position: "sticky", top: 0, zIndex: 1, display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", marginBottom: 8, background: "#ecfeff", border: "1px solid #a5f3fc", borderRadius: 8, fontWeight: 800, fontSize: 14, color: "#0e7490", fontFamily: "'Oswald', sans-serif" }}>
+                📍 {g.county}
+                <span style={{ fontSize: 12, fontWeight: 700, color: "#0891b2" }}>({g.jobs.length})</span>
+              </div>
+              <div style={{ display: "grid", gap: 8, gridTemplateColumns: wide ? "repeat(auto-fill, minmax(300px, 1fr))" : "1fr" }}>
+                {g.jobs.map((job) => (
+                  <PAJobCard key={job.id} job={job} mine={false} hideCounty
+                    claiming={claimingId === job.id}
+                    onClaim={() => claim(job)} onOpen={() => onOpenJob(job.id)} />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       ) : (
         <div style={{ display: "grid", gap: 8, gridTemplateColumns: wide ? "repeat(auto-fill, minmax(300px, 1fr))" : "1fr" }}>
           {list.map((job) => (
@@ -601,7 +621,7 @@ function PAJobList({ me, onOpenJob, wide }) {
   );
 }
 
-function PAJobCard({ job, mine, claiming, onClaim, onOpen }) {
+function PAJobCard({ job, mine, claiming, onClaim, onOpen, hideCounty }) {
   const addr = [job.address, job.city, job.state, job.zip].filter(Boolean).join(", ");
   const progress = mine ? milestoneProgress(job.pa_fields) : null;
   return (
@@ -610,7 +630,7 @@ function PAJobCard({ job, mine, claiming, onClaim, onOpen }) {
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 700, fontSize: 15 }}>{job.client_name || "(no name)"}</div>
           <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>{addr || "—"}</div>
-          {job.county && (
+          {!hideCounty && job.county && (
             <div style={{ display: "inline-block", marginTop: 4, fontSize: 11, fontWeight: 700, color: "#0e7490", background: "#ecfeff", border: "1px solid #a5f3fc", borderRadius: 999, padding: "1px 8px" }}>
               📍 {job.county}
             </div>
@@ -639,6 +659,19 @@ function PAJobCard({ job, mine, claiming, onClaim, onOpen }) {
       </div>
     </div>
   );
+}
+
+// Group an already-county-sorted list into [{ county, jobs[] }]. Deals
+// with no county (sorted last) collect under "Other / no county".
+function groupByCounty(items) {
+  const groups = [];
+  let cur = null;
+  for (const job of items) {
+    const c = job.county || "Other / no county";
+    if (!cur || cur.county !== c) { cur = { county: c, jobs: [] }; groups.push(cur); }
+    cur.jobs.push(job);
+  }
+  return groups;
 }
 
 function milestoneProgress(paFields) {
