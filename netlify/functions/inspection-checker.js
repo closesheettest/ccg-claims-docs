@@ -497,19 +497,29 @@ async function fetchJobPhotos(jnJobId) {
 
     const photoPromises = imageFiles.slice(0, 20).map(async (file) => {
       try {
-        const url = file.presigned_url || file.url || file.download_url
+        // JN's /files list has no download URL — only a jnid. GET
+        // /files/<jnid> 302-redirects to a presigned URL (fetch follows
+        // it). Honor a direct URL field first if one ever appears.
+        const directUrl = file.presigned_url || file.url || file.download_url
           || file.file_url || file.original_url
           || file.src || file.link || file.public_url || file.signed_url;
+        const fileJnid = file.jnid || file.id;
 
-        if (!url) {
-          console.warn("No URL found for photo:", file.jnid || file.id);
+        let imgRes;
+        let usedUrl = directUrl;
+        if (directUrl) {
+          console.log("Downloading photo from:", directUrl.slice(0, 80));
+          imgRes = await fetch(directUrl);
+        } else if (fileJnid) {
+          usedUrl = `${JN_BASE}/files/${fileJnid}`;
+          console.log("Downloading photo via jnid:", fileJnid);
+          imgRes = await fetch(usedUrl, { headers: jnHeaders });
+        } else {
+          console.warn("No URL or jnid found for photo");
           return null;
         }
-
-        console.log("Downloading photo from:", url.slice(0, 80));
-        const imgRes = await fetch(url);
         if (!imgRes.ok) {
-          console.warn("Photo download failed:", imgRes.status, url.slice(0, 80));
+          console.warn("Photo download failed:", imgRes.status, String(usedUrl).slice(0, 80));
           return null;
         }
         const buffer = await imgRes.arrayBuffer();
@@ -530,7 +540,7 @@ async function fetchJobPhotos(jnJobId) {
           } catch(e) { /* ignore thumb errors */ }
         }
 
-        return { base64, contentType, thumbBase64, thumbnailUrl: file.thumbnail_url || null, presignedUrl: url };
+        return { base64, contentType, thumbBase64, thumbnailUrl: file.thumbnail_url || null, presignedUrl: usedUrl };
       } catch (e) { console.warn("Photo download error:", e.message); return null; }
     });
 

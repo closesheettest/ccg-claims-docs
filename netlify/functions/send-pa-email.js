@@ -164,11 +164,21 @@ async function fetchJobPhotos(jnJobId) {
 
     const photoPromises = imageFiles.slice(0, 20).map(async (file) => {
       try {
-        const url = file.presigned_url || file.url || file.download_url
+        // JN's /files list has no download URL — only a jnid. GET
+        // /files/<jnid> 302-redirects to a presigned URL (fetch follows
+        // it). Honor a direct URL field first if one ever appears.
+        const directUrl = file.presigned_url || file.url || file.download_url
           || file.file_url || file.original_url
           || file.src || file.link || file.public_url || file.signed_url;
-        if (!url) return null;
-        const imgRes = await fetch(url);
+        const fileJnid = file.jnid || file.id;
+        let imgRes;
+        if (directUrl) {
+          imgRes = await fetch(directUrl);
+        } else if (fileJnid) {
+          imgRes = await fetch(`${JN_BASE}/files/${fileJnid}`, { headers: jnHeaders });
+        } else {
+          return null;
+        }
         if (!imgRes.ok) return null;
         const buffer = await imgRes.arrayBuffer();
         const base64 = Buffer.from(buffer).toString("base64");

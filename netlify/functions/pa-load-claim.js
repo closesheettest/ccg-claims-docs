@@ -186,11 +186,23 @@ async function fetchJobPhotos(jnJobId, jnHeaders) {
     const imageFiles = files.filter((f) => (f.content_type || "").startsWith("image/"));
     const photoPromises = imageFiles.slice(0, 24).map(async (file) => {
       try {
-        const url = file.presigned_url || file.url || file.download_url
+        // JN's /files list does NOT include a download URL — only a jnid.
+        // GET /files/<jnid> issues a 302 to a presigned CloudFront URL,
+        // which fetch follows automatically (auth header is dropped on the
+        // cross-origin hop, which is fine — the URL is presigned). We still
+        // honor a direct URL field first in case a future API adds one.
+        const directUrl = file.presigned_url || file.url || file.download_url
           || file.file_url || file.original_url
           || file.src || file.link || file.public_url || file.signed_url;
-        if (!url) return null;
-        const imgRes = await fetch(url);
+        const fileJnid = file.jnid || file.id;
+        let imgRes;
+        if (directUrl) {
+          imgRes = await fetch(directUrl);
+        } else if (fileJnid) {
+          imgRes = await fetch(`${JN_BASE}/files/${fileJnid}`, { headers: jnHeaders });
+        } else {
+          return null;
+        }
         if (!imgRes.ok) return null;
         const buffer = await imgRes.arrayBuffer();
         const ct = imgRes.headers.get("content-type") || file.content_type || "image/jpeg";
