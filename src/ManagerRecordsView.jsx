@@ -329,11 +329,11 @@ function DealRow({ deal, selected, onSelect, theme, token, onDealPatch }) {
   const [msg, setMsg] = useState(null) // { ok: bool, text }
 
   const push = jnPushParts(deal)
-  // Photos are pushed FROM the inspector record, so we need a real
-  // inspection id + a result. Claim-track deals don't carry one.
-  const canPushPhotos = deal.source === 'inspection' && !!deal.inspection_result
-  // The cert renders from the JN job itself, so it only needs a JN job id.
-  const canPushCert = !!deal.jn_job_id
+  // Buttons stay grey unless the verdict says THIS action is the thing
+  // that's owed. Right after signing a deal sits in "NEEDS INSPECTION"
+  // and nothing is owed, so both buttons are grey until a result lands.
+  const canPushPhotos = action.need === 'photos'
+  const canPushCert = action.need === 'cert'
 
   async function runPhotos(e) {
     e.stopPropagation()
@@ -416,24 +416,24 @@ function DealRow({ deal, selected, onSelect, theme, token, onDealPatch }) {
           {/* Action buttons — live JN pushes. */}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
             <ActionButton
-              label={busy === 'photos' ? '⏳ Sending Photos…' : push.photos ? '📸 Re-send Photos to JN' : '📸 Send Photos to JN'}
+              label={busy === 'photos' ? '⏳ Sending Photos…' : '📸 Send Photos to JN'}
               onClick={runPhotos}
               disabled={!canPushPhotos || !!busy}
-              tone={push.photos ? 'done' : 'primary'}
+              tone="primary"
               title={
                 !canPushPhotos
-                  ? 'Photos are pushed from the inspector record — not available for this deal.'
-                  : 'Re-uploads the inspection photos to the JobNimbus job (skips any already there).'
+                  ? 'Nothing to push right now — photos are only owed once an inspection comes back with damage.'
+                  : 'Uploads the inspection photos to the JobNimbus job (skips any already there).'
               }
             />
             <ActionButton
-              label={busy === 'cert' ? '⏳ Sending Cert…' : push.cert ? '📄 Re-send Cert to JN' : '📄 Send Cert to JN'}
+              label={busy === 'cert' ? '⏳ Sending Cert…' : '📄 Send Cert to JN'}
               onClick={runCert}
               disabled={!canPushCert || !!busy}
-              tone={push.cert ? 'done' : 'primary'}
+              tone="primary"
               title={
                 !canPushCert
-                  ? 'This deal isn’t in JobNimbus yet — send photos first to create the job.'
+                  ? 'Nothing to push right now — the certificate is only owed once damage photos are in JobNimbus.'
                   : 'Generates the roof inspection certificate PDF and uploads it to the JobNimbus job.'
               }
             />
@@ -483,9 +483,10 @@ function DealRow({ deal, selected, onSelect, theme, token, onDealPatch }) {
 
 // Readable label grid the manager scans per customer.
 function DealFacts({ deal, push }) {
+  const result = deal.inspection_result || deal.result
   const rows = [
     ['Signed', deal.signed_at ? fmtDate(deal.signed_at) : 'Not signed yet'],
-    ['Inspection', deal.inspection_result || '—'],
+    ['Inspection', result || (deal.signed_at ? 'Awaiting result' : '—')],
     ['PA result', paResultLabel(deal)],
     ['In JobNimbus', jnPushLabel(push)],
   ]
@@ -862,46 +863,100 @@ function isAttention(d) {
   return actionFor(d).tone === 'bad'
 }
 
+// Raw inspection result as JobNimbus stores it: "Damage" | "No Damage" |
+// "Retail" | "lost" (or null while we're still waiting on the inspection).
+function inspectionResult(deal) {
+  return deal.inspection_result || deal.result || ''
+}
+function isDamageResult(deal) {
+  const r = inspectionResult(deal)
+  return /damage/i.test(r) && !/no\s*damage/i.test(r)
+}
+function isLostResult(deal) {
+  return /lost/i.test(inspectionResult(deal))
+}
+
 // The big, plain-English verdict for one deal: does the manager need to
-// do something, and if so what? Drives the large status chip + the bold
-// instruction line on each card. Kept decisive (action-needed vs. all-set
-// vs. nothing-to-do-yet) so a manager never has to guess.
+// do something, and if so what? Drives the large status chip, the bold
+// instruction line, AND which action button is live (action.need).
+//
+// Lifecycle (inspection-source deal):
+//   signed → auto-pushed to JN (job + agreement + fields)
+//     → "NEEDS INSPECTION"  (grey, nothing to do — wait on the inspector)
+//   inspection comes back "Damage" → photos + cert must reach JN
+//     → if either is missing: "DAMAGE" (red, ACTION NEEDED, button lights up)
+//     → once both are in JN: "ALL SET" (green)
+//   "No Damage" / "Retail" / "Lost" → no PA push owed → grey, nothing to do.
+//
+// action.need is 'photos' | 'cert' | null — only the matching button is
+// enabled; everything else stays grey so the manager only ever taps the
+// thing that's actually owed.
 function actionFor(deal) {
   if (deal.cancelled_at) {
-    return { tone: 'na', icon: '—', headline: 'CANCELLED', detail: 'No action needed.' }
+    return { tone: 'na', icon: '—', headline: 'CANCELLED', detail: 'No action needed.', need: null }
   }
-  const push = jnPushParts(deal)
 
   // NOTE: LOR/PAC signatures are the Public Adjuster's responsibility,
   // not the manager's (or the rep's) — so they are deliberately NOT a
   // manager action item here. The manager's job on this page is getting
   // photos + the certificate into JobNimbus.
 
+  const push = jnPushParts(deal)
+  const hasResult = !!inspectionResult(deal)
+
   if (deal.source === 'inspection') {
-    // Signed but never made it into JobNimbus.
-    if (deal.signed_at && !push.inJn) {
+    // Not signed yet — nothing exists to push.
+    if (!deal.signed_at) {
+      return { tone: 'na', icon: '•', headline: 'IN PROGRESS', detail: 'Not signed yet — nothing to do right now.', need: null }
+    }
+    // Signed, but the automatic sync never linked a JobNimbus job. That's
+    // a real failure at any stage — re-syncing creates the job.
+    if (!push.inJn) {
       return {
         tone: 'bad', icon: '⚠', headline: 'ACTION NEEDED',
-        detail: 'Not in JobNimbus yet — tap “Send Photos to JN”.',
+        detail: 'Signed but never made it into JobNimbus — tap “Send Photos to JN” to re-sync.',
+        need: 'photos',
       }
     }
-    // In JN but the certificate hasn't been uploaded.
-    if (push.inJn && !push.cert) {
+    // In JobNimbus, signed, but the inspection hasn't happened yet. This
+    // is the common resting state — nothing for the manager to do.
+    if (!hasResult) {
       return {
-        tone: 'bad', icon: '⚠', headline: 'ACTION NEEDED',
-        detail: 'Certificate not in JobNimbus — tap “Send Cert to JN”.',
+        tone: 'na', icon: '🔍', headline: 'NEEDS INSPECTION',
+        detail: 'In JobNimbus — waiting on the inspection. Nothing to do yet.',
+        need: null,
       }
     }
-    // Everything that should be in JN is in JN.
-    if (push.inJn && push.cert) {
+    // Inspection came back as damage → photos + cert are owed to JN.
+    if (isDamageResult(deal)) {
+      if (!push.photos) {
+        return {
+          tone: 'bad', icon: '⚠', headline: 'DAMAGE',
+          detail: 'Damage found — photos not in JobNimbus yet. Tap “Send Photos to JN”.',
+          need: 'photos',
+        }
+      }
+      if (!push.cert) {
+        return {
+          tone: 'bad', icon: '⚠', headline: 'DAMAGE',
+          detail: 'Damage found — certificate not in JobNimbus yet. Tap “Send Cert to JN”.',
+          need: 'cert',
+        }
+      }
       return {
         tone: 'good', icon: '✓', headline: 'ALL SET',
-        detail: 'Photos + certificate are in JobNimbus — nothing to do.',
+        detail: 'Damage photos + certificate are in JobNimbus — nothing to do.',
+        need: null,
       }
     }
+    // Lost / No Damage / Retail — no PA push owed, nothing for the manager.
+    if (isLostResult(deal)) {
+      return { tone: 'na', icon: '—', headline: 'LOST', detail: 'Marked lost — no action needed.', need: null }
+    }
     return {
-      tone: 'na', icon: '•', headline: 'IN PROGRESS',
-      detail: 'Not signed yet — nothing to do right now.',
+      tone: 'good', icon: '✓', headline: inspectionResult(deal).toUpperCase(),
+      detail: `Inspection came back “${inspectionResult(deal)}” — nothing to do.`,
+      need: null,
     }
   }
 
@@ -911,17 +966,20 @@ function actionFor(deal) {
     return {
       tone: 'good', icon: '✓', headline: 'ALL SET',
       detail: 'In JobNimbus and moving through the PA pipeline — nothing to do.',
+      need: null,
     }
   }
   if (deal.signed_at) {
     return {
       tone: 'warn', icon: '!', headline: 'CHECK',
       detail: 'Signed but not linked in JobNimbus — let the office know.',
+      need: null,
     }
   }
   return {
     tone: 'na', icon: '•', headline: 'IN PROGRESS',
     detail: 'Not signed yet — nothing to do right now.',
+    need: null,
   }
 }
 
