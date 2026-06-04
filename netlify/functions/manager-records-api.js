@@ -240,7 +240,7 @@ async function buildRecords(manager) {
   // primary key so it correlates with creation time, AND unlike
   // signed_at/result_at it has no NULLs that get demoted to the
   // bottom (which is what was hiding unsigned deals from the list).
-  const [claims, inspections, inspectorRows] = await Promise.all([
+  const [claims, inspections, inspectorRows, salesRepRows] = await Promise.all([
     fetchTable('claims', {
       select:
         'id,client_name,address,city,state,zip,mobile,sales_rep_name,sales_rep_id,' +
@@ -260,12 +260,16 @@ async function buildRecords(manager) {
       order: 'id.desc',
       limit: 500,
     }),
-    // The inspectors table is the real rep roster and carries the
-    // active/inactive flag (sales_reps does not — it's just the
-    // name↔zone bridge). A signer flipped inactive there is "not a
-    // rep" anymore; their Retail inspections become company leads to
-    // pass out. Matched by JN user id (reliable) or normalized name.
+    // The inspectors table is one rep roster and carries an
+    // active/inactive flag. A signer flipped inactive is "not a rep"
+    // anymore; their Retail inspections become company leads to pass
+    // out. Matched by JN user id (reliable) or normalized name.
     fetchTable('inspectors', { select: 'name,jn_user_id,active', limit: 1000 }),
+    // sales_reps is the OTHER roster — it's what the in-app "Sales Rep
+    // Manager" screen shows and toggles (its Deactivate button writes
+    // sales_reps.active). Honor BOTH tables so flipping a rep inactive
+    // in EITHER place rolls their Retail deals up to company leads.
+    fetchTable('sales_reps', { select: 'name,jobnimbus_id,active', limit: 1000 }),
   ])
 
   const inactiveNames = new Set()
@@ -274,6 +278,12 @@ async function buildRecords(manager) {
     if (r.active === false) {
       if (r.name) inactiveNames.add(normalizeName(r.name))
       if (r.jn_user_id) inactiveJnIds.add(r.jn_user_id)
+    }
+  }
+  for (const r of salesRepRows || []) {
+    if (r.active === false) {
+      if (r.name) inactiveNames.add(normalizeName(r.name))
+      if (r.jobnimbus_id) inactiveJnIds.add(r.jobnimbus_id)
     }
   }
   const isInactiveSigner = (d) =>
