@@ -11,9 +11,6 @@ import React, { useEffect, useMemo, useState } from 'react'
 //   │  canonical color so the manager's eye lands   │
 //   │  on the right zone instantly.                 │
 //   ├───────────────────────────────────────────────┤
-//   │  ⏰ Pending Signatures (N)                    │
-//   │  Banner-style list of stuck PA-form deals.    │
-//   ├───────────────────────────────────────────────┤
 //   │  ⚠ How to use this page  (3 bullets)          │
 //   ├───────────────────────────────────────────────┤
 //   │  Search + filter chips                        │
@@ -58,7 +55,7 @@ export default function ManagerRecordsView({ token }) {
   const [error, setError] = useState(null)
   const [data, setData] = useState(null)
   const [query, setQuery] = useState('')
-  const [filter, setFilter] = useState('all') // 'all' | 'attention' | 'pending'
+  const [filter, setFilter] = useState('all') // 'all' | 'attention'
   const [selectedDealId, setSelectedDealId] = useState(null)
   const [openReps, setOpenReps] = useState({}) // repName → bool
 
@@ -101,7 +98,6 @@ export default function ManagerRecordsView({ token }) {
     for (const [rep, deals] of Object.entries(data.dealsByRep)) {
       const keep = deals.filter((d) => {
         if (filter === 'attention' && !isAttention(d)) return false
-        if (filter === 'pending' && !isPending(d)) return false
         if (q) {
           const hay = `${d.homeowner_name} ${d.address} ${d.city} ${d.zip}`.toLowerCase()
           if (!hay.includes(q)) return false
@@ -176,56 +172,6 @@ export default function ManagerRecordsView({ token }) {
           </div>
         </header>
 
-        {/* ─────────── Pending Signatures banner ─────────── */}
-        {data.pendingSignatures.length > 0 && (
-          <section style={{
-            background: '#fff7ed',
-            border: '2px solid #f59e0b',
-            borderRadius: 12,
-            padding: '14px 18px',
-            marginBottom: 14,
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-              <span style={{ fontSize: 22 }}>⏰</span>
-              <h2 style={{ margin: 0, color: '#7c2d12', fontSize: 17, fontWeight: 800 }}>
-                Pending Signatures ({data.pendingSignatures.length})
-              </h2>
-            </div>
-            <p style={{ margin: '0 0 10px', color: '#7c2d12', fontSize: 13 }}>
-              Deals where the homeowner signed the inspection but the PA forms
-              (LOR / PAC) didn't get signed. Call the homeowner — finish the
-              forms — then come back and confirm here.
-            </p>
-            <ul style={{ margin: 0, paddingLeft: 20, color: '#451a03', fontSize: 13.5 }}>
-              {data.pendingSignatures.slice(0, 10).map((d) => (
-                <li key={d.id} style={{ marginBottom: 4 }}>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedDealId(d.id)}
-                    style={{
-                      background: 'none', border: 'none', padding: 0,
-                      color: '#7c2d12', textDecoration: 'underline',
-                      cursor: 'pointer', fontWeight: 700, fontSize: 13.5,
-                    }}
-                  >
-                    {d.homeowner_name || '(no name)'}
-                  </button>
-                  <span style={{ opacity: 0.8 }}>
-                    {' · '}{d.sales_rep_name || '(rep unknown)'}
-                    {' · '}{describeMissingDocs(d)}
-                  </span>
-                </li>
-              ))}
-              {data.pendingSignatures.length > 10 && (
-                <li style={{ opacity: 0.7, fontStyle: 'italic' }}>
-                  + {data.pendingSignatures.length - 10} more — switch to
-                  "Pending only" below to see them all.
-                </li>
-              )}
-            </ul>
-          </section>
-        )}
-
         {/* ─────────── How-to banner ─────────── */}
         <section style={{
           background: '#eff6ff',
@@ -268,9 +214,6 @@ export default function ManagerRecordsView({ token }) {
           </FilterChip>
           <FilterChip active={filter === 'attention'} onClick={() => setFilter('attention')} theme={zoneTheme}>
             ⚠ Needs attention ({data.totals.needs_attention})
-          </FilterChip>
-          <FilterChip active={filter === 'pending'} onClick={() => setFilter('pending')} theme={zoneTheme}>
-            ⏰ Pending signatures ({data.totals.pending_signatures})
           </FilterChip>
         </section>
 
@@ -638,22 +581,9 @@ function BadgeRow({ deal }) {
     badges.push({ label: result, tone, title: `Inspection result: ${result}` })
   }
 
-  // LOR + PAC — only show if the deal had PA forms requested.
-  const docs = String(deal.docs_signed || '').toLowerCase()
-  if (docs.includes('lor')) {
-    if (deal.signed_at) {
-      badges.push({ label: 'LOR', tone: 'done', title: 'Letter of Representation signed' })
-    } else {
-      badges.push({ label: 'LOR', tone: 'pending', title: 'Letter of Representation — signature pending' })
-    }
-  }
-  if (docs.includes('pac')) {
-    if (deal.signed_at) {
-      badges.push({ label: 'PAC', tone: 'done', title: 'Public Adjuster Contract signed' })
-    } else {
-      badges.push({ label: 'PAC', tone: 'pending', title: 'Public Adjuster Contract — signature pending' })
-    }
-  }
+  // NOTE: LOR/PAC are deliberately NOT shown here — those signatures are
+  // the Public Adjuster's responsibility, not the manager's. This page is
+  // only about getting photos + the certificate into JobNimbus.
 
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
@@ -924,29 +854,12 @@ async function stampJn(token, id, fields) {
   }
 }
 
-function isPending(d) {
-  if (d.cancelled_at) return false
-  const docs = String(d.docs_signed || '').toLowerCase()
-  if (!docs.includes('lor') && !docs.includes('pac')) return false
-  return !d.signed_at
-}
-
+// A deal "needs attention" iff the manager actually has something to do
+// on it — i.e. the verdict is a red ACTION NEEDED (photos or cert still
+// missing from JobNimbus). LOR/PAC signatures are the PA's job, not the
+// manager's, so they never count here.
 function isAttention(d) {
-  if (d.cancelled_at) return false
-  if (isPending(d)) return true
-  const signedAt = d.signed_at ? new Date(d.signed_at).getTime() : null
-  const hoursAgo = signedAt ? (Date.now() - signedAt) / 3_600_000 : null
-  if (hoursAgo != null && hoursAgo > 24 && !d.jn_job_id) return true
-  if (hoursAgo != null && hoursAgo > 24 && d.jn_status === 'Awaiting Cert') return true
-  return false
-}
-
-function describeMissingDocs(d) {
-  const docs = String(d.docs_signed || '').toLowerCase()
-  const missing = []
-  if (docs.includes('lor')) missing.push('LOR')
-  if (docs.includes('pac')) missing.push('PAC')
-  return missing.length > 0 ? `${missing.join(' + ')} pending` : 'docs pending'
+  return actionFor(d).tone === 'bad'
 }
 
 // The big, plain-English verdict for one deal: does the manager need to
@@ -959,13 +872,10 @@ function actionFor(deal) {
   }
   const push = jnPushParts(deal)
 
-  // PA-form signatures requested but never signed — needs a phone call.
-  if (isPending(deal)) {
-    return {
-      tone: 'bad', icon: '⚠', headline: 'ACTION NEEDED',
-      detail: `Call the homeowner and finish ${describeMissingDocs(deal)}.`,
-    }
-  }
+  // NOTE: LOR/PAC signatures are the Public Adjuster's responsibility,
+  // not the manager's (or the rep's) — so they are deliberately NOT a
+  // manager action item here. The manager's job on this page is getting
+  // photos + the certificate into JobNimbus.
 
   if (deal.source === 'inspection') {
     // Signed but never made it into JobNimbus.
@@ -1021,16 +931,6 @@ const ACTION_TONE = {
   bad:  { fg: '#991b1b', bg: '#fee2e2', border: '#fca5a5' },
   warn: { fg: '#92400e', bg: '#fef3c7', border: '#fcd34d' },
   na:   { fg: '#475569', bg: '#f1f5f9', border: '#cbd5e1' },
-}
-
-function describeDealStatus(d) {
-  if (d.cancelled_at) return `Cancelled ${fmtDate(d.cancelled_at)}`
-  if (isPending(d)) return `⏰ Pending PA-form signatures · ${describeMissingDocs(d)}`
-  if (d.signed_at && !d.jn_job_id) return `Signed ${fmtDate(d.signed_at)} — not in JN yet`
-  if (d.signed_at && d.jn_status === 'Awaiting Cert') return `Signed ${fmtDate(d.signed_at)} — cert not in JN yet`
-  if (d.jn_job_id && d.jn_status) return `JN: ${d.jn_status} · signed ${fmtDate(d.signed_at) || '—'}`
-  if (d.result_at) return `Inspection result ${d.inspection_result || ''} · ${fmtDate(d.result_at)}`
-  return 'In progress'
 }
 
 function fmtDate(iso) {
