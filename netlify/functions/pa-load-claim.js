@@ -184,29 +184,24 @@ async function fetchJobPhotos(jnJobId, jnHeaders) {
     const data = await res.json();
     const files = data.data || data.files || data.results || [];
     const imageFiles = files.filter((f) => (f.content_type || "").startsWith("image/"));
+    // Return PRESIGNED URLs, not base64. A full-res JN photo is ~1.2MB;
+    // base64-ing 24 of them into our JSON blows past Netlify's 6MB Lambda
+    // response cap. Instead we resolve each photo's presigned CloudFront
+    // URL (the 302 target of GET /files/<jnid>) WITHOUT downloading the
+    // bytes, and let the browser load images straight from CloudFront.
     const photoPromises = imageFiles.slice(0, 24).map(async (file) => {
       try {
-        // JN's /files list does NOT include a download URL — only a jnid.
-        // GET /files/<jnid> issues a 302 to a presigned CloudFront URL,
-        // which fetch follows automatically (auth header is dropped on the
-        // cross-origin hop, which is fine — the URL is presigned). We still
-        // honor a direct URL field first in case a future API adds one.
+        // Honor a direct URL field first if a future API ever adds one.
         const directUrl = file.presigned_url || file.url || file.download_url
           || file.file_url || file.original_url
           || file.src || file.link || file.public_url || file.signed_url;
+        if (directUrl) return directUrl;
         const fileJnid = file.jnid || file.id;
-        let imgRes;
-        if (directUrl) {
-          imgRes = await fetch(directUrl);
-        } else if (fileJnid) {
-          imgRes = await fetch(`${JN_BASE}/files/${fileJnid}`, { headers: jnHeaders });
-        } else {
-          return null;
-        }
-        if (!imgRes.ok) return null;
-        const buffer = await imgRes.arrayBuffer();
-        const ct = imgRes.headers.get("content-type") || file.content_type || "image/jpeg";
-        return `data:${ct};base64,${Buffer.from(buffer).toString("base64")}`;
+        if (!fileJnid) return null;
+        // redirect:"manual" so we capture the Location (presigned URL)
+        // instead of following it and pulling the full image down here.
+        const r = await fetch(`${JN_BASE}/files/${fileJnid}`, { headers: jnHeaders, redirect: "manual" });
+        return r.headers.get("location") || null;
       } catch { return null; }
     });
     return (await Promise.all(photoPromises)).filter(Boolean);
