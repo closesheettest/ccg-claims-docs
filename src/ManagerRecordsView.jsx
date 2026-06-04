@@ -929,7 +929,7 @@ function DealDetail({ deal, theme }) {
         <Field label="Result" value={result || <Waiting />} />
         <Field label="Photos pushed" value={!hasResult ? <Waiting /> : (deal.jn_pushed_at ? fmtDateTime(deal.jn_pushed_at) : <NotIn />)} />
         <Field label="Cert uploaded" value={!hasResult ? <Waiting /> : (deal.jn_cert_uploaded_at ? fmtDateTime(deal.jn_cert_uploaded_at) : <NotIn />)} />
-        <Field label="Docs in CCG" value={deal.docs_signed || <NotIn />} />
+        <Field label="Docs in App" value={deal.docs_signed || <NotIn />} />
         <Field label="Signed at" value={fmtDateTime(deal.signed_at)} />
       </div>
 
@@ -1198,21 +1198,29 @@ function actionFor(deal) {
     if (!deal.signed_at) {
       return { tone: 'na', icon: '•', headline: 'IN PROGRESS', detail: 'Not signed yet — nothing to do right now.', need: null }
     }
-    // Signed, but the automatic sync never linked a JobNimbus job. That's
-    // a real failure at any stage — re-syncing creates the job.
-    if (!push.inJn) {
-      return {
-        tone: 'bad', icon: '⚠', headline: 'ACTION NEEDED',
-        detail: 'Signed but never made it into JobNimbus — tap “Send Info to JN” to re-sync.',
-        need: 'photos',
-      }
-    }
-    // In JobNimbus, signed, but the inspection hasn't happened yet. This
-    // is the common resting state — nothing for the manager to do.
+    const signedHoursAgo = deal.signed_at
+      ? (Date.now() - new Date(deal.signed_at).getTime()) / 3_600_000
+      : null
+
+    // Not inspected yet. The resting state is NEEDS INSPECTION — nothing
+    // for the manager to do but wait on the inspector. The one exception:
+    // if it was signed more than a day ago and STILL never linked a
+    // JobNimbus job, the automatic sync failed and the manager should
+    // re-sync. Fresh signings get a 24h grace because the auto-push can
+    // lag right after signing — flagging them red immediately cries wolf.
     if (!hasResult) {
+      if (!push.inJn && signedHoursAgo != null && signedHoursAgo > 24) {
+        return {
+          tone: 'bad', icon: '⚠', headline: 'ACTION NEEDED',
+          detail: 'Signed over a day ago but never made it into JobNimbus — tap “Send Info to JN” to re-sync.',
+          need: 'photos',
+        }
+      }
       return {
         tone: 'na', icon: '🔍', headline: 'NEEDS INSPECTION',
-        detail: 'In JobNimbus — waiting on the inspection. Nothing to do yet.',
+        detail: push.inJn
+          ? 'In JobNimbus — waiting on the inspection. Nothing to do yet.'
+          : 'Waiting on the inspection. Nothing to do yet.',
         need: null,
       }
     }

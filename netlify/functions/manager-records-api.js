@@ -447,21 +447,36 @@ function isPendingSignatures(d) {
   return !d.signed_at
 }
 
-// A deal "needs attention" if it's stuck somewhere:
-//   • Pending signatures (PA forms requested, never completed)
-//   • Signed but never made it to JN (no jn_job_id after 24h)
-//   • Signed and in JN but cert is still missing after 24h
-// The UI uses this to badge rows in red + auto-expand the rep group.
+// A deal "needs attention" iff the manager actually owes a JobNimbus
+// push on it — kept in lockstep with the frontend's actionFor().need so
+// the top "Needs attention (N)" count matches the per-rep group counts.
+// The manager's only jobs are getting photos + the certificate into JN;
+// LOR/PAC signatures are the Public Adjuster's, so they never count here.
+//
+// Owed when (inspection-source, not cancelled, not lost):
+//   • signed > 24h ago and STILL not in JN (auto-sync failed → re-sync)
+//   • inspection result is in, but photos not yet in JN
+//   • inspection result is in, but the certificate not yet in JN
+// Claim-track deals are PA-pipeline only — the manager can't push, so
+// they never count as attention.
+const CERT_STATUSES = ['Cert Sent', 'Cert Uploaded', 'Awaiting Signature', 'Completed', 'Won']
 function needsAttention(d) {
   if (d.cancelled_at) return false
   if (String(d.inspection_result || d.result || '').toLowerCase() === 'lost') return false
-  if (isPendingSignatures(d)) return true
-  const signedHoursAgo = d.signed_at
-    ? (Date.now() - new Date(d.signed_at).getTime()) / 3_600_000
-    : null
-  if (signedHoursAgo != null && signedHoursAgo > 24 && !d.jn_job_id) return true
-  if (signedHoursAgo != null && signedHoursAgo > 24 && d.jn_status === 'Awaiting Cert') return true
-  return false
+  if (d.source !== 'inspection') return false
+  if (!d.signed_at) return false
+
+  const hasResult = !!(d.inspection_result || d.result)
+  const inJn = !!d.jn_job_id
+  const signedHoursAgo = (Date.now() - new Date(d.signed_at).getTime()) / 3_600_000
+
+  // Not inspected yet — only a stale (>24h) orphaned sync is owed.
+  if (!hasResult) return !inJn && signedHoursAgo > 24
+
+  // Inspected — photos + certificate are owed until both land in JN.
+  const photosIn = !!d.jn_pushed_at
+  const certIn = !!d.jn_cert_uploaded_at || (!!d.jn_status && CERT_STATUSES.includes(d.jn_status))
+  return !photosIn || !certIn
 }
 
 function json(status, body) {
