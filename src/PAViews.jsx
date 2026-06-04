@@ -512,11 +512,14 @@ function PAJobList({ me, onOpenJob, wide }) {
     setLoading(true);
     const [poolRes, mineRes] = await Promise.all([
       supabase.from("inspections")
-        .select("id, client_name, address, city, state, zip, signed_at, jn_job_id, result, pa_id")
+        .select("id, client_name, address, city, state, zip, county, signed_at, jn_job_id, result, pa_id")
         .eq("result", "damage").is("pa_id", null).not("jn_job_id", "is", null)
+        // Available is sorted alphabetically by county (deals without a
+        // county yet fall to the bottom), then newest first within a county.
+        .order("county", { ascending: true, nullsFirst: false })
         .order("signed_at", { ascending: false }).limit(200),
       supabase.from("inspections")
-        .select("id, client_name, address, city, state, zip, signed_at, jn_job_id, result, pa_id, pa_claimed_at, pa_fields")
+        .select("id, client_name, address, city, state, zip, county, signed_at, jn_job_id, result, pa_id, pa_claimed_at, pa_fields")
         .eq("pa_id", me.id).order("pa_claimed_at", { ascending: false }).limit(200),
     ]);
     setPool(poolRes.data || []);
@@ -607,6 +610,11 @@ function PAJobCard({ job, mine, claiming, onClaim, onOpen }) {
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 700, fontSize: 15 }}>{job.client_name || "(no name)"}</div>
           <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>{addr || "—"}</div>
+          {job.county && (
+            <div style={{ display: "inline-block", marginTop: 4, fontSize: 11, fontWeight: 700, color: "#0e7490", background: "#ecfeff", border: "1px solid #a5f3fc", borderRadius: 999, padding: "1px 8px" }}>
+              📍 {job.county}
+            </div>
+          )}
           {mine && (
             <div style={{ fontSize: 11, color: "#0e7490", marginTop: 6, fontWeight: 700 }}>
               {progress} of {PA_FIELDS.length} milestones filled

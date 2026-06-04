@@ -64,7 +64,7 @@ exports.handler = async (event) => {
 
   // 1. Fetch the inspection.
   const inspRes = await fetch(
-    `${SB_URL}/rest/v1/inspections?id=eq.${inspectionId}&select=id,address,city,state,zip,latitude,longitude&limit=1`,
+    `${SB_URL}/rest/v1/inspections?id=eq.${inspectionId}&select=id,address,city,state,zip,latitude,longitude,county&limit=1`,
     { headers: sbHeaders },
   );
   if (!inspRes.ok) {
@@ -74,8 +74,11 @@ exports.handler = async (event) => {
   const t = rows?.[0];
   if (!t) return json(404, { error: "Inspection not found" });
 
-  // 2. Skip if already geocoded (unless forced).
-  if (!force && typeof t.latitude === "number" && typeof t.longitude === "number") {
+  // 2. Skip only when fully populated — lat/lng AND county. Rows that
+  //    were geocoded before county capture shipped have coords but no
+  //    county, so we still re-geocode those to fill it in (same coords,
+  //    harmless overwrite).
+  if (!force && typeof t.latitude === "number" && typeof t.longitude === "number" && t.county) {
     return json(200, { ok: true, skipped: true, reason: "already_geocoded" });
   }
 
@@ -107,23 +110,39 @@ exports.handler = async (event) => {
       return json(200, { ok: false, error: "No coords in Google response" });
     }
 
-    // 5. Save coords back.
+    // County lives in the same response as administrative_area_level_2
+    // (e.g. "Bergen County"). Some places (independent cities, parts of
+    // AK/LA/VA) lack it — county stays null there, which is fine.
+    const county = extractCounty(data.results[0].address_components);
+
+    // 5. Save coords (+ county when found) back.
+    const patch = { latitude: loc.lat, longitude: loc.lng };
+    if (county) patch.county = county;
     const updRes = await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${inspectionId}`, {
       method: "PATCH",
       headers: sbHeaders,
-      body: JSON.stringify({
-        latitude: loc.lat,
-        longitude: loc.lng,
-      }),
+      body: JSON.stringify(patch),
     });
     if (!updRes.ok) {
       return json(500, { error: `Could not save lat/lng: ${await updRes.text()}` });
     }
-    return json(200, { ok: true, lat: loc.lat, lng: loc.lng, address: addr });
+    return json(200, { ok: true, lat: loc.lat, lng: loc.lng, county: county || null, address: addr });
   } catch (err) {
     return json(200, { ok: false, error: err.message || "Unknown" });
   }
 };
+
+// Pull the county name out of Google's address_components array. County
+// is the component tagged administrative_area_level_2; we keep the full
+// long_name (e.g. "Bergen County"). Returns null if absent.
+function extractCounty(components) {
+  if (!Array.isArray(components)) return null;
+  const hit = components.find(
+    (c) => Array.isArray(c.types) && c.types.includes("administrative_area_level_2"),
+  );
+  const name = hit?.long_name?.trim();
+  return name || null;
+}
 
 function buildAddress(t) {
   const parts = [t.address, t.city, t.state, t.zip]

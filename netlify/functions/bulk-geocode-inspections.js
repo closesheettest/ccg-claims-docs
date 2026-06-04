@@ -52,14 +52,15 @@ exports.handler = async (event) => {
     "Content-Type": "application/json",
   };
 
-  // Find inspections needing geocode. Address must be present, and
-  // latitude must still be NULL.
-  const qs = new URLSearchParams({
-    select: "id,client_name,address,city,state,zip,latitude",
-    latitude: "is.null",
-    address: "not.is.null",
-    limit: String(limit),
-  }).toString();
+  // Find inspections needing geocode: address present, and EITHER lat is
+  // still NULL (never geocoded) OR county is NULL (geocoded before county
+  // capture shipped — re-run to fill it). Built as a raw query string so
+  // the PostgREST `or=(...)` filter isn't mangled by URLSearchParams.
+  const qs =
+    "select=id,client_name,address,city,state,zip,latitude,county" +
+    "&or=(latitude.is.null,county.is.null)" +
+    "&address=not.is.null" +
+    `&limit=${limit}`;
   const listRes = await fetch(`${SB_URL}/rest/v1/inspections?${qs}`, { headers: sbHeaders });
   if (!listRes.ok) {
     return json(500, { error: `Could not list inspections: ${await listRes.text()}` });
