@@ -35,6 +35,7 @@ const TMS_REP_ZONES_URL =
 // without a named team fall back to the bare zone label.
 const ZONE_TEAMS = {
   'Zone 1': 'SQUAD',
+  'Zone 2': 'SitSold',
   'Zone 3': 'SHARKS',
   'Zone 4': 'HURRICANE',
 }

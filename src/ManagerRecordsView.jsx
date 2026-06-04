@@ -41,6 +41,9 @@ const NEUTRAL = { deep: '#475569', light: '#e2e8f0' }
 // both surfaces show the same label.
 const ZONE_TEAMS = {
   'Zone 1': 'SQUAD',
+  'Zone 2': 'SitSold',
+  'Zone 3': 'SHARKS',
+  'Zone 4': 'HURRICANE',
 }
 // Render zone label as "TEAM (Zone N)" if the zone has a team name,
 // else fall back to just "Zone N". Mirrors teamLabel() in TMS.
