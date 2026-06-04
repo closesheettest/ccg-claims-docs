@@ -2535,7 +2535,7 @@ function InspectorReports({ me, onBack }) {
       // Completed inspections (this inspector, has a result, within range).
       const completed = await supabase
         .from("inspections")
-        .select("id, client_name, address, result, result_at")
+        .select("id, client_name, address, result, result_at, lost_reason")
         .eq("inspector_id", me.id)
         .not("result", "is", null)
         .gte("result_at", fromIso)
@@ -2756,6 +2756,11 @@ function InspectorReports({ me, onBack }) {
                         <div style={{ fontSize: 11, color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {r.address || ""}
                         </div>
+                        {r.result === "lost" && r.lost_reason && (
+                          <div style={{ fontSize: 11, color: "#b91c1c", marginTop: 2, whiteSpace: "normal", lineHeight: 1.35 }}>
+                            📝 {r.lost_reason}
+                          </div>
+                        )}
                       </div>
                       <div style={{ background: meta.bg, color: meta.color, fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 12, textTransform: "uppercase", letterSpacing: "0.04em" }}>
                         {meta.label}
@@ -2817,7 +2822,7 @@ export function ManagerInspectorReports() {
       // Completed in range (every inspector, optional inspector filter).
       let completedQ = supabase
         .from("inspections")
-        .select("id, client_name, address, result, result_at, inspector_id")
+        .select("id, client_name, address, result, result_at, inspector_id, lost_reason")
         .not("result", "is", null)
         .not("inspector_id", "is", null)
         .gte("result_at", fromIso)
@@ -3123,6 +3128,11 @@ export function ManagerInspectorReports() {
                         <div style={{ fontSize: 11, color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {r.address || ""}
                         </div>
+                        {r.result === "lost" && r.lost_reason && (
+                          <div style={{ fontSize: 11, color: "#b91c1c", marginTop: 2, whiteSpace: "normal", lineHeight: 1.35 }}>
+                            📝 {r.lost_reason}
+                          </div>
+                        )}
                       </div>
                       <div style={{ background: meta.bg, color: meta.color, fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 12, textTransform: "uppercase", letterSpacing: "0.04em" }}>
                         {meta.label}
