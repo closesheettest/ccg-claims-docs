@@ -415,6 +415,16 @@ export function PAMobileApp() {
   const [pas, setPas] = useState([]);
   const [me, setMe] = useState(null);
   const [inactiveName, setInactiveName] = useState("");
+  // Mobile (phone-width) vs Desktop (wide) layout. Persists per device.
+  const [viewMode, setViewMode] = useState(
+    () => (typeof localStorage !== "undefined" && localStorage.getItem("ccg_pa_view") === "desktop" ? "desktop" : "mobile"),
+  );
+  const wide = viewMode === "desktop";
+  function toggleView() {
+    const next = wide ? "mobile" : "desktop";
+    setViewMode(next);
+    try { localStorage.setItem("ccg_pa_view", next); } catch { /* ignore */ }
+  }
 
   useEffect(() => {
     supabase.from("pas").select("*").eq("active", true).order("name").then(async ({ data }) => {
@@ -433,10 +443,16 @@ export function PAMobileApp() {
   function signOut() { localStorage.removeItem("ccg_pa_id"); setMe(null); setInactiveName(""); setStage("pick"); }
 
   return (
-    <div style={{ maxWidth: 480, margin: "0 auto", padding: 16, fontFamily: "'Nunito', sans-serif", minHeight: "100vh", background: "#f9fafb" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+    <div style={{ maxWidth: wide ? 1100 : 480, margin: "0 auto", padding: 16, fontFamily: "'Nunito', sans-serif", minHeight: "100vh", background: "#f9fafb", transition: "max-width 0.15s ease" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, gap: 8 }}>
         <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>🧑‍⚖️ Adjuster</div>
-        {me && <button type="button" onClick={signOut} style={{ ...secondaryBtn, fontSize: 11 }}>Switch user</button>}
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <button type="button" onClick={toggleView} title="Switch layout"
+            style={{ ...secondaryBtn, fontSize: 11 }}>
+            {wide ? "📱 Mobile view" : "🖥 Desktop view"}
+          </button>
+          {me && <button type="button" onClick={signOut} style={{ ...secondaryBtn, fontSize: 11 }}>Switch user</button>}
+        </div>
       </div>
 
       {stage === "inactive" && (
@@ -455,11 +471,11 @@ export function PAMobileApp() {
       {stage === "pick" && <PAPickName pas={pas} onPick={pickMe} />}
 
       {stage === "list" && me && (
-        <PAJobList me={me} onOpenJob={(jobId) => setStage({ kind: "detail", jobId })} />
+        <PAJobList me={me} wide={wide} onOpenJob={(jobId) => setStage({ kind: "detail", jobId })} />
       )}
 
       {stage && stage.kind === "detail" && me && (
-        <PAPipelineDetail me={me} jobId={stage.jobId} onBack={() => setStage("list")} />
+        <PAPipelineDetail me={me} wide={wide} jobId={stage.jobId} onBack={() => setStage("list")} />
       )}
     </div>
   );
@@ -484,7 +500,7 @@ function PAPickName({ pas, onPick }) {
   );
 }
 
-function PAJobList({ me, onOpenJob }) {
+function PAJobList({ me, onOpenJob, wide }) {
   const [pool, setPool] = useState([]);
   const [mine, setMine] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -565,7 +581,7 @@ function PAJobList({ me, onOpenJob }) {
           {tab === "mine" ? "You haven't claimed any deals yet. Check the Available tab." : "No unclaimed damage deals right now."}
         </div>
       ) : (
-        <div style={{ display: "grid", gap: 8 }}>
+        <div style={{ display: "grid", gap: 8, gridTemplateColumns: wide ? "repeat(auto-fill, minmax(300px, 1fr))" : "1fr" }}>
           {list.map((job) => (
             <PAJobCard
               key={job.id}
@@ -624,7 +640,7 @@ function milestoneProgress(paFields) {
 
 // ── Pipeline detail: one claimed deal. Photos + context + the 8 editable
 //    milestone date fields with per-field autosave to JN. ─────────────
-function PAPipelineDetail({ me, jobId, onBack }) {
+function PAPipelineDetail({ me, jobId, onBack, wide }) {
   const [job, setJob] = useState(null);
   const [fields, setFields] = useState({});      // epoch seconds | string | null
   const [photos, setPhotos] = useState([]);
@@ -794,7 +810,7 @@ function PAPipelineDetail({ me, jobId, onBack }) {
         {photos.length === 0 ? (
           <div style={{ fontSize: 12, color: "#94a3b8" }}>No photos found for this inspection yet.</div>
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+          <div style={{ display: "grid", gridTemplateColumns: wide ? "repeat(auto-fill, minmax(200px, 1fr))" : "1fr 1fr", gap: 6 }}>
             {photos.map((src, i) => (
               <a key={i} href={src} target="_blank" rel="noreferrer" style={{ display: "block" }}>
                 <img src={src} alt={`Inspection photo ${i + 1}`} style={{ width: "100%", borderRadius: 8, border: "1px solid #e5e7eb", display: "block" }} />
