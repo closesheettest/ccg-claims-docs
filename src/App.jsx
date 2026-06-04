@@ -14715,6 +14715,19 @@ if (!hasDamage) {
                       try {
                         const { error } = await supabase.from("inspections").update(updates).eq("id", editModal.rec.id);
                         if (error) { alert("Failed: " + error.message); return; }
+                        // When newly cancelled (marked Lost in app), push the
+                        // reason to JobNimbus too — set cf_string_34="Lost" and
+                        // drop a Note. Best-effort: the local cancel already
+                        // saved, so a JN hiccup never blocks the action.
+                        if (!isCancelled) {
+                          try {
+                            await fetch("/.netlify/functions/push-cancel-to-jn", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ inspectionId: editModal.rec.id, reason, by: "admin" }),
+                            });
+                          } catch { /* JN sync is best-effort */ }
+                        }
                         setRecordSearchResults(prev => isCancelled
                           ? prev.map(rr => rr.id === editModal.rec.id ? { ...rr, ...updates } : rr)
                           : prev.filter(rr => rr.id !== editModal.rec.id) // remove from view if newly cancelled
