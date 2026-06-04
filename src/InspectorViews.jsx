@@ -3451,6 +3451,14 @@ function InspectorJobDetail({ me, jobId, onBack }) {
   // Per-slope flow: count → overview slope 1 → damage slope 1 →
   // overview slope 2 → damage slope 2 → next side.
   function advance() {
+    // REVISIT mode — the inspector jumped back from the summary to add a
+    // forgotten photo to one slope/section. After they capture it, send
+    // them straight back to where they were (stage.returnTo) instead of
+    // walking the whole sequence forward again.
+    if (stage.returnTo) {
+      setStage(stage.returnTo);
+      return;
+    }
     if (stage.kind === "house_number") {
       setStage({ kind: "front_house" });
       return;
@@ -3769,6 +3777,11 @@ function InspectorJobDetail({ me, jobId, onBack }) {
 
   const stagePhotos = currentStagePhotos();
   const progressLabel = stageLabel(stage, slopeCounts, storyCount);
+  // True when the inspector is on a capture step they jumped back to from
+  // the summary (revisit mode). Used to relabel the step's CTA so it
+  // returns to the summary rather than marching forward.
+  const reviewing = !!stage.returnTo;
+  const REVISIT_CTA = "✓ Done — back to review →";
   const isResultDamage = resultChoice === "damage";
   const isResultRetail = resultChoice === "retail";
   const retailPhotoCount = photos.filter((p) => p.category === "retail_worst").length;
@@ -3996,7 +4009,7 @@ function InspectorJobDetail({ me, jobId, onBack }) {
         <WizardPhotoStep
           title="📷 Step 1 — Photo of the house number"
           subtitle="Stand on the sidewalk or driveway and take ONE clear, in-focus photo of the house number on the front of the house (or on the mailbox). This is how we confirm we're at the right address."
-          ctaLabel="Got it — next: front of the house →"
+          ctaLabel={reviewing ? REVISIT_CTA : "Got it — next: front of the house →"}
           ctaEnabled={stagePhotos.length >= 1}
           stagePhotos={stagePhotos}
           submitting={submitting}
@@ -4016,7 +4029,7 @@ function InspectorJobDetail({ me, jobId, onBack }) {
         <WizardPhotoStep
           title="📷 Step 2 — Photo of the front of the house"
           subtitle="Back up far enough to see the WHOLE front of the house in the frame — roof + walls + driveway. Take ONE photo, straight-on if you can."
-          ctaLabel="Got it — next: how many stories? →"
+          ctaLabel={reviewing ? REVISIT_CTA : "Got it — next: how many stories? →"}
           ctaEnabled={stagePhotos.length >= 1}
           stagePhotos={stagePhotos}
           submitting={submitting}
@@ -4075,7 +4088,7 @@ function InspectorJobDetail({ me, jobId, onBack }) {
               ? "Now climb up onto the roof. Walk all the way over to the FAR LEFT side of the roof. From there, take ONE wide photo trying to capture as much of the roof as you can see. This gives us a single picture that shows the overall condition before we zoom into each slope."
               : "On the 2nd-floor roof: same idea. Walk to the FAR LEFT and take ONE wide photo capturing as much of the 2nd-floor roof as possible."
           }
-          ctaLabel="Got it — now start slopes (LEFT side) →"
+          ctaLabel={reviewing ? REVISIT_CTA : "Got it — now start slopes (LEFT side) →"}
           ctaEnabled={stagePhotos.length >= 1}
           stagePhotos={stagePhotos}
           submitting={submitting}
@@ -4135,7 +4148,11 @@ function InspectorJobDetail({ me, jobId, onBack }) {
 
         // CTA depends on what's next.
         let ctaLabel;
-        if (isOverview) {
+        if (reviewing) {
+          // Jumped back here from the summary to add a forgotten photo —
+          // one tap returns to the summary.
+          ctaLabel = REVISIT_CTA;
+        } else if (isOverview) {
           ctaLabel = "Got it — now detail photos of THIS slope →";
         } else {
           if (stage.slopeIndex + 1 < getSlopeCount(stage.story, stage.side)) {
@@ -4235,6 +4252,27 @@ function InspectorJobDetail({ me, jobId, onBack }) {
               {opt.label}
             </button>
           ))}
+          {/* Forgot a shot? Jump back to any slope/section to add more,
+              then return here. */}
+          <button
+            type="button"
+            onClick={() => setStage({ kind: "revisit_pick", returnTo: { kind: "result" } })}
+            disabled={submitting}
+            style={{
+              padding: "14px 16px",
+              background: "#fff",
+              color: "#0e7490",
+              border: "2px dashed #67e8f9",
+              borderRadius: 12,
+              fontWeight: 700,
+              fontSize: 16,
+              textAlign: "left",
+              cursor: submitting ? "default" : "pointer",
+              opacity: submitting ? 0.55 : 1,
+            }}
+          >
+            ➕ Forgot a photo? Go back and add more
+          </button>
           {(isResultDamage || resultChoice === "no_damage") && (
             <button
               type="button"
@@ -4287,6 +4325,106 @@ function InspectorJobDetail({ me, jobId, onBack }) {
             onContinue={submit}
             ctaPrimary
           />
+          <button
+            type="button"
+            onClick={() => setStage({ kind: "revisit_pick", returnTo: { kind: "retail_worst" } })}
+            disabled={submitting}
+            style={{
+              padding: "14px 16px",
+              background: "#fff",
+              color: "#0e7490",
+              border: "2px dashed #67e8f9",
+              borderRadius: 12,
+              fontWeight: 700,
+              fontSize: 16,
+              textAlign: "left",
+              cursor: submitting ? "default" : "pointer",
+              opacity: submitting ? 0.55 : 1,
+            }}
+          >
+            ➕ Forgot a slope photo? Go back and add more
+          </button>
+        </section>
+      )}
+
+      {stage.kind === "revisit_pick" && (
+        <section style={{ padding: 16, background: "#fff", borderRadius: 12, border: "2px solid #67e8f9", display: "grid", gap: 12 }}>
+          <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", lineHeight: 1.2 }}>
+            ➕ Add more photos
+          </div>
+          <div style={{ fontSize: 15, color: "#374151", lineHeight: 1.5 }}>
+            Pick the slope or section you want to add a photo to. You'll see the
+            shots already taken there, snap the one you missed, then tap
+            <strong> “Done — back to review” </strong> to come right back here.
+          </div>
+          {(() => {
+            const stories = storyCount === 2 ? [1, 2] : [1];
+            const photoCountFor = (st) => {
+              if (st.kind === "house_number") return photos.filter((p) => p.category === "house_number").length;
+              if (st.kind === "front_house") return photos.filter((p) => p.category === "front_house").length;
+              if (st.kind === "roof_overview") return photos.filter((p) => p.category === "roof_overview" && p.story === st.story).length;
+              if (st.kind === "side_overview") return photos.filter((p) => p.category === "slope_overview" && p.side === st.side && p.story === st.story && p.slopeIndex === st.slopeIndex).length;
+              if (st.kind === "side_damage") return photos.filter((p) => p.category === "slope_damage" && p.side === st.side && p.story === st.story && p.slopeIndex === st.slopeIndex).length;
+              return 0;
+            };
+            const targets = [];
+            targets.push({ label: "🏷 House number", stage: { kind: "house_number" } });
+            targets.push({ label: "🏠 Front of house", stage: { kind: "front_house" } });
+            for (const story of stories) {
+              const floorTag = storyCount === 2 ? ` (${ordinal(story)} floor)` : "";
+              targets.push({ label: `📷 Roof overview${floorTag}`, stage: { kind: "roof_overview", story } });
+              for (const side of SIDES) {
+                const count = getSlopeCount(story, side);
+                for (let slopeIndex = 0; slopeIndex < count; slopeIndex++) {
+                  const seq = slopeSequence({ kind: "side_overview", side, story, slopeIndex }, slopeCounts);
+                  const ord = ordinal(seq);
+                  targets.push({ label: `📷 ${ord} slope overview${floorTag} — ${SIDE_LABELS[side]}`, stage: { kind: "side_overview", side, story, slopeIndex } });
+                  targets.push({ label: `🔍 ${ord} slope detail${floorTag} — ${SIDE_LABELS[side]}`, stage: { kind: "side_damage", side, story, slopeIndex } });
+                }
+              }
+            }
+            return (
+              <div style={{ display: "grid", gap: 8 }}>
+                {targets.map((t, i) => {
+                  const n = photoCountFor(t.stage);
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => setStage({ ...t.stage, returnTo: stage.returnTo })}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: 10,
+                        padding: "14px 14px",
+                        background: "#f8fafc",
+                        color: "#0f172a",
+                        border: "1px solid #e2e8f0",
+                        borderRadius: 10,
+                        fontWeight: 700,
+                        fontSize: 15,
+                        textAlign: "left",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <span>{t.label}</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: n > 0 ? "#0e7490" : "#9ca3af", whiteSpace: "nowrap" }}>
+                        {n} 📷
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })()}
+          <button
+            type="button"
+            onClick={() => setStage(stage.returnTo || { kind: "result" })}
+            style={{ ...secondaryBtn, padding: "14px 16px", fontSize: 16 }}
+          >
+            ← Never mind — back to review
+          </button>
         </section>
       )}
 
@@ -4571,6 +4709,7 @@ function stageLabel(stage, slopeCounts, storyCount) {
   }
   if (stage.kind === "result") return "Pick result";
   if (stage.kind === "retail_worst") return "Retail — 10 worst photos";
+  if (stage.kind === "revisit_pick") return "Add more photos";
   return "";
 }
 
