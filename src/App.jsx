@@ -12456,7 +12456,10 @@ if (!hasDamage) {
                   {managerSection === "report" && <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Weekly Report</SectionTitle>
                     <div style={{ display: "grid", gap: 12, marginBottom: 16 }}>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                      {/* From / To inputs with the Generate button to their
+                          right — the button is only needed for custom dates,
+                          since the preset chips below auto-generate on click. */}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 10, alignItems: "end" }}>
                         <div>
                           <Label>From</Label>
                           <input type="date" value={reportStartDate} onChange={e => setReportStartDate(e.target.value)}
@@ -12467,37 +12470,43 @@ if (!hasDamage) {
                           <input type="date" value={reportEndDate} onChange={e => setReportEndDate(e.target.value)}
                             style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
                         </div>
+                        <button type="button" onClick={() => fetchReport(reportStartDate, reportEndDate)} disabled={reportLoading}
+                          style={{ height: 44, padding: "0 24px", borderRadius: 14, border: "none", background: "#199c2e", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
+                          {reportLoading ? "Loading..." : "📊 Generate Report"}
+                        </button>
                       </div>
+                      {/* Preset chips — each sets the date range AND immediately
+                          fires the report, so the only time you need the
+                          Generate button is for a manual custom range. */}
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         {[
                           { label: "This Week", fn: () => {
                             const t=new Date();
                             const daysBack=(t.getDay()+6)%7;
                             const s=new Date(t); s.setDate(t.getDate()-daysBack);
-                            setReportStartDate(s.toISOString().split("T")[0]);
-                            setReportEndDate(t.toISOString().split("T")[0]);
+                            const start=s.toISOString().split("T")[0], end=t.toISOString().split("T")[0];
+                            setReportStartDate(start); setReportEndDate(end);
+                            return [start, end];
                           } },
                           { label: "Last Week", fn: () => {
                             const t=new Date();
                             const daysBack=(t.getDay()+6)%7;
                             const s=new Date(t); s.setDate(t.getDate()-daysBack-7);
                             const e=new Date(t); e.setDate(t.getDate()-daysBack-1);
-                            setReportStartDate(s.toISOString().split("T")[0]);
-                            setReportEndDate(e.toISOString().split("T")[0]);
+                            const start=s.toISOString().split("T")[0], end=e.toISOString().split("T")[0];
+                            setReportStartDate(start); setReportEndDate(end);
+                            return [start, end];
                           } },
-                          { label: "Last 30 Days", fn: () => { const t=new Date(); const s=new Date(t); s.setDate(t.getDate()-30); setReportStartDate(s.toISOString().split("T")[0]); setReportEndDate(t.toISOString().split("T")[0]); } },
-                          { label: "This Month", fn: () => { const t=new Date(); setReportStartDate(new Date(t.getFullYear(),t.getMonth(),1).toISOString().split("T")[0]); setReportEndDate(t.toISOString().split("T")[0]); } },
+                          { label: "Last 30 Days", fn: () => { const t=new Date(); const s=new Date(t); s.setDate(t.getDate()-30); const start=s.toISOString().split("T")[0], end=t.toISOString().split("T")[0]; setReportStartDate(start); setReportEndDate(end); return [start, end]; } },
+                          { label: "This Month", fn: () => { const t=new Date(); const start=new Date(t.getFullYear(),t.getMonth(),1).toISOString().split("T")[0], end=t.toISOString().split("T")[0]; setReportStartDate(start); setReportEndDate(end); return [start, end]; } },
                         ].map(({ label, fn }) => (
-                          <button key={label} type="button" onClick={fn}
-                            style={{ padding: "6px 14px", borderRadius: 20, border: "1px solid #d1d5db", background: "#fff", color: "#374151", fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+                          <button key={label} type="button" disabled={reportLoading}
+                            onClick={() => { const [start, end] = fn(); fetchReport(start, end); }}
+                            style={{ padding: "6px 14px", borderRadius: 20, border: "1px solid #d1d5db", background: "#fff", color: "#374151", fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 12, cursor: reportLoading ? "not-allowed" : "pointer" }}>
                             {label}
                           </button>
                         ))}
                       </div>
-                      <button type="button" onClick={() => fetchReport(reportStartDate, reportEndDate)} disabled={reportLoading}
-                        style={{ padding: "10px 24px", borderRadius: 14, border: "none", background: "#199c2e", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", width: "fit-content" }}>
-                        {reportLoading ? "Loading..." : "📊 Generate Report"}
-                      </button>
                     </div>
                     {reportData ? (
                       <div>
