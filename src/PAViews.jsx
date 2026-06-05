@@ -171,18 +171,20 @@ export function PAAdminPanel() {
     setReconciling(false);
   }
 
-  // Assign a parked deal to an active PA: reactivate it (clear the Lost/
-  // cancelled + decision flags), route it to that PA, and attach the note
-  // that shows in their portal. pa_decision_resolved_at guards the JN
-  // reconcile/Lost cron from immediately re-pulling it.
-  async function assignDeal(deal, paId, note) {
+  // Put a parked deal into the PA pool: reactivate it (clear the Lost/
+  // cancelled + decision flags) and leave pa_id null so it shows in the
+  // open, claimable pool for ANY active adjuster — instead of routing it
+  // to one specific PA. An optional note rides along and shows to whoever
+  // claims it. pa_decision_resolved_at guards the JN reconcile/Lost cron
+  // from immediately re-pulling it.
+  async function releaseToPool(deal, note) {
     setBusyId(deal.id);
     const nowIso = new Date().toISOString();
     const { error } = await supabase
       .from("inspections")
       .update({
-        pa_id: paId,
-        pa_claimed_at: nowIso,
+        pa_id: null,
+        pa_claimed_at: null,
         cancelled_at: null,
         cancel_reason: null,
         pa_decision_needed: false,
@@ -194,8 +196,7 @@ export function PAAdminPanel() {
       .eq("id", deal.id);
     setBusyId(null);
     if (error) { setMessage({ kind: "error", text: error.message }); return; }
-    const paName = pas.find((p) => p.id === paId)?.name || "the PA";
-    setMessage({ kind: "success", text: `Assigned ${deal.client_name || "deal"} to ${paName}. It now shows in their portal.` });
+    setMessage({ kind: "success", text: `Put ${deal.client_name || "deal"} into the PA pool. Any active adjuster can now claim it.` });
     await loadDecisions();
   }
 
@@ -501,8 +502,8 @@ export function PAAdminPanel() {
             </div>
             <div style={{ fontSize: 12, color: "#92400e", marginTop: 4 }}>
               Deals pulled off the PA portal for a U.S. Shingle decision — went Lost in JN while assigned,
-              old Sit Sold PA records, PA Ops Hub refusals, or a deactivated PA's deals. Assign each to an
-              active adjuster (with a note) and it shows up in their portal.
+              old Sit Sold PA records, PA Ops Hub refusals, or a deactivated PA's deals. Put each into the
+              PA pool (with an optional note) so any active adjuster can claim it — or dismiss it.
             </div>
           </div>
           <button type="button" onClick={refreshFromJn} disabled={reconciling}
@@ -522,10 +523,9 @@ export function PAAdminPanel() {
               <PADecisionRow
                 key={deal.id}
                 deal={deal}
-                activePas={pas.filter((p) => p.active)}
                 priorPaName={deal.pa_id ? (pas.find((p) => p.id === deal.pa_id)?.name || null) : null}
                 busy={busyId === deal.id}
-                onAssign={(paId, note) => assignDeal(deal, paId, note)}
+                onPool={(note) => releaseToPool(deal, note)}
                 onDismiss={() => dismissDeal(deal)}
               />
             ))}
@@ -625,9 +625,9 @@ function PARow({ pa, busy, onToggle, onResend, onUpdate, onDelete }) {
 }
 
 // One row in the PA Decision Needed queue — shows why it's here + who had
-// it, and lets the manager assign it to an active PA with a note.
-function PADecisionRow({ deal, activePas, priorPaName, busy, onAssign, onDismiss }) {
-  const [paId, setPaId] = useState("");
+// it, and lets the manager put it into the PA pool (with an optional note)
+// or dismiss it.
+function PADecisionRow({ deal, priorPaName, busy, onPool, onDismiss }) {
   const [note, setNote] = useState("");
   // Dates that help the reassignment decision. undefined = still loading,
   // null = not recorded, number = epoch seconds (from JN).
@@ -718,13 +718,9 @@ function PADecisionRow({ deal, activePas, priorPaName, busy, onAssign, onDismiss
       </div>
       <div style={{ display: "grid", gap: 6, marginTop: 10 }}>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <select value={paId} onChange={(e) => setPaId(e.target.value)} style={{ ...inputStyle, width: "auto", flex: 1, minWidth: 160 }}>
-            <option value="">Assign to active PA…</option>
-            {activePas.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-          <button type="button" disabled={busy || !paId} onClick={() => onAssign(paId, note)}
-            style={{ ...primaryBtn, opacity: !paId ? 0.55 : 1, cursor: !paId ? "not-allowed" : "pointer", whiteSpace: "nowrap" }}>
-            {busy ? "…" : "Assign →"}
+          <button type="button" disabled={busy} onClick={() => onPool(note)}
+            style={{ ...primaryBtn, whiteSpace: "nowrap" }}>
+            {busy ? "…" : "↪ Put in PA pool"}
           </button>
           <button type="button" onClick={togglePhotos} style={{ ...secondaryBtn, fontSize: 12, whiteSpace: "nowrap" }}>
             {photosOpen ? "Hide photos" : `📷 Photos${photos ? ` (${photos.length})` : ""}`}
@@ -755,7 +751,7 @@ function PADecisionRow({ deal, activePas, priorPaName, busy, onAssign, onDismiss
         )}
 
         <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2}
-          placeholder="Note for the PA (shows in their portal) — e.g. why it's being reassigned"
+          placeholder="Optional note (shows to whoever claims it from the pool) — e.g. context on the deal"
           style={{ ...inputStyle, resize: "vertical", fontFamily: "'Nunito', sans-serif" }} />
       </div>
     </div>
