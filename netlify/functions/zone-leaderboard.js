@@ -74,6 +74,7 @@ export const handler = async (event) => {
     const { byName, byId } = await fetchZoneMaps()
 
     const counts = {} // zone → count
+    const repsByZone = {} // zone → Map(repName → count)
     for (const r of signed) {
       const zone =
         (r.sales_rep_id != null && byId[String(r.sales_rep_id)]) ||
@@ -81,6 +82,11 @@ export const handler = async (event) => {
         null
       if (!zone) continue // No Zone — not shown
       counts[zone] = (counts[zone] || 0) + 1
+      // Per-rep tally for the dashboard drill-down (rep name + count only —
+      // no homeowner or address, so this stays safe on the public feed).
+      const rep = (r.sales_rep_name || '—').trim() || '—'
+      const m = repsByZone[zone] || (repsByZone[zone] = new Map())
+      m.set(rep, (m.get(rep) || 0) + 1)
     }
 
     // Build a row for every known zone (zero included), then rank.
@@ -88,6 +94,9 @@ export const handler = async (event) => {
       zone,
       team: ZONE_TEAMS[zone] || zone,
       count: counts[zone] || 0,
+      reps: [...(repsByZone[zone] || new Map())]
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count),
     }))
     // Highest count first; tie-break by zone order (stable sort keeps it).
     zones.sort((a, b) => b.count - a.count)

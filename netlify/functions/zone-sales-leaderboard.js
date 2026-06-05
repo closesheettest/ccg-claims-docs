@@ -81,6 +81,7 @@ export const handler = async (event) => {
     const zoneOf = await fetchZoneResolver()
 
     const counts = {}
+    const dealsByZone = {} // zone → [{ rep, customer, amount }]
     const matched = []
     let unattributed = 0
     for (const j of jobs) {
@@ -99,14 +100,27 @@ export const handler = async (event) => {
       const zone = zoneOf(j.sales_rep, j.sales_rep_name)
       if (!zone) { unattributed++; if (debug) matched.push({ name: j.name, rep: j.sales_rep_name || null, status: j.status_name, sold: new Date(soldMs).toISOString(), zone: null }); continue }
       counts[zone] = (counts[zone] || 0) + 1
+      // Per-deal detail for the dashboard drill-down. We deliberately show
+      // the CUSTOMER NAME (primary contact), not the JN job name — job
+      // names embed the street address and the dashboard is public.
+      const rep = (j.sales_rep_name || '—').trim()
+      const customer = (j.primary && j.primary.name ? String(j.primary.name) : '')
+        .replace(/\s+/g, ' ').trim() || '—'
+      const amount = Number(j.approved_estimate_total) || 0
+      ;(dealsByZone[zone] = dealsByZone[zone] || []).push({ rep, customer, amount })
       if (debug) matched.push({ name: j.name, rep: j.sales_rep_name || null, status: j.status_name, sold: new Date(soldMs).toISOString(), zone })
     }
 
-    const zones = ZONE_ORDER.map((zone) => ({
-      zone,
-      team: ZONE_TEAMS[zone] || zone,
-      count: counts[zone] || 0,
-    }))
+    const zones = ZONE_ORDER.map((zone) => {
+      const deals = (dealsByZone[zone] || []).sort((a, b) => b.amount - a.amount)
+      return {
+        zone,
+        team: ZONE_TEAMS[zone] || zone,
+        count: counts[zone] || 0,
+        total_amount: deals.reduce((s, d) => s + (d.amount || 0), 0),
+        deals,
+      }
+    })
     zones.sort((a, b) => b.count - a.count)
     zones.forEach((z, i) => { z.rank = i + 1 })
 
