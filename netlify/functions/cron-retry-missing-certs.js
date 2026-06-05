@@ -206,31 +206,35 @@ exports.handler = async (event) => {
   //    only fix; the daily orphan alert covers those once a day). Same
   //    quiet-on-success pattern as cron-push-pending-results.
   const alertable = failures.filter((f) => !f.noPhotos);
-  if (alertable.length > 0 && process.env.ADMIN_ALERT_PHONE && base) {
-    try {
-      const items = alertable.slice(0, 5).map((f) => {
-        const err = String(f.error || "unknown").slice(0, 60);
-        return `${f.client_name || f.jn_job_id} (${err})`;
-      });
-      const more = alertable.length > items.length ? ` +${alertable.length - items.length} more` : "";
-      const message =
-        `⚠ Cert-retry failures: ${alertable.length}/${candidates.length}\n` +
-        items.join("\n") +
-        more +
-        `\nCheck Netlify logs for full detail.`;
-      const phones = (process.env.ADMIN_ALERT_PHONE || "")
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-      for (const phone of phones) {
-        await fetch(`${base}/.netlify/functions/ghl-sms`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ to: phone, name: "Admin", message }),
-        }).catch(() => {});
+  if (alertable.length > 0 && base) {
+    // On/off + extra copy-recipients from the Auto-SMS registry (key
+    // "cert_retry_alert"). Fail-open so a DB hiccup never silences the
+    // alert. The ADMIN_ALERT_PHONE env is always included; extras add to
+    // it (e.g. another admin who wants a copy).
+    const cfg = await loadAutoSms("cert_retry_alert");
+    if (cfg.enabled) {
+      try {
+        const items = alertable.slice(0, 5).map((f) => {
+          const err = String(f.error || "unknown").slice(0, 60);
+          return `${f.client_name || f.jn_job_id} (${err})`;
+        });
+        const more = alertable.length > items.length ? ` +${alertable.length - items.length} more` : "";
+        const message =
+          `⚠ Cert-retry failures: ${alertable.length}/${candidates.length}\n` +
+          items.join("\n") +
+          more +
+          `\nCheck Netlify logs for full detail.`;
+        const recipients = mergeRecipients(process.env.ADMIN_ALERT_PHONE, cfg.recipients);
+        for (const rcpt of recipients) {
+          await fetch(`${base}/.netlify/functions/ghl-sms`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ to: rcpt.phone, name: rcpt.name, message }),
+          }).catch(() => {});
+        }
+      } catch (e) {
+        console.warn("Admin SMS alert failed:", e.message);
       }
-    } catch (e) {
-      console.warn("Admin SMS alert failed:", e.message);
     }
   }
 
@@ -248,6 +252,45 @@ exports.handler = async (event) => {
     failures: failures.slice(0, 10),
   });
 };
+
+// ── auto_sms registry helpers (fail-open) ───────────────────────────
+async function loadAutoSms(key) {
+  const SB_URL = process.env.VITE_SUPABASE_URL, SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
+  if (!SB_URL || !SB_KEY) return { enabled: true, recipients: [] };
+  try {
+    const r = await fetch(
+      `${SB_URL}/rest/v1/auto_sms?key=eq.${encodeURIComponent(key)}&select=enabled,recipients&limit=1`,
+      { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } },
+    );
+    if (!r.ok) return { enabled: true, recipients: [] };
+    const rows = await r.json().catch(() => []);
+    const row = rows[0];
+    if (!row) return { enabled: true, recipients: [] };
+    return { enabled: row.enabled !== false, recipients: Array.isArray(row.recipients) ? row.recipients : [] };
+  } catch {
+    return { enabled: true, recipients: [] };
+  }
+}
+
+// Combine ADMIN_ALERT_PHONE (comma list) + extra recipients, deduped by
+// normalized phone. Returns [{name, phone}].
+function mergeRecipients(adminEnv, extras) {
+  const byPhone = new Map();
+  const norm = (p) => {
+    const d = String(p || "").replace(/\D/g, "");
+    if (d.length === 10) return `+1${d}`;
+    if (d.length === 11 && d.startsWith("1")) return `+${d}`;
+    if (d.length < 10) return "";
+    return `+${d}`;
+  };
+  for (const p of String(adminEnv || "").split(",").map((s) => s.trim()).filter(Boolean)) {
+    const k = norm(p); if (k && !byPhone.has(k)) byPhone.set(k, { phone: k, name: "Admin" });
+  }
+  for (const e of Array.isArray(extras) ? extras : []) {
+    const k = norm(e.phone); if (k && !byPhone.has(k)) byPhone.set(k, { phone: k, name: e.name || "Admin" });
+  }
+  return [...byPhone.values()];
+}
 
 function json(status, body) {
   return {

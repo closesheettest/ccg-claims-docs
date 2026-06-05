@@ -6,7 +6,13 @@
 // large roster (many sequential GHL calls) can't blow the scheduled
 // detector's short timeout — background functions get up to 15 min.
 //
-// Input (POST JSON): { message }  — the pre-composed text to send.
+// Input (POST JSON): {
+//   message,                       — the pre-composed text to send
+//   extraRecipients?: [{name,phone}] — optional extra copies (e.g. an
+//                                     admin who wants their own copy via
+//                                     the Auto-SMS registry). Merged in
+//                                     and deduped by phone with the field.
+// }
 // Recipients are gathered here from Supabase, deduped by phone, and
 // each is sent via the existing ghl-sms function.
 //
@@ -49,6 +55,12 @@ export const handler = async (event) => {
   }
   for (const m of managers) {
     addRecipient(byPhone, m.phone, m.name)
+  }
+  // 3b. Extra copy-recipients passed in (Auto-SMS registry). Deduped by
+  //     phone, so an admin who is also a rep still only gets one text.
+  const extras = Array.isArray(body.extraRecipients) ? body.extraRecipients : []
+  for (const e of extras) {
+    addRecipient(byPhone, e.phone, e.name)
   }
   const recipients = [...byPhone.values()]
 

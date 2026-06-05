@@ -238,19 +238,33 @@ exports.handler = async (event) => {
   //    if the env var isn't set so this cron stays usable on a fresh
   //    deploy where alerts haven't been wired yet — the orphan list is
   //    still surfaced in the JSON response.
-  const phoneList = (process.env.ADMIN_ALERT_PHONE || "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (phoneList.length === 0) {
-    console.warn("ADMIN_ALERT_PHONE not set — skipping SMS");
+  // On/off + extra copy-recipients from the Auto-SMS registry (key
+  // "daily_orphan_alert"). Fail-open. ADMIN_ALERT_PHONE is always
+  // included; extras add their own copies.
+  const cfg = await loadAutoSms("daily_orphan_alert");
+  if (!cfg.enabled) {
     return json(200, {
       ok: true,
       orphans: orphans.length,
       stuck_certs: stuckCerts.length,
       missing_agreements: missingAgreements.length,
       alerted: false,
-      note: "ADMIN_ALERT_PHONE not configured; no SMS sent.",
+      note: "daily_orphan_alert disabled in auto_sms; no SMS sent.",
+      orphan_names: orphans.map((o) => o.client_name),
+      stuck_names: stuckCerts.map((s) => s.client_name),
+      missing_agreement_names: missingAgreements.map((m) => m.client_name),
+    });
+  }
+  const recipients = mergeRecipients(process.env.ADMIN_ALERT_PHONE, cfg.recipients);
+  if (recipients.length === 0) {
+    console.warn("No recipients (ADMIN_ALERT_PHONE unset + no extras) — skipping SMS");
+    return json(200, {
+      ok: true,
+      orphans: orphans.length,
+      stuck_certs: stuckCerts.length,
+      missing_agreements: missingAgreements.length,
+      alerted: false,
+      note: "No recipients configured; no SMS sent.",
       orphan_names: orphans.map((o) => o.client_name),
       stuck_names: stuckCerts.map((s) => s.client_name),
       missing_agreement_names: missingAgreements.map((m) => m.client_name),
@@ -258,17 +272,17 @@ exports.handler = async (event) => {
   }
 
   let sentTo = 0;
-  for (const phone of phoneList) {
+  for (const rcpt of recipients) {
     try {
       const r = await fetch(`${base}/.netlify/functions/ghl-sms`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: phone, name: "Admin", message }),
+        body: JSON.stringify({ to: rcpt.phone, name: rcpt.name, message }),
       });
       if (r.ok) sentTo++;
-      else console.warn(`SMS to ${phone} returned ${r.status}`);
+      else console.warn(`SMS to ${rcpt.phone} returned ${r.status}`);
     } catch (e) {
-      console.warn(`SMS to ${phone} threw:`, e.message);
+      console.warn(`SMS to ${rcpt.phone} threw:`, e.message);
     }
   }
 
@@ -283,6 +297,43 @@ exports.handler = async (event) => {
     missing_agreement_names: missingAgreements.map((m) => m.client_name),
   });
 };
+
+// ── auto_sms registry helpers (fail-open) ───────────────────────────
+async function loadAutoSms(key) {
+  const SB_URL = process.env.VITE_SUPABASE_URL, SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
+  if (!SB_URL || !SB_KEY) return { enabled: true, recipients: [] };
+  try {
+    const r = await fetch(
+      `${SB_URL}/rest/v1/auto_sms?key=eq.${encodeURIComponent(key)}&select=enabled,recipients&limit=1`,
+      { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } },
+    );
+    if (!r.ok) return { enabled: true, recipients: [] };
+    const rows = await r.json().catch(() => []);
+    const row = rows[0];
+    if (!row) return { enabled: true, recipients: [] };
+    return { enabled: row.enabled !== false, recipients: Array.isArray(row.recipients) ? row.recipients : [] };
+  } catch {
+    return { enabled: true, recipients: [] };
+  }
+}
+
+function mergeRecipients(adminEnv, extras) {
+  const byPhone = new Map();
+  const norm = (p) => {
+    const d = String(p || "").replace(/\D/g, "");
+    if (d.length === 10) return `+1${d}`;
+    if (d.length === 11 && d.startsWith("1")) return `+${d}`;
+    if (d.length < 10) return "";
+    return `+${d}`;
+  };
+  for (const p of String(adminEnv || "").split(",").map((s) => s.trim()).filter(Boolean)) {
+    const k = norm(p); if (k && !byPhone.has(k)) byPhone.set(k, { phone: k, name: "Admin" });
+  }
+  for (const e of Array.isArray(extras) ? extras : []) {
+    const k = norm(e.phone); if (k && !byPhone.has(k)) byPhone.set(k, { phone: k, name: e.name || "Admin" });
+  }
+  return [...byPhone.values()];
+}
 
 function json(status, body) {
   return {

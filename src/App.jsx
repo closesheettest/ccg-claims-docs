@@ -1037,6 +1037,179 @@ function Label({ children }) {
   );
 }
 
+// ═════════════════════════════════════════════════════════════════════
+// Auto SMS registry — manager Settings → Auto SMS. Lists every automated
+// text (backed by the Supabase auto_sms table): when it fires, who it
+// goes to, an on/off switch, and add/remove for extra copy-recipients
+// (e.g. an admin who wants their own copy and can later opt out).
+// ═════════════════════════════════════════════════════════════════════
+function AutoSmsManager() {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+  const [busyKey, setBusyKey] = useState("");
+  const [draftName, setDraftName] = useState({}); // key -> name
+  const [draftPhone, setDraftPhone] = useState({}); // key -> phone
+
+  async function load() {
+    setLoading(true);
+    setErr("");
+    const { data, error } = await supabase.from("auto_sms").select("*").order("name");
+    if (error) setErr(error.message);
+    setRows(data || []);
+    setLoading(false);
+  }
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+
+  async function patchRow(key, patch, optimistic) {
+    setBusyKey(key);
+    setErr("");
+    const { error } = await supabase
+      .from("auto_sms")
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .eq("key", key);
+    setBusyKey("");
+    if (error) { setErr(error.message); return false; }
+    setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...optimistic } : r)));
+    return true;
+  }
+
+  function toggleEnabled(row) {
+    patchRow(row.key, { enabled: !row.enabled }, { enabled: !row.enabled });
+  }
+
+  async function addRecipient(row) {
+    const name = (draftName[row.key] || "").trim();
+    const phone = (draftPhone[row.key] || "").trim();
+    const digits = phone.replace(/\D/g, "");
+    if (digits.length < 10) { setErr("Enter a valid 10-digit phone number."); return; }
+    const next = [...(Array.isArray(row.recipients) ? row.recipients : []), { name: name || "Admin", phone }];
+    const ok = await patchRow(row.key, { recipients: next }, { recipients: next });
+    if (ok) {
+      setDraftName((d) => ({ ...d, [row.key]: "" }));
+      setDraftPhone((d) => ({ ...d, [row.key]: "" }));
+    }
+  }
+
+  function removeRecipient(row, idx) {
+    const next = (Array.isArray(row.recipients) ? row.recipients : []).filter((_, i) => i !== idx);
+    patchRow(row.key, { recipients: next }, { recipients: next });
+  }
+
+  const fmtWhen = (iso) => {
+    if (!iso) return "never";
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString("en-US");
+  };
+
+  if (loading) return <div style={{ color: "#6b7280", fontSize: 14 }}>Loading automated texts…</div>;
+
+  if (!rows.length) {
+    return (
+      <div style={{ padding: 14, background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 12, color: "#92400e", fontSize: 13 }}>
+        {err ? <div style={{ marginBottom: 8 }}>⚠️ {err}</div> : null}
+        No automated texts found yet. If you just added the feature, run the <strong>auto_sms</strong> table setup SQL in Supabase, then refresh this page.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      {err ? <div style={{ color: "#dc2626", fontSize: 13, fontWeight: 700 }}>⚠️ {err}</div> : null}
+      <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>
+        These texts send automatically. Toggle one off to pause it, and add a phone under any message to get your own copy each time (remove it to stop).
+      </div>
+      {rows.map((row) => {
+        const recipients = Array.isArray(row.recipients) ? row.recipients : [];
+        return (
+          <div key={row.key} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+              <div style={{ flex: 1, minWidth: 220 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#0f172a" }}>
+                  {row.name}
+                </div>
+                {row.description && (
+                  <div style={{ fontSize: 12, color: "#6b7280", marginTop: 3, fontFamily: "'Nunito', sans-serif" }}>{row.description}</div>
+                )}
+                <div style={{ marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {row.schedule_label && (
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#3730a3", background: "#eef2ff", border: "1px solid #c7d2fe", borderRadius: 999, padding: "2px 8px" }}>
+                      🕘 {row.schedule_label}
+                    </span>
+                  )}
+                  {row.audience_note && (
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#475569", background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 999, padding: "2px 8px" }}>
+                      👥 {row.audience_note}
+                    </span>
+                  )}
+                  <span style={{ fontSize: 11, fontWeight: 700, color: "#475569", background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 999, padding: "2px 8px" }}>
+                    📨 Last: {fmtWhen(row.last_sent_at)}{row.last_status ? ` (${row.last_status})` : ""}
+                  </span>
+                </div>
+              </div>
+              {/* On/off toggle */}
+              <button
+                type="button"
+                disabled={busyKey === row.key}
+                onClick={() => toggleEnabled(row)}
+                style={{
+                  padding: "6px 14px", borderRadius: 999, border: "1px solid",
+                  borderColor: row.enabled ? "#86efac" : "#fca5a5",
+                  background: row.enabled ? "#dcfce7" : "#fef2f2",
+                  color: row.enabled ? "#166534" : "#991b1b",
+                  fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12,
+                  letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer", whiteSpace: "nowrap",
+                }}>
+                {row.enabled ? "● On" : "○ Off"}
+              </button>
+            </div>
+
+            {/* Extra copy-recipients */}
+            <div style={{ marginTop: 12, borderTop: "1px dashed #e5e7eb", paddingTop: 10 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 6 }}>Extra copies go to:</div>
+              {recipients.length === 0 ? (
+                <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 8 }}>No extra recipients — only the default audience above gets this text.</div>
+              ) : (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                  {recipients.map((r, i) => (
+                    <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: "#0f172a", background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 999, padding: "3px 6px 3px 10px" }}>
+                      {r.name ? `${r.name} · ` : ""}{r.phone}
+                      <button type="button" disabled={busyKey === row.key} onClick={() => removeRecipient(row, i)}
+                        title="Remove" style={{ border: "none", background: "#e2e8f0", color: "#475569", borderRadius: 999, width: 18, height: 18, lineHeight: "16px", cursor: "pointer", fontWeight: 800 }}>
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                <input
+                  type="text"
+                  value={draftName[row.key] || ""}
+                  onChange={(e) => setDraftName((d) => ({ ...d, [row.key]: e.target.value }))}
+                  placeholder="Name (optional)"
+                  style={{ height: 38, borderRadius: 10, border: "1px solid #d1d5db", padding: "0 10px", fontSize: 13, width: 150, boxSizing: "border-box" }}
+                />
+                <input
+                  type="tel"
+                  value={draftPhone[row.key] || ""}
+                  onChange={(e) => setDraftPhone((d) => ({ ...d, [row.key]: e.target.value }))}
+                  placeholder="Phone, e.g. 4437973758"
+                  style={{ height: 38, borderRadius: 10, border: "1px solid #d1d5db", padding: "0 10px", fontSize: 13, width: 180, boxSizing: "border-box" }}
+                />
+                <button type="button" disabled={busyKey === row.key} onClick={() => addRecipient(row)}
+                  style={{ height: 38, padding: "0 16px", borderRadius: 10, border: "none", background: "#199c2e", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
+                  {busyKey === row.key ? "…" : "+ Add copy"}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function SectionTitle({ children }) {
   return (
     <div
@@ -10692,6 +10865,7 @@ if (!hasDamage) {
                         { group: "pa", key: "sit_sold_pa_report", emoji: "📋", label: "Sit Sold PA (Old)", desc: "Records currently at jn_status \"Sit Sold PA\" — what the old PA still has on her plate." },
                         // ── Settings ──
                         { group: "settings", key: "security", emoji: "⚙️", label: "Security & Notifications", desc: "PIN, activity email" },
+                        { group: "settings", key: "autosms", emoji: "📣", label: "Auto SMS", desc: "Every automated text — when it fires, who gets it, add/remove copies" },
                       ];
                       const tiles = MANAGER_TILES.filter(t => t.group === managerTab);
                       return (
@@ -10798,6 +10972,11 @@ if (!hasDamage) {
                       </div>
                       </div>
                     </div>
+                  </Card>}
+
+                  {managerSection === "autosms" && <Card style={{ padding: 20, background: "#f8fafc" }}>
+                    <SectionTitle>Auto SMS</SectionTitle>
+                    <AutoSmsManager />
                   </Card>}
 
                   {/* ── PA Management section ──

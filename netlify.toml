@@ -50,3 +50,13 @@
 # this via exports.config.schedule; this toml entry keeps it visible.
 [functions."leaderboard-notify"]
   schedule = "*/5 * * * *"
+
+# cron-daily-leaderboard: a once-a-day MORNING SNAPSHOT of the team
+# standings (unlike leaderboard-notify, which only fires when the lead
+# changes hands). Fires at 13:00 UTC = 9 AM EDT and texts the whole field
+# "Starting <day>, <team> is in the lead with N…" plus any extra copy-
+# recipients configured in the auto_sms table. The function file also
+# declares this via exports.config.schedule; this toml entry keeps it
+# visible.
+[functions."cron-daily-leaderboard"]
+  schedule = "0 13 * * *"

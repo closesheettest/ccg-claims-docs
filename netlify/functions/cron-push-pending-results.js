@@ -191,37 +191,79 @@ const handler = async () => {
   // ADMIN_ALERT_PHONE is configured so the cron stays usable without
   // the alert wiring. Doesn't fire on 0 failures — no noise on clean
   // runs.
-  if (failCount > 0 && process.env.ADMIN_ALERT_PHONE) {
-    try {
-      // Compact failure summary that fits in one SMS. Each failure
-      // contributes "Name (first 60 chars of error)"; we cap the
-      // whole message at ~300 chars to stay friendly.
-      const items = failures.slice(0, 5).map((f) => {
-        const errShort = String(f.error || "unknown").slice(0, 60);
-        return `${f.name || f.id} (${errShort})`;
-      });
-      const more = failCount > items.length ? ` +${failCount - items.length} more` : "";
-      const message =
-        `⚠ JN push failures: ${failCount}/${todo.length}\n` +
-        items.join("\n") +
-        more +
-        `\nCheck Netlify logs for full detail.`;
-      await fetch(`${base}/.netlify/functions/ghl-sms`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          to: process.env.ADMIN_ALERT_PHONE,
-          name: "Admin",
-          message,
-        }),
-      });
-    } catch (e) {
-      console.warn("Admin SMS alert failed:", e.message);
+  if (failCount > 0) {
+    // On/off + extra copy-recipients from the Auto-SMS registry (key
+    // "pending_results_alert"). Fail-open. ADMIN_ALERT_PHONE is always
+    // included; extras add their own copies.
+    const cfg = await loadAutoSms("pending_results_alert");
+    const recipients = cfg.enabled ? mergeRecipients(process.env.ADMIN_ALERT_PHONE, cfg.recipients) : [];
+    if (recipients.length > 0) {
+      try {
+        // Compact failure summary that fits in one SMS. Each failure
+        // contributes "Name (first 60 chars of error)"; we cap the
+        // whole message at ~300 chars to stay friendly.
+        const items = failures.slice(0, 5).map((f) => {
+          const errShort = String(f.error || "unknown").slice(0, 60);
+          return `${f.name || f.id} (${errShort})`;
+        });
+        const more = failCount > items.length ? ` +${failCount - items.length} more` : "";
+        const message =
+          `⚠ JN push failures: ${failCount}/${todo.length}\n` +
+          items.join("\n") +
+          more +
+          `\nCheck Netlify logs for full detail.`;
+        for (const rcpt of recipients) {
+          await fetch(`${base}/.netlify/functions/ghl-sms`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ to: rcpt.phone, name: rcpt.name, message }),
+          }).catch(() => {});
+        }
+      } catch (e) {
+        console.warn("Admin SMS alert failed:", e.message);
+      }
     }
   }
 
   return { statusCode: 200, body: JSON.stringify(summary) };
 };
+
+// ── auto_sms registry helpers (fail-open) ───────────────────────────
+async function loadAutoSms(key) {
+  const SB_URL = process.env.VITE_SUPABASE_URL, SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
+  if (!SB_URL || !SB_KEY) return { enabled: true, recipients: [] };
+  try {
+    const r = await fetch(
+      `${SB_URL}/rest/v1/auto_sms?key=eq.${encodeURIComponent(key)}&select=enabled,recipients&limit=1`,
+      { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } },
+    );
+    if (!r.ok) return { enabled: true, recipients: [] };
+    const rows = await r.json().catch(() => []);
+    const row = rows[0];
+    if (!row) return { enabled: true, recipients: [] };
+    return { enabled: row.enabled !== false, recipients: Array.isArray(row.recipients) ? row.recipients : [] };
+  } catch {
+    return { enabled: true, recipients: [] };
+  }
+}
+
+function mergeRecipients(adminEnv, extras) {
+  const byPhone = new Map();
+  const norm = (p) => {
+    const d = String(p || "").replace(/\D/g, "");
+    if (d.length === 10) return `+1${d}`;
+    if (d.length === 11 && d.startsWith("1")) return `+${d}`;
+    if (d.length < 10) return "";
+    return `+${d}`;
+  };
+  for (const p of String(adminEnv || "").split(",").map((s) => s.trim()).filter(Boolean)) {
+    const k = norm(p); if (k && !byPhone.has(k)) byPhone.set(k, { phone: k, name: "Admin" });
+  }
+  for (const e of Array.isArray(extras) ? extras : []) {
+    const k = norm(e.phone); if (k && !byPhone.has(k)) byPhone.set(k, { phone: k, name: e.name || "Admin" });
+  }
+  return [...byPhone.values()];
+}
 
 // Netlify v2 scheduled function: declare the cron schedule next to
 // the handler. The toml also has this for redundancy.

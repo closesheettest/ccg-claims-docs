@@ -42,11 +42,19 @@
 const SB_URL = process.env.VITE_SUPABASE_URL
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY
 const STATE_ID = 'leader'
+const AUTO_SMS_KEY = 'leaderboard_hype'
 
 export const handler = async (event) => {
   const dry = !!(event?.queryStringParameters?.dry)
   const base =
     process.env.URL || process.env.DEPLOY_URL || process.env.PUBLIC_SITE_URL || ''
+
+  // On/off + extra copy-recipients from the Auto-SMS registry. Fail-open
+  // (a missing row / read error still fires the hype text).
+  const cfg = await loadAutoSms(AUTO_SMS_KEY)
+  if (!cfg.enabled) {
+    return json(200, { ok: true, fired: false, reason: 'disabled in auto_sms' })
+  }
 
   // 1. Pull current standings from the public leaderboard fn.
   let lb
@@ -102,7 +110,7 @@ export const handler = async (event) => {
     const r = await fetch(`${base}/.netlify/functions/leaderboard-blast-background`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, extraRecipients: cfg.recipients }),
     })
     blastOk = r.ok || r.status === 202
     if (!blastOk) console.warn('Blast trigger returned', r.status)
@@ -177,6 +185,25 @@ async function writeState(state) {
     if (!res.ok) console.warn('state write failed:', res.status, await res.text().catch(() => ''))
   } catch (e) {
     console.warn('state write threw:', e.message || e)
+  }
+}
+
+// ── auto_sms registry helper (fail-open) ────────────────────────────
+async function loadAutoSms(key) {
+  if (!SB_URL || !SB_KEY) return { enabled: true, recipients: [] }
+  try {
+    const r = await fetch(
+      `${SB_URL}/rest/v1/auto_sms?key=eq.${encodeURIComponent(key)}&select=enabled,recipients&limit=1`,
+      { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } },
+    )
+    if (!r.ok) return { enabled: true, recipients: [] }
+    const rows = await r.json().catch(() => [])
+    const row = rows[0]
+    if (!row) return { enabled: true, recipients: [] }
+    const recipients = Array.isArray(row.recipients) ? row.recipients : []
+    return { enabled: row.enabled !== false, recipients }
+  } catch {
+    return { enabled: true, recipients: [] }
   }
 }
 
