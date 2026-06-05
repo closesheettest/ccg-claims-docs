@@ -903,6 +903,7 @@ function PAJobList({ me, onOpenJob, wide }) {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("mine"); // mine | pool
   const [claimingId, setClaimingId] = useState(null);
+  const [signupBusyId, setSignupBusyId] = useState(null);
   const [msg, setMsg] = useState(null);
 
   async function load() {
@@ -950,6 +951,64 @@ function PAJobList({ me, onOpenJob, wide }) {
       return;
     }
     onOpenJob(job.id);
+  }
+
+  // Record the homeowner's answer to "did they sign up with you?" right
+  // from the My-claims card, without opening the deal. "Need Signature"
+  // and "Signed" are plain saves; "Refused to Sign" is handled by refuse().
+  async function saveSignup(job, opt) {
+    setSignupBusyId(job.id);
+    setMsg(null);
+    try {
+      const res = await fetch("/.netlify/functions/pa-save-field", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inspectionId: job.id, paId: me.id, field: "pa_signup", value: opt }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!body.ok) {
+        setMsg({ kind: "error", text: body.error || `Couldn't save (status ${res.status})` });
+      } else {
+        setMine((l) => l.map((j) => (j.id === job.id ? { ...j, pa_fields: { ...(j.pa_fields || {}), pa_signup: opt } } : j)));
+      }
+    } catch (e) {
+      setMsg({ kind: "error", text: e.message || "Network error" });
+    }
+    setSignupBusyId(null);
+  }
+
+  // "Refused to Sign" — reverts the deal to retail and texts the rep +
+  // their manager. One-way door, so confirm hard. On success the deal
+  // leaves My claims (it's no longer a PA insurance deal).
+  async function refuse(job) {
+    const who = job.client_name || "this homeowner";
+    if (!window.confirm(
+      `Mark "Refused to Sign" for ${who}?\n\n` +
+      `This tells us the homeowner does NOT want to go through insurance. ` +
+      `The deal moves back to RETAIL and leaves your claims, and we text ` +
+      `the sales rep and their manager to go set up a retail appointment.\n\n` +
+      `This can't be undone from here.`
+    )) return;
+    setSignupBusyId(job.id);
+    setMsg(null);
+    try {
+      const res = await fetch("/.netlify/functions/pa-refused-to-sign", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inspectionId: job.id, paId: me.id }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!body.ok) {
+        setSignupBusyId(null);
+        setMsg({ kind: "error", text: body.error || `status ${res.status}` });
+        return;
+      }
+      const repOk = body?.notified?.rep?.ok;
+      const mgrOk = body?.notified?.manager?.ok;
+      setMsg({ kind: "success", text: `Moved ${who} to retail. ${repOk ? "✓ Rep texted" : "⚠ Rep not texted"} · ${mgrOk ? "✓ Manager texted" : "⚠ Manager not texted (no zone manager)"}` });
+      setMine((l) => l.filter((j) => j.id !== job.id));
+    } catch (e) {
+      setMsg({ kind: "error", text: e.message || "Network error" });
+    }
+    setSignupBusyId(null);
   }
 
   const list = tab === "mine" ? mine : pool;
@@ -1014,8 +1073,11 @@ function PAJobList({ me, onOpenJob, wide }) {
               job={job}
               mine={tab === "mine"}
               claiming={claimingId === job.id}
+              signupBusy={signupBusyId === job.id}
               onClaim={() => claim(job)}
               onOpen={() => onOpenJob(job.id)}
+              onSignup={saveSignup}
+              onRefuse={refuse}
             />
           ))}
         </div>
@@ -1024,9 +1086,12 @@ function PAJobList({ me, onOpenJob, wide }) {
   );
 }
 
-function PAJobCard({ job, mine, claiming, onClaim, onOpen, hideCounty }) {
+function PAJobCard({ job, mine, claiming, onClaim, onOpen, hideCounty, signupBusy, onSignup, onRefuse }) {
   const addr = [job.address, job.city, job.state, job.zip].filter(Boolean).join(", ");
   const progress = mine ? milestoneProgress(job.pa_fields) : null;
+  const signupValue = job.pa_fields?.pa_signup;
+  const signupCurrent = isNeedSignature(signupValue) ? "Need Signature" : signupValue;
+  const signupPending = isNeedSignature(signupValue);
   return (
     <div style={{ padding: 12, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
@@ -1050,9 +1115,46 @@ function PAJobCard({ job, mine, claiming, onClaim, onOpen, hideCounty }) {
       </div>
       <div style={{ marginTop: 10 }}>
         {mine ? (
-          <button type="button" onClick={onOpen} style={{ ...primaryBtn, width: "100%", padding: "10px", fontSize: 14 }}>
-            Open pipeline →
-          </button>
+          <>
+            {/* Sign-up answer, right on the card — the PA's first action.
+                While still "Need Signature" the block glows amber. */}
+            <div style={{
+              marginBottom: 8, padding: 10, borderRadius: 10,
+              background: signupPending ? "#fffbeb" : "#f8fafc",
+              border: signupPending ? "2px solid #f59e0b" : "1px solid #e5e7eb",
+            }}>
+              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6, color: signupPending ? "#b45309" : "#475569" }}>
+                {signupPending ? "⚠ Did the homeowner sign up with you?" : `Sign-up: ${signupCurrent}`}
+              </div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {PA_SIGNUP_OPTIONS.map((opt) => {
+                  const active = signupCurrent === opt;
+                  return (
+                    <button key={opt} type="button" disabled={signupBusy}
+                      onClick={() => {
+                        if (signupBusy) return;
+                        if (opt === "Refused to Sign") { onRefuse(job); return; }
+                        onSignup(job, opt);
+                      }}
+                      style={{
+                        flex: "1 1 90px", padding: "10px 8px", borderRadius: 9, fontSize: 13, fontWeight: 700,
+                        cursor: signupBusy ? "default" : "pointer",
+                        border: active ? "2px solid" : "1px solid #cbd5e1",
+                        borderColor: active ? signupColor(opt) : "#cbd5e1",
+                        background: active ? signupBg(opt) : "#fff",
+                        color: active ? signupColor(opt) : "#334155",
+                      }}>
+                      {opt}
+                    </button>
+                  );
+                })}
+              </div>
+              {signupBusy && <div style={{ fontSize: 11, color: "#64748b", marginTop: 6, fontWeight: 700 }}>Saving…</div>}
+            </div>
+            <button type="button" onClick={onOpen} style={{ ...primaryBtn, width: "100%", padding: "10px", fontSize: 14 }}>
+              Open pipeline →
+            </button>
+          </>
         ) : (
           <button type="button" onClick={onClaim} disabled={claiming}
             style={{ ...primaryBtn, width: "100%", padding: "10px", fontSize: 14, background: claiming ? "#94a3b8" : "#047857" }}>
