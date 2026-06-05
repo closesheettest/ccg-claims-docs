@@ -79,17 +79,15 @@ function signupBg(opt) {
   return "#fffbeb"; // Pending
 }
 
-// The 8 PA-editable milestone fields (the Insurance section minus the 3
-// auto-set context fields). Order matches the JN "Insurance" section.
+// The PA-editable milestone fields shown in the portal's Insurance
+// section. Order matches the JN "Insurance" section. (Correction Needed,
+// Install Paperwork, Move Back to Retail, Advanced, and Second Advance
+// were removed from the portal at Neal's request — the JN fields still
+// exist, they're just not surfaced here.)
 const PA_FIELDS = [
   { key: "pa_filed",            label: "PA - Filed" },
   { key: "ins_approved",        label: "INS - Approved" },
   { key: "iss_uploaded",        label: "ISS Uploaded" },
-  { key: "correction_needed",   label: "Correction Needed" },
-  { key: "install_paperwork",   label: "Install Paperwork" },
-  { key: "move_back_to_retail", label: "Move Back to Retail" },
-  { key: "advanced",            label: "Advanced" },
-  { key: "second_advance",      label: "Second Advance" },
 ];
 
 // ── Date helpers. JN custom dates are unix epoch SECONDS. We anchor the
