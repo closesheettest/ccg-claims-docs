@@ -2762,19 +2762,25 @@ function InspectorReports({ me, onBack }) {
                           <div style={{
                             width: `${(d.damage / maxDayTotal) * 100}%`,
                             background: STATUS_META.damage.color,
-                          }} title={`Damage: ${d.damage}`} />
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            color: "#fff", fontSize: 11, fontWeight: 700, lineHeight: 1, overflow: "hidden",
+                          }} title={`Damage: ${d.damage}`}>{d.damage}</div>
                         )}
                         {d.no_damage > 0 && (
                           <div style={{
                             width: `${(d.no_damage / maxDayTotal) * 100}%`,
                             background: STATUS_META.no_damage.color,
-                          }} title={`No damage: ${d.no_damage}`} />
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            color: "#fff", fontSize: 11, fontWeight: 700, lineHeight: 1, overflow: "hidden",
+                          }} title={`No damage: ${d.no_damage}`}>{d.no_damage}</div>
                         )}
                         {d.retail > 0 && (
                           <div style={{
                             width: `${(d.retail / maxDayTotal) * 100}%`,
                             background: STATUS_META.retail.color,
-                          }} title={`Retail: ${d.retail}`} />
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            color: "#fff", fontSize: 11, fontWeight: 700, lineHeight: 1, overflow: "hidden",
+                          }} title={`Retail: ${d.retail}`}>{d.retail}</div>
                         )}
                       </div>
                       <div style={{ fontSize: 12, color: "#374151", minWidth: 24, textAlign: "right" }}>
