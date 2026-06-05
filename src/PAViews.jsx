@@ -117,6 +117,60 @@ function epochToDisplay(epoch) {
 // ═════════════════════════════════════════════════════════════════════
 // ADMIN PANEL — manager-only.
 // ═════════════════════════════════════════════════════════════════════
+// Shared PA activate/deactivate. Used by BOTH the PA admin panel and the
+// unified Team Roles roster so the side effects stay in one place:
+//   • activate   → auto-send the portal link (SMS/email)
+//   • deactivate → park the PA's live claims in "PA Decision Needed" so a
+//                  manager decides where each one goes (instead of dumping
+//                  them back into the open pool)
+// Returns { ok, text }. The caller reloads its own lists + shows the message.
+export async function setPaActive(pa, makeActive) {
+  const { error } = await supabase.from("pas").update({ active: makeActive }).eq("id", pa.id);
+  if (error) return { ok: false, text: error.message };
+
+  // Deactivation: park active claims for a manager decision. Keep pa_id so
+  // the queue can show who had it. Only touch live (not cancelled/parked).
+  if (!makeActive) {
+    const { data: parked } = await supabase
+      .from("inspections")
+      .update({
+        pa_decision_needed: true,
+        pa_decision_reason: `PA ${pa.name} deactivated`,
+        pa_decision_at: new Date().toISOString(),
+      })
+      .eq("pa_id", pa.id)
+      .is("cancelled_at", null)
+      .eq("pa_decision_needed", false)
+      .select("id");
+    const n = parked?.length || 0;
+    return {
+      ok: true,
+      text: n > 0
+        ? `Deactivated ${pa.name}. Moved ${n} deal${n === 1 ? "" : "s"} to "PA Decision Needed" to reassign.`
+        : `Deactivated ${pa.name}.`,
+    };
+  }
+
+  // Activation: auto-send the portal link.
+  if (!pa.email && !pa.phone) {
+    return { ok: true, text: `Activated ${pa.name}. No email/phone on file — add one via Edit, then Resend link.` };
+  }
+  try {
+    const res = await fetch("/.netlify/functions/send-pa-app-invite", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paId: pa.id, channel: "auto" }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!body.ok) {
+      return { ok: false, text: `Activated, but link send failed: ${body.error || `status ${res.status}`}` };
+    }
+    const dest = body.channel_used === "sms" ? `📱 SMS to ${body.phone}` : `📧 email to ${body.email}`;
+    return { ok: true, text: `Activated ${pa.name} — portal link sent (${dest}).` };
+  } catch (e) {
+    return { ok: false, text: `Activated, but link send failed: ${e.message || "Network error"}` };
+  }
+}
+
 export function PAAdminPanel() {
   const [pas, setPas] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -314,63 +368,13 @@ export function PAAdminPanel() {
   }
 
   async function toggleActive(pa) {
-    const wasActive = !!pa.active;
+    // Shared with the Team Roles roster — see setPaActive above.
     setBusyId(pa.id);
-    const { error } = await supabase.from("pas").update({ active: !pa.active }).eq("id", pa.id);
-    if (error) { setBusyId(null); return setMessage({ kind: "error", text: error.message }); }
-
-    // On deactivation: park the PA's active claims in the "PA Decision
-    // Needed" queue (instead of dumping them back into the open pool) so a
-    // manager decides where each one goes. Keep pa_id so the queue can show
-    // who had it. Only touch live claims (not already cancelled/parked).
-    if (wasActive) {
-      const { data: parked } = await supabase
-        .from("inspections")
-        .update({
-          pa_decision_needed: true,
-          pa_decision_reason: `PA ${pa.name} deactivated`,
-          pa_decision_at: new Date().toISOString(),
-        })
-        .eq("pa_id", pa.id)
-        .is("cancelled_at", null)
-        .eq("pa_decision_needed", false)
-        .select("id");
-      await loadPas();
-      await loadDecisions();
-      setBusyId(null);
-      const n = parked?.length || 0;
-      setMessage({
-        kind: "success",
-        text: n > 0
-          ? `Deactivated ${pa.name}. Moved ${n} deal${n === 1 ? "" : "s"} to "PA Decision Needed" to reassign.`
-          : `Deactivated ${pa.name}.`,
-      });
-      return;
-    }
-
-    // On activation: auto-send the portal link.
+    const result = await setPaActive(pa, !pa.active);
     await loadPas();
-    if (!pa.email && !pa.phone) {
-      setBusyId(null);
-      setMessage({ kind: "success", text: `Activated ${pa.name}. No email/phone on file — add one via Edit, then Resend link.` });
-      return;
-    }
-    try {
-      const res = await fetch("/.netlify/functions/send-pa-app-invite", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paId: pa.id, channel: "auto" }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!body.ok) {
-        setMessage({ kind: "error", text: `Activated, but link send failed: ${body.error || `status ${res.status}`}` });
-      } else {
-        const dest = body.channel_used === "sms" ? `📱 SMS to ${body.phone}` : `📧 email to ${body.email}`;
-        setMessage({ kind: "success", text: `Activated ${pa.name} — portal link sent (${dest}).` });
-      }
-    } catch (e) {
-      setMessage({ kind: "error", text: `Activated, but link send failed: ${e.message || "Network error"}` });
-    }
+    await loadDecisions();
     setBusyId(null);
+    setMessage({ kind: result.ok ? "success" : "error", text: result.text });
   }
 
   async function resendLink(pa) {
@@ -766,6 +770,10 @@ export function PAMobileApp() {
   const [pas, setPas] = useState([]);
   const [me, setMe] = useState(null);
   const [inactiveName, setInactiveName] = useState("");
+  // Dual-role support: if this signed-in PA is ALSO an active inspector
+  // (same JobNimbus id, setup complete), show a "My inspections" button
+  // to hop straight over without re-picking their name.
+  const [inspCounterpart, setInspCounterpart] = useState(null);
   // Mobile (phone-width) vs Desktop (wide) layout. Persists per device.
   const [viewMode, setViewMode] = useState(
     () => (typeof localStorage !== "undefined" && localStorage.getItem("ccg_pa_view") === "desktop" ? "desktop" : "mobile"),
@@ -790,8 +798,34 @@ export function PAMobileApp() {
     });
   }, []);
 
+  // Look up whether the signed-in PA is also an active, setup-complete
+  // inspector. We require info_updated_at (home base saved) because the
+  // inspector portal won't let them sign in without it — no point showing
+  // a button that dead-ends on the "account not active" screen.
+  useEffect(() => {
+    if (!me || !me.jn_user_id) { setInspCounterpart(null); return; }
+    let cancelled = false;
+    supabase
+      .from("inspectors")
+      .select("id,name,active,info_updated_at,jn_user_id")
+      .eq("jn_user_id", me.jn_user_id)
+      .eq("active", true)
+      .not("info_updated_at", "is", null)
+      .maybeSingle()
+      .then(({ data }) => { if (!cancelled) setInspCounterpart(data || null); });
+    return () => { cancelled = true; };
+  }, [me]);
+
   function pickMe(pa) { setMe(pa); localStorage.setItem("ccg_pa_id", pa.id); setStage("list"); }
   function signOut() { localStorage.removeItem("ccg_pa_id"); setMe(null); setInactiveName(""); setStage("pick"); }
+
+  // Hop to the inspector portal as the same person — hand off identity
+  // via localStorage so they land signed-in (no name re-pick).
+  function goToInspectorPortal() {
+    if (!inspCounterpart) return;
+    try { localStorage.setItem("ccg_inspector_id", inspCounterpart.id); } catch { /* ignore */ }
+    window.location.href = window.location.origin + "/?mode=inspector";
+  }
 
   return (
     <div style={{ maxWidth: wide ? 1100 : 480, margin: "0 auto", padding: 16, fontFamily: "'Nunito', sans-serif", minHeight: "100vh", background: "#f9fafb", transition: "max-width 0.15s ease" }}>
@@ -802,6 +836,12 @@ export function PAMobileApp() {
             style={{ ...secondaryBtn, fontSize: 11 }}>
             {wide ? "📱 Mobile view" : "🖥 Desktop view"}
           </button>
+          {me && inspCounterpart && (
+            <button type="button" onClick={goToInspectorPortal}
+              style={{ ...secondaryBtn, fontSize: 11, borderColor: "#7dd3fc", color: "#0369a1" }}>
+              🔍 My inspections
+            </button>
+          )}
           {me && <button type="button" onClick={signOut} style={{ ...secondaryBtn, fontSize: 11 }}>Switch user</button>}
         </div>
       </div>

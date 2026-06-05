@@ -10,6 +10,7 @@ import {
 import { supabase } from "./lib/supabase";
 import { InspectorMobileApp, InspectorsAdminPanel, InspectorSetupPage, ManagerInspectorReports, InspectionAssignmentsPanel, ManagerRoutePlanner, PAHandoffPanel, PAReportPanel, SitSoldPaReportPanel, ConfirmResultsPanel } from "./InspectorViews";
 import { PAMobileApp, PAAdminPanel } from "./PAViews";
+import { TeamRolesPanel } from "./TeamRolesPanel";
 import InspectionPhotosModal from "./InspectionPhotosModal";
 import JnMatchPickerModal from "./JnMatchPickerModal";
 import ManagerRecordsView from "./ManagerRecordsView";
@@ -10849,6 +10850,7 @@ if (!hasDamage) {
                         { group: "signing", key: "dupes", emoji: "👯", label: "Find Duplicates", desc: (<><span style={{ color: "#dc2626", fontWeight: 800 }}>⚠️ DO NOT USE</span> unless you've been trained on it. Address-based deduper — deletes records.</>) },
                         { group: "signing", key: "browseall", emoji: "📚", label: "Browse All Records", desc: "Step through every record one-by-one to verify accuracy" },
                         // ── Inspections ──
+                        { group: "inspections", key: "team_roles", emoji: "🧑‍🤝‍🧑", label: "Team Roles", desc: "One list of everyone — check Inspector and/or PA to set each person's role. Start here when setting someone up." },
                         { group: "inspections", key: "inspectors", emoji: "🔍", label: "Inspectors", desc: "Roster — sync from JN, edit, activate/deactivate" },
                         { group: "inspections", key: "assign_inspections", emoji: "📋", label: "Assign Inspections", desc: "Hand out pending jobs, take them away, release" },
                         { group: "inspections", key: "confirm_results", emoji: "🔒", label: "Confirm Results", desc: "Review held results from gated inspectors before anything fires to JN" },
@@ -10858,6 +10860,7 @@ if (!hasDamage) {
                         { group: "inspections", key: "jnreport", emoji: "📄", label: "JN Inspection Report", desc: "Generate insp report PDF with photos and upload to JN" },
                         { group: "inspections", key: "bulkreport", emoji: "📦", label: "Bulk Inspection Reports", desc: "Run insp reports across every JN job with a chosen status" },
                         // ── Public Adjuster ──
+                        { group: "pa", key: "team_roles", emoji: "🧑‍🤝‍🧑", label: "Team Roles", desc: "One list of everyone — check Inspector and/or PA to set each person's role. Start here when setting someone up." },
                         { group: "pa", key: "pamgmt", emoji: "🔌", label: "PA Management", desc: "Turn the in-app PA paperwork (LoR + PA Authorization signing) on or off." },
                         { group: "pa", key: "public_adjusters", emoji: "🧑‍⚖️", label: "Public Adjusters", desc: "View the portal as a PA sees it, decide which records go into the portal, and assign a PA." },
                         { group: "pa", key: "pa_handoff", emoji: "📤", label: "PA Handoff", desc: "Send a customer's info to a PA." },
@@ -14140,6 +14143,10 @@ if (!hasDamage) {
                         })()}
                       </div>
                     ) : null}
+                  </Card>}
+
+                  {managerSection === "team_roles" && <Card style={{ padding: 20, background: "#f8fafc" }}>
+                    <TeamRolesPanel />
                   </Card>}
 
                   {managerSection === "inspectors" && <Card style={{ padding: 20, background: "#f8fafc" }}>

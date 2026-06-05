@@ -264,6 +264,63 @@ function milesBetween(lat1, lng1, lat2, lng2) {
 // ADMIN PANEL — manager-only. Mounted inside the manager view.
 // ═════════════════════════════════════════════════════════════════════
 
+// Shared inspector activate/deactivate. Used by BOTH the Inspectors admin
+// panel and the unified Team Roles roster so the side effects stay in one
+// place:
+//   • activate   → auto-fire the app-link invite (SMS/email)
+//   • deactivate → release the inspector's PENDING claims back to the pool
+//                  (completed inspections stay attached for history)
+// Returns { ok, text }. The caller reloads its own list + shows the message.
+export async function setInspectorActive(insp, makeActive) {
+  const { error } = await supabase
+    .from("inspectors")
+    .update({ active: makeActive })
+    .eq("id", insp.id);
+  if (error) return { ok: false, text: error.message };
+
+  // Deactivation (true → false): release every PENDING claim back to the
+  // pool. Completed inspections (result IS NOT NULL) stay attached so
+  // historical reports keep showing who did what.
+  if (!makeActive) {
+    const { data: released, error: releaseErr } = await supabase
+      .from("inspections")
+      .update({ inspector_id: null, claimed_at: null })
+      .eq("inspector_id", insp.id)
+      .is("result", null)
+      .select("id");
+    if (releaseErr) {
+      return { ok: false, text: `Deactivated, but couldn't release their pending claims: ${releaseErr.message}` };
+    }
+    const n = released?.length || 0;
+    return {
+      ok: true,
+      text: n > 0
+        ? `Deactivated ${insp.name}. Released ${n} pending claim${n === 1 ? "" : "s"} back to the available pool.`
+        : `Deactivated ${insp.name}. No pending claims to release.`,
+    };
+  }
+
+  // Activation (false → true): auto-fire the app-link invite.
+  if (!insp.email && !insp.phone) {
+    return { ok: true, text: `Activated ${insp.name}. No email/phone on file — couldn't auto-send the app link.` };
+  }
+  try {
+    const res = await fetch("/.netlify/functions/send-inspector-app-invite", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ inspectorId: insp.id, channel: "auto" }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!body.ok) {
+      return { ok: false, text: `Activated, but invite send failed: ${body.error || `status ${res.status}`}` };
+    }
+    const dest = body.channel_used === "sms" ? `📱 SMS to ${body.phone}` : `📧 email to ${body.email}`;
+    return { ok: true, text: `Activated ${insp.name} — app link sent (${dest}).` };
+  } catch (e) {
+    return { ok: false, text: `Activated, but invite send failed: ${e.message || "Network error"}` };
+  }
+}
+
 export function InspectorsAdminPanel() {
   const [inspectors, setInspectors] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -445,77 +502,10 @@ export function InspectorsAdminPanel() {
   }
 
   async function toggleActive(insp) {
-    const wasActive = !!insp.active;
-    const { error } = await supabase
-      .from("inspectors")
-      .update({ active: !insp.active })
-      .eq("id", insp.id);
-    if (error) return setMessage({ kind: "error", text: error.message });
-
-    // On deactivation (true → false): release every PENDING claim
-    // back to the pool. Completed inspections (result IS NOT NULL)
-    // stay attached so historical reports keep showing who did what.
-    if (wasActive) {
-      const { data: released, error: releaseErr } = await supabase
-        .from("inspections")
-        .update({ inspector_id: null, claimed_at: null })
-        .eq("inspector_id", insp.id)
-        .is("result", null)
-        .select("id");
-      loadInspectors();
-      if (releaseErr) {
-        setMessage({
-          kind: "error",
-          text: `Deactivated, but couldn't release their pending claims: ${releaseErr.message}`,
-        });
-        return;
-      }
-      const n = released?.length || 0;
-      setMessage({
-        kind: "success",
-        text: n > 0
-          ? `Deactivated ${insp.name}. Released ${n} pending claim${n === 1 ? "" : "s"} back to the available pool.`
-          : `Deactivated ${insp.name}. No pending claims to release.`,
-      });
-      return;
-    }
-
+    // Shared with the Team Roles roster — see setInspectorActive above.
+    const result = await setInspectorActive(insp, !insp.active);
     loadInspectors();
-
-    // On activation (false → true) auto-fire the app-link invite to
-    // the inspector's phone (SMS) or email — saves the manager an
-    // extra click and gets the app onto their home screen quickly.
-    if (!wasActive) {
-      if (!insp.email && !insp.phone) {
-        setMessage({
-          kind: "success",
-          text: `Activated ${insp.name}. No email/phone on file — couldn't auto-send the app link.`,
-        });
-        return;
-      }
-      try {
-        const res = await fetch("/.netlify/functions/send-inspector-app-invite", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ inspectorId: insp.id, channel: "auto" }),
-        });
-        const body = await res.json().catch(() => ({}));
-        if (!body.ok) {
-          setMessage({
-            kind: "error",
-            text: `Activated, but invite send failed: ${body.error || `status ${res.status}`}`,
-          });
-        } else {
-          const dest = body.channel_used === "sms" ? `📱 SMS to ${body.phone}` : `📧 email to ${body.email}`;
-          setMessage({
-            kind: "success",
-            text: `Activated ${insp.name} — app link sent (${dest}).`,
-          });
-        }
-      } catch (e) {
-        setMessage({ kind: "error", text: `Activated, but invite send failed: ${e.message || "Network error"}` });
-      }
-    }
+    setMessage({ kind: result.ok ? "success" : "error", text: result.text });
   }
 
   // Flip the per-inspector "manager must confirm" gate. When ON, the
@@ -1906,6 +1896,10 @@ export function InspectorMobileApp() {
   // active (or never completed setup), we show a friendly "account
   // not active" screen instead of dumping them to an empty picker.
   const [inactiveName, setInactiveName] = useState("");
+  // Dual-role support: if this signed-in inspector is ALSO an active PA
+  // (same JobNimbus id), we show a "My PA portal" button so they can hop
+  // straight over without re-picking their name.
+  const [paCounterpart, setPaCounterpart] = useState(null);
   useEffect(() => {
     // Only show active inspectors who've completed setup (have a home
     // base lat/lng saved). Partial setups don't appear in the picker
@@ -1945,6 +1939,29 @@ export function InspectorMobileApp() {
     });
   }, []);
 
+  // Look up whether the signed-in inspector is also an active PA. Runs
+  // whenever `me` changes (sign-in, restore, switch user).
+  useEffect(() => {
+    if (!me || !me.jn_user_id) { setPaCounterpart(null); return; }
+    let cancelled = false;
+    supabase
+      .from("pas")
+      .select("id,name,active,jn_user_id")
+      .eq("jn_user_id", me.jn_user_id)
+      .eq("active", true)
+      .maybeSingle()
+      .then(({ data }) => { if (!cancelled) setPaCounterpart(data || null); });
+    return () => { cancelled = true; };
+  }, [me]);
+
+  // Hop to the PA portal as the same person — hand off identity via
+  // localStorage so they land signed-in (no name re-pick).
+  function goToPaPortal() {
+    if (!paCounterpart) return;
+    try { localStorage.setItem("ccg_pa_id", paCounterpart.id); } catch { /* ignore */ }
+    window.location.href = window.location.origin + "/?mode=pa";
+  }
+
   function pickMe(insp) {
     setMe(insp);
     localStorage.setItem("ccg_inspector_id", insp.id);
@@ -1972,6 +1989,12 @@ export function InspectorMobileApp() {
           🔍 Inspector
         </div>
         <div style={{ display: "flex", gap: 6 }}>
+          {me && paCounterpart && (
+            <button type="button" onClick={goToPaPortal}
+              style={{ ...secondaryBtn, fontSize: 11, borderColor: "#a78bfa", color: "#6d28d9" }}>
+              🧑‍⚖️ My PA portal
+            </button>
+          )}
           {me && (
             <button type="button" onClick={signOut} style={{ ...secondaryBtn, fontSize: 11 }}>
               Switch user
