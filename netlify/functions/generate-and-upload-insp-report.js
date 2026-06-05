@@ -53,7 +53,7 @@ exports.handler = async (event) => {
   if (!JN_KEY)       return { statusCode: 500, body: JSON.stringify({ ok: false, error: "JOBNIMBUS_API_KEY not set" }) };
   if (!PDFSHIFT_KEY) return { statusCode: 500, body: JSON.stringify({ ok: false, error: "PDFSHIFT_API_KEY not set" }) };
 
-  let jnid, skipJnUpload;
+  let jnid, skipJnUpload, force;
   try {
     const body = JSON.parse(event.body || "{}");
     jnid = (body.jnid || "").trim();
@@ -62,6 +62,11 @@ exports.handler = async (event) => {
     // separate Lambda call. This splits the work across two 10s
     // budgets so neither side times out.
     skipJnUpload = !!body.skip_jn_upload;
+    // force=true re-renders even if the cert is already stamped in
+    // Supabase. Used for genuine re-issues (e.g. a manager corrected
+    // the result and needs a fresh cert). Default false so the
+    // already-certified guard below protects PDFShift credits.
+    force = !!body.force;
   } catch {
     return { statusCode: 400, body: JSON.stringify({ ok: false, error: "Invalid JSON body" }) };
   }
@@ -103,6 +108,47 @@ exports.handler = async (event) => {
   }
   const resultLabel = RESULT_LABELS[result];
   console.log("JN job result:", resultLabel);
+
+  // ── 2b. Already-certified guard (PDFShift credit saver) ──────────
+  // PDFShift bills by output size (1 credit / 5MB), charged on the
+  // RENDER call — before we ever upload to JN. So any path that
+  // re-runs this function for a job whose cert is already on file
+  // pays a fresh credit for an identical PDF. Historically that was
+  // most of the bill: bulk back-fills re-rendering finished jobs and
+  // the hourly retry cron re-rendering anything not yet stamped.
+  //
+  // If a non-cancelled inspections row already has jn_cert_uploaded_at
+  // set, the cert is in JN — skip the render and return ok. `force:true`
+  // (manager re-issue, e.g. a corrected result) bypasses this. We only
+  // skip when skipJnUpload is false, since the split-upload caller
+  // hasn't necessarily stamped yet for THIS render.
+  if (!force && !skipJnUpload && SB_URL && SB_KEY) {
+    try {
+      const certRes = await fetch(
+        `${SB_URL}/rest/v1/inspections?jn_job_id=eq.${encodeURIComponent(jnid)}&cancelled_at=is.null&jn_cert_uploaded_at=not.is.null&select=id&limit=1`,
+        { headers: sbHeaders },
+      );
+      if (certRes.ok) {
+        const certRows = await certRes.json().catch(() => []);
+        if (Array.isArray(certRows) && certRows.length > 0) {
+          console.log("Cert already stamped for", jnid, "— skipping render (pass force:true to re-issue)");
+          return {
+            statusCode: 200,
+            body: JSON.stringify({
+              ok: true,
+              skipped: true,
+              already_certified: true,
+              detail: "Cert already on file (jn_cert_uploaded_at set). No PDFShift credit spent. Pass force:true to re-render.",
+            }),
+          };
+        }
+      }
+    } catch (e) {
+      // Non-fatal — if the guard lookup fails, fall through and render
+      // as before rather than blocking a legitimate cert.
+      console.warn("Already-certified guard lookup failed (rendering anyway):", e.message);
+    }
+  }
 
   // ── 3. Pull homeowner / address fields ───────────────────────────
   const clientName = job.display_name || (job.name || "").split(" - ")[0] || "Homeowner";
@@ -219,6 +265,31 @@ exports.handler = async (event) => {
   }
 
   console.log("=== Report uploaded:", filename, "to job:", jnid);
+
+  // Stamp jn_cert_uploaded_at on the happy path. Historically ONLY the
+  // hourly retry cron set this, so a normally-certified job stayed
+  // jn_cert_uploaded_at=NULL forever — which made the retry cron treat
+  // it as "missing" and re-render + re-upload it (a wasted PDFShift
+  // credit AND a duplicate cert in JN's Documents tab). Stamping here
+  // closes that loop: the retry cron and the already-certified guard
+  // both key off this column. Non-fatal — if the write fails the cert
+  // is still in JN and the retry cron remains the backstop.
+  if (SB_URL && SB_KEY) {
+    try {
+      const nowIso = new Date().toISOString();
+      await fetch(
+        `${SB_URL}/rest/v1/inspections?jn_job_id=eq.${encodeURIComponent(jnid)}&cancelled_at=is.null&jn_cert_uploaded_at=is.null`,
+        {
+          method: "PATCH",
+          headers: { ...sbHeaders, Prefer: "return=minimal" },
+          body: JSON.stringify({ jn_cert_uploaded_at: nowIso }),
+        },
+      );
+    } catch (e) {
+      console.warn("jn_cert_uploaded_at stamp failed (non-fatal):", e.message);
+    }
+  }
+
   return {
     statusCode: 200,
     body: JSON.stringify({

@@ -151,10 +151,16 @@ exports.handler = async (event) => {
   // a fresh cert, and the new result's downstream).
   if (changing) {
     const oldResult = insp.result;
+    // Clear jn_cert_uploaded_at so the NEW result's cert actually
+    // re-renders. generate-and-upload-insp-report now skips rendering
+    // when this stamp is set (a PDFShift credit-saver guard), so a
+    // corrected result would otherwise keep the stale cert. Nulling it
+    // also hands the cert to the retry cron as a safety net if this
+    // inline re-render hiccups.
     const pr = await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}`, {
       method: "PATCH",
       headers: sbHeaders,
-      body: JSON.stringify({ result: overrideResult }),
+      body: JSON.stringify({ result: overrideResult, jn_cert_uploaded_at: null }),
     });
     if (!pr.ok) {
       return json(500, { ok: false, error: `Could not save corrected result: ${await pr.text()}` });
