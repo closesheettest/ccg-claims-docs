@@ -7683,6 +7683,30 @@ const renderSmsTemplate = (key, vars) => {
   // 📄 CERT IN JN badge appears.
   async function runCertChain(jnJobId, rowId) {
     if (!jnJobId) return { ok: false, error: "no jn_job_id" };
+    // In-flight lock keyed by JN job id. Two cert fires for the same job
+    // (e.g. the auto-fire on submit racing the retry cron, or a quick
+    // double-tap) both rendered + uploaded before either stamped, which
+    // is how duplicate reports landed in JN. The server now also dedups
+    // against JN itself, but this stops the wasted double render here.
+    const lock = (window.__certChainInFlight || (window.__certChainInFlight = new Set()));
+    if (lock.has(jnJobId)) {
+      return { ok: false, error: "cert already generating for this job" };
+    }
+    lock.add(jnJobId);
+    // Stamp the cert-uploaded timestamp on the inspection row.
+    const stampUploaded = async () => {
+      if (!rowId) return;
+      try {
+        const uploadedAt = new Date().toISOString();
+        await supabase
+          .from("inspections")
+          .update({ jn_cert_uploaded_at: uploadedAt })
+          .eq("id", rowId);
+        setRecordSearchResults((rs) => rs.map((rr) =>
+          rr.id === rowId ? { ...rr, jn_cert_uploaded_at: uploadedAt } : rr,
+        ));
+      } catch {}
+    };
     try {
       const r1 = await fetch("/.netlify/functions/generate-and-upload-insp-report", {
         method: "POST",
@@ -7692,6 +7716,12 @@ const renderSmsTemplate = (key, vars) => {
       const t1 = await r1.text();
       let b1 = {};
       try { b1 = JSON.parse(t1); } catch {}
+      // Server skipped because JN already has the report — treat as a
+      // success, make sure the row is stamped, and don't upload again.
+      if (r1.ok && b1.ok && b1.skipped) {
+        await stampUploaded();
+        return { ok: true, skipped: true, filename: b1.filename };
+      }
       if (!r1.ok || !b1.ok || !b1.pdf_signed_url) {
         return { ok: false, error: `render ${r1.status}: ${b1.error || b1.detail || t1.slice(0, 200)}` };
       }
@@ -7711,22 +7741,14 @@ const renderSmsTemplate = (key, vars) => {
       if (!r2.ok || !b2.ok) {
         return { ok: false, error: `upload ${r2.status}: ${b2.error || t2.slice(0, 200)}`, filename: b1.filename };
       }
-      // Persist cert-uploaded timestamp.
-      if (rowId) {
-        try {
-          const uploadedAt = new Date().toISOString();
-          await supabase
-            .from("inspections")
-            .update({ jn_cert_uploaded_at: uploadedAt })
-            .eq("id", rowId);
-          setRecordSearchResults((rs) => rs.map((rr) =>
-            rr.id === rowId ? { ...rr, jn_cert_uploaded_at: uploadedAt } : rr,
-          ));
-        } catch {}
-      }
-      return { ok: true, filename: b1.filename, photoCount: b1.photoCount };
+      // Persist cert-uploaded timestamp (covers both the real upload and
+      // the backstop skip in Lambda B).
+      await stampUploaded();
+      return { ok: true, skipped: !!b2.skipped, filename: b1.filename, photoCount: b1.photoCount };
     } catch (e) {
       return { ok: false, error: e.message || "network" };
+    } finally {
+      lock.delete(jnJobId);
     }
   }
 
@@ -7757,6 +7779,31 @@ const renderSmsTemplate = (key, vars) => {
       const txt1 = await r1.text();
       let b1 = {};
       try { b1 = JSON.parse(txt1); } catch {}
+      // Server skipped because JN already carries this report. Treat as a
+      // success: stamp the row, tell the user it's already there, and stop
+      // (no second upload, no duplicate).
+      if (r1.ok && b1.ok && b1.skipped) {
+        setPushStatus((s) => ({
+          ...s,
+          [row.id]: {
+            stage: "done",
+            ok: true,
+            message: "✅ Cert already in JN Documents — nothing to re-upload.",
+          },
+        }));
+        try {
+          const uploadedAt = new Date().toISOString();
+          await supabase
+            .from("inspections")
+            .update({ jn_cert_uploaded_at: uploadedAt })
+            .eq("id", row.id);
+          setRecordSearchResults((rs) => rs.map((rr) =>
+            rr.id === row.id ? { ...rr, jn_cert_uploaded_at: uploadedAt } : rr,
+          ));
+        } catch {}
+        setRowBusyId(null);
+        return;
+      }
       if (!r1.ok || !b1.ok || !b1.pdf_signed_url) {
         setPushStatus((s) => ({
           ...s,
@@ -13879,6 +13926,11 @@ if (!hasDamage) {
 
                           if (!r.ok || !d.ok) {
                             alert("Report generation failed: " + (d.error || "unknown error") + (d.detail ? "\n\n" + d.detail : ""));
+                            return;
+                          }
+                          if (d.skipped) {
+                            alert("✅ This JN job already has an Inspection Report in its Documents tab — nothing was re-uploaded (no duplicate).");
+                            setJnReportJnid("");
                             return;
                           }
                           alert(

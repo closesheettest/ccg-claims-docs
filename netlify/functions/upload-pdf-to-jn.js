@@ -14,11 +14,46 @@
 //   • pdf_storage_path: optional — when provided, we delete the temp
 //     PDF from Supabase Storage after a successful JN upload
 
+const JN_BASE = "https://app.jobnimbus.com/api1";
 const JN_FILES_BASE = "https://api.jobnimbus.com";
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const SIGNED_BUCKET = "signed-documents";
+
+const jnHeaders = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
+
+// Backstop dedup: ask JN whether this job already carries an Inspection
+// Report document before we upload. The primary guard lives in Lambda A
+// (generate-and-upload-insp-report), but a same-minute double-fire can
+// have both Lambda A calls clear that guard before either uploads, so we
+// re-check here right before the upload. Fail-OPEN on error so a JN hiccup
+// never blocks a legitimate first cert. Mirrors the helper in Lambda A.
+async function jobAlreadyHasReport(jnid) {
+  try {
+    const r = await fetch(`${JN_BASE}/files?related=${encodeURIComponent(jnid)}&type=1&size=50`, { headers: jnHeaders });
+    if (!r.ok) return false;
+    const data = await r.json().catch(() => ({}));
+    const files = data.files || data.results || [];
+    return files.some((f) => {
+      const fn = (f.filename || "");
+      const desc = (f.description || "");
+      return fn.startsWith("Inspection-Report-") || desc.startsWith("Inspection Report (with photos)");
+    });
+  } catch {
+    return false;
+  }
+}
+
+// Delete the temp PDF stashed in Supabase Storage (best-effort, fire-and-forget).
+function cleanupTempPdf(pdfStoragePath) {
+  if (pdfStoragePath && SB_URL && SB_KEY) {
+    fetch(`${SB_URL}/storage/v1/object/${SIGNED_BUCKET}/${pdfStoragePath}`, {
+      method: "DELETE",
+      headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` },
+    }).catch(() => {});
+  }
+}
 
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -41,6 +76,14 @@ exports.handler = async (event) => {
   if (!pdfUrl)   return { statusCode: 400, body: JSON.stringify({ ok: false, error: "pdf_url required" }) };
 
   try {
+    // Backstop idempotency: if JN already has an Inspection Report on this
+    // job, don't upload a duplicate. Still clean up the temp PDF so it
+    // doesn't linger in Storage.
+    if (await jobAlreadyHasReport(jnid)) {
+      cleanupTempPdf(pdfStoragePath);
+      return { statusCode: 200, body: JSON.stringify({ ok: true, skipped: true, already_in_jn: true, jnid, filename }) };
+    }
+
     // Fetch the PDF from Supabase. Stream to a Buffer.
     const pdfRes = await fetch(pdfUrl);
     if (!pdfRes.ok) {

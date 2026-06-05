@@ -150,6 +150,32 @@ exports.handler = async (event) => {
     }
   }
 
+  // ── 2c. JN-truth idempotency guard ───────────────────────────────
+  // The Supabase stamp (2b) is skipped on the split-upload path and can
+  // race (it's written client-side AFTER the upload finishes), so it
+  // missed dupes: same-minute double-fires and the overnight retry cron
+  // both re-uploaded because the stamp hadn't landed yet. This guard
+  // asks JN itself — if an "Inspection-Report-" document is already on
+  // the job, the cert exists, full stop. Runs on EVERY path (including
+  // skipJnUpload) so it also saves a PDFShift render. `force:true`
+  // bypasses it for genuine re-issues. Fail-open on lookup error so a
+  // transient JN hiccup never blocks a legitimate first cert.
+  if (!force) {
+    const exists = await jobAlreadyHasReport(jnid);
+    if (exists) {
+      console.log("JN already has an Inspection Report for", jnid, "— skipping (pass force:true to re-issue)");
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          ok: true,
+          skipped: true,
+          already_in_jn: true,
+          detail: "An Inspection Report document already exists on this JN job. No PDFShift credit spent, no duplicate uploaded. Pass force:true to re-render.",
+        }),
+      };
+    }
+  }
+
   // ── 3. Pull homeowner / address fields ───────────────────────────
   const clientName = job.display_name || (job.name || "").split(" - ")[0] || "Homeowner";
   const address = [job.address_line1, job.city, job.state_text, job.zip].filter(Boolean).join(", ");
@@ -870,6 +896,33 @@ async function generatePhotoReportPDF({ clientName, address, repName, date, phot
   </body></html>`;
 
   return await renderPdfFromHtml(html);
+}
+
+// ── JN-truth idempotency check ───────────────────────────────────────
+// Ask JN whether this job already carries an Inspection Report document.
+// Used as the dedup guard so we never upload a second copy regardless of
+// what the Supabase stamp says. Mirrors bulk-list-insp-report-candidates.js:
+// list the job's documents (type=1) and look for our filename prefix.
+// Fail-OPEN (returns false) on any error so a transient JN hiccup never
+// blocks a legitimate first cert.
+async function jobAlreadyHasReport(jnid) {
+  try {
+    const r = await fetch(`${JN_BASE}/files?related=${encodeURIComponent(jnid)}&type=1&size=50`, { headers: jnHeaders });
+    if (!r.ok) {
+      console.warn("jobAlreadyHasReport lookup failed:", r.status, "— treating as no report (fail-open)");
+      return false;
+    }
+    const data = await r.json().catch(() => ({}));
+    const files = data.files || data.results || [];
+    return files.some((f) => {
+      const fn = (f.filename || "");
+      const desc = (f.description || "");
+      return fn.startsWith("Inspection-Report-") || desc.startsWith("Inspection Report (with photos)");
+    });
+  } catch (e) {
+    console.warn("jobAlreadyHasReport error (fail-open):", e.message);
+    return false;
+  }
 }
 
 // ── Upload PDF as document on JN job ─────────────────────────────────
