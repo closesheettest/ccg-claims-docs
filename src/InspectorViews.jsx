@@ -2162,6 +2162,9 @@ function InspectorJobList({ me, onOpenJob, onOpenReports }) {
   const [optimize, setOptimize] = useState(false);
   const [currentCoords, setCurrentCoords] = useState(null);
   const [geoError, setGeoError] = useState(null);
+  // Two top-level tabs like the PA portal: "mine" = jobs I've claimed,
+  // "available" = unclaimed jobs near me. Only one section shows at a time.
+  const [tab, setTab] = useState("mine");
 
   async function load() {
     setLoading(true);
@@ -2315,6 +2318,22 @@ function InspectorJobList({ me, onOpenJob, onOpenReports }) {
         )}
       </div>
 
+      {/* Two top-level tabs like the PA portal. */}
+      <div style={{ display: "flex", gap: 6 }}>
+        <button type="button" onClick={() => setTab("mine")}
+          style={{ ...secondaryBtn, flex: 1, padding: "10px", fontSize: 13, fontWeight: 700,
+            background: tab === "mine" ? "#13294b" : "#fff", color: tab === "mine" ? "#fff" : "#374151",
+            borderColor: tab === "mine" ? "#13294b" : "#d1d5db" }}>
+          🛠 My inspections ({mine.length})
+        </button>
+        <button type="button" onClick={() => setTab("available")}
+          style={{ ...secondaryBtn, flex: 1, padding: "10px", fontSize: 13, fontWeight: 700,
+            background: tab === "available" ? "#13294b" : "#fff", color: tab === "available" ? "#fff" : "#374151",
+            borderColor: tab === "available" ? "#13294b" : "#d1d5db" }}>
+          📍 Available ({available.length})
+        </button>
+      </div>
+
       {/* Shared route-mode toggle bar — affects BOTH sections.
           Distances on every card, the sort order of "Available near
           you", and (when optimize is on) the nearest-neighbor order
@@ -2364,60 +2383,64 @@ function InspectorJobList({ me, onOpenJob, onOpenReports }) {
         </div>
       )}
 
-      <section>
-        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, fontFamily: "'Oswald', sans-serif" }}>
-          🛠 In progress — assigned to you ({mine.length})
-        </div>
-        {mine.length === 0 ? (
-          <div style={{ padding: 12, background: "#fff", borderRadius: 10, fontSize: 12, color: "#6b7280", border: "1px solid #e5e7eb" }}>
-            No jobs claimed. Tap one below to start.
+      {tab === "mine" && (
+        <section>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, fontFamily: "'Oswald', sans-serif" }}>
+            🛠 In progress — assigned to you ({mine.length})
           </div>
-        ) : (
-          <div style={{ display: "grid", gap: 6 }}>
-            {mine.map((j, i) => (
-              <JobCard
-                key={j.id}
-                job={j}
-                accent="#0ea5e9"
-                onClick={() => onOpenJob(j.id)}
-                cta="Open →"
-                showStopNumber={optimize ? i + 1 : null}
-                showNavigate
-              />
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section>
-        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, fontFamily: "'Oswald', sans-serif" }}>
-          📍 Available near you ({available.length})
-          {me.max_distance_miles && (
-            <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 400, marginLeft: 6 }}>
-              (capped at {me.max_distance_miles} mi)
-            </span>
+          {mine.length === 0 ? (
+            <div style={{ padding: 12, background: "#fff", borderRadius: 10, fontSize: 12, color: "#6b7280", border: "1px solid #e5e7eb" }}>
+              No jobs claimed. Tap “📍 Available” above to pick one up.
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: 6 }}>
+              {mine.map((j, i) => (
+                <JobCard
+                  key={j.id}
+                  job={j}
+                  accent="#0ea5e9"
+                  onClick={() => onOpenJob(j.id)}
+                  cta="Open →"
+                  showStopNumber={optimize ? i + 1 : null}
+                  showNavigate
+                />
+              ))}
+            </div>
           )}
-        </div>
-        {available.length === 0 ? (
-          <div style={{ padding: 12, background: "#fff", borderRadius: 10, fontSize: 12, color: "#6b7280", border: "1px solid #e5e7eb" }}>
-            No available jobs right now. New inspections will appear here automatically.
+        </section>
+      )}
+
+      {tab === "available" && (
+        <section>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, fontFamily: "'Oswald', sans-serif" }}>
+            📍 Available near you ({available.length})
+            {me.max_distance_miles && (
+              <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 400, marginLeft: 6 }}>
+                (capped at {me.max_distance_miles} mi)
+              </span>
+            )}
           </div>
-        ) : (
-          <div style={{ display: "grid", gap: 6 }}>
-            {available.map((j) => (
-              <JobCard
-                key={j.id}
-                job={j}
-                accent="#059669"
-                cta={claimingId === j.id ? "Claiming…" : "✋ Claim"}
-                onClick={() => claim(j.id)}
-                disabled={claimingId !== null}
-                showNavigate
-              />
-            ))}
-          </div>
-        )}
-      </section>
+          {available.length === 0 ? (
+            <div style={{ padding: 12, background: "#fff", borderRadius: 10, fontSize: 12, color: "#6b7280", border: "1px solid #e5e7eb" }}>
+              No available jobs right now. New inspections will appear here automatically.
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: 6 }}>
+              {available.map((j) => (
+                <JobCard
+                  key={j.id}
+                  job={j}
+                  accent="#059669"
+                  cta={claimingId === j.id ? "Claiming…" : "✋ Claim"}
+                  onClick={() => claim(j.id)}
+                  disabled={claimingId !== null}
+                  showNavigate
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }
