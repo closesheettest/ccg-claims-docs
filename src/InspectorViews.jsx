@@ -2967,6 +2967,13 @@ export function ManagerInspectorReports() {
   const [pendingRows, setPendingRows] = useState([]);
   const [inspectorList, setInspectorList] = useState([]);
   const [loading, setLoading] = useState(true);
+  // Custom date range — only used when range === "custom". Defaults to the
+  // last 30 days so switching to Custom shows a sensible window right away.
+  const _iso = (d) => d.toISOString().slice(0, 10);
+  const [customFrom, setCustomFrom] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() - 30); return _iso(d);
+  });
+  const [customTo, setCustomTo] = useState(() => _iso(new Date()));
 
   const { fromIso, toIso, label } = useMemo(() => {
     const now = new Date();
@@ -2981,6 +2988,10 @@ export function ManagerInspectorReports() {
       from = new Date(thisWeekStart);
       from.setDate(from.getDate() - 7);
       label = "Last week";
+    } else if (range === "custom") {
+      from = customFrom ? new Date(customFrom + "T00:00:00") : (() => { const d = new Date(); d.setDate(d.getDate() - 30); return d; })();
+      to = customTo ? new Date(customTo + "T23:59:59") : new Date();
+      label = "Custom range";
     } else {
       to = new Date();
       from = new Date();
@@ -2988,7 +2999,7 @@ export function ManagerInspectorReports() {
       label = "Last 30 days";
     }
     return { fromIso: from.toISOString(), toIso: to.toISOString(), label };
-  }, [range]);
+  }, [range, customFrom, customTo]);
 
   useEffect(() => {
     let cancelled = false;
@@ -3087,6 +3098,7 @@ export function ManagerInspectorReports() {
           { key: "this_week", label: "This week" },
           { key: "last_week", label: "Last week" },
           { key: "last_30",   label: "Last 30 days" },
+          { key: "custom",    label: "Custom range" },
         ].map((r) => (
           <button
             key={r.key}
@@ -3110,13 +3122,34 @@ export function ManagerInspectorReports() {
           style={{ ...inputStyle, fontSize: 12, padding: "6px 10px", minWidth: 180 }}
         >
           <option value="">All inspectors</option>
-          {inspectorList.map((i) => (
+          {/* Only active inspectors in the picker. An inactive inspector who
+              still has results in range is labeled fine elsewhere (nameById),
+              but the dropdown stays to the current roster. */}
+          {inspectorList.filter((i) => i.active).map((i) => (
             <option key={i.id} value={i.id}>
-              {i.name}{!i.active ? " (inactive)" : ""}
+              {i.name}
             </option>
           ))}
         </select>
       </div>
+
+      {/* Custom From/To inputs — only when Custom range is selected. */}
+      {range === "custom" && (
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <label style={{ fontSize: 12, fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "#374151" }}>
+            From:{" "}
+            <input type="date" value={customFrom} max={customTo || undefined}
+              onChange={(e) => setCustomFrom(e.target.value)}
+              style={{ ...inputStyle, fontSize: 12, padding: "6px 10px", marginLeft: 4 }} />
+          </label>
+          <label style={{ fontSize: 12, fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "#374151" }}>
+            To:{" "}
+            <input type="date" value={customTo} min={customFrom || undefined}
+              onChange={(e) => setCustomTo(e.target.value)}
+              style={{ ...inputStyle, fontSize: 12, padding: "6px 10px", marginLeft: 4 }} />
+          </label>
+        </div>
+      )}
 
       {loading ? (
         <div style={{ padding: 16, color: "#6b7280" }}>Loading…</div>
