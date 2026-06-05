@@ -950,7 +950,7 @@ function PAJobList({ me, onOpenJob, wide }) {
     setLoading(true);
     const [poolRes, mineRes] = await Promise.all([
       supabase.from("inspections")
-        .select("id, client_name, address, city, state, zip, county, signed_at, jn_job_id, result, pa_id, latitude, longitude")
+        .select("id, client_name, address, city, state, zip, county, signed_at, jn_job_id, result, pa_id, latitude, longitude, mobile")
         .eq("result", "damage").is("pa_id", null).not("jn_job_id", "is", null)
         // Keep Lost/cancelled deals and anything parked for a US Shingle
         // decision OUT of the claimable pool.
@@ -1283,10 +1283,12 @@ function PAJobCard({ job, mine, claiming, onClaim, onOpen, hideCounty, signupBus
             </span>
           )}
           {addr && <MapLinks address={addr} />}
-          {mine && job.mobile && (
-            <a href={`tel:${job.mobile}`} style={{ display: "inline-block", marginTop: 6, fontSize: 13, fontWeight: 700, color: "#1d4ed8", textDecoration: "none" }}>
-              📞 {job.mobile}
-            </a>
+          {job.mobile && (
+            <div style={{ marginTop: 6 }}>
+              <a href={`tel:${job.mobile}`} style={{ display: "inline-block", fontSize: 13, fontWeight: 700, color: "#1d4ed8", textDecoration: "none" }}>
+                📞 {job.mobile}
+              </a>
+            </div>
           )}
           {!hideCounty && job.county && (
             <div style={{ display: "inline-block", marginTop: 4, fontSize: 11, fontWeight: 700, color: "#0e7490", background: "#ecfeff", border: "1px solid #a5f3fc", borderRadius: 999, padding: "1px 8px" }}>
