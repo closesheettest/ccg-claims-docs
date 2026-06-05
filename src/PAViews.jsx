@@ -902,6 +902,10 @@ function PAJobList({ me, onOpenJob, wide }) {
   const [mine, setMine] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("mine"); // mine | pool
+  // Within My claims, split into two lists so the PA keeps the deals he's
+  // still chasing a signature on separate from the ones already signed
+  // (where he's just updating milestone dates). needs | signed
+  const [mineView, setMineView] = useState("needs");
   const [claimingId, setClaimingId] = useState(null);
   const [signupBusyId, setSignupBusyId] = useState(null);
   const [msg, setMsg] = useState(null);
@@ -1011,7 +1015,12 @@ function PAJobList({ me, onOpenJob, wide }) {
     setSignupBusyId(null);
   }
 
-  const list = tab === "mine" ? mine : pool;
+  // Split My claims into "needs signature" vs "signed". Legacy/blank
+  // values count as needs-signature (isNeedSignature). Refused-to-Sign
+  // deals already left the list (reverted to retail).
+  const mineNeeds = mine.filter((j) => isNeedSignature(j.pa_fields?.pa_signup));
+  const mineSigned = mine.filter((j) => j.pa_fields?.pa_signup === "Signed");
+  const list = tab === "pool" ? pool : (mineView === "signed" ? mineSigned : mineNeeds);
 
   return (
     <div>
@@ -1030,6 +1039,24 @@ function PAJobList({ me, onOpenJob, wide }) {
         </button>
       </div>
 
+      {/* My-claims sub-lists: still chasing a signature vs. already signed. */}
+      {tab === "mine" && (
+        <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+          <button type="button" onClick={() => setMineView("needs")}
+            style={{ ...secondaryBtn, flex: 1, padding: "9px", fontSize: 13, fontWeight: 700,
+              background: mineView === "needs" ? "#92400e" : "#fff", color: mineView === "needs" ? "#fff" : "#92400e",
+              borderColor: "#f59e0b" }}>
+            ✍️ Needs signature ({mineNeeds.length})
+          </button>
+          <button type="button" onClick={() => setMineView("signed")}
+            style={{ ...secondaryBtn, flex: 1, padding: "9px", fontSize: 13, fontWeight: 700,
+              background: mineView === "signed" ? "#047857" : "#fff", color: mineView === "signed" ? "#fff" : "#047857",
+              borderColor: "#34d399" }}>
+            ✅ Signed ({mineSigned.length})
+          </button>
+        </div>
+      )}
+
       {msg && (
         <div style={{ padding: "8px 12px", borderRadius: 8, fontSize: 12, marginBottom: 10,
           background: msg.kind === "success" ? "#ecfdf5" : "#fef2f2",
@@ -1043,7 +1070,13 @@ function PAJobList({ me, onOpenJob, wide }) {
         <div style={{ padding: 24, textAlign: "center", color: "#6b7280" }}>Loading…</div>
       ) : list.length === 0 ? (
         <div style={{ padding: 24, textAlign: "center", color: "#6b7280", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12 }}>
-          {tab === "mine" ? "You haven't claimed any deals yet. Check the Available tab." : "No unclaimed damage deals right now."}
+          {tab !== "mine"
+            ? "No unclaimed damage deals right now."
+            : mine.length === 0
+              ? "You haven't claimed any deals yet. Check the Available tab."
+              : mineView === "signed"
+                ? "No signed customers yet. Once you mark a deal “Signed” it moves here."
+                : "Nothing waiting on a signature — everything you've claimed is signed. 🎉"}
         </div>
       ) : tab === "pool" ? (
         // Available — grouped under a sticky county header (list is already
