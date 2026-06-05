@@ -1140,10 +1140,12 @@ function PAJobList({ me, onOpenJob, wide }) {
           Available and My-claims sort nearest-first and show miles per card. */}
       <div style={{ padding: 10, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, marginBottom: 12, display: "grid", gap: 6 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-          <div style={{ fontSize: 12, color: "#374151" }}>
+          <div
+            onClick={() => { if (!paCoords && !geoBusy) useMyLocation(); }}
+            style={{ fontSize: 12, color: "#374151", cursor: paCoords ? "default" : "pointer", textDecoration: paCoords ? "none" : "underline", textDecorationColor: "#94a3b8" }}>
             {paCoords
               ? <>🧭 Sorted by distance from <strong style={{ color: "#0e7490" }}>your location</strong></>
-              : <>🧭 See the closest deals first</>}
+              : <>🧭 Tap to see the closest deals first</>}
           </div>
           <button type="button" onClick={useMyLocation} disabled={geoBusy}
             style={{ ...secondaryBtn, fontSize: 12, padding: "8px 12px", fontWeight: 700, whiteSpace: "nowrap",
