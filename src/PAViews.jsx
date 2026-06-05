@@ -66,17 +66,23 @@ const dangerBtn = {
 // PA sign-up status — the PA's FIRST action after claiming a deal: they
 // talk to the homeowner, who either signs up with them or refuses. Maps
 // to JN's "Intro to Customer" dropdown. These strings must match the JN
-// dropdown options EXACTLY (see pa-save-field.js PA_SIGNUP_CF note).
-const PA_SIGNUP_OPTIONS = ["Pending", "Signed", "Refused to Sign"];
+// dropdown options EXACTLY (see pa-save-field.js PA_SIGNUP_CF note) —
+// when that dropdown ships it must include "Need Signature" (renamed
+// from the old "Pending"). "Refused to Sign" is NOT a plain save: it
+// reverts the deal to retail and texts the field (see refuseToSign).
+const PA_SIGNUP_OPTIONS = ["Need Signature", "Signed", "Refused to Sign"];
+// Treat the legacy "Pending" value as the same un-decided state so deals
+// saved before the rename still read correctly.
+function isNeedSignature(v) { return !v || v === "Need Signature" || v === "Pending"; }
 function signupColor(opt) {
   if (opt === "Signed") return "#047857";
   if (opt === "Refused to Sign") return "#991b1b";
-  return "#92400e"; // Pending
+  return "#92400e"; // Need Signature
 }
 function signupBg(opt) {
   if (opt === "Signed") return "#ecfdf5";
   if (opt === "Refused to Sign") return "#fef2f2";
-  return "#fffbeb"; // Pending
+  return "#fffbeb"; // Need Signature
 }
 
 // The PA-editable milestone fields shown in the portal's Insurance
@@ -1092,6 +1098,7 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
   const [savedKey, setSavedKey] = useState(null);
   const [fieldErr, setFieldErr] = useState(null);
   const [releasing, setReleasing] = useState(false);
+  const [refusing, setRefusing] = useState(false);
   const [backfilling, setBackfilling] = useState(false);
   const [backfillMsg, setBackfillMsg] = useState(null);
   // Photos start collapsed so the long grid doesn't bury the
@@ -1227,6 +1234,46 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
     onBack();
   }
 
+  // "Refused to Sign" — the homeowner doesn't want to go through
+  // insurance. This is a one-way door: it reverts the deal to retail
+  // (record_type PA→Lead, moved to the retail location in JN) and texts
+  // the sales rep + that rep's regional manager to go set up a retail
+  // appointment. The deal then leaves the PA portal, so we confirm hard.
+  async function refuseToSign() {
+    const who = job?.client_name || "this homeowner";
+    if (!window.confirm(
+      `Mark "Refused to Sign" for ${who}?\n\n` +
+      `This tells us the homeowner does NOT want to go through insurance. ` +
+      `The deal moves back to RETAIL and leaves your claims, and we text ` +
+      `the sales rep and their manager to go set up a retail appointment.\n\n` +
+      `This can't be undone from here.`
+    )) return;
+    setRefusing(true);
+    setFieldErr(null);
+    try {
+      const res = await fetch("/.netlify/functions/pa-refused-to-sign", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inspectionId: jobId, paId: me.id }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!body.ok) {
+        setRefusing(false);
+        setFieldErr(`Couldn't complete that: ${body.error || res.status}`);
+        return;
+      }
+      const repOk = body?.notified?.rep?.ok;
+      const mgrOk = body?.notified?.manager?.ok;
+      const noteBits = [];
+      noteBits.push(repOk ? "✓ Sales rep texted" : "⚠ Sales rep not texted (no number on file)");
+      noteBits.push(mgrOk ? "✓ Manager texted" : "⚠ Manager not texted (couldn't resolve their zone manager)");
+      window.alert(`Done — moved to retail.\n\n${noteBits.join("\n")}`);
+      onBack(); // deal is no longer a PA claim; the list reloads without it
+    } catch (e) {
+      setRefusing(false);
+      setFieldErr(e.message || "Network error");
+    }
+  }
+
   if (loading) return <div style={{ padding: 24, textAlign: "center", color: "#6b7280" }}>Loading claim…</div>;
   if (loadErr && !job) {
     return (
@@ -1283,9 +1330,9 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
           a deal cannot miss the one thing we need from them. Once they answer
           it calms down to the chosen state's color. */}
       {(() => {
-        const current = fields.pa_signup || "Pending";
-        const isPending = current === "Pending";
-        const isSaving = savingKey === "pa_signup";
+        const current = isNeedSignature(fields.pa_signup) ? "Need Signature" : fields.pa_signup;
+        const isPending = isNeedSignature(fields.pa_signup);
+        const isSaving = savingKey === "pa_signup" || refusing;
         return (
           <div style={{
             padding: 20,
@@ -1316,7 +1363,11 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
                 const active = current === opt;
                 return (
                   <button key={opt} type="button" disabled={isSaving}
-                    onClick={() => saveField("pa_signup", opt)}
+                    onClick={() => {
+                      if (isSaving) return;
+                      if (opt === "Refused to Sign") { refuseToSign(); return; }
+                      saveField("pa_signup", opt);
+                    }}
                     style={{
                       flex: "1 1 120px", padding: "18px 12px", borderRadius: 12, fontSize: 16, fontWeight: 800,
                       cursor: isSaving ? "default" : "pointer",
@@ -1334,7 +1385,7 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
               })}
             </div>
             <div style={{ fontSize: 13, marginTop: 12, fontWeight: 700, color: savedKey === "pa_signup" ? "#047857" : isPending ? "#b45309" : "#64748b" }}>
-              {savingKey === "pa_signup" ? "Saving…" : savedKey === "pa_signup" ? "✓ Saved" : `Current answer: ${current}`}
+              {refusing ? "Reverting to retail & texting the team…" : savingKey === "pa_signup" ? "Saving…" : savedKey === "pa_signup" ? "✓ Saved" : `Current answer: ${current}`}
             </div>
           </div>
         );
