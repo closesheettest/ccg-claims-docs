@@ -20,8 +20,27 @@
 //   inspections gets: pa_id uuid (null = in the pool), pa_claimed_at,
 //                     pa_fields jsonb (local cache of pushed values).
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "./lib/supabase";
+
+// Haversine distance in miles between two lat/lng pairs. Mirrors the
+// inspector portal's milesBetween so PA distances match inspector ones.
+function milesBetween(lat1, lng1, lat2, lng2) {
+  if (
+    typeof lat1 !== "number" || typeof lng1 !== "number" ||
+    typeof lat2 !== "number" || typeof lng2 !== "number"
+  ) {
+    return null;
+  }
+  const R = 3958.7613;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
 
 // ── Local styles (self-contained; mirror InspectorViews) ───────────────
 const inputStyle = {
@@ -909,12 +928,29 @@ function PAJobList({ me, onOpenJob, wide }) {
   const [claimingId, setClaimingId] = useState(null);
   const [signupBusyId, setSignupBusyId] = useState(null);
   const [msg, setMsg] = useState(null);
+  // Geo-location (like the inspector portal). PAs have no fixed home base,
+  // so distances are measured from the PA's live GPS once they grant it.
+  // When set, Available + My-claims sort nearest-first and show miles.
+  const [paCoords, setPaCoords] = useState(null);
+  const [geoError, setGeoError] = useState(null);
+  const [geoBusy, setGeoBusy] = useState(false);
+
+  function useMyLocation() {
+    setGeoError(null);
+    if (!("geolocation" in navigator)) { setGeoError("This browser doesn't support GPS."); return; }
+    setGeoBusy(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { setPaCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setGeoBusy(false); },
+      (err) => { setGeoError(err.message || "Couldn't get your location."); setGeoBusy(false); },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 },
+    );
+  }
 
   async function load() {
     setLoading(true);
     const [poolRes, mineRes] = await Promise.all([
       supabase.from("inspections")
-        .select("id, client_name, address, city, state, zip, county, signed_at, jn_job_id, result, pa_id")
+        .select("id, client_name, address, city, state, zip, county, signed_at, jn_job_id, result, pa_id, latitude, longitude")
         .eq("result", "damage").is("pa_id", null).not("jn_job_id", "is", null)
         // Keep Lost/cancelled deals and anything parked for a US Shingle
         // decision OUT of the claimable pool.
@@ -924,7 +960,7 @@ function PAJobList({ me, onOpenJob, wide }) {
         .order("county", { ascending: true, nullsFirst: false })
         .order("signed_at", { ascending: false }).limit(200),
       supabase.from("inspections")
-        .select("id, client_name, address, city, state, zip, county, signed_at, jn_job_id, result, pa_id, pa_claimed_at, pa_fields, pa_assignment_note, mobile")
+        .select("id, client_name, address, city, state, zip, county, signed_at, jn_job_id, result, pa_id, pa_claimed_at, pa_fields, pa_assignment_note, mobile, latitude, longitude")
         // A claimed deal that later goes Lost or gets pulled for a decision
         // (pa_decision_needed) drops out of the PA's claims automatically.
         .eq("pa_id", me.id).is("cancelled_at", null).eq("pa_decision_needed", false)
@@ -1054,10 +1090,34 @@ function PAJobList({ me, onOpenJob, wide }) {
 
   // Split My claims into "needs signature" vs "signed". Legacy/blank
   // values count as needs-signature (isNeedSignature). Refused-to-Sign
-  // deals already left the list (reverted to retail).
-  const mineNeeds = mine.filter((j) => isNeedSignature(j.pa_fields?.pa_signup));
-  const mineSigned = mine.filter((j) => j.pa_fields?.pa_signup === "Signed");
-  const list = tab === "pool" ? pool : (mineView === "signed" ? mineSigned : mineNeeds);
+  // deals already left the list (reverted to retail). When the PA has
+  // granted GPS, every list is enriched with _dist (miles) and sorted
+  // nearest-first — same idea as the inspector portal.
+  const { poolList, mineNeeds, mineSigned } = useMemo(() => {
+    const withDist = (arr) =>
+      arr.map((j) => ({
+        ...j,
+        _dist:
+          paCoords && typeof j.latitude === "number" && typeof j.longitude === "number"
+            ? milesBetween(paCoords.lat, paCoords.lng, j.latitude, j.longitude)
+            : null,
+      }));
+    const byNearest = (a, b) => {
+      if (a._dist == null && b._dist == null) return 0;
+      if (a._dist == null) return 1;
+      if (b._dist == null) return -1;
+      return a._dist - b._dist;
+    };
+    const poolE = withDist(pool);
+    const mineE = withDist(mine);
+    if (paCoords) { poolE.sort(byNearest); mineE.sort(byNearest); }
+    return {
+      poolList: poolE,
+      mineNeeds: mineE.filter((j) => isNeedSignature(j.pa_fields?.pa_signup)),
+      mineSigned: mineE.filter((j) => j.pa_fields?.pa_signup === "Signed"),
+    };
+  }, [pool, mine, paCoords]);
+  const list = tab === "pool" ? poolList : (mineView === "signed" ? mineSigned : mineNeeds);
 
   return (
     <div>
@@ -1074,6 +1134,25 @@ function PAJobList({ me, onOpenJob, wide }) {
             borderColor: tab === "pool" ? "#13294b" : "#d1d5db" }}>
           📥 Available ({pool.length})
         </button>
+      </div>
+
+      {/* Geo bar — like the inspector portal. Once the PA grants GPS, both
+          Available and My-claims sort nearest-first and show miles per card. */}
+      <div style={{ padding: 10, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, marginBottom: 12, display: "grid", gap: 6 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 12, color: "#374151" }}>
+            {paCoords
+              ? <>🧭 Sorted by distance from <strong style={{ color: "#0e7490" }}>your location</strong></>
+              : <>🧭 See the closest deals first</>}
+          </div>
+          <button type="button" onClick={useMyLocation} disabled={geoBusy}
+            style={{ ...secondaryBtn, fontSize: 12, padding: "8px 12px", fontWeight: 700, whiteSpace: "nowrap",
+              background: paCoords ? "#ecfeff" : "#fff", borderColor: paCoords ? "#0e7490" : "#d1d5db",
+              color: paCoords ? "#0e7490" : "#374151", cursor: geoBusy ? "default" : "pointer" }}>
+            {geoBusy ? "📍 Locating…" : paCoords ? "📍 Sorting by nearest ✓" : "📍 Use my location"}
+          </button>
+        </div>
+        {geoError && <div style={{ fontSize: 11, color: "#dc2626" }}>{geoError}</div>}
       </div>
 
       {/* My-claims sub-lists: still chasing a signature vs. already signed. */}
@@ -1115,9 +1194,11 @@ function PAJobList({ me, onOpenJob, wide }) {
                 ? "No signed customers yet. Once you mark a deal “Signed” it moves here."
                 : "Nothing waiting on a signature — everything you've claimed is signed. 🎉"}
         </div>
-      ) : tab === "pool" ? (
-        // Available — grouped under a sticky county header (list is already
-        // sorted by county server-side, so consecutive grouping works).
+      ) : tab === "pool" && !paCoords ? (
+        // Available, no GPS yet — grouped under a sticky county header (list
+        // is already sorted by county server-side, so consecutive grouping
+        // works). Once the PA taps "Use my location" we switch to the flat
+        // nearest-first list below instead.
         <div style={{ display: "grid", gap: 16 }}>
           {groupByCounty(list).map((g) => (
             <div key={g.county}>
@@ -1184,6 +1265,7 @@ function MapLinks({ address, lat, lng, size = "sm" }) {
 function PAJobCard({ job, mine, claiming, onClaim, onOpen, hideCounty, signupBusy, onSignup, onRefuse, onSendRetail }) {
   const addr = [job.address, job.city, job.state, job.zip].filter(Boolean).join(", ");
   const progress = mine ? milestoneProgress(job.pa_fields) : null;
+  const dist = typeof job._dist === "number" ? job._dist : null;
   const signupValue = job.pa_fields?.pa_signup;
   const signupCurrent = isNeedSignature(signupValue) ? "Need Signature" : signupValue;
   const signupPending = isNeedSignature(signupValue);
@@ -1193,6 +1275,11 @@ function PAJobCard({ job, mine, claiming, onClaim, onOpen, hideCounty, signupBus
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 700, fontSize: 15 }}>{job.client_name || "(no name)"}</div>
           <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>{addr || "—"}</div>
+          {dist != null && (
+            <span style={{ display: "inline-block", marginTop: 4, fontSize: 11, fontWeight: 800, color: "#0e7490", background: "#ecfeff", border: "1px solid #a5f3fc", borderRadius: 999, padding: "1px 8px" }}>
+              📍 {dist < 10 ? dist.toFixed(1) : Math.round(dist)} mi away
+            </span>
+          )}
           {addr && <MapLinks address={addr} />}
           {mine && job.mobile && (
             <a href={`tel:${job.mobile}`} style={{ display: "inline-block", marginTop: 6, fontSize: 13, fontWeight: 700, color: "#1d4ed8", textDecoration: "none" }}>
