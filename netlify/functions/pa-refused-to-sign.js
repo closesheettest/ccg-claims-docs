@@ -46,6 +46,16 @@ exports.handler = async (event) => {
   const paId = (body.paId || "").trim();
   if (!inspectionId) return json(400, { ok: false, error: "inspectionId required" });
 
+  // mode: "refused" (homeowner refused to sign — the original flow) OR
+  // "retail" (PA taps "Send back to retail" and types a free-text reason).
+  // Both do the exact same revert; they differ only in the stamped status
+  // and the SMS wording. A reason is required for the "retail" mode.
+  const mode = String(body.mode || "refused").trim() === "retail" ? "retail" : "refused";
+  const reason = String(body.reason || "").trim();
+  if (mode === "retail" && !reason) {
+    return json(400, { ok: false, error: "A reason is required to send a deal back to retail" });
+  }
+
   const SB_URL = process.env.VITE_SUPABASE_URL;
   const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
   const sbHeaders = {
@@ -76,7 +86,9 @@ exports.handler = async (event) => {
   // 2. Flip to retail + record the PA's answer, and release ownership so
   //    the deal leaves the PA portal. process-retail-result (below) only
   //    reads result + jn_job_id, so clearing pa_id here is safe.
-  const mergedFields = { ...(insp.pa_fields || {}), pa_signup: "Refused to Sign" };
+  const signupStatus = mode === "retail" ? "Sent to Retail" : "Refused to Sign";
+  const mergedFields = { ...(insp.pa_fields || {}), pa_signup: signupStatus };
+  if (mode === "retail") mergedFields.pa_revert_reason = reason;
   const patch = await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}`, {
     method: "PATCH",
     headers: { ...sbHeaders, Prefer: "return=minimal" },
@@ -113,11 +125,18 @@ exports.handler = async (event) => {
   const homeowner = insp.client_name || "the homeowner";
   const addr = [insp.address, insp.city, insp.state, insp.zip].filter(Boolean).join(", ");
   const message =
-    `🏠 Retail opportunity — ${homeowner}\n\n` +
-    `The public adjuster talked with the homeowner and they do NOT want to go through insurance.\n\n` +
-    `Please go there and set up a retail appointment.\n\n` +
-    `Homeowner: ${homeowner}` +
-    (addr ? `\n${addr}` : "");
+    mode === "retail"
+      ? `🏠 Retail opportunity — ${homeowner}\n\n` +
+        `The public adjuster sent this deal back to retail.\n\n` +
+        `Reason: ${reason}\n\n` +
+        `Please go there and set up a retail appointment.\n\n` +
+        `Homeowner: ${homeowner}` +
+        (addr ? `\n${addr}` : "")
+      : `🏠 Retail opportunity — ${homeowner}\n\n` +
+        `The public adjuster talked with the homeowner and they do NOT want to go through insurance.\n\n` +
+        `Please go there and set up a retail appointment.\n\n` +
+        `Homeowner: ${homeowner}` +
+        (addr ? `\n${addr}` : "");
 
   // Resolve the rep's phone + JobNimbus id from CCG sales_reps.
   const rep = await resolveRep(SB_URL, sbHeaders, insp.sales_rep_id, insp.sales_rep_name);
@@ -142,6 +161,8 @@ exports.handler = async (event) => {
   return json(200, {
     ok: true,
     inspection_id: inspectionId,
+    mode,
+    reason: mode === "retail" ? reason : undefined,
     retail,
     zone: zone || null,
     notified,

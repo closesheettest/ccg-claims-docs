@@ -924,7 +924,7 @@ function PAJobList({ me, onOpenJob, wide }) {
         .order("county", { ascending: true, nullsFirst: false })
         .order("signed_at", { ascending: false }).limit(200),
       supabase.from("inspections")
-        .select("id, client_name, address, city, state, zip, county, signed_at, jn_job_id, result, pa_id, pa_claimed_at, pa_fields, pa_assignment_note")
+        .select("id, client_name, address, city, state, zip, county, signed_at, jn_job_id, result, pa_id, pa_claimed_at, pa_fields, pa_assignment_note, mobile")
         // A claimed deal that later goes Lost or gets pulled for a decision
         // (pa_decision_needed) drops out of the PA's claims automatically.
         .eq("pa_id", me.id).is("cancelled_at", null).eq("pa_decision_needed", false)
@@ -1008,6 +1008,43 @@ function PAJobList({ me, onOpenJob, wide }) {
       const repOk = body?.notified?.rep?.ok;
       const mgrOk = body?.notified?.manager?.ok;
       setMsg({ kind: "success", text: `Moved ${who} to retail. ${repOk ? "✓ Rep texted" : "⚠ Rep not texted"} · ${mgrOk ? "✓ Manager texted" : "⚠ Manager not texted (no zone manager)"}` });
+      setMine((l) => l.filter((j) => j.id !== job.id));
+    } catch (e) {
+      setMsg({ kind: "error", text: e.message || "Network error" });
+    }
+    setSignupBusyId(null);
+  }
+
+  // "Send back to retail" — like Refused to Sign, but the PA types a
+  // free-text reason first. Reverts the deal to retail (app + JobNimbus)
+  // and texts the rep + their manager with the reason. Leaves My claims.
+  async function sendToRetail(job) {
+    const who = job.client_name || "this homeowner";
+    const reason = window.prompt(
+      `Send "${who}" back to RETAIL?\n\n` +
+      `This moves the deal out of insurance and back to retail — in the app AND in JobNimbus — ` +
+      `and texts the sales rep + their manager.\n\n` +
+      `Why is it going back to retail? (required)`,
+    );
+    if (reason == null) return; // cancelled
+    const why = reason.trim();
+    if (!why) { setMsg({ kind: "error", text: "A reason is required to send a deal back to retail." }); return; }
+    setSignupBusyId(job.id);
+    setMsg(null);
+    try {
+      const res = await fetch("/.netlify/functions/pa-refused-to-sign", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inspectionId: job.id, paId: me.id, mode: "retail", reason: why }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!body.ok) {
+        setSignupBusyId(null);
+        setMsg({ kind: "error", text: body.error || `status ${res.status}` });
+        return;
+      }
+      const repOk = body?.notified?.rep?.ok;
+      const mgrOk = body?.notified?.manager?.ok;
+      setMsg({ kind: "success", text: `Sent ${who} back to retail. ${repOk ? "✓ Rep texted" : "⚠ Rep not texted"} · ${mgrOk ? "✓ Manager texted" : "⚠ Manager not texted (no zone manager)"}` });
       setMine((l) => l.filter((j) => j.id !== job.id));
     } catch (e) {
       setMsg({ kind: "error", text: e.message || "Network error" });
@@ -1111,6 +1148,7 @@ function PAJobList({ me, onOpenJob, wide }) {
               onOpen={() => onOpenJob(job.id)}
               onSignup={saveSignup}
               onRefuse={refuse}
+              onSendRetail={sendToRetail}
             />
           ))}
         </div>
@@ -1119,7 +1157,31 @@ function PAJobList({ me, onOpenJob, wide }) {
   );
 }
 
-function PAJobCard({ job, mine, claiming, onClaim, onOpen, hideCounty, signupBusy, onSignup, onRefuse }) {
+// Two side-by-side directions buttons — Apple Maps + Google Maps — so a
+// PA can open the address in whichever app they use. Prefers geocoded
+// lat/lng when present, else hands Maps the full address string.
+function MapLinks({ address, lat, lng, size = "sm" }) {
+  const hasGeo = lat != null && lng != null;
+  if (!address && !hasGeo) return null;
+  const q = hasGeo ? `${lat},${lng}` : encodeURIComponent(address);
+  const apple = `https://maps.apple.com/?daddr=${q}&dirflg=d`;
+  const google = `https://www.google.com/maps/dir/?api=1&destination=${q}`;
+  const big = size === "lg";
+  const btn = {
+    display: "inline-flex", alignItems: "center", gap: 4,
+    padding: big ? "8px 14px" : "6px 10px", borderRadius: 9,
+    fontSize: big ? 14 : 12, fontWeight: 700, textDecoration: "none",
+    border: "1px solid #d1d5db", whiteSpace: "nowrap",
+  };
+  return (
+    <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+      <a href={apple} target="_blank" rel="noreferrer" style={{ ...btn, background: "#0a84ff", color: "#fff", borderColor: "#0a84ff" }}>🍎 Apple Maps</a>
+      <a href={google} target="_blank" rel="noreferrer" style={{ ...btn, background: "#fff", color: "#1d4ed8", borderColor: "#1d4ed8" }}>🗺️ Google Maps</a>
+    </div>
+  );
+}
+
+function PAJobCard({ job, mine, claiming, onClaim, onOpen, hideCounty, signupBusy, onSignup, onRefuse, onSendRetail }) {
   const addr = [job.address, job.city, job.state, job.zip].filter(Boolean).join(", ");
   const progress = mine ? milestoneProgress(job.pa_fields) : null;
   const signupValue = job.pa_fields?.pa_signup;
@@ -1131,6 +1193,12 @@ function PAJobCard({ job, mine, claiming, onClaim, onOpen, hideCounty, signupBus
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 700, fontSize: 15 }}>{job.client_name || "(no name)"}</div>
           <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>{addr || "—"}</div>
+          {addr && <MapLinks address={addr} />}
+          {mine && job.mobile && (
+            <a href={`tel:${job.mobile}`} style={{ display: "inline-block", marginTop: 6, fontSize: 13, fontWeight: 700, color: "#1d4ed8", textDecoration: "none" }}>
+              📞 {job.mobile}
+            </a>
+          )}
           {!hideCounty && job.county && (
             <div style={{ display: "inline-block", marginTop: 4, fontSize: 11, fontWeight: 700, color: "#0e7490", background: "#ecfeff", border: "1px solid #a5f3fc", borderRadius: 999, padding: "1px 8px" }}>
               📍 {job.county}
@@ -1184,6 +1252,15 @@ function PAJobCard({ job, mine, claiming, onClaim, onOpen, hideCounty, signupBus
               </div>
               {signupBusy && <div style={{ fontSize: 11, color: "#64748b", marginTop: 6, fontWeight: 700 }}>Saving…</div>}
             </div>
+            {/* Send the deal back to retail with a typed reason — reverts
+                in the app + JobNimbus and texts the rep + their manager. */}
+            <button type="button" disabled={signupBusy}
+              onClick={() => { if (!signupBusy) onSendRetail(job); }}
+              style={{ width: "100%", marginBottom: 8, padding: "9px", borderRadius: 9, fontSize: 13, fontWeight: 700,
+                border: "1px solid #b45309", background: "#fff7ed", color: "#b45309",
+                cursor: signupBusy ? "default" : "pointer" }}>
+              ↩️ Send back to retail
+            </button>
             <button type="button" onClick={onOpen} style={{ ...primaryBtn, width: "100%", padding: "10px", fontSize: 14 }}>
               Open pipeline →
             </button>
@@ -1409,6 +1486,47 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
     }
   }
 
+  // "Send back to retail" — same one-way revert as Refused to Sign, but
+  // the PA types a free-text reason first (e.g. claim denied, no real
+  // damage). Reverts in the app + JobNimbus and texts the rep + manager
+  // with the reason, then the deal leaves the PA portal.
+  async function sendToRetail() {
+    const who = job?.client_name || "this homeowner";
+    const reason = window.prompt(
+      `Send "${who}" back to RETAIL?\n\n` +
+      `This moves the deal out of insurance and back to retail — in the app AND in JobNimbus — ` +
+      `and texts the sales rep + their manager.\n\n` +
+      `Why is it going back to retail? (required)`,
+    );
+    if (reason == null) return; // cancelled
+    const why = reason.trim();
+    if (!why) { setFieldErr("A reason is required to send a deal back to retail."); return; }
+    setRefusing(true);
+    setFieldErr(null);
+    try {
+      const res = await fetch("/.netlify/functions/pa-refused-to-sign", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inspectionId: jobId, paId: me.id, mode: "retail", reason: why }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!body.ok) {
+        setRefusing(false);
+        setFieldErr(`Couldn't complete that: ${body.error || res.status}`);
+        return;
+      }
+      const repOk = body?.notified?.rep?.ok;
+      const mgrOk = body?.notified?.manager?.ok;
+      const noteBits = [];
+      noteBits.push(repOk ? "✓ Sales rep texted" : "⚠ Sales rep not texted (no number on file)");
+      noteBits.push(mgrOk ? "✓ Manager texted" : "⚠ Manager not texted (couldn't resolve their zone manager)");
+      window.alert(`Done — sent back to retail.\n\n${noteBits.join("\n")}`);
+      onBack();
+    } catch (e) {
+      setRefusing(false);
+      setFieldErr(e.message || "Network error");
+    }
+  }
+
   if (loading) return <div style={{ padding: 24, textAlign: "center", color: "#6b7280" }}>Loading claim…</div>;
   if (loadErr && !job) {
     return (
@@ -1420,7 +1538,6 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
   }
 
   const addr = [job.address, job.city, job.state, job.zip].filter(Boolean).join(", ");
-  const mapsUrl = `https://maps.apple.com/?daddr=${encodeURIComponent(addr)}&dirflg=d`;
 
   return (
     <div>
@@ -1440,12 +1557,14 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
       {/* Job info */}
       <div style={{ padding: 14, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, marginBottom: 12 }}>
         <div style={{ fontWeight: 700, fontSize: 17, fontFamily: "'Oswald', sans-serif" }}>{job.client_name || "(no name)"}</div>
-        {addr && (
-          <a href={mapsUrl} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: "#1d4ed8", textDecoration: "underline", display: "inline-block", marginTop: 4 }}>
-            {addr}
+        {addr && <div style={{ fontSize: 13, color: "#374151", marginTop: 4 }}>{addr}</div>}
+        {addr && <MapLinks address={addr} size="lg" />}
+        {job.mobile && (
+          <a href={`tel:${job.mobile}`} style={{ display: "inline-block", marginTop: 8, fontSize: 14, fontWeight: 700, color: "#1d4ed8", textDecoration: "none" }}>
+            📞 {job.mobile}
           </a>
         )}
-        <div style={{ fontSize: 12, color: "#6b7280", marginTop: 6 }}>
+        <div style={{ fontSize: 12, color: "#6b7280", marginTop: 8 }}>
           {job.sales_rep_name && <>Rep: {job.sales_rep_name} · </>}
           <span style={{ color: "#991b1b", fontWeight: 700 }}>DAMAGE</span>
         </div>
@@ -1522,6 +1641,16 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
             <div style={{ fontSize: 13, marginTop: 12, fontWeight: 700, color: savedKey === "pa_signup" ? "#047857" : isPending ? "#b45309" : "#64748b" }}>
               {refusing ? "Reverting to retail & texting the team…" : savingKey === "pa_signup" ? "Saving…" : savedKey === "pa_signup" ? "✓ Saved" : `Current answer: ${current}`}
             </div>
+            {/* Send back to retail with a typed reason — reverts the deal
+                in the app + JobNimbus and texts the rep + their manager. */}
+            <button type="button" disabled={isSaving}
+              onClick={() => { if (!isSaving) sendToRetail(); }}
+              style={{ width: "100%", marginTop: 14, padding: "12px", borderRadius: 10, fontSize: 14, fontWeight: 800,
+                fontFamily: "'Oswald', sans-serif", letterSpacing: "0.02em",
+                border: "2px solid #b45309", background: "#fff7ed", color: "#b45309",
+                cursor: isSaving ? "default" : "pointer" }}>
+              ↩️ Send back to retail
+            </button>
           </div>
         );
       })()}

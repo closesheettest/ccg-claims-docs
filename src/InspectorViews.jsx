@@ -3434,6 +3434,17 @@ function mapsDirectionsUrl(job) {
   return `https://maps.apple.com/?daddr=${encodeURIComponent(dest)}&dirflg=d`;
 }
 
+// Google Maps driving-directions URL for the same job. Opens the Google
+// Maps app on Android (and the web map elsewhere), so inspectors who use
+// Google instead of Apple Maps get a one-tap route too.
+function googleMapsDirectionsUrl(job) {
+  if (job?.latitude != null && job?.longitude != null) {
+    return `https://www.google.com/maps/dir/?api=1&destination=${job.latitude},${job.longitude}`;
+  }
+  const dest = [job?.address, job?.city, job?.state, job?.zip].filter(Boolean).join(", ");
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}`;
+}
+
 function InspectorJobDetail({ me, jobId, onBack }) {
   const [job, setJob] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -3937,24 +3948,43 @@ function InspectorJobDetail({ me, jobId, onBack }) {
           📍 {job.address}<br />
           {job.city}, {job.state} {job.zip}
         </a>
-        <a
-          href={mapsDirectionsUrl(job)}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{
-            display: "inline-block",
-            marginTop: 8,
-            padding: "8px 14px",
-            background: "#0a84ff",
-            color: "#fff",
-            borderRadius: 10,
-            fontSize: 14,
-            fontWeight: 700,
-            textDecoration: "none",
-          }}
-        >
-          🧭 Directions (Apple Maps)
-        </a>
+        <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+          <a
+            href={mapsDirectionsUrl(job)}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: "inline-block",
+              padding: "8px 14px",
+              background: "#0a84ff",
+              color: "#fff",
+              borderRadius: 10,
+              fontSize: 14,
+              fontWeight: 700,
+              textDecoration: "none",
+            }}
+          >
+            🍎 Apple Maps
+          </a>
+          <a
+            href={googleMapsDirectionsUrl(job)}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: "inline-block",
+              padding: "8px 14px",
+              background: "#fff",
+              color: "#1d4ed8",
+              border: "1px solid #1d4ed8",
+              borderRadius: 10,
+              fontSize: 14,
+              fontWeight: 700,
+              textDecoration: "none",
+            }}
+          >
+            🗺️ Google Maps
+          </a>
+        </div>
         {job.sales_rep_name && (
           <div style={{ fontSize: 12, color: "#6b7280", marginTop: 8 }}>
             Rep: {job.sales_rep_name}{job.mobile && <> · {job.mobile}</>}
