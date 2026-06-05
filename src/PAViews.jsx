@@ -1155,8 +1155,33 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
   }
 
   async function release() {
-    if (!confirm("Release this deal back to the pool? Your milestone entries stay in JobNimbus, but the deal returns to the Available list for any adjuster to claim.")) return;
+    // Password gate — releasing a deal back to the pool is a manager-
+    // controlled action, so require the 4-digit release PIN (stored
+    // server-side, changeable in the manager Settings). Verified by a
+    // Netlify function so the PIN itself never reaches the browser.
+    const pin = window.prompt("Enter the 4-digit release PIN to send this deal back to the pool:");
+    if (pin === null) return; // cancelled
     setReleasing(true);
+    try {
+      const vr = await fetch("/.netlify/functions/pa-release-pin", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "verify", pin: String(pin).trim() }),
+      });
+      const vb = await vr.json().catch(() => ({}));
+      if (!vb.ok || !vb.valid) {
+        setReleasing(false);
+        alert("Incorrect PIN — the deal was NOT released.");
+        return;
+      }
+    } catch (e) {
+      setReleasing(false);
+      alert("Couldn't verify the PIN: " + (e.message || "network error"));
+      return;
+    }
+    if (!confirm("PIN accepted. Release this deal back to the pool? Your milestone entries stay in JobNimbus, but the deal returns to the Available list for any adjuster to claim.")) {
+      setReleasing(false);
+      return;
+    }
     const { error } = await supabase
       .from("inspections")
       .update({ pa_id: null, pa_claimed_at: null })

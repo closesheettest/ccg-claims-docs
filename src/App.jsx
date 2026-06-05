@@ -5256,6 +5256,12 @@ export default function App() {
 const [noDamageManagerSms, setNoDamageManagerSmsRaw] = useState(() => loadSetting("noDamageManagerSms") || "✅ No damage found at {address} for {client}. Rep: {rep}. Inspection complete — no claim needed.");
 const setNoDamageManagerPhone = (v) => { setNoDamageManagerPhoneRaw(v); saveSetting("noDamageManagerPhone", v); };
 const setNoDamageManagerSms = (v) => { setNoDamageManagerSmsRaw(v); saveSetting("noDamageManagerSms", v); };
+  // PA portal "Release this deal back to the pool" gate PIN. Stored
+  // server-side (app_settings.pa_release_pin), not localStorage, so the
+  // PA portal on another device verifies against the same value.
+  const [paReleasePinInput, setPaReleasePinInput] = useState("");
+  const [paReleasePinSaving, setPaReleasePinSaving] = useState(false);
+  const [paReleasePinMsg, setPaReleasePinMsg] = useState("");
 
 // ── SMS Templates — 12 templates stored in Supabase sms_templates table ──
 // Keys: {damage,nodamage,retail}_{insp,all}_{rep,homeowner}
@@ -10804,6 +10810,58 @@ if (!hasDamage) {
                   {managerSection === "pamgmt" && <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>PA Management</SectionTitle>
                     <div style={{ display: "grid", gap: 20 }}>
+                      {/* Release PIN — the 4-digit code a Public Adjuster must
+                          type before "Release this deal back to the pool" runs
+                          in the PA portal. Stored server-side so every device
+                          shares it. Default is 1234 until changed here. */}
+                      <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: 16 }}>
+                        <div style={{ fontWeight: 700, fontSize: 15, fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>🔐 Release-to-Pool PIN</div>
+                        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 12, fontFamily: "'Nunito', sans-serif" }}>
+                          Public Adjusters must enter this 4-digit PIN before they can release a claim back to the available pool. Default is <strong>1234</strong> until you change it.
+                        </div>
+                        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            maxLength={4}
+                            value={paReleasePinInput}
+                            onChange={(e) => { setPaReleasePinInput(e.target.value.replace(/\D/g, "").slice(0, 4)); setPaReleasePinMsg(""); }}
+                            placeholder="New 4-digit PIN"
+                            style={{ width: 160, height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 16, letterSpacing: "0.3em", boxSizing: "border-box" }}
+                          />
+                          <button
+                            type="button"
+                            disabled={paReleasePinSaving || !/^\d{4}$/.test(paReleasePinInput)}
+                            onClick={async () => {
+                              setPaReleasePinSaving(true);
+                              setPaReleasePinMsg("");
+                              try {
+                                const r = await fetch("/.netlify/functions/pa-release-pin", {
+                                  method: "POST", headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ action: "set", newPin: paReleasePinInput }),
+                                });
+                                const d = await r.json().catch(() => ({}));
+                                if (!r.ok || !d.ok) {
+                                  setPaReleasePinMsg("⚠️ " + (d.error || "Could not save PIN"));
+                                } else {
+                                  setPaReleasePinMsg("✓ Release PIN updated.");
+                                  setPaReleasePinInput("");
+                                }
+                              } catch (e) {
+                                setPaReleasePinMsg("⚠️ " + (e.message || "Network error"));
+                              } finally {
+                                setPaReleasePinSaving(false);
+                              }
+                            }}
+                            style={{ padding: "0 20px", height: 44, borderRadius: 12, border: "none", background: (paReleasePinSaving || !/^\d{4}$/.test(paReleasePinInput)) ? "#cbd5e1" : "#199c2e", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: "0.04em", textTransform: "uppercase", cursor: (paReleasePinSaving || !/^\d{4}$/.test(paReleasePinInput)) ? "not-allowed" : "pointer" }}
+                          >
+                            {paReleasePinSaving ? "Saving…" : "Update PIN"}
+                          </button>
+                          {paReleasePinMsg && (
+                            <span style={{ fontSize: 13, fontWeight: 700, color: paReleasePinMsg.startsWith("✓") ? "#047857" : "#dc2626", fontFamily: "'Nunito', sans-serif" }}>{paReleasePinMsg}</span>
+                          )}
+                        </div>
+                      </div>
                       <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: 16 }}>
                         <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
                           <input
