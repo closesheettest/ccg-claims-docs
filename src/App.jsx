@@ -4224,7 +4224,7 @@ function readAdminHandoff() {
 // ───────────────────────────────────────────────────────────────────
 function AdminAskResult({ result }) {
   const { kind, answerText, number, breakdown, link, list } = result || {};
-  const muted = kind === "unconfigured" || kind === "error";
+  const muted = kind === "unconfigured" || kind === "error" || kind === "feature_request";
   const names = Array.isArray(list) ? list : [];
   const shown = names.slice(0, 60);
   return (
@@ -4280,6 +4280,22 @@ function AdminDashboard() {
   const [askQuestion, setAskQuestion] = useState("");
   const [askLoading, setAskLoading] = useState(false);
   const [askResult, setAskResult] = useState(null);
+  const [askers, setAskers] = useState([]);
+  const [asker, setAsker] = useState("");
+
+  // Load the JN-linked rep roster for the "Who's asking?" picker (so an
+  // untracked-question feature request is attributed to a person).
+  useEffect(() => {
+    if (!unlocked) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await supabase.from("sales_reps").select("name").eq("active", true).order("name");
+        if (!cancelled && data) setAskers(data.map((r) => r.name).filter(Boolean));
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [unlocked]);
 
   // Reuse the Manager PIN (stored by the in-app settings panel). Can't call
   // App's loadSetting() from here (different component), so read localStorage.
@@ -4300,14 +4316,14 @@ function AdminDashboard() {
 
   const runAsk = async () => {
     const q = askQuestion.trim();
-    if (!q || askLoading) return;
+    if (!q || askLoading || !asker) return;
     setAskLoading(true);
     setAskResult(null);
     try {
       const r = await fetch("/.netlify/functions/admin-ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: q }),
+        body: JSON.stringify({ question: q, asker }),
       });
       const data = await r.json().catch(() => ({ ok: false, kind: "error", answerText: "Couldn't read the response — try again." }));
       setAskResult(data);
@@ -4369,7 +4385,18 @@ function AdminDashboard() {
       <Card>
         <CardContent>
           <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 18, marginBottom: 8 }}>💬 Ask anything</div>
-          <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 12 }}>e.g. "how many inspections did William Hernandez sign" or "where do I record a damage result"</div>
+          <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 12 }}>e.g. "how many sales this week", "who graduated this week", or "where do I record a damage result"</div>
+          <div style={{ marginBottom: 10 }}>
+            <select
+              value={asker}
+              onChange={(e) => setAsker(e.target.value)}
+              style={{ height: 44, borderRadius: 12, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, minWidth: 240, background: "#fff", color: asker ? "#111827" : "#6b7280" }}
+            >
+              <option value="">Who's asking? — select your name</option>
+              {askers.map((nm) => <option key={nm} value={nm}>{nm}</option>)}
+            </select>
+            {!asker && <span style={{ fontSize: 12, color: "#9ca3af", marginLeft: 10 }}>Pick your name to ask.</span>}
+          </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <input
               value={askQuestion}
@@ -4379,7 +4406,7 @@ function AdminDashboard() {
               maxLength={500}
               style={{ flex: 1, minWidth: 220, height: 46, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 14px", fontSize: 15, boxSizing: "border-box" }}
             />
-            <Button onClick={runAsk} disabled={askLoading}>{askLoading ? "Thinking…" : "Ask"}</Button>
+            <Button onClick={runAsk} disabled={askLoading || !asker}>{askLoading ? "Thinking…" : "Ask"}</Button>
           </div>
           {askResult && <AdminAskResult result={askResult} />}
         </CardContent>

@@ -67,8 +67,12 @@ export const handler = async (event) => {
   }
 
   let question = "";
-  try { question = String(JSON.parse(event.body || "{}").question || "").trim(); }
-  catch { return json(400, { ok: false, kind: "error", answerText: "Invalid request." }); }
+  let asker = "";
+  try {
+    const body = JSON.parse(event.body || "{}");
+    question = String(body.question || "").trim();
+    asker = String(body.asker || "").trim();
+  } catch { return json(400, { ok: false, kind: "error", answerText: "Invalid request." }); }
   if (!question) return json(400, { ok: false, kind: "error", answerText: "Ask a question first." });
   if (question.length > 500) question = question.slice(0, 500);
 
@@ -109,6 +113,15 @@ export const handler = async (event) => {
 
     if (plan.kind === "clarify") {
       return json(200, { ok: true, kind: "clarify", answerText: plan.clarify_question || "Could you be more specific?" });
+    }
+
+    if (plan.kind === "feature_request") {
+      try { await sendFeatureRequest(question, asker, plan.topic); }
+      catch (e) { console.warn("feature-request email failed:", e.message); }
+      return json(200, {
+        ok: true, kind: "feature_request",
+        answerText: "We don't currently track that — but I've sent your request to Neal to look at building it.",
+      });
     }
 
     if (plan.kind === "data") {
@@ -300,6 +313,29 @@ function money(n) {
   return n ? ` (about $${Math.round(n).toLocaleString()} in approved estimates)` : "";
 }
 
+// Email an untracked-question request to Neal (reuses the send-email function).
+const FEATURE_REQUEST_EMAIL = "neals@shingleusa.com";
+async function sendFeatureRequest(question, asker, topic) {
+  const base = process.env.URL || process.env.DEPLOY_PRIME_URL || "https://free-roof-inspections.netlify.app";
+  const who = asker || "Someone (name not selected)";
+  const esc = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const html =
+    `<p><strong>${esc(who)}</strong> asked the Admin Dashboard a question the Q&amp;A doesn't track yet.</p>` +
+    `<p><strong>Question:</strong> ${esc(question)}</p>` +
+    (topic ? `<p><strong>Topic:</strong> ${esc(topic)}</p>` : "") +
+    `<p style="color:#6b7280;font-size:13px">Sent automatically from the Admin Dashboard Smart Q&amp;A so you can decide whether to build it.</p>`;
+  const r = await fetch(`${base}/.netlify/functions/send-email`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      to: FEATURE_REQUEST_EMAIL,
+      subject: `Q&A feature request: ${(topic || question).slice(0, 70)}`,
+      html,
+    }),
+  });
+  if (!r.ok) throw new Error(`send-email ${r.status}`);
+}
+
 // Call the Training Management app's read-only stats endpoint (cross-app HTTP,
 // same pattern as manager-records-api → rep-zones). TMS keeps its own DB keys.
 async function fetchTraining(range) {
@@ -359,7 +395,9 @@ const SYSTEM_PROMPT = [
   "- 'How many / count / total / rank / leaderboard' about people or records → kind:'data' with the closest metric.",
   "- 'Where do I / how do I / open / find the tool for…' → kind:'navigation' with the best tool_key plus a short human nav_label.",
   "- If the person, metric, or timeframe is genuinely ambiguous → kind:'clarify' with one specific clarify_question.",
-  "- IMPORTANT scope: this system answers questions about roof inspections, sales reps, inspectors, public adjusters, signed claims, training (graduations and class rosters), AND sales/deals sold this week (from JobNimbus). If the question is about anything else (payroll, commissions paid, marketing, HR), do NOT keep asking — set kind:'clarify' with a clarify_question that lists what you CAN answer.",
+  "- IMPORTANT scope: this system answers questions about roof inspections, sales reps, inspectors, public adjusters, signed claims, training (graduations and class rosters), AND total sales/deals sold this week (from JobNimbus).",
+  "- SALES vs INSPECTION RESULTS: 'sales', 'sold', 'deals', 'how much did we sell' = SOLD DEALS in JobNimbus → use sales_this_week or sales_by_rep. NEVER use inspections_by_result for a sales question. An inspection 'retail' RESULT (the inspection outcome) is a totally different thing from a retail SALE.",
+  "- NOT-YET-TRACKED → feature_request: If the question is a reasonable business question we do NOT have a metric for — e.g. a retail-vs-insurance split of sales, average ticket/$ per sale, close-sheet numbers, install-finder counts, anything about a different app — set kind:'feature_request' with a short 'topic' (a few words naming what they wanted). Do NOT force it into a wrong metric. Truly unanswerable/unrelated things (payroll, HR, weather) → kind:'clarify'.",
   "- 'inspected / inspections done / completed / finished' means COMPLETED inspections (those with a result) → inspections_by_result with result_filter 'any'. Only use inspections_total when the question literally says signed / signed up / submitted.",
   "- Default date_range to 'all_time' for 'how many … signed' with no timeframe; use 'this_week' only when the question mentions this week or the leaderboard.",
   "- Always choose values from the enums; never invent a metric or tool_key.",
@@ -387,7 +425,7 @@ const ANSWER_PLAN_TOOL = {
   input_schema: {
     type: "object",
     properties: {
-      kind: { type: "string", enum: ["data", "navigation", "clarify"] },
+      kind: { type: "string", enum: ["data", "navigation", "clarify", "feature_request"] },
       metric: {
         type: "string",
         enum: [
@@ -406,6 +444,7 @@ const ANSWER_PLAN_TOOL = {
       tool_key: { type: "string", enum: TOOL_KEYS },
       nav_label: { type: "string" },
       clarify_question: { type: "string" },
+      topic: { type: "string" },
     },
     required: ["kind"],
   },
