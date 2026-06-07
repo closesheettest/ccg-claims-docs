@@ -4144,10 +4144,20 @@ const MANAGER_TILES = [
   { group: "settings", key: "autosms", emoji: "📣", label: "Auto SMS", desc: "Every automated text — when it fires, who gets it, add/remove copies" },
 ];
 
-// Apps showcased on the Admin Dashboard. `href` cards navigate directly;
-// `tokenized` cards (regional manager) need a personal link; the Manager
-// Console card uses the deep-link handshake so it skips a second PIN.
+// Standalone apps (separate sites) launched from the hub. These open in a
+// new tab so the dashboard stays put.
 const ADMIN_APPS = [
+  { key: "rep_dashboard", emoji: "📋", label: "Rep Dashboard", desc: "Daily schedule, team standings, and training links for sales reps.", href: "https://us-shingle-rep-dashboard.netlify.app" },
+  { key: "training", emoji: "🎓", label: "Training Management", desc: "Trainee onboarding and the training tracker.", href: "https://trainingmanagementsys.netlify.app" },
+  { key: "closesheet_sales", emoji: "🧮", label: "Close Sheet", desc: "Enter measurements & pricing to generate the close pages.", href: "https://usshinglesalessheet.netlify.app" },
+  { key: "forms", emoji: "📄", label: "U.S. Shingle Forms", desc: "Field forms — deposits, upgrades, and more.", href: "https://us-shingle-forms.netlify.app" },
+  { key: "install_finder", emoji: "🗺", label: "Install Finder", desc: "Find past installs by city, location radius, or statewide.", href: "https://golden-banoffee-56e9ef.netlify.app" },
+];
+
+// The Free Roof Inspections portals (routes inside THIS app). `href` cards
+// navigate directly; `tokenized` (regional manager) needs a personal link;
+// the Manager Console uses the deep-link handshake so it skips a second PIN.
+const ADMIN_PORTALS = [
   { key: "rep", emoji: "🏠", label: "Rep Intake", desc: "The homeowner sign-up form sales reps use in the field.", href: "/" },
   { key: "inspector", emoji: "🔍", label: "Inspector App", desc: "The inspector mobile app — claim jobs, take photos, log results.", href: "/?mode=inspector" },
   { key: "pa", emoji: "🧑‍⚖️", label: "Public Adjuster Portal", desc: "The PA portal — claim damage deals and enter milestone dates.", href: "/?mode=pa" },
@@ -4333,12 +4343,29 @@ function AdminDashboard() {
         </CardContent>
       </Card>
 
-      {/* Apps */}
+      {/* Apps — standalone sites (open in a new tab) */}
       <Card>
         <CardContent>
           <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 18, marginBottom: 12 }}>📱 Apps</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14 }}>
             {ADMIN_APPS.map((app) => (
+              <div key={app.key} style={{ padding: "20px 18px", borderRadius: 20, border: "2px solid #e5e7eb", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.06)", display: "flex", flexDirection: "column" }}>
+                <div style={{ fontSize: 32, marginBottom: 8 }}>{app.emoji}</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>{app.label}</div>
+                <div style={{ fontSize: 12.5, color: "#6b7280", lineHeight: 1.4, flex: 1, marginBottom: 12 }}>{app.desc}</div>
+                <Button variant="outline" onClick={() => { window.open(app.href, "_blank", "noopener"); }}>Open ↗</Button>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Free Roof Inspections portals — routes inside this app */}
+      <Card>
+        <CardContent>
+          <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 18, marginBottom: 12 }}>🏠 Free Roof Inspections</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14 }}>
+            {ADMIN_PORTALS.map((app) => (
               <div key={app.key} style={{ padding: "20px 18px", borderRadius: 20, border: "2px solid #e5e7eb", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.06)", display: "flex", flexDirection: "column" }}>
                 <div style={{ fontSize: 32, marginBottom: 8 }}>{app.emoji}</div>
                 <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>{app.label}</div>
