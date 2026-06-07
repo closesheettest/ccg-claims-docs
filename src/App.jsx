@@ -4099,6 +4099,295 @@ function GuidedIntakeFlow({
   );
 }
 
+// ───────────────────────────────────────────────────────────────────
+// Manager tool registry — SINGLE SOURCE OF TRUTH.
+// Hoisted to module scope (was inline in the manager-home render) so the
+// standalone Admin Dashboard (/?mode=admin) and the in-app Manager home
+// both render from the same list. Each tile: { group, key, emoji, label, desc }.
+// `key` matches the managerSection render switch inside App().
+// ───────────────────────────────────────────────────────────────────
+const MANAGER_TABS = [
+  { key: "signing",     emoji: "🖊", label: "Signing & Sales" },
+  { key: "inspections", emoji: "🔍", label: "Inspections" },
+  { key: "pa",          emoji: "🤝", label: "Public Adjuster" },
+  { key: "settings",    emoji: "⚙️", label: "Settings" },
+];
+const MANAGER_TILES = [
+  // ── Signing & Sales ──
+  { group: "signing", key: "reps", emoji: "👥", label: "Sales Rep Manager", desc: "Add, import, and activate reps. \"Add\" reads from JobNimbus." },
+  { group: "signing", key: "review", emoji: "📝", label: "Review Page Text", desc: "What the homeowner sees before signing, explaining the document." },
+  { group: "signing", key: "thankyou", emoji: "🎉", label: "Thank You Pages", desc: "Customize what's sent to homeowners and when (SMS / email)." },
+  { group: "signing", key: "sms", emoji: "💬", label: "SMS Templates", desc: "All communication to reps and homeowners — customize it here." },
+  { group: "signing", key: "report", emoji: "📊", label: "Weekly Report", desc: "View signings by rep and date range" },
+  { group: "signing", key: "analytics", emoji: "📈", label: "Submission Analytics", desc: "Totals, category % and avg days per rep" },
+  { group: "signing", key: "dupes", emoji: "👯", label: "Find Duplicates", desc: (<><span style={{ color: "#dc2626", fontWeight: 800 }}>⚠️ DO NOT USE</span> unless you've been trained on it. Address-based deduper — deletes records.</>) },
+  { group: "signing", key: "browseall", emoji: "📚", label: "Browse All Records", desc: "Step through every record one-by-one to verify accuracy" },
+  // ── Inspections ──
+  { group: "inspections", key: "team_roles", emoji: "🧑‍🤝‍🧑", label: "Team Roles", desc: "One list of everyone — check Inspector and/or PA to set each person's role. Start here when setting someone up." },
+  { group: "inspections", key: "inspectors", emoji: "🔍", label: "Inspectors", desc: "Roster — sync from JN, edit, activate/deactivate" },
+  { group: "inspections", key: "assign_inspections", emoji: "📋", label: "Assign Inspections", desc: "Hand out pending jobs, take them away, release" },
+  { group: "inspections", key: "confirm_results", emoji: "🔒", label: "Confirm Results", desc: "Review held results from gated inspectors before anything fires to JN" },
+  { group: "inspections", key: "inspector_routes", emoji: "🗺", label: "Inspector Routes", desc: "Optimize the day's route from home or current location" },
+  { group: "inspections", key: "inspector_reports", emoji: "📊", label: "Inspector Reports", desc: "Completed this week by status + per-inspector + by day" },
+  { group: "inspections", key: "lookup", emoji: "🔍", label: "Record Lookup & Results", desc: "Find inspections, record damage/no damage" },
+  { group: "inspections", key: "jnreport", emoji: "📄", label: "JN Inspection Report", desc: "Generate insp report PDF with photos and upload to JN" },
+  { group: "inspections", key: "bulkreport", emoji: "📦", label: "Bulk Inspection Reports", desc: "Run insp reports across every JN job with a chosen status" },
+  // ── Public Adjuster ──
+  { group: "pa", key: "team_roles", emoji: "🧑‍🤝‍🧑", label: "Team Roles", desc: "One list of everyone — check Inspector and/or PA to set each person's role. Start here when setting someone up." },
+  { group: "pa", key: "pamgmt", emoji: "🔌", label: "PA Management", desc: "Turn the in-app PA paperwork (LoR + PA Authorization signing) on or off." },
+  { group: "pa", key: "public_adjusters", emoji: "🧑‍⚖️", label: "Public Adjusters", desc: "View the portal as a PA sees it, decide which records go into the portal, and assign a PA." },
+  { group: "pa", key: "pa_handoff", emoji: "📤", label: "PA Handoff", desc: "Send a customer's info to a PA." },
+  { group: "pa", key: "pa_report", emoji: "🤝", label: "PA Report", desc: "What was sent to the PA, when, and the signed/refused/pending outcome. Filter by date." },
+  { group: "pa", key: "sit_sold_pa_report", emoji: "📋", label: "Sit Sold PA (Old)", desc: "Records currently at jn_status \"Sit Sold PA\" — what the old PA still has on her plate." },
+  // ── Settings ──
+  { group: "settings", key: "security", emoji: "⚙️", label: "Security & Notifications", desc: "PIN, activity email" },
+  { group: "settings", key: "autosms", emoji: "📣", label: "Auto SMS", desc: "Every automated text — when it fires, who gets it, add/remove copies" },
+];
+
+// Apps showcased on the Admin Dashboard. `href` cards navigate directly;
+// `tokenized` cards (regional manager) need a personal link; the Manager
+// Console card uses the deep-link handshake so it skips a second PIN.
+const ADMIN_APPS = [
+  { key: "rep", emoji: "🏠", label: "Rep Intake", desc: "The homeowner sign-up form sales reps use in the field.", href: "/" },
+  { key: "inspector", emoji: "🔍", label: "Inspector App", desc: "The inspector mobile app — claim jobs, take photos, log results.", href: "/?mode=inspector" },
+  { key: "pa", emoji: "🧑‍⚖️", label: "Public Adjuster Portal", desc: "The PA portal — claim damage deals and enter milestone dates.", href: "/?mode=pa" },
+  { key: "manager", emoji: "🛠", label: "Manager Console", desc: "Every admin tool in one place (or launch any single tool below).", href: "/?mode=manager" },
+  { key: "regional", emoji: "🗺", label: "Regional Manager Records", desc: "Each regional manager opens their zone via a personal link (…/?manager=<token>). Ask the office for yours.", tokenized: true },
+];
+
+// Curated "most-used reports" — reference existing tile keys so labels/
+// emoji/desc stay in sync with MANAGER_TILES (DRY).
+const ADMIN_REPORTS = [
+  { tileKey: "report" },
+  { tileKey: "analytics" },
+  { tileKey: "inspector_reports" },
+  { tileKey: "lookup" },
+  { tileKey: "browseall" },
+];
+
+// Colors for result-count chips in Smart Q&A answers (no shared STATUS_META exists).
+const ADMIN_RESULT_META = {
+  damage:    { label: "Damage",    color: "#dc2626" },
+  no_damage: { label: "No Damage", color: "#16a34a" },
+  retail:    { label: "Retail",    color: "#b45309" },
+  lost:      { label: "Lost",      color: "#6b7280" },
+};
+
+// Deep-link from the Admin hub into a specific Manager tool. Sets a
+// per-tab sessionStorage flag the Manager view honors so it skips the PIN
+// (a cold-typed /?mode=manager has no flag → PIN gate still shows).
+function launchManagerTool(sectionKey) {
+  try {
+    sessionStorage.setItem("adminHubUnlocked", "1");
+    if (sectionKey) sessionStorage.setItem("adminHubSection", sectionKey);
+  } catch {}
+  window.location.href = window.location.origin + "/?mode=manager";
+}
+
+// ───────────────────────────────────────────────────────────────────
+// Admin Dashboard — standalone "front door" at /?mode=admin.
+// PIN-gated (same PIN as the Manager console). Shows: Smart Q&A box,
+// Apps row, most-used Reports, and every Manager tool grouped by category.
+// Self-contained — rendered via early-exit before the heavy intake state.
+// ───────────────────────────────────────────────────────────────────
+function AdminAskResult({ result }) {
+  const { kind, answerText, number, breakdown, link } = result || {};
+  const muted = kind === "unconfigured" || kind === "error";
+  return (
+    <div style={{ marginTop: 14, padding: 16, borderRadius: 16, background: "#f8fafc", border: "1px solid #e5e7eb" }}>
+      {kind === "data" && typeof number === "number" && (
+        <div style={{ fontSize: 40, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#111827", lineHeight: 1 }}>{number.toLocaleString()}</div>
+      )}
+      <div style={{ fontSize: 15, color: muted ? "#6b7280" : "#111827", marginTop: kind === "data" ? 8 : 0, lineHeight: 1.5 }}>{answerText}</div>
+      {breakdown && Object.keys(breakdown).length > 0 && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+          {Object.entries(breakdown).map(([k, v]) => {
+            const meta = ADMIN_RESULT_META[k] || { label: k, color: "#374151" };
+            return (
+              <span key={k} style={{ fontSize: 13, fontWeight: 700, color: meta.color, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 999, padding: "5px 12px" }}>
+                {meta.label}: {v}
+              </span>
+            );
+          })}
+        </div>
+      )}
+      {link && link.section && (
+        <div style={{ marginTop: 14 }}>
+          <Button variant="outline" onClick={() => launchManagerTool(link.section)}>{link.label || "Open tool"}</Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AdminDashboard() {
+  const [unlocked, setUnlocked] = useState(() => {
+    try { return sessionStorage.getItem("adminHubUnlocked") === "1"; } catch { return false; }
+  });
+  const [pinEntry, setPinEntry] = useState("");
+  const [askQuestion, setAskQuestion] = useState("");
+  const [askLoading, setAskLoading] = useState(false);
+  const [askResult, setAskResult] = useState(null);
+
+  // Reuse the Manager PIN (stored by the in-app settings panel). Can't call
+  // App's loadSetting() from here (different component), so read localStorage.
+  const pin = (() => {
+    try { return localStorage.getItem("ccg_mgr_managerPin") || "1234"; } catch { return "1234"; }
+  })();
+
+  const tryUnlock = () => {
+    if (pinEntry === pin) {
+      try { sessionStorage.setItem("adminHubUnlocked", "1"); } catch {}
+      setUnlocked(true);
+      setPinEntry("");
+    } else {
+      alert("Incorrect PIN.");
+      setPinEntry("");
+    }
+  };
+
+  const runAsk = async () => {
+    const q = askQuestion.trim();
+    if (!q || askLoading) return;
+    setAskLoading(true);
+    setAskResult(null);
+    try {
+      const r = await fetch("/.netlify/functions/admin-ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: q }),
+      });
+      const data = await r.json().catch(() => ({ ok: false, kind: "error", answerText: "Couldn't read the response — try again." }));
+      setAskResult(data);
+    } catch {
+      setAskResult({ ok: false, kind: "error", answerText: "Network error — try again." });
+    } finally {
+      setAskLoading(false);
+    }
+  };
+
+  const shell = (children) => (
+    <div style={{ minHeight: "100vh", background: "#f3f4f6", fontFamily: "'Nunito', sans-serif", padding: "24px 16px" }}>
+      <div style={{ maxWidth: 980, margin: "0 auto", display: "grid", gap: 16 }}>{children}</div>
+    </div>
+  );
+
+  if (!unlocked) {
+    return shell(
+      <Card>
+        <CardHeader><CardTitle>🛠 Admin Dashboard</CardTitle></CardHeader>
+        <CardContent>
+          <div style={{ maxWidth: 320 }}>
+            <Label>Enter Admin PIN</Label>
+            <input
+              type="password"
+              value={pinEntry}
+              onChange={(e) => setPinEntry(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") tryUnlock(); }}
+              placeholder="Enter PIN and press Enter"
+              style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box", marginBottom: 12 }}
+            />
+            <Button onClick={tryUnlock}>Unlock</Button>
+            <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 10 }}>Same PIN as the Manager console (default 1234).</div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const toolTile = (item) => (
+    <button key={item.group + ":" + item.key} type="button" onClick={() => launchManagerTool(item.key)}
+      style={{ padding: "20px 18px", borderRadius: 20, border: "2px solid #e5e7eb", background: "#fff", textAlign: "left", cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+      <div style={{ fontSize: 32, marginBottom: 8 }}>{item.emoji}</div>
+      <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>{item.label}</div>
+      <div style={{ fontSize: 12.5, color: "#6b7280", lineHeight: 1.4 }}>{item.desc}</div>
+    </button>
+  );
+
+  return shell(
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle>🛠 Admin Dashboard</CardTitle>
+          <CardDescription>Your front door to every app, tool, and report — and ask a question to get the answer on the spot.</CardDescription>
+        </CardHeader>
+      </Card>
+
+      {/* Smart Q&A */}
+      <Card>
+        <CardContent>
+          <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 18, marginBottom: 8 }}>💬 Ask anything</div>
+          <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 12 }}>e.g. "how many inspections did William Hernandez sign" or "where do I record a damage result"</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <input
+              value={askQuestion}
+              onChange={(e) => setAskQuestion(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") runAsk(); }}
+              placeholder="Type your question…"
+              maxLength={500}
+              style={{ flex: 1, minWidth: 220, height: 46, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 14px", fontSize: 15, boxSizing: "border-box" }}
+            />
+            <Button onClick={runAsk} disabled={askLoading}>{askLoading ? "Thinking…" : "Ask"}</Button>
+          </div>
+          {askResult && <AdminAskResult result={askResult} />}
+        </CardContent>
+      </Card>
+
+      {/* Apps */}
+      <Card>
+        <CardContent>
+          <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 18, marginBottom: 12 }}>📱 Apps</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14 }}>
+            {ADMIN_APPS.map((app) => (
+              <div key={app.key} style={{ padding: "20px 18px", borderRadius: 20, border: "2px solid #e5e7eb", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.06)", display: "flex", flexDirection: "column" }}>
+                <div style={{ fontSize: 32, marginBottom: 8 }}>{app.emoji}</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>{app.label}</div>
+                <div style={{ fontSize: 12.5, color: "#6b7280", lineHeight: 1.4, flex: 1, marginBottom: 12 }}>{app.desc}</div>
+                {app.tokenized ? (
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#9ca3af", fontFamily: "'Oswald', sans-serif", textTransform: "uppercase" }}>Personal link required</div>
+                ) : app.key === "manager" ? (
+                  <Button variant="outline" onClick={() => launchManagerTool("home")}>Open</Button>
+                ) : (
+                  <Button variant="outline" onClick={() => { window.location.href = window.location.origin + app.href; }}>Open</Button>
+                )}
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Most-used reports */}
+      <Card>
+        <CardContent>
+          <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 18, marginBottom: 12 }}>📊 Most-used reports</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14 }}>
+            {ADMIN_REPORTS.map(({ tileKey }) => {
+              const tile = MANAGER_TILES.find((t) => t.key === tileKey);
+              return tile ? toolTile(tile) : null;
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* All tools by category */}
+      {MANAGER_TABS.map((tab) => {
+        const tiles = MANAGER_TILES.filter((t) => t.group === tab.key);
+        if (!tiles.length) return null;
+        return (
+          <Card key={tab.key}>
+            <CardContent>
+              <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 18, marginBottom: 12 }}>{tab.emoji} {tab.label}</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14 }}>
+                {tiles.map(toolTile)}
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })}
+    </>
+  );
+}
+
 export default function App() {
   // Early-return URL param routing for one-off public pages — these
   // don't share state with the rest of the App, so we short-circuit
@@ -4133,6 +4422,12 @@ export default function App() {
     if (portalMode === "pa") {
       return <PAMobileApp />;
     }
+    // ?mode=admin lands on the standalone Admin Dashboard — the single
+    // "front door" that launches every app + tool and answers questions.
+    // Self-contained + PIN-gated, same short-circuit pattern as the others.
+    if (portalMode === "admin") {
+      return <AdminDashboard />;
+    }
   }
 
   // ?mode=inspector lands the inspector straight in the mobile app
@@ -4141,7 +4436,11 @@ export default function App() {
   const [view, setView] = useState(() => {
     if (typeof window === "undefined") return "input";
     const mode = new URLSearchParams(window.location.search).get("mode");
-    return mode === "inspector" ? "inspector" : "input";
+    if (mode === "inspector") return "inspector";
+    // Deep-link from the Admin hub: /?mode=manager opens the manager view.
+    // The PIN gate still guards it unless the hub set the unlock flag (below).
+    if (mode === "manager") return "manager";
+    return "input";
   });
   // ── Guided intake mode ──────────────────────────────────────────
   // When true, the intake screen replaces the all-at-once form with a
@@ -4365,9 +4664,33 @@ export default function App() {
   const [thankYouClosing, setThankYouClosingRaw] = useState(() => loadSetting("thankYouClosing"));
   const [managerPin, setManagerPinRaw] = useState(() => loadSetting("managerPin"));
   const [managerPinEntry, setManagerPinEntry] = useState("");
-  const [managerUnlocked, setManagerUnlocked] = useState(false);
+  // Deep-link handshake from the Admin hub: only auto-unlock when this tab
+  // already passed the hub PIN (sessionStorage flag set by launchManagerTool).
+  // A cold-typed /?mode=manager has no flag → PIN gate still renders.
+  const [managerUnlocked, setManagerUnlocked] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      const mode = new URLSearchParams(window.location.search).get("mode");
+      return mode === "manager" && sessionStorage.getItem("adminHubUnlocked") === "1";
+    } catch { return false; }
+  });
   const [managerTYTab, setManagerTYTab] = useState("post_inspection");
-  const [managerSection, setManagerSection] = useState("home");
+  const [managerSection, setManagerSection] = useState(() => {
+    if (typeof window === "undefined") return "home";
+    try {
+      const mode = new URLSearchParams(window.location.search).get("mode");
+      if (mode === "manager" && sessionStorage.getItem("adminHubUnlocked") === "1") {
+        return sessionStorage.getItem("adminHubSection") || "home";
+      }
+    } catch {}
+    return "home";
+  });
+  // Consume the deep-link section once so an in-app refresh returns to the
+  // manager home rather than re-opening the linked tool. Keep adminHubUnlocked
+  // for the tab lifetime so hub↔tool navigation doesn't re-prompt for the PIN.
+  useEffect(() => {
+    try { sessionStorage.removeItem("adminHubSection"); } catch {}
+  }, []);
   // Which side of the manager home the user is browsing: signing / inspections / pa / settings.
   const [managerTab, setManagerTab] = useState("signing");
 
@@ -10877,46 +11200,8 @@ if (!hasDamage) {
                 <div>
                   {managerSection === "home" ? (
                     (() => {
-                      // Manager tools grouped by the three "sides" of the app
-                      // (plus Settings), so a new user sees one area at a time
-                      // instead of one big jumble of buttons.
-                      const MANAGER_TABS = [
-                        { key: "signing",     emoji: "🖊", label: "Signing & Sales" },
-                        { key: "inspections", emoji: "🔍", label: "Inspections" },
-                        { key: "pa",          emoji: "🤝", label: "Public Adjuster" },
-                        { key: "settings",    emoji: "⚙️", label: "Settings" },
-                      ];
-                      const MANAGER_TILES = [
-                        // ── Signing & Sales ──
-                        { group: "signing", key: "reps", emoji: "👥", label: "Sales Rep Manager", desc: "Add, import, and activate reps. \"Add\" reads from JobNimbus." },
-                        { group: "signing", key: "review", emoji: "📝", label: "Review Page Text", desc: "What the homeowner sees before signing, explaining the document." },
-                        { group: "signing", key: "thankyou", emoji: "🎉", label: "Thank You Pages", desc: "Customize what's sent to homeowners and when (SMS / email)." },
-                        { group: "signing", key: "sms", emoji: "💬", label: "SMS Templates", desc: "All communication to reps and homeowners — customize it here." },
-                        { group: "signing", key: "report", emoji: "📊", label: "Weekly Report", desc: "View signings by rep and date range" },
-                        { group: "signing", key: "analytics", emoji: "📈", label: "Submission Analytics", desc: "Totals, category % and avg days per rep" },
-                        { group: "signing", key: "dupes", emoji: "👯", label: "Find Duplicates", desc: (<><span style={{ color: "#dc2626", fontWeight: 800 }}>⚠️ DO NOT USE</span> unless you've been trained on it. Address-based deduper — deletes records.</>) },
-                        { group: "signing", key: "browseall", emoji: "📚", label: "Browse All Records", desc: "Step through every record one-by-one to verify accuracy" },
-                        // ── Inspections ──
-                        { group: "inspections", key: "team_roles", emoji: "🧑‍🤝‍🧑", label: "Team Roles", desc: "One list of everyone — check Inspector and/or PA to set each person's role. Start here when setting someone up." },
-                        { group: "inspections", key: "inspectors", emoji: "🔍", label: "Inspectors", desc: "Roster — sync from JN, edit, activate/deactivate" },
-                        { group: "inspections", key: "assign_inspections", emoji: "📋", label: "Assign Inspections", desc: "Hand out pending jobs, take them away, release" },
-                        { group: "inspections", key: "confirm_results", emoji: "🔒", label: "Confirm Results", desc: "Review held results from gated inspectors before anything fires to JN" },
-                        { group: "inspections", key: "inspector_routes", emoji: "🗺", label: "Inspector Routes", desc: "Optimize the day's route from home or current location" },
-                        { group: "inspections", key: "inspector_reports", emoji: "📊", label: "Inspector Reports", desc: "Completed this week by status + per-inspector + by day" },
-                        { group: "inspections", key: "lookup", emoji: "🔍", label: "Record Lookup & Results", desc: "Find inspections, record damage/no damage" },
-                        { group: "inspections", key: "jnreport", emoji: "📄", label: "JN Inspection Report", desc: "Generate insp report PDF with photos and upload to JN" },
-                        { group: "inspections", key: "bulkreport", emoji: "📦", label: "Bulk Inspection Reports", desc: "Run insp reports across every JN job with a chosen status" },
-                        // ── Public Adjuster ──
-                        { group: "pa", key: "team_roles", emoji: "🧑‍🤝‍🧑", label: "Team Roles", desc: "One list of everyone — check Inspector and/or PA to set each person's role. Start here when setting someone up." },
-                        { group: "pa", key: "pamgmt", emoji: "🔌", label: "PA Management", desc: "Turn the in-app PA paperwork (LoR + PA Authorization signing) on or off." },
-                        { group: "pa", key: "public_adjusters", emoji: "🧑‍⚖️", label: "Public Adjusters", desc: "View the portal as a PA sees it, decide which records go into the portal, and assign a PA." },
-                        { group: "pa", key: "pa_handoff", emoji: "📤", label: "PA Handoff", desc: "Send a customer's info to a PA." },
-                        { group: "pa", key: "pa_report", emoji: "🤝", label: "PA Report", desc: "What was sent to the PA, when, and the signed/refused/pending outcome. Filter by date." },
-                        { group: "pa", key: "sit_sold_pa_report", emoji: "📋", label: "Sit Sold PA (Old)", desc: "Records currently at jn_status \"Sit Sold PA\" — what the old PA still has on her plate." },
-                        // ── Settings ──
-                        { group: "settings", key: "security", emoji: "⚙️", label: "Security & Notifications", desc: "PIN, activity email" },
-                        { group: "settings", key: "autosms", emoji: "📣", label: "Auto SMS", desc: "Every automated text — when it fires, who gets it, add/remove copies" },
-                      ];
+                      // MANAGER_TABS + MANAGER_TILES are hoisted to module scope
+                      // (shared with the Admin Dashboard) — see top of file.
                       const tiles = MANAGER_TILES.filter(t => t.group === managerTab);
                       return (
                         <div style={{ marginTop: 8 }}>
