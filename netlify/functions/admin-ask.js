@@ -29,6 +29,10 @@ const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
 const ANTHROPIC_MODEL = "claude-haiku-4-5";
 
+// Training Management System (separate app/DB) — read-only stats endpoint.
+const TMS_STATS_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/training-stats";
+const TMS_APP_URL = "https://trainingmanagementsys.netlify.app";
+
 const RESULT_VALUES = ["damage", "no_damage", "retail", "lost"];
 
 // Section keys the Manager render switch knows about — the safelist Claude
@@ -222,9 +226,44 @@ async function answerData(plan) {
       return data(n, `${matched[0].name} completed ${n} ${plural(n, "inspection")} ${winLabel}.`, resultBreakdown(rows), "inspector_reports", "Open Inspector Reports");
     }
 
+    case "training_graduates": {
+      const trange = plan.date_range === "last_week" ? "last_week" : "this_week";
+      const t = await fetchTraining(trange);
+      const g = (t && t.graduates) || { count: 0, names: [] };
+      const n = g.count || 0;
+      const wl = trange === "last_week" ? "last week" : "this week";
+      const who = n === 1 ? "person" : "people";
+      return trainingAnswer(n, `${n} ${who} graduated training ${wl}.`, g.names, g.byRegion);
+    }
+
+    case "training_class_roster": {
+      const trange = plan.date_range === "last_week" ? "last_week" : "this_week";
+      const t = await fetchTraining(trange);
+      const c = (t && t.inClass) || { count: 0, names: [] };
+      const n = c.count || 0;
+      const wl = trange === "last_week" ? "last week's class" : "this week's class";
+      return trainingAnswer(n, `${n} ${n === 1 ? "trainee is" : "trainees are"} in ${wl}.`, c.names, c.byRegion);
+    }
+
     default:
       return clarify("I couldn't tell what to count — try rephrasing your question.");
   }
+}
+
+// Call the Training Management app's read-only stats endpoint (cross-app HTTP,
+// same pattern as manager-records-api → rep-zones). TMS keeps its own DB keys.
+async function fetchTraining(range) {
+  const r = await fetch(`${TMS_STATS_URL}?range=${encodeURIComponent(range)}`);
+  if (!r.ok) throw new Error(`training-stats ${r.status}`);
+  return await r.json();
+}
+
+// Training answers carry a name list + a link OUT to the Training app (new tab).
+function trainingAnswer(number, answerText, names, byRegion) {
+  const out = { ok: true, kind: "data", number, answerText, link: { label: "Open Training Management", url: TMS_APP_URL } };
+  if (Array.isArray(names) && names.length) out.list = names;
+  if (byRegion && Object.keys(byRegion).length > 1) out.breakdown = byRegion;
+  return json(200, out);
 }
 
 async function pullRepSignedInspections(name, win) {
@@ -270,7 +309,7 @@ const SYSTEM_PROMPT = [
   "- 'How many / count / total / rank / leaderboard' about people or records → kind:'data' with the closest metric.",
   "- 'Where do I / how do I / open / find the tool for…' → kind:'navigation' with the best tool_key plus a short human nav_label.",
   "- If the person, metric, or timeframe is genuinely ambiguous → kind:'clarify' with one specific clarify_question.",
-  "- IMPORTANT scope: this system ONLY has data about roof inspections, sales reps, inspectors, public adjusters, and signed claims. If the question is about anything else (training, graduation, classes, students, payroll, commissions, marketing, HR, etc.), do NOT keep asking — set kind:'clarify' with a clarify_question that says you can only answer questions about inspections, sales reps, inspectors, PAs, and signed claims, and suggest they open the matching app (e.g. Training Management) for that.",
+  "- IMPORTANT scope: this system answers questions about roof inspections, sales reps, inspectors, public adjusters, signed claims, AND training (graduations and class rosters from the Training Management app). If the question is about anything else (payroll, commissions, marketing, HR, sales revenue), do NOT keep asking — set kind:'clarify' with a clarify_question that lists what you CAN answer.",
   "- 'inspected / inspections done / completed / finished' means COMPLETED inspections (those with a result) → inspections_by_result with result_filter 'any'. Only use inspections_total when the question literally says signed / signed up / submitted.",
   "- Default date_range to 'all_time' for 'how many … signed' with no timeframe; use 'this_week' only when the question mentions this week or the leaderboard.",
   "- Always choose values from the enums; never invent a metric or tool_key.",
@@ -283,6 +322,8 @@ const SYSTEM_PROMPT = [
   "- inspections_total: count of inspections that were SIGNED UP / SUBMITTED in a window (homeowner signed the agreement). Many may NOT be inspected yet — do NOT use this for 'done/completed'. Use only for 'how many signed up / submitted / new inspections'.",
   "- rep_leaderboard_rank: a rep's leaderboard position this week (person_name).",
   "- inspections_by_inspector: inspections COMPLETED by an INSPECTOR (person_name = the inspector).",
+  "- training_graduates: how many people GRADUATED training (or WHO graduated) in a week. Use for 'how many graduated', 'who graduated this week', 'graduating class'. date_range this_week/last_week.",
+  "- training_class_roster: who is in the current TRAINING CLASS / how many people are in training this week. Use for 'who is in this week's class', 'how many trainees', 'class roster'. date_range this_week/last_week.",
   "",
   "Tool guide (tool_key = tool): lookup = Record Lookup & Results — THIS is where you find an inspection and RECORD/ENTER a result (damage / no damage / retail); report = Weekly Report; analytics = Submission Analytics; inspector_reports = Inspector Reports; reps = Sales Rep Manager; assign_inspections = Assign Inspections to inspectors; confirm_results = Confirm Results — only for REVIEWING/APPROVING results an inspector already submitted (not for recording a new one); inspectors = Inspectors roster; public_adjusters = Public Adjusters; pa_report = PA Report; pa_handoff = PA Handoff; pamgmt = PA Management; team_roles = Team Roles; sms = SMS Templates; review = Review Page Text; thankyou = Thank You Pages; security = Security & Notifications; autosms = Auto SMS; browseall = Browse All Records; jnreport = JN Inspection Report; bulkreport = Bulk Inspection Reports; dupes = Find Duplicates.",
   "For 'where do I record/enter a result/damage/no-damage' → lookup. Set nav_label to the tool's exact name from the guide.",
@@ -300,7 +341,7 @@ const ANSWER_PLAN_TOOL = {
         enum: [
           "inspections_signed_by_rep", "inspections_by_result", "inspections_pending",
           "inspections_total", "rep_leaderboard_rank", "inspections_by_inspector",
-          "claims_signed_by_rep",
+          "claims_signed_by_rep", "training_graduates", "training_class_roster",
         ],
       },
       person_name: { type: "string" },

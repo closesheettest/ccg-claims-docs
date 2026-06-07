@@ -4223,8 +4223,10 @@ function readAdminHandoff() {
 // Self-contained — rendered via early-exit before the heavy intake state.
 // ───────────────────────────────────────────────────────────────────
 function AdminAskResult({ result }) {
-  const { kind, answerText, number, breakdown, link } = result || {};
+  const { kind, answerText, number, breakdown, link, list } = result || {};
   const muted = kind === "unconfigured" || kind === "error";
+  const names = Array.isArray(list) ? list : [];
+  const shown = names.slice(0, 60);
   return (
     <div style={{ marginTop: 14, padding: 16, borderRadius: 16, background: "#f8fafc", border: "1px solid #e5e7eb" }}>
       {kind === "data" && typeof number === "number" && (
@@ -4243,9 +4245,27 @@ function AdminAskResult({ result }) {
           })}
         </div>
       )}
-      {link && link.section && (
+      {shown.length > 0 && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 12 }}>
+          {shown.map((nm, i) => (
+            <span key={i} style={{ fontSize: 13, color: "#111827", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 999, padding: "5px 12px" }}>{nm}</span>
+          ))}
+          {names.length > shown.length && (
+            <span style={{ fontSize: 13, color: "#6b7280", padding: "5px 4px" }}>+{names.length - shown.length} more</span>
+          )}
+        </div>
+      )}
+      {link && (link.section || link.url) && (
         <div style={{ marginTop: 14 }}>
-          <Button variant="outline" onClick={() => launchManagerTool(link.section)}>{link.label || "Open tool"}</Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              if (link.url) window.open(link.url, "_blank", "noopener");
+              else launchManagerTool(link.section);
+            }}
+          >
+            {(link.label || "Open tool")}{link.url ? " ↗" : ""}
+          </Button>
         </div>
       )}
     </div>
