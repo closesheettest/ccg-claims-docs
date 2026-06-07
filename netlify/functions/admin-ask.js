@@ -176,11 +176,14 @@ async function answerData(plan) {
     }
 
     case "inspections_total": {
+      // SIGNED-UP count (homeowner signed the agreement) — many won't be
+      // inspected yet, so do NOT show a result breakdown here: it wouldn't
+      // sum to this number and reads as wrong. Word it as "signed up".
       let filter = `signed_at=not.is.null&cancelled_at=is.null`;
       filter += windowFilter("signed_at", win);
       const rows = await fetchTable("inspections", { select: "client_name,zip,address,result,result_at,signed_at,jn_status", filter, limit: 5000 });
       const n = dedupSignings(rows).length;
-      return data(n, `${n} ${plural(n, "inspection")} ${winLabel}.`, resultBreakdown(rows), "report", "Open Weekly Report");
+      return data(n, `${n} ${plural(n, "inspection")} ${n === 1 ? "was" : "were"} signed up ${winLabel}.`, null, "report", "Open Weekly Report");
     }
 
     case "rep_leaderboard_rank": {
@@ -267,15 +270,17 @@ const SYSTEM_PROMPT = [
   "- 'How many / count / total / rank / leaderboard' about people or records → kind:'data' with the closest metric.",
   "- 'Where do I / how do I / open / find the tool for…' → kind:'navigation' with the best tool_key plus a short human nav_label.",
   "- If the person, metric, or timeframe is genuinely ambiguous → kind:'clarify' with one specific clarify_question.",
+  "- IMPORTANT scope: this system ONLY has data about roof inspections, sales reps, inspectors, public adjusters, and signed claims. If the question is about anything else (training, graduation, classes, students, payroll, commissions, marketing, HR, etc.), do NOT keep asking — set kind:'clarify' with a clarify_question that says you can only answer questions about inspections, sales reps, inspectors, PAs, and signed claims, and suggest they open the matching app (e.g. Training Management) for that.",
+  "- 'inspected / inspections done / completed / finished' means COMPLETED inspections (those with a result) → inspections_by_result with result_filter 'any'. Only use inspections_total when the question literally says signed / signed up / submitted.",
   "- Default date_range to 'all_time' for 'how many … signed' with no timeframe; use 'this_week' only when the question mentions this week or the leaderboard.",
   "- Always choose values from the enums; never invent a metric or tool_key.",
   "",
   "Metric guide:",
   "- inspections_signed_by_rep: how many inspections a SALES REP signed (person_name = the rep).",
   "- claims_signed_by_rep: how many PA claims a sales rep signed.",
-  "- inspections_by_result: count by outcome (result_filter damage/no_damage/retail/lost, or any). Optional person_name.",
+  "- inspections_by_result: count of COMPLETED inspections (ones that HAVE a result). Use this for 'how many inspections were DONE / COMPLETED / INSPECTED / finished'. result_filter narrows to damage/no_damage/retail/lost, or 'any' for all completed. Optional person_name. The result breakdown sums to this number.",
   "- inspections_pending: signed but no result yet.",
-  "- inspections_total: total signed inspections in a window.",
+  "- inspections_total: count of inspections that were SIGNED UP / SUBMITTED in a window (homeowner signed the agreement). Many may NOT be inspected yet — do NOT use this for 'done/completed'. Use only for 'how many signed up / submitted / new inspections'.",
   "- rep_leaderboard_rank: a rep's leaderboard position this week (person_name).",
   "- inspections_by_inspector: inspections COMPLETED by an INSPECTOR (person_name = the inspector).",
   "",
