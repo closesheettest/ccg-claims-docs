@@ -125,6 +125,18 @@ export const handler = async (event) => {
     }
 
     if (plan.kind === "data") {
+      // Deterministic guard: we track TOTAL sales, not a retail-vs-insurance
+      // split. Don't let a "retail/insurance sales" question return the total
+      // (misleading) — route it to a feature request instead.
+      const qlc = question.toLowerCase();
+      if ((plan.metric === "sales_this_week" || plan.metric === "sales_by_rep") && /\b(retail|insurance)\b/.test(qlc)) {
+        try { await sendFeatureRequest(question, asker, "retail vs insurance sales split"); }
+        catch (e) { console.warn("feature-request email failed:", e.message); }
+        return json(200, {
+          ok: true, kind: "feature_request",
+          answerText: "We track total sales, but not a retail-vs-insurance split yet — I've sent your request to Neal to build it.",
+        });
+      }
       return await answerData(plan);
     }
 
