@@ -4183,15 +4183,37 @@ const ADMIN_RESULT_META = {
   lost:      { label: "Lost",      color: "#6b7280" },
 };
 
-// Deep-link from the Admin hub into a specific Manager tool. Sets a
-// per-tab sessionStorage flag the Manager view honors so it skips the PIN
-// (a cold-typed /?mode=manager has no flag → PIN gate still shows).
+// Deep-link from the Admin hub into a specific Manager tool, in a NEW TAB.
+// sessionStorage isn't shared across tabs, so we hand off via a single-use,
+// time-limited localStorage token the new tab consumes on load (readAdminHandoff).
+// A cold-typed /?mode=manager has no fresh token → PIN gate still shows.
 function launchManagerTool(sectionKey) {
   try {
-    sessionStorage.setItem("adminHubUnlocked", "1");
-    if (sectionKey) sessionStorage.setItem("adminHubSection", sectionKey);
+    localStorage.setItem("adminHubHandoff", JSON.stringify({ section: sectionKey || "home", ts: Date.now() }));
   } catch {}
-  window.location.href = window.location.origin + "/?mode=manager";
+  window.open(window.location.origin + "/?mode=manager", "_blank", "noopener");
+}
+
+// Read (and consume) the admin → manager deep-link handoff. Cached on window
+// so the two manager initializers below see the same value and it's removed
+// exactly once. Valid only on ?mode=manager and only for 60s after the click.
+function readAdminHandoff() {
+  if (typeof window === "undefined") return null;
+  if (window.__adminHandoff !== undefined) return window.__adminHandoff;
+  let result = null;
+  try {
+    const mode = new URLSearchParams(window.location.search).get("mode");
+    if (mode === "manager") {
+      const raw = localStorage.getItem("adminHubHandoff");
+      if (raw) {
+        const { section, ts } = JSON.parse(raw);
+        if (ts && Date.now() - ts < 60000) result = { section: section || "home" };
+      }
+      localStorage.removeItem("adminHubHandoff"); // single-use
+    }
+  } catch {}
+  window.__adminHandoff = result;
+  return result;
 }
 
 // ───────────────────────────────────────────────────────────────────
@@ -4373,9 +4395,9 @@ function AdminDashboard() {
                 {app.tokenized ? (
                   <div style={{ fontSize: 12, fontWeight: 700, color: "#9ca3af", fontFamily: "'Oswald', sans-serif", textTransform: "uppercase" }}>Personal link required</div>
                 ) : app.key === "manager" ? (
-                  <Button variant="outline" onClick={() => launchManagerTool("home")}>Open</Button>
+                  <Button variant="outline" onClick={() => launchManagerTool("home")}>Open ↗</Button>
                 ) : (
-                  <Button variant="outline" onClick={() => { window.location.href = window.location.origin + app.href; }}>Open</Button>
+                  <Button variant="outline" onClick={() => { window.open(window.location.origin + app.href, "_blank", "noopener"); }}>Open ↗</Button>
                 )}
               </div>
             ))}
@@ -4691,33 +4713,15 @@ export default function App() {
   const [thankYouClosing, setThankYouClosingRaw] = useState(() => loadSetting("thankYouClosing"));
   const [managerPin, setManagerPinRaw] = useState(() => loadSetting("managerPin"));
   const [managerPinEntry, setManagerPinEntry] = useState("");
-  // Deep-link handshake from the Admin hub: only auto-unlock when this tab
-  // already passed the hub PIN (sessionStorage flag set by launchManagerTool).
-  // A cold-typed /?mode=manager has no flag → PIN gate still renders.
-  const [managerUnlocked, setManagerUnlocked] = useState(() => {
-    if (typeof window === "undefined") return false;
-    try {
-      const mode = new URLSearchParams(window.location.search).get("mode");
-      return mode === "manager" && sessionStorage.getItem("adminHubUnlocked") === "1";
-    } catch { return false; }
-  });
+  // Deep-link from the Admin hub (opens in a new tab): auto-unlock only when a
+  // fresh single-use handoff token is present (readAdminHandoff). A cold-typed
+  // /?mode=manager has no token → PIN gate still renders.
+  const [managerUnlocked, setManagerUnlocked] = useState(() => !!readAdminHandoff());
   const [managerTYTab, setManagerTYTab] = useState("post_inspection");
   const [managerSection, setManagerSection] = useState(() => {
-    if (typeof window === "undefined") return "home";
-    try {
-      const mode = new URLSearchParams(window.location.search).get("mode");
-      if (mode === "manager" && sessionStorage.getItem("adminHubUnlocked") === "1") {
-        return sessionStorage.getItem("adminHubSection") || "home";
-      }
-    } catch {}
-    return "home";
+    const h = readAdminHandoff();
+    return h ? h.section : "home";
   });
-  // Consume the deep-link section once so an in-app refresh returns to the
-  // manager home rather than re-opening the linked tool. Keep adminHubUnlocked
-  // for the tab lifetime so hub↔tool navigation doesn't re-prompt for the PIN.
-  useEffect(() => {
-    try { sessionStorage.removeItem("adminHubSection"); } catch {}
-  }, []);
   // Which side of the manager home the user is browsing: signing / inspections / pa / settings.
   const [managerTab, setManagerTab] = useState("signing");
 
