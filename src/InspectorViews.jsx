@@ -3055,7 +3055,17 @@ export function ManagerInspectorReports() {
       let completedQ = supabase
         .from("inspections")
         .select("id, client_name, address, result, result_at, inspector_id, lost_reason")
-        .not("result", "is", null)
+        // Only the three real terminal outcomes count as a completed
+        // inspection. `result` can also hold pre-inspection placeholder
+        // strings ("Needs Service", "Needs Sales Visit", etc.) that land
+        // before the inspector classifies — those are non-null but aren't
+        // a completed inspection. Filtering on `not null` counted them in
+        // Total without matching any of the Damage/No-dmg/Retail columns,
+        // so the per-inspector row never summed to Total. Scope to the
+        // three tokens so Total === Damage + No-dmg + Retail everywhere
+        // (headline total, by-status, by-day, by-inspector all derive
+        // from these rows).
+        .in("result", ["damage", "no_damage", "retail"])
         .not("inspector_id", "is", null)
         .gte("result_at", fromIso)
         .lte("result_at", toIso)
