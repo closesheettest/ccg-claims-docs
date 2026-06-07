@@ -41,6 +41,22 @@ const TOOL_KEYS = [
   "security", "autosms",
 ];
 
+// Real tool display names (mirrors MANAGER_TILES labels in src/App.jsx) so
+// navigation answers always say the actual tool name, not a model guess.
+const TOOL_LABELS = {
+  reps: "Sales Rep Manager", review: "Review Page Text", thankyou: "Thank You Pages",
+  sms: "SMS Templates", report: "Weekly Report", analytics: "Submission Analytics",
+  dupes: "Find Duplicates", browseall: "Browse All Records", team_roles: "Team Roles",
+  inspectors: "Inspectors", assign_inspections: "Assign Inspections",
+  confirm_results: "Confirm Results", inspector_routes: "Inspector Routes",
+  inspector_reports: "Inspector Reports", lookup: "Record Lookup & Results",
+  jnreport: "JN Inspection Report", bulkreport: "Bulk Inspection Reports",
+  pamgmt: "PA Management", public_adjusters: "Public Adjusters",
+  pa_handoff: "PA Handoff", pa_report: "PA Report",
+  sit_sold_pa_report: "Sit Sold PA (Old)", security: "Security & Notifications",
+  autosms: "Auto SMS",
+};
+
 export const handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return json(405, { ok: false, kind: "error", answerText: "Method not allowed." });
@@ -78,7 +94,8 @@ export const handler = async (event) => {
       if (!key) {
         return json(200, { ok: true, kind: "clarify", answerText: "I'm not sure which tool that is — try the tool cards above, or rephrase." });
       }
-      const label = plan.nav_label || "the right tool";
+      // Always use the real tool name, not the model's free-text label.
+      const label = TOOL_LABELS[key] || plan.nav_label || "the right tool";
       return json(200, {
         ok: true, kind: "navigation",
         answerText: `That's in ${label}.`,
@@ -262,7 +279,8 @@ const SYSTEM_PROMPT = [
   "- rep_leaderboard_rank: a rep's leaderboard position this week (person_name).",
   "- inspections_by_inspector: inspections COMPLETED by an INSPECTOR (person_name = the inspector).",
   "",
-  "Tool guide (tool_key = tool): lookup = Record Lookup & Results (find inspections, record damage/no-damage); report = Weekly Report; analytics = Submission Analytics; inspector_reports = Inspector Reports; reps = Sales Rep Manager; assign_inspections = Assign Inspections; confirm_results = Confirm Results; inspectors = Inspectors roster; public_adjusters = Public Adjusters; pa_report = PA Report; pa_handoff = PA Handoff; pamgmt = PA Management; team_roles = Team Roles; sms = SMS Templates; review = Review Page Text; thankyou = Thank You Pages; security = Security & Notifications; autosms = Auto SMS; browseall = Browse All Records; jnreport = JN Inspection Report; bulkreport = Bulk Inspection Reports; dupes = Find Duplicates.",
+  "Tool guide (tool_key = tool): lookup = Record Lookup & Results — THIS is where you find an inspection and RECORD/ENTER a result (damage / no damage / retail); report = Weekly Report; analytics = Submission Analytics; inspector_reports = Inspector Reports; reps = Sales Rep Manager; assign_inspections = Assign Inspections to inspectors; confirm_results = Confirm Results — only for REVIEWING/APPROVING results an inspector already submitted (not for recording a new one); inspectors = Inspectors roster; public_adjusters = Public Adjusters; pa_report = PA Report; pa_handoff = PA Handoff; pamgmt = PA Management; team_roles = Team Roles; sms = SMS Templates; review = Review Page Text; thankyou = Thank You Pages; security = Security & Notifications; autosms = Auto SMS; browseall = Browse All Records; jnreport = JN Inspection Report; bulkreport = Bulk Inspection Reports; dupes = Find Duplicates.",
+  "For 'where do I record/enter a result/damage/no-damage' → lookup. Set nav_label to the tool's exact name from the guide.",
 ].join("\n");
 
 const ANSWER_PLAN_TOOL = {
