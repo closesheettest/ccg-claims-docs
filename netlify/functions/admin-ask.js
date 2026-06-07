@@ -245,9 +245,59 @@ async function answerData(plan) {
       return trainingAnswer(n, `${n} ${n === 1 ? "trainee is" : "trainees are"} in ${wl}.`, c.names, c.byRegion);
     }
 
+    case "sales_this_week": {
+      const d = await fetchSales();
+      const n = d.total || 0;
+      const revenue = (d.zones || []).reduce((s, z) => s + (z.total_amount || 0), 0);
+      const byZone = {};
+      for (const z of d.zones || []) byZone[z.zone] = z.count;
+      const out = {
+        ok: true, kind: "data", number: n,
+        answerText: `${n} ${plural(n, "sale")} this week${money(revenue)}.`,
+        link: { label: "Open Rep Dashboard", url: "https://us-shingle-rep-dashboard.netlify.app" },
+      };
+      if (Object.keys(byZone).length > 1) out.breakdown = byZone;
+      return json(200, out);
+    }
+
+    case "sales_by_rep": {
+      if (!plan.person_name) return clarify("Which sales rep do you mean?");
+      const d = await fetchSales();
+      const deals = allDeals(d).filter((dl) => nameMatches(dl.rep, plan.person_name));
+      const distinct = [...new Set(deals.map((dl) => dl.rep).filter(Boolean))];
+      if (distinct.length > 1) return clarify(`Multiple reps match "${plan.person_name}": ${distinct.join(", ")}. Which one?`);
+      const n = deals.length;
+      const revenue = deals.reduce((s, dl) => s + (dl.amount || 0), 0);
+      const who = distinct[0] || plan.person_name;
+      const out = {
+        ok: true, kind: "data", number: n,
+        answerText: `${who} has ${n} ${plural(n, "sale")} this week${money(revenue)}.`,
+        link: { label: "Open Rep Dashboard", url: "https://us-shingle-rep-dashboard.netlify.app" },
+      };
+      if (n) out.list = deals.map((dl) => dl.customer || "(deal)");
+      return json(200, out);
+    }
+
     default:
       return clarify("I couldn't tell what to count — try rephrasing your question.");
   }
+}
+
+// JobNimbus sales — reuse the existing zone-sales-leaderboard function (which
+// reads JN directly) instead of re-querying JN here. Current week only.
+async function fetchSales() {
+  const base = process.env.URL || process.env.DEPLOY_PRIME_URL || "https://free-roof-inspections.netlify.app";
+  const r = await fetch(`${base}/.netlify/functions/zone-sales-leaderboard`);
+  if (!r.ok) throw new Error(`zone-sales-leaderboard ${r.status}`);
+  return await r.json();
+}
+function allDeals(d) {
+  const out = [];
+  for (const z of d.zones || []) for (const dl of z.deals || []) out.push({ ...dl, zone: z.zone });
+  return out;
+}
+function money(n) {
+  return n ? ` (about $${Math.round(n).toLocaleString()} in approved estimates)` : "";
 }
 
 // Call the Training Management app's read-only stats endpoint (cross-app HTTP,
@@ -309,7 +359,7 @@ const SYSTEM_PROMPT = [
   "- 'How many / count / total / rank / leaderboard' about people or records → kind:'data' with the closest metric.",
   "- 'Where do I / how do I / open / find the tool for…' → kind:'navigation' with the best tool_key plus a short human nav_label.",
   "- If the person, metric, or timeframe is genuinely ambiguous → kind:'clarify' with one specific clarify_question.",
-  "- IMPORTANT scope: this system answers questions about roof inspections, sales reps, inspectors, public adjusters, signed claims, AND training (graduations and class rosters from the Training Management app). If the question is about anything else (payroll, commissions, marketing, HR, sales revenue), do NOT keep asking — set kind:'clarify' with a clarify_question that lists what you CAN answer.",
+  "- IMPORTANT scope: this system answers questions about roof inspections, sales reps, inspectors, public adjusters, signed claims, training (graduations and class rosters), AND sales/deals sold this week (from JobNimbus). If the question is about anything else (payroll, commissions paid, marketing, HR), do NOT keep asking — set kind:'clarify' with a clarify_question that lists what you CAN answer.",
   "- 'inspected / inspections done / completed / finished' means COMPLETED inspections (those with a result) → inspections_by_result with result_filter 'any'. Only use inspections_total when the question literally says signed / signed up / submitted.",
   "- Default date_range to 'all_time' for 'how many … signed' with no timeframe; use 'this_week' only when the question mentions this week or the leaderboard.",
   "- Always choose values from the enums; never invent a metric or tool_key.",
@@ -324,6 +374,8 @@ const SYSTEM_PROMPT = [
   "- inspections_by_inspector: inspections COMPLETED by an INSPECTOR (person_name = the inspector).",
   "- training_graduates: how many people GRADUATED training (or WHO graduated) in a week. Use for 'how many graduated', 'who graduated this week', 'graduating class'. date_range this_week/last_week.",
   "- training_class_roster: who is in the current TRAINING CLASS / how many people are in training this week. Use for 'who is in this week's class', 'how many trainees', 'class roster'. date_range this_week/last_week.",
+  "- sales_this_week: how many SALES / deals were SOLD this week and the dollar amount (live from JobNimbus). Use for 'how many sales this week', 'how much did we sell', 'sales this week'. Current week only.",
+  "- sales_by_rep: how many sales a specific rep made this week (person_name = the rep, live from JobNimbus). Current week only.",
   "",
   "Tool guide (tool_key = tool): lookup = Record Lookup & Results — THIS is where you find an inspection and RECORD/ENTER a result (damage / no damage / retail); report = Weekly Report; analytics = Submission Analytics; inspector_reports = Inspector Reports; reps = Sales Rep Manager; assign_inspections = Assign Inspections to inspectors; confirm_results = Confirm Results — only for REVIEWING/APPROVING results an inspector already submitted (not for recording a new one); inspectors = Inspectors roster; public_adjusters = Public Adjusters; pa_report = PA Report; pa_handoff = PA Handoff; pamgmt = PA Management; team_roles = Team Roles; sms = SMS Templates; review = Review Page Text; thankyou = Thank You Pages; security = Security & Notifications; autosms = Auto SMS; browseall = Browse All Records; jnreport = JN Inspection Report; bulkreport = Bulk Inspection Reports; dupes = Find Duplicates.",
   "For 'where do I record/enter a result/damage/no-damage' → lookup. Set nav_label to the tool's exact name from the guide.",
@@ -342,6 +394,7 @@ const ANSWER_PLAN_TOOL = {
           "inspections_signed_by_rep", "inspections_by_result", "inspections_pending",
           "inspections_total", "rep_leaderboard_rank", "inspections_by_inspector",
           "claims_signed_by_rep", "training_graduates", "training_class_roster",
+          "sales_this_week", "sales_by_rep",
         ],
       },
       person_name: { type: "string" },
