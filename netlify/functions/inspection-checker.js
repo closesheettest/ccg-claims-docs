@@ -292,8 +292,23 @@ exports.handler = async (event) => {
 
       if (!record) { console.log("No SB record found for:", jnJobId, job.name); continue; }
 
-      // Skip if already processed this result
-      if (record.inspection_result === newResult) {
+      // Skip if already processed this result. Check BOTH columns:
+      //   • inspection_result — the raw JN value, written only when WE
+      //     detect a change here (updateInspectionResult).
+      //   • result — the normalized UI value, written by the in-app
+      //     inspector flow at submission time.
+      // The app flow sets `result` ("damage") but never `inspection_result`,
+      // and the update step below deliberately skips updateInspectionResult
+      // for those jobs to preserve the inspector's original result_at — so
+      // inspection_result stays null forever. Checking only inspection_result
+      // let every app-classified Damage job fall through on EVERY 15-min run,
+      // re-rendering + discarding a PDFShift damage PDF each time (the email
+      // that consumes it is gated behind AUTO_NOTIFY, currently off). That
+      // was a silent PDFShift credit leak. Checking the normalized `result`
+      // too makes the skip actually fire for the common app-flow case, while
+      // still processing the admin-edited-in-JN case (local result won't match).
+      const RESULT_TOKENS = { "Damage": "damage", "No Damage": "no_damage", "Retail": "retail" };
+      if (record.inspection_result === newResult || record.result === RESULT_TOKENS[newResult]) {
         console.log("Already processed — skipping:", jnJobId);
         continue;
       }
@@ -409,10 +424,15 @@ exports.handler = async (event) => {
         photos,
       });
 
-      // For damage — generate a PDF attachment
+      // For damage — generate a PDF attachment. ONLY when AUTO_NOTIFY is on:
+      // this PDF's sole consumer is the report email's attachment (sendEmail
+      // below), which itself only fires under AUTO_NOTIFY. Building it when
+      // AUTO_NOTIFY is off spends a PDFShift conversion on a PDF that is
+      // immediately discarded — defense-in-depth against the credit leak the
+      // skip guard above already addresses.
       let pdfBase64 = null;
       let pdfFilename = null;
-      if (newResult === "Damage" && photos.length > 0) {
+      if (AUTO_NOTIFY && newResult === "Damage" && photos.length > 0) {
         console.log("Generating damage PDF...");
         pdfBase64 = await generateDamagePDF({
           clientName: record.client_name || "Homeowner",
