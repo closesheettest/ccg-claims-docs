@@ -6707,7 +6707,10 @@ const renderSmsTemplate = (key, vars) => {
     if (inspSubmittingRef.current) return;
     inspSubmittingRef.current = true;
     setInspSubmitAttempted(true);
-    if (!effectiveInspSig || !inspData.clientName || !(inspData.address || "").trim()) {
+    // Phone is REQUIRED now (≥10 digits) so every record reaches the PA with
+    // a number to call — fixes deals coming in with no phone.
+    const inspPhoneDigits = (inspData.mobile || "").replace(/\D/g, "");
+    if (!effectiveInspSig || !inspData.clientName || !(inspData.address || "").trim() || inspPhoneDigits.length < 10) {
       inspSubmittingRef.current = false;
       return;
     }
@@ -10975,7 +10978,7 @@ if (!hasDamage) {
                         style={{ width: "100%", height: 44, borderRadius: 14, border: inspSubmitAttempted && !inspData.clientName ? "2px solid #ef4444" : "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
                     </div>
                     <div>
-                      <Label>Mobile</Label>
+                      <Label>Mobile *</Label>
                       <input type="tel" value={inspData.mobile}
                         onChange={e => {
                           const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
@@ -10986,7 +10989,7 @@ if (!hasDamage) {
                           updateInsp("mobile", fmt);
                         }}
                         placeholder="(727) 000-0000"
-                        style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                        style={{ width: "100%", height: 44, borderRadius: 14, border: inspSubmitAttempted && (inspData.mobile || "").replace(/\D/g, "").length < 10 ? "2px solid #ef4444" : "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
                     </div>
                     <FormField
                       label="Email"
@@ -11092,6 +11095,11 @@ if (!hasDamage) {
                   {inspSubmitAttempted && !inspData.address ? (
                     <div style={{ color: "#ef4444", fontSize: 14, fontFamily: "'Nunito', sans-serif", fontWeight: 700, marginBottom: 12 }}>
                       ⚠️ Please enter the property address above
+                    </div>
+                  ) : null}
+                  {inspSubmitAttempted && (inspData.mobile || "").replace(/\D/g, "").length < 10 ? (
+                    <div style={{ color: "#ef4444", fontSize: 14, fontFamily: "'Nunito', sans-serif", fontWeight: 700, marginBottom: 12 }}>
+                      ⚠️ Please enter the homeowner's mobile number above (required)
                     </div>
                   ) : null}
 
