@@ -209,6 +209,9 @@ export function PAAdminPanel() {
   // Auto-assign + oversight
   const [autoAssign, setAutoAssign] = useState(true);
   const [overview, setOverview] = useState({ byPa: {}, unassignedList: [], dead: [] });
+  const [reassignQuery, setReassignQuery] = useState("");
+  const [reassignResults, setReassignResults] = useState(null);
+  const [reassignBusy, setReassignBusy] = useState(false);
 
   useEffect(() => { loadPas(); loadDecisions(); loadOverview(); }, []);
 
@@ -262,6 +265,34 @@ export function PAAdminPanel() {
     setBusyId(null);
     if (error) { setMessage({ kind: "error", text: error.message }); return; }
     setMessage({ kind: "success", text: "Assigned." });
+    loadOverview();
+  }
+
+  // Search any damage deal by name to assign / reassign / take away.
+  async function searchDeals() {
+    const q = reassignQuery.trim();
+    if (!q) { setReassignResults(null); return; }
+    setReassignBusy(true);
+    const { data } = await supabase.from("inspections")
+      .select("id, client_name, signed_at, pa_id, pa_stage")
+      .eq("result", "damage").is("cancelled_at", null)
+      .ilike("client_name", `%${q}%`)
+      .order("signed_at", { ascending: false }).limit(30);
+    setReassignResults(data || []);
+    setReassignBusy(false);
+  }
+  // paId="" → take the deal away from its PA (unassign). Else (re)assign.
+  async function reassignDeal(dealId, paId) {
+    setBusyId(dealId);
+    const nowIso = new Date().toISOString();
+    const patch = paId
+      ? { pa_id: paId, pa_claimed_at: nowIso, pa_stage: "active", pa_stage_at: nowIso }
+      : { pa_id: null, pa_claimed_at: null, pa_stage: null, pa_stage_at: nowIso };
+    const { error } = await supabase.from("inspections").update(patch).eq("id", dealId);
+    setBusyId(null);
+    if (error) { setMessage({ kind: "error", text: error.message }); return; }
+    setMessage({ kind: "success", text: paId ? "Reassigned." : "Pulled off the PA (unassigned)." });
+    setReassignResults((rs) => (rs || []).map((r) => r.id === dealId ? { ...r, pa_id: paId || null } : r));
     loadOverview();
   }
 
@@ -622,6 +653,55 @@ export function PAAdminPanel() {
             ))}
           </div>
         )}
+
+        {/* Reassign / take away — search any deal by name, then assign it to a
+            PA, move it to another, or pull it off (unassign). */}
+        <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #c7d2fe" }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: "#3730a3", marginBottom: 6 }}>🔀 Reassign / take a deal away</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+            <input
+              value={reassignQuery}
+              onChange={(e) => setReassignQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") searchDeals(); }}
+              placeholder="Search a customer name…"
+              style={{ flex: 1, minWidth: 200, height: 38, borderRadius: 8, border: "1px solid #cbd5e1", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }}
+            />
+            <button type="button" onClick={searchDeals} disabled={reassignBusy} style={{ ...secondaryBtn, fontWeight: 700, fontSize: 13, padding: "8px 16px" }}>
+              {reassignBusy ? "…" : "Search"}
+            </button>
+          </div>
+          {reassignResults != null && (
+            reassignResults.length === 0 ? (
+              <div style={{ fontSize: 12, color: "#6b7280" }}>No damage deals match that name.</div>
+            ) : (
+              <div style={{ display: "grid", gap: 6 }}>
+                {reassignResults.map((d) => {
+                  const cur = pas.find((p) => p.id === d.pa_id);
+                  return (
+                    <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 10px", flexWrap: "wrap" }}>
+                      <div style={{ minWidth: 140 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700 }}>{d.client_name || "(no name)"}</div>
+                        <div style={{ fontSize: 11, color: d.pa_id ? "#3730a3" : "#b45309" }}>
+                          {d.pa_id ? `Assigned: ${cur?.name || "unknown PA"}${d.pa_stage === "dead" ? " · dead" : d.pa_stage === "no_contact" ? " · can't reach" : ""}` : "Unassigned"}
+                        </div>
+                      </div>
+                      <select disabled={busyId === d.id} value={d.pa_id || ""} onChange={(e) => reassignDeal(d.id, e.target.value)}
+                        style={{ fontSize: 12, padding: "6px 8px", borderRadius: 8, border: "1px solid #cbd5e1" }}>
+                        <option value="">— Unassign —</option>
+                        {active.map((pa) => (<option key={pa.id} value={pa.id}>{pa.name}</option>))}
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+            )
+          )}
+          {autoAssign && (
+            <div style={{ fontSize: 11, color: "#6b7280", marginTop: 6 }}>
+              Note: with auto-assign ON, an unassigned deal gets re-assigned automatically within ~5 min. To park one with nobody, turn auto-assign off first.
+            </div>
+          )}
+        </div>
 
         {/* Dead deals report */}
         <div style={{ marginTop: 14 }}>
