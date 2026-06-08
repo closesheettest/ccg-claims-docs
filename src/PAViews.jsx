@@ -917,15 +917,12 @@ function PAPickName({ pas, onPick }) {
 }
 
 function PAJobList({ me, onOpenJob, wide }) {
-  const [pool, setPool] = useState([]);
   const [mine, setMine] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState("mine"); // mine | pool
-  // Within My claims, split into two lists so the PA keeps the deals he's
-  // still chasing a signature on separate from the ones already signed
-  // (where he's just updating milestone dates). needs | signed
-  const [mineView, setMineView] = useState("needs");
-  const [claimingId, setClaimingId] = useState(null);
+  // Company assigns deals now (no self-claim / no pool). The PA's deals
+  // split into three views: still chasing a signature, signed, and "can't
+  // get ahold of them" (no_contact stage). Dead deals drop off entirely.
+  const [mineView, setMineView] = useState("needs"); // needs | signed | no_contact
   const [signupBusyId, setSignupBusyId] = useState(null);
   const [msg, setMsg] = useState(null);
   // Geo-location (like the inspector portal). PAs have no fixed home base,
@@ -948,49 +945,66 @@ function PAJobList({ me, onOpenJob, wide }) {
 
   async function load() {
     setLoading(true);
-    const [poolRes, mineRes] = await Promise.all([
-      supabase.from("inspections")
-        .select("id, client_name, address, city, state, zip, county, signed_at, jn_job_id, result, pa_id, latitude, longitude, mobile")
-        .eq("result", "damage").is("pa_id", null).not("jn_job_id", "is", null)
-        // Keep Lost/cancelled deals and anything parked for a US Shingle
-        // decision OUT of the claimable pool.
-        .is("cancelled_at", null).eq("pa_decision_needed", false)
-        // Available is sorted alphabetically by county (deals without a
-        // county yet fall to the bottom), then newest first within a county.
-        .order("county", { ascending: true, nullsFirst: false })
-        .order("signed_at", { ascending: false }).limit(200),
-      supabase.from("inspections")
-        .select("id, client_name, address, city, state, zip, county, signed_at, jn_job_id, result, pa_id, pa_claimed_at, pa_fields, pa_assignment_note, mobile, latitude, longitude")
-        // A claimed deal that later goes Lost or gets pulled for a decision
-        // (pa_decision_needed) drops out of the PA's claims automatically.
-        .eq("pa_id", me.id).is("cancelled_at", null).eq("pa_decision_needed", false)
-        .order("pa_claimed_at", { ascending: false }).limit(200),
-    ]);
-    setPool(poolRes.data || []);
-    setMine(mineRes.data || []);
+    const { data, error } = await supabase.from("inspections")
+      .select("id, client_name, address, city, state, zip, county, signed_at, jn_job_id, result, pa_id, pa_claimed_at, pa_stage, pa_notes_log, pa_fields, pa_assignment_note, mobile, latitude, longitude")
+      // Only the deals the company assigned to this PA. A deal that later
+      // goes Lost/cancelled or gets pulled for a decision drops out
+      // automatically; dead deals are filtered out too.
+      .eq("pa_id", me.id).is("cancelled_at", null).eq("pa_decision_needed", false)
+      .or("pa_stage.is.null,pa_stage.neq.dead")
+      // Newest signing first — work the fresh leads, don't waste them.
+      .order("signed_at", { ascending: false }).limit(300);
+    setMine(data || []);
     setLoading(false);
-    if (poolRes.error) setMsg({ kind: "error", text: poolRes.error.message });
-    if (mineRes.error) setMsg({ kind: "error", text: mineRes.error.message });
+    if (error) setMsg({ kind: "error", text: error.message });
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [me.id]);
 
-  async function claim(job) {
-    setClaimingId(job.id);
+  // Post a note (and optional stage change) → saves to pa_notes_log AND
+  // pushes the note into the JobNimbus job. Powers Add note / Can't reach /
+  // Dead deal / Back to active.
+  async function postNote(job, { text, stage }) {
+    setSignupBusyId(job.id);
     setMsg(null);
-    const { data, error } = await supabase
-      .from("inspections")
-      .update({ pa_id: me.id, pa_claimed_at: new Date().toISOString() })
-      .eq("id", job.id)
-      .is("pa_id", null)
-      .select("id");
-    setClaimingId(null);
-    if (error) { setMsg({ kind: "error", text: error.message }); return; }
-    if (!data || data.length === 0) {
-      setMsg({ kind: "error", text: "Someone else just claimed that one. Refreshing…" });
-      load();
-      return;
-    }
-    onOpenJob(job.id);
+    try {
+      const res = await fetch("/.netlify/functions/pa-add-note", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inspectionId: job.id, paId: me.id, text: text || "", stage: stage || undefined }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!body.ok) { setMsg({ kind: "error", text: body.error || `status ${res.status}` }); setSignupBusyId(null); return; }
+      const jn = body.jn_note_added ? "✓ added to JobNimbus" : "saved";
+      if (stage === "dead") {
+        setMine((l) => l.filter((j) => j.id !== job.id));
+        setMsg({ kind: "success", text: `Marked dead — ${jn}.` });
+      } else {
+        setMine((l) => l.map((j) => j.id === job.id ? {
+          ...j,
+          pa_stage: stage || j.pa_stage,
+          pa_notes_log: text ? [ ...(j.pa_notes_log || []), { at: new Date().toISOString(), text, stage: stage || null } ] : j.pa_notes_log,
+        } : j));
+        setMsg({ kind: "success", text: stage === "no_contact" ? `Moved to “Can't get ahold of them” — ${jn}.` : stage === "active" ? "Back in your active list." : `Note ${jn}.` });
+      }
+    } catch (e) { setMsg({ kind: "error", text: e.message || "Network error" }); }
+    setSignupBusyId(null);
+  }
+  function addNote(job) {
+    const t = window.prompt(`Add a note for ${job.client_name || "this customer"}.\nIt's saved here and posted to the JobNimbus job.`);
+    if (t == null) return; const text = t.trim(); if (!text) return;
+    postNote(job, { text });
+  }
+  function cantReach(job) {
+    const t = window.prompt(`Move ${job.client_name || "this customer"} to “Can't get ahold of them.”\nAdd a quick note (optional):`);
+    if (t == null) return; // cancelled
+    postNote(job, { text: t.trim() || "Marked can't-reach", stage: "no_contact" });
+  }
+  function backToActive(job) { postNote(job, { text: "Reached — back to active", stage: "active" }); }
+  function deadDeal(job) {
+    const who = job.client_name || "this customer";
+    const t = window.prompt(`Mark "${who}" as a DEAD DEAL?\nThis removes it from your list and logs it. Reason (required):`);
+    if (t == null) return; const reason = t.trim();
+    if (!reason) { setMsg({ kind: "error", text: "A reason is required to mark a deal dead." }); return; }
+    postNote(job, { text: reason, stage: "dead" });
   }
 
   // Record the homeowner's answer to "did they sign up with you?" right
@@ -1093,7 +1107,10 @@ function PAJobList({ me, onOpenJob, wide }) {
   // deals already left the list (reverted to retail). When the PA has
   // granted GPS, every list is enriched with _dist (miles) and sorted
   // nearest-first — same idea as the inspector portal.
-  const { poolList, mineNeeds, mineSigned } = useMemo(() => {
+  // Lists stay sorted by newest signing date (from the query). GPS just
+  // adds a distance badge per card — it no longer re-sorts (signing date
+  // wins, so fresh leads always surface first).
+  const { mineNeeds, mineSigned, mineNoContact } = useMemo(() => {
     const withDist = (arr) =>
       arr.map((j) => ({
         ...j,
@@ -1102,38 +1119,20 @@ function PAJobList({ me, onOpenJob, wide }) {
             ? milesBetween(paCoords.lat, paCoords.lng, j.latitude, j.longitude)
             : null,
       }));
-    const byNearest = (a, b) => {
-      if (a._dist == null && b._dist == null) return 0;
-      if (a._dist == null) return 1;
-      if (b._dist == null) return -1;
-      return a._dist - b._dist;
-    };
-    const poolE = withDist(pool);
-    const mineE = withDist(mine);
-    if (paCoords) { poolE.sort(byNearest); mineE.sort(byNearest); }
+    const all = withDist(mine);
+    const active = all.filter((j) => j.pa_stage !== "no_contact");
     return {
-      poolList: poolE,
-      mineNeeds: mineE.filter((j) => isNeedSignature(j.pa_fields?.pa_signup)),
-      mineSigned: mineE.filter((j) => j.pa_fields?.pa_signup === "Signed"),
+      mineNeeds: active.filter((j) => isNeedSignature(j.pa_fields?.pa_signup)),
+      mineSigned: active.filter((j) => j.pa_fields?.pa_signup === "Signed"),
+      mineNoContact: all.filter((j) => j.pa_stage === "no_contact"),
     };
-  }, [pool, mine, paCoords]);
-  const list = tab === "pool" ? poolList : (mineView === "signed" ? mineSigned : mineNeeds);
+  }, [mine, paCoords]);
+  const list = mineView === "signed" ? mineSigned : mineView === "no_contact" ? mineNoContact : mineNeeds;
 
   return (
     <div>
-      <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
-        <button type="button" onClick={() => setTab("mine")}
-          style={{ ...secondaryBtn, flex: 1, padding: "10px", fontSize: 13, fontWeight: 700,
-            background: tab === "mine" ? "#13294b" : "#fff", color: tab === "mine" ? "#fff" : "#374151",
-            borderColor: tab === "mine" ? "#13294b" : "#d1d5db" }}>
-          📂 My claims ({mine.length})
-        </button>
-        <button type="button" onClick={() => setTab("pool")}
-          style={{ ...secondaryBtn, flex: 1, padding: "10px", fontSize: 13, fontWeight: 700,
-            background: tab === "pool" ? "#13294b" : "#fff", color: tab === "pool" ? "#fff" : "#374151",
-            borderColor: tab === "pool" ? "#13294b" : "#d1d5db" }}>
-          📥 Available ({pool.length})
-        </button>
+      <div style={{ fontSize: 13, color: "#374151", marginBottom: 12, fontWeight: 700 }}>
+        🧑‍⚖️ Your assigned customers ({mine.length}) — newest signings first
       </div>
 
       {/* Geo bar — like the inspector portal. Once the PA grants GPS, both
@@ -1157,23 +1156,27 @@ function PAJobList({ me, onOpenJob, wide }) {
         {geoError && <div style={{ fontSize: 11, color: "#dc2626" }}>{geoError}</div>}
       </div>
 
-      {/* My-claims sub-lists: still chasing a signature vs. already signed. */}
-      {tab === "mine" && (
-        <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
-          <button type="button" onClick={() => setMineView("needs")}
-            style={{ ...secondaryBtn, flex: 1, padding: "9px", fontSize: 13, fontWeight: 700,
-              background: mineView === "needs" ? "#92400e" : "#fff", color: mineView === "needs" ? "#fff" : "#92400e",
-              borderColor: "#f59e0b" }}>
-            ✍️ Needs signature ({mineNeeds.length})
-          </button>
-          <button type="button" onClick={() => setMineView("signed")}
-            style={{ ...secondaryBtn, flex: 1, padding: "9px", fontSize: 13, fontWeight: 700,
-              background: mineView === "signed" ? "#047857" : "#fff", color: mineView === "signed" ? "#fff" : "#047857",
-              borderColor: "#34d399" }}>
-            ✅ Signed ({mineSigned.length})
-          </button>
-        </div>
-      )}
+      {/* Three views: chasing a signature · signed · can't get ahold of them. */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+        <button type="button" onClick={() => setMineView("needs")}
+          style={{ ...secondaryBtn, flex: "1 1 28%", padding: "9px 6px", fontSize: 12.5, fontWeight: 700,
+            background: mineView === "needs" ? "#92400e" : "#fff", color: mineView === "needs" ? "#fff" : "#92400e",
+            borderColor: "#f59e0b" }}>
+          ✍️ Needs signature ({mineNeeds.length})
+        </button>
+        <button type="button" onClick={() => setMineView("signed")}
+          style={{ ...secondaryBtn, flex: "1 1 28%", padding: "9px 6px", fontSize: 12.5, fontWeight: 700,
+            background: mineView === "signed" ? "#047857" : "#fff", color: mineView === "signed" ? "#fff" : "#047857",
+            borderColor: "#34d399" }}>
+          ✅ Signed ({mineSigned.length})
+        </button>
+        <button type="button" onClick={() => setMineView("no_contact")}
+          style={{ ...secondaryBtn, flex: "1 1 28%", padding: "9px 6px", fontSize: 12.5, fontWeight: 700,
+            background: mineView === "no_contact" ? "#475569" : "#fff", color: mineView === "no_contact" ? "#fff" : "#475569",
+            borderColor: "#94a3b8" }}>
+          📵 Can't reach ({mineNoContact.length})
+        </button>
+      </div>
 
       {msg && (
         <div style={{ padding: "8px 12px", borderRadius: 8, fontSize: 12, marginBottom: 10,
@@ -1188,35 +1191,13 @@ function PAJobList({ me, onOpenJob, wide }) {
         <div style={{ padding: 24, textAlign: "center", color: "#6b7280" }}>Loading…</div>
       ) : list.length === 0 ? (
         <div style={{ padding: 24, textAlign: "center", color: "#6b7280", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12 }}>
-          {tab !== "mine"
-            ? "No unclaimed damage deals right now."
-            : mine.length === 0
-              ? "You haven't claimed any deals yet. Check the Available tab."
-              : mineView === "signed"
-                ? "No signed customers yet. Once you mark a deal “Signed” it moves here."
-                : "Nothing waiting on a signature — everything you've claimed is signed. 🎉"}
-        </div>
-      ) : tab === "pool" && !paCoords ? (
-        // Available, no GPS yet — grouped under a sticky county header (list
-        // is already sorted by county server-side, so consecutive grouping
-        // works). Once the PA taps "Use my location" we switch to the flat
-        // nearest-first list below instead.
-        <div style={{ display: "grid", gap: 16 }}>
-          {groupByCounty(list).map((g) => (
-            <div key={g.county}>
-              <div style={{ position: "sticky", top: 0, zIndex: 1, display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", marginBottom: 8, background: "#ecfeff", border: "1px solid #a5f3fc", borderRadius: 8, fontWeight: 800, fontSize: 14, color: "#0e7490", fontFamily: "'Oswald', sans-serif" }}>
-                📍 {g.county}
-                <span style={{ fontSize: 12, fontWeight: 700, color: "#0891b2" }}>({g.jobs.length})</span>
-              </div>
-              <div style={{ display: "grid", gap: 8, gridTemplateColumns: wide ? "repeat(auto-fill, minmax(300px, 1fr))" : "1fr" }}>
-                {g.jobs.map((job) => (
-                  <PAJobCard key={job.id} job={job} mine={false} hideCounty
-                    claiming={claimingId === job.id}
-                    onClaim={() => claim(job)} onOpen={() => onOpenJob(job.id)} />
-                ))}
-              </div>
-            </div>
-          ))}
+          {mineView === "no_contact"
+            ? "No “can't get ahold of them” customers. 👍"
+            : mineView === "signed"
+              ? "No signed customers yet. Once you mark a deal “Signed” it moves here."
+              : mine.length === 0
+                ? "No customers assigned to you yet. New ones show up here automatically."
+                : "Nothing waiting on a signature — you're caught up. 🎉"}
         </div>
       ) : (
         <div style={{ display: "grid", gap: 8, gridTemplateColumns: wide ? "repeat(auto-fill, minmax(300px, 1fr))" : "1fr" }}>
@@ -1224,14 +1205,16 @@ function PAJobList({ me, onOpenJob, wide }) {
             <PAJobCard
               key={job.id}
               job={job}
-              mine={tab === "mine"}
-              claiming={claimingId === job.id}
-              signupBusy={signupBusyId === job.id}
-              onClaim={() => claim(job)}
+              view={mineView}
+              busy={signupBusyId === job.id}
               onOpen={() => onOpenJob(job.id)}
               onSignup={saveSignup}
               onRefuse={refuse}
               onSendRetail={sendToRetail}
+              onAddNote={addNote}
+              onCantReach={cantReach}
+              onBackToActive={backToActive}
+              onDead={deadDeal}
             />
           ))}
         </div>
@@ -1264,15 +1247,26 @@ function MapLinks({ address, lat, lng, size = "sm" }) {
   );
 }
 
-function PAJobCard({ job, mine, claiming, onClaim, onOpen, hideCounty, signupBusy, onSignup, onRefuse, onSendRetail }) {
+function PAJobCard({ job, view, busy, onOpen, onSignup, onRefuse, onSendRetail, onAddNote, onCantReach, onBackToActive, onDead }) {
   const addr = [job.address, job.city, job.state, job.zip].filter(Boolean).join(", ");
-  const progress = mine ? milestoneProgress(job.pa_fields) : null;
+  const progress = milestoneProgress(job.pa_fields);
   const dist = typeof job._dist === "number" ? job._dist : null;
   const signupValue = job.pa_fields?.pa_signup;
   const signupCurrent = isNeedSignature(signupValue) ? "Need Signature" : signupValue;
   const signupPending = isNeedSignature(signupValue);
+  const noContact = view === "no_contact";
+  const notes = Array.isArray(job.pa_notes_log) ? job.pa_notes_log : [];
+  const lastNotes = notes.slice(-2).reverse();
+  const fmtNoteDate = (s) => { try { return new Date(s).toLocaleDateString("en-US", { month: "short", day: "numeric" }); } catch { return ""; } };
+  const actBtn = (label, onClick, color, bg, border) => (
+    <button type="button" disabled={busy} onClick={() => { if (!busy) onClick(job); }}
+      style={{ flex: "1 1 30%", padding: "9px 6px", borderRadius: 9, fontSize: 12.5, fontWeight: 700,
+        border: `1px solid ${border}`, background: bg, color, cursor: busy ? "default" : "pointer" }}>
+      {label}
+    </button>
+  );
   return (
-    <div style={{ padding: 12, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12 }}>
+    <div style={{ padding: 12, background: "#fff", border: noContact ? "1px solid #cbd5e1" : "1px solid #e5e7eb", borderRadius: 12 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 700, fontSize: 15 }}>{job.client_name || "(no name)"}</div>
@@ -1290,23 +1284,38 @@ function PAJobCard({ job, mine, claiming, onClaim, onOpen, hideCounty, signupBus
               </a>
             </div>
           )}
-          {!hideCounty && job.county && (
+          {job.county && (
             <div style={{ display: "inline-block", marginTop: 4, fontSize: 11, fontWeight: 700, color: "#0e7490", background: "#ecfeff", border: "1px solid #a5f3fc", borderRadius: 999, padding: "1px 8px" }}>
               📍 {job.county}
             </div>
           )}
-          {mine && (
-            <div style={{ fontSize: 11, color: "#0e7490", marginTop: 6, fontWeight: 700 }}>
-              {progress} of {PA_FIELDS.length} milestones filled
-            </div>
-          )}
+          <div style={{ fontSize: 11, color: "#0e7490", marginTop: 6, fontWeight: 700 }}>
+            {progress} of {PA_FIELDS.length} milestones filled
+          </div>
         </div>
         <span style={{ fontSize: 10, padding: "3px 8px", background: "#fef2f2", color: "#991b1b", borderRadius: 999, fontWeight: 700, whiteSpace: "nowrap" }}>
           DAMAGE
         </span>
       </div>
+
+      {/* Running notes log (latest 2). Each note also lives on the JN job. */}
+      {notes.length > 0 && (
+        <div style={{ marginTop: 8, padding: 8, background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 9 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#475569", marginBottom: 4 }}>📝 Notes ({notes.length})</div>
+          {lastNotes.map((n, i) => (
+            <div key={i} style={{ fontSize: 12, color: "#334155", marginBottom: 2, lineHeight: 1.35 }}>
+              <span style={{ color: "#94a3b8" }}>{fmtNoteDate(n.at)}:</span> {n.text}
+            </div>
+          ))}
+        </div>
+      )}
+
       <div style={{ marginTop: 10 }}>
-        {mine ? (
+        {noContact ? (
+          <div style={{ marginBottom: 8, padding: 10, borderRadius: 10, background: "#f1f5f9", border: "1px solid #cbd5e1", fontSize: 12, fontWeight: 700, color: "#475569" }}>
+            📵 Can't get ahold of them — keep trying, or mark it dead.
+          </div>
+        ) : (
           <>
             {/* Sign-up answer, right on the card — the PA's first action.
                 While still "Need Signature" the block glows amber. */}
@@ -1322,15 +1331,15 @@ function PAJobCard({ job, mine, claiming, onClaim, onOpen, hideCounty, signupBus
                 {PA_SIGNUP_OPTIONS.map((opt) => {
                   const active = signupCurrent === opt;
                   return (
-                    <button key={opt} type="button" disabled={signupBusy}
+                    <button key={opt} type="button" disabled={busy}
                       onClick={() => {
-                        if (signupBusy) return;
+                        if (busy) return;
                         if (opt === "Refused to Sign") { onRefuse(job); return; }
                         onSignup(job, opt);
                       }}
                       style={{
                         flex: "1 1 90px", padding: "10px 8px", borderRadius: 9, fontSize: 13, fontWeight: 700,
-                        cursor: signupBusy ? "default" : "pointer",
+                        cursor: busy ? "default" : "pointer",
                         border: active ? "2px solid" : "1px solid #cbd5e1",
                         borderColor: active ? signupColor(opt) : "#cbd5e1",
                         background: active ? signupBg(opt) : "#fff",
@@ -1341,27 +1350,32 @@ function PAJobCard({ job, mine, claiming, onClaim, onOpen, hideCounty, signupBus
                   );
                 })}
               </div>
-              {signupBusy && <div style={{ fontSize: 11, color: "#64748b", marginTop: 6, fontWeight: 700 }}>Saving…</div>}
+              {busy && <div style={{ fontSize: 11, color: "#64748b", marginTop: 6, fontWeight: 700 }}>Saving…</div>}
             </div>
             {/* Send the deal back to retail with a typed reason — reverts
                 in the app + JobNimbus and texts the rep + their manager. */}
-            <button type="button" disabled={signupBusy}
-              onClick={() => { if (!signupBusy) onSendRetail(job); }}
+            <button type="button" disabled={busy}
+              onClick={() => { if (!busy) onSendRetail(job); }}
               style={{ width: "100%", marginBottom: 8, padding: "9px", borderRadius: 9, fontSize: 13, fontWeight: 700,
                 border: "1px solid #b45309", background: "#fff7ed", color: "#b45309",
-                cursor: signupBusy ? "default" : "pointer" }}>
+                cursor: busy ? "default" : "pointer" }}>
               ↩️ Send back to retail
             </button>
-            <button type="button" onClick={onOpen} style={{ ...primaryBtn, width: "100%", padding: "10px", fontSize: 14 }}>
-              Open pipeline →
-            </button>
           </>
-        ) : (
-          <button type="button" onClick={onClaim} disabled={claiming}
-            style={{ ...primaryBtn, width: "100%", padding: "10px", fontSize: 14, background: claiming ? "#94a3b8" : "#047857" }}>
-            {claiming ? "Claiming…" : "✋ Claim this deal"}
-          </button>
         )}
+
+        {/* Note + stage actions — each posts to the JobNimbus job too. */}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+          {actBtn("📝 Add note", onAddNote, "#1d4ed8", "#eff6ff", "#bfdbfe")}
+          {noContact
+            ? actBtn("✅ Reached", onBackToActive, "#047857", "#ecfdf5", "#a7f3d0")
+            : actBtn("📵 Can't reach", onCantReach, "#475569", "#f1f5f9", "#cbd5e1")}
+          {actBtn("💀 Dead deal", onDead, "#991b1b", "#fef2f2", "#fca5a5")}
+        </div>
+
+        <button type="button" onClick={onOpen} style={{ ...primaryBtn, width: "100%", padding: "10px", fontSize: 14 }}>
+          Open pipeline →
+        </button>
       </div>
     </div>
   );

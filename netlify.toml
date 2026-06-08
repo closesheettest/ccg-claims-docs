@@ -60,3 +60,11 @@
 # visible.
 [functions."cron-daily-leaderboard"]
   schedule = "0 13 * * *"
+
+# Scheduled function: auto-assign damage deals to Public Adjusters every 5
+# minutes (replaces PA self-claiming). Least-loaded round-robin across
+# active PAs; with one PA everything goes to him. Pause via the auto_sms
+# row key 'pa_auto_assign' (enabled=false). The function file also declares
+# this via exports.config.schedule; this toml entry keeps it visible.
+[functions."cron-assign-pas"]
+  schedule = "*/5 * * * *"
