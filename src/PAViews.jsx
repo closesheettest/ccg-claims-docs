@@ -209,11 +209,11 @@ export function PAAdminPanel() {
   // Auto-assign + oversight
   const [autoAssign, setAutoAssign] = useState(true);
   const [overview, setOverview] = useState({ byPa: {}, unassignedList: [], dead: [] });
-  const [reassignQuery, setReassignQuery] = useState("");
-  const [reassignResults, setReassignResults] = useState(null);
-  const [reassignBusy, setReassignBusy] = useState(false);
+  const [allDeals, setAllDeals] = useState([]);
+  const [selected, setSelected] = useState(() => new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
 
-  useEffect(() => { loadPas(); loadDecisions(); loadOverview(); }, []);
+  useEffect(() => { loadPas(); loadDecisions(); loadOverview(); loadAllDeals(); }, []);
 
   // Auto-assign toggle state + per-PA open load + unassigned pool + dead deals.
   async function loadOverview() {
@@ -268,32 +268,38 @@ export function PAAdminPanel() {
     loadOverview();
   }
 
-  // Search any damage deal by name to assign / reassign / take away.
-  async function searchDeals() {
-    const q = reassignQuery.trim();
-    if (!q) { setReassignResults(null); return; }
-    setReassignBusy(true);
+  // Full list of every live damage deal (assigned + unassigned, excl. dead)
+  // for the bulk reassign tool.
+  async function loadAllDeals() {
     const { data } = await supabase.from("inspections")
       .select("id, client_name, signed_at, pa_id, pa_stage")
       .eq("result", "damage").is("cancelled_at", null)
-      .ilike("client_name", `%${q}%`)
-      .order("signed_at", { ascending: false }).limit(30);
-    setReassignResults(data || []);
-    setReassignBusy(false);
+      .or("pa_stage.is.null,pa_stage.neq.dead")
+      .order("signed_at", { ascending: false }).limit(1000);
+    setAllDeals(data || []);
   }
-  // paId="" → take the deal away from its PA (unassign). Else (re)assign.
-  async function reassignDeal(dealId, paId) {
-    setBusyId(dealId);
+  function toggleSel(id) {
+    setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+  function setManySel(ids, on) {
+    setSelected((s) => { const n = new Set(s); ids.forEach((id) => on ? n.add(id) : n.delete(id)); return n; });
+  }
+  // paId="" → unassign the selected deals; else assign/move them to that PA.
+  async function bulkApply(paId) {
+    const ids = [...selected];
+    if (!ids.length) { setMessage({ kind: "error", text: "Select at least one deal first." }); return; }
+    setBulkBusy(true);
     const nowIso = new Date().toISOString();
     const patch = paId
       ? { pa_id: paId, pa_claimed_at: nowIso, pa_stage: "active", pa_stage_at: nowIso }
       : { pa_id: null, pa_claimed_at: null, pa_stage: null, pa_stage_at: nowIso };
-    const { error } = await supabase.from("inspections").update(patch).eq("id", dealId);
-    setBusyId(null);
+    const { error } = await supabase.from("inspections").update(patch).in("id", ids);
+    setBulkBusy(false);
     if (error) { setMessage({ kind: "error", text: error.message }); return; }
-    setMessage({ kind: "success", text: paId ? "Reassigned." : "Pulled off the PA (unassigned)." });
-    setReassignResults((rs) => (rs || []).map((r) => r.id === dealId ? { ...r, pa_id: paId || null } : r));
-    loadOverview();
+    const who = paId ? (pas.find((p) => p.id === paId)?.name || "PA") : "nobody (unassigned)";
+    setMessage({ kind: "success", text: `Moved ${ids.length} deal${ids.length === 1 ? "" : "s"} to ${who}.` });
+    setSelected(new Set());
+    loadAllDeals(); loadOverview();
   }
 
   // Deals parked in the "PA Decision Needed" queue — claimed-then-Lost,
@@ -638,67 +644,69 @@ export function PAAdminPanel() {
           </span>
         </div>
 
-        {/* Manual assign — mainly when auto is paused, or to direct a specific deal */}
-        {overview.unassignedList.length > 0 && (
-          <div style={{ marginTop: 12, display: "grid", gap: 6 }}>
-            {overview.unassignedList.map((d) => (
-              <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 10px", flexWrap: "wrap" }}>
-                <div style={{ fontSize: 13, fontWeight: 700 }}>{d.client_name || "(no name)"}</div>
-                <select disabled={busyId === d.id} defaultValue="" onChange={(e) => { if (e.target.value) assignTo(d.id, e.target.value); }}
-                  style={{ fontSize: 12, padding: "6px 8px", borderRadius: 8, border: "1px solid #cbd5e1" }}>
-                  <option value="">Assign to…</option>
-                  {active.map((pa) => (<option key={pa.id} value={pa.id}>{pa.name}</option>))}
-                </select>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Reassign / take away — search any deal by name, then assign it to a
-            PA, move it to another, or pull it off (unassign). */}
+        {/* Reassign / take away — full checklist. Select any number of deals
+            and bulk-move them to a PA, or "— Unassign —" to pull them off.
+            Built for onboarding a new PA: check a batch, move them over. */}
         <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #c7d2fe" }}>
-          <div style={{ fontSize: 13, fontWeight: 800, color: "#3730a3", marginBottom: 6 }}>🔀 Reassign / take a deal away</div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
-            <input
-              value={reassignQuery}
-              onChange={(e) => setReassignQuery(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") searchDeals(); }}
-              placeholder="Search a customer name…"
-              style={{ flex: 1, minWidth: 200, height: 38, borderRadius: 8, border: "1px solid #cbd5e1", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }}
-            />
-            <button type="button" onClick={searchDeals} disabled={reassignBusy} style={{ ...secondaryBtn, fontWeight: 700, fontSize: 13, padding: "8px 16px" }}>
-              {reassignBusy ? "…" : "Search"}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: "#3730a3" }}>🔀 Reassign / take away ({allDeals.length})</div>
+            <button type="button" onClick={() => setManySel(allDeals.map((d) => d.id), selected.size < allDeals.length)}
+              style={{ ...secondaryBtn, fontSize: 11, padding: "5px 10px" }}>
+              {selected.size < allDeals.length ? "Select all" : "Clear all"}
             </button>
           </div>
-          {reassignResults != null && (
-            reassignResults.length === 0 ? (
-              <div style={{ fontSize: 12, color: "#6b7280" }}>No damage deals match that name.</div>
-            ) : (
-              <div style={{ display: "grid", gap: 6 }}>
-                {reassignResults.map((d) => {
-                  const cur = pas.find((p) => p.id === d.pa_id);
-                  return (
-                    <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 10px", flexWrap: "wrap" }}>
-                      <div style={{ minWidth: 140 }}>
-                        <div style={{ fontSize: 13, fontWeight: 700 }}>{d.client_name || "(no name)"}</div>
-                        <div style={{ fontSize: 11, color: d.pa_id ? "#3730a3" : "#b45309" }}>
-                          {d.pa_id ? `Assigned: ${cur?.name || "unknown PA"}${d.pa_stage === "dead" ? " · dead" : d.pa_stage === "no_contact" ? " · can't reach" : ""}` : "Unassigned"}
-                        </div>
-                      </div>
-                      <select disabled={busyId === d.id} value={d.pa_id || ""} onChange={(e) => reassignDeal(d.id, e.target.value)}
-                        style={{ fontSize: 12, padding: "6px 8px", borderRadius: 8, border: "1px solid #cbd5e1" }}>
-                        <option value="">— Unassign —</option>
-                        {active.map((pa) => (<option key={pa.id} value={pa.id}>{pa.name}</option>))}
-                      </select>
+
+          {/* Bulk action bar */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8, padding: "8px 10px", background: "#fff", border: "1px solid #c7d2fe", borderRadius: 8 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#3730a3" }}>{selected.size} selected</span>
+            <select disabled={bulkBusy || selected.size === 0} value=""
+              onChange={(e) => { const v = e.target.value; if (v === "__unassign__") bulkApply(""); else if (v) bulkApply(v); e.target.value = ""; }}
+              style={{ fontSize: 12, padding: "6px 8px", borderRadius: 8, border: "1px solid #cbd5e1" }}>
+              <option value="">Move selected to…</option>
+              {active.map((pa) => (<option key={pa.id} value={pa.id}>{pa.name}</option>))}
+              <option value="__unassign__">— Unassign —</option>
+            </select>
+            {bulkBusy && <span style={{ fontSize: 12, color: "#64748b" }}>Saving…</span>}
+          </div>
+
+          {/* The list, grouped by current PA (unassigned first) */}
+          <div style={{ display: "grid", gap: 10, maxHeight: 460, overflowY: "auto" }}>
+            {allDeals.length === 0 ? (
+              <div style={{ fontSize: 12, color: "#6b7280" }}>No deals.</div>
+            ) : groupDealsByPa(allDeals, pas).map((g) => {
+              const allOn = g.deals.every((d) => selected.has(d.id));
+              return (
+                <div key={g.key}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "4px 2px" }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 800, color: g.key === "__none__" ? "#b45309" : "#3730a3" }}>
+                      {g.label} ({g.deals.length})
                     </div>
-                  );
-                })}
-              </div>
-            )
-          )}
+                    <button type="button" onClick={() => setManySel(g.deals.map((d) => d.id), !allOn)}
+                      style={{ ...secondaryBtn, fontSize: 10.5, padding: "3px 8px" }}>
+                      {allOn ? "Clear" : "Select all"}
+                    </button>
+                  </div>
+                  <div style={{ display: "grid", gap: 4 }}>
+                    {g.deals.map((d) => {
+                      const on = selected.has(d.id);
+                      const signed = d.signed_at ? new Date(d.signed_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
+                      return (
+                        <label key={d.id} style={{ display: "flex", alignItems: "center", gap: 8, background: on ? "#eef2ff" : "#fff", border: `1px solid ${on ? "#a5b4fc" : "#e5e7eb"}`, borderRadius: 8, padding: "7px 10px", cursor: "pointer" }}>
+                          <input type="checkbox" checked={on} onChange={() => toggleSel(d.id)} />
+                          <span style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>{d.client_name || "(no name)"}</span>
+                          <span style={{ fontSize: 11, color: "#94a3b8", whiteSpace: "nowrap" }}>🖊 {signed}{d.pa_stage === "no_contact" ? " · 📵" : ""}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
           {autoAssign && (
             <div style={{ fontSize: 11, color: "#6b7280", marginTop: 6 }}>
-              Note: with auto-assign ON, an unassigned deal gets re-assigned automatically within ~5 min. To park one with nobody, turn auto-assign off first.
+              With auto-assign ON, unassigned deals get re-assigned within ~5 min. Turn it off to park deals with nobody.
             </div>
           )}
         </div>
@@ -1461,6 +1469,25 @@ function PAJobCard({ job, onOpen }) {
 
 // Group an already-county-sorted list into [{ county, jobs[] }]. Deals
 // with no county (sorted last) collect under "Other / no county".
+// Group deals by their current PA for the bulk reassign list. Unassigned
+// first, then PAs alphabetically. Returns [{ key, label, deals }].
+function groupDealsByPa(deals, pas) {
+  const nameById = {};
+  for (const p of pas || []) nameById[p.id] = p.name;
+  const byKey = new Map();
+  for (const d of deals || []) {
+    const key = d.pa_id || "__none__";
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key).push(d);
+  }
+  const groups = [];
+  if (byKey.has("__none__")) groups.push({ key: "__none__", label: "Unassigned", deals: byKey.get("__none__") });
+  [...byKey.keys()].filter((k) => k !== "__none__")
+    .sort((a, b) => (nameById[a] || "").localeCompare(nameById[b] || ""))
+    .forEach((k) => groups.push({ key: k, label: nameById[k] || "Unknown PA", deals: byKey.get(k) }));
+  return groups;
+}
+
 function groupByCounty(items) {
   const groups = [];
   let cur = null;
