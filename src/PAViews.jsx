@@ -206,8 +206,64 @@ export function PAAdminPanel() {
   const [decisions, setDecisions] = useState([]);
   const [decisionsLoading, setDecisionsLoading] = useState(true);
   const [reconciling, setReconciling] = useState(false);
+  // Auto-assign + oversight
+  const [autoAssign, setAutoAssign] = useState(true);
+  const [overview, setOverview] = useState({ byPa: {}, unassignedList: [], dead: [] });
 
-  useEffect(() => { loadPas(); loadDecisions(); }, []);
+  useEffect(() => { loadPas(); loadDecisions(); loadOverview(); }, []);
+
+  // Auto-assign toggle state + per-PA open load + unassigned pool + dead deals.
+  async function loadOverview() {
+    try {
+      const { data: cfg } = await supabase.from("auto_sms").select("enabled").eq("key", "pa_auto_assign").maybeSingle();
+      setAutoAssign(!cfg || cfg.enabled !== false);
+      const { data: openRows } = await supabase.from("inspections")
+        .select("pa_id").not("pa_id", "is", null).is("cancelled_at", null)
+        .or("pa_stage.is.null,pa_stage.neq.dead");
+      const byPa = {};
+      (openRows || []).forEach((r) => { byPa[r.pa_id] = (byPa[r.pa_id] || 0) + 1; });
+      const { data: unassignedList } = await supabase.from("inspections")
+        .select("id, client_name, signed_at")
+        .eq("result", "damage").is("pa_id", null).not("jn_job_id", "is", null)
+        .is("cancelled_at", null).eq("pa_decision_needed", false).not("signed_at", "is", null)
+        .order("signed_at", { ascending: false }).limit(50);
+      const { data: dead } = await supabase.from("inspections")
+        .select("id, client_name, pa_id, pa_stage_at, pa_notes_log")
+        .eq("pa_stage", "dead").order("pa_stage_at", { ascending: false }).limit(100);
+      setOverview({ byPa, unassignedList: unassignedList || [], dead: dead || [] });
+    } catch { /* non-fatal */ }
+  }
+
+  // Flip the auto-assign cron on/off via the auto_sms registry row.
+  async function toggleAuto() {
+    const next = !autoAssign;
+    setAutoAssign(next);
+    const { error } = await supabase.from("auto_sms").upsert({
+      key: "pa_auto_assign",
+      name: "PA auto-assign",
+      description: "Auto-assign damage deals to active PAs (round-robin). Off = pause.",
+      enabled: next,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "key" });
+    if (error) { setAutoAssign(!next); setMessage({ kind: "error", text: error.message }); return; }
+    setMessage({ kind: "success", text: next
+      ? "Auto-assign ON — new damage deals route to PAs automatically."
+      : "Auto-assign PAUSED — new deals wait unassigned until you turn it back on or assign below." });
+  }
+
+  // Manager override: assign a specific unassigned deal to a chosen PA.
+  async function assignTo(dealId, paId) {
+    if (!paId) return;
+    setBusyId(dealId);
+    const nowIso = new Date().toISOString();
+    const { error } = await supabase.from("inspections")
+      .update({ pa_id: paId, pa_claimed_at: nowIso, pa_stage: "active", pa_stage_at: nowIso })
+      .eq("id", dealId);
+    setBusyId(null);
+    if (error) { setMessage({ kind: "error", text: error.message }); return; }
+    setMessage({ kind: "success", text: "Assigned." });
+    loadOverview();
+  }
 
   // Deals parked in the "PA Decision Needed" queue — claimed-then-Lost,
   // Sit Sold PA (old PA), Ops-Hub refused, or a deactivated PA's deals.
@@ -521,6 +577,76 @@ export function PAAdminPanel() {
           {message.text}
         </div>
       )}
+
+      {/* ── Auto-assign & oversight ─────────────────────────────────── */}
+      <section style={{ border: "1px solid #c7d2fe", borderRadius: 12, padding: 16, background: "#eef2ff" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: "#3730a3", fontFamily: "'Oswald', sans-serif" }}>🔁 Auto-assign</div>
+            <div style={{ fontSize: 12, color: "#4338ca", marginTop: 2 }}>
+              Damage deals route to active PAs automatically (round-robin; each PA works newest signings first). PAs no longer self-claim.
+            </div>
+          </div>
+          <button type="button" onClick={toggleAuto}
+            style={{ ...secondaryBtn, fontWeight: 800, fontSize: 13, padding: "10px 16px", whiteSpace: "nowrap",
+              background: autoAssign ? "#16a34a" : "#fff", color: autoAssign ? "#fff" : "#991b1b",
+              borderColor: autoAssign ? "#16a34a" : "#fca5a5" }}>
+            {autoAssign ? "✓ Auto-assign ON" : "⏸ Auto-assign OFF"}
+          </button>
+        </div>
+
+        {/* Per-PA open load + unassigned count */}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+          {active.map((pa) => (
+            <span key={pa.id} style={{ fontSize: 12, fontWeight: 700, color: "#3730a3", background: "#fff", border: "1px solid #c7d2fe", borderRadius: 999, padding: "4px 10px" }}>
+              {pa.name}: {overview.byPa[pa.id] || 0}
+            </span>
+          ))}
+          <span style={{ fontSize: 12, fontWeight: 700, color: overview.unassignedList.length ? "#b45309" : "#6b7280", background: "#fff", border: `1px solid ${overview.unassignedList.length ? "#fcd34d" : "#e5e7eb"}`, borderRadius: 999, padding: "4px 10px" }}>
+            Unassigned: {overview.unassignedList.length}
+          </span>
+        </div>
+
+        {/* Manual assign — mainly when auto is paused, or to direct a specific deal */}
+        {overview.unassignedList.length > 0 && (
+          <div style={{ marginTop: 12, display: "grid", gap: 6 }}>
+            {overview.unassignedList.map((d) => (
+              <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 10px", flexWrap: "wrap" }}>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{d.client_name || "(no name)"}</div>
+                <select disabled={busyId === d.id} defaultValue="" onChange={(e) => { if (e.target.value) assignTo(d.id, e.target.value); }}
+                  style={{ fontSize: 12, padding: "6px 8px", borderRadius: 8, border: "1px solid #cbd5e1" }}>
+                  <option value="">Assign to…</option>
+                  {active.map((pa) => (<option key={pa.id} value={pa.id}>{pa.name}</option>))}
+                </select>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Dead deals report */}
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: "#7f1d1d", marginBottom: 6 }}>💀 Dead deals ({overview.dead.length})</div>
+          {overview.dead.length === 0 ? (
+            <div style={{ fontSize: 12, color: "#6b7280" }}>None.</div>
+          ) : (
+            <div style={{ display: "grid", gap: 6, maxHeight: 240, overflowY: "auto" }}>
+              {overview.dead.map((d) => {
+                const log = Array.isArray(d.pa_notes_log) ? d.pa_notes_log : [];
+                const last = log.length ? log[log.length - 1] : null;
+                return (
+                  <div key={d.id} style={{ background: "#fff", border: "1px solid #fca5a5", borderRadius: 8, padding: "8px 10px" }}>
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>
+                      {d.client_name || "(no name)"}
+                      <span style={{ fontWeight: 400, color: "#6b7280", fontSize: 12 }}> · {pas.find((p) => p.id === d.pa_id)?.name || "—"}</span>
+                    </div>
+                    {last && <div style={{ fontSize: 12, color: "#374151", marginTop: 2 }}>{last.text}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </section>
 
       {/* ── PA Decision Needed ──────────────────────────────────────── */}
       <section style={{ border: "1px solid #fcd34d", borderRadius: 12, padding: 16, background: "#fffbeb" }}>
