@@ -1266,29 +1266,9 @@ function PAJobList({ me, onOpenJob, wide }) {
   return (
     <div>
       <div style={{ fontSize: 13, color: "#374151", marginBottom: 12, fontWeight: 700 }}>
-        🧑‍⚖️ Your assigned customers ({mine.length}) — newest signings first
+        🧑‍⚖️ Your assigned customers ({mine.length}) — grouped by county, newest signed first
       </div>
 
-      {/* Geo bar — like the inspector portal. Once the PA grants GPS, both
-          Available and My-claims sort nearest-first and show miles per card. */}
-      <div style={{ padding: 10, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, marginBottom: 12, display: "grid", gap: 6 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-          <div
-            onClick={() => { if (!paCoords && !geoBusy) useMyLocation(); }}
-            style={{ fontSize: 12, color: "#374151", cursor: paCoords ? "default" : "pointer", textDecoration: paCoords ? "none" : "underline", textDecorationColor: "#94a3b8" }}>
-            {paCoords
-              ? <>🧭 Sorted by distance from <strong style={{ color: "#0e7490" }}>your location</strong></>
-              : <>🧭 Tap to see the closest deals first</>}
-          </div>
-          <button type="button" onClick={useMyLocation} disabled={geoBusy}
-            style={{ ...secondaryBtn, fontSize: 12, padding: "8px 12px", fontWeight: 700, whiteSpace: "nowrap",
-              background: paCoords ? "#ecfeff" : "#fff", borderColor: paCoords ? "#0e7490" : "#d1d5db",
-              color: paCoords ? "#0e7490" : "#374151", cursor: geoBusy ? "default" : "pointer" }}>
-            {geoBusy ? "📍 Locating…" : paCoords ? "📍 Sorting by nearest ✓" : "📍 Use my location"}
-          </button>
-        </div>
-        {geoError && <div style={{ fontSize: 11, color: "#dc2626" }}>{geoError}</div>}
-      </div>
 
       {/* Three views: chasing a signature · signed · can't get ahold of them. */}
       <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
