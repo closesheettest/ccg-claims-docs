@@ -711,6 +711,10 @@ export function PAAdminPanel() {
         </div>
       )}
 
+      {/* ── PA Companies (multi-tenant) — kept near the top so it's easy to find. */}
+      <PACompaniesPanel companies={companies} pas={pas} busy={companyBusy}
+        onUpdate={updateCompany} onCreate={createCompany} />
+
       {/* ── Auto-assign & oversight ─────────────────────────────────── */}
       <section style={{ border: "1px solid #c7d2fe", borderRadius: 12, padding: 16, background: "#eef2ff" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
@@ -908,8 +912,6 @@ export function PAAdminPanel() {
         </>
       )}
 
-      <PACompaniesPanel companies={companies} pas={pas} busy={companyBusy}
-        onUpdate={updateCompany} onCreate={createCompany} />
     </div>
   );
 }
