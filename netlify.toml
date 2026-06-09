@@ -68,3 +68,14 @@
 # this via exports.config.schedule; this toml entry keeps it visible.
 [functions."cron-assign-pas"]
   schedule = "*/5 * * * *"
+
+# Scheduled function: morning "sales inventory" audit. At 7 AM EDT (11:00
+# UTC) it scans every JobNimbus job SOLD yesterday against the rep checklist
+# (required fields + conditional rules) and texts reps what they missed/got
+# wrong, managers a zone roll-up, and ADMIN_ALERT_PHONE a full summary.
+# Sending is gated by auto_sms keys 'sales_audit' (master) + rep texts by
+# 'sales_audit_text_reps' (soft-launch off). Manual dry run: GET the
+# function with ?dry=1[&date=YYYY-MM-DD]. The file also declares this via
+# exports.config.schedule; this toml entry keeps the cadence visible.
+[functions."cron-sales-audit"]
+  schedule = "0 11 * * *"
