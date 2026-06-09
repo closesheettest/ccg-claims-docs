@@ -89,14 +89,20 @@ export const handler = async (event) => {
     }
   }
 
-  // 4. Resolve rep phones + zones/managers.
-  const zoneOf = await fetchZoneResolver();
+  // 4. Resolve rep zones + phones. Primary source for BOTH is the TMS active-
+  //    rep directory (rep-zones feed — that's where rep phones live, under
+  //    active sales reps). Falls back to CCG sales_reps for phone if missing.
+  const dir = await fetchRepDirectory();
   const repCache = {};
   for (const f of flagged) {
-    f.zone = zoneOf(f.rep_id, f.rep_name) || null;
-    const key = f.rep_id || f.rep_name;
-    if (!(key in repCache)) repCache[key] = await resolveRep(SB_URL, sb, f.rep_id, f.rep_name);
-    f.rep_phone = repCache[key]?.phone || null;
+    const d = dir(f.rep_id, f.rep_name) || {};
+    f.zone = d.zone || null;
+    f.rep_phone = d.phone || null;
+    if (!f.rep_phone) {
+      const key = f.rep_id || f.rep_name;
+      if (!(key in repCache)) repCache[key] = await resolveRep(SB_URL, sb, f.rep_id, f.rep_name);
+      f.rep_phone = repCache[key]?.phone || null;
+    }
   }
 
   // 5. Compose + (optionally) send.
@@ -348,7 +354,8 @@ async function resolveRep(SB_URL, headers, salesRepId, salesRepName) {
   return rep;
 }
 
-async function fetchZoneResolver() {
+// Returns (jnId, name) → { zone, phone } from the TMS active-rep directory.
+async function fetchRepDirectory() {
   let reps = [];
   try {
     const res = await fetch(TMS_REP_ZONES_URL);
@@ -356,8 +363,9 @@ async function fetchZoneResolver() {
   } catch (e) { console.warn("TMS rep-zones fetch failed:", e.message || e); }
   const byJnId = {}, byName = {};
   for (const r of reps) {
-    if (r.jobnimbus_id) byJnId[r.jobnimbus_id] = r.zone;
-    if (r.name) byName[normalizeName(r.name)] = r.zone;
+    const entry = { zone: r.zone || null, phone: r.phone || null };
+    if (r.jobnimbus_id) byJnId[r.jobnimbus_id] = entry;
+    if (r.name) byName[normalizeName(r.name)] = entry;
   }
   return (jnId, name) => (jnId && byJnId[jnId]) || byName[normalizeName(name)] || null;
 }
