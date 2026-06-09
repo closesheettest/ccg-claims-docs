@@ -256,8 +256,12 @@ exports.handler = async (event) => {
       errors.push(`PA Ops Hub: ${e.message}`);
     }
   } else if (insp.result === "retail") {
+    // Background variant — the retail transition (PDFShift cert + JN swap +
+    // file upload) is slow; awaiting it could exceed the request timeout and
+    // throw a false 502 even though it completed. Fire it to the background
+    // function (returns 202 immediately) so the confirm responds fast.
     try {
-      await fetch(`${base}/.netlify/functions/process-retail-result`, {
+      await fetch(`${base}/.netlify/functions/process-retail-result-background`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ inspectionId, skip_cert: false }),
