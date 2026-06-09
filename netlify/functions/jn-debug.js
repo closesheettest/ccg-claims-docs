@@ -37,6 +37,7 @@ exports.handler = async (event) => {
     return { statusCode: 200, body: JSON.stringify({ filled, empty_keys: empty }, null, 2) };
   }
 
+  const wantFieldCatalog = params.fields === "1";
   const searchNames = (params.name || "").split(",").map(s => s.trim()).filter(Boolean);
   // ?rep=Tabitha Gregor → find every recent job CREDITED to that sales rep
   // (by sales_rep_name), with the fields the sales leaderboard reads, so we
@@ -57,6 +58,34 @@ exports.handler = async (event) => {
     const rows = d.results || d.jobs || [];
     allJnJobs.push(...rows);
     if (rows.length < 100) break;
+  }
+
+  // ?fields=1 → catalog every distinct FRIENDLY field LABEL JN echoes across
+  // recent jobs (the human labels + ALLCAPS/single-word custom fields), with
+  // a sample value, value samples, and how many jobs had it. Used to map the
+  // sales-audit checklist to exact JN field names. Excludes cf_ raw keys +
+  // snake_case system keys.
+  if (wantFieldCatalog) {
+    const isFriendly = (k) =>
+      !k.startsWith("cf_") &&
+      (/[ #?()*\/]/.test(k) || k === k.toUpperCase() || /^[A-Z]/.test(k)) &&
+      !/^[a-z]/.test(k);
+    const cat = {};
+    for (const j of allJnJobs) {
+      for (const [k, v] of Object.entries(j)) {
+        if (!isFriendly(k)) continue;
+        if (v === null || v === "" || (Array.isArray(v) && !v.length)) continue;
+        if (!cat[k]) cat[k] = { count: 0, values: new Set() };
+        cat[k].count++;
+        let sv = v;
+        if (typeof v === "object") sv = JSON.stringify(v).slice(0, 40);
+        if (cat[k].values.size < 6) cat[k].values.add(String(sv).slice(0, 30));
+      }
+    }
+    const out = Object.entries(cat)
+      .map(([label, d]) => ({ label, count: d.count, sample_values: [...d.values] }))
+      .sort((a, b) => b.count - a.count);
+    return { statusCode: 200, body: JSON.stringify({ scanned: allJnJobs.length, fieldCount: out.length, fields: out }, null, 2) };
   }
 
   // Show record_type distribution so we can see what filter should be
