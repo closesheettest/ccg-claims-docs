@@ -4536,25 +4536,35 @@ function PACompanyAdminPage({ token }) {
           ))}
         </div>
 
-        {/* Distance sorter — pick a PA's home (or your location) to rank the
-            homeowners nearest-first, so you can hand each PA the closest ones. */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 14, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "10px 12px" }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: "#374151" }}>📏 Sort by distance from:</span>
-          <select value={distFrom === "__me__" ? "" : distFrom} onChange={(e) => { setDistFrom(e.target.value); }}
-            style={{ fontSize: 13, padding: "8px 10px", borderRadius: 10, border: "1px solid #cbd5e1" }}>
-            <option value="">— off —</option>
-            {activePas.map((p) => (
-              <option key={p.id} value={p.id} disabled={p.lat == null}>
-                {p.name}{p.lat == null ? " (no address)" : "'s home"}
-              </option>
-            ))}
-          </select>
-          <button type="button" onClick={useMyLocation}
-            style={{ fontSize: 13, fontWeight: 700, padding: "8px 12px", borderRadius: 10, border: distFrom === "__me__" ? "1px solid #0369a1" : "1px solid #cbd5e1", background: distFrom === "__me__" ? "#e0f2fe" : "#fff", color: "#0369a1", cursor: "pointer" }}>
-            📍 My location
-          </button>
-          {refCoords && <span style={{ fontSize: 12, color: "#0369a1", fontWeight: 700 }}>Nearest first ✓</span>}
-          {geoErr && <span style={{ fontSize: 12, color: "#b91c1c" }}>{geoErr}</span>}
+        {/* Distance sorter — TAP a PA to rank the homeowners nearest THAT PA's
+            home; tap another to switch. Each card then shows its mileage. */}
+        <div style={{ marginBottom: 14, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "10px 12px" }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 8 }}>📏 Distance from — tap a PA:</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            {(() => {
+              const chip = (active, disabled) => ({
+                fontSize: 13, fontWeight: 700, padding: "7px 12px", borderRadius: 999,
+                border: `1px solid ${active ? "#0369a1" : "#cbd5e1"}`,
+                background: active ? "#0369a1" : "#fff", color: active ? "#fff" : (disabled ? "#9ca3af" : "#0f172a"),
+                cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.6 : 1,
+              });
+              return (
+                <>
+                  <button type="button" onClick={() => setDistFrom("")} style={chip(distFrom === "", false)}>Off</button>
+                  {activePas.map((p) => (
+                    <button key={p.id} type="button" disabled={p.lat == null}
+                      onClick={() => setDistFrom(p.id)} style={chip(distFrom === p.id, p.lat == null)}
+                      title={p.lat == null ? "No home address on file — add one in the U.S. Shingle admin" : `Nearest to ${p.name}'s home`}>
+                      {p.name}{p.lat == null ? " ·no addr" : ""}
+                    </button>
+                  ))}
+                  <button type="button" onClick={useMyLocation} style={chip(distFrom === "__me__", false)}>📍 My location</button>
+                </>
+              );
+            })()}
+          </div>
+          {refCoords && <div style={{ fontSize: 12, color: "#0369a1", fontWeight: 700, marginTop: 8 }}>Showing nearest first ✓ (mileage on each card)</div>}
+          {geoErr && <div style={{ fontSize: 12, color: "#b91c1c", marginTop: 8 }}>{geoErr}</div>}
         </div>
 
         {err && <div style={{ color: "#b91c1c", fontSize: 13, marginBottom: 10 }}>{err}</div>}
