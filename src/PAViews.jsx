@@ -1905,8 +1905,31 @@ function PAProgressReport({ report }) {
       );
     }
   }
+  const exportCsv = () => {
+    const q = (s) => `"${String(s ?? "").replace(/"/g, '""')}"`;
+    const head = ["Company", "Adjuster", "Assigned", "Working", "Avg days to sign", "Sign %", "Lost %", "Taken %"];
+    const lines = [head.join(",")];
+    for (const gn of groupNames) {
+      for (const r of groupsMap.get(gn)) {
+        lines.push([q(gn), q(r.name), r.assigned, r.working,
+          r.avgDaysToSign == null ? "" : r.avgDaysToSign,
+          r.denom ? r.signPct : "", r.denom ? r.lostPct : "", r.denom ? r.takenPct : ""].join(","));
+      }
+    }
+    lines.push(["", q("ALL"), totals.assigned, totals.working,
+      totals.avgDaysToSign == null ? "" : totals.avgDaysToSign,
+      totals.denom ? totals.signPct : "", totals.denom ? totals.lostPct : "", totals.denom ? totals.takenPct : ""].join(","));
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `pa-report-card-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  };
   return (
     <div style={{ marginTop: 12, border: "1px solid #c7d2fe", borderRadius: 10, background: "#fff", overflowX: "auto" }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", padding: "8px 10px", borderBottom: "1px solid #e0e7ff" }}>
+        <button type="button" onClick={exportCsv} style={{ ...secondaryBtn, fontSize: 12, padding: "5px 12px" }}>⬇ Export CSV</button>
+      </div>
       <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 720 }}>
         <thead>
           <tr>
