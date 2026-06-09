@@ -363,13 +363,17 @@ export function PAAdminPanel() {
 
   // Full list of every live damage deal (assigned + unassigned, excl. dead)
   // for the bulk reassign tool.
+  // Only deals with NO PA activity — never opened (pa_opened_at null) AND no
+  // notes. These are the safe ones to reassign / move to a company pool; deals
+  // a PA is actively working are intentionally hidden so they're not yanked.
   async function loadAllDeals() {
     const { data } = await supabase.from("inspections")
-      .select("id, client_name, signed_at, pa_id, pa_stage")
-      .eq("result", "damage").is("cancelled_at", null)
+      .select("id, client_name, signed_at, pa_id, pa_stage, pa_opened_at, pa_notes_log")
+      .eq("result", "damage").is("cancelled_at", null).is("pa_opened_at", null)
       .or("pa_stage.is.null,pa_stage.neq.dead")
       .order("signed_at", { ascending: false }).limit(1000);
-    setAllDeals(data || []);
+    const untouched = (data || []).filter((d) => !Array.isArray(d.pa_notes_log) || d.pa_notes_log.length === 0);
+    setAllDeals(untouched);
   }
   function toggleSel(id) {
     setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -771,7 +775,7 @@ export function PAAdminPanel() {
             Built for onboarding a new PA: check a batch, move them over. */}
         <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #c7d2fe" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: "#3730a3" }}>🔀 Reassign / take away ({allDeals.length})</div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: "#3730a3" }}>🔀 Reassign / take away — no activity yet ({allDeals.length})</div>
             <button type="button" onClick={() => setManySel(allDeals.map((d) => d.id), selected.size < allDeals.length)}
               style={{ ...secondaryBtn, fontSize: 11, padding: "5px 10px" }}>
               {selected.size < allDeals.length ? "Select all" : "Clear all"}
@@ -835,11 +839,10 @@ export function PAAdminPanel() {
             })}
           </div>
 
-          {autoAssign && (
-            <div style={{ fontSize: 11, color: "#6b7280", marginTop: 6 }}>
-              With auto-assign ON, unassigned deals get re-assigned within ~5 min. Turn it off to park deals with nobody.
-            </div>
-          )}
+          <div style={{ fontSize: 11, color: "#6b7280", marginTop: 6 }}>
+            Only deals with <strong>no PA activity</strong> show here (never opened, no notes) — so you only move untouched ones. Deals a PA is actively working are hidden on purpose.
+            {autoAssign && " With auto-assign ON, unassigned deals re-route within ~5 min — turn it off to park deals with nobody."}
+          </div>
         </div>
 
         {/* Dead deals report */}
