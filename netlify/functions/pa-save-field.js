@@ -160,10 +160,17 @@ exports.handler = async (event) => {
 
   // 3. Cache the value locally (merge into pa_fields jsonb).
   const merged = { ...(insp.pa_fields || {}), [field]: value };
+  const patch = { pa_fields: merged };
+  // Stamp pa_signed_at the first time the homeowner is marked "Signed"
+  // (powers the scorecard's "avg days to signed"). Clear it if un-signed.
+  if (field === "pa_signup") {
+    if (value === "Signed") patch.pa_signed_at = new Date().toISOString();
+    else patch.pa_signed_at = null;
+  }
   await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${inspectionId}`, {
     method: "PATCH",
     headers: sbHeaders,
-    body: JSON.stringify({ pa_fields: merged }),
+    body: JSON.stringify(patch),
   }).catch(() => {});
 
   return json(200, { ok: true, field, cf_key: spec.cf, jn_updated: jnUpdated, jn_skipped: jnSkipped, value });

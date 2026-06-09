@@ -312,49 +312,58 @@ export function PAAdminPanel() {
     } catch { /* non-fatal */ }
   }
 
-  // Per-PA progress breakdown. One Supabase pull of every assigned damage
-  // deal → counts across the same buckets the PA sees (New files / Working /
-  // Signed / Can't reach), plus dead, pending replies, and how stale their
-  // queue is (avg + oldest age). Toggle hides/shows it.
+  // Per-PA scorecard. One pull of EVERY damage deal that bears a pa_id
+  // (incl. cancelled/dead) → per PA: assigned (open) · working · avg days to
+  // signed · sign% · lost% · taken-away%. Percentages are over everything the
+  // PA ever handled (open + lost + dead + taken-away). Toggle hides/shows.
   async function loadProgressReport() {
     if (report) { setReport(null); return; } // toggle off
     setReportBusy(true);
     try {
       const { data, error } = await supabase.from("inspections")
-        .select("id, pa_id, pa_stage, pa_opened_at, pa_notes_log, pa_fields, signed_at, correction_needed")
-        .eq("result", "damage").is("cancelled_at", null).not("pa_id", "is", null)
-        .limit(3000);
+        .select("id, pa_id, pa_stage, pa_opened_at, pa_notes_log, pa_fields, signed_at, cancelled_at, pa_claimed_at, pa_signed_at")
+        .eq("result", "damage").not("pa_id", "is", null)
+        .limit(5000);
       if (error) throw error;
-      const now = Date.now();
-      const ageDays = (iso) => (iso ? Math.max(0, Math.floor((now - new Date(iso).getTime()) / 86400000)) : null);
-      const blank = () => ({ open: 0, newFiles: 0, working: 0, signed: 0, noContact: 0, dead: 0, pending: 0, _ages: [], oldestNew: 0 });
+      const blank = () => ({ open: 0, working: 0, signed: 0, lost: 0, dead: 0, handled: 0, _days: [] });
       const byPa = {};
       for (const r of data || []) {
         const b = (byPa[r.pa_id] = byPa[r.pa_id] || blank());
+        b.handled++;
+        if (r.cancelled_at) { b.lost++; continue; }
         if (r.pa_stage === "dead") { b.dead++; continue; }
         b.open++;
-        if (r.correction_needed) b.pending++;
-        const age = ageDays(r.signed_at);
-        if (age != null) b._ages.push(age);
         const signed = r.pa_fields?.pa_signup === "Signed";
         const working = !!r.pa_opened_at || (Array.isArray(r.pa_notes_log) && r.pa_notes_log.length > 0);
-        if (r.pa_stage === "no_contact") b.noContact++;
-        else if (signed) b.signed++;
-        else if (working) b.working++;
-        else { b.newFiles++; if (age != null && age > b.oldestNew) b.oldestNew = age; }
+        if (signed) {
+          b.signed++;
+          if (r.pa_claimed_at && r.pa_signed_at) {
+            const d = (new Date(r.pa_signed_at).getTime() - new Date(r.pa_claimed_at).getTime()) / 86400000;
+            if (Number.isFinite(d) && d >= 0) b._days.push(d);
+          }
+        } else if (working) b.working++;
       }
-      const rows = (pas.length ? pas : []).filter((p) => p.active).map((p) => {
+      const pct = (n, d) => (d > 0 ? Math.round((n / d) * 100) : 0);
+      const rows = (pas || []).filter((p) => p.active).map((p) => {
         const b = byPa[p.id] || blank();
-        const avgAge = b._ages.length ? Math.round(b._ages.reduce((s, n) => s + n, 0) / b._ages.length) : 0;
-        const signRate = b.open ? Math.round((b.signed / b.open) * 100) : 0;
-        return { id: p.id, name: p.name, ...b, avgAge, signRate };
-      }).sort((a, b) => (b.open - a.open) || a.name.localeCompare(b.name));
-      const totals = rows.reduce((t, r) => {
-        ["open", "newFiles", "working", "signed", "noContact", "dead", "pending"].forEach((k) => t[k] += r[k]);
+        const taken = p.pa_takeaways || 0;
+        const denom = b.handled + taken;               // everything ever given to them
+        const avgDaysToSign = b._days.length ? Math.round(b._days.reduce((s, n) => s + n, 0) / b._days.length) : null;
+        return {
+          id: p.id, name: p.name,
+          assigned: b.open, working: b.working, signed: b.signed, lost: b.lost, dead: b.dead,
+          taken, denom, avgDaysToSign,
+          signPct: pct(b.signed, denom), lostPct: pct(b.lost, denom), takenPct: pct(taken, denom),
+        };
+      }).sort((a, b) => (b.assigned - a.assigned) || a.name.localeCompare(b.name));
+      const T = rows.reduce((t, r) => {
+        ["assigned", "working", "signed", "lost", "dead", "taken", "denom"].forEach((k) => t[k] += r[k]);
+        if (r.avgDaysToSign != null) { t._daysSum += r.avgDaysToSign * r.signed; t._daysN += r.signed; }
         return t;
-      }, { open: 0, newFiles: 0, working: 0, signed: 0, noContact: 0, dead: 0, pending: 0 });
-      totals.signRate = totals.open ? Math.round((totals.signed / totals.open) * 100) : 0;
-      setReport({ rows, totals });
+      }, { assigned: 0, working: 0, signed: 0, lost: 0, dead: 0, taken: 0, denom: 0, _daysSum: 0, _daysN: 0 });
+      T.signPct = pct(T.signed, T.denom); T.lostPct = pct(T.lost, T.denom); T.takenPct = pct(T.taken, T.denom);
+      T.avgDaysToSign = T._daysN ? Math.round(T._daysSum / T._daysN) : null;
+      setReport({ rows, totals: T });
     } catch (e) {
       setMessage({ kind: "error", text: e.message || "Couldn't build the report." });
     }
@@ -433,12 +442,34 @@ export function PAAdminPanel() {
       patch = { pa_id: null, pa_company_id: null, pa_claimed_at: null, pa_stage: null, pa_stage_at: nowIso };
       who = "nobody (unassigned)";
     }
+    // Count takeaways: deals being moved OFF a PA (had a pa_id, new target
+    // isn't that same PA) — bumps each old PA's scorecard "taken away" tally.
+    const movedOff = {};
+    if (!(target && !target.startsWith("company:"))) {
+      // company-pool move or unassign → any current pa_id is a takeaway
+      for (const id of ids) { const d = allDeals.find((x) => x.id === id); if (d?.pa_id) movedOff[d.pa_id] = (movedOff[d.pa_id] || 0) + 1; }
+    } else {
+      // reassign to a PA → takeaway only from a DIFFERENT prior PA
+      for (const id of ids) { const d = allDeals.find((x) => x.id === id); if (d?.pa_id && d.pa_id !== target) movedOff[d.pa_id] = (movedOff[d.pa_id] || 0) + 1; }
+    }
     const { error } = await supabase.from("inspections").update(patch).in("id", ids);
     setBulkBusy(false);
     if (error) { setMessage({ kind: "error", text: error.message }); return; }
+    await bumpTakeaways(movedOff);
     setMessage({ kind: "success", text: `Moved ${ids.length} deal${ids.length === 1 ? "" : "s"} to ${who}.` });
     setSelected(new Set());
-    loadAllDeals(); loadOverview();
+    loadAllDeals(); loadOverview(); loadPas();
+  }
+
+  // Increment pas.pa_takeaways by n for each {paId: n}. Read-then-write (admin
+  // is single-user, so racing isn't a concern).
+  async function bumpTakeaways(counts) {
+    for (const [paId, n] of Object.entries(counts || {})) {
+      if (!n) continue;
+      const { data } = await supabase.from("pas").select("pa_takeaways").eq("id", paId).maybeSingle();
+      const cur = data?.pa_takeaways || 0;
+      await supabase.from("pas").update({ pa_takeaways: cur + n }).eq("id", paId);
+    }
   }
 
   // Deals parked in the "PA Decision Needed" queue — claimed-then-Lost,
@@ -1816,64 +1847,59 @@ function PAJobCard({ job, onOpen }) {
 // manager can spot who's sitting on fresh leads.
 function PAProgressReport({ report }) {
   const { rows, totals } = report;
-  const cols = [
-    { key: "open", label: "Open", title: "Active deals assigned (excludes dead/cancelled)" },
-    { key: "newFiles", label: "🆕 New", title: "Assigned but never opened, no notes" },
-    { key: "working", label: "🛠 Working", title: "Opened the pipeline or left a note" },
-    { key: "signed", label: "✅ Signed", title: "Homeowner signed up with the PA" },
-    { key: "noContact", label: "📵 No-reach", title: "Can't get ahold of them" },
-    { key: "pending", label: "⏳ Pending", title: "Waiting on a rep reply / correction" },
-    { key: "dead", label: "💀 Dead", title: "Marked dead" },
-  ];
   const th = { padding: "7px 8px", fontSize: 11, fontWeight: 800, color: "#3730a3", textAlign: "center", whiteSpace: "nowrap", position: "sticky", top: 0, background: "#eef2ff" };
   const td = { padding: "7px 8px", fontSize: 13, textAlign: "center", borderTop: "1px solid #e0e7ff" };
-  const num = (n, hot) => <span style={{ fontWeight: n ? 700 : 400, color: n ? (hot ? "#b45309" : "#1e293b") : "#cbd5e1" }}>{n}</span>;
+  const num = (n) => <span style={{ fontWeight: n ? 700 : 400, color: n ? "#1e293b" : "#cbd5e1" }}>{n}</span>;
+  const days = (d) => (d == null ? <span style={{ color: "#cbd5e1" }}>—</span> : <span style={{ fontWeight: 700, color: d > 7 ? "#b45309" : "#1e293b" }}>{d}d</span>);
+  const pctCell = (p, denom, good) => denom === 0
+    ? <span style={{ color: "#cbd5e1" }}>—</span>
+    : <span style={{ fontWeight: 800, color: good ? (p >= 50 ? "#047857" : "#475569") : (p >= 25 ? "#b91c1c" : "#475569") }}>{p}%</span>;
   return (
     <div style={{ marginTop: 12, border: "1px solid #c7d2fe", borderRadius: 10, background: "#fff", overflowX: "auto" }}>
       <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 720 }}>
         <thead>
           <tr>
             <th style={{ ...th, textAlign: "left" }}>Public adjuster</th>
-            {cols.map((c) => <th key={c.key} style={th} title={c.title}>{c.label}</th>)}
-            <th style={th} title="Signed ÷ open">Sign %</th>
-            <th style={th} title="Average days since signing across open deals">Avg age</th>
-            <th style={th} title="Oldest never-opened new file (days)">Oldest new</th>
+            <th style={th} title="Active deals currently assigned (excludes lost/dead)">Assigned</th>
+            <th style={th} title="Of assigned, ones they've opened or left a note on">Working</th>
+            <th style={th} title="Average days from assignment to getting the homeowner signed">Avg days→sign</th>
+            <th style={th} title="Signed ÷ everything ever given to them (incl. lost & taken away)">Sign %</th>
+            <th style={th} title="Lost/cancelled ÷ everything ever given to them">Lost %</th>
+            <th style={th} title="Deals the admin pulled off them ÷ everything ever given to them">Taken %</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((r) => (
             <tr key={r.id}>
               <td style={{ ...td, textAlign: "left", fontWeight: 700, color: "#0f172a", whiteSpace: "nowrap" }}>{r.name}</td>
-              <td style={{ ...td, fontWeight: 800 }}>{num(r.open)}</td>
-              <td style={td}>{num(r.newFiles, r.newFiles > 0)}</td>
+              <td style={{ ...td, fontWeight: 800 }}>{num(r.assigned)}</td>
               <td style={td}>{num(r.working)}</td>
-              <td style={td}>{num(r.signed)}</td>
-              <td style={td}>{num(r.noContact, r.noContact > 0)}</td>
-              <td style={td}>{num(r.pending, r.pending > 0)}</td>
-              <td style={td}>{num(r.dead)}</td>
-              <td style={{ ...td, fontWeight: 700, color: r.signRate >= 50 ? "#047857" : "#475569" }}>{r.open ? `${r.signRate}%` : "—"}</td>
-              <td style={td}>{r.open ? `${r.avgAge}d` : "—"}</td>
-              <td style={{ ...td, color: r.oldestNew > 7 ? "#b91c1c" : "#475569", fontWeight: r.oldestNew > 7 ? 700 : 400 }}>{r.oldestNew ? `${r.oldestNew}d` : "—"}</td>
+              <td style={td}>{days(r.avgDaysToSign)}</td>
+              <td style={td}>{pctCell(r.signPct, r.denom, true)}</td>
+              <td style={td}>{pctCell(r.lostPct, r.denom, false)}</td>
+              <td style={td}>{pctCell(r.takenPct, r.denom, false)}</td>
             </tr>
           ))}
           {rows.length === 0 && (
-            <tr><td colSpan={cols.length + 4} style={{ ...td, color: "#6b7280" }}>No active adjusters.</td></tr>
+            <tr><td colSpan={7} style={{ ...td, color: "#6b7280" }}>No active adjusters.</td></tr>
           )}
         </tbody>
         {rows.length > 0 && (
           <tfoot>
             <tr style={{ background: "#f5f3ff" }}>
               <td style={{ ...td, textAlign: "left", fontWeight: 800, color: "#3730a3" }}>All ({rows.length})</td>
-              {cols.map((c) => <td key={c.key} style={{ ...td, fontWeight: 800 }}>{totals[c.key]}</td>)}
-              <td style={{ ...td, fontWeight: 800, color: "#3730a3" }}>{totals.open ? `${totals.signRate}%` : "—"}</td>
-              <td style={td}>—</td>
-              <td style={td}>—</td>
+              <td style={{ ...td, fontWeight: 800 }}>{totals.assigned}</td>
+              <td style={{ ...td, fontWeight: 800 }}>{totals.working}</td>
+              <td style={{ ...td, fontWeight: 800 }}>{totals.avgDaysToSign == null ? "—" : `${totals.avgDaysToSign}d`}</td>
+              <td style={{ ...td, fontWeight: 800, color: "#3730a3" }}>{totals.denom ? `${totals.signPct}%` : "—"}</td>
+              <td style={{ ...td, fontWeight: 800, color: "#3730a3" }}>{totals.denom ? `${totals.lostPct}%` : "—"}</td>
+              <td style={{ ...td, fontWeight: 800, color: "#3730a3" }}>{totals.denom ? `${totals.takenPct}%` : "—"}</td>
             </tr>
           </tfoot>
         )}
       </table>
       <div style={{ fontSize: 11, color: "#6b7280", padding: "8px 10px", borderTop: "1px solid #e0e7ff" }}>
-        🆕 New = never opened, no notes · 🛠 Working = opened or noted · ⏳ Pending = waiting on a rep reply · Oldest new flags fresh leads sitting &gt; 7 days.
+        Percentages are over <strong>everything ever given to the PA</strong> (assigned + lost + dead + taken away). <strong>Avg days→sign</strong> &amp; <strong>Taken %</strong> only count activity from when scorecard tracking went live, so they'll fill in over time.
       </div>
     </div>
   );
