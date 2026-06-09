@@ -45,6 +45,9 @@ exports.handler = async (event) => {
     zip: (body.zip || "").trim(),
   };
   const resolvedBy = (body.resolvedBy || "Sales rep / manager (via link)").trim();
+  // The rep's free-text answer to the PA's note/question/request. Texted to
+  // the PA and logged. Optional for a pure data correction.
+  const reply = (body.reply || "").trim();
 
   const SB_URL = process.env.VITE_SUPABASE_URL;
   const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
@@ -54,7 +57,7 @@ exports.handler = async (event) => {
   // 1. Load current values (for the diff) + ownership/link info.
   const rows = await (await fetch(
     `${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}` +
-      `&select=id,jn_job_id,pa_id,correction_needed,client_name,mobile,email,address,city,state,zip&limit=1`,
+      `&select=id,jn_job_id,pa_id,correction_needed,correction_note,pa_notes_log,client_name,mobile,email,address,city,state,zip&limit=1`,
     { headers: sb },
   )).json().catch(() => []);
   const insp = rows?.[0];
@@ -77,6 +80,21 @@ exports.handler = async (event) => {
   patch.correction_resolved_at = nowIso;
   patch.correction_resolved_by = resolvedBy;
 
+  const changeSummary = changes.length
+    ? changes.map((c) => `• ${labelFor(c.field)}: "${c.from || "(blank)"}" → "${c.to}"`).join("\n")
+    : "No contact info changed.";
+
+  // Append the rep's reply (and/or what changed) to the PA's running notes
+  // log so it's on record in-app, not just in the text/JN.
+  const logEntryParts = [];
+  if (reply) logEntryParts.push(`Rep replied: ${reply}`);
+  if (changes.length) logEntryParts.push(changes.map((c) => `${labelFor(c.field)} → "${c.to}"`).join(", "));
+  if (logEntryParts.length) {
+    const log = Array.isArray(insp.pa_notes_log) ? insp.pa_notes_log : [];
+    log.push({ at: nowIso, text: logEntryParts.join(" · "), stage: null });
+    patch.pa_notes_log = log;
+  }
+
   // 2. Save to Supabase.
   const up = await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}`, {
     method: "PATCH",
@@ -87,9 +105,15 @@ exports.handler = async (event) => {
     return json(500, { ok: false, error: `Save failed: ${(await up.text()).slice(0, 200)}` });
   }
 
-  const changeSummary = changes.length
-    ? changes.map((c) => `• ${labelFor(c.field)}: "${c.from || "(blank)"}" → "${c.to}"`).join("\n")
-    : "No field values changed.";
+  // Build the JN note + PA text. Both carry the PA's original request, the
+  // rep's reply (if any), and what (if anything) changed.
+  const request = (insp.correction_note || "").trim();
+  const jnNoteBody = [
+    `✅ PA request resolved${resolvedBy ? ` by ${resolvedBy}` : ""}`,
+    request ? `Request: ${request}` : null,
+    reply ? `Reply: ${reply}` : null,
+    changeSummary,
+  ].filter(Boolean).join("\n");
 
   // 3. JobNimbus — best-effort contact + job update + a documenting note.
   const jn = { contact_updated: false, job_updated: false, note_added: false, errors: [] };
@@ -152,7 +176,7 @@ exports.handler = async (event) => {
         method: "POST", headers: jh,
         body: JSON.stringify({
           record_type_name: "Note",
-          note: `✅ Correction completed${resolvedBy ? ` by ${resolvedBy}` : ""}:\n${changeSummary}`,
+          note: jnNoteBody,
           primary: { id: insp.jn_job_id, type: "job" },
           related: [{ id: insp.jn_job_id, type: "job" }],
           is_status_change: false,
@@ -175,8 +199,9 @@ exports.handler = async (event) => {
     if (pa?.phone) {
       const homeowner = next.client_name || insp.client_name || "the homeowner";
       const msg =
-        `✅ Correction complete — ${homeowner}\n\n` +
-        `${changeSummary}\n\n` +
+        `✅ ${homeowner} — reply from the rep\n\n` +
+        (reply ? `${reply}\n\n` : "") +
+        (changes.length ? `Updated:\n${changeSummary}\n\n` : "") +
         `You're good to continue the claim.`;
       paNotified = await sendSms(base, pa.phone, pa.name || "PA", msg);
     } else {

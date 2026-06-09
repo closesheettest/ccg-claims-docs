@@ -41,8 +41,11 @@ exports.handler = async (event) => {
   const inspectionId = (body.inspectionId || "").trim();
   const paId = (body.paId || "").trim();
   const note = (body.note || "").trim();
+  // kind: "correction" (info needs fixing) | "question" (a question/request).
+  // Both use the same link + reply flow; only the wording differs.
+  const kind = String(body.kind || "correction").trim() === "question" ? "question" : "correction";
   if (!inspectionId) return json(400, { ok: false, error: "inspectionId required" });
-  if (!note) return json(400, { ok: false, error: "Please describe what needs to be corrected" });
+  if (!note) return json(400, { ok: false, error: kind === "question" ? "Please type your question or request" : "Please describe what needs to be corrected" });
 
   const SB_URL = process.env.VITE_SUPABASE_URL;
   const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
@@ -82,7 +85,7 @@ exports.handler = async (event) => {
   // 2. Flag the deal + append the request to the running notes log.
   const nowIso = new Date().toISOString();
   const log = Array.isArray(insp.pa_notes_log) ? insp.pa_notes_log : [];
-  log.push({ at: nowIso, text: `Correction requested: ${note}`, stage: null });
+  log.push({ at: nowIso, text: `${kind === "question" ? "Question for rep" : "Correction requested"}: ${note}`, stage: null });
   const patch = await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}`, {
     method: "PATCH",
     headers: { ...sbHeaders, Prefer: "return=minimal" },
@@ -109,7 +112,7 @@ exports.handler = async (event) => {
         headers: { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           record_type_name: "Note",
-          note: `✏️ Correction requested by PA${paName ? ` (${paName})` : ""}: ${note}`,
+          note: `${kind === "question" ? "❓ Question from PA" : "✏️ Correction requested by PA"}${paName ? ` (${paName})` : ""}: ${note}`,
           primary: { id: insp.jn_job_id, type: "job" },
           related: [{ id: insp.jn_job_id, type: "job" }],
           is_status_change: false,
@@ -125,10 +128,12 @@ exports.handler = async (event) => {
   const addr = [insp.address, insp.city, insp.state, insp.zip].filter(Boolean).join(", ");
   const link = base ? `${base}/?correct=${encodeURIComponent(inspectionId)}` : "";
   const message =
-    `✏️ Correction needed — ${homeowner}\n\n` +
+    (kind === "question"
+      ? `❓ Question from the public adjuster — ${homeowner}\n\n`
+      : `✏️ Correction needed — ${homeowner}\n\n`) +
     `${note}\n\n` +
     (addr ? `${addr}\n\n` : "") +
-    (link ? `Fix it here: ${link}` : "Open the app to make the correction.");
+    (link ? `Reply here: ${link}` : "Open the app to reply.");
 
   const rep = await resolveRep(SB_URL, sbHeaders, insp.sales_rep_id, insp.sales_rep_name);
   const zone = await resolveZone(SB_URL, sbHeaders, rep, insp.sales_rep_name);

@@ -4235,6 +4235,7 @@ function CorrectionPage({ inspectionId }) {
   const [done, setDone] = useState(false);
   const [doneSummary, setDoneSummary] = useState("");
   const [note, setNote] = useState("");
+  const [reply, setReply] = useState("");
   const [alreadyResolved, setAlreadyResolved] = useState(false);
   const [f, setF] = useState({
     client_name: "", mobile: "", email: "",
@@ -4273,7 +4274,10 @@ function CorrectionPage({ inspectionId }) {
 
   const set = (k) => (e) => setF((p) => ({ ...p, [k]: e.target.value }));
   const phoneDigits = (f.mobile || "").replace(/\D/g, "");
-  const canSave = (f.client_name || "").trim() && phoneDigits.length >= 10 && (f.address || "").trim();
+  const contactValid = (f.client_name || "").trim() && phoneDigits.length >= 10 && (f.address || "").trim();
+  // Submit is allowed when the rep typed a reply OR the homeowner info is
+  // complete — so a plain question can be answered without filling fields.
+  const canSave = !!reply.trim() || contactValid;
 
   const save = async () => {
     if (!canSave || busy) return;
@@ -4282,7 +4286,7 @@ function CorrectionPage({ inspectionId }) {
       const res = await fetch("/.netlify/functions/submit-correction", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inspectionId, ...f }),
+        body: JSON.stringify({ inspectionId, reply: reply.trim(), ...f }),
       });
       const out = await res.json().catch(() => ({}));
       if (!res.ok || !out.ok) { setErr(out.error || "Save failed — please try again."); setBusy(false); return; }
@@ -4311,9 +4315,9 @@ function CorrectionPage({ inspectionId }) {
       <div style={wrap}>
         <Card style={{ maxWidth: 520, margin: "40px auto", padding: 28, textAlign: "center" }}>
           <div style={{ fontSize: 48 }}>✅</div>
-          <div style={{ fontSize: 22, fontWeight: 800, fontFamily: "'Oswald', sans-serif", marginTop: 8 }}>Correction saved</div>
+          <div style={{ fontSize: 22, fontWeight: 800, fontFamily: "'Oswald', sans-serif", marginTop: 8 }}>Sent to the public adjuster</div>
           <p style={{ color: "#374151", fontSize: 15, marginTop: 10 }}>
-            JobNimbus has been updated and the public adjuster has been texted that it's corrected.
+            The public adjuster has been texted, a note was added to JobNimbus, and any info you changed was updated.
           </p>
           {doneSummary && (
             <pre style={{ textAlign: "left", whiteSpace: "pre-wrap", fontSize: 13, color: "#111827", background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, marginTop: 12 }}>{doneSummary}</pre>
@@ -4327,36 +4331,49 @@ function CorrectionPage({ inspectionId }) {
   return (
     <div style={wrap}>
       <Card style={{ maxWidth: 520, margin: "0 auto", padding: 24 }}>
-        <div style={{ fontSize: 22, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#111827" }}>✏️ Make a correction</div>
+        <div style={{ fontSize: 22, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#111827" }}>✏️ Respond to the public adjuster</div>
         <p style={{ color: "#6b7280", fontSize: 14, marginTop: 4 }}>
-          The public adjuster flagged this deal. Fix the info below, then Save — JobNimbus updates and the PA gets a text that it's corrected.
+          Type your reply below. If something about the homeowner's info needs fixing, update it too — saving texts the PA your reply, adds a note to JobNimbus, and updates anything you changed.
         </p>
 
         {alreadyResolved && (
           <div style={{ marginTop: 12, padding: 12, borderRadius: 12, background: "#ecfdf5", border: "1px solid #a7f3d0", color: "#065f46", fontSize: 14 }}>
-            ✅ This correction was already marked complete. You can still re-save changes below if needed.
+            ✅ This was already handled. You can still reply or update info again below if needed.
           </div>
         )}
 
         {note && (
           <div style={{ marginTop: 12, padding: 14, borderRadius: 12, background: "#fffbeb", border: "1px solid #fde68a" }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: "#92400e", textTransform: "uppercase", letterSpacing: "0.04em" }}>What's needed</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#92400e", textTransform: "uppercase", letterSpacing: "0.04em" }}>From the public adjuster</div>
             <div style={{ fontSize: 15, color: "#78350f", marginTop: 4 }}>{note}</div>
           </div>
         )}
 
-        <label style={labelStyle}>Homeowner name *</label>
-        <input style={inputStyle(!(f.client_name || "").trim())} value={f.client_name} onChange={set("client_name")} placeholder="First Last" />
+        <label style={labelStyle}>Your reply to the PA</label>
+        <textarea
+          value={reply}
+          onChange={(e) => setReply(e.target.value)}
+          placeholder="Answer their question or note what you did…"
+          rows={3}
+          style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 12, border: "1px solid #d1d5db", fontSize: 16, background: "#fff", resize: "vertical" }}
+        />
 
-        <label style={labelStyle}>Mobile phone *</label>
-        <input style={inputStyle(phoneDigits.length < 10)} value={f.mobile} onChange={set("mobile")} placeholder="(555) 555-5555" inputMode="tel" />
-        {phoneDigits.length < 10 && <div style={{ color: "#b91c1c", fontSize: 13, marginTop: 4 }}>A valid mobile number is required.</div>}
+        <div style={{ marginTop: 22, marginBottom: 2, fontSize: 13, fontWeight: 800, color: "#374151", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+          Homeowner info — edit if needed
+        </div>
+
+        <label style={labelStyle}>Homeowner name</label>
+        <input style={inputStyle(false)} value={f.client_name} onChange={set("client_name")} placeholder="First Last" />
+
+        <label style={labelStyle}>Mobile phone</label>
+        <input style={inputStyle(f.mobile && phoneDigits.length < 10)} value={f.mobile} onChange={set("mobile")} placeholder="(555) 555-5555" inputMode="tel" />
+        {f.mobile && phoneDigits.length < 10 && <div style={{ color: "#b91c1c", fontSize: 13, marginTop: 4 }}>That doesn't look like a full 10-digit number.</div>}
 
         <label style={labelStyle}>Email</label>
         <input style={inputStyle(false)} value={f.email} onChange={set("email")} placeholder="name@email.com" inputMode="email" />
 
-        <label style={labelStyle}>Address *</label>
-        <input style={inputStyle(!(f.address || "").trim())} value={f.address} onChange={set("address")} placeholder="Street address" />
+        <label style={labelStyle}>Address</label>
+        <input style={inputStyle(false)} value={f.address} onChange={set("address")} placeholder="Street address" />
 
         <div style={{ display: "flex", gap: 10 }}>
           <div style={{ flex: 2 }}>
@@ -4377,8 +4394,13 @@ function CorrectionPage({ inspectionId }) {
 
         <div style={{ marginTop: 20 }}>
           <Button onClick={save} disabled={!canSave || busy} style={{ width: "100%" }}>
-            {busy ? "Saving…" : "Save correction"}
+            {busy ? "Sending…" : "Submit & notify the PA"}
           </Button>
+          {!canSave && !busy && (
+            <div style={{ color: "#9ca3af", fontSize: 13, marginTop: 8, textAlign: "center" }}>
+              Type a reply, or fill in the homeowner info, to submit.
+            </div>
+          )}
         </div>
       </Card>
     </div>

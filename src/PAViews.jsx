@@ -1477,7 +1477,7 @@ function PAJobCard({ job, onOpen }) {
           {job.client_name || "(no name)"}
           {job.correction_needed && (
             <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: "#92400e", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 999, padding: "1px 8px", verticalAlign: "middle" }}>
-              ⏳ correction
+              ⏳ awaiting rep
             </span>
           )}
         </div>
@@ -1802,33 +1802,37 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
   // sales rep + their regional manager a link to fix it (CorrectionPage), and
   // posts the request to JobNimbus. When they save, JN updates + the PA gets a
   // text that it's corrected (submit-correction handles that side).
-  async function requestCorrection() {
+  async function requestCorrection(kind = "correction") {
+    const isQuestion = kind === "question";
     const t = window.prompt(
-      "Correction needed — what's wrong or what does the sales rep need to follow up on?\n(e.g. \"No phone number for the homeowner\" or \"Wrong address — verify with homeowner\")"
+      isQuestion
+        ? "Question / request for the sales rep — what do you need?\n(e.g. \"Did the homeowner mention a second roof?\" or \"Can you confirm the insurance carrier?\")"
+        : "Correction needed — what's wrong or what does the sales rep need to follow up on?\n(e.g. \"No phone number for the homeowner\" or \"Wrong address — verify with homeowner\")"
     );
     if (t == null) return;
     const note = t.trim();
-    if (!note) { setFieldErr("Please describe what needs to be corrected."); return; }
+    if (!note) { setFieldErr(isQuestion ? "Please type your question or request." : "Please describe what needs to be corrected."); return; }
     setCorrectionBusy(true); setFieldErr(null);
     try {
       const res = await fetch("/.netlify/functions/pa-request-correction", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inspectionId: jobId, paId: me.id, note }),
+        body: JSON.stringify({ inspectionId: jobId, paId: me.id, note, kind }),
       });
       const b = await res.json().catch(() => ({}));
       if (!b.ok) { setFieldErr(b.error || `status ${res.status}`); setCorrectionBusy(false); return; }
       const repOk = b.notified?.rep?.ok;
       const mgrOk = b.notified?.manager?.ok;
       const who = [repOk ? "the sales rep" : null, mgrOk ? "their manager" : null].filter(Boolean).join(" + ");
+      const logPrefix = isQuestion ? "Question for rep" : "Correction requested";
       setJob((j) => j ? {
         ...j,
         correction_needed: true,
         correction_note: note,
         correction_requested_at: new Date().toISOString(),
         correction_resolved_at: null,
-        pa_notes_log: [ ...(j.pa_notes_log || []), { at: new Date().toISOString(), text: `Correction requested: ${note}`, stage: null } ],
+        pa_notes_log: [ ...(j.pa_notes_log || []), { at: new Date().toISOString(), text: `${logPrefix}: ${note}`, stage: null } ],
       } : j);
-      window.alert(who ? `Sent. ${who} got a text with the fix link.` : "Flagged. (Couldn't reach the rep/manager by text — check their phone numbers on file.)");
+      window.alert(who ? `Sent. ${who} got a text with a link to reply.` : "Sent. (Couldn't reach the rep/manager by text — check their phone numbers on file.)");
     } catch (e) { setFieldErr(e.message || "Network error"); }
     setCorrectionBusy(false);
   }
@@ -1866,14 +1870,14 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
       {job.correction_needed ? (
         <div style={{ padding: 14, background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 12, marginBottom: 12 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: "#92400e", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-            ⏳ Correction requested — waiting on the rep
+            ⏳ Sent to the rep — waiting on a reply
           </div>
           {job.correction_note && <div style={{ fontSize: 14, color: "#78350f" }}>{job.correction_note}</div>}
-          <div style={{ fontSize: 12, color: "#a16207", marginTop: 4 }}>The sales rep + their manager were texted a link to fix it. You'll get a text when it's corrected.</div>
+          <div style={{ fontSize: 12, color: "#a16207", marginTop: 4 }}>The sales rep + their manager were texted a link to reply. You'll get a text back, and the reply shows in your notes below.</div>
         </div>
       ) : job.correction_resolved_at ? (
         <div style={{ padding: 12, background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: 12, marginBottom: 12, fontSize: 13, color: "#065f46", fontWeight: 700 }}>
-          ✅ Correction completed — info below is updated.
+          ✅ The rep replied — see your notes below (and any updated info above).
         </div>
       ) : null}
 
@@ -2143,9 +2147,13 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
           style={{ flex: "1 1 45%", padding: "11px", borderRadius: 10, fontWeight: 700, fontSize: 13, border: "1px solid #fca5a5", background: "#fef2f2", color: "#991b1b", cursor: noteBusy ? "default" : "pointer" }}>
           💀 Dead deal
         </button>
-        <button type="button" disabled={correctionBusy} onClick={requestCorrection}
-          style={{ flex: "1 1 100%", padding: "11px", borderRadius: 10, fontWeight: 700, fontSize: 13, border: "1px solid #fcd34d", background: "#fffbeb", color: "#92400e", cursor: correctionBusy ? "default" : "pointer", opacity: correctionBusy ? 0.6 : 1 }}>
+        <button type="button" disabled={correctionBusy} onClick={() => requestCorrection("correction")}
+          style={{ flex: "1 1 45%", padding: "11px", borderRadius: 10, fontWeight: 700, fontSize: 13, border: "1px solid #fcd34d", background: "#fffbeb", color: "#92400e", cursor: correctionBusy ? "default" : "pointer", opacity: correctionBusy ? 0.6 : 1 }}>
           {correctionBusy ? "Sending…" : "✏️ Correction needed"}
+        </button>
+        <button type="button" disabled={correctionBusy} onClick={() => requestCorrection("question")}
+          style={{ flex: "1 1 45%", padding: "11px", borderRadius: 10, fontWeight: 700, fontSize: 13, border: "1px solid #bfdbfe", background: "#eff6ff", color: "#1e40af", cursor: correctionBusy ? "default" : "pointer", opacity: correctionBusy ? 0.6 : 1 }}>
+          {correctionBusy ? "Sending…" : "❓ Question / request for rep"}
         </button>
       </div>
 
