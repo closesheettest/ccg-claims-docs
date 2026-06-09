@@ -1889,6 +1889,11 @@ export function InspectorMobileApp() {
   // No escape hatch to the rep main app — inspectors should only see
   // the inspector page. Any future inspector-only utilities should be
   // linked from inside this page.
+  // Admin context: the inspector portal launched from the Admin hub carries
+  // ?admin=1, which unlocks manager-only actions (e.g. "Switch user"). Field
+  // inspectors open a plain ?mode=inspector link and never see those.
+  const adminView = typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("admin") === "1";
   const [stage, setStage] = useState("pick"); // pick | list | detail | inactive
   const [inspectors, setInspectors] = useState([]);
   const [me, setMe] = useState(null);
@@ -1995,9 +2000,14 @@ export function InspectorMobileApp() {
               🧑‍⚖️ My PA portal
             </button>
           )}
-          {/* No "Switch user" — an inspector can't re-pick into another
-              inspector's account. Identity stays locked to whoever first
-              opened this device's link. */}
+          {/* "Switch user" is admin-only: shown only when the portal was
+              opened from the Admin hub (?admin=1). Field inspectors never see
+              it, so they can't re-pick into another inspector's account. */}
+          {me && adminView && (
+            <button type="button" onClick={signOut} style={{ ...secondaryBtn, fontSize: 11 }}>
+              Switch user
+            </button>
+          )}
         </div>
       </div>
 

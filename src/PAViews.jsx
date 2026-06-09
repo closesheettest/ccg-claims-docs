@@ -1149,9 +1149,10 @@ export function PAMobileApp() {
               🔍 My inspections
             </button>
           )}
-          {/* No "Switch user" — a PA can't re-pick into another adjuster's
-              account. Identity stays locked to whoever first opened this
-              device's link. (An admin can reset via the PA admin panel.) */}
+          {/* "Switch user" is admin-only: shown only when the portal was
+              opened from the Admin hub (?admin=1). Field PAs never see it,
+              so they can't re-pick into another adjuster's account. */}
+          {me && adminView && <button type="button" onClick={signOut} style={{ ...secondaryBtn, fontSize: 11 }}>Switch user</button>}
         </div>
       </div>
 
