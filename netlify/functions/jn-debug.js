@@ -20,6 +20,10 @@ const jnHeaders = {
 exports.handler = async (event) => {
   const params = event.queryStringParameters || {};
   const searchNames = (params.name || "").split(",").map(s => s.trim()).filter(Boolean);
+  // ?rep=Tabitha Gregor → find every recent job CREDITED to that sales rep
+  // (by sales_rep_name), with the fields the sales leaderboard reads, so we
+  // can see why a rep is/ isn't showing as a weekly sale.
+  const repQuery = (params.rep || "").trim().toLowerCase();
 
   // Fetch 60 days of JN jobs, paged
   const since = Math.floor(Date.now() / 1000) - 60 * 24 * 60 * 60;
@@ -76,8 +80,32 @@ exports.handler = async (event) => {
         cf_string_34: j.cf_string_34,
         address_line1: j.address_line1,
         zip: j.zip,
+        sales_rep_name: j.sales_rep_name,
+        status_name: j.status_name,
+        sold_date: j["Sold Date"] != null ? j["Sold Date"] : j.cf_date_5,
+        approved_estimate_total: j.approved_estimate_total,
+        primary: j.primary && j.primary.name,
       }));
     }
+  }
+
+  // ?rep=<name>: every recent job credited to that sales rep (the field the
+  // sales leaderboard groups on), with the leaderboard-relevant fields.
+  let repResults = null;
+  if (repQuery) {
+    repResults = allJnJobs
+      .filter(j => (j.sales_rep_name || "").toLowerCase().includes(repQuery))
+      .map(j => ({
+        name: j.name,
+        jnid: j.jnid || j.id,
+        sales_rep_name: j.sales_rep_name,
+        status_name: j.status_name,
+        sold_date: j["Sold Date"] != null ? j["Sold Date"] : j.cf_date_5,
+        sold_date_iso: (() => { const v = j["Sold Date"] != null ? j["Sold Date"] : j.cf_date_5; const n = Number(v); return Number.isFinite(n) && n > 0 ? new Date(n * 1000).toISOString() : null; })(),
+        approved_estimate_total: j.approved_estimate_total,
+        primary: j.primary && j.primary.name,
+        record_type_name: j.record_type_name,
+      }));
   }
 
   // Sample of 30 PA-filtered jobs so we can see their structure
@@ -102,6 +130,7 @@ exports.handler = async (event) => {
       paJobsCount: paJobs.length,
       samplePaJobs: sample,
       searchResults,
+      repResults,
     }, null, 2),
   };
 };
