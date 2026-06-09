@@ -752,7 +752,7 @@ export function PAAdminPanel() {
           </button>
           <button
             type="button"
-            onClick={() => window.open("/?mode=pa", "_blank")}
+            onClick={() => window.open("/?mode=pa&admin=1", "_blank")}
             style={{ ...secondaryBtn, padding: "6px 12px", fontSize: 11, whiteSpace: "nowrap" }}
             title="Opens the PA portal in a new tab for QA."
           >

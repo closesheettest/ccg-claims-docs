@@ -589,7 +589,7 @@ export function InspectorsAdminPanel() {
           </button>
           <button
             type="button"
-            onClick={() => window.open("/?mode=inspector", "_blank")}
+            onClick={() => window.open("/?mode=inspector&admin=1", "_blank")}
             style={{ ...secondaryBtn, padding: "6px 12px", fontSize: 11, whiteSpace: "nowrap" }}
             title="Opens the inspector mobile view in a new tab. Useful for QA-ing the inspector experience."
           >
