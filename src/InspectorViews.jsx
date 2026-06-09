@@ -3311,18 +3311,26 @@ export function ManagerInspectorReports() {
                     </tr>
                   </thead>
                   <tbody>
-                    {byInspector.map((row) => (
-                      <tr key={row.id} style={{ borderBottom: "1px solid #f3f4f6" }}>
-                        <td style={{ padding: "6px 8px", fontWeight: 600 }}>{row.name}</td>
-                        <td style={{ padding: "6px 8px", textAlign: "right" }}>{row.total}</td>
-                        <td style={{ padding: "6px 8px", textAlign: "right" }}>{row.damage}</td>
-                        <td style={{ padding: "6px 8px", textAlign: "right" }}>{row.no_damage}</td>
-                        <td style={{ padding: "6px 8px", textAlign: "right" }}>{row.retail}</td>
-                        <td style={{ padding: "6px 8px", textAlign: "right", color: row.pending > 0 ? "#b45309" : "#6b7280", fontWeight: row.pending > 0 ? 700 : 400 }}>
-                          {row.pending}
+                    {byInspector.map((row) => {
+                      const pct = (n) => (row.total > 0 ? `${Math.round((n / row.total) * 100)}%` : "—");
+                      const cell = (n) => (
+                        <td style={{ padding: "6px 8px", textAlign: "right" }}>
+                          {n}{row.total > 0 && <span style={{ color: "#9ca3af", fontWeight: 600 }}> · {pct(n)}</span>}
                         </td>
-                      </tr>
-                    ))}
+                      );
+                      return (
+                        <tr key={row.id} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                          <td style={{ padding: "6px 8px", fontWeight: 600 }}>{row.name}</td>
+                          <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700 }}>{row.total}</td>
+                          {cell(row.damage)}
+                          {cell(row.no_damage)}
+                          {cell(row.retail)}
+                          <td style={{ padding: "6px 8px", textAlign: "right", color: row.pending > 0 ? "#b45309" : "#6b7280", fontWeight: row.pending > 0 ? 700 : 400 }}>
+                            {row.pending}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
