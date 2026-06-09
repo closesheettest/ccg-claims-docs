@@ -271,7 +271,7 @@ export function PAAdminPanel() {
       (openRows || []).forEach((r) => { byPa[r.pa_id] = (byPa[r.pa_id] || 0) + 1; });
       const { data: unassignedList } = await supabase.from("inspections")
         .select("id, client_name, signed_at")
-        .eq("result", "damage").is("pa_id", null).not("jn_job_id", "is", null)
+        .eq("result", "damage").is("pa_id", null).is("pa_company_id", null).not("jn_job_id", "is", null)
         .is("cancelled_at", null).eq("pa_decision_needed", false).not("signed_at", "is", null)
         .order("signed_at", { ascending: false }).limit(50);
       const { data: dead } = await supabase.from("inspections")
@@ -378,18 +378,29 @@ export function PAAdminPanel() {
     setSelected((s) => { const n = new Set(s); ids.forEach((id) => on ? n.add(id) : n.delete(id)); return n; });
   }
   // paId="" → unassign the selected deals; else assign/move them to that PA.
-  async function bulkApply(paId) {
+  // target: "" → unassign · "company:<id>" → drop into a company POOL (pa_id
+  // cleared, company admin assigns) · else a PA id → assign directly.
+  async function bulkApply(target) {
     const ids = [...selected];
     if (!ids.length) { setMessage({ kind: "error", text: "Select at least one deal first." }); return; }
     setBulkBusy(true);
     const nowIso = new Date().toISOString();
-    const patch = paId
-      ? { pa_id: paId, pa_claimed_at: nowIso, pa_stage: "active", pa_stage_at: nowIso }
-      : { pa_id: null, pa_claimed_at: null, pa_stage: null, pa_stage_at: nowIso };
+    let patch, who;
+    if (target && target.startsWith("company:")) {
+      const cid = target.slice("company:".length);
+      // Into the company pool: clear the PA + working state, stamp pool entry.
+      patch = { pa_company_id: cid, pa_company_at: nowIso, pa_id: null, pa_claimed_at: null, pa_stage: null, pa_stage_at: nowIso, pa_opened_at: null };
+      who = `${companies.find((c) => c.id === cid)?.name || "company"} pool`;
+    } else if (target) {
+      patch = { pa_id: target, pa_company_id: null, pa_claimed_at: nowIso, pa_stage: "active", pa_stage_at: nowIso };
+      who = pas.find((p) => p.id === target)?.name || "PA";
+    } else {
+      patch = { pa_id: null, pa_company_id: null, pa_claimed_at: null, pa_stage: null, pa_stage_at: nowIso };
+      who = "nobody (unassigned)";
+    }
     const { error } = await supabase.from("inspections").update(patch).in("id", ids);
     setBulkBusy(false);
     if (error) { setMessage({ kind: "error", text: error.message }); return; }
-    const who = paId ? (pas.find((p) => p.id === paId)?.name || "PA") : "nobody (unassigned)";
     setMessage({ kind: "success", text: `Moved ${ids.length} deal${ids.length === 1 ? "" : "s"} to ${who}.` });
     setSelected(new Set());
     loadAllDeals(); loadOverview();
@@ -774,7 +785,16 @@ export function PAAdminPanel() {
               onChange={(e) => { const v = e.target.value; if (v === "__unassign__") bulkApply(""); else if (v) bulkApply(v); e.target.value = ""; }}
               style={{ fontSize: 12, padding: "6px 8px", borderRadius: 8, border: "1px solid #cbd5e1" }}>
               <option value="">Move selected to…</option>
-              {active.map((pa) => (<option key={pa.id} value={pa.id}>{pa.name}</option>))}
+              {active.length > 0 && (
+                <optgroup label="Assign directly to a PA">
+                  {active.map((pa) => (<option key={pa.id} value={pa.id}>{pa.name}</option>))}
+                </optgroup>
+              )}
+              {companies.length > 0 && (
+                <optgroup label="Into a company pool (their admin assigns)">
+                  {companies.filter((c) => c.active).map((c) => (<option key={c.id} value={`company:${c.id}`}>🏢 {c.name} pool</option>))}
+                </optgroup>
+              )}
               <option value="__unassign__">— Unassign —</option>
             </select>
             {bulkBusy && <span style={{ fontSize: 12, color: "#64748b" }}>Saving…</span>}
