@@ -37,8 +37,8 @@ exports.handler = async (event) => {
   if (!company) return cors(404, JSON.stringify({ ok: false, error: "Invalid link" }));
   if (company.active === false) return cors(403, JSON.stringify({ ok: false, error: "This company is inactive — contact U.S. Shingle." }));
 
-  // Active PAs in this company.
-  const pas = await get(`${SB_URL}/rest/v1/pas?pa_company_id=eq.${company.id}&select=id,name,active&order=name.asc`, sb);
+  // Active PAs in this company (+ home coords for distance sorting).
+  const pas = await get(`${SB_URL}/rest/v1/pas?pa_company_id=eq.${company.id}&select=id,name,active,home_address,latitude,longitude&order=name.asc`, sb);
 
   if (action === "assign") {
     const inspectionId = (body.inspectionId || "").trim();
@@ -67,7 +67,7 @@ exports.handler = async (event) => {
   const deals = await get(
     `${SB_URL}/rest/v1/inspections?pa_company_id=eq.${company.id}` +
       `&cancelled_at=is.null&or=(pa_stage.is.null,pa_stage.neq.dead)` +
-      `&select=id,client_name,address,city,state,zip,county,signed_at,mobile,pa_id,pa_stage,pa_opened_at,pa_notes_log,correction_needed,pa_company_at` +
+      `&select=id,client_name,address,city,state,zip,county,signed_at,mobile,latitude,longitude,pa_id,pa_stage,pa_opened_at,pa_notes_log,correction_needed,pa_company_at` +
       `&order=signed_at.desc&limit=500`,
     sb,
   );
@@ -89,6 +89,8 @@ exports.handler = async (event) => {
       name: d.client_name || "(no name)",
       address: [d.address, d.city, d.state, d.zip].filter(Boolean).join(", "),
       county: d.county || null,
+      lat: typeof d.latitude === "number" ? d.latitude : null,
+      lng: typeof d.longitude === "number" ? d.longitude : null,
       signed_at: d.signed_at,
       mobile: d.mobile || null,
       pa_id: d.pa_id || null,
@@ -105,7 +107,7 @@ exports.handler = async (event) => {
   return cors(200, JSON.stringify({
     ok: true,
     company: { name: company.name },
-    pas: pas.map((p) => ({ id: p.id, name: p.name, active: p.active })),
+    pas: pas.map((p) => ({ id: p.id, name: p.name, active: p.active, home_address: p.home_address || null, lat: typeof p.latitude === "number" ? p.latitude : null, lng: typeof p.longitude === "number" ? p.longitude : null })),
     deals: shaped,
   }));
 };

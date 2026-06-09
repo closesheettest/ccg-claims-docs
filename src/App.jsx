@@ -4415,6 +4415,9 @@ function PACompanyAdminPage({ token }) {
   const [err, setErr] = useState("");
   const [data, setData] = useState(null);   // { company, pas, deals }
   const [busyId, setBusyId] = useState(null);
+  const [distFrom, setDistFrom] = useState("");   // "" | paId | "__me__"
+  const [myCoords, setMyCoords] = useState(null);
+  const [geoErr, setGeoErr] = useState("");
 
   const load = async () => {
     try {
@@ -4449,10 +4452,36 @@ function PACompanyAdminPage({ token }) {
   if (err && !data) return <div style={wrap}><Card style={{ maxWidth: 520, margin: "50px auto", padding: 28, textAlign: "center" }}><div style={{ fontSize: 40 }}>🔒</div><div style={{ fontSize: 16, marginTop: 8, color: "#991b1b" }}>{err}</div></Card></div>;
 
   const activePas = (data.pas || []).filter((p) => p.active);
-  const deals = data.deals || [];
-  const unassigned = deals.filter((d) => !d.pa_id);
-  const assigned = deals.filter((d) => d.pa_id);
-  const stale = deals.filter((d) => !d.touched && (d.stale_hours ?? 0) >= 48);
+
+  // Distance: reference = a chosen PA's home, or the admin's GPS. Each deal
+  // gets _dist (miles) when both ends are geocoded; lists sort nearest-first.
+  const milesBetween = (la1, lo1, la2, lo2) => {
+    const R = 3958.8, toR = (x) => (x * Math.PI) / 180;
+    const dLa = toR(la2 - la1), dLo = toR(lo2 - lo1);
+    const s = Math.sin(dLa / 2) ** 2 + Math.cos(toR(la1)) * Math.cos(toR(la2)) * Math.sin(dLo / 2) ** 2;
+    return R * 2 * Math.asin(Math.sqrt(s));
+  };
+  const refPa = activePas.find((p) => p.id === distFrom);
+  const refCoords = distFrom === "__me__" ? myCoords : (refPa && refPa.lat != null ? { lat: refPa.lat, lng: refPa.lng } : null);
+  const withDist = (arr) => arr.map((d) => ({
+    ...d,
+    _dist: refCoords && d.lat != null && d.lng != null ? milesBetween(refCoords.lat, refCoords.lng, d.lat, d.lng) : null,
+  }));
+  const sortDist = (arr) => (refCoords ? [...arr].sort((a, b) => (a._dist ?? 1e9) - (b._dist ?? 1e9)) : arr);
+  const allDeals = withDist(data.deals || []);
+  const unassigned = sortDist(allDeals.filter((d) => !d.pa_id));
+  const assigned = sortDist(allDeals.filter((d) => d.pa_id));
+  const stale = allDeals.filter((d) => !d.touched && (d.stale_hours ?? 0) >= 48);
+
+  const useMyLocation = () => {
+    setGeoErr("");
+    if (!navigator.geolocation) { setGeoErr("This device doesn't support GPS."); return; }
+    navigator.geolocation.getCurrentPosition(
+      (p) => { setMyCoords({ lat: p.coords.latitude, lng: p.coords.longitude }); setDistFrom("__me__"); },
+      (e) => setGeoErr(e.message || "Couldn't get your location."),
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 },
+    );
+  };
 
   const statusBadge = (d) => {
     const map = {
@@ -4473,10 +4502,12 @@ function PACompanyAdminPage({ token }) {
           {statusBadge(d)}
           {d.correction_needed && <span style={{ fontSize: 11, fontWeight: 700, color: "#92400e", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 999, padding: "1px 8px" }}>⏳ correction</span>}
           {!d.touched && (d.stale_hours ?? 0) >= 48 && <span style={{ fontSize: 11, fontWeight: 700, color: "#b91c1c", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 999, padding: "1px 8px" }}>⚠ {d.stale_hours}h untouched</span>}
+          {d._dist != null && <span style={{ fontSize: 11, fontWeight: 700, color: "#0369a1", background: "#e0f2fe", border: "1px solid #7dd3fc", borderRadius: 999, padding: "1px 8px" }}>📍 {d._dist.toFixed(1)} mi</span>}
         </div>
         {d.address && <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 2 }}>{d.address}</div>}
         <div style={{ fontSize: 11.5, color: "#9ca3af", marginTop: 2 }}>
-          {d.signed_at ? `Signed ${new Date(d.signed_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}
+          {d.county ? `📍 ${d.county}` : ""}
+          {d.signed_at ? `${d.county ? " · " : ""}Signed ${new Date(d.signed_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}
           {d.last_note ? ` · 📝 ${d.last_note.slice(0, 60)}` : ""}
         </div>
       </div>
@@ -4497,12 +4528,33 @@ function PACompanyAdminPage({ token }) {
         <div style={{ fontSize: 13, color: "#6b7280", marginTop: 2, marginBottom: 14 }}>Assign each homeowner to one of your adjusters. {activePas.length} active PA{activePas.length === 1 ? "" : "s"}.</div>
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-          {[["Needs assigning", unassigned.length, "#92400e"], ["Assigned", assigned.length, "#1e40af"], ["⚠ Untouched 48h+", stale.length, "#b91c1c"], ["Total", deals.length, "#374151"]].map(([t, n, c]) => (
+          {[["Needs assigning", unassigned.length, "#92400e"], ["Assigned", assigned.length, "#1e40af"], ["⚠ Untouched 48h+", stale.length, "#b91c1c"], ["Total", allDeals.length, "#374151"]].map(([t, n, c]) => (
             <div key={t} style={{ flex: "1 1 150px", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "10px 14px" }}>
               <div style={{ fontSize: 24, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: c }}>{n}</div>
               <div style={{ fontSize: 12, color: "#6b7280" }}>{t}</div>
             </div>
           ))}
+        </div>
+
+        {/* Distance sorter — pick a PA's home (or your location) to rank the
+            homeowners nearest-first, so you can hand each PA the closest ones. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 14, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "10px 12px" }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "#374151" }}>📏 Sort by distance from:</span>
+          <select value={distFrom === "__me__" ? "" : distFrom} onChange={(e) => { setDistFrom(e.target.value); }}
+            style={{ fontSize: 13, padding: "8px 10px", borderRadius: 10, border: "1px solid #cbd5e1" }}>
+            <option value="">— off —</option>
+            {activePas.map((p) => (
+              <option key={p.id} value={p.id} disabled={p.lat == null}>
+                {p.name}{p.lat == null ? " (no address)" : "'s home"}
+              </option>
+            ))}
+          </select>
+          <button type="button" onClick={useMyLocation}
+            style={{ fontSize: 13, fontWeight: 700, padding: "8px 12px", borderRadius: 10, border: distFrom === "__me__" ? "1px solid #0369a1" : "1px solid #cbd5e1", background: distFrom === "__me__" ? "#e0f2fe" : "#fff", color: "#0369a1", cursor: "pointer" }}>
+            📍 My location
+          </button>
+          {refCoords && <span style={{ fontSize: 12, color: "#0369a1", fontWeight: 700 }}>Nearest first ✓</span>}
+          {geoErr && <span style={{ fontSize: 12, color: "#b91c1c" }}>{geoErr}</span>}
         </div>
 
         {err && <div style={{ color: "#b91c1c", fontSize: 13, marginBottom: 10 }}>{err}</div>}

@@ -999,8 +999,37 @@ function PACompaniesPanel({ companies, pas, busy, onUpdate, onCreate }) {
 
 function PARow({ pa, companies = [], busy, onToggle, onResend, onUpdate, onDelete, onSetCompany, onCreateCompany }) {
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState({ name: pa.name, email: pa.email ?? "", phone: pa.phone ?? "" });
+  const [draft, setDraft] = useState({ name: pa.name, email: pa.email ?? "", phone: pa.phone ?? "", home_address: pa.home_address ?? "" });
+  const [saving, setSaving] = useState(false);
   const hasContact = !!(pa.phone || pa.email);
+  const hasCoords = pa.latitude != null && pa.longitude != null;
+
+  // Save edits. If the home address changed (and is non-empty), geocode it to
+  // lat/lng so the company admin can sort homeowners by distance from this PA.
+  async function saveEdit() {
+    setSaving(true);
+    const addr = draft.home_address.trim();
+    const patch = {
+      name: draft.name.trim(),
+      email: draft.email.trim() || null,
+      phone: draft.phone.trim() || null,
+      home_address: addr || null,
+    };
+    if (!addr) { patch.latitude = null; patch.longitude = null; }
+    else if (addr !== (pa.home_address || "")) {
+      try {
+        const r = await fetch("/.netlify/functions/geocode-place", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: addr }),
+        });
+        const g = await r.json().catch(() => ({}));
+        if (g.ok && typeof g.lat === "number") { patch.latitude = g.lat; patch.longitude = g.lng; }
+      } catch { /* leave coords as-is if geocode fails */ }
+    }
+    await onUpdate(patch);
+    setSaving(false);
+    setEditing(false);
+  }
   const companyName = companies.find((c) => c.id === pa.pa_company_id)?.name || null;
   // Company picker: choose an existing company, "Independent", or create one.
   const onCompanyChange = async (e) => {
@@ -1031,6 +1060,11 @@ function PARow({ pa, companies = [], busy, onToggle, onResend, onUpdate, onDelet
             <div style={{ fontSize: 11, color: "#6b7280" }}>
               {pa.email && <>📧 {pa.email} · </>}
               {pa.phone ? <>📱 {pa.phone}</> : "no phone on file"}
+            </div>
+            <div style={{ fontSize: 11, color: pa.home_address ? "#6b7280" : "#b45309", marginTop: 2 }}>
+              {pa.home_address
+                ? <>🏠 {pa.home_address} {hasCoords ? <span style={{ color: "#16a34a" }}>· 📍 geocoded</span> : <span style={{ color: "#b45309" }}>· ⚠ not geocoded</span>}</>
+                : "🏠 no home address — add one (Edit) for distance assigning"}
             </div>
             <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
               <span>🏢</span>
@@ -1067,15 +1101,13 @@ function PARow({ pa, companies = [], busy, onToggle, onResend, onUpdate, onDelet
             <input type="email" value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value })} style={inputStyle} placeholder="Email" />
             <input type="tel" value={draft.phone} onChange={(e) => setDraft({ ...draft, phone: e.target.value })} style={inputStyle} placeholder="Phone (e.g. +18135551234)" />
           </div>
+          <input value={draft.home_address} onChange={(e) => setDraft({ ...draft, home_address: e.target.value })} style={inputStyle} placeholder="Home address (street, city, state, zip) — for distance routing" />
           <div style={{ fontSize: 11, color: "#6b7280", marginTop: -2 }}>
-            Add the adjuster's <b>mobile number</b> (or email), then Save and click <b>Activate</b>.
+            Add the adjuster's <b>mobile number</b> and <b>home address</b> (we geocode it for distance-based assigning), then Save and click <b>Activate</b>.
           </div>
           <div style={{ display: "flex", gap: 6 }}>
-            <button type="button" style={primaryBtn} onClick={() => {
-              onUpdate({ name: draft.name.trim(), email: draft.email.trim() || null, phone: draft.phone.trim() || null });
-              setEditing(false);
-            }}>Save</button>
-            <button type="button" style={secondaryBtn} onClick={() => setEditing(false)}>Cancel</button>
+            <button type="button" style={{ ...primaryBtn, opacity: saving ? 0.6 : 1 }} disabled={saving} onClick={saveEdit}>{saving ? "Saving…" : "Save"}</button>
+            <button type="button" style={secondaryBtn} disabled={saving} onClick={() => setEditing(false)}>Cancel</button>
           </div>
         </div>
       )}
