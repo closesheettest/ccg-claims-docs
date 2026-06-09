@@ -188,6 +188,7 @@ function auditJob(job) {
   if (!answered("Modified Bitman")) missing.push("Modified Bitumen (Yes/No)");
   if (!answered("TPO")) missing.push("TPO (Yes/No)");
   if (!has("Measurements Needed?")) missing.push("Measurements Needed?");
+  if (!has("# of Stories")) missing.push("# of Stories");
   if (!pos("Roof Price ONLY")) errors.push("Roof Price ONLY is 0 / blank");
   if (!pos("# of Squares (Pitch)")) errors.push("# of Squares (Pitch) is 0 / blank");
 
