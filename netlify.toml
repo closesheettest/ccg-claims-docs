@@ -79,3 +79,10 @@
 # exports.config.schedule; this toml entry keeps the cadence visible.
 [functions."cron-sales-audit"]
   schedule = "0 11 * * *"
+
+# Scheduled function: daily nudge to PA COMPANY admins about homeowners in
+# their pool that have sat 48h+ without being opened/touched (assigned or
+# not). Texts each company's admin the list; quiet when a company is current.
+# Pause via auto_sms key 'pa_stale_alert'. 8 AM EDT. exports.config mirrors.
+[functions."cron-pa-company-stale"]
+  schedule = "0 12 * * *"
