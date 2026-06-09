@@ -60,11 +60,13 @@ exports.handler = async (event) => {
           const displayName = (j.display_name || "").toLowerCase();
           const firstName = (j.first_name || "").toLowerCase();
           const lastName = (j.last_name || "").toLowerCase();
+          const primaryName = (j.primary && j.primary.name ? j.primary.name : "").toLowerCase();
           return tokens.some(t =>
             jobName.includes(t) ||
             displayName.includes(t) ||
             firstName.includes(t) ||
-            lastName.includes(t)
+            lastName.includes(t) ||
+            primaryName.includes(t)
           );
         })
         .slice(0, 20);
