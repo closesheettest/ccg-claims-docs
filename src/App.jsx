@@ -4407,6 +4407,120 @@ function CorrectionPage({ inspectionId }) {
   );
 }
 
+// PA COMPANY admin screen — standalone at /?pa_company=<token>. The company's
+// admin sees every homeowner routed to their pool and assigns each to one of
+// their active PAs. Token-gated via pa-company-api. Self-contained.
+function PACompanyAdminPage({ token }) {
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+  const [data, setData] = useState(null);   // { company, pas, deals }
+  const [busyId, setBusyId] = useState(null);
+
+  const load = async () => {
+    try {
+      const res = await fetch("/.netlify/functions/pa-company-api", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, action: "load" }),
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok || !out.ok) { setErr(out.error || "Couldn't load your company."); setData(null); }
+      else { setData(out); setErr(""); }
+    } catch { setErr("Network error."); }
+    setLoading(false);
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [token]);
+
+  const assign = async (dealId, paId) => {
+    setBusyId(dealId);
+    try {
+      const res = await fetch("/.netlify/functions/pa-company-api", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, action: "assign", inspectionId: dealId, paId }),
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok || !out.ok) setErr(out.error || "Assign failed.");
+      else { setErr(""); await load(); }
+    } catch { setErr("Network error."); }
+    setBusyId(null);
+  };
+
+  const wrap = { minHeight: "100vh", background: "#f3f4f6", padding: "20px 14px 60px", fontFamily: "system-ui, sans-serif" };
+  if (loading) return <div style={wrap}><div style={{ maxWidth: 760, margin: "60px auto", textAlign: "center", color: "#6b7280" }}>Loading…</div></div>;
+  if (err && !data) return <div style={wrap}><Card style={{ maxWidth: 520, margin: "50px auto", padding: 28, textAlign: "center" }}><div style={{ fontSize: 40 }}>🔒</div><div style={{ fontSize: 16, marginTop: 8, color: "#991b1b" }}>{err}</div></Card></div>;
+
+  const activePas = (data.pas || []).filter((p) => p.active);
+  const deals = data.deals || [];
+  const unassigned = deals.filter((d) => !d.pa_id);
+  const assigned = deals.filter((d) => d.pa_id);
+  const stale = deals.filter((d) => !d.touched && (d.stale_hours ?? 0) >= 48);
+
+  const statusBadge = (d) => {
+    const map = {
+      new: { t: "Needs assigning", c: "#92400e", b: "#fffbeb", br: "#fcd34d" },
+      assigned: { t: "Assigned", c: "#1e40af", b: "#eff6ff", br: "#bfdbfe" },
+      working: { t: "Working", c: "#047857", b: "#ecfdf5", br: "#a7f3d0" },
+      no_contact: { t: "Can't reach", c: "#475569", b: "#f1f5f9", br: "#cbd5e1" },
+    };
+    const s = map[d.status] || map.new;
+    return <span style={{ fontSize: 11, fontWeight: 700, color: s.c, background: s.b, border: `1px solid ${s.br}`, borderRadius: 999, padding: "2px 9px" }}>{s.t}</span>;
+  };
+
+  const row = (d) => (
+    <div key={d.id} style={{ padding: 12, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center" }}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontWeight: 800, fontSize: 15, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {d.name}
+          {statusBadge(d)}
+          {d.correction_needed && <span style={{ fontSize: 11, fontWeight: 700, color: "#92400e", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 999, padding: "1px 8px" }}>⏳ correction</span>}
+          {!d.touched && (d.stale_hours ?? 0) >= 48 && <span style={{ fontSize: 11, fontWeight: 700, color: "#b91c1c", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 999, padding: "1px 8px" }}>⚠ {d.stale_hours}h untouched</span>}
+        </div>
+        {d.address && <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 2 }}>{d.address}</div>}
+        <div style={{ fontSize: 11.5, color: "#9ca3af", marginTop: 2 }}>
+          {d.signed_at ? `Signed ${new Date(d.signed_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}
+          {d.last_note ? ` · 📝 ${d.last_note.slice(0, 60)}` : ""}
+        </div>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <select value={d.pa_id || ""} disabled={busyId === d.id} onChange={(e) => assign(d.id, e.target.value)}
+          style={{ fontSize: 13, padding: "8px 10px", borderRadius: 10, border: `1px solid ${d.pa_id ? "#cbd5e1" : "#f59e0b"}`, background: d.pa_id ? "#fff" : "#fffbeb", maxWidth: 180 }}>
+          <option value="">— Assign to —</option>
+          {activePas.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={wrap}>
+      <div style={{ maxWidth: 760, margin: "0 auto" }}>
+        <div style={{ fontSize: 22, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#111827" }}>🏢 {data.company.name}</div>
+        <div style={{ fontSize: 13, color: "#6b7280", marginTop: 2, marginBottom: 14 }}>Assign each homeowner to one of your adjusters. {activePas.length} active PA{activePas.length === 1 ? "" : "s"}.</div>
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+          {[["Needs assigning", unassigned.length, "#92400e"], ["Assigned", assigned.length, "#1e40af"], ["⚠ Untouched 48h+", stale.length, "#b91c1c"], ["Total", deals.length, "#374151"]].map(([t, n, c]) => (
+            <div key={t} style={{ flex: "1 1 150px", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "10px 14px" }}>
+              <div style={{ fontSize: 24, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: c }}>{n}</div>
+              <div style={{ fontSize: 12, color: "#6b7280" }}>{t}</div>
+            </div>
+          ))}
+        </div>
+
+        {err && <div style={{ color: "#b91c1c", fontSize: 13, marginBottom: 10 }}>{err}</div>}
+        {activePas.length === 0 && <div style={{ background: "#fffbeb", border: "1px solid #fcd34d", color: "#92400e", borderRadius: 10, padding: 12, fontSize: 13, marginBottom: 12 }}>No active PAs in your company yet — ask U.S. Shingle to add your adjusters.</div>}
+
+        {unassigned.length > 0 && (
+          <>
+            <div style={{ fontSize: 14, fontWeight: 800, color: "#92400e", margin: "6px 0 8px" }}>🆕 Needs assigning ({unassigned.length})</div>
+            <div style={{ display: "grid", gap: 8, marginBottom: 18 }}>{unassigned.map(row)}</div>
+          </>
+        )}
+        <div style={{ fontSize: 14, fontWeight: 800, color: "#1e40af", margin: "6px 0 8px" }}>✅ Assigned ({assigned.length})</div>
+        <div style={{ display: "grid", gap: 8 }}>{assigned.length ? assigned.map(row) : <div style={{ fontSize: 13, color: "#6b7280" }}>Nothing assigned yet.</div>}</div>
+      </div>
+    </div>
+  );
+}
+
 function AdminAskResult({ result }) {
   const { kind, answerText, number, breakdown, link, list } = result || {};
   const muted = kind === "unconfigured" || kind === "error" || kind === "feature_request";
@@ -4717,6 +4831,13 @@ export default function App() {
     const correctId = params.get("correct");
     if (correctId && correctId.trim()) {
       return <CorrectionPage inspectionId={correctId.trim()} />;
+    }
+    // /?pa_company=<token> — a PA COMPANY admin's scoped screen: the master
+    // list of every homeowner routed to their company's pool, with assign-to-
+    // PA controls. Token-gated (pa-company-api). Self-contained early-exit.
+    const paCompanyToken = params.get("pa_company");
+    if (paCompanyToken && paCompanyToken.trim()) {
+      return <PACompanyAdminPage token={paCompanyToken.trim()} />;
     }
   }
 
