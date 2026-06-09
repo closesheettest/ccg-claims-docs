@@ -4222,6 +4222,169 @@ function readAdminHandoff() {
 // Apps row, most-used Reports, and every Manager tool grouped by category.
 // Self-contained — rendered via early-exit before the heavy intake state.
 // ───────────────────────────────────────────────────────────────────
+// CorrectionPage — standalone screen at /?correct=<inspectionId>.
+// The link we text the originating sales rep + regional manager when a
+// Public Adjuster flags "Correction needed." Shows the PA's note up top,
+// then the homeowner's key info prefilled + editable. Saving calls
+// submit-correction (updates Supabase + JobNimbus + texts the PA).
+// Self-contained — rendered via early-exit before the heavy intake state.
+function CorrectionPage({ inspectionId }) {
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const [doneSummary, setDoneSummary] = useState("");
+  const [note, setNote] = useState("");
+  const [alreadyResolved, setAlreadyResolved] = useState(false);
+  const [f, setF] = useState({
+    client_name: "", mobile: "", email: "",
+    address: "", city: "", state: "", zip: "",
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("inspections")
+          .select("client_name,mobile,email,address,city,state,zip,correction_note,correction_needed,correction_resolved_at")
+          .eq("id", inspectionId)
+          .maybeSingle();
+        if (cancelled) return;
+        if (error || !data) { setErr("We couldn't find that record. Double-check the link."); setLoading(false); return; }
+        setNote(data.correction_note || "");
+        setAlreadyResolved(!data.correction_needed && !!data.correction_resolved_at);
+        setF({
+          client_name: data.client_name || "",
+          mobile: data.mobile || "",
+          email: data.email || "",
+          address: data.address || "",
+          city: data.city || "",
+          state: data.state || "",
+          zip: data.zip || "",
+        });
+        setLoading(false);
+      } catch (e) {
+        if (!cancelled) { setErr("Something went wrong loading this record."); setLoading(false); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [inspectionId]);
+
+  const set = (k) => (e) => setF((p) => ({ ...p, [k]: e.target.value }));
+  const phoneDigits = (f.mobile || "").replace(/\D/g, "");
+  const canSave = (f.client_name || "").trim() && phoneDigits.length >= 10 && (f.address || "").trim();
+
+  const save = async () => {
+    if (!canSave || busy) return;
+    setBusy(true); setErr("");
+    try {
+      const res = await fetch("/.netlify/functions/submit-correction", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inspectionId, ...f }),
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok || !out.ok) { setErr(out.error || "Save failed — please try again."); setBusy(false); return; }
+      setDoneSummary(out.change_summary || "");
+      setDone(true);
+    } catch (e) {
+      setErr("Network error — please try again.");
+    }
+    setBusy(false);
+  };
+
+  const wrap = { minHeight: "100vh", background: "#f3f4f6", padding: "24px 16px", fontFamily: "system-ui, sans-serif" };
+  const labelStyle = { display: "block", fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 6, marginTop: 14 };
+  const inputStyle = (bad) => ({
+    width: "100%", boxSizing: "border-box", height: 46, padding: "0 12px",
+    borderRadius: 12, border: bad ? "2px solid #ef4444" : "1px solid #d1d5db",
+    fontSize: 16, background: "#fff",
+  });
+
+  if (loading) {
+    return <div style={wrap}><div style={{ maxWidth: 520, margin: "60px auto", textAlign: "center", color: "#6b7280" }}>Loading…</div></div>;
+  }
+
+  if (done) {
+    return (
+      <div style={wrap}>
+        <Card style={{ maxWidth: 520, margin: "40px auto", padding: 28, textAlign: "center" }}>
+          <div style={{ fontSize: 48 }}>✅</div>
+          <div style={{ fontSize: 22, fontWeight: 800, fontFamily: "'Oswald', sans-serif", marginTop: 8 }}>Correction saved</div>
+          <p style={{ color: "#374151", fontSize: 15, marginTop: 10 }}>
+            JobNimbus has been updated and the public adjuster has been texted that it's corrected.
+          </p>
+          {doneSummary && (
+            <pre style={{ textAlign: "left", whiteSpace: "pre-wrap", fontSize: 13, color: "#111827", background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, marginTop: 12 }}>{doneSummary}</pre>
+          )}
+          <p style={{ color: "#9ca3af", fontSize: 13, marginTop: 14 }}>You can close this page.</p>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div style={wrap}>
+      <Card style={{ maxWidth: 520, margin: "0 auto", padding: 24 }}>
+        <div style={{ fontSize: 22, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#111827" }}>✏️ Make a correction</div>
+        <p style={{ color: "#6b7280", fontSize: 14, marginTop: 4 }}>
+          The public adjuster flagged this deal. Fix the info below, then Save — JobNimbus updates and the PA gets a text that it's corrected.
+        </p>
+
+        {alreadyResolved && (
+          <div style={{ marginTop: 12, padding: 12, borderRadius: 12, background: "#ecfdf5", border: "1px solid #a7f3d0", color: "#065f46", fontSize: 14 }}>
+            ✅ This correction was already marked complete. You can still re-save changes below if needed.
+          </div>
+        )}
+
+        {note && (
+          <div style={{ marginTop: 12, padding: 14, borderRadius: 12, background: "#fffbeb", border: "1px solid #fde68a" }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#92400e", textTransform: "uppercase", letterSpacing: "0.04em" }}>What's needed</div>
+            <div style={{ fontSize: 15, color: "#78350f", marginTop: 4 }}>{note}</div>
+          </div>
+        )}
+
+        <label style={labelStyle}>Homeowner name *</label>
+        <input style={inputStyle(!(f.client_name || "").trim())} value={f.client_name} onChange={set("client_name")} placeholder="First Last" />
+
+        <label style={labelStyle}>Mobile phone *</label>
+        <input style={inputStyle(phoneDigits.length < 10)} value={f.mobile} onChange={set("mobile")} placeholder="(555) 555-5555" inputMode="tel" />
+        {phoneDigits.length < 10 && <div style={{ color: "#b91c1c", fontSize: 13, marginTop: 4 }}>A valid mobile number is required.</div>}
+
+        <label style={labelStyle}>Email</label>
+        <input style={inputStyle(false)} value={f.email} onChange={set("email")} placeholder="name@email.com" inputMode="email" />
+
+        <label style={labelStyle}>Address *</label>
+        <input style={inputStyle(!(f.address || "").trim())} value={f.address} onChange={set("address")} placeholder="Street address" />
+
+        <div style={{ display: "flex", gap: 10 }}>
+          <div style={{ flex: 2 }}>
+            <label style={labelStyle}>City</label>
+            <input style={inputStyle(false)} value={f.city} onChange={set("city")} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={labelStyle}>State</label>
+            <input style={inputStyle(false)} value={f.state} onChange={set("state")} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={labelStyle}>Zip</label>
+            <input style={inputStyle(false)} value={f.zip} onChange={set("zip")} inputMode="numeric" />
+          </div>
+        </div>
+
+        {err && <div style={{ color: "#b91c1c", fontSize: 14, marginTop: 14 }}>{err}</div>}
+
+        <div style={{ marginTop: 20 }}>
+          <Button onClick={save} disabled={!canSave || busy} style={{ width: "100%" }}>
+            {busy ? "Saving…" : "Save correction"}
+          </Button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 function AdminAskResult({ result }) {
   const { kind, answerText, number, breakdown, link, list } = result || {};
   const muted = kind === "unconfigured" || kind === "error" || kind === "feature_request";
@@ -4523,6 +4686,15 @@ export default function App() {
     // Self-contained + PIN-gated, same short-circuit pattern as the others.
     if (portalMode === "admin") {
       return <AdminDashboard />;
+    }
+    // /?correct=<inspectionId> — the link we text the originating sales rep
+    // + their regional manager when a Public Adjuster flags "Correction
+    // needed." Opens a focused screen to fix the homeowner's key info
+    // (name/phone/email/address); saving pushes it to JobNimbus + texts the
+    // PA that it's corrected. Self-contained, short-circuits the rep intake.
+    const correctId = params.get("correct");
+    if (correctId && correctId.trim()) {
+      return <CorrectionPage inspectionId={correctId.trim()} />;
     }
   }
 

@@ -1160,7 +1160,7 @@ function PAJobList({ me, onOpenJob, wide }) {
   async function load() {
     setLoading(true);
     const { data, error } = await supabase.from("inspections")
-      .select("id, client_name, address, city, state, zip, county, signed_at, jn_job_id, result, pa_id, pa_claimed_at, pa_stage, pa_notes_log, pa_fields, pa_assignment_note, mobile, latitude, longitude")
+      .select("id, client_name, address, city, state, zip, county, signed_at, jn_job_id, result, pa_id, pa_claimed_at, pa_stage, pa_notes_log, pa_fields, pa_assignment_note, mobile, latitude, longitude, correction_needed")
       // Only the deals the company assigned to this PA. A deal that later
       // goes Lost/cancelled or gets pulled for a decision drops out
       // automatically; dead deals are filtered out too.
@@ -1457,7 +1457,14 @@ function PAJobCard({ job, onOpen }) {
   return (
     <div style={{ padding: 12, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
       <div style={{ minWidth: 150 }}>
-        <div style={{ fontWeight: 700, fontSize: 16 }}>{job.client_name || "(no name)"}</div>
+        <div style={{ fontWeight: 700, fontSize: 16 }}>
+          {job.client_name || "(no name)"}
+          {job.correction_needed && (
+            <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: "#92400e", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 999, padding: "1px 8px", verticalAlign: "middle" }}>
+              ⏳ correction
+            </span>
+          )}
+        </div>
         <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 2 }}>🖊 Signed {signed}</div>
       </div>
       <button type="button" onClick={onOpen} style={{ ...primaryBtn, padding: "10px 16px", fontSize: 14, whiteSpace: "nowrap" }}>
@@ -1523,6 +1530,7 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
   const [refusing, setRefusing] = useState(false);
   const [noteBusy, setNoteBusy] = useState(false);
   const [noteText, setNoteText] = useState("");
+  const [correctionBusy, setCorrectionBusy] = useState(false);
   const [backfilling, setBackfilling] = useState(false);
   const [backfillMsg, setBackfillMsg] = useState(null);
   // Photos start collapsed so the long grid doesn't bury the
@@ -1566,7 +1574,7 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
       setLoadErr(null);
       const { data: row, error } = await supabase
         .from("inspections")
-        .select("id, client_name, address, city, state, zip, signed_at, jn_job_id, result, sales_rep_name, mobile, email, pa_id, pa_fields, pa_assignment_note, pa_stage, pa_notes_log")
+        .select("id, client_name, address, city, state, zip, signed_at, jn_job_id, result, sales_rep_name, mobile, email, pa_id, pa_fields, pa_assignment_note, pa_stage, pa_notes_log, correction_needed, correction_note, correction_requested_at, correction_resolved_at")
         .eq("id", jobId).maybeSingle();
       if (cancelled) return;
       if (error || !row) { setLoadErr(error?.message || "Claim not found."); setLoading(false); return; }
@@ -1772,6 +1780,40 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
     if (t == null) return;
     postNote({ text: t.trim() || "Marked can't-reach", stage: "no_contact" });
   }
+  // "Correction needed" — flags wrong/missing key info. Texts the originating
+  // sales rep + their regional manager a link to fix it (CorrectionPage), and
+  // posts the request to JobNimbus. When they save, JN updates + the PA gets a
+  // text that it's corrected (submit-correction handles that side).
+  async function requestCorrection() {
+    const t = window.prompt(
+      "Correction needed — what's wrong or what does the sales rep need to follow up on?\n(e.g. \"No phone number for the homeowner\" or \"Wrong address — verify with homeowner\")"
+    );
+    if (t == null) return;
+    const note = t.trim();
+    if (!note) { setFieldErr("Please describe what needs to be corrected."); return; }
+    setCorrectionBusy(true); setFieldErr(null);
+    try {
+      const res = await fetch("/.netlify/functions/pa-request-correction", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inspectionId: jobId, paId: me.id, note }),
+      });
+      const b = await res.json().catch(() => ({}));
+      if (!b.ok) { setFieldErr(b.error || `status ${res.status}`); setCorrectionBusy(false); return; }
+      const repOk = b.notified?.rep?.ok;
+      const mgrOk = b.notified?.manager?.ok;
+      const who = [repOk ? "the sales rep" : null, mgrOk ? "their manager" : null].filter(Boolean).join(" + ");
+      setJob((j) => j ? {
+        ...j,
+        correction_needed: true,
+        correction_note: note,
+        correction_requested_at: new Date().toISOString(),
+        correction_resolved_at: null,
+        pa_notes_log: [ ...(j.pa_notes_log || []), { at: new Date().toISOString(), text: `Correction requested: ${note}`, stage: null } ],
+      } : j);
+      window.alert(who ? `Sent. ${who} got a text with the fix link.` : "Flagged. (Couldn't reach the rep/manager by text — check their phone numbers on file.)");
+    } catch (e) { setFieldErr(e.message || "Network error"); }
+    setCorrectionBusy(false);
+  }
 
   if (loading) return <div style={{ padding: 24, textAlign: "center", color: "#6b7280" }}>Loading claim…</div>;
   if (loadErr && !job) {
@@ -1799,6 +1841,23 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
           <div style={{ fontSize: 14, color: "#1e3a8a", whiteSpace: "pre-wrap" }}>{job.pa_assignment_note}</div>
         </div>
       )}
+
+      {/* Correction status banner. While a correction is pending the deal is
+          waiting on the originating rep/manager; once they save the fix it
+          flips to "corrected" (and the homeowner info above refreshes). */}
+      {job.correction_needed ? (
+        <div style={{ padding: 14, background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 12, marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#92400e", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+            ⏳ Correction requested — waiting on the rep
+          </div>
+          {job.correction_note && <div style={{ fontSize: 14, color: "#78350f" }}>{job.correction_note}</div>}
+          <div style={{ fontSize: 12, color: "#a16207", marginTop: 4 }}>The sales rep + their manager were texted a link to fix it. You'll get a text when it's corrected.</div>
+        </div>
+      ) : job.correction_resolved_at ? (
+        <div style={{ padding: 12, background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: 12, marginBottom: 12, fontSize: 13, color: "#065f46", fontWeight: 700 }}>
+          ✅ Correction completed — info below is updated.
+        </div>
+      ) : null}
 
       {/* Job info */}
       <div style={{ padding: 14, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, marginBottom: 12 }}>
@@ -2065,6 +2124,10 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
         <button type="button" disabled={noteBusy} onClick={deadDeal}
           style={{ flex: "1 1 45%", padding: "11px", borderRadius: 10, fontWeight: 700, fontSize: 13, border: "1px solid #fca5a5", background: "#fef2f2", color: "#991b1b", cursor: noteBusy ? "default" : "pointer" }}>
           💀 Dead deal
+        </button>
+        <button type="button" disabled={correctionBusy} onClick={requestCorrection}
+          style={{ flex: "1 1 100%", padding: "11px", borderRadius: 10, fontWeight: 700, fontSize: 13, border: "1px solid #fcd34d", background: "#fffbeb", color: "#92400e", cursor: correctionBusy ? "default" : "pointer", opacity: correctionBusy ? 0.6 : 1 }}>
+          {correctionBusy ? "Sending…" : "✏️ Correction needed"}
         </button>
       </div>
 
