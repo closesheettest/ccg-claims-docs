@@ -44,7 +44,7 @@ exports.handler = async (event) => {
   };
 
   const lookup = await fetch(
-    `${SB_URL}/rest/v1/pas?id=eq.${paId}&select=id,name,email,phone&limit=1`,
+    `${SB_URL}/rest/v1/pas?id=eq.${paId}&select=id,name,email,phone,pa_company_id&limit=1`,
     { headers: sbHeaders },
   );
   if (!lookup.ok) {
@@ -56,7 +56,15 @@ exports.handler = async (event) => {
 
   const base = (process.env.URL || process.env.PUBLIC_SITE_URL || "").replace(/\/$/, "");
   if (!base) return json(500, { ok: false, error: "No site URL configured" });
-  const link = `${base}/?mode=pa`;
+  // Personal link — carries this PA's id so the portal logs THEM in (and
+  // overrides any other PA's session left on the device). Each PA gets their
+  // own link; it should never land on someone else's portal.
+  const link = `${base}/?mode=pa&pa=${pa.id}`;
+  // Wording differs for company PAs (their admin assigns) vs independents
+  // (the system auto-assigns directly).
+  const assignedClause = pa.pa_company_id
+    ? "your company admin assigned you"
+    : "assigned to you";
 
   let chosen = channel;
   if (chosen === "auto") chosen = pa.phone ? "sms" : "email";
@@ -77,11 +85,11 @@ exports.handler = async (event) => {
   // SMS path.
   if (chosen === "sms") {
     const messageBody =
-      `Hi ${pa.name}, you're set up as a U.S. Shingle & Metal partner adjuster.\n\n` +
+      `Hi ${pa.name}, you're set up as a U.S. Shingle and Metal partner Public Adjuster.\n\n` +
       `📱 Open your portal: ${link}\n\n` +
-      `Inside you'll see the damage deals available to claim. Claim the ones ` +
-      `you want, then fill in each milestone (PA filed, INS approved, etc.) as ` +
-      `it happens — it updates JobNimbus automatically.\n\n` +
+      `Inside you'll see the damage deals ${assignedClause}. Fill in each ` +
+      `milestone (PA filed, INS approved, etc.) as it happens — it updates the ` +
+      `U.S. Shingle main system.\n\n` +
       `Save it to your home screen:\n` +
       `• iPhone (Safari): Share → "Add to Home Screen"\n` +
       `• Android (Chrome): ⋮ menu → "Add to Home screen"`;
@@ -118,11 +126,10 @@ exports.handler = async (event) => {
         <a href="${link}" style="color:#0e7490;">${link}</a>
       </p>
       <h3 style="color:#0f172a;margin-top:28px;">How it works</h3>
-      <p>Inside you'll see the <strong>damage deals available to claim</strong>.
-         Claim the ones you want to work, then fill in each milestone
-         (PA filed, INS approved, ISS uploaded, advances, etc.) as it
-         happens — every entry pushes straight into JobNimbus automatically,
-         so there's no double entry.</p>
+      <p>Inside you'll see the <strong>damage deals ${assignedClause}</strong>.
+         Fill in each milestone (PA filed, INS approved, ISS uploaded,
+         advances, etc.) as it happens — every entry updates the U.S. Shingle
+         main system automatically, so there's no double entry.</p>
       <h3 style="color:#0f172a;margin-top:28px;">Save it like a real app</h3>
       <p style="margin:0 0 8px 0;"><strong>iPhone (Safari):</strong> tap Share, then
          <em>Add to Home Screen</em>.</p>

@@ -1247,6 +1247,26 @@ export function PAMobileApp() {
     supabase.from("pas").select("*").eq("active", true).order("name").then(async ({ data }) => {
       const list = data || [];
       setPas(list);
+      // A personal invite link carries ?pa=<id>. It WINS over any session
+      // left on this device — so a PA's link always opens THEIR portal, never
+      // whoever logged in last (fixes "the link showed Chad's portal"). We
+      // pin it to this device + strip the param so the URL stays clean.
+      let linkId = null;
+      try { linkId = new URLSearchParams(window.location.search).get("pa"); } catch { /* ignore */ }
+      if (linkId) {
+        const me = list.find((p) => p.id === linkId);
+        try {
+          const url = new URL(window.location.href);
+          url.searchParams.delete("pa");
+          window.history.replaceState({}, "", url.toString());
+        } catch { /* ignore */ }
+        if (me) { localStorage.setItem("ccg_pa_id", me.id); setMe(me); setStage("list"); return; }
+        // Link points at an inactive/unknown PA → show the inactive screen.
+        const { data: raw } = await supabase.from("pas").select("id,name").eq("id", linkId).maybeSingle();
+        localStorage.removeItem("ccg_pa_id");
+        if (raw) { setInactiveName(raw.name || ""); setStage("inactive"); } else { setStage("pick"); }
+        return;
+      }
       const stored = localStorage.getItem("ccg_pa_id");
       if (!stored) return;
       const found = list.find((p) => p.id === stored);
