@@ -216,6 +216,7 @@ export function PAAdminPanel() {
   const [reportBusy, setReportBusy] = useState(false);
   const [companies, setCompanies] = useState([]);
   const [companyBusy, setCompanyBusy] = useState(false);
+  const [geocodingPas, setGeocodingPas] = useState(false);
 
   useEffect(() => { loadPas(); loadDecisions(); loadOverview(); loadAllDeals(); loadCompanies(); }, []);
 
@@ -256,6 +257,36 @@ export function PAAdminPanel() {
     const { error } = await supabase.from("pas")
       .update({ pa_company_id: companyIdOrNull || null }).eq("id", pa.id);
     if (error) { setMessage({ kind: "error", text: error.message }); return; }
+    loadPas();
+  }
+
+  // Bulk-geocode adjusters: every PA with a home_address but no coords yet
+  // gets run through geocode-place → lat/lng saved (for distance assigning).
+  async function geocodeAdjusters() {
+    setGeocodingPas(true); setMessage(null);
+    const { data } = await supabase.from("pas").select("id,name,home_address,latitude").not("home_address", "is", null);
+    const todo = (data || []).filter((p) => p.home_address && p.latitude == null);
+    if (!todo.length) {
+      setGeocodingPas(false);
+      setMessage({ kind: "success", text: "All adjusters with a home address are already geocoded. 👍" });
+      return;
+    }
+    let ok = 0, fail = 0;
+    for (const p of todo) {
+      try {
+        const r = await fetch("/.netlify/functions/geocode-place", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: p.home_address }),
+        });
+        const g = await r.json().catch(() => ({}));
+        if (g.ok && typeof g.lat === "number") {
+          const { error } = await supabase.from("pas").update({ latitude: g.lat, longitude: g.lng }).eq("id", p.id);
+          error ? fail++ : ok++;
+        } else fail++;
+      } catch { fail++; }
+    }
+    setGeocodingPas(false);
+    setMessage({ kind: fail ? "error" : "success", text: `Geocoded ${ok} adjuster${ok === 1 ? "" : "s"}${fail ? ` · ${fail} couldn't be found (check the address)` : ""}.` });
     loadPas();
   }
 
@@ -692,6 +723,15 @@ export function PAAdminPanel() {
             title="Opens the PA portal in a new tab for QA."
           >
             👁 Preview as PA
+          </button>
+          <button
+            type="button"
+            onClick={geocodeAdjusters}
+            disabled={geocodingPas}
+            style={{ ...secondaryBtn, padding: "6px 12px", fontSize: 11, whiteSpace: "nowrap" }}
+            title="Geocode any adjuster that has a home address but no coordinates yet (for distance assigning)."
+          >
+            {geocodingPas ? "🌐 Geocoding…" : "🌐 Geocode adjusters"}
           </button>
           <button
             type="button"
