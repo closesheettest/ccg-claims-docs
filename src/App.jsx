@@ -4505,10 +4505,10 @@ function PACompanyAdminPage({ token }) {
           {d._dist != null && <span style={{ fontSize: 11, fontWeight: 700, color: "#0369a1", background: "#e0f2fe", border: "1px solid #7dd3fc", borderRadius: 999, padding: "1px 8px" }}>📍 {d._dist.toFixed(1)} mi</span>}
         </div>
         {d.address && <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 2 }}>{d.address}</div>}
+        {d.county && <div style={{ fontSize: 13, fontWeight: 800, color: "#0e7490", marginTop: 3 }}>📍 {d.county}</div>}
         <div style={{ fontSize: 11.5, color: "#9ca3af", marginTop: 2 }}>
-          {d.county ? `📍 ${d.county}` : ""}
-          {d.signed_at ? `${d.county ? " · " : ""}Signed ${new Date(d.signed_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}
-          {d.last_note ? ` · 📝 ${d.last_note.slice(0, 60)}` : ""}
+          {d.signed_at ? `Signed ${new Date(d.signed_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}
+          {d.last_note ? `${d.signed_at ? " · " : ""}📝 ${d.last_note.slice(0, 60)}` : ""}
         </div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
