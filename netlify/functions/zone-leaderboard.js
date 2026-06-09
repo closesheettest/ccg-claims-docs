@@ -53,7 +53,9 @@ export const handler = async (event) => {
   }
 
   try {
-    const { start, end } = weekRange()
+    // ?period=month → month-to-date (1st of the ET month → now). Default week.
+    const period = (event.queryStringParameters || {}).period === 'month' ? 'month' : 'week'
+    const { start, end } = period === 'month' ? monthRange() : weekRange()
 
     // Pull every signed inspection in the window (cancelled excluded
     // server-side). Same column set the app's My Stats query uses.
@@ -106,7 +108,9 @@ export const handler = async (event) => {
 
     return cors(200, JSON.stringify({
       ok: true,
-      week: { start: start.toISOString(), end: end.toISOString() },
+      period,
+      range: { start: start.toISOString(), end: end.toISOString() },
+      week: { start: start.toISOString(), end: end.toISOString() }, // back-compat
       total,
       zones,
     }))
@@ -145,6 +149,13 @@ function etWallToUTC(y, mo, d, h, mi, s) {
   const guess = Date.UTC(y, mo - 1, d, h, mi, s)
   const off = offsetMs(new Date(guess))
   return new Date(guess - off)
+}
+
+// Month-to-date: 1st of the current ET month 00:00 → now.
+function monthRange(now = new Date()) {
+  const p = tzParts(now)
+  const start = etWallToUTC(+p.year, +p.month, 1, 0, 0, 0)
+  return { start, end: now }
 }
 
 function weekRange(now = new Date()) {

@@ -68,7 +68,9 @@ export const handler = async (event) => {
   const debug = (event.queryStringParameters || {}).debug === '1'
 
   try {
-    const { start, end } = weekRange()
+    // ?period=month → month-to-date (1st of the ET month → now). Default week.
+    const period = (event.queryStringParameters || {}).period === 'month' ? 'month' : 'week'
+    const { start, end } = period === 'month' ? monthRange() : weekRange()
     const startMs = start.getTime()
     const endMs = end.getTime()
 
@@ -128,7 +130,9 @@ export const handler = async (event) => {
 
     const payload = {
       ok: true,
-      week: { start: start.toISOString(), end: end.toISOString() },
+      period,
+      range: { start: start.toISOString(), end: end.toISOString() },
+      week: { start: start.toISOString(), end: end.toISOString() }, // back-compat
       total,
       zones,
     }
@@ -233,6 +237,13 @@ function etWallToUTC(y, mo, d, h, mi, s) {
   const guess = Date.UTC(y, mo - 1, d, h, mi, s)
   const off = offsetMs(new Date(guess))
   return new Date(guess - off)
+}
+
+// Month-to-date: 1st of the current ET month 00:00 → now.
+function monthRange(now = new Date()) {
+  const p = tzParts(now)
+  const start = etWallToUTC(+p.year, +p.month, 1, 0, 0, 0)
+  return { start, end: now }
 }
 
 function weekRange(now = new Date()) {
