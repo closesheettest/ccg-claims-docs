@@ -1143,7 +1143,9 @@ export function PAMobileApp() {
               🔍 My inspections
             </button>
           )}
-          {me && <button type="button" onClick={signOut} style={{ ...secondaryBtn, fontSize: 11 }}>Switch user</button>}
+          {/* No "Switch user" — a PA can't re-pick into another adjuster's
+              account. Identity stays locked to whoever first opened this
+              device's link. (An admin can reset via the PA admin panel.) */}
         </div>
       </div>
 

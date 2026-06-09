@@ -1995,11 +1995,9 @@ export function InspectorMobileApp() {
               🧑‍⚖️ My PA portal
             </button>
           )}
-          {me && (
-            <button type="button" onClick={signOut} style={{ ...secondaryBtn, fontSize: 11 }}>
-              Switch user
-            </button>
-          )}
+          {/* No "Switch user" — an inspector can't re-pick into another
+              inspector's account. Identity stays locked to whoever first
+              opened this device's link. */}
         </div>
       </div>
 
