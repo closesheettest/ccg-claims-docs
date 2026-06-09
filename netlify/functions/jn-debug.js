@@ -19,6 +19,24 @@ const jnHeaders = {
 
 exports.handler = async (event) => {
   const params = event.queryStringParameters || {};
+
+  // ?jobid=<jnid> → dump the FULL raw job object (all custom fields), so we
+  // can see exactly which fields exist + are populated when designing the
+  // daily sales-audit checklist. Returns the non-empty fields first.
+  if (params.jobid) {
+    const r = await fetch(`${JN_BASE}/jobs/${params.jobid.trim()}`, { headers: jnHeaders });
+    if (!r.ok) {
+      return { statusCode: r.status, body: JSON.stringify({ error: `JN job fetch ${r.status}` }) };
+    }
+    const job = await r.json();
+    const filled = {}, empty = [];
+    for (const [k, v] of Object.entries(job)) {
+      if (v === null || v === "" || v === 0 || (Array.isArray(v) && v.length === 0)) empty.push(k);
+      else filled[k] = v;
+    }
+    return { statusCode: 200, body: JSON.stringify({ filled, empty_keys: empty }, null, 2) };
+  }
+
   const searchNames = (params.name || "").split(",").map(s => s.trim()).filter(Boolean);
   // ?rep=Tabitha Gregor → find every recent job CREDITED to that sales rep
   // (by sales_rep_name), with the fields the sales leaderboard reads, so we
