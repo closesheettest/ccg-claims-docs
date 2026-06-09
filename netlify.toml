@@ -19,6 +19,14 @@
 [functions."daily-orphan-alert"]
   schedule = "0 12 * * *"
 
+# Scheduled function: AUTO-HEAL JobNimbus orphans every 15 min. Finds signed,
+# not-cancelled inspections with no jn_job_id (any result) and re-runs the JN
+# sync (retry-jn-sync) so they land in JN for payroll/reporting without anyone
+# pressing "Sync to JN". Texts ADMIN_ALERT_PHONE only about ones it still
+# couldn't sync. Pause via auto_sms 'orphan_autosync'. exports.config mirrors.
+[functions."cron-sync-orphans"]
+  schedule = "*/15 * * * *"
+
 # Scheduled function: bi-directional JN ↔ Supabase sync. Runs every 15
 # minutes. Brings inspection results (Damage / No Damage / Retail) from
 # JN into the app + fires rep notifications, AND brings JN "Lost" status
