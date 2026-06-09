@@ -37,8 +37,51 @@ exports.handler = async (event) => {
   if (!company) return cors(404, JSON.stringify({ ok: false, error: "Invalid link" }));
   if (company.active === false) return cors(403, JSON.stringify({ ok: false, error: "This company is inactive — contact U.S. Shingle." }));
 
-  // Active PAs in this company (+ home coords for distance sorting).
-  const pas = await get(`${SB_URL}/rest/v1/pas?pa_company_id=eq.${company.id}&select=id,name,active,home_address,latitude,longitude&order=name.asc`, sb);
+  // Active PAs in this company (+ home coords for distance sorting + takeaways).
+  const pas = await get(`${SB_URL}/rest/v1/pas?pa_company_id=eq.${company.id}&select=id,name,active,home_address,latitude,longitude,pa_takeaways&order=name.asc`, sb);
+
+  // Scorecard for THIS company's PAs only — same metrics as the master admin
+  // report, scoped so a company never sees another company's numbers.
+  if (action === "scorecard") {
+    const ids = pas.map((p) => p.id);
+    let byPa = {};
+    if (ids.length) {
+      const inList = `(${ids.map((id) => `"${id}"`).join(",")})`;
+      const deals = await get(
+        `${SB_URL}/rest/v1/inspections?result=eq.damage&pa_id=in.${encodeURIComponent(inList)}` +
+          `&select=pa_id,pa_stage,pa_opened_at,pa_notes_log,pa_fields,cancelled_at,pa_claimed_at,pa_signed_at&limit=5000`,
+        sb,
+      );
+      for (const r of deals) {
+        const b = (byPa[r.pa_id] = byPa[r.pa_id] || { open: 0, working: 0, signed: 0, lost: 0, dead: 0, handled: 0, _days: [] });
+        b.handled++;
+        if (r.cancelled_at) { b.lost++; continue; }
+        if (r.pa_stage === "dead") { b.dead++; continue; }
+        b.open++;
+        const signed = r.pa_fields?.pa_signup === "Signed";
+        const working = !!r.pa_opened_at || (Array.isArray(r.pa_notes_log) && r.pa_notes_log.length > 0);
+        if (signed) {
+          b.signed++;
+          if (r.pa_claimed_at && r.pa_signed_at) {
+            const d = (new Date(r.pa_signed_at).getTime() - new Date(r.pa_claimed_at).getTime()) / 86400000;
+            if (Number.isFinite(d) && d >= 0) b._days.push(d);
+          }
+        } else if (working) b.working++;
+      }
+    }
+    const pctOf = (n, d) => (d > 0 ? Math.round((n / d) * 100) : 0);
+    const rows = pas.filter((p) => p.active).map((p) => {
+      const b = byPa[p.id] || { open: 0, working: 0, signed: 0, lost: 0, dead: 0, handled: 0, _days: [] };
+      const taken = p.pa_takeaways || 0;
+      const denom = b.handled + taken;
+      return {
+        id: p.id, name: p.name, assigned: b.open, working: b.working,
+        avgDaysToSign: b._days.length ? Math.round(b._days.reduce((s, n) => s + n, 0) / b._days.length) : null,
+        denom, signPct: pctOf(b.signed, denom), lostPct: pctOf(b.lost, denom), takenPct: pctOf(taken, denom),
+      };
+    }).sort((a, b) => (b.assigned - a.assigned) || a.name.localeCompare(b.name));
+    return cors(200, JSON.stringify({ ok: true, company: { name: company.name }, rows }));
+  }
 
   if (action === "assign") {
     const inspectionId = (body.inspectionId || "").trim();

@@ -4418,6 +4418,23 @@ function PACompanyAdminPage({ token }) {
   const [distFrom, setDistFrom] = useState("");   // "" | paId | "__me__"
   const [myCoords, setMyCoords] = useState(null);
   const [geoErr, setGeoErr] = useState("");
+  const [card, setCard] = useState(null);         // scorecard rows | null (hidden)
+  const [cardBusy, setCardBusy] = useState(false);
+
+  const loadCard = async () => {
+    if (card) { setCard(null); return; }
+    setCardBusy(true);
+    try {
+      const res = await fetch("/.netlify/functions/pa-company-api", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, action: "scorecard" }),
+      });
+      const out = await res.json().catch(() => ({}));
+      if (res.ok && out.ok) setCard(out.rows || []);
+      else setErr(out.error || "Couldn't build the report card.");
+    } catch { setErr("Network error."); }
+    setCardBusy(false);
+  };
 
   const load = async () => {
     try {
@@ -4524,8 +4541,50 @@ function PACompanyAdminPage({ token }) {
   return (
     <div style={wrap}>
       <div style={{ maxWidth: 760, margin: "0 auto" }}>
-        <div style={{ fontSize: 22, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#111827" }}>🏢 {data.company.name}</div>
-        <div style={{ fontSize: 13, color: "#6b7280", marginTop: 2, marginBottom: 14 }}>Assign each homeowner to one of your adjusters. {activePas.length} active PA{activePas.length === 1 ? "" : "s"}.</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#111827" }}>🏢 {data.company.name}</div>
+            <div style={{ fontSize: 13, color: "#6b7280", marginTop: 2, marginBottom: 14 }}>Assign each homeowner to one of your adjusters. {activePas.length} active PA{activePas.length === 1 ? "" : "s"}.</div>
+          </div>
+          <Button variant="outline" onClick={loadCard} disabled={cardBusy}>
+            {cardBusy ? "Building…" : card ? "📊 Hide report card" : "📊 PA report card"}
+          </Button>
+        </div>
+
+        {card && (
+          <div style={{ marginBottom: 16, border: "1px solid #c7d2fe", borderRadius: 10, background: "#fff", overflowX: "auto" }}>
+            <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 620 }}>
+              <thead>
+                <tr>
+                  {["Adjuster", "Assigned", "Working", "Avg days→sign", "Sign %", "Lost %", "Taken %"].map((h, i) => (
+                    <th key={h} style={{ padding: "7px 8px", fontSize: 11, fontWeight: 800, color: "#3730a3", textAlign: i === 0 ? "left" : "center", background: "#eef2ff", whiteSpace: "nowrap" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {card.length === 0 && <tr><td colSpan={7} style={{ padding: 10, fontSize: 13, color: "#6b7280" }}>No active adjusters yet.</td></tr>}
+                {card.map((r) => {
+                  const cell = { padding: "7px 8px", fontSize: 13, textAlign: "center", borderTop: "1px solid #e0e7ff" };
+                  const pc = (p, good) => r.denom === 0 ? <span style={{ color: "#cbd5e1" }}>—</span> : <span style={{ fontWeight: 800, color: good ? (p >= 50 ? "#047857" : "#475569") : (p >= 25 ? "#b91c1c" : "#475569") }}>{p}%</span>;
+                  return (
+                    <tr key={r.id}>
+                      <td style={{ ...cell, textAlign: "left", fontWeight: 700, color: "#0f172a", whiteSpace: "nowrap" }}>{r.name}</td>
+                      <td style={{ ...cell, fontWeight: 800 }}>{r.assigned}</td>
+                      <td style={cell}>{r.working}</td>
+                      <td style={cell}>{r.avgDaysToSign == null ? "—" : `${r.avgDaysToSign}d`}</td>
+                      <td style={cell}>{pc(r.signPct, true)}</td>
+                      <td style={cell}>{pc(r.lostPct, false)}</td>
+                      <td style={cell}>{pc(r.takenPct, false)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <div style={{ fontSize: 11, color: "#6b7280", padding: "8px 10px", borderTop: "1px solid #e0e7ff" }}>
+              Percentages are over everything ever given to each PA. Avg days→sign &amp; Taken % accrue from when tracking went live.
+            </div>
+          </div>
+        )}
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
           {[["Needs assigning", unassigned.length, "#92400e"], ["Assigned", assigned.length, "#1e40af"], ["⚠ Untouched 48h+", stale.length, "#b91c1c"], ["Total", allDeals.length, "#374151"]].map(([t, n, c]) => (

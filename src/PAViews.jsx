@@ -349,13 +349,16 @@ export function PAAdminPanel() {
         const taken = p.pa_takeaways || 0;
         const denom = b.handled + taken;               // everything ever given to them
         const avgDaysToSign = b._days.length ? Math.round(b._days.reduce((s, n) => s + n, 0) / b._days.length) : null;
+        const comp = companies.find((c) => c.id === p.pa_company_id);
         return {
           id: p.id, name: p.name,
+          company_id: p.pa_company_id || null,
+          company_name: comp?.name || "Independent",
           assigned: b.open, working: b.working, signed: b.signed, lost: b.lost, dead: b.dead,
           taken, denom, avgDaysToSign,
           signPct: pct(b.signed, denom), lostPct: pct(b.lost, denom), takenPct: pct(taken, denom),
         };
-      }).sort((a, b) => (b.assigned - a.assigned) || a.name.localeCompare(b.name));
+      }).sort((a, b) => a.company_name.localeCompare(b.company_name) || (b.assigned - a.assigned) || a.name.localeCompare(b.name));
       const T = rows.reduce((t, r) => {
         ["assigned", "working", "signed", "lost", "dead", "taken", "denom"].forEach((k) => t[k] += r[k]);
         if (r.avgDaysToSign != null) { t._daysSum += r.avgDaysToSign * r.signed; t._daysN += r.signed; }
@@ -835,7 +838,7 @@ export function PAAdminPanel() {
           <button type="button" onClick={loadProgressReport} disabled={reportBusy}
             style={{ ...secondaryBtn, fontWeight: 800, fontSize: 13, padding: "9px 14px",
               background: report ? "#3730a3" : "#fff", color: report ? "#fff" : "#3730a3", borderColor: "#a5b4fc" }}>
-            {reportBusy ? "Building…" : report ? "📊 Hide progress report" : "📊 Progress report"}
+            {reportBusy ? "Building…" : report ? "📊 Hide PA report card" : "📊 PA report card"}
           </button>
         </div>
 
@@ -1854,6 +1857,54 @@ function PAProgressReport({ report }) {
   const pctCell = (p, denom, good) => denom === 0
     ? <span style={{ color: "#cbd5e1" }}>—</span>
     : <span style={{ fontWeight: 800, color: good ? (p >= 50 ? "#047857" : "#475569") : (p >= 25 ? "#b91c1c" : "#475569") }}>{p}%</span>;
+
+  // Group rows by company (Independent last). Each group gets a header + a
+  // subtotal so the admin sees per-company performance at a glance.
+  const groupsMap = new Map();
+  for (const r of rows) { if (!groupsMap.has(r.company_name)) groupsMap.set(r.company_name, []); groupsMap.get(r.company_name).push(r); }
+  const groupNames = [...groupsMap.keys()].sort((a, b) => (a === "Independent" ? 1 : b === "Independent" ? -1 : a.localeCompare(b)));
+  const subtotal = (rs) => {
+    const t = { assigned: 0, working: 0, signed: 0, lost: 0, dead: 0, taken: 0, denom: 0, _ds: 0, _dn: 0 };
+    for (const r of rs) { ["assigned", "working", "signed", "lost", "dead", "taken", "denom"].forEach((k) => t[k] += r[k]); if (r.avgDaysToSign != null) { t._ds += r.avgDaysToSign * r.signed; t._dn += r.signed; } }
+    const pct = (n, d) => (d > 0 ? Math.round((n / d) * 100) : 0);
+    return { ...t, signPct: pct(t.signed, t.denom), lostPct: pct(t.lost, t.denom), takenPct: pct(t.taken, t.denom), avgDaysToSign: t._dn ? Math.round(t._ds / t._dn) : null };
+  };
+  const paCells = (r) => (
+    <>
+      <td style={{ ...td, fontWeight: 800 }}>{num(r.assigned)}</td>
+      <td style={td}>{num(r.working)}</td>
+      <td style={td}>{days(r.avgDaysToSign)}</td>
+      <td style={td}>{pctCell(r.signPct, r.denom, true)}</td>
+      <td style={td}>{pctCell(r.lostPct, r.denom, false)}</td>
+      <td style={td}>{pctCell(r.takenPct, r.denom, false)}</td>
+    </>
+  );
+  const body = [];
+  for (const gn of groupNames) {
+    const rs = groupsMap.get(gn);
+    body.push(
+      <tr key={`h-${gn}`} style={{ background: "#eef2ff" }}>
+        <td colSpan={7} style={{ ...td, textAlign: "left", fontWeight: 800, color: "#3730a3" }}>🏢 {gn} ({rs.length})</td>
+      </tr>,
+    );
+    for (const r of rs) {
+      body.push(
+        <tr key={r.id}>
+          <td style={{ ...td, textAlign: "left", fontWeight: 700, color: "#0f172a", whiteSpace: "nowrap", paddingLeft: 18 }}>{r.name}</td>
+          {paCells(r)}
+        </tr>,
+      );
+    }
+    if (rs.length > 1) {
+      const s = subtotal(rs);
+      body.push(
+        <tr key={`s-${gn}`} style={{ background: "#f8fafc" }}>
+          <td style={{ ...td, textAlign: "left", fontWeight: 700, color: "#64748b", fontStyle: "italic" }}>{gn} subtotal</td>
+          {paCells(s)}
+        </tr>,
+      );
+    }
+  }
   return (
     <div style={{ marginTop: 12, border: "1px solid #c7d2fe", borderRadius: 10, background: "#fff", overflowX: "auto" }}>
       <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 720 }}>
@@ -1869,17 +1920,7 @@ function PAProgressReport({ report }) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
-            <tr key={r.id}>
-              <td style={{ ...td, textAlign: "left", fontWeight: 700, color: "#0f172a", whiteSpace: "nowrap" }}>{r.name}</td>
-              <td style={{ ...td, fontWeight: 800 }}>{num(r.assigned)}</td>
-              <td style={td}>{num(r.working)}</td>
-              <td style={td}>{days(r.avgDaysToSign)}</td>
-              <td style={td}>{pctCell(r.signPct, r.denom, true)}</td>
-              <td style={td}>{pctCell(r.lostPct, r.denom, false)}</td>
-              <td style={td}>{pctCell(r.takenPct, r.denom, false)}</td>
-            </tr>
-          ))}
+          {body}
           {rows.length === 0 && (
             <tr><td colSpan={7} style={{ ...td, color: "#6b7280" }}>No active adjusters.</td></tr>
           )}
