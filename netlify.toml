@@ -77,16 +77,15 @@
 [functions."cron-assign-pas"]
   schedule = "*/5 * * * *"
 
-# Scheduled function: morning "sales inventory" audit. At 7 AM EDT (11:00
-# UTC) it scans every JobNimbus job SOLD yesterday against the rep checklist
-# (required fields + conditional rules) and texts reps what they missed/got
-# wrong, managers a zone roll-up, and ADMIN_ALERT_PHONE a full summary.
-# Sending is gated by auto_sms keys 'sales_audit' (master) + rep texts by
-# 'sales_audit_text_reps' (soft-launch off). Manual dry run: GET the
-# function with ?dry=1[&date=YYYY-MM-DD]. The file also declares this via
-# exports.config.schedule; this toml entry keeps the cadence visible.
+# Scheduled function: "sales inventory" audit. At NOON EDT (16:00 UTC) it
+# scans every JobNimbus job SOLD yesterday against the rep checklist and
+# texts the REGIONAL MANAGER the per-deal detail of what's missing/wrong
+# (reps are NOT texted), plus ADMIN_ALERT_PHONE + any extra recipients on the
+# auto_sms 'sales_audit' row a roll-up summary. Gated by auto_sms key
+# 'sales_audit'. Manual dry run: GET ?dry=1[&date=YYYY-MM-DD]. The file also
+# declares this via exports.config.schedule; this toml keeps it visible.
 [functions."cron-sales-audit"]
-  schedule = "0 11 * * *"
+  schedule = "0 16 * * *"
 
 # Scheduled function: daily nudge to PA COMPANY admins about homeowners in
 # their pool that have sat 48h+ without being opened/touched (assigned or

@@ -12,7 +12,9 @@
 //     which reps were notified.
 // Clean mornings send nothing.
 //
-// Schedule: 0 11 * * * UTC = 7 AM EDT (6 AM EST). Also exports.config.
+// Schedule: 0 16 * * * UTC = NOON EDT. Also exports.config.
+// Detail goes to the REGIONAL MANAGER (not the rep). Admin summary →
+// ADMIN_ALERT_PHONE + any extra recipients on the auto_sms 'sales_audit' row.
 //
 // Modes / manual use:
 //   GET ?dry=1[&date=YYYY-MM-DD]  → compute + RETURN JSON, send nothing.
@@ -52,11 +54,15 @@ export const handler = async (event) => {
   const dry = qp.dry === "1";
   const targetYmd = (qp.date && /^\d{4}-\d{2}-\d{2}$/.test(qp.date)) ? qp.date : prevEtYmd();
 
-  // Send gating (scheduled runs). Dry runs never send.
-  let sendAtAll = false, textReps = false;
+  // Send gating + extra recipients (scheduled runs). Dry runs never send.
+  // The detailed missing-info goes to the REGIONAL MANAGER (not the rep).
+  // The admin summary goes to ADMIN_ALERT_PHONE + any extra recipients set
+  // on the auto_sms 'sales_audit' row (managed from the Auto SMS admin page).
+  let sendAtAll = false, extraRecipients = [];
   if (!dry) {
-    sendAtAll = await flagEnabled(SB_URL, sb, "sales_audit");
-    textReps = await flagEnabled(SB_URL, sb, "sales_audit_text_reps");
+    const row = await loadFlag(SB_URL, sb, "sales_audit");
+    sendAtAll = !row || row.enabled !== false;
+    extraRecipients = parseRecipients(row && row.recipients);
   }
 
   // 1. Pull recent jobs (sold yesterday → updated yesterday). 4-day pad.
@@ -105,21 +111,12 @@ export const handler = async (event) => {
     }
   }
 
-  // 5. Compose + (optionally) send.
-  const notified = { reps: [], managers: [], admin: null };
+  // 5. Compose + (optionally) send. REPS ARE NOT TEXTED. The detailed
+  //    missing-info goes to that zone's REGIONAL MANAGER; the admin (+ extra
+  //    recipients) gets the roll-up summary.
+  const notified = { managers: [], admin: [] };
   if (!dry && sendAtAll && base && flagged.length) {
-    // Rep texts (only when soft-launch is over).
-    if (textReps) {
-      const byRep = groupBy(flagged, (f) => f.rep_id || f.rep_name);
-      for (const list of Object.values(byRep)) {
-        const phone = list[0].rep_phone;
-        const repName = list[0].rep_name;
-        if (!phone) { notified.reps.push({ rep: repName, ok: false, error: "no phone" }); continue; }
-        const r = await sendSms(base, phone, repName, repMessage(list));
-        notified.reps.push({ rep: repName, ok: r.ok, count: list.length, error: r.error });
-      }
-    }
-    // Manager roll-ups by zone.
+    // Regional manager gets the per-deal detail for their zone.
     const byZone = groupBy(flagged.filter((f) => f.zone), (f) => f.zone);
     for (const [zone, list] of Object.entries(byZone)) {
       const mgr = await fetchManager(SB_URL, sb, zone);
@@ -127,11 +124,18 @@ export const handler = async (event) => {
       const r = await sendSms(base, mgr.phone, mgr.name || "Manager", managerMessage(zone, list));
       notified.managers.push({ zone, ok: r.ok, count: list.length, error: r.error });
     }
-    // Admin roll-up.
-    const admins = String(process.env.ADMIN_ALERT_PHONE || "").split(",").map((s) => s.trim()).filter(Boolean);
-    for (const a of admins) {
-      const r = await sendSms(base, a, "Admin", adminMessage(targetYmd, flagged, notified, textReps));
-      notified.admin = { ok: r.ok, error: r.error };
+    // Any flagged deals whose rep has no resolvable zone → no manager to send
+    // to; surface them in the admin summary so they're not lost.
+    const noZone = flagged.filter((f) => !f.zone);
+
+    // Admin summary → ADMIN_ALERT_PHONE + extra recipients from the Auto SMS row.
+    const adminPhones = dedupe([
+      ...String(process.env.ADMIN_ALERT_PHONE || "").split(","),
+      ...extraRecipients,
+    ]);
+    for (const a of adminPhones) {
+      const r = await sendSms(base, a, "Admin", adminMessage(targetYmd, flagged, notified, noZone));
+      notified.admin.push({ to: a, ok: r.ok, error: r.error });
     }
   }
 
@@ -140,7 +144,7 @@ export const handler = async (event) => {
     date: targetYmd,
     dry,
     sent: !dry && sendAtAll,
-    text_reps: textReps,
+    extra_recipients: extraRecipients,
     sold_count: sold.length,
     flagged_count: flagged.length,
     clean_count: sold.length - flagged.length,
@@ -164,16 +168,8 @@ function auditJob(job) {
   const yes = (label) => { const v = F[label]; return v === true || v === "true" || v === "Yes" || v === "yes" || v === 1; };
   const pos = (label) => { const n = numv(label); return Number.isFinite(n) && n > 0; };
 
-  // ── Dates ────────────────────────────────────────────────────────────
-  const soldSec = soldDateSec(job);
-  const startSec = Number(job.date_start);
-  if (soldSec && Number.isFinite(startSec) && startSec > 0) {
-    if (etYMD(new Date(startSec * 1000)) !== etYMD(new Date(soldSec * 1000))) {
-      errors.push(`Start Date (${etYMD(new Date(startSec * 1000))}) must match Sold Date (${etYMD(new Date(soldSec * 1000))})`);
-    }
-  } else {
-    missing.push("Start Date (must match the Sold Date)");
-  }
+  // ── Start Date is NOT checked — reps are told to LEAVE IT ALONE / never
+  //    touch it (the office owns it). Do not flag it.
 
   // ── Always-required answers ──────────────────────────────────────────
   if (!has("*Payment Type*")) missing.push("Payment Type");
@@ -265,44 +261,27 @@ function issueLines(f) {
   return s.trim();
 }
 
-// Pointer reps can tap when a field name isn't obvious — the full,
-// plain-English checklist lives behind the dashboard's top button.
-const CHECKLIST_FOOTER =
-  '\n\nNot sure what a field means? Tap "Required Job Nimbus Fields" at the top of your Rep Dashboard for the full checklist:\nhttps://us-shingle-rep-dashboard.netlify.app/required-jn-fields.html';
-
-function repMessage(list) {
-  if (list.length === 1) {
-    const f = list[0];
-    return `📋 Fix your sale in JobNimbus — ${f.customer}\nJob: ${f.name}\n\n${issueLines(f)}\n\nOpen the job in JN and correct these.${CHECKLIST_FOOTER}`;
-  }
-  let s = `📋 ${list.length} of your sales need fixing in JobNimbus:\n`;
-  list.forEach((f) => { s += `\n— ${f.name} (${f.customer})\n${issueLines(f)}\n`; });
-  return s.trim() + "\n\nOpen each job in JN and correct these." + CHECKLIST_FOOTER;
-}
-
+// Regional manager gets the FULL per-deal detail for their zone (rep,
+// customer, job, and exactly what's missing/wrong). Reps are NOT texted.
 function managerMessage(zone, list) {
-  let s = `🗂 ${zone} — ${list.length} sale(s) from yesterday need fixing:\n`;
+  let s = `🗂 ${zone} — ${list.length} sale${list.length === 1 ? "" : "s"} from yesterday need fixing:\n`;
   list.forEach((f) => {
-    const n = f.missing.length + f.errors.length;
-    s += `\n• ${f.rep_name}: ${f.name} (${f.customer}) — ${n} issue${n === 1 ? "" : "s"}`;
+    s += `\n— ${f.rep_name} · ${f.customer}\nJob: ${f.name}\n${issueLines(f)}\n`;
   });
-  return s;
+  return s.trim() + "\n\nHave the rep open each job in JobNimbus and correct these.";
 }
 
-function adminMessage(date, flagged, notified, textReps) {
+function adminMessage(date, flagged, notified, noZone) {
   let s = `📊 Sales audit ${date}: ${flagged.length} record(s) need fixing.\n`;
   flagged.forEach((f) => {
     const n = f.missing.length + f.errors.length;
     s += `\n• ${f.customer} — ${f.rep_name} (${f.name}) — ${n} issue${n === 1 ? "" : "s"}`;
   });
-  if (textReps) {
-    const ok = notified.reps.filter((r) => r.ok).map((r) => r.rep);
-    const bad = notified.reps.filter((r) => !r.ok).map((r) => `${r.rep} (${r.error})`);
-    s += `\n\nReps texted: ${ok.length ? ok.join(", ") : "none"}`;
-    if (bad.length) s += `\nNOT reached: ${bad.join(", ")}`;
-  } else {
-    s += `\n\n(Soft-launch: reps NOT texted yet.)`;
-  }
+  const mgrOk = (notified.managers || []).filter((m) => m.ok).map((m) => m.zone);
+  const mgrBad = (notified.managers || []).filter((m) => !m.ok).map((m) => `${m.zone} (${m.error})`);
+  s += `\n\nManagers texted: ${mgrOk.length ? mgrOk.join(", ") : "none"}`;
+  if (mgrBad.length) s += `\nNOT reached: ${mgrBad.join(", ")}`;
+  if (noZone && noZone.length) s += `\n⚠ No zone/manager for: ${noZone.map((f) => f.rep_name).join(", ")}`;
   return s;
 }
 
@@ -385,13 +364,32 @@ async function fetchManager(SB_URL, headers, zone) {
   return (await res.json().catch(() => []))?.[0] || null;
 }
 
-async function flagEnabled(SB_URL, headers, key) {
+// Load the auto_sms row (enabled flag + extra recipients) for a key.
+async function loadFlag(SB_URL, headers, key) {
   try {
-    const res = await fetch(`${SB_URL}/rest/v1/auto_sms?key=eq.${encodeURIComponent(key)}&select=enabled&limit=1`, { headers });
-    if (!res.ok) return false;
-    const row = (await res.json().catch(() => []))?.[0];
-    return !!row && row.enabled === true;
-  } catch { return false; }
+    const res = await fetch(`${SB_URL}/rest/v1/auto_sms?key=eq.${encodeURIComponent(key)}&select=enabled,recipients&limit=1`, { headers });
+    if (!res.ok) return null;
+    return (await res.json().catch(() => []))?.[0] || null;
+  } catch { return null; }
+}
+
+// auto_sms.recipients is what the Auto SMS admin writes: an array of
+// { name, phone } objects (also tolerate a plain string / array of strings).
+function parseRecipients(v) {
+  if (!v) return [];
+  const arr = Array.isArray(v) ? v : String(v).split(/[,\n;]/);
+  return arr
+    .map((x) => (x && typeof x === "object" ? x.phone : x))
+    .map((s) => String(s || "").trim())
+    .filter(Boolean);
+}
+
+function dedupe(list) {
+  const seen = new Set(), out = [];
+  for (const s of list.map((x) => String(x).trim()).filter(Boolean)) {
+    if (!seen.has(s)) { seen.add(s); out.push(s); }
+  }
+  return out;
 }
 
 async function sendSms(base, to, name, message) {
@@ -421,5 +419,5 @@ function json(status, body) {
   return { statusCode: status, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
 }
 
-// 7 AM EDT / 6 AM EST. The toml mirror keeps this visible from project root.
-export const config = { schedule: "0 11 * * *" };
+// Noon EDT (16:00 UTC). The toml mirror keeps this visible from project root.
+export const config = { schedule: "0 16 * * *" };
