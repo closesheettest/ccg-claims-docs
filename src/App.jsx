@@ -4160,7 +4160,7 @@ const ADMIN_APPS = [
 const ADMIN_PORTALS = [
   { key: "rep", emoji: "🏠", label: "Rep Intake", desc: "The homeowner sign-up form sales reps use in the field.", href: "/" },
   { key: "inspector", emoji: "🔍", label: "Inspector App", desc: "The inspector mobile app — claim jobs, take photos, log results.", href: "/?mode=inspector" },
-  { key: "pa", emoji: "🧑‍⚖️", label: "Public Adjuster Portal", desc: "The PA portal — claim damage deals and enter milestone dates.", href: "/?mode=pa" },
+  { key: "pa", emoji: "🧑‍⚖️", label: "Public Adjuster Portal", desc: "The PA portal — claim damage deals and enter milestone dates. Opens with admin powers (e.g. release a deal back to the pool).", href: "/?mode=pa&admin=1" },
   { key: "manager", emoji: "🛠", label: "Manager Console", desc: "Every admin tool in one place (or launch any single tool below).", href: "/?mode=manager" },
   { key: "regional", emoji: "🗺", label: "Regional Manager Records", desc: "Each regional manager opens their zone via a personal link (…/?manager=<token>). Ask the office for yours.", tokenized: true },
 ];

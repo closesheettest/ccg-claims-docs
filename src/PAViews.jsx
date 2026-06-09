@@ -1067,6 +1067,12 @@ function PADecisionRow({ deal, priorPaName, busy, onPool, onDismiss }) {
 // PA MOBILE APP — ?mode=pa
 // ═════════════════════════════════════════════════════════════════════
 export function PAMobileApp() {
+  // Admin context: the PA portal launched from the Admin hub carries
+  // ?admin=1, which unlocks manager-only actions (e.g. releasing a deal
+  // back to the pool). Field PAs open a plain ?mode=pa link and never see
+  // those. (The release itself is still PIN-gated as defense-in-depth.)
+  const adminView = typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("admin") === "1";
   const [stage, setStage] = useState("pick"); // pick | list | detail | inactive
   const [pas, setPas] = useState([]);
   const [me, setMe] = useState(null);
@@ -1169,7 +1175,7 @@ export function PAMobileApp() {
       )}
 
       {stage && stage.kind === "detail" && me && (
-        <PAPipelineDetail me={me} wide={wide} jobId={stage.jobId} onBack={() => setStage("list")} />
+        <PAPipelineDetail me={me} wide={wide} adminView={adminView} jobId={stage.jobId} onBack={() => setStage("list")} />
       )}
     </div>
   );
@@ -1661,7 +1667,7 @@ function milestoneProgress(paFields) {
 
 // ── Pipeline detail: one claimed deal. Photos + context + the 8 editable
 //    milestone date fields with per-field autosave to JN. ─────────────
-function PAPipelineDetail({ me, jobId, onBack, wide }) {
+function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
   const [job, setJob] = useState(null);
   const [fields, setFields] = useState({});      // epoch seconds | string | null
   const [photos, setPhotos] = useState([]);
@@ -2289,9 +2295,14 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
         </button>
       </div>
 
-      <button type="button" onClick={release} disabled={releasing} style={{ ...dangerBtn, width: "100%", padding: "10px", fontSize: 13 }}>
-        {releasing ? "Releasing…" : "Release this deal back to the pool"}
-      </button>
+      {/* Release back to the pool is an ADMIN-only action now — only shown
+          when the portal was opened from the Admin hub (?admin=1). Field
+          PAs never see it; deals are company-assigned. */}
+      {adminView && (
+        <button type="button" onClick={release} disabled={releasing} style={{ ...dangerBtn, width: "100%", padding: "10px", fontSize: 13 }}>
+          {releasing ? "Releasing…" : "🛠 Admin: release this deal back to the pool"}
+        </button>
+      )}
     </div>
   );
 }
