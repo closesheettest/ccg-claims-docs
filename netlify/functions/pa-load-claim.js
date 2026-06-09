@@ -71,7 +71,7 @@ exports.handler = async (event) => {
   let insp = null;
   if (inspectionId) {
     const lookup = await fetch(
-      `${SB_URL}/rest/v1/inspections?id=eq.${inspectionId}&select=jn_job_id,inspector_name,result_at,inspection_photos,pa_fields&limit=1`,
+      `${SB_URL}/rest/v1/inspections?id=eq.${inspectionId}&select=jn_job_id,inspector_name,result_at,inspection_photos,pa_fields,pa_id,pa_opened_at&limit=1`,
       { headers: sbHeaders },
     );
     if (lookup.ok) {
@@ -79,6 +79,22 @@ exports.handler = async (event) => {
       insp = rows?.[0] || null;
       if (!jnJobId) jnJobId = insp?.jn_job_id || "";
     }
+  }
+
+  // Stamp "first opened by the PA" — only when the detail view explicitly
+  // asks (markOpened) and the requesting PA owns the deal. This is what
+  // moves a deal from "New files" into the "Working" bucket in the PA
+  // portal. Best-effort + idempotent (only writes when pa_opened_at is null).
+  const markOpened = body.markOpened === true;
+  const paId = (body.paId || "").trim();
+  if (markOpened && paId && insp && insp.pa_id === paId && !insp.pa_opened_at && inspectionId) {
+    try {
+      await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${inspectionId}`, {
+        method: "PATCH",
+        headers: { ...sbHeaders, Prefer: "return=minimal" },
+        body: JSON.stringify({ pa_opened_at: new Date().toISOString() }),
+      });
+    } catch { /* best-effort — the bucket move just waits for the next open */ }
   }
   if (!jnJobId) return json(400, { ok: false, error: "No jnJobId (and inspectionId had none)" });
 

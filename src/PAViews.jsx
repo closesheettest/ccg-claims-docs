@@ -1160,7 +1160,7 @@ function PAJobList({ me, onOpenJob, wide }) {
   async function load() {
     setLoading(true);
     const { data, error } = await supabase.from("inspections")
-      .select("id, client_name, address, city, state, zip, county, signed_at, jn_job_id, result, pa_id, pa_claimed_at, pa_stage, pa_notes_log, pa_fields, pa_assignment_note, mobile, latitude, longitude, correction_needed")
+      .select("id, client_name, address, city, state, zip, county, signed_at, jn_job_id, result, pa_id, pa_claimed_at, pa_stage, pa_opened_at, pa_notes_log, pa_fields, pa_assignment_note, mobile, latitude, longitude, correction_needed")
       // Only the deals the company assigned to this PA. A deal that later
       // goes Lost/cancelled or gets pulled for a decision drops out
       // automatically; dead deals are filtered out too.
@@ -1324,7 +1324,7 @@ function PAJobList({ me, onOpenJob, wide }) {
   // Lists stay sorted by newest signing date (from the query). GPS just
   // adds a distance badge per card — it no longer re-sorts (signing date
   // wins, so fresh leads always surface first).
-  const { mineNeeds, mineSigned, mineNoContact } = useMemo(() => {
+  const { mineNeeds, mineWorking, mineSigned, mineNoContact } = useMemo(() => {
     const withDist = (arr) =>
       arr.map((j) => ({
         ...j,
@@ -1343,13 +1343,19 @@ function PAJobList({ me, onOpenJob, wide }) {
       return new Date(b.signed_at || 0) - new Date(a.signed_at || 0);
     });
     const active = all.filter((j) => j.pa_stage !== "no_contact");
+    // Pre-signature deals split into "New files" (untouched) and "Working"
+    // (the PA has opened the pipeline OR left a note). Signed deals always
+    // go to Signed regardless.
+    const preSign = active.filter((j) => isNeedSignature(j.pa_fields?.pa_signup));
+    const isWorking = (j) => !!j.pa_opened_at || (Array.isArray(j.pa_notes_log) && j.pa_notes_log.length > 0);
     return {
-      mineNeeds: sorted(active.filter((j) => isNeedSignature(j.pa_fields?.pa_signup))),
+      mineNeeds: sorted(preSign.filter((j) => !isWorking(j))),
+      mineWorking: sorted(preSign.filter((j) => isWorking(j))),
       mineSigned: sorted(active.filter((j) => j.pa_fields?.pa_signup === "Signed")),
       mineNoContact: sorted(all.filter((j) => j.pa_stage === "no_contact")),
     };
   }, [mine, paCoords]);
-  const list = mineView === "signed" ? mineSigned : mineView === "no_contact" ? mineNoContact : mineNeeds;
+  const list = mineView === "working" ? mineWorking : mineView === "signed" ? mineSigned : mineView === "no_contact" ? mineNoContact : mineNeeds;
 
   return (
     <div>
@@ -1358,22 +1364,30 @@ function PAJobList({ me, onOpenJob, wide }) {
       </div>
 
 
-      {/* Three views: chasing a signature · signed · can't get ahold of them. */}
+      {/* Four views: brand-new files · being worked · signed · can't reach.
+          A deal moves from New files → Working the moment the PA opens its
+          pipeline or leaves a note. */}
       <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
         <button type="button" onClick={() => setMineView("needs")}
-          style={{ ...secondaryBtn, flex: "1 1 28%", padding: "9px 6px", fontSize: 12.5, fontWeight: 700,
-            background: mineView === "needs" ? "#92400e" : "#fff", color: mineView === "needs" ? "#fff" : "#92400e",
+          style={{ ...secondaryBtn, flex: "1 1 46%", padding: "9px 6px", fontSize: 12.5, fontWeight: 700,
+            background: mineView === "needs" ? "#1d4ed8" : "#fff", color: mineView === "needs" ? "#fff" : "#1d4ed8",
+            borderColor: "#93c5fd" }}>
+          🆕 New files ({mineNeeds.length})
+        </button>
+        <button type="button" onClick={() => setMineView("working")}
+          style={{ ...secondaryBtn, flex: "1 1 46%", padding: "9px 6px", fontSize: 12.5, fontWeight: 700,
+            background: mineView === "working" ? "#92400e" : "#fff", color: mineView === "working" ? "#fff" : "#92400e",
             borderColor: "#f59e0b" }}>
-          ✍️ Needs signature ({mineNeeds.length})
+          🛠 Working ({mineWorking.length})
         </button>
         <button type="button" onClick={() => setMineView("signed")}
-          style={{ ...secondaryBtn, flex: "1 1 28%", padding: "9px 6px", fontSize: 12.5, fontWeight: 700,
+          style={{ ...secondaryBtn, flex: "1 1 46%", padding: "9px 6px", fontSize: 12.5, fontWeight: 700,
             background: mineView === "signed" ? "#047857" : "#fff", color: mineView === "signed" ? "#fff" : "#047857",
             borderColor: "#34d399" }}>
           ✅ Signed ({mineSigned.length})
         </button>
         <button type="button" onClick={() => setMineView("no_contact")}
-          style={{ ...secondaryBtn, flex: "1 1 28%", padding: "9px 6px", fontSize: 12.5, fontWeight: 700,
+          style={{ ...secondaryBtn, flex: "1 1 46%", padding: "9px 6px", fontSize: 12.5, fontWeight: 700,
             background: mineView === "no_contact" ? "#475569" : "#fff", color: mineView === "no_contact" ? "#fff" : "#475569",
             borderColor: "#94a3b8" }}>
           📵 Can't reach ({mineNoContact.length})
@@ -1397,9 +1411,11 @@ function PAJobList({ me, onOpenJob, wide }) {
             ? "No “can't get ahold of them” customers. 👍"
             : mineView === "signed"
               ? "No signed customers yet. Once you mark a deal “Signed” it moves here."
-              : mine.length === 0
-                ? "No customers assigned to you yet. New ones show up here automatically."
-                : "Nothing waiting on a signature — you're caught up. 🎉"}
+              : mineView === "working"
+                ? "Nothing in progress yet. Open a new file or add a note and it moves here."
+                : mine.length === 0
+                  ? "No customers assigned to you yet. New ones show up here automatically."
+                  : "No brand-new files — everything's been opened or worked. 🎉"}
         </div>
       ) : (
         // Grouped by county (sticky header), newest-signed first within each.
@@ -1583,7 +1599,9 @@ function PAPipelineDetail({ me, jobId, onBack, wide }) {
       try {
         const res = await fetch("/.netlify/functions/pa-load-claim", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ inspectionId: jobId }),
+          // markOpened stamps pa_opened_at (first open) → moves the deal
+          // into the "Working" bucket in the list.
+          body: JSON.stringify({ inspectionId: jobId, paId: me.id, markOpened: true }),
         });
         const body = await res.json().catch(() => ({}));
         if (cancelled) return;
