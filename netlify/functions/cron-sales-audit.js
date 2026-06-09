@@ -265,14 +265,19 @@ function issueLines(f) {
   return s.trim();
 }
 
+// Pointer reps can tap when a field name isn't obvious — the full,
+// plain-English checklist lives behind the dashboard's top button.
+const CHECKLIST_FOOTER =
+  '\n\nNot sure what a field means? Tap "Required Job Nimbus Fields" at the top of your Rep Dashboard for the full checklist:\nhttps://us-shingle-rep-dashboard.netlify.app/required-jn-fields.html';
+
 function repMessage(list) {
   if (list.length === 1) {
     const f = list[0];
-    return `📋 Fix your sale in JobNimbus — ${f.customer}\nJob: ${f.name}\n\n${issueLines(f)}\n\nOpen the job in JN and correct these.`;
+    return `📋 Fix your sale in JobNimbus — ${f.customer}\nJob: ${f.name}\n\n${issueLines(f)}\n\nOpen the job in JN and correct these.${CHECKLIST_FOOTER}`;
   }
   let s = `📋 ${list.length} of your sales need fixing in JobNimbus:\n`;
   list.forEach((f) => { s += `\n— ${f.name} (${f.customer})\n${issueLines(f)}\n`; });
-  return s.trim() + "\n\nOpen each job in JN and correct these.";
+  return s.trim() + "\n\nOpen each job in JN and correct these." + CHECKLIST_FOOTER;
 }
 
 function managerMessage(zone, list) {
