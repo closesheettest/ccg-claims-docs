@@ -212,6 +212,8 @@ export function PAAdminPanel() {
   const [allDeals, setAllDeals] = useState([]);
   const [selected, setSelected] = useState(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [report, setReport] = useState(null);   // { rows, totals } | null (hidden)
+  const [reportBusy, setReportBusy] = useState(false);
 
   useEffect(() => { loadPas(); loadDecisions(); loadOverview(); loadAllDeals(); }, []);
 
@@ -235,6 +237,55 @@ export function PAAdminPanel() {
         .eq("pa_stage", "dead").order("pa_stage_at", { ascending: false }).limit(100);
       setOverview({ byPa, unassignedList: unassignedList || [], dead: dead || [] });
     } catch { /* non-fatal */ }
+  }
+
+  // Per-PA progress breakdown. One Supabase pull of every assigned damage
+  // deal → counts across the same buckets the PA sees (New files / Working /
+  // Signed / Can't reach), plus dead, pending replies, and how stale their
+  // queue is (avg + oldest age). Toggle hides/shows it.
+  async function loadProgressReport() {
+    if (report) { setReport(null); return; } // toggle off
+    setReportBusy(true);
+    try {
+      const { data, error } = await supabase.from("inspections")
+        .select("id, pa_id, pa_stage, pa_opened_at, pa_notes_log, pa_fields, signed_at, correction_needed")
+        .eq("result", "damage").is("cancelled_at", null).not("pa_id", "is", null)
+        .limit(3000);
+      if (error) throw error;
+      const now = Date.now();
+      const ageDays = (iso) => (iso ? Math.max(0, Math.floor((now - new Date(iso).getTime()) / 86400000)) : null);
+      const blank = () => ({ open: 0, newFiles: 0, working: 0, signed: 0, noContact: 0, dead: 0, pending: 0, _ages: [], oldestNew: 0 });
+      const byPa = {};
+      for (const r of data || []) {
+        const b = (byPa[r.pa_id] = byPa[r.pa_id] || blank());
+        if (r.pa_stage === "dead") { b.dead++; continue; }
+        b.open++;
+        if (r.correction_needed) b.pending++;
+        const age = ageDays(r.signed_at);
+        if (age != null) b._ages.push(age);
+        const signed = r.pa_fields?.pa_signup === "Signed";
+        const working = !!r.pa_opened_at || (Array.isArray(r.pa_notes_log) && r.pa_notes_log.length > 0);
+        if (r.pa_stage === "no_contact") b.noContact++;
+        else if (signed) b.signed++;
+        else if (working) b.working++;
+        else { b.newFiles++; if (age != null && age > b.oldestNew) b.oldestNew = age; }
+      }
+      const rows = (pas.length ? pas : []).filter((p) => p.active).map((p) => {
+        const b = byPa[p.id] || blank();
+        const avgAge = b._ages.length ? Math.round(b._ages.reduce((s, n) => s + n, 0) / b._ages.length) : 0;
+        const signRate = b.open ? Math.round((b.signed / b.open) * 100) : 0;
+        return { id: p.id, name: p.name, ...b, avgAge, signRate };
+      }).sort((a, b) => (b.open - a.open) || a.name.localeCompare(b.name));
+      const totals = rows.reduce((t, r) => {
+        ["open", "newFiles", "working", "signed", "noContact", "dead", "pending"].forEach((k) => t[k] += r[k]);
+        return t;
+      }, { open: 0, newFiles: 0, working: 0, signed: 0, noContact: 0, dead: 0, pending: 0 });
+      totals.signRate = totals.open ? Math.round((totals.signed / totals.open) * 100) : 0;
+      setReport({ rows, totals });
+    } catch (e) {
+      setMessage({ kind: "error", text: e.message || "Couldn't build the report." });
+    }
+    setReportBusy(false);
   }
 
   // Flip the auto-assign cron on/off via the auto_sms registry row.
@@ -643,6 +694,17 @@ export function PAAdminPanel() {
             Unassigned: {overview.unassignedList.length}
           </span>
         </div>
+
+        {/* Progress report — per-PA breakdown across the pipeline buckets. */}
+        <div style={{ marginTop: 12 }}>
+          <button type="button" onClick={loadProgressReport} disabled={reportBusy}
+            style={{ ...secondaryBtn, fontWeight: 800, fontSize: 13, padding: "9px 14px",
+              background: report ? "#3730a3" : "#fff", color: report ? "#fff" : "#3730a3", borderColor: "#a5b4fc" }}>
+            {reportBusy ? "Building…" : report ? "📊 Hide progress report" : "📊 Progress report"}
+          </button>
+        </div>
+
+        {report && <PAProgressReport report={report} />}
 
         {/* Reassign / take away — full checklist. Select any number of deals
             and bulk-move them to a PA, or "— Unassign —" to pull them off.
@@ -1494,6 +1556,74 @@ function PAJobCard({ job, onOpen }) {
 // with no county (sorted last) collect under "Other / no county".
 // Group deals by their current PA for the bulk reassign list. Unassigned
 // first, then PAs alphabetically. Returns [{ key, label, deals }].
+// Per-PA progress breakdown table (rendered inside PAAdminPanel). Columns
+// mirror the buckets a PA sees in their portal, plus staleness signals so a
+// manager can spot who's sitting on fresh leads.
+function PAProgressReport({ report }) {
+  const { rows, totals } = report;
+  const cols = [
+    { key: "open", label: "Open", title: "Active deals assigned (excludes dead/cancelled)" },
+    { key: "newFiles", label: "🆕 New", title: "Assigned but never opened, no notes" },
+    { key: "working", label: "🛠 Working", title: "Opened the pipeline or left a note" },
+    { key: "signed", label: "✅ Signed", title: "Homeowner signed up with the PA" },
+    { key: "noContact", label: "📵 No-reach", title: "Can't get ahold of them" },
+    { key: "pending", label: "⏳ Pending", title: "Waiting on a rep reply / correction" },
+    { key: "dead", label: "💀 Dead", title: "Marked dead" },
+  ];
+  const th = { padding: "7px 8px", fontSize: 11, fontWeight: 800, color: "#3730a3", textAlign: "center", whiteSpace: "nowrap", position: "sticky", top: 0, background: "#eef2ff" };
+  const td = { padding: "7px 8px", fontSize: 13, textAlign: "center", borderTop: "1px solid #e0e7ff" };
+  const num = (n, hot) => <span style={{ fontWeight: n ? 700 : 400, color: n ? (hot ? "#b45309" : "#1e293b") : "#cbd5e1" }}>{n}</span>;
+  return (
+    <div style={{ marginTop: 12, border: "1px solid #c7d2fe", borderRadius: 10, background: "#fff", overflowX: "auto" }}>
+      <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 720 }}>
+        <thead>
+          <tr>
+            <th style={{ ...th, textAlign: "left" }}>Public adjuster</th>
+            {cols.map((c) => <th key={c.key} style={th} title={c.title}>{c.label}</th>)}
+            <th style={th} title="Signed ÷ open">Sign %</th>
+            <th style={th} title="Average days since signing across open deals">Avg age</th>
+            <th style={th} title="Oldest never-opened new file (days)">Oldest new</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.id}>
+              <td style={{ ...td, textAlign: "left", fontWeight: 700, color: "#0f172a", whiteSpace: "nowrap" }}>{r.name}</td>
+              <td style={{ ...td, fontWeight: 800 }}>{num(r.open)}</td>
+              <td style={td}>{num(r.newFiles, r.newFiles > 0)}</td>
+              <td style={td}>{num(r.working)}</td>
+              <td style={td}>{num(r.signed)}</td>
+              <td style={td}>{num(r.noContact, r.noContact > 0)}</td>
+              <td style={td}>{num(r.pending, r.pending > 0)}</td>
+              <td style={td}>{num(r.dead)}</td>
+              <td style={{ ...td, fontWeight: 700, color: r.signRate >= 50 ? "#047857" : "#475569" }}>{r.open ? `${r.signRate}%` : "—"}</td>
+              <td style={td}>{r.open ? `${r.avgAge}d` : "—"}</td>
+              <td style={{ ...td, color: r.oldestNew > 7 ? "#b91c1c" : "#475569", fontWeight: r.oldestNew > 7 ? 700 : 400 }}>{r.oldestNew ? `${r.oldestNew}d` : "—"}</td>
+            </tr>
+          ))}
+          {rows.length === 0 && (
+            <tr><td colSpan={cols.length + 4} style={{ ...td, color: "#6b7280" }}>No active adjusters.</td></tr>
+          )}
+        </tbody>
+        {rows.length > 0 && (
+          <tfoot>
+            <tr style={{ background: "#f5f3ff" }}>
+              <td style={{ ...td, textAlign: "left", fontWeight: 800, color: "#3730a3" }}>All ({rows.length})</td>
+              {cols.map((c) => <td key={c.key} style={{ ...td, fontWeight: 800 }}>{totals[c.key]}</td>)}
+              <td style={{ ...td, fontWeight: 800, color: "#3730a3" }}>{totals.open ? `${totals.signRate}%` : "—"}</td>
+              <td style={td}>—</td>
+              <td style={td}>—</td>
+            </tr>
+          </tfoot>
+        )}
+      </table>
+      <div style={{ fontSize: 11, color: "#6b7280", padding: "8px 10px", borderTop: "1px solid #e0e7ff" }}>
+        🆕 New = never opened, no notes · 🛠 Working = opened or noted · ⏳ Pending = waiting on a rep reply · Oldest new flags fresh leads sitting &gt; 7 days.
+      </div>
+    </div>
+  );
+}
+
 function groupDealsByPa(deals, pas) {
   const nameById = {};
   for (const p of pas || []) nameById[p.id] = p.name;
