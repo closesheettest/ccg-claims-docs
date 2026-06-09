@@ -214,8 +214,50 @@ export function PAAdminPanel() {
   const [bulkBusy, setBulkBusy] = useState(false);
   const [report, setReport] = useState(null);   // { rows, totals } | null (hidden)
   const [reportBusy, setReportBusy] = useState(false);
+  const [companies, setCompanies] = useState([]);
+  const [companyBusy, setCompanyBusy] = useState(false);
 
-  useEffect(() => { loadPas(); loadDecisions(); loadOverview(); loadAllDeals(); }, []);
+  useEffect(() => { loadPas(); loadDecisions(); loadOverview(); loadAllDeals(); loadCompanies(); }, []);
+
+  // ── PA Companies (multi-tenant) ───────────────────────────────────────
+  async function loadCompanies() {
+    const { data } = await supabase.from("pa_companies").select("*").order("name", { ascending: true });
+    setCompanies(data || []);
+  }
+  function makeToken() {
+    // URL-safe random token for the company admin's personal link.
+    const a = new Uint8Array(16);
+    (crypto || window.crypto).getRandomValues(a);
+    return Array.from(a, (b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  async function createCompany(name) {
+    const nm = (name || "").trim();
+    if (!nm) return null;
+    setCompanyBusy(true);
+    const { data, error } = await supabase.from("pa_companies")
+      .insert({ name: nm, token: makeToken(), active: true })
+      .select().single();
+    setCompanyBusy(false);
+    if (error) { setMessage({ kind: "error", text: error.message }); return null; }
+    await loadCompanies();
+    return data;
+  }
+  async function updateCompany(id, patch) {
+    setCompanyBusy(true);
+    const { error } = await supabase.from("pa_companies")
+      .update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id);
+    setCompanyBusy(false);
+    if (error) { setMessage({ kind: "error", text: error.message }); return; }
+    loadCompanies();
+  }
+  // Assign a PA to a company (companyId="" → independent). Accepts a company
+  // NAME to create-on-the-fly when it doesn't exist yet.
+  async function setPaCompany(pa, companyIdOrNull) {
+    const { error } = await supabase.from("pas")
+      .update({ pa_company_id: companyIdOrNull || null }).eq("id", pa.id);
+    if (error) { setMessage({ kind: "error", text: error.message }); return; }
+    loadPas();
+  }
 
   // Auto-assign toggle state + per-PA open load + unassigned pool + dead deals.
   async function loadOverview() {
@@ -599,11 +641,14 @@ export function PAAdminPanel() {
           <PARow
             key={pa.id}
             pa={pa}
+            companies={companies}
             busy={busyId === pa.id}
             onToggle={() => toggleActive(pa)}
             onResend={() => resendLink(pa)}
             onUpdate={(patch) => updatePa(pa, patch)}
             onDelete={() => deletePa(pa)}
+            onSetCompany={(cid) => setPaCompany(pa, cid)}
+            onCreateCompany={createCompany}
           />
         ))}
       </div>
@@ -862,14 +907,88 @@ export function PAAdminPanel() {
           {inactive.length > 0 && renderGroup("💤 Inactive", "#475569", inactive, "Not live yet. Add a phone via Edit, then Activate to send them their link.")}
         </>
       )}
+
+      <PACompaniesPanel companies={companies} pas={pas} busy={companyBusy}
+        onUpdate={updateCompany} onCreate={createCompany} />
     </div>
   );
 }
 
-function PARow({ pa, busy, onToggle, onResend, onUpdate, onDelete }) {
+// Master-admin management of PA companies: admin name/phone, the company
+// admin's personal link (…/?pa_company=<token>), active toggle, and a count
+// of member PAs. Each company's admin uses their link to assign pooled deals.
+function PACompaniesPanel({ companies, pas, busy, onUpdate, onCreate }) {
+  const [copiedId, setCopiedId] = useState(null);
+  const base = typeof window !== "undefined" ? window.location.origin : "";
+  const paCount = (cid) => pas.filter((p) => p.pa_company_id === cid).length;
+  const activePaCount = (cid) => pas.filter((p) => p.pa_company_id === cid && p.active).length;
+
+  return (
+    <section style={{ border: "1px solid #c7d2fe", borderRadius: 12, padding: 16, background: "#f5f3ff" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+        <div style={{ fontSize: 15, fontWeight: 800, color: "#5b21b6", fontFamily: "'Oswald', sans-serif" }}>🏢 PA Companies ({companies.length})</div>
+        <button type="button" disabled={busy} onClick={async () => { const n = window.prompt("New PA company name:"); if (n && n.trim()) await onCreate(n.trim()); }}
+          style={{ ...secondaryBtn, fontSize: 12, borderColor: "#c4b5fd", color: "#5b21b6" }}>+ Add company</button>
+      </div>
+      <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 10 }}>
+        Deals auto-route into a company's pool; the company admin assigns them to their PAs via their personal link.
+      </div>
+      {companies.length === 0 ? (
+        <div style={{ fontSize: 12, color: "#6b7280" }}>No companies yet. Add one, then assign PAs to it from the list above.</div>
+      ) : (
+        <div style={{ display: "grid", gap: 10 }}>
+          {companies.map((c) => {
+            const link = c.token ? `${base}/?pa_company=${c.token}` : "(no link — save to generate)";
+            return (
+              <div key={c.id} style={{ padding: 12, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, opacity: c.active ? 1 : 0.7 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <div style={{ fontWeight: 800, color: "#1e1b4b" }}>
+                    {c.name} {!c.active && <span style={{ fontSize: 10, color: "#6b7280" }}>(inactive)</span>}
+                    <span style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", marginLeft: 8 }}>{activePaCount(c.id)}/{paCount(c.id)} active PAs</span>
+                  </div>
+                  <button type="button" disabled={busy} onClick={() => onUpdate(c.id, { active: !c.active })} style={{ ...secondaryBtn, fontSize: 11 }}>
+                    {c.active ? "Deactivate" : "Activate"}
+                  </button>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 8 }}>
+                  <input defaultValue={c.admin_name || ""} placeholder="Admin name" style={inputStyle}
+                    onBlur={(e) => { const v = e.target.value.trim(); if (v !== (c.admin_name || "")) onUpdate(c.id, { admin_name: v || null }); }} />
+                  <input defaultValue={c.admin_phone || ""} placeholder="Admin phone (+1…)" style={inputStyle}
+                    onBlur={(e) => { const v = e.target.value.trim(); if (v !== (c.admin_phone || "")) onUpdate(c.id, { admin_phone: v || null }); }} />
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                  <code style={{ fontSize: 11, background: "#f1f5f9", padding: "4px 8px", borderRadius: 6, color: "#334155", wordBreak: "break-all", flex: 1, minWidth: 200 }}>{link}</code>
+                  {c.token && (
+                    <button type="button" onClick={() => { navigator.clipboard?.writeText(link); setCopiedId(c.id); setTimeout(() => setCopiedId(null), 1500); }}
+                      style={{ ...secondaryBtn, fontSize: 11 }}>{copiedId === c.id ? "✓ Copied" : "Copy link"}</button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PARow({ pa, companies = [], busy, onToggle, onResend, onUpdate, onDelete, onSetCompany, onCreateCompany }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({ name: pa.name, email: pa.email ?? "", phone: pa.phone ?? "" });
   const hasContact = !!(pa.phone || pa.email);
+  const companyName = companies.find((c) => c.id === pa.pa_company_id)?.name || null;
+  // Company picker: choose an existing company, "Independent", or create one.
+  const onCompanyChange = async (e) => {
+    const v = e.target.value;
+    if (v === "__new__") {
+      const nm = window.prompt("New PA company name:");
+      if (!nm || !nm.trim()) return;
+      const created = onCreateCompany ? await onCreateCompany(nm.trim()) : null;
+      if (created) onSetCompany && onSetCompany(created.id);
+      return;
+    }
+    onSetCompany && onSetCompany(v || "");
+  };
   return (
     <div style={{ padding: 10, background: pa.active ? "#fff" : "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: 8, opacity: pa.active ? 1 : 0.75 }}>
       {!editing ? (
@@ -887,6 +1006,16 @@ function PARow({ pa, busy, onToggle, onResend, onUpdate, onDelete }) {
             <div style={{ fontSize: 11, color: "#6b7280" }}>
               {pa.email && <>📧 {pa.email} · </>}
               {pa.phone ? <>📱 {pa.phone}</> : "no phone on file"}
+            </div>
+            <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+              <span>🏢</span>
+              <select value={pa.pa_company_id || ""} onChange={onCompanyChange}
+                style={{ fontSize: 11, padding: "3px 6px", borderRadius: 6, border: "1px solid #cbd5e1", maxWidth: 200 }}>
+                <option value="">Independent (own company)</option>
+                {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                <option value="__new__">+ New company…</option>
+              </select>
+              {companyName && <span style={{ fontWeight: 700, color: "#3730a3" }}>{companyName}</span>}
             </div>
           </div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
