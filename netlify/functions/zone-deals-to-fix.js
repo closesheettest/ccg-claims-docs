@@ -1,15 +1,16 @@
 // netlify/functions/zone-deals-to-fix.js
 //
-// On-demand "Deals need to be fixed" for a regional manager. Scans the last N
-// days (default 14) of JobNimbus SALES against the shared sales-audit
-// checklist (_sales-audit.js — same rules as the morning audit), filters to
-// ONE zone, and returns the flagged deals grouped by rep so the manager taps
-// a rep to see exactly what's missing/wrong.
+// On-demand "Deals need to be fixed" for a regional manager. Scans JobNimbus
+// SALES from a fixed floor (default 2026-06-01, when regional managers came
+// on) — NO rolling upper cutoff, so a deal stays listed until it's clean —
+// against the shared sales-audit checklist (_sales-audit.js, same rules as the
+// morning audit), filters to ONE zone, and groups the flagged deals by rep so
+// the manager taps a rep to see exactly what's missing/wrong.
 //
 // CORS-open: called cross-origin from the TMS regional-manager dashboard.
 //
-// GET /.netlify/functions/zone-deals-to-fix?zone=Zone%204[&days=14]
-// → { ok, zone, days, total_flagged, reps:[{ rep, count,
+// GET /.netlify/functions/zone-deals-to-fix?zone=Zone%204[&since=YYYY-MM-DD]
+// → { ok, zone, since, total_flagged, reps:[{ rep, count,
 //      deals:[{ name, customer, address, sold, missing[], errors[] }] }] }
 //
 // Env: JOBNIMBUS_API_KEY.
@@ -34,12 +35,14 @@ export const handler = async (event) => {
   const qp = event.queryStringParameters || {};
   const zone = (qp.zone || "").trim();
   if (!zone) return cors(400, JSON.stringify({ ok: false, error: "zone required" }));
-  let days = parseInt(qp.days, 10);
-  if (!Number.isFinite(days) || days < 1 || days > 90) days = 14;
+  // Fixed floor: regional managers came on ~June 1, 2026. There is NO rolling
+  // upper cutoff — a deal stays on the list until it's actually clean, and the
+  // live re-audit drops it the moment the rep fixes it in JN. Override the
+  // floor with ?since=YYYY-MM-DD.
+  const since = /^\d{4}-\d{2}-\d{2}$/.test(qp.since || "") ? qp.since : "2026-06-01";
 
   const jnHeaders = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
-  const nowMs = Date.now();
-  const cutoffMs = nowMs - days * 24 * 60 * 60 * 1000;
+  const cutoffMs = new Date(`${since}T04:00:00Z`).getTime(); // ~ET midnight (EDT)
   const sinceSec = Math.floor(cutoffMs / 1000) - 2 * 24 * 60 * 60; // pad the fetch window
 
   // 1. Pull recent jobs, keep sales sold within the window.
@@ -81,7 +84,7 @@ export const handler = async (event) => {
     .map(([rep, deals]) => ({ rep, count: deals.length, deals: deals.sort((a, b) => (b.sold || "").localeCompare(a.sold || "")) }))
     .sort((a, b) => b.count - a.count || a.rep.localeCompare(b.rep));
 
-  return cors(200, JSON.stringify({ ok: true, zone, days, total_flagged: totalFlagged, reps }));
+  return cors(200, JSON.stringify({ ok: true, zone, since, total_flagged: totalFlagged, reps }));
 };
 
 // ── infra (stable; checklist is shared in _sales-audit.js) ──────────────
