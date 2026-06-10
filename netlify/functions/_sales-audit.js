@@ -39,10 +39,14 @@ export function auditJob(job) {
   if (!has("Measurements Needed?")) missing.push("Measurements Needed?");
   if (!has("# of Stories")) missing.push("# of Stories");
   if (!pos("Roof Price ONLY")) errors.push("Roof Price ONLY is 0 / blank");
-  if (!pos("# of Squares (Pitch)")) errors.push("# of Squares (Pitch) is 0 / blank");
+  // Squares can be Pitch (sloped) or Flat (flat roof) — only flag if BOTH are
+  // 0/blank (a flat-only roof legitimately has Pitch 0 + Flat > 0).
+  if (!pos("# of Squares (Pitch)") && !pos("# of Squares (Flat)")) errors.push("# of Squares is 0 / blank (enter Pitch or Flat squares)");
 
   // ── Roofing product + its color ──────────────────────────────────────
-  const products = ["Exposed Fastener", "Standing Seam", "Shingle", "Permalock", "Tile", "Stone Coated Metal"];
+  // Includes the flat products (Modified Bitumen / TPO) so an all-flat roof
+  // counts as having a product selected.
+  const products = ["Exposed Fastener", "Standing Seam", "Shingle", "Permalock", "Tile", "Stone Coated Metal", "Modified Bitman", "TPO"];
   const soldProducts = products.filter((p) => yes(p));
   if (soldProducts.length === 0) {
     errors.push("No roofing product selected (Exposed Fastener / Standing Seam / Shingle / Permalock / Tile / Stone Coated Metal)");
