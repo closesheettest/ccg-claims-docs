@@ -94,10 +94,19 @@ exports.handler = async (event) => {
   if (SB_URL_2 && SB_KEY_2) {
     try {
       const cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      // Only flag results that actually GET a cert. Must mirror
+      // cron-retry-missing-certs' VALID_RESULTS exactly — otherwise we
+      // alarm on rows the retry will never touch, so they're "stuck"
+      // forever. The big offender: result='lost' (deal lost — no cert
+      // exists, nothing to generate). Other placeholder/terminal states
+      // ('Needs Service', etc.) are excluded for the same reason. Without
+      // this, 13 'lost' deals false-alarmed daily (2026-06-10).
+      const VALID_RESULTS = ['damage', 'retail', 'no_damage'];
+      const resultIn = encodeURIComponent(VALID_RESULTS.map((r) => `"${r}"`).join(','));
       const q =
         `select=client_name,address,city,sales_rep_name,result,result_at,jn_job_id` +
         `&inspector_id=not.is.null` +
-        `&result=not.is.null` +
+        `&result=in.(${resultIn})` +
         `&jn_job_id=not.is.null` +
         `&cancelled_at=is.null` +
         `&jn_cert_uploaded_at=is.null` +
