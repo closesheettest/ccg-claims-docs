@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Inspection Workflow — U.S. Shingle &amp; Metal</title>
+<style>
+  :root{ --navy:#13294b; --navy2:#0a1730; --gold:#d4a142; --red:#b8324f;
+    --green:#2f8f5b; --ink:#1e293b; --muted:#64748b; --line:#e2e8f0; }
+  *{box-sizing:border-box}
+  body{margin:0;background:#eef2f7;color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.45;}
+  .wrap{max-width:1040px;margin:0 auto;padding:20px 16px 72px;}
+  header{background:var(--navy);color:#fff;border-radius:16px;padding:22px;margin-bottom:18px;}
+  header h1{margin:0 0 4px;font-size:23px;}
+  header p{margin:0;font-size:14px;opacity:.85;}
+  .card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:20px 18px;margin-bottom:16px;box-shadow:0 1px 2px rgba(0,0,0,.04);}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 16px;}
+
+  /* vertical flow */
+  .flow{display:flex;flex-direction:column;align-items:center;}
+  .box{width:100%;max-width:430px;border-radius:12px;padding:12px 16px;text-align:center;font-size:15px;font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.08);}
+  .box small{display:block;font-weight:400;font-size:12.5px;opacity:.85;margin-top:2px;}
+  .box code{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;font-weight:600;opacity:.9;}
+  .rep{background:var(--navy);color:#fff;}
+  .insp{background:#3a5a8c;color:#fff;}
+  .sys{background:#eef2f8;color:var(--navy);border:1px solid #cbd5e1;}
+  .arrow{width:2px;height:22px;background:#b6c2d2;position:relative;}
+  .arrow::after{content:"";position:absolute;bottom:-1px;left:-4px;border:5px solid transparent;border-top-color:#b6c2d2;}
+  .dec{background:var(--gold);color:#3a2c08;border-radius:999px;padding:11px 26px;font-weight:800;font-size:15px;text-align:center;box-shadow:0 2px 6px rgba(212,161,66,.4);}
+  .opt{max-width:430px;width:100%;border:1.5px dashed #9bb0cf;border-radius:10px;background:#f6f9fe;color:#3a5a8c;font-size:12.5px;padding:7px 12px;text-align:center;}
+
+  /* branch columns */
+  .branches{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;}
+  @media(min-width:760px){.branches{grid-template-columns:repeat(4,1fr);}}
+  .col{display:flex;flex-direction:column;align-items:center;gap:0;}
+  .chip{width:100%;border-radius:10px 10px 0 0;padding:9px 8px;text-align:center;font-weight:800;font-size:13px;color:#fff;}
+  .chip small{display:block;font-weight:600;font-size:11px;opacity:.9;}
+  .c-pa{background:var(--green);} .c-ret{background:var(--gold);color:#3a2c08;} .c-nod{background:#64748b;} .c-lost{background:var(--red);}
+  .node{width:100%;border:1px solid var(--line);border-top:0;background:#fff;padding:10px 8px;text-align:center;font-size:12.5px;font-weight:500;color:var(--ink);}
+  .node:last-child{border-radius:0 0 10px 10px;}
+  .node.pay{background:#e8f7ee;color:#14532d;font-weight:700;}
+  .node small{display:block;color:var(--muted);font-weight:400;font-size:11px;margin-top:1px;}
+  .vbar{width:2px;height:12px;background:#cbd5e1;}
+
+  /* correction loop (horizontal) */
+  .loop{display:flex;flex-wrap:wrap;align-items:center;gap:8px;}
+  .lstep{flex:1;min-width:130px;border:1px solid var(--line);border-left:4px solid var(--green);border-radius:10px;padding:9px 11px;font-size:12.5px;font-weight:600;background:#fff;}
+  .larr{color:#b6c2d2;font-weight:800;font-size:18px;}
+
+  /* safety nets */
+  .grid{display:grid;grid-template-columns:1fr;gap:12px;}
+  @media(min-width:680px){.grid{grid-template-columns:1fr 1fr;}}
+  .net{border:1px solid var(--line);border-left:4px solid var(--gold);border-radius:10px;padding:12px 14px;background:#fff;}
+  .net b{display:block;font-size:14px;color:var(--navy);}
+  .net code{font-size:11px;color:var(--red);background:#fbeef1;padding:1px 5px;border-radius:4px;}
+  .net span{display:block;font-size:13px;color:var(--muted);margin-top:3px;}
+  .foot{font-size:12px;color:var(--muted);text-align:center;margin-top:6px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>🏠 Roof Inspection — End-to-End Workflow</h1>
+    <p>From the door knock to the payout — every stage, every branch, and the automated safety nets that keep deals from falling through.</p>
+  </header>
+
+  <!-- STAGE 1 -->
+  <div class="card">
+    <h2>Stage 1 · Door → inspection → classified</h2>
+    <div class="flow">
+      <div class="box rep">🚪 Rep harvests a FREE inspection<small>at the door — the small yes</small></div>
+      <div class="arrow"></div>
+      <div class="box rep">✍️ Homeowner SIGNS the inspection agreement</div>
+      <div class="arrow"></div>
+      <div class="box sys">📄 Signed agreement archived<small><code>signed_pdfs.insp</code></small></div>
+      <div class="arrow"></div>
+      <div class="box sys">🔗 Synced to JobNimbus<small>job created · <code>jn_job_id</code></small></div>
+      <div class="arrow"></div>
+      <div class="box insp">🧑‍🔧 Inspector assigned — goes out &amp; inspects</div>
+      <div class="arrow"></div>
+      <div class="box insp">📸 Inspector submits result<small>uploads photos + classifies</small></div>
+      <div class="arrow"></div>
+      <div class="opt">⏸ If the inspector is flagged, the result is <b>held</b> → a manager confirms or rejects first</div>
+      <div class="arrow"></div>
+      <div class="box sys">➡️ Push result to JobNimbus<small><code>cf_string_34</code></small></div>
+      <div class="arrow"></div>
+      <div class="box sys">📑 Generate cert PDF → JobNimbus Documents</div>
+      <div class="arrow"></div>
+      <div class="dec">⬇ WHAT'S THE RESULT? ⬇</div>
+    </div>
+  </div>
+
+  <!-- STAGE 2 -->
+  <div class="card">
+    <h2>Stage 2 · The result decides the path</h2>
+    <div class="branches">
+      <div class="col">
+        <div class="chip c-pa">🟢 STORM DAMAGE<small>~58%</small></div>
+        <div class="node">PA Ops Hub PDN fired → PA auto-assigned <small>round-robin into company pools</small></div>
+        <div class="vbar"></div>
+        <div class="node">PA fights the claim <small>on the homeowner's side</small></div>
+        <div class="vbar"></div>
+        <div class="node">✅ Approved + INSTALLED</div>
+        <div class="vbar"></div>
+        <div class="node pay">💰 Rep paid ~5% <small>"bonus check"</small></div>
+      </div>
+      <div class="col">
+        <div class="chip c-ret">🟡 WEAR &amp; TEAR<small>~32%</small></div>
+        <div class="node">Record-type / location swap <small><code>process-retail-result</code></small></div>
+        <div class="vbar"></div>
+        <div class="node">Retail appointment — the Go-Back close</div>
+        <div class="vbar"></div>
+        <div class="node pay">💰 Sale → rep paid ~10% <small>paid upfront</small></div>
+      </div>
+      <div class="col">
+        <div class="chip c-nod">⚪ NO DAMAGE<small>~10%</small></div>
+        <div class="node">Hand homeowner the inspection certificate <small>ammunition vs. the insurer</small></div>
+        <div class="vbar"></div>
+        <div class="node">🔁 Referrals — 1 home → 10×</div>
+      </div>
+      <div class="col">
+        <div class="chip c-lost">🔴 LOST</div>
+        <div class="node">Dead — no cert, no further action</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CORRECTION LOOP -->
+  <div class="card">
+    <h2>PA correction / question loop</h2>
+    <div class="loop">
+      <div class="lstep">🧑‍💼 PA spots wrong / missing info</div>
+      <span class="larr">→</span>
+      <div class="lstep">Flags a correction or question</div>
+      <span class="larr">→</span>
+      <div class="lstep">📱 Rep + manager texted a fix link</div>
+      <span class="larr">→</span>
+      <div class="lstep">Rep fixes it / answers</div>
+      <span class="larr">→</span>
+      <div class="lstep">🔗 JobNimbus updated + note added</div>
+      <span class="larr">→</span>
+      <div class="lstep">📱 PA notified: corrected</div>
+    </div>
+  </div>
+
+  <!-- SAFETY NETS -->
+  <div class="card">
+    <h2>Automated safety nets (so nothing falls through)</h2>
+    <div class="grid">
+      <div class="net"><b>Sync orphans</b> <code>every 15 min</code><span>Signed deals that never reached JobNimbus get re-synced automatically (a missing JN job = a payroll problem).</span></div>
+      <div class="net"><b>Push pending results</b> <code>:05 hourly</code><span>Any classified result not yet pushed to JN's <code>cf_string_34</code> gets pushed.</span></div>
+      <div class="net"><b>Retry missing certs</b> <code>:20 hourly</code><span>A cert PDF that didn't land in JobNimbus gets regenerated &amp; re-uploaded.</span></div>
+      <div class="net"><b>Assign PAs</b> <code>cron-assign-pas</code><span>Damage deals round-robin into the PA company pools — fair per-PA, not per-company.</span></div>
+      <div class="net"><b>Daily heartbeat</b> <code>8 AM</code><span>Texts admin a morning summary: orphans, certs stuck 24h+, and signed agreements that never archived.</span></div>
+      <div class="net"><b>Inspection checker</b> <code>:00 / 15 / 30 / 45</code><span>Keeps inspection state moving between the steps above.</span></div>
+    </div>
+    <p class="foot">Hosted reference · U.S. Shingle &amp; Metal — reflects the live inspection pipeline.</p>
+  </div>
+
+</div>
+</body>
+</html>
