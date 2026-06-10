@@ -49,7 +49,7 @@ export function auditJob(job) {
   const products = ["Exposed Fastener", "Standing Seam", "Shingle", "Permalock", "Tile", "Stone Coated Metal", "Modified Bitman", "TPO"];
   const soldProducts = products.filter((p) => yes(p));
   if (soldProducts.length === 0) {
-    errors.push("No roofing product selected (Exposed Fastener / Standing Seam / Shingle / Permalock / Tile / Stone Coated Metal)");
+    errors.push("No roofing product selected (Shingle / Exposed Fastener / Standing Seam / Permalock / Tile / Stone Coated Metal — or for a flat roof: Modified Bitumen / TPO)");
   }
   if (yes("Exposed Fastener") && !has("Exposed Fastener Color")) missing.push("Exposed Fastener Color");
   if (yes("Standing Seam") && !has("Standing Seam Color")) missing.push("Standing Seam Color");
