@@ -1106,6 +1106,7 @@ export function PAAdminPanel() {
 // admin's personal link (…/?pa_company=<token>), active toggle, and a count
 // of member PAs. Each company's admin uses their link to assign pooled deals.
 function PACompaniesPanel({ companies, pas, busy, onUpdate, onCreate }) {
+  const [open, setOpen] = useState(false);   // collapsed by default
   const [copiedId, setCopiedId] = useState(null);
   const [sendOpenId, setSendOpenId] = useState(null);
   const [sendBusyId, setSendBusyId] = useState(null);
@@ -1143,11 +1144,17 @@ function PACompaniesPanel({ companies, pas, busy, onUpdate, onCreate }) {
 
   return (
     <section style={{ border: "1px solid #c7d2fe", borderRadius: 12, padding: 16, background: "#f5f3ff" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
-        <div style={{ fontSize: 15, fontWeight: 800, color: "#5b21b6", fontFamily: "'Oswald', sans-serif" }}>🏢 PA Companies ({companies.length})</div>
-        <button type="button" disabled={busy} onClick={async () => { const n = window.prompt("New PA company name:"); if (n && n.trim()) await onCreate(n.trim()); }}
-          style={{ ...secondaryBtn, fontSize: 12, borderColor: "#c4b5fd", color: "#5b21b6" }}>+ Add company</button>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: open ? 4 : 0 }}>
+        <button type="button" onClick={() => setOpen((v) => !v)}
+          style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 15, fontWeight: 800, color: "#5b21b6", fontFamily: "'Oswald', sans-serif" }}>
+          {open ? "▾" : "▸"} 🏢 PA Companies ({companies.length})
+        </button>
+        {open && (
+          <button type="button" disabled={busy} onClick={async () => { const n = window.prompt("New PA company name:"); if (n && n.trim()) await onCreate(n.trim()); }}
+            style={{ ...secondaryBtn, fontSize: 12, borderColor: "#c4b5fd", color: "#5b21b6" }}>+ Add company</button>
+        )}
       </div>
+      {!open ? null : (<>
       <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 10 }}>
         Deals auto-route into a company's pool; the company admin assigns them to their PAs via their personal link.
       </div>
@@ -1223,6 +1230,7 @@ function PACompaniesPanel({ companies, pas, busy, onUpdate, onCreate }) {
           })}
         </div>
       )}
+      </>)}
     </section>
   );
 }
