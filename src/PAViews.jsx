@@ -2632,11 +2632,11 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
         <div style={{ fontWeight: 700, fontSize: 17, fontFamily: "'Oswald', sans-serif" }}>{job.client_name || "(no name)"}</div>
         {addr && <div style={{ fontSize: 13, color: "#374151", marginTop: 4 }}>{addr}</div>}
         {addr && <MapLinks address={addr} size="lg" />}
-        {job.mobile && (
-          <a href={`tel:${job.mobile}`} style={{ display: "inline-block", marginTop: 8, fontSize: 14, fontWeight: 700, color: "#1d4ed8", textDecoration: "none" }}>
-            📞 {job.mobile}
-          </a>
-        )}
+        {job.mobile
+          ? <a href={`tel:${String(job.mobile).replace(/[^\d+]/g, "")}`} style={{ display: "inline-block", marginTop: 8, fontSize: 15, fontWeight: 700, color: "#1d4ed8", textDecoration: "none" }}>
+              📞 {job.mobile}
+            </a>
+          : <div style={{ marginTop: 8, fontSize: 13, color: "#b45309", fontWeight: 600 }}>📞 no phone on file</div>}
         <div style={{ fontSize: 12, color: "#6b7280", marginTop: 8 }}>
           {job.sales_rep_name && <>Rep: {job.sales_rep_name} · </>}
           <span style={{ color: "#991b1b", fontWeight: 700 }}>DAMAGE</span>
