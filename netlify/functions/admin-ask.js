@@ -97,6 +97,24 @@ export const handler = async (event) => {
   }
 
   try {
+    // Retail / insurance "sales" questions: ALWAYS answer from data — the
+    // classifier sometimes mislabels these as a feature request. Per US
+    // Shingle's definition: retail sales = sold contracts this week (sales
+    // metric); insurance sales = free roof inspections signed this week.
+    const qlc0 = question.toLowerCase();
+    if (/\bsale/.test(qlc0) && /\b(retail|insurance)\b/.test(qlc0)) {
+      const isInsurance = /\binsurance\b/.test(qlc0);
+      const p = { ...plan, kind: "data", date_range: plan.date_range || "this_week" };
+      if (isInsurance) {
+        p.metric = plan.person_name ? "inspections_signed_by_rep" : "inspections_total";
+        p.note_insurance = true;
+      } else {
+        p.metric = plan.person_name ? "sales_by_rep" : "sales_this_week";
+        p.note_retail = true;
+      }
+      return await answerData(p);
+    }
+
     if (plan.kind === "navigation") {
       const key = TOOL_KEYS.includes(plan.tool_key) ? plan.tool_key : null;
       if (!key) {
