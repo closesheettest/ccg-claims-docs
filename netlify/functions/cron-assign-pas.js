@@ -93,10 +93,12 @@ export const handler = async (event) => {
   for (const t of targets) t.load = (t.type === "company" ? poolLoad[t.id] : indLoad[t.id]) || 0;
 
   // 4. Eligible deals — not assigned to a PA AND not already pooled.
+  //    pa_stage='dead' is excluded so scrubbed deals (e.g. already filed by
+  //    the prior PA) never get pulled back into the pipeline.
   const deals = await get(
     `${SB_URL}/rest/v1/inspections?select=id,client_name,signed_at` +
       `&result=eq.damage&pa_id=is.null&pa_company_id=is.null&jn_job_id=not.is.null&cancelled_at=is.null` +
-      `&pa_decision_needed=eq.false&signed_at=not.is.null` +
+      `&pa_decision_needed=eq.false&signed_at=not.is.null&or=(pa_stage.is.null,pa_stage.neq.dead)` +
       `&order=signed_at.asc&limit=${PER_RUN}`,
     sb,
   );
