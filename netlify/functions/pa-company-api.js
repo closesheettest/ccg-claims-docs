@@ -161,19 +161,31 @@ exports.handler = async (event) => {
     const name = String(body.name || "").trim();
     const email = String(body.email || "").trim().toLowerCase();
     const phone = String(body.phone || "").trim();
+    const homeAddress = String(body.home_address || "").trim();
+    const maxN = Number(body.max_distance_miles);
+    const maxDist = Number.isFinite(maxN) && maxN > 0 ? Math.round(maxN) : null;
+    const lat = typeof body.latitude === "number" ? body.latitude : null;
+    const lng = typeof body.longitude === "number" ? body.longitude : null;
+    // Everything except max distance is required (so the company admin never
+    // has to come back and edit). The JobNimbus notification still only
+    // carries name/email/phone — address & distance are ours, not JN's.
     if (!name) return cors(400, JSON.stringify({ ok: false, error: "Name is required." }));
     if (!/^\S+@\S+\.\S+$/.test(email)) return cors(400, JSON.stringify({ ok: false, error: "A valid email is required — it's how we link them to JobNimbus." }));
+    if (!phone) return cors(400, JSON.stringify({ ok: false, error: "Phone is required." }));
+    if (!homeAddress) return cors(400, JSON.stringify({ ok: false, error: "Home address is required." }));
     const dupe = await get(`${SB_URL}/rest/v1/pas?pa_company_id=eq.${company.id}&email=eq.${encodeURIComponent(email)}&select=id&limit=1`, sb);
     if (dupe.length) return cors(409, JSON.stringify({ ok: false, error: "You already added someone with that email." }));
+    const row = { name, email, phone, home_address: homeAddress, latitude: lat, longitude: lng, pa_company_id: company.id, active: false };
+    if (maxDist != null) row.max_distance_miles = maxDist;
     const ins = await fetch(`${SB_URL}/rest/v1/pas`, {
-      method: "POST", headers: { ...sb, Prefer: "return=minimal" },
-      body: JSON.stringify({ name, email, phone: phone || null, pa_company_id: company.id, active: false }),
+      method: "POST", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify(row),
     });
     if (!ins.ok) return cors(500, JSON.stringify({ ok: false, error: `Couldn't add: ${(await ins.text()).slice(0, 160)}` }));
+    // Notification → name/email/phone ONLY (what JobNimbus needs).
     const msg =
       `🧰 New PA to add in JobNimbus — from ${company.name}.\n` +
       `Add this person as a JN user, typed EXACTLY as shown so it auto-links:\n` +
-      `Name: ${name}\nEmail: ${email}` + (phone ? `\nPhone: ${phone}` : "");
+      `Name: ${name}\nEmail: ${email}\nPhone: ${phone}`;
     await notifyJnAdmins(base, msg);
     return cors(200, JSON.stringify({ ok: true }));
   }

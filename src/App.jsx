@@ -4425,7 +4425,7 @@ function PACompanyAdminPage({ token }) {
   const [editForm, setEditForm] = useState(null);
   const [savingPa, setSavingPa] = useState(false);
   const [addOpen, setAddOpen] = useState(false);  // "add adjuster" form
-  const [addForm, setAddForm] = useState({ name: "", email: "", phone: "" });
+  const [addForm, setAddForm] = useState({ name: "", email: "", phone: "", home_address: "", max_distance_miles: "" });
   const [addBusy, setAddBusy] = useState(false);
   const [activateBusy, setActivateBusy] = useState(null);
 
@@ -4523,17 +4523,28 @@ function PACompanyAdminPage({ token }) {
   // texts whoever manages JN to add them. They show as "Waiting for JobNimbus"
   // until the 5-min linker matches them, then become "Ready to activate."
   const addPa = async () => {
-    const name = addForm.name.trim(), email = addForm.email.trim();
-    if (!name || !email) { setErr("Name and email are both required."); return; }
+    const name = addForm.name.trim(), email = addForm.email.trim(), phone = addForm.phone.trim(), addr = addForm.home_address.trim();
+    if (!name || !email || !phone || !addr) { setErr("Name, email, phone, and home address are all required."); return; }
     setAddBusy(true);
     try {
+      const payload = {
+        token, action: "add_pa", name, email, phone, home_address: addr,
+        max_distance_miles: addForm.max_distance_miles === "" ? null : Number(addForm.max_distance_miles),
+      };
+      // Geocode the home address now so distance works without a later edit.
+      try {
+        const r = await fetch("/.netlify/functions/geocode-place", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: addr }),
+        });
+        const g = await r.json().catch(() => ({}));
+        if (g.ok && typeof g.lat === "number") { payload.latitude = g.lat; payload.longitude = g.lng; }
+      } catch { /* geocode best-effort */ }
       const res = await fetch("/.netlify/functions/pa-company-api", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, action: "add_pa", name, email, phone: addForm.phone.trim() }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
       });
       const out = await res.json().catch(() => ({}));
       if (!res.ok || !out.ok) { setErr(out.error || "Couldn't add adjuster."); }
-      else { setErr(""); setAddForm({ name: "", email: "", phone: "" }); setAddOpen(false); await load(); }
+      else { setErr(""); setAddForm({ name: "", email: "", phone: "", home_address: "", max_distance_miles: "" }); setAddOpen(false); await load(); }
     } catch { setErr("Network error."); }
     setAddBusy(false);
   };
@@ -4717,7 +4728,10 @@ function PACompanyAdminPage({ token }) {
                 <div style={{ fontSize: 12, color: "#6b21a8", marginBottom: 8 }}>We'll ask U.S. Shingle to add them in JobNimbus. They'll show as “⏳ Waiting for JobNimbus,” then turn into “✅ Ready” for you to activate — usually within a few minutes.</div>
                 <label style={{ fontSize: 12, fontWeight: 700, color: "#374151" }}>Full name<input value={addForm.name} onChange={(e) => setAddForm((f) => ({ ...f, name: e.target.value }))} style={fld} placeholder="First Last" /></label>
                 <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginTop: 6 }}>Email (used to link them to JobNimbus)<input type="email" value={addForm.email} onChange={(e) => setAddForm((f) => ({ ...f, email: e.target.value }))} style={fld} placeholder="name@example.com" /></label>
-                <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginTop: 6 }}>Phone (optional)<input type="tel" value={addForm.phone} onChange={(e) => setAddForm((f) => ({ ...f, phone: e.target.value }))} style={fld} placeholder="+1…" /></label>
+                <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginTop: 6 }}>Phone<input type="tel" value={addForm.phone} onChange={(e) => setAddForm((f) => ({ ...f, phone: e.target.value }))} style={fld} placeholder="+1…" /></label>
+                <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginTop: 6 }}>Home address<input value={addForm.home_address} onChange={(e) => setAddForm((f) => ({ ...f, home_address: e.target.value }))} style={fld} placeholder="123 Main St, City, FL 33000" /></label>
+                <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginTop: 6 }}>Max travel distance (miles) — optional<input type="number" min="1" inputMode="numeric" value={addForm.max_distance_miles} onChange={(e) => setAddForm((f) => ({ ...f, max_distance_miles: e.target.value }))} style={fld} placeholder="e.g. 100 (leave blank for no limit)" /></label>
+                <div style={{ fontSize: 11, color: "#6b21a8", marginTop: 8 }}>Only the <b>name, email, and phone</b> are sent to add them in JobNimbus — address &amp; distance stay here.</div>
                 <div style={{ marginTop: 10 }}><Button onClick={addPa} disabled={addBusy}>{addBusy ? "Adding…" : "Add adjuster & notify U.S. Shingle"}</Button></div>
               </div>
             )}
