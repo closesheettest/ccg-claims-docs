@@ -78,12 +78,14 @@ exports.handler = async (event) => {
   return cors(200, JSON.stringify({ ok: true, zone, days, total, reps }));
 };
 
-// "Mon, Jun 9 · 5:30 PM" in Eastern.
+// "Mon, Jun 9 · 5:30 PM" in Eastern — but if the appt has no real time
+// (stored at midnight = date only), show just the date.
 function apptLabel(date) {
-  return new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric",
-    hour: "numeric", minute: "2-digit",
-  }).format(date);
+  const datePart = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric" }).format(date);
+  const hm = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(date);
+  if (hm === "00:00" || hm === "24:00") return datePart;
+  const timePart = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }).format(date);
+  return `${datePart} · ${timePart}`;
 }
 
 async function fetchRecentJobs(jnHeaders, sinceSec) {
