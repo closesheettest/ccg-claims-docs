@@ -85,26 +85,8 @@ export const handler = async (event) => {
     const counts = {}
     const dealsByZone = {} // zone → [{ rep, customer, amount }]
     const matched = []
-    const soldThisWeekAll = [] // debug: every job sold this week, ANY status
     let unattributed = 0
     for (const j of jobs) {
-      if (debug) {
-        const sMs = soldDateMs(j);
-        if (sMs != null && sMs >= startMs && sMs <= endMs) {
-          soldThisWeekAll.push({ name: j.name, rep: j.sales_rep_name || null, status: j.status_name, sold: new Date(sMs).toISOString().slice(0, 10) });
-        }
-        // Sold-STATUS jobs whose status changed this week but whose Sold
-        // Date is blank or NOT this week → candidate missed sales (rep
-        // forgot the Sold Date field).
-        const st = String(j.status_name || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-        const scMs = Number(j.date_status_change) > 0 ? Number(j.date_status_change) * 1000 : null;
-        if (SOLD_STATUSES.has(st) && scMs != null && scMs >= startMs && scMs <= endMs) {
-          const inWeekSold = sMs != null && sMs >= startMs && sMs <= endMs;
-          if (!inWeekSold) {
-            soldThisWeekAll.push({ name: j.name, rep: j.sales_rep_name || null, status: j.status_name, sold: sMs ? new Date(sMs).toISOString().slice(0, 10) : 'BLANK', status_changed: new Date(scMs).toISOString().slice(0, 10), MISSED: true });
-          }
-        }
-      }
       // Normalize the JN status before matching: JN names several stages
       // with separators/punctuation ("Sit - Sold", not "Sit Sold"), so a
       // plain lowercase compare missed sold deals. Collapse everything
@@ -158,7 +140,6 @@ export const handler = async (event) => {
       payload.scanned = jobs.length
       payload.unattributed = unattributed
       payload.matched = matched
-      payload.sold_this_week_all = soldThisWeekAll
     }
     return cors(200, JSON.stringify(payload))
   } catch (e) {
