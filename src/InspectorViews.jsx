@@ -5061,6 +5061,10 @@ export function ConfirmResultsPanel() {
   // stored result). When it differs from the stored result, Confirm
   // re-files the JN job to match the new call.
   const [overrides, setOverrides] = useState({});
+  // Live JN photo counts keyed by jn_job_id. Pre-wizard / held results can
+  // have photos in JobNimbus but an empty inspection_photos field, so the
+  // "no photos" check must look at BOTH (else we'd wrongly block them).
+  const [jnCounts, setJnCounts] = useState({});
 
   useEffect(() => { loadHeld(); }, []);
 
@@ -5076,6 +5080,17 @@ export function ConfirmResultsPanel() {
       setRows([]);
     } else {
       setRows(data || []);
+      // Pull live JN photo counts so a record with photos in JN (but an
+      // empty inspection_photos field) isn't treated as "no photos".
+      const jnIds = (data || []).map((r) => r.jn_job_id).filter(Boolean);
+      if (jnIds.length) {
+        fetch("/.netlify/functions/jn-photo-counts", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jn_job_ids: jnIds }),
+        }).then((r) => r.ok ? r.json() : null)
+          .then((b) => { if (b?.counts) setJnCounts(b.counts); })
+          .catch(() => { /* silent — falls back to inspection_photos only */ });
+      }
     }
     setLoading(false);
   }
@@ -5110,9 +5125,9 @@ export function ConfirmResultsPanel() {
     // Fail-safe: a result can't be confirmed/fired with no photos —
     // including No Damage. (Only "lost" is photo-free.) Stops pre-fix
     // no-photo submissions from firing a broken cert / PA notice.
-    const photoCount = Array.isArray(insp.inspection_photos) ? insp.inspection_photos.length : 0;
+    const photoCount = (Array.isArray(insp.inspection_photos) ? insp.inspection_photos.length : 0) + (jnCounts[insp.jn_job_id] || 0);
     if (action === "confirm" && chosen !== "lost" && photoCount === 0) {
-      alert(`${insp.client_name} has NO photos.\n\nEvery result — including No Damage — needs photos before it can be confirmed and fired. Reject this one and have the inspector re-inspect to add photos.`);
+      alert(`${insp.client_name} has NO photos (none in the app or in JobNimbus).\n\nEvery result — including No Damage — needs photos before it can be confirmed and fired. Reject this one and have the inspector re-inspect to add photos.`);
       return;
     }
     let warn;
@@ -5223,6 +5238,8 @@ export function ConfirmResultsPanel() {
         <div style={{ display: "grid", gap: 10 }}>
           {rows.map((insp) => {
             const photos = Array.isArray(insp.inspection_photos) ? insp.inspection_photos : [];
+            const jnPhotoN = jnCounts[insp.jn_job_id] || 0;          // photos in JobNimbus
+            const totalPhotos = photos.length + jnPhotoN;            // app + JN
             const open = !!photosOpen[insp.id];
             const urls = photoUrls[insp.id] || [];
             const busy = busyId === insp.id;
@@ -5267,10 +5284,10 @@ export function ConfirmResultsPanel() {
                       })()}
                       {insp.inspector_name && <span>👤 {insp.inspector_name}</span>}
                       {insp.result_at && <span>🕑 {new Date(insp.result_at).toLocaleString()}</span>}
-                      {photos.length > 0 && <span>📷 {photos.length}</span>}
-                      {photos.length === 0 && (overrides[insp.id] || insp.result) !== "lost" && (
+                      {totalPhotos > 0 && <span>📷 {totalPhotos}{photos.length === 0 && jnPhotoN > 0 ? " (in JN)" : ""}</span>}
+                      {totalPhotos === 0 && (overrides[insp.id] || insp.result) !== "lost" && (
                         <span style={{ background: "#fef2f2", color: "#991b1b", border: "1px solid #fecaca", borderRadius: 999, padding: "2px 8px", fontSize: 11, fontWeight: 700 }}
-                          title="No photos on this inspection — it can't be confirmed/fired. Reject and have the inspector re-inspect.">
+                          title="No photos in the app OR in JobNimbus — it can't be confirmed/fired. Reject and have the inspector re-inspect.">
                           ⚠ No photos
                         </span>
                       )}
@@ -5308,7 +5325,7 @@ export function ConfirmResultsPanel() {
                   </div>
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                     {(() => {
-                      const noPhotoBlock = photos.length === 0 && (overrides[insp.id] || insp.result) !== "lost";
+                      const noPhotoBlock = totalPhotos === 0 && (overrides[insp.id] || insp.result) !== "lost";
                       const disabled = busy || noPhotoBlock;
                       return (
                         <button
