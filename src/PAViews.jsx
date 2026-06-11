@@ -219,6 +219,7 @@ export function PAAdminPanel() {
   const [companyBusy, setCompanyBusy] = useState(false);
   const [geocodingPas, setGeocodingPas] = useState(false);
   // Collapsible sections (collapsed by default so the page opens tidy).
+  const [showAuto, setShowAuto] = useState(false);
   const [showNeeds, setShowNeeds] = useState(false);
   const [showReassign, setShowReassign] = useState(false);
   const [showDead, setShowDead] = useState(false);
@@ -840,10 +841,14 @@ export function PAAdminPanel() {
       <section style={{ border: "1px solid #c7d2fe", borderRadius: 12, padding: 16, background: "#eef2ff" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <div style={{ flex: 1, minWidth: 220 }}>
-            <div style={{ fontSize: 15, fontWeight: 800, color: "#3730a3", fontFamily: "'Oswald', sans-serif" }}>🔁 Auto-assign</div>
-            <div style={{ fontSize: 12, color: "#4338ca", marginTop: 2 }}>
-              Damage deals route to active PAs automatically (round-robin; each PA works newest signings first). PAs no longer self-claim.
-            </div>
+            <button type="button" onClick={() => setShowAuto((v) => !v)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left", fontSize: 15, fontWeight: 800, color: "#3730a3", fontFamily: "'Oswald', sans-serif" }}>
+              {showAuto ? "▾" : "▸"} 🔁 Auto-assign
+            </button>
+            {showAuto && (
+              <div style={{ fontSize: 12, color: "#4338ca", marginTop: 2 }}>
+                Damage deals route to active PAs automatically (round-robin; each PA works newest signings first). PAs no longer self-claim.
+              </div>
+            )}
           </div>
           <button type="button" onClick={toggleAuto}
             style={{ ...secondaryBtn, fontWeight: 800, fontSize: 13, padding: "10px 16px", whiteSpace: "nowrap",
@@ -854,6 +859,7 @@ export function PAAdminPanel() {
         </div>
 
         {/* Per-PA open load + unassigned count */}
+        {showAuto && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
           {active.map((pa) => (
             <span key={pa.id} style={{ fontSize: 12, fontWeight: 700, color: "#3730a3", background: "#fff", border: "1px solid #c7d2fe", borderRadius: 999, padding: "4px 10px" }}>
@@ -864,6 +870,7 @@ export function PAAdminPanel() {
             Unassigned: {overview.unassignedList.length}
           </span>
         </div>
+        )}
 
         {/* Progress report — per-PA breakdown across the pipeline buckets. */}
         <div style={{ marginTop: 12 }}>
