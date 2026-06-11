@@ -2028,28 +2028,26 @@ function MapLinks({ address, lat, lng, size = "sm" }) {
 // else (signup, notes, can't-reach, dead, milestones) lives in the pipeline
 // detail view so the list stays a clean, scannable queue.
 function PAJobCard({ job, onOpen, me }) {
-  const signed = job.signed_at
-    ? new Date(job.signed_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+  const signedDt = job.signed_at ? new Date(job.signed_at) : null;
+  const signed = signedDt
+    ? signedDt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/New_York" })
     : "—";
-  // Relative age of the signing — the recontact-relevance signal ("how
-  // stale is this lead?"). Computed from the signed_at timestamp.
-  const signedAgo = (() => {
-    if (!job.signed_at) return "";
-    const days = Math.floor((Date.now() - new Date(job.signed_at).getTime()) / 86400000);
-    if (days < 0) return "";
-    if (days === 0) return "today";
-    if (days === 1) return "yesterday";
-    if (days < 30) return `${days}d ago`;
-    const mo = Math.floor(days / 30);
-    return mo < 12 ? `${mo}mo ago` : `${Math.floor(mo / 12)}y ago`;
+  // Time of day the homeowner was signed (Eastern) — useful for knowing
+  // when you talked to them so you can recontact at a similar time. Hidden
+  // for imported date-only records (midnight = no real time recorded).
+  const signedTime = (() => {
+    if (!signedDt) return "";
+    const hm = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(signedDt);
+    if (hm === "00:00" || hm === "24:00") return "";
+    return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }).format(signedDt);
   })();
-  // Last time the PA logged contact (a note) — the truest "when did we
-  // last talk to them" for recontacting. From the timestamped notes log.
+  // Last logged contact (a note), with time — the truest "when did we last
+  // talk to them" for recontacting.
   const lastNote = Array.isArray(job.pa_notes_log) && job.pa_notes_log.length
     ? job.pa_notes_log[job.pa_notes_log.length - 1]
     : null;
   const lastContact = lastNote?.at
-    ? new Date(lastNote.at).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+    ? new Date(lastNote.at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" })
     : null;
   // Distance from the PA's home base to this homeowner — shown on the card
   // so they can prioritize without opening the pipeline. Needs both the
@@ -2073,7 +2071,7 @@ function PAJobCard({ job, onOpen, me }) {
             </span>
           )}
         </div>
-        <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 2 }}>🖊 Signed {signed}{signedAgo ? ` · ${signedAgo}` : ""}</div>
+        <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 2 }}>🖊 Signed {signed}{signedTime ? ` · ${signedTime}` : ""}</div>
         {lastContact && <div style={{ fontSize: 12, color: "#0e7490", marginTop: 1 }}>🗒 Last contact {lastContact}</div>}
         {job.mobile
           ? <div style={{ fontSize: 13.5, marginTop: 3 }}><a href={`tel:${String(job.mobile).replace(/[^\d+]/g, "")}`} onClick={(e) => e.stopPropagation()} style={{ color: "#0e7490", fontWeight: 700, textDecoration: "none" }}>📞 {job.mobile}</a></div>
