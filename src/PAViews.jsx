@@ -1496,12 +1496,19 @@ function PADecisionRow({ deal, priorPaName, busy, onPool, onDismiss }) {
 // ═════════════════════════════════════════════════════════════════════
 // PA MOBILE APP — ?mode=pa
 // ═════════════════════════════════════════════════════════════════════
-export function PAMobileApp() {
+export function PAMobileApp({ embedded = false, paId = null, allowPaIds = null } = {}) {
+  // Embedded mode: rendered INSIDE the PA-company admin portal so the
+  // company admin can view a PA's portal and switch between PAs — but only
+  // their own. Driven entirely by the `paId` prop (no URL param / no
+  // localStorage session), and the pickable list is locked to `allowPaIds`
+  // (the company's PAs) as defense-in-depth.
+  //
   // Admin context: the PA portal launched from the Admin hub carries
   // ?admin=1, which unlocks manager-only actions (e.g. releasing a deal
   // back to the pool). Field PAs open a plain ?mode=pa link and never see
   // those. (The release itself is still PIN-gated as defense-in-depth.)
-  const adminView = typeof window !== "undefined" &&
+  // Embedded company-admin view runs as a plain PA (no ?admin=1 powers).
+  const adminView = !embedded && typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("admin") === "1";
   const [stage, setStage] = useState("pick"); // pick | list | detail | inactive
   const [pas, setPas] = useState([]);
@@ -1522,10 +1529,17 @@ export function PAMobileApp() {
     try { localStorage.setItem("ccg_pa_view", next); } catch { /* ignore */ }
   }
 
+  const allowKey = Array.isArray(allowPaIds) ? allowPaIds.join(",") : "";
   useEffect(() => {
     supabase.from("pas").select("*").eq("active", true).order("name").then(async ({ data }) => {
-      const list = data || [];
+      let list = data || [];
+      // Embedded company-admin view: lock the pickable set to the
+      // company's PAs so the admin can never reach another company's.
+      if (Array.isArray(allowPaIds)) list = list.filter((p) => allowPaIds.includes(p.id));
       setPas(list);
+      // Embedded mode is driven by the paId prop (the switcher), not by
+      // URL/localStorage — handled by the effect below.
+      if (embedded) return;
       // A personal invite link carries ?pa=<id>. It WINS over any session
       // left on this device — so a PA's link always opens THEIR portal, never
       // whoever logged in last (fixes "the link showed Chad's portal"). We
@@ -1553,7 +1567,18 @@ export function PAMobileApp() {
       const { data: raw } = await supabase.from("pas").select("id,name,active").eq("id", stored).maybeSingle();
       if (raw) { setInactiveName(raw.name || ""); setStage("inactive"); }
     });
-  }, []);
+  }, [embedded, allowKey]);
+
+  // Embedded mode: follow the company admin's PA switcher. Whenever the
+  // selected paId (or the loaded list) changes, swap to that PA and reset
+  // to their job list (closing any open detail view).
+  useEffect(() => {
+    if (!embedded) return;
+    if (!paId) { setMe(null); setStage("pick"); return; }
+    const found = pas.find((p) => p.id === paId);
+    if (found) { setMe(found); setStage("list"); }
+    else { setMe(null); setStage("pick"); }
+  }, [embedded, paId, pas]);
 
   // Look up whether the signed-in PA is also an active, setup-complete
   // inspector. We require info_updated_at (home base saved) because the

@@ -4513,6 +4513,8 @@ function PACompanyAdminPage({ token }) {
   const [addForm, setAddForm] = useState({ name: "", email: "", phone: "", home_address: "", max_distance_miles: "" });
   const [addBusy, setAddBusy] = useState(false);
   const [activateBusy, setActivateBusy] = useState(null);
+  const [showView, setShowView] = useState(false); // "view a PA's portal" panel
+  const [viewPaId, setViewPaId] = useState("");     // which of MY PAs to view as
 
   const loadCard = async () => {
     if (card) { setCard(null); return; }
@@ -4762,8 +4764,29 @@ function PACompanyAdminPage({ token }) {
             <Button variant="outline" onClick={loadCard} disabled={cardBusy}>
               {cardBusy ? "Building…" : card ? "📊 Hide report card" : "📊 PA report card"}
             </Button>
+            <Button variant="outline" onClick={() => setShowView((v) => !v)}>
+              {showView ? "🙈 Close PA view" : "👁 View a PA's portal"}
+            </Button>
           </div>
         </div>
+
+        {showView && (
+          <div style={{ marginBottom: 16, border: "1px solid #ddd6fe", borderRadius: 12, background: "#faf5ff", padding: 12 }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: "#5b21b6", marginBottom: 6 }}>👁 View a PA's portal</div>
+            <div style={{ fontSize: 12, color: "#6b21a8", marginBottom: 8 }}>See exactly what one of your adjusters sees, and work their deals on their behalf. You can only view your own company's adjusters.</div>
+            <label style={{ fontSize: 12, fontWeight: 700, color: "#374151" }}>Adjuster:&nbsp;
+              <select value={viewPaId} onChange={(e) => setViewPaId(e.target.value)} style={{ ...fld, display: "inline-block", width: "auto", minWidth: 200 }}>
+                <option value="">— Select an adjuster —</option>
+                {activePas.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </label>
+            {viewPaId
+              ? <div style={{ marginTop: 12, border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", background: "#fff" }}>
+                  <PAMobileApp embedded paId={viewPaId} allowPaIds={activePas.map((p) => p.id)} />
+                </div>
+              : <div style={{ marginTop: 10, fontSize: 13, color: "#6b7280" }}>Pick an adjuster above to open their portal.</div>}
+          </div>
+        )}
 
         {card && (
           <div style={{ marginBottom: 16, border: "1px solid #c7d2fe", borderRadius: 10, background: "#fff", overflowX: "auto" }}>
