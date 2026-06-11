@@ -60,9 +60,14 @@ export function auditJob(job) {
   if (yes("Permalock") && !has("Permalock Colors")) missing.push("Permalock Color");
 
   // ── Measurements rule ────────────────────────────────────────────────
-  if ((yes("Exposed Fastener") || yes("Standing Seam")) && str("Measurements Needed?") !== "Needs Measurements") {
-    errors.push('Measurements Needed? must be "Needs Measurements" for Exposed Fastener / Standing Seam');
-  }
+  // "Measurements Needed?" is a MOVING field: the rep sets it to "Needs
+  // Measurements", then whoever measures it flips it to "Pending" →
+  // "Done - Measured". So we do NOT require an exact value — that flagged
+  // already-measured deals (e.g. James Butler showed up just because the
+  // measurer marked it "Done - Measured"). Rule per Neal: blank = error,
+  // any value filled in = fine. The blank case is already covered by the
+  // always-required `has("Measurements Needed?")` check above, so there's
+  // nothing extra to flag for Exposed Fastener / Standing Seam here.
 
   // ── Flat-roof products ───────────────────────────────────────────────
   if (yes("Modified Bitman")) {
