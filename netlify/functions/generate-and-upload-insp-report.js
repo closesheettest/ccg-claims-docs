@@ -635,7 +635,7 @@ function buildCertificateHTML({ record, inspectorName, inspectionDateISO, logoUr
   // "DAMAGE FOUND" for storm damage.
   const statusBg = isNoDamage ? "#199c2e" : isRetail ? "#6b7280" : "#dc2626";
   const statusValue = isNoDamage ? "NO DAMAGE FOUND" : isRetail ? "NONE FOUND" : "DAMAGE FOUND";
-  const remainingLife = isNoDamage ? "Serviceable" : "Needs Replacement";
+  const remainingLife = isNoDamage ? "5+ Years" : "Needs Replacement";
 
   const addr = escapeHtml(record.address || "");
   const cityLine = escapeHtml([record.city, record.state, record.zip].filter(Boolean).join(", "));

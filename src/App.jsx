@@ -8461,22 +8461,11 @@ const renderSmsTemplate = (key, vars) => {
           alert("❌ SMS send failed: " + (await r.text()).slice(0, 200));
         }
       } else if (target === "homeowner") {
-        const msg = renderSmsTemplate(`${resultKey}_${variant}_homeowner`, tvars);
-        if (!msg) { alert("No homeowner template found for " + `${resultKey}_${variant}_homeowner` + ". Configure it in SMS Templates."); return; }
-        if (!homeownerPhone) { alert("No homeowner phone on file — cannot send."); return; }
-        if (!window.confirm(`Send this SMS to ${homeownerName} at ${homeownerPhone}?\n\n${msg}`)) return;
-        const r = await fetch("/.netlify/functions/ghl-sms", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ to: homeownerPhone, message: msg, name: homeownerName }),
-        });
-        if (r.ok) {
-          const nowIso = new Date().toISOString();
-          await supabase.from("inspections").update({ last_notified_homeowner_at: nowIso }).eq("id", row.id);
-          setRecordSearchResults(prev => prev.map(rr => rr.id === row.id ? { ...rr, last_notified_homeowner_at: nowIso } : rr));
-          alert("✅ SMS sent to homeowner.");
-        } else {
-          alert("❌ SMS send failed: " + (await r.text()).slice(0, 200));
-        }
+        // Disabled by policy: homeowners never receive inspection results
+        // by SMS or email. (Button removed from the UI; this guard is
+        // defense-in-depth in case the path is reached another way.)
+        alert("Homeowner result notifications are turned off — homeowners don't get results by text or email.");
+        return;
       }
     } catch (e) {
       alert("Notify error: " + (e.message || e));
@@ -13598,17 +13587,8 @@ if (!hasDamage) {
                                   </button>
                                   <div style={{ fontSize: 9, color: rec.last_notified_rep_at ? "#059669" : "#9ca3af", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>{formatAgo(rec.last_notified_rep_at)}</div>
                                 </div>
-                                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-                                  <button
-                                    type="button"
-                                    disabled={isBusy || !rec.result}
-                                    onClick={(e) => { e.stopPropagation(); adminNotifyRow(rec, "homeowner"); }}
-                                    title={!rec.result ? "Set a result first" : "Send SMS to the homeowner using current template"}
-                                    style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #0a0a0a", background: (isBusy || !rec.result) ? "#f3f4f6" : "#fff", color: (isBusy || !rec.result) ? "#9ca3af" : "#0a0a0a", fontSize: 11, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: (isBusy || !rec.result) ? "not-allowed" : "pointer" }}>
-                                    📱 Notify Homeowner
-                                  </button>
-                                  <div style={{ fontSize: 9, color: rec.last_notified_homeowner_at ? "#059669" : "#9ca3af", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>{formatAgo(rec.last_notified_homeowner_at)}</div>
-                                </div>
+                                {/* "Notify Homeowner" removed — homeowners never get
+                                    inspection results by SMS or email. */}
                                 {showPaButton ? (
                                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
                                     <button
