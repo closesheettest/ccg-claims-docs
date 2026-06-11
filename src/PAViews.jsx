@@ -338,7 +338,7 @@ export function PAAdminPanel() {
       if (error) throw error;
       // Every open deal lands in exactly ONE bucket so they sum to Assigned:
       //   newc + working + waiting + noContact + signed = open (= assigned)
-      const blank = () => ({ open: 0, newc: 0, working: 0, waiting: 0, noContact: 0, signed: 0, lost: 0, dead: 0, handled: 0, _days: [] });
+      const blank = () => ({ open: 0, newc: 0, working: 0, waiting: 0, noContact: 0, signed: 0, lost: 0, dead: 0, handled: 0, _days: [], _file: [], _appr: [] });
       const byPa = {};
       for (const r of data || []) {
         const b = (byPa[r.pa_id] = byPa[r.pa_id] || blank());
@@ -346,6 +346,12 @@ export function PAAdminPanel() {
         if (r.cancelled_at) { b.lost++; continue; }
         if (r.pa_stage === "dead") { b.dead++; continue; }
         b.open++;
+        // Time-to-milestone (from assignment) — fills in as PAs enter the
+        // insurance milestone dates in their portal. Skip negatives/bad data.
+        const claimedMs = r.pa_claimed_at ? new Date(r.pa_claimed_at).getTime() : null;
+        const collect = (epoch, arr) => { if (claimedMs && epoch) { const d = (epoch * 1000 - claimedMs) / 86400000; if (Number.isFinite(d) && d >= 0) arr.push(d); } };
+        collect(r.pa_fields?.pa_filed, b._file);
+        collect(r.pa_fields?.ins_approved, b._appr);
         const signed = r.pa_fields?.pa_signup === "Signed";
         const touched = !!r.pa_opened_at || (Array.isArray(r.pa_notes_log) && r.pa_notes_log.length > 0);
         if (signed) {
@@ -364,7 +370,8 @@ export function PAAdminPanel() {
         const b = byPa[p.id] || blank();
         const taken = p.pa_takeaways || 0;
         const denom = b.handled + taken;               // everything ever given to them
-        const avgDaysToSign = b._days.length ? Math.round(b._days.reduce((s, n) => s + n, 0) / b._days.length) : null;
+        const avg = (arr) => arr.length ? Math.round(arr.reduce((s, n) => s + n, 0) / arr.length) : null;
+        const avgDaysToSign = avg(b._days);
         const comp = companies.find((c) => c.id === p.pa_company_id);
         return {
           id: p.id, name: p.name,
@@ -372,16 +379,22 @@ export function PAAdminPanel() {
           company_name: comp?.name || "Independent",
           assigned: b.open, newc: b.newc, working: b.working, waiting: b.waiting, noContact: b.noContact, signed: b.signed, lost: b.lost, dead: b.dead,
           taken, denom, avgDaysToSign,
+          avgDaysToFile: avg(b._file), fileN: b._file.length,
+          avgDaysToApproved: avg(b._appr), apprN: b._appr.length,
           signPct: pct(b.signed, denom), lostPct: pct(b.lost, denom), takenPct: pct(taken, denom),
         };
       }).sort((a, b) => a.company_name.localeCompare(b.company_name) || (b.assigned - a.assigned) || a.name.localeCompare(b.name));
       const T = rows.reduce((t, r) => {
         ["assigned", "newc", "working", "waiting", "noContact", "signed", "lost", "dead", "taken", "denom"].forEach((k) => t[k] += r[k]);
         if (r.avgDaysToSign != null) { t._daysSum += r.avgDaysToSign * r.signed; t._daysN += r.signed; }
+        if (r.avgDaysToFile != null) { t._fileSum += r.avgDaysToFile * r.fileN; t._fileN += r.fileN; }
+        if (r.avgDaysToApproved != null) { t._apprSum += r.avgDaysToApproved * r.apprN; t._apprN += r.apprN; }
         return t;
-      }, { assigned: 0, newc: 0, working: 0, waiting: 0, noContact: 0, signed: 0, lost: 0, dead: 0, taken: 0, denom: 0, _daysSum: 0, _daysN: 0 });
+      }, { assigned: 0, newc: 0, working: 0, waiting: 0, noContact: 0, signed: 0, lost: 0, dead: 0, taken: 0, denom: 0, _daysSum: 0, _daysN: 0, _fileSum: 0, _fileN: 0, _apprSum: 0, _apprN: 0 });
       T.signPct = pct(T.signed, T.denom); T.lostPct = pct(T.lost, T.denom); T.takenPct = pct(T.taken, T.denom);
       T.avgDaysToSign = T._daysN ? Math.round(T._daysSum / T._daysN) : null;
+      T.avgDaysToFile = T._fileN ? Math.round(T._fileSum / T._fileN) : null;
+      T.avgDaysToApproved = T._apprN ? Math.round(T._apprSum / T._apprN) : null;
       setReport({ rows, totals: T });
     } catch (e) {
       setMessage({ kind: "error", text: e.message || "Couldn't build the report." });
@@ -2116,10 +2129,15 @@ function PAProgressReport({ report }) {
   for (const r of rows) { if (!groupsMap.has(r.company_name)) groupsMap.set(r.company_name, []); groupsMap.get(r.company_name).push(r); }
   const groupNames = [...groupsMap.keys()].sort((a, b) => (a === "Independent" ? 1 : b === "Independent" ? -1 : a.localeCompare(b)));
   const subtotal = (rs) => {
-    const t = { assigned: 0, newc: 0, working: 0, waiting: 0, noContact: 0, signed: 0, lost: 0, dead: 0, taken: 0, denom: 0, _ds: 0, _dn: 0 };
-    for (const r of rs) { ["assigned", "newc", "working", "waiting", "noContact", "signed", "lost", "dead", "taken", "denom"].forEach((k) => t[k] += r[k]); if (r.avgDaysToSign != null) { t._ds += r.avgDaysToSign * r.signed; t._dn += r.signed; } }
+    const t = { assigned: 0, newc: 0, working: 0, waiting: 0, noContact: 0, signed: 0, lost: 0, dead: 0, taken: 0, denom: 0, _ds: 0, _dn: 0, _fs: 0, _fn: 0, _as: 0, _an: 0 };
+    for (const r of rs) {
+      ["assigned", "newc", "working", "waiting", "noContact", "signed", "lost", "dead", "taken", "denom"].forEach((k) => t[k] += r[k]);
+      if (r.avgDaysToSign != null) { t._ds += r.avgDaysToSign * r.signed; t._dn += r.signed; }
+      if (r.avgDaysToFile != null) { t._fs += r.avgDaysToFile * r.fileN; t._fn += r.fileN; }
+      if (r.avgDaysToApproved != null) { t._as += r.avgDaysToApproved * r.apprN; t._an += r.apprN; }
+    }
     const pct = (n, d) => (d > 0 ? Math.round((n / d) * 100) : 0);
-    return { ...t, signPct: pct(t.signed, t.denom), lostPct: pct(t.lost, t.denom), takenPct: pct(t.taken, t.denom), avgDaysToSign: t._dn ? Math.round(t._ds / t._dn) : null };
+    return { ...t, signPct: pct(t.signed, t.denom), lostPct: pct(t.lost, t.denom), takenPct: pct(t.taken, t.denom), avgDaysToSign: t._dn ? Math.round(t._ds / t._dn) : null, avgDaysToFile: t._fn ? Math.round(t._fs / t._fn) : null, avgDaysToApproved: t._an ? Math.round(t._as / t._an) : null };
   };
   const paCells = (r) => (
     <>
@@ -2130,6 +2148,8 @@ function PAProgressReport({ report }) {
       <td style={td}>{num(r.noContact)}</td>
       <td style={td}>{num(r.signed)}</td>
       <td style={td}>{days(r.avgDaysToSign)}</td>
+      <td style={td}>{days(r.avgDaysToFile)}</td>
+      <td style={td}>{days(r.avgDaysToApproved)}</td>
       <td style={td}>{pctCell(r.signPct, r.denom, true)}</td>
       <td style={td}>{pctCell(r.lostPct, r.denom, false)}</td>
       <td style={td}>{pctCell(r.takenPct, r.denom, false)}</td>
@@ -2140,7 +2160,7 @@ function PAProgressReport({ report }) {
     const rs = groupsMap.get(gn);
     body.push(
       <tr key={`h-${gn}`} style={{ background: "#eef2ff" }}>
-        <td colSpan={11} style={{ ...td, textAlign: "left", fontWeight: 800, color: "#3730a3" }}>🏢 {gn} ({rs.length})</td>
+        <td colSpan={13} style={{ ...td, textAlign: "left", fontWeight: 800, color: "#3730a3" }}>🏢 {gn} ({rs.length})</td>
       </tr>,
     );
     for (const r of rs) {
@@ -2163,17 +2183,21 @@ function PAProgressReport({ report }) {
   }
   const exportCsv = () => {
     const q = (s) => `"${String(s ?? "").replace(/"/g, '""')}"`;
-    const head = ["Company", "Adjuster", "Assigned", "New", "Working", "Waiting docs", "Can't reach", "Signed", "Avg days to sign", "Sign %", "Lost %", "Taken %"];
+    const head = ["Company", "Adjuster", "Assigned", "New", "Working", "Waiting docs", "Can't reach", "Signed", "Avg days to sign", "Avg days to file", "Avg days to approved", "Sign %", "Lost %", "Taken %"];
     const lines = [head.join(",")];
     for (const gn of groupNames) {
       for (const r of groupsMap.get(gn)) {
         lines.push([q(gn), q(r.name), r.assigned, r.newc, r.working, r.waiting, r.noContact, r.signed,
           r.avgDaysToSign == null ? "" : r.avgDaysToSign,
+          r.avgDaysToFile == null ? "" : r.avgDaysToFile,
+          r.avgDaysToApproved == null ? "" : r.avgDaysToApproved,
           r.denom ? r.signPct : "", r.denom ? r.lostPct : "", r.denom ? r.takenPct : ""].join(","));
       }
     }
     lines.push(["", q("ALL"), totals.assigned, totals.newc, totals.working, totals.waiting, totals.noContact, totals.signed,
       totals.avgDaysToSign == null ? "" : totals.avgDaysToSign,
+      totals.avgDaysToFile == null ? "" : totals.avgDaysToFile,
+      totals.avgDaysToApproved == null ? "" : totals.avgDaysToApproved,
       totals.denom ? totals.signPct : "", totals.denom ? totals.lostPct : "", totals.denom ? totals.takenPct : ""].join(","));
     const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -2197,6 +2221,8 @@ function PAProgressReport({ report }) {
             <th style={th} title="Couldn't reach the homeowner yet">📵 Can't reach</th>
             <th style={th} title="Homeowner signed up with the PA">✅ Signed</th>
             <th style={th} title="Average days from assignment to getting the homeowner signed">Avg days→sign</th>
+            <th style={th} title="Average days from assignment to the PA filing the claim (from the PA-Filed date they enter)">Avg days→file</th>
+            <th style={th} title="Average days from assignment to insurance approval (from the INS-Approved date they enter)">Avg days→approved</th>
             <th style={th} title="Signed ÷ everything ever given to them (incl. lost & taken away)">Sign %</th>
             <th style={th} title="Lost/cancelled ÷ everything ever given to them">Lost %</th>
             <th style={th} title="Deals the admin pulled off them ÷ everything ever given to them">Taken %</th>
@@ -2205,7 +2231,7 @@ function PAProgressReport({ report }) {
         <tbody>
           {body}
           {rows.length === 0 && (
-            <tr><td colSpan={11} style={{ ...td, color: "#6b7280" }}>No active adjusters.</td></tr>
+            <tr><td colSpan={13} style={{ ...td, color: "#6b7280" }}>No active adjusters.</td></tr>
           )}
         </tbody>
         {rows.length > 0 && (
@@ -2219,6 +2245,8 @@ function PAProgressReport({ report }) {
               <td style={{ ...td, fontWeight: 800 }}>{totals.noContact}</td>
               <td style={{ ...td, fontWeight: 800 }}>{totals.signed}</td>
               <td style={{ ...td, fontWeight: 800 }}>{totals.avgDaysToSign == null ? "—" : `${totals.avgDaysToSign}d`}</td>
+              <td style={{ ...td, fontWeight: 800 }}>{totals.avgDaysToFile == null ? "—" : `${totals.avgDaysToFile}d`}</td>
+              <td style={{ ...td, fontWeight: 800 }}>{totals.avgDaysToApproved == null ? "—" : `${totals.avgDaysToApproved}d`}</td>
               <td style={{ ...td, fontWeight: 800, color: "#3730a3" }}>{totals.denom ? `${totals.signPct}%` : "—"}</td>
               <td style={{ ...td, fontWeight: 800, color: "#3730a3" }}>{totals.denom ? `${totals.lostPct}%` : "—"}</td>
               <td style={{ ...td, fontWeight: 800, color: "#3730a3" }}>{totals.denom ? `${totals.takenPct}%` : "—"}</td>
