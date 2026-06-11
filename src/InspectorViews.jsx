@@ -2173,6 +2173,46 @@ function InspectorJobList({ me, onOpenJob, onOpenReports }) {
   // Two top-level tabs like the PA portal: "mine" = jobs I've claimed,
   // "available" = unclaimed jobs near me. Only one section shows at a time.
   const [tab, setTab] = useState("mine");
+  // "Re-inspect" — fix a finished job where the wrong house was photographed.
+  const [showFix, setShowFix] = useState(false);
+  const [fixJobs, setFixJobs] = useState(null);   // null = not loaded yet
+  const [fixBusyId, setFixBusyId] = useState(null);
+  const [fixMsg, setFixMsg] = useState(null);
+
+  async function loadFinished() {
+    setShowFix(true); setFixMsg(null); setFixJobs(null);
+    const since = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
+    const { data } = await supabase
+      .from("inspections")
+      .select("id, client_name, address, city, result, result_at, inspection_photos")
+      .eq("inspector_id", me.id)
+      .not("result", "is", null)
+      .gte("result_at", since)
+      .order("result_at", { ascending: false })
+      .limit(25);
+    setFixJobs(data || []);
+  }
+  async function reinspect(job) {
+    if (!window.confirm(
+      `Re-inspect ${job.client_name || "this job"}?\n\n` +
+      `This DELETES the photos you submitted and reopens the job so you can retake them at the correct house. The certificate regenerates from the new photos.`
+    )) return;
+    setFixBusyId(job.id); setFixMsg(null);
+    try {
+      const res = await fetch("/.netlify/functions/reinspect-job", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inspectionId: job.id, inspectorId: me.id }),
+      });
+      const b = await res.json().catch(() => ({}));
+      if (!res.ok || !b.ok) { setFixMsg({ kind: "error", text: b.error || `Failed (${res.status})` }); }
+      else {
+        setFixJobs((l) => (l || []).filter((j) => j.id !== job.id));
+        setFixMsg({ kind: "success", text: `Reopened ${job.client_name || "the job"} — find it under “My inspections” and retake the photos.` });
+        await load(); setTab("mine");
+      }
+    } catch (e) { setFixMsg({ kind: "error", text: e.message || "Network error" }); }
+    setFixBusyId(null);
+  }
 
   async function load() {
     setLoading(true);
@@ -2340,6 +2380,40 @@ function InspectorJobList({ me, onOpenJob, onOpenReports }) {
             borderColor: tab === "available" ? "#13294b" : "#d1d5db" }}>
           📍 Available ({available.length})
         </button>
+      </div>
+
+      {/* Re-inspect: shot the wrong house on a finished job? Reopen it. */}
+      <div>
+        <button type="button" onClick={() => (showFix ? setShowFix(false) : loadFinished())}
+          style={{ background: "none", border: "none", color: "#3730a3", fontSize: 12.5, fontWeight: 700, cursor: "pointer", padding: "2px 0", textAlign: "left" }}>
+          ♻️ Took photos of the wrong house on a finished job? {showFix ? "Hide" : "Fix it"}
+        </button>
+        {showFix && (
+          <div style={{ marginTop: 6, border: "1px solid #c7d2fe", borderRadius: 10, background: "#eef2ff", padding: 10 }}>
+            {fixMsg && <div style={{ fontSize: 12, marginBottom: 8, fontWeight: 700, color: fixMsg.kind === "success" ? "#065f46" : "#991b1b" }}>{fixMsg.text}</div>}
+            <div style={{ fontSize: 12, color: "#3730a3", marginBottom: 8 }}>Your jobs finished in the last 7 days. “Re-inspect” deletes those photos and reopens the job so you can retake them.</div>
+            {fixJobs == null ? (
+              <div style={{ fontSize: 12, color: "#6b7280" }}>Loading…</div>
+            ) : fixJobs.length === 0 ? (
+              <div style={{ fontSize: 12, color: "#6b7280" }}>No jobs you finished in the last 7 days.</div>
+            ) : (
+              <div style={{ display: "grid", gap: 6 }}>
+                {fixJobs.map((j) => (
+                  <div key={j.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 10px" }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 13 }}>{j.client_name || "(no name)"}</div>
+                      <div style={{ fontSize: 11.5, color: "#6b7280" }}>{[j.address, j.city].filter(Boolean).join(", ")} · {j.result} · {Array.isArray(j.inspection_photos) ? j.inspection_photos.length : 0} photo(s)</div>
+                    </div>
+                    <button type="button" disabled={fixBusyId === j.id} onClick={() => reinspect(j)}
+                      style={{ ...secondaryBtn, fontSize: 12, padding: "7px 10px", whiteSpace: "nowrap", borderColor: "#c7d2fe", color: "#3730a3" }}>
+                      {fixBusyId === j.id ? "…" : "♻️ Re-inspect"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Shared route-mode toggle bar — affects BOTH sections.
