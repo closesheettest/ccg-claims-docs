@@ -335,7 +335,9 @@ export function PAAdminPanel() {
         .eq("result", "damage").not("pa_id", "is", null)
         .limit(5000);
       if (error) throw error;
-      const blank = () => ({ open: 0, working: 0, signed: 0, lost: 0, dead: 0, handled: 0, _days: [] });
+      // Every open deal lands in exactly ONE bucket so they sum to Assigned:
+      //   newc + working + waiting + noContact + signed = open (= assigned)
+      const blank = () => ({ open: 0, newc: 0, working: 0, waiting: 0, noContact: 0, signed: 0, lost: 0, dead: 0, handled: 0, _days: [] });
       const byPa = {};
       for (const r of data || []) {
         const b = (byPa[r.pa_id] = byPa[r.pa_id] || blank());
@@ -344,14 +346,17 @@ export function PAAdminPanel() {
         if (r.pa_stage === "dead") { b.dead++; continue; }
         b.open++;
         const signed = r.pa_fields?.pa_signup === "Signed";
-        const working = !!r.pa_opened_at || (Array.isArray(r.pa_notes_log) && r.pa_notes_log.length > 0);
+        const touched = !!r.pa_opened_at || (Array.isArray(r.pa_notes_log) && r.pa_notes_log.length > 0);
         if (signed) {
           b.signed++;
           if (r.pa_claimed_at && r.pa_signed_at) {
             const d = (new Date(r.pa_signed_at).getTime() - new Date(r.pa_claimed_at).getTime()) / 86400000;
             if (Number.isFinite(d) && d >= 0) b._days.push(d);
           }
-        } else if (working) b.working++;
+        } else if (r.pa_stage === "waiting_docs") b.waiting++;
+        else if (r.pa_stage === "no_contact") b.noContact++;
+        else if (touched) b.working++;
+        else b.newc++;
       }
       const pct = (n, d) => (d > 0 ? Math.round((n / d) * 100) : 0);
       const rows = (pas || []).filter((p) => p.active).map((p) => {
@@ -364,16 +369,16 @@ export function PAAdminPanel() {
           id: p.id, name: p.name,
           company_id: p.pa_company_id || null,
           company_name: comp?.name || "Independent",
-          assigned: b.open, working: b.working, signed: b.signed, lost: b.lost, dead: b.dead,
+          assigned: b.open, newc: b.newc, working: b.working, waiting: b.waiting, noContact: b.noContact, signed: b.signed, lost: b.lost, dead: b.dead,
           taken, denom, avgDaysToSign,
           signPct: pct(b.signed, denom), lostPct: pct(b.lost, denom), takenPct: pct(taken, denom),
         };
       }).sort((a, b) => a.company_name.localeCompare(b.company_name) || (b.assigned - a.assigned) || a.name.localeCompare(b.name));
       const T = rows.reduce((t, r) => {
-        ["assigned", "working", "signed", "lost", "dead", "taken", "denom"].forEach((k) => t[k] += r[k]);
+        ["assigned", "newc", "working", "waiting", "noContact", "signed", "lost", "dead", "taken", "denom"].forEach((k) => t[k] += r[k]);
         if (r.avgDaysToSign != null) { t._daysSum += r.avgDaysToSign * r.signed; t._daysN += r.signed; }
         return t;
-      }, { assigned: 0, working: 0, signed: 0, lost: 0, dead: 0, taken: 0, denom: 0, _daysSum: 0, _daysN: 0 });
+      }, { assigned: 0, newc: 0, working: 0, waiting: 0, noContact: 0, signed: 0, lost: 0, dead: 0, taken: 0, denom: 0, _daysSum: 0, _daysN: 0 });
       T.signPct = pct(T.signed, T.denom); T.lostPct = pct(T.lost, T.denom); T.takenPct = pct(T.taken, T.denom);
       T.avgDaysToSign = T._daysN ? Math.round(T._daysSum / T._daysN) : null;
       setReport({ rows, totals: T });
@@ -2069,15 +2074,19 @@ function PAProgressReport({ report }) {
   for (const r of rows) { if (!groupsMap.has(r.company_name)) groupsMap.set(r.company_name, []); groupsMap.get(r.company_name).push(r); }
   const groupNames = [...groupsMap.keys()].sort((a, b) => (a === "Independent" ? 1 : b === "Independent" ? -1 : a.localeCompare(b)));
   const subtotal = (rs) => {
-    const t = { assigned: 0, working: 0, signed: 0, lost: 0, dead: 0, taken: 0, denom: 0, _ds: 0, _dn: 0 };
-    for (const r of rs) { ["assigned", "working", "signed", "lost", "dead", "taken", "denom"].forEach((k) => t[k] += r[k]); if (r.avgDaysToSign != null) { t._ds += r.avgDaysToSign * r.signed; t._dn += r.signed; } }
+    const t = { assigned: 0, newc: 0, working: 0, waiting: 0, noContact: 0, signed: 0, lost: 0, dead: 0, taken: 0, denom: 0, _ds: 0, _dn: 0 };
+    for (const r of rs) { ["assigned", "newc", "working", "waiting", "noContact", "signed", "lost", "dead", "taken", "denom"].forEach((k) => t[k] += r[k]); if (r.avgDaysToSign != null) { t._ds += r.avgDaysToSign * r.signed; t._dn += r.signed; } }
     const pct = (n, d) => (d > 0 ? Math.round((n / d) * 100) : 0);
     return { ...t, signPct: pct(t.signed, t.denom), lostPct: pct(t.lost, t.denom), takenPct: pct(t.taken, t.denom), avgDaysToSign: t._dn ? Math.round(t._ds / t._dn) : null };
   };
   const paCells = (r) => (
     <>
       <td style={{ ...td, fontWeight: 800 }}>{num(r.assigned)}</td>
+      <td style={td}>{num(r.newc)}</td>
       <td style={td}>{num(r.working)}</td>
+      <td style={td}>{num(r.waiting)}</td>
+      <td style={td}>{num(r.noContact)}</td>
+      <td style={td}>{num(r.signed)}</td>
       <td style={td}>{days(r.avgDaysToSign)}</td>
       <td style={td}>{pctCell(r.signPct, r.denom, true)}</td>
       <td style={td}>{pctCell(r.lostPct, r.denom, false)}</td>
@@ -2089,7 +2098,7 @@ function PAProgressReport({ report }) {
     const rs = groupsMap.get(gn);
     body.push(
       <tr key={`h-${gn}`} style={{ background: "#eef2ff" }}>
-        <td colSpan={7} style={{ ...td, textAlign: "left", fontWeight: 800, color: "#3730a3" }}>🏢 {gn} ({rs.length})</td>
+        <td colSpan={11} style={{ ...td, textAlign: "left", fontWeight: 800, color: "#3730a3" }}>🏢 {gn} ({rs.length})</td>
       </tr>,
     );
     for (const r of rs) {
@@ -2112,16 +2121,16 @@ function PAProgressReport({ report }) {
   }
   const exportCsv = () => {
     const q = (s) => `"${String(s ?? "").replace(/"/g, '""')}"`;
-    const head = ["Company", "Adjuster", "Assigned", "Working", "Avg days to sign", "Sign %", "Lost %", "Taken %"];
+    const head = ["Company", "Adjuster", "Assigned", "New", "Working", "Waiting docs", "Can't reach", "Signed", "Avg days to sign", "Sign %", "Lost %", "Taken %"];
     const lines = [head.join(",")];
     for (const gn of groupNames) {
       for (const r of groupsMap.get(gn)) {
-        lines.push([q(gn), q(r.name), r.assigned, r.working,
+        lines.push([q(gn), q(r.name), r.assigned, r.newc, r.working, r.waiting, r.noContact, r.signed,
           r.avgDaysToSign == null ? "" : r.avgDaysToSign,
           r.denom ? r.signPct : "", r.denom ? r.lostPct : "", r.denom ? r.takenPct : ""].join(","));
       }
     }
-    lines.push(["", q("ALL"), totals.assigned, totals.working,
+    lines.push(["", q("ALL"), totals.assigned, totals.newc, totals.working, totals.waiting, totals.noContact, totals.signed,
       totals.avgDaysToSign == null ? "" : totals.avgDaysToSign,
       totals.denom ? totals.signPct : "", totals.denom ? totals.lostPct : "", totals.denom ? totals.takenPct : ""].join(","));
     const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
@@ -2139,8 +2148,12 @@ function PAProgressReport({ report }) {
         <thead>
           <tr>
             <th style={{ ...th, textAlign: "left" }}>Public adjuster</th>
-            <th style={th} title="Active deals currently assigned (excludes lost/dead)">Assigned</th>
-            <th style={th} title="Of assigned, ones they've opened or left a note on">Working</th>
+            <th style={th} title="Active deals currently assigned (excludes lost/dead). = New + Working + Waiting docs + Can't reach + Signed">Assigned</th>
+            <th style={th} title="Assigned but not opened or noted yet">New</th>
+            <th style={th} title="Opened or noted, in progress (not signed/waiting/can't-reach)">Working</th>
+            <th style={th} title="Parked waiting on the homeowner's insurance declaration page">📄 Waiting docs</th>
+            <th style={th} title="Couldn't reach the homeowner yet">📵 Can't reach</th>
+            <th style={th} title="Homeowner signed up with the PA">✅ Signed</th>
             <th style={th} title="Average days from assignment to getting the homeowner signed">Avg days→sign</th>
             <th style={th} title="Signed ÷ everything ever given to them (incl. lost & taken away)">Sign %</th>
             <th style={th} title="Lost/cancelled ÷ everything ever given to them">Lost %</th>
@@ -2150,7 +2163,7 @@ function PAProgressReport({ report }) {
         <tbody>
           {body}
           {rows.length === 0 && (
-            <tr><td colSpan={7} style={{ ...td, color: "#6b7280" }}>No active adjusters.</td></tr>
+            <tr><td colSpan={11} style={{ ...td, color: "#6b7280" }}>No active adjusters.</td></tr>
           )}
         </tbody>
         {rows.length > 0 && (
@@ -2158,7 +2171,11 @@ function PAProgressReport({ report }) {
             <tr style={{ background: "#f5f3ff" }}>
               <td style={{ ...td, textAlign: "left", fontWeight: 800, color: "#3730a3" }}>All ({rows.length})</td>
               <td style={{ ...td, fontWeight: 800 }}>{totals.assigned}</td>
+              <td style={{ ...td, fontWeight: 800 }}>{totals.newc}</td>
               <td style={{ ...td, fontWeight: 800 }}>{totals.working}</td>
+              <td style={{ ...td, fontWeight: 800 }}>{totals.waiting}</td>
+              <td style={{ ...td, fontWeight: 800 }}>{totals.noContact}</td>
+              <td style={{ ...td, fontWeight: 800 }}>{totals.signed}</td>
               <td style={{ ...td, fontWeight: 800 }}>{totals.avgDaysToSign == null ? "—" : `${totals.avgDaysToSign}d`}</td>
               <td style={{ ...td, fontWeight: 800, color: "#3730a3" }}>{totals.denom ? `${totals.signPct}%` : "—"}</td>
               <td style={{ ...td, fontWeight: 800, color: "#3730a3" }}>{totals.denom ? `${totals.lostPct}%` : "—"}</td>
@@ -2168,7 +2185,7 @@ function PAProgressReport({ report }) {
         )}
       </table>
       <div style={{ fontSize: 11, color: "#6b7280", padding: "8px 10px", borderTop: "1px solid #e0e7ff" }}>
-        Percentages are over <strong>everything ever given to the PA</strong> (assigned + lost + dead + taken away). <strong>Avg days→sign</strong> &amp; <strong>Taken %</strong> only count activity from when scorecard tracking went live, so they'll fill in over time.
+        <strong>Assigned = New + Working + Waiting docs + Can't reach + Signed</strong> (every open deal lands in exactly one). Percentages are over <strong>everything ever given to the PA</strong> (assigned + lost + dead + taken away). <strong>Avg days→sign</strong> &amp; <strong>Taken %</strong> only count activity from when scorecard tracking went live, so they'll fill in over time.
       </div>
     </div>
   );
