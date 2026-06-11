@@ -1675,7 +1675,7 @@ function PAJobList({ me, onOpenJob, wide }) {
   // Lists stay sorted by newest signing date (from the query). GPS just
   // adds a distance badge per card — it no longer re-sorts (signing date
   // wins, so fresh leads always surface first).
-  const { mineNeeds, mineWorking, mineSigned, mineNoContact } = useMemo(() => {
+  const { mineNeeds, mineWorking, mineSigned, mineNoContact, mineWaiting } = useMemo(() => {
     const withDist = (arr) =>
       arr.map((j) => ({
         ...j,
@@ -1693,7 +1693,7 @@ function PAJobList({ me, onOpenJob, wide }) {
       if (ca !== cb) return ca < cb ? -1 : 1;
       return new Date(b.signed_at || 0) - new Date(a.signed_at || 0);
     });
-    const active = all.filter((j) => j.pa_stage !== "no_contact");
+    const active = all.filter((j) => j.pa_stage !== "no_contact" && j.pa_stage !== "waiting_docs");
     // Pre-signature deals split into "New files" (untouched) and "Working"
     // (the PA has opened the pipeline OR left a note). Signed deals always
     // go to Signed regardless.
@@ -1704,9 +1704,10 @@ function PAJobList({ me, onOpenJob, wide }) {
       mineWorking: sorted(preSign.filter((j) => isWorking(j))),
       mineSigned: sorted(active.filter((j) => j.pa_fields?.pa_signup === "Signed")),
       mineNoContact: sorted(all.filter((j) => j.pa_stage === "no_contact")),
+      mineWaiting: sorted(all.filter((j) => j.pa_stage === "waiting_docs")),
     };
   }, [mine, paCoords]);
-  const list = mineView === "working" ? mineWorking : mineView === "signed" ? mineSigned : mineView === "no_contact" ? mineNoContact : mineNeeds;
+  const list = mineView === "working" ? mineWorking : mineView === "signed" ? mineSigned : mineView === "no_contact" ? mineNoContact : mineView === "waiting_docs" ? mineWaiting : mineNeeds;
 
   return (
     <div>
@@ -1743,6 +1744,12 @@ function PAJobList({ me, onOpenJob, wide }) {
             borderColor: "#94a3b8" }}>
           📵 Can't reach ({mineNoContact.length})
         </button>
+        <button type="button" onClick={() => setMineView("waiting_docs")}
+          style={{ ...secondaryBtn, flex: "1 1 46%", padding: "9px 6px", fontSize: 12.5, fontWeight: 700,
+            background: mineView === "waiting_docs" ? "#3730a3" : "#fff", color: mineView === "waiting_docs" ? "#fff" : "#3730a3",
+            borderColor: "#c7d2fe" }}>
+          📄 Waiting on docs ({mineWaiting.length})
+        </button>
       </div>
 
       {msg && (
@@ -1758,7 +1765,9 @@ function PAJobList({ me, onOpenJob, wide }) {
         <div style={{ padding: 24, textAlign: "center", color: "#6b7280" }}>Loading…</div>
       ) : list.length === 0 ? (
         <div style={{ padding: 24, textAlign: "center", color: "#6b7280", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12 }}>
-          {mineView === "no_contact"
+          {mineView === "waiting_docs"
+            ? "Nothing waiting on documents. 👍 When you're blocked on a homeowner's insurance declaration page, tap “📄 Waiting on documents” inside a deal and it moves here."
+            : mineView === "no_contact"
             ? "No “can't get ahold of them” customers. 👍"
             : mineView === "signed"
               ? "No signed customers yet. Once you mark a deal “Signed” it moves here."
@@ -2251,8 +2260,9 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
       });
       const b = await res.json().catch(() => ({}));
       if (!b.ok) { setFieldErr(b.error || `status ${res.status}`); setNoteBusy(false); return; }
-      // Dead / can't-reach move the deal off the active list — go back.
-      if (stage === "dead" || stage === "no_contact") { onBack(); return; }
+      // Dead / can't-reach / waiting-on-docs move the deal off the active
+      // list (into their own bucket) — go back to the list.
+      if (stage === "dead" || stage === "no_contact" || stage === "waiting_docs") { onBack(); return; }
       setJob((j) => j ? {
         ...j,
         pa_stage: stage || j.pa_stage,
@@ -2272,6 +2282,14 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
     const t = window.prompt("Move to “Can't get ahold of them.” Add a note (optional):");
     if (t == null) return;
     postNote({ text: t.trim() || "Marked can't-reach", stage: "no_contact" });
+  }
+  // PA is blocked until the homeowner sends their insurance declaration page
+  // (can't have them sign anything without it). Parks the deal in its own
+  // "Waiting on docs" bucket; PA taps "Docs received" to bring it back.
+  function waitingDocs() {
+    const t = window.prompt("Move to “Waiting on documents” (e.g. the homeowner's insurance declaration page). Add a note (optional):");
+    if (t == null) return;
+    postNote({ text: t.trim() || "Waiting on homeowner's insurance declaration page", stage: "waiting_docs" });
   }
   // "Correction needed" — flags wrong/missing key info. Texts the originating
   // sales rep + their regional manager a link to fix it (CorrectionPage), and
@@ -2612,11 +2630,22 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
             style={{ flex: "1 1 45%", padding: "11px", borderRadius: 10, fontWeight: 700, fontSize: 13, border: "1px solid #a7f3d0", background: "#ecfdf5", color: "#047857", cursor: noteBusy ? "default" : "pointer" }}>
             ✅ Reached — back to active
           </button>
-        ) : (
-          <button type="button" disabled={noteBusy} onClick={cantReach}
-            style={{ flex: "1 1 45%", padding: "11px", borderRadius: 10, fontWeight: 700, fontSize: 13, border: "1px solid #cbd5e1", background: "#f1f5f9", color: "#475569", cursor: noteBusy ? "default" : "pointer" }}>
-            📵 Can't get ahold of them
+        ) : job.pa_stage === "waiting_docs" ? (
+          <button type="button" disabled={noteBusy} onClick={() => postNote({ text: "Documents received — back to active", stage: "active" })}
+            style={{ flex: "1 1 45%", padding: "11px", borderRadius: 10, fontWeight: 700, fontSize: 13, border: "1px solid #a7f3d0", background: "#ecfdf5", color: "#047857", cursor: noteBusy ? "default" : "pointer" }}>
+            ✅ Docs received — back to active
           </button>
+        ) : (
+          <>
+            <button type="button" disabled={noteBusy} onClick={cantReach}
+              style={{ flex: "1 1 45%", padding: "11px", borderRadius: 10, fontWeight: 700, fontSize: 13, border: "1px solid #cbd5e1", background: "#f1f5f9", color: "#475569", cursor: noteBusy ? "default" : "pointer" }}>
+              📵 Can't get ahold of them
+            </button>
+            <button type="button" disabled={noteBusy} onClick={waitingDocs}
+              style={{ flex: "1 1 45%", padding: "11px", borderRadius: 10, fontWeight: 700, fontSize: 13, border: "1px solid #c7d2fe", background: "#eef2ff", color: "#3730a3", cursor: noteBusy ? "default" : "pointer" }}>
+              📄 Waiting on documents
+            </button>
+          </>
         )}
         <button type="button" disabled={noteBusy} onClick={deadDeal}
           style={{ flex: "1 1 45%", padding: "11px", borderRadius: 10, fontWeight: 700, fontSize: 13, border: "1px solid #fca5a5", background: "#fef2f2", color: "#991b1b", cursor: noteBusy ? "default" : "pointer" }}>
