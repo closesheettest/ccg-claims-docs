@@ -1107,9 +1107,39 @@ export function PAAdminPanel() {
 // of member PAs. Each company's admin uses their link to assign pooled deals.
 function PACompaniesPanel({ companies, pas, busy, onUpdate, onCreate }) {
   const [copiedId, setCopiedId] = useState(null);
+  const [sendOpenId, setSendOpenId] = useState(null);
+  const [sendBusyId, setSendBusyId] = useState(null);
+  const [sendNote, setSendNote] = useState(null); // { id, kind:"ok"|"err", text }
   const base = typeof window !== "undefined" ? window.location.origin : "";
   const paCount = (cid) => pas.filter((p) => p.pa_company_id === cid).length;
   const activePaCount = (cid) => pas.filter((p) => p.pa_company_id === cid && p.active).length;
+
+  // Send the company portal link to that company's admin by SMS / email / both.
+  async function sendCompanyLink(c, channel) {
+    const link = `${base}/?pa_company=${c.token}`;
+    const wantSms = channel === "sms" || channel === "both";
+    const wantEmail = channel === "email" || channel === "both";
+    if (wantSms && !c.admin_phone) { setSendNote({ id: c.id, kind: "err", text: "No admin phone on file — add one above first." }); return; }
+    if (wantEmail && !c.email) { setSendNote({ id: c.id, kind: "err", text: "No company email on file — add one above first." }); return; }
+    setSendBusyId(c.id); setSendNote(null);
+    const who = c.admin_name || "there";
+    const smsMsg = `Hi ${who} — here's your U.S. Shingle PA portal to manage your adjusters and assign deals: ${link}`;
+    const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#1e293b">Hi ${who},<br><br>Here's your U.S. Shingle PA company portal — use it to add &amp; manage your adjusters and assign deals:<br><br><a href="${link}">${link}</a></div>`;
+    const done = [];
+    try {
+      if (wantSms) {
+        const r = await fetch("/.netlify/functions/ghl-sms", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: c.admin_phone, name: who, message: smsMsg }) });
+        done.push(r.ok ? "text" : "text failed");
+      }
+      if (wantEmail) {
+        const r = await fetch("/.netlify/functions/send-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: c.email, subject: "Your U.S. Shingle PA portal link", html }) });
+        done.push(r.ok ? "email" : "email failed");
+      }
+      setSendNote({ id: c.id, kind: "ok", text: `Sent: ${done.join(" + ")}.` });
+      setSendOpenId(null);
+    } catch { setSendNote({ id: c.id, kind: "err", text: "Network error." }); }
+    setSendBusyId(null);
+  }
 
   return (
     <section style={{ border: "1px solid #c7d2fe", borderRadius: 12, padding: 16, background: "#f5f3ff" }}>
@@ -1171,7 +1201,23 @@ function PACompaniesPanel({ companies, pas, busy, onUpdate, onCreate }) {
                     <button type="button" onClick={() => { navigator.clipboard?.writeText(link); setCopiedId(c.id); setTimeout(() => setCopiedId(null), 1500); }}
                       style={{ ...secondaryBtn, fontSize: 11 }}>{copiedId === c.id ? "✓ Copied" : "Copy link"}</button>
                   )}
+                  {c.token && (
+                    <button type="button" onClick={() => { setSendOpenId(sendOpenId === c.id ? null : c.id); setSendNote(null); }}
+                      style={{ ...secondaryBtn, fontSize: 11, borderColor: "#c4b5fd", color: "#5b21b6" }}>📤 Send link</button>
+                  )}
                 </div>
+                {sendOpenId === c.id && (
+                  <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 11, color: "#6b7280" }}>Send to {c.admin_name || "the admin"} via:</span>
+                    <button type="button" disabled={sendBusyId === c.id || !c.admin_phone} title={c.admin_phone ? "" : "No admin phone on file"} onClick={() => sendCompanyLink(c, "sms")} style={{ ...secondaryBtn, fontSize: 11, opacity: c.admin_phone ? 1 : 0.5 }}>📱 SMS</button>
+                    <button type="button" disabled={sendBusyId === c.id || !c.email} title={c.email ? "" : "No company email on file"} onClick={() => sendCompanyLink(c, "email")} style={{ ...secondaryBtn, fontSize: 11, opacity: c.email ? 1 : 0.5 }}>✉️ Email</button>
+                    <button type="button" disabled={sendBusyId === c.id || (!c.admin_phone && !c.email)} onClick={() => sendCompanyLink(c, "both")} style={{ ...secondaryBtn, fontSize: 11 }}>📱+✉️ Both</button>
+                    {sendBusyId === c.id && <span style={{ fontSize: 11, color: "#6b7280" }}>Sending…</span>}
+                  </div>
+                )}
+                {sendNote && sendNote.id === c.id && (
+                  <div style={{ marginTop: 6, fontSize: 11, fontWeight: 700, color: sendNote.kind === "ok" ? "#047857" : "#b91c1c" }}>{sendNote.text}</div>
+                )}
               </div>
             );
           })}

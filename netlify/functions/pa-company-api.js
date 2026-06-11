@@ -196,7 +196,7 @@ exports.handler = async (event) => {
     const paId = (body.paId || "").trim();
     const target = pas.find((p) => p.id === paId);
     if (!target) return cors(400, JSON.stringify({ ok: false, error: "That PA isn't in your company." }));
-    if (!target.jn_user_id) return cors(400, JSON.stringify({ ok: false, error: "They're not in JobNimbus yet — wait for the green “Ready” status." }));
+    if (!target.jn_user_id) return cors(400, JSON.stringify({ ok: false, error: "They haven't been approved by U.S. Shingle yet — wait for the green “Ready” status." }));
     const upd = await fetch(`${SB_URL}/rest/v1/pas?id=eq.${encodeURIComponent(paId)}&pa_company_id=eq.${company.id}`, {
       method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify({ active: true }),
     });

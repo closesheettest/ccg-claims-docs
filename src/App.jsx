@@ -4725,7 +4725,7 @@ function PACompanyAdminPage({ token }) {
             {addOpen && (
               <div style={{ border: "1px solid #c4b5fd", borderRadius: 10, padding: 12, background: "#f5f3ff", marginBottom: 10 }}>
                 <div style={{ fontSize: 13, fontWeight: 800, color: "#5b21b6", marginBottom: 6 }}>➕ Add a new adjuster</div>
-                <div style={{ fontSize: 12, color: "#6b21a8", marginBottom: 8 }}>We'll ask U.S. Shingle to add them in JobNimbus. They'll show as “⏳ Waiting for JobNimbus,” then turn into “✅ Ready” for you to activate — usually within a few minutes.</div>
+                <div style={{ fontSize: 12, color: "#6b21a8", marginBottom: 8 }}>We'll send this to U.S. Shingle for approval. They'll show as “⏳ Waiting on U.S. Shingle approval,” then turn into “✅ Ready” for you to activate — usually within a few minutes.</div>
                 <label style={{ fontSize: 12, fontWeight: 700, color: "#374151" }}>Full name<input value={addForm.name} onChange={(e) => setAddForm((f) => ({ ...f, name: e.target.value }))} style={fld} placeholder="First Last" /></label>
                 <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginTop: 6 }}>Email (used to link them to JobNimbus)<input type="email" value={addForm.email} onChange={(e) => setAddForm((f) => ({ ...f, email: e.target.value }))} style={fld} placeholder="name@example.com" /></label>
                 <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginTop: 6 }}>Phone<input type="tel" value={addForm.phone} onChange={(e) => setAddForm((f) => ({ ...f, phone: e.target.value }))} style={fld} placeholder="+1…" /></label>
@@ -4764,7 +4764,7 @@ function PACompanyAdminPage({ token }) {
                       {p.active ? null
                         : p.in_jn
                           ? <span style={{ fontSize: 11, fontWeight: 700, color: "#065f46", background: "#ecfdf5", border: "1px solid #6ee7b7", borderRadius: 999, padding: "1px 7px", marginLeft: 6 }}>✅ Ready to activate</span>
-                          : <span style={{ fontSize: 11, fontWeight: 700, color: "#92400e", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 999, padding: "1px 7px", marginLeft: 6 }}>⏳ Waiting for JobNimbus</span>}
+                          : <span style={{ fontSize: 11, fontWeight: 700, color: "#92400e", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 999, padding: "1px 7px", marginLeft: 6 }}>⏳ Waiting on U.S. Shingle approval</span>}
                     </div>
                     <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 1 }}>{[p.phone, p.email].filter(Boolean).join(" · ") || "no contact info"}</div>
                     <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 1 }}>{p.home_address ? `🏠 ${p.home_address} ` : "no home address "}{p.lat != null ? <span style={{ color: "#16a34a" }}>· 📍 geocoded</span> : <span style={{ color: "#b45309" }}>· ⚠ not geocoded</span>}</div>
