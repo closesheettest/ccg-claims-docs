@@ -65,6 +65,13 @@ export const handler = async (event) => {
     const row = await loadFlag(SB_URL, sb, "sales_audit");
     sendAtAll = !row || row.enabled !== false;
     extraRecipients = parseRecipients(row && row.recipients);
+    // ALSO honor the TMS Notifications page: anyone subscribed to the
+    // "sales_audit_noon" event there gets the admin summary too. (The
+    // office manages all subscriptions on TMS → Settings → Notifications;
+    // this lets that page control the noon audit even though it's a CCG
+    // cron.) Public read with the TMS publishable key — no env setup.
+    const tmsSubs = await tmsSubscriberPhones("sales_audit_noon");
+    if (tmsSubs.length) extraRecipients = extraRecipients.concat(tmsSubs);
   }
 
   // 1. Pull recent jobs (sold yesterday → updated yesterday). 4-day pad.
@@ -268,6 +275,29 @@ async function fetchManager(SB_URL, headers, zone) {
   );
   if (!res.ok) return null;
   return (await res.json().catch(() => []))?.[0] || null;
+}
+
+// Pull phones of TMS people subscribed to a notification event, so the
+// office can manage the noon audit's summary recipients from TMS →
+// Settings → Notifications. Reads the TMS Supabase with its PUBLIC
+// publishable key (same one the TMS frontend uses) — anon SELECT on
+// notification_recipients is allowed, so no env/secret setup is needed.
+// Best-effort: any failure just returns [] and the audit still sends to
+// ADMIN_ALERT_PHONE + the Auto-SMS recipients.
+const TMS_SB_URL = "https://yfmzktvmlfeqcubnvhxr.supabase.co";
+const TMS_SB_KEY = "sb_publishable_Nfr-w2esI_2JoBwBXOWpIg_rWJWkBrN";
+async function tmsSubscriberPhones(eventKey) {
+  try {
+    const r = await fetch(
+      `${TMS_SB_URL}/rest/v1/notification_recipients?select=phone,notify_via_sms,subscribed_events&active=eq.true&subscribed_events=cs.%7B%22${encodeURIComponent(eventKey)}%22%7D`,
+      { headers: { apikey: TMS_SB_KEY, Authorization: `Bearer ${TMS_SB_KEY}` } },
+    );
+    if (!r.ok) return [];
+    const rows = await r.json().catch(() => []);
+    return (rows || [])
+      .filter((x) => x.notify_via_sms !== false && x.phone)
+      .map((x) => x.phone);
+  } catch { return []; }
 }
 
 // Load the auto_sms row (enabled flag + extra recipients) for a key.
