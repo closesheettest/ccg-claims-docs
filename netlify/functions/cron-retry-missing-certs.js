@@ -97,6 +97,12 @@ exports.handler = async (event) => {
     `&jn_job_id=not.is.null` +
     `&cancelled_at=is.null` +
     `&jn_cert_uploaded_at=is.null` +
+    // Do NOT touch HELD inspections (gated inspector, awaiting manager
+    // confirmation). Nothing fires for those until a manager Confirms in
+    // the "Inspections to confirm" tile — that's the whole point of the
+    // review. Include null (non-gated) + false (already confirmed/cleared),
+    // exclude true (held).
+    `&or=(pending_confirmation.is.null,pending_confirmation.eq.false)` +
     `&result_at=lt.${encodeURIComponent(cutoffIso)}` +
     `&order=result_at.asc` +
     `&limit=5`;
