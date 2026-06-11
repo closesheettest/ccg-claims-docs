@@ -343,8 +343,8 @@ async function fetchSales(win) {
   // Pass an explicit start/end window so the sales total reflects the
   // asked-about period (last week, this month, etc.) — JN carries a Sold
   // Date on every job, so any window is computable. No window → this week.
-  const qs = (win && win.start && win.end)
-    ? `?start=${encodeURIComponent(win.start)}&end=${encodeURIComponent(win.end)}`
+  const qs = (win && win.startIso && win.endIso)
+    ? `?start=${encodeURIComponent(win.startIso)}&end=${encodeURIComponent(win.endIso)}`
     : "";
   const r = await fetch(`${base}/.netlify/functions/zone-sales-leaderboard${qs}`);
   if (!r.ok) throw new Error(`zone-sales-leaderboard ${r.status}`);
