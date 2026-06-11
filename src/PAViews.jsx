@@ -2054,6 +2054,9 @@ function PAJobCard({ job, onOpen, me }) {
           )}
         </div>
         <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 2 }}>🖊 Signed {signed}</div>
+        {job.mobile
+          ? <div style={{ fontSize: 13.5, marginTop: 3 }}><a href={`tel:${String(job.mobile).replace(/[^\d+]/g, "")}`} onClick={(e) => e.stopPropagation()} style={{ color: "#0e7490", fontWeight: 700, textDecoration: "none" }}>📞 {job.mobile}</a></div>
+          : <div style={{ fontSize: 12.5, color: "#b45309", marginTop: 3 }}>📞 no phone on file</div>}
       </div>
       <button type="button" onClick={onOpen} style={{ ...primaryBtn, padding: "10px 16px", fontSize: 14, whiteSpace: "nowrap" }}>
         Open pipeline →
