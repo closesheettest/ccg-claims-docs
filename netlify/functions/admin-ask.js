@@ -125,13 +125,17 @@ export const handler = async (event) => {
     }
 
     if (plan.kind === "data") {
-      // "Retail/insurance sales" questions: we don't split sales by channel,
-      // but the weekly TOTAL is the number people actually want (same figure
-      // as the leaderboard). So answer with the total and note it's combined,
-      // instead of punting to a feature request.
+      // Retail vs insurance split, per US Shingle's own definition:
+      //   • "retail sales"    = sold contracts this week  → the sales metric (leaderboard total)
+      //   • "insurance sales" = free roof inspections signed this week → inspections_total
+      // Map the question to the right metric instead of punting.
       const qlc = question.toLowerCase();
-      if ((plan.metric === "sales_this_week" || plan.metric === "sales_by_rep") && /\b(retail|insurance)\b/.test(qlc)) {
-        plan.note_total_only = true;
+      if ((plan.metric === "sales_this_week" || plan.metric === "sales_by_rep") && /\binsurance\b/.test(qlc)) {
+        plan.metric = "inspections_total";          // signed inspections = insurance sales
+        plan.date_range = plan.date_range || "this_week";
+        plan.note_insurance = true;
+      } else if ((plan.metric === "sales_this_week" || plan.metric === "sales_by_rep") && /\bretail\b/.test(qlc)) {
+        plan.note_retail = true;                    // retail sales = the sales total (no change needed)
       }
       return await answerData(plan);
     }
@@ -208,7 +212,8 @@ async function answerData(plan) {
       filter += windowFilter("signed_at", win);
       const rows = await fetchTable("inspections", { select: "client_name,zip,address,result,result_at,signed_at,jn_status", filter, limit: 5000 });
       const n = dedupSignings(rows).length;
-      return data(n, `${n} ${plural(n, "inspection")} ${n === 1 ? "was" : "were"} signed up ${winLabel}.`, null, "report", "Open Weekly Report");
+      const insurancePrefix = plan.note_insurance ? "Insurance sales: " : "";
+      return data(n, `${insurancePrefix}${n} ${plural(n, "inspection")} ${n === 1 ? "was" : "were"} signed up ${winLabel}.`, null, "report", "Open Weekly Report");
     }
 
     case "rep_leaderboard_rank": {
@@ -274,7 +279,7 @@ async function answerData(plan) {
       for (const z of d.zones || []) byZone[z.zone] = z.count;
       const out = {
         ok: true, kind: "data", number: n,
-        answerText: `${n} ${plural(n, "sale")} this week${money(revenue)}.${plan.note_total_only ? " (Total sales — we don't split retail vs insurance yet.)" : ""}`,
+        answerText: `${plan.note_retail ? "Retail sales: " : ""}${n} ${plural(n, "sale")} this week${money(revenue)}.`,
         link: { label: "Open Rep Dashboard", url: "https://us-shingle-rep-dashboard.netlify.app" },
       };
       if (Object.keys(byZone).length > 1) out.breakdown = byZone;
@@ -292,7 +297,7 @@ async function answerData(plan) {
       const who = distinct[0] || plan.person_name;
       const out = {
         ok: true, kind: "data", number: n,
-        answerText: `${who} has ${n} ${plural(n, "sale")} this week${money(revenue)}.${plan.note_total_only ? " (Total sales — we don't split retail vs insurance yet.)" : ""}`,
+        answerText: `${who} has ${n} ${plural(n, "sale")} this week${money(revenue)}.`,
         link: { label: "Open Rep Dashboard", url: "https://us-shingle-rep-dashboard.netlify.app" },
       };
       if (n) out.list = deals.map((dl) => dl.customer || "(deal)");
