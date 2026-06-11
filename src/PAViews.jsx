@@ -1711,8 +1711,14 @@ function PAJobList({ me, onOpenJob, wide }) {
 
   return (
     <div>
-      <div style={{ fontSize: 13, color: "#374151", marginBottom: 12, fontWeight: 700 }}>
-        🧑‍⚖️ Your assigned customers ({mine.length}) — grouped by county, newest signed first
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 12 }}>
+        <div style={{ fontSize: 13, color: "#374151", fontWeight: 700 }}>
+          🧑‍⚖️ Your assigned customers ({mine.length}) — grouped by county, newest signed first
+        </div>
+        <a href="/whats-new/?for=pa" target="_blank" rel="noreferrer"
+          style={{ fontSize: 12, fontWeight: 700, color: "#3730a3", border: "1px solid #c7d2fe", background: "#eef2ff", borderRadius: 999, padding: "5px 11px", textDecoration: "none", whiteSpace: "nowrap" }}>
+          🆕 What's new
+        </a>
       </div>
 
 

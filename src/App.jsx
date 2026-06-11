@@ -4798,6 +4798,72 @@ function AdminAskResult({ result }) {
   );
 }
 
+// Admin panel: text PAs / inspectors a link to the What's-New page when a
+// change ships. Preview first (who gets it + the exact message), then send.
+function AppUpdateAnnouncer() {
+  const [audience, setAudience] = useState("pa");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState(null);
+  const [result, setResult] = useState(null);
+  const call = async (dry) => {
+    setBusy(true);
+    if (dry) { setResult(null); }
+    try {
+      const r = await fetch("/.netlify/functions/send-app-update", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ audience, note: note.trim() || undefined, dry }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (dry) setPreview(d); else { setResult(d); setPreview(null); }
+    } catch { (dry ? setPreview : setResult)({ ok: false, error: "Network error" }); }
+    setBusy(false);
+  };
+  const send = async () => {
+    const n = preview?.would_send;
+    const who = audience === "both" ? "PAs + inspectors" : audience === "pa" ? "PAs" : "inspectors";
+    if (!window.confirm(`Text ${n != null ? n : "all selected"} ${who} a link to What's New?`)) return;
+    await call(false);
+  };
+  const chip = (v, l) => (
+    <button key={v} type="button" onClick={() => { setAudience(v); setPreview(null); setResult(null); }}
+      style={{ padding: "8px 14px", borderRadius: 999, fontWeight: 700, fontSize: 13, cursor: "pointer",
+        border: `1px solid ${audience === v ? "#13294b" : "#cbd5e1"}`, background: audience === v ? "#13294b" : "#fff", color: audience === v ? "#fff" : "#374151" }}>
+      {l}
+    </button>
+  );
+  return (
+    <Card>
+      <CardContent>
+        <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 18, marginBottom: 6 }}>📣 Tell the team about an update</div>
+        <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 12 }}>
+          Texts a friendly link to the <a href="/whats-new/" target="_blank" rel="noreferrer" style={{ color: "#3730a3", fontWeight: 700 }}>What's New</a> page (explained super simply). Add the newest change to the top of that page first.
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+          {chip("pa", "Public Adjusters")}{chip("inspector", "Inspectors")}{chip("both", "Both")}
+        </div>
+        <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="Optional extra line (keep it simple)…"
+          style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 14, marginBottom: 10, resize: "vertical" }} />
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <Button variant="outline" onClick={() => call(true)} disabled={busy}>{busy ? "…" : "👀 Preview who gets it"}</Button>
+          <Button onClick={send} disabled={busy || !preview || !preview.would_send}>{busy ? "Sending…" : "📤 Send the text"}</Button>
+        </div>
+        {preview && preview.ok && (
+          <div style={{ marginTop: 10, fontSize: 13, color: "#334155", background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 10, padding: 10 }}>
+            Will text <b>{preview.would_send}</b> {audience === "both" ? "people" : audience === "pa" ? "PAs" : "inspectors"}.{preview.would_send === 0 ? " (Nobody active with a phone in that group.)" : ""}
+            {preview.message_samples?.[0] && <div style={{ marginTop: 8, fontStyle: "italic", color: "#475569", whiteSpace: "pre-wrap" }}>“{preview.message_samples[0]}”</div>}
+          </div>
+        )}
+        {result && (
+          <div style={{ marginTop: 10, fontSize: 13, fontWeight: 700, color: result.ok ? "#065f46" : "#991b1b" }}>
+            {result.ok ? `✅ Sent ${result.sent} of ${result.total}.` : `⚠ ${result.error || "Failed."}`}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function AdminDashboard() {
   const [unlocked, setUnlocked] = useState(() => {
     try { return sessionStorage.getItem("adminHubUnlocked") === "1"; } catch { return false; }
@@ -4977,6 +5043,9 @@ function AdminDashboard() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Announce an app update to PAs / inspectors */}
+      <AppUpdateAnnouncer />
 
       {/* Most-used reports */}
       <Card>

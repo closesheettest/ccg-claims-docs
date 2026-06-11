@@ -2355,15 +2355,18 @@ function InspectorJobList({ me, onOpenJob, onOpenReports }) {
           <div style={{ fontSize: 14, color: "#6b7280" }}>Signed in as</div>
           <div style={{ fontSize: 18, fontWeight: 700 }}>👷 {me.name}</div>
         </div>
-        {onOpenReports && (
-          <button
-            type="button"
-            onClick={onOpenReports}
-            style={{ ...secondaryBtn, fontSize: 12, padding: "8px 12px", whiteSpace: "nowrap" }}
-          >
-            📊 Reports
-          </button>
-        )}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <a href="/whats-new/?for=inspector" target="_blank" rel="noreferrer"
+            style={{ ...secondaryBtn, fontSize: 12, padding: "8px 12px", whiteSpace: "nowrap", textDecoration: "none", color: "#3730a3", borderColor: "#c7d2fe", display: "inline-block" }}>
+            🆕 What's new
+          </a>
+          {onOpenReports && (
+            <button type="button" onClick={onOpenReports}
+              style={{ ...secondaryBtn, fontSize: 12, padding: "8px 12px", whiteSpace: "nowrap" }}>
+              📊 Reports
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Two top-level tabs like the PA portal. */}

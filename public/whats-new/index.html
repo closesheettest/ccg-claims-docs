@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>What's New — U.S. Shingle &amp; Metal</title>
+<!--
+  "What's new" page texted to PAs / inspectors when something ships.
+  Add a new update at the TOP of the UPDATES array below. Each entry is
+  written in the simplest possible words (explain-like-they're-a-child),
+  with numbered "how to use it" steps. Tag each with who it's for:
+    for: "pa" | "inspector" | "both"
+  The page filters by ?for=pa or ?for=inspector (from the text link);
+  with no ?for it shows everything.
+-->
+<style>
+  :root{ --navy:#13294b; --gold:#d4a142; --green:#2f8f5b; --indigo:#3730a3;
+    --ink:#1e293b; --muted:#64748b; --line:#e6e9ef; }
+  *{box-sizing:border-box}
+  body{margin:0;background:#eef2f7;color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.5;}
+  .wrap{max-width:620px;margin:0 auto;padding:18px 14px 64px;}
+  header{background:var(--navy);color:#fff;border-radius:18px;padding:22px 20px;margin-bottom:16px;text-align:center;}
+  header .emoji{font-size:34px;}
+  header h1{margin:6px 0 4px;font-size:24px;}
+  header p{margin:0;font-size:15px;opacity:.9;}
+  .card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:14px;box-shadow:0 1px 3px rgba(0,0,0,.05);}
+  .tag{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;
+    padding:3px 9px;border-radius:999px;margin-bottom:8px;}
+  .tag.pa{background:#eef2ff;color:var(--indigo);}
+  .tag.inspector{background:#ecfdf5;color:var(--green);}
+  .tag.both{background:#fff7ed;color:#b45309;}
+  .card h2{font-size:19px;margin:0 0 4px;}
+  .card .what{font-size:15.5px;color:#334155;margin:0 0 12px;}
+  .how-label{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:0 0 8px;}
+  ol.steps{margin:0;padding:0;list-style:none;counter-reset:s;}
+  ol.steps li{counter-increment:s;position:relative;padding:8px 0 8px 40px;font-size:15.5px;border-top:1px solid #f1f5f9;}
+  ol.steps li:first-child{border-top:0;}
+  ol.steps li::before{content:counter(s);position:absolute;left:0;top:7px;width:26px;height:26px;border-radius:50%;
+    background:var(--navy);color:#fff;font-weight:800;font-size:14px;display:flex;align-items:center;justify-content:center;}
+  ol.steps li b{color:var(--navy);}
+  .date{font-size:12px;color:#94a3b8;margin-top:10px;}
+  .empty{background:#fff;border:1px dashed #cbd5e1;border-radius:16px;padding:28px;text-align:center;color:var(--muted);}
+  .foot{font-size:12.5px;color:var(--muted);text-align:center;margin-top:10px;}
+  .pill-link{display:inline-block;margin-top:4px;font-size:13px;color:var(--indigo);text-decoration:none;font-weight:700;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="emoji">🎉</div>
+    <h1>What's New</h1>
+    <p id="sub">New things in your app — and how to use them.</p>
+  </header>
+  <div id="list"></div>
+  <p class="foot">U.S. Shingle &amp; Metal · We add helpful things often — check back when you get a text. 💙</p>
+</div>
+
+<script>
+  // ── Add new updates at the TOP. Keep the words simple. ──
+  const UPDATES = [
+    {
+      for: "pa",
+      title: "📄 “Waiting on documents” button",
+      what: "A new button for when you can’t go any further because you’re still waiting on the homeowner’s insurance paper (the declaration page). It keeps that customer out of your way until the paper shows up.",
+      steps: [
+        "Open the customer you’re waiting on.",
+        "Tap the purple <b>📄 Waiting on documents</b> button.",
+        "Type a short note if you want (like “waiting on dec page from Geico”). It’s okay to leave it blank.",
+        "That customer moves to the <b>📄 Waiting on docs</b> tab, so your main list only shows people you can work right now.",
+        "When the paper comes in, open that customer again and tap the green <b>✅ Docs received — back to active</b> button. Done!"
+      ],
+      date: "June 2026"
+    },
+    {
+      for: "inspector",
+      title: "♻️ Re-inspect — took pictures of the wrong house",
+      what: "If you took the photos at the wrong house, you can redo that job. The old pictures go away and you take new ones at the right house.",
+      steps: [
+        "On your job list, tap <b>♻️ Took photos of the wrong house on a finished job? Fix it</b>.",
+        "Find the customer in the little list (it shows jobs you finished in the last 7 days).",
+        "Tap <b>♻️ Re-inspect</b> next to that customer, then tap <b>OK</b>.",
+        "The wrong pictures are deleted and the job comes back to <b>🛠 My inspections</b>.",
+        "Open it, drive to the <b>correct</b> house, take the photos, pick the result, and tap <b>Submit</b> — just like normal. A fresh certificate is made automatically."
+      ],
+      date: "June 2026"
+    },
+    {
+      for: "pa",
+      title: "📏 Max travel distance (for company owners)",
+      what: "If you run a PA company, you can now tell the system how far each of your adjusters will drive. Then you only get shown jobs that are close enough for them.",
+      steps: [
+        "Open your company link and tap <b>👥 Adjusters</b>.",
+        "Tap <b>Edit</b> next to one of your people.",
+        "Type a number in <b>Max travel distance (miles)</b> — like <b>100</b>. Leave it blank for no limit. Tap <b>Save</b>.",
+        "Down at <b>📏 Distance from</b>, tap that person’s name.",
+        "Now you’ll only see the homeowners within their miles — easy to give them work they’ll actually drive to."
+      ],
+      date: "June 2026"
+    }
+  ];
+
+  const params = new URLSearchParams(location.search);
+  const who = (params.get("for") || "").toLowerCase(); // "pa" | "inspector" | ""
+  const sub = document.getElementById("sub");
+  if (who === "pa") sub.textContent = "New things for Public Adjusters — and how to use them.";
+  else if (who === "inspector") sub.textContent = "New things for inspectors — and how to use them.";
+
+  const shown = UPDATES.filter((u) => !who || u.for === who || u.for === "both");
+  const list = document.getElementById("list");
+  if (shown.length === 0) {
+    list.innerHTML = '<div class="empty">Nothing new right now. We’ll text you when there is. 👍</div>';
+  } else {
+    const tagText = { pa: "For Public Adjusters", inspector: "For Inspectors", both: "For Everyone" };
+    list.innerHTML = shown.map((u) => `
+      <div class="card">
+        <span class="tag ${u.for}">${tagText[u.for] || ""}</span>
+        <h2>${u.title}</h2>
+        <p class="what">${u.what}</p>
+        <div class="how-label">How to use it</div>
+        <ol class="steps">${u.steps.map((s) => `<li>${s}</li>`).join("")}</ol>
+        <div class="date">Added ${u.date}</div>
+      </div>
+    `).join("");
+  }
+</script>
+</body>
+</html>
