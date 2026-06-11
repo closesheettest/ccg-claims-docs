@@ -412,7 +412,7 @@ export function PAAdminPanel() {
   // a PA is actively working are intentionally hidden so they're not yanked.
   async function loadAllDeals() {
     const { data } = await supabase.from("inspections")
-      .select("id, client_name, signed_at, pa_id, pa_stage, pa_opened_at, pa_notes_log")
+      .select("id, client_name, signed_at, pa_id, pa_company_id, pa_stage, pa_opened_at, pa_notes_log")
       .eq("result", "damage").is("cancelled_at", null).is("pa_opened_at", null)
       .or("pa_stage.is.null,pa_stage.neq.dead")
       .order("signed_at", { ascending: false }).limit(1000);
@@ -967,7 +967,7 @@ export function PAAdminPanel() {
           <div style={{ display: "grid", gap: 10, maxHeight: 460, overflowY: "auto" }}>
             {allDeals.length === 0 ? (
               <div style={{ fontSize: 12, color: "#6b7280" }}>No deals.</div>
-            ) : groupDealsByPa(allDeals, pas).map((g) => {
+            ) : groupDealsByPa(allDeals, pas, companies).map((g) => {
               const allOn = g.deals.every((d) => selected.has(d.id));
               return (
                 <div key={g.key}>
@@ -2090,18 +2090,29 @@ function PAProgressReport({ report }) {
   );
 }
 
-function groupDealsByPa(deals, pas) {
+function groupDealsByPa(deals, pas, companies) {
   const nameById = {};
   for (const p of pas || []) nameById[p.id] = p.name;
+  const companyById = {};
+  for (const c of companies || []) companyById[c.id] = c.name;
   const byKey = new Map();
   for (const d of deals || []) {
-    const key = d.pa_id || "__none__";
+    // A deal with no PA but a company pool isn't "Unassigned" — it's sitting
+    // in that company's pool for the company admin to assign. Group it
+    // separately so the "Unassigned" count means truly-nobody (matches the
+    // top "Unassigned" badge).
+    const key = d.pa_id || (d.pa_company_id ? `company:${d.pa_company_id}` : "__none__");
     if (!byKey.has(key)) byKey.set(key, []);
     byKey.get(key).push(d);
   }
   const groups = [];
-  if (byKey.has("__none__")) groups.push({ key: "__none__", label: "Unassigned", deals: byKey.get("__none__") });
-  [...byKey.keys()].filter((k) => k !== "__none__")
+  if (byKey.has("__none__")) groups.push({ key: "__none__", label: "Unassigned (nobody)", deals: byKey.get("__none__") });
+  // Company pools next.
+  [...byKey.keys()].filter((k) => k.startsWith("company:"))
+    .sort((a, b) => (companyById[a.slice(8)] || "").localeCompare(companyById[b.slice(8)] || ""))
+    .forEach((k) => groups.push({ key: k, label: `🏢 ${companyById[k.slice(8)] || "Company"} pool`, deals: byKey.get(k) }));
+  // Then individual PAs.
+  [...byKey.keys()].filter((k) => k !== "__none__" && !k.startsWith("company:"))
     .sort((a, b) => (nameById[a] || "").localeCompare(nameById[b] || ""))
     .forEach((k) => groups.push({ key: k, label: nameById[k] || "Unknown PA", deals: byKey.get(k) }));
   return groups;
