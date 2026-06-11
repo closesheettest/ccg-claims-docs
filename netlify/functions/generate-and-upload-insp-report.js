@@ -242,7 +242,7 @@ exports.handler = async (event) => {
     } else if (resultLabel === "Retail") {
       pdfBase64 = await generateRetailPDF({ clientName, address, repName, date: reportDate, photos, record });
     } else {
-      pdfBase64 = await generatePhotoReportPDF({ clientName, address, repName, date: reportDate, photos, resultLabel });
+      pdfBase64 = await generateNoDamagePDF({ clientName, address, repName, date: reportDate, photos, record });
     }
   } catch (e) {
     return { statusCode: 500, body: JSON.stringify({ ok: false, error: "PDF generation failed", detail: e.message }) };
@@ -574,6 +574,22 @@ const INSP_ROWS_RETAIL = [
   { category: "Overall Structural Integrity", finding: "Moderately poor to poor",                                          result: "FAIL" },
 ];
 
+// No-Damage variant — the roof was inspected and NO storm damage was
+// found, so every category passes. This is the homeowner's "evidence the
+// roof was professionally inspected and found in good condition" cert.
+const INSP_ROWS_NO_DAMAGE = [
+  { category: "Roofing Material Type",       finding: "Asphalt Shingle & Metal Roofing System",     result: "N/A"  },
+  { category: "Shingle Condition",            finding: "No storm damage observed — sound condition", result: "PASS" },
+  { category: "Metal Panel Condition",        finding: "No damage observed",                         result: "PASS" },
+  { category: "Flashing & Sealants",          finding: "Intact and sealed",                          result: "PASS" },
+  { category: "Gutters & Downspouts",         finding: "No damage observed",                         result: "PASS" },
+  { category: "Ridge & Hip Caps",             finding: "Sound condition",                            result: "PASS" },
+  { category: "Roof Deck (Visible)",          finding: "No deformation observed",                    result: "PASS" },
+  { category: "Ventilation",                  finding: "Adequate",                                   result: "PASS" },
+  { category: "Water Intrusion / Leaks",      finding: "No active leaks or intrusion observed",      result: "PASS" },
+  { category: "Overall Structural Integrity", finding: "Roof system in serviceable condition",       result: "PASS" },
+];
+
 // ── Date helpers ─────────────────────────────────────────────────────
 function fmtDateLong(dateStr) {
   if (!dateStr) return "";
@@ -612,7 +628,14 @@ function buildCertificateHTML({ record, inspectorName, inspectionDateISO, logoUr
   const certNo = genCertNo(today);
   const inspector = inspectorName || "Hank Smith";
   const isRetail = variant === "retail";
-  const rows = isRetail ? INSP_ROWS_RETAIL : INSP_ROWS_DAMAGE;
+  const isNoDamage = variant === "no_damage";
+  const rows = isNoDamage ? INSP_ROWS_NO_DAMAGE : isRetail ? INSP_ROWS_RETAIL : INSP_ROWS_DAMAGE;
+  // Banner copy/colors per variant: green "NO DAMAGE FOUND" for a passing
+  // roof, gray "NONE FOUND" for retail (failed but no storm damage), red
+  // "DAMAGE FOUND" for storm damage.
+  const statusBg = isNoDamage ? "#199c2e" : isRetail ? "#6b7280" : "#dc2626";
+  const statusValue = isNoDamage ? "NO DAMAGE FOUND" : isRetail ? "NONE FOUND" : "DAMAGE FOUND";
+  const remainingLife = isNoDamage ? "Serviceable" : "Needs Replacement";
 
   const addr = escapeHtml(record.address || "");
   const cityLine = escapeHtml([record.city, record.state, record.zip].filter(Boolean).join(", "));
@@ -670,10 +693,12 @@ function buildCertificateHTML({ record, inspectorName, inspectionDateISO, logoUr
         </tbody></table>
       </div>
 
-      <div style="margin:8px 14px;border:2px solid #1a2e5a;border-radius:4px;padding:9px 13px;background:#fff5f5;">
+      <div style="margin:8px 14px;border:2px solid #1a2e5a;border-radius:4px;padding:9px 13px;background:${isNoDamage ? "#f0fdf4" : "#fff5f5"};">
         <div style="font-size:12px;font-weight:700;color:#1a2e5a;text-align:center;margin-bottom:5px;text-transform:uppercase;">OFFICIAL CERTIFICATION STATEMENT</div>
         <div style="font-size:10.5px;line-height:1.65;color:#111827;text-align:center;">
-          ${isRetail
+          ${isNoDamage
+            ? `This is to certify that a thorough roofing inspection was conducted by U.S. Shingle and Metal LLC on the above-referenced property. Based on the findings, the roof system has been evaluated and <strong>NO STORM DAMAGE WAS IDENTIFIED</strong>. The roof system was found to be in serviceable condition at the time of inspection.`
+            : isRetail
             ? `This is to certify that a thorough roofing inspection was conducted by U.S. Shingle and Metal LLC on the above-referenced property. Based on the findings, the roof system has been evaluated. The roof system requires immediate attention. It has <strong>FAILED INSPECTION</strong> in multiple areas.`
             : `This is to certify that a thorough roofing inspection was conducted by U.S. Shingle and Metal LLC on the above-referenced property. Based on the findings, the roof system has been evaluated and <strong>STORM DAMAGE HAS BEEN IDENTIFIED</strong>. The roof system requires immediate attention. A licensed Public Adjuster has been notified to assist with the insurance claims process.`}
         </div>
@@ -695,12 +720,12 @@ function buildCertificateHTML({ record, inspectorName, inspectionDateISO, logoUr
 
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;margin:6px 14px;border:2px solid #1a2e5a;border-radius:4px;overflow:hidden;">
         <div style="background:#1a2e5a;padding:9px 13px;border-right:2px solid #fff;">
-          <div style="font-size:8.5px;color:${isRetail ? "#fff" : "#c8392b"};font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;">ESTIMATED REMAINING ROOF LIFE:</div>
-          <div style="font-size:14px;font-weight:700;color:#fff;">Needs Replacement</div>
+          <div style="font-size:8.5px;color:${isRetail || isNoDamage ? "#fff" : "#c8392b"};font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;">ESTIMATED REMAINING ROOF LIFE:</div>
+          <div style="font-size:14px;font-weight:700;color:#fff;">${remainingLife}</div>
         </div>
-        <div style="background:${isRetail ? "#6b7280" : "#dc2626"};padding:9px 13px;text-align:center;border-right:2px solid #fff;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+        <div style="background:${statusBg};padding:9px 13px;text-align:center;border-right:2px solid #fff;display:flex;flex-direction:column;align-items:center;justify-content:center;">
           <div style="font-size:9.5px;font-weight:700;color:rgba(255,255,255,0.85);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;">${isRetail ? "STORM DAMAGE STATUS" : "DAMAGE STATUS"}</div>
-          <div style="font-size:20px;font-weight:700;color:#fff;">${isRetail ? "NONE FOUND" : "DAMAGE FOUND"}</div>
+          <div style="font-size:20px;font-weight:700;color:#fff;">${statusValue}</div>
         </div>
         <div style="background:#c8392b;padding:9px 13px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;">
           <div style="font-size:9.5px;font-weight:700;color:rgba(255,255,255,0.85);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;">CERT. INSPECTED ON</div>
@@ -793,6 +818,15 @@ async function generateRetailPDF({ clientName, address, repName, date, photos, r
   return buildCertificatePdf({ clientName, address, date, photos, record, variant: "retail" });
 }
 
+// ── No-Damage PDF: formal certificate (photo page only if photos exist) ─
+// The homeowner is promised an "official inspection certificate" they can
+// give their insurer as evidence the roof was inspected and found in good
+// condition — so No Damage gets the SAME formal certificate as Damage/
+// Retail (green "NO DAMAGE FOUND" banner), NOT the old 1-page summary.
+async function generateNoDamagePDF({ clientName, address, repName, date, photos, record }) {
+  return buildCertificatePdf({ clientName, address, date, photos, record, variant: "no_damage" });
+}
+
 async function buildCertificatePdf({ clientName, address, date, photos, record, variant }) {
   const logoUrl = `${BASE_URL}/uss-header.png`;
   const signatureUrl = `${BASE_URL}/rep-signature.png`;
@@ -830,7 +864,7 @@ async function buildCertificatePdf({ clientName, address, date, photos, record, 
     .photos-footer { margin-top: 20px; padding-top: 12px; border-top: 1px solid #e5e7eb; font-size: 10px; color: #9ca3af; text-align: center; }
   </style></head><body>
     ${certPageHtml}
-    <div class="photos-page">
+    ${photoCount > 0 ? `<div class="photos-page">
       <div class="photos-header">
         <h2>📷 Inspection Photos</h2>
         <span>${escapeHtml(clientName)} · ${date}</span>
@@ -840,7 +874,7 @@ async function buildCertificatePdf({ clientName, address, date, photos, record, 
       <div class="photos-footer">
         U.S. Shingle &amp; Metal LLC · License #CCC1331960 · Photos taken during roof inspection · ${date}
       </div>
-    </div>
+    </div>` : ""}
   </body></html>`;
 
   return await renderPdfFromHtml(html);
