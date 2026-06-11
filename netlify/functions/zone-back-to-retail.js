@@ -49,8 +49,9 @@ exports.handler = async (event) => {
   // exact JN status strings). Remove after wiring the matcher.
   if (qp.debug) {
     const counts = {};
-    for (const j of jobs) { const s = j.status_name || "(none)"; counts[s] = (counts[s] || 0) + 1; }
-    return cors(200, JSON.stringify({ ok: true, jobs: jobs.length, statuses: counts }));
+    for (const j of jobs) { const s = j.cf_string_34 || "(none)"; counts[s] = (counts[s] || 0) + 1; }
+    const sample = jobs.find((j) => /retail/i.test(j.cf_string_34 || ""));
+    return cors(200, JSON.stringify({ ok: true, jobs: jobs.length, cf_string_34: counts, sample_retail: sample ? { name: sample.name, status_name: sample.status_name, record_type_name: sample.record_type_name, date_start: sample.date_start, sales_rep_name: sample.sales_rep_name } : null }));
   }
 
   const matched = jobs.filter((j) => matchesStatus(j.status_name));
