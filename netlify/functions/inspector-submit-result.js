@@ -66,6 +66,13 @@ exports.handler = async (event) => {
   if (result === "lost" && !lostReason) {
     return json(400, { ok: false, error: "lost_reason is required for a Lost result" });
   }
+  // Fail-safe: every actual inspection result (damage / no_damage /
+  // retail) MUST have at least one photo — including No Damage. Only a
+  // "lost" (the inspection never happened) is allowed with no photos.
+  // The portal already blocks this client-side; this is the server guard.
+  if (result !== "lost" && photoPaths.length === 0) {
+    return json(400, { ok: false, error: "At least one photo is required for a damage, no damage, or retail result." });
+  }
 
   const SB_URL = process.env.VITE_SUPABASE_URL;
   const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;

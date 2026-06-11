@@ -3833,6 +3833,16 @@ function InspectorJobDetail({ me, jobId, onBack }) {
     }
     // ── END RACE FIX ──
 
+    // Fail-safe: NO result may be submitted without photos — including
+    // No Damage. The cert is only "good" with photo evidence, so block
+    // the submit (the button is also disabled, this is defense-in-depth).
+    if (photos.length === 0) {
+      setSubmitMsg({ kind: "error", text: "Add at least one photo before submitting. Every result — including No Damage — needs photos." });
+      setSubmitting(false);
+      setSubmitProgress(null);
+      return;
+    }
+
     setSubmitProgress({ stage: "starting", uploaded: 0, total: photos.length });
     try {
       // 1. Upload photos to Supabase Storage in PARALLEL batches.
@@ -4441,6 +4451,11 @@ function InspectorJobDetail({ me, jobId, onBack }) {
             <br/>• <strong>Retail</strong> — significant wear & tear but no storm damage. Homeowner pays out of pocket. You'll be asked for 10 more close-ups of the worst spots before submitting.
             <br/>• <strong>No damage</strong> — roof is sound, nothing to file.
           </div>
+          {photos.length === 0 && (
+            <div style={{ padding: "12px 14px", background: "#fef2f2", border: "2px solid #fecaca", borderRadius: 10, color: "#991b1b", fontSize: 15, fontWeight: 700 }}>
+              📷 Take at least one photo before choosing a result. Every result — including No&nbsp;Damage — requires photos.
+            </div>
+          )}
           {[
             { key: "damage", label: "🚨 Damage — file PA claim", color: "#dc2626" },
             { key: "retail", label: "💰 Retail — homeowner pays (10 more photos)", color: "#7c3aed" },
@@ -4449,7 +4464,9 @@ function InspectorJobDetail({ me, jobId, onBack }) {
             <button
               key={opt.key}
               type="button"
+              disabled={photos.length === 0 || submitting}
               onClick={() => {
+                if (photos.length === 0) return;   // fail-safe: no result without photos
                 setResultChoice(opt.key);
                 if (opt.key === "retail") {
                   setStage({ kind: "retail_worst" });
@@ -4464,7 +4481,8 @@ function InspectorJobDetail({ me, jobId, onBack }) {
                 fontWeight: 700,
                 fontSize: 18,
                 textAlign: "left",
-                cursor: "pointer",
+                cursor: photos.length === 0 ? "not-allowed" : "pointer",
+                opacity: photos.length === 0 ? 0.5 : 1,
               }}
             >
               {opt.label}
@@ -4495,23 +4513,25 @@ function InspectorJobDetail({ me, jobId, onBack }) {
             <button
               type="button"
               onClick={submit}
-              disabled={submitting || pendingAdds > 0}
+              disabled={submitting || pendingAdds > 0 || photos.length === 0}
               style={{
                 padding: "20px 20px",
-                background: (submitting || pendingAdds > 0) ? "#9ca3af" : "#13294b",
+                background: (submitting || pendingAdds > 0 || photos.length === 0) ? "#9ca3af" : "#13294b",
                 color: "#fff",
                 border: "none",
                 borderRadius: 12,
                 fontWeight: 700,
                 fontSize: 20,
-                cursor: (submitting || pendingAdds > 0) ? "wait" : "pointer",
+                cursor: (submitting || pendingAdds > 0) ? "wait" : photos.length === 0 ? "not-allowed" : "pointer",
               }}
             >
               {submitting
                 ? "Submitting…"
                 : pendingAdds > 0
                   ? `Processing ${pendingAdds} photo${pendingAdds === 1 ? '' : 's'}…`
-                  : "Submit inspection →"}
+                  : photos.length === 0
+                    ? "Add a photo to submit"
+                    : "Submit inspection →"}
             </button>
           )}
         </section>
