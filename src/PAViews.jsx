@@ -301,9 +301,13 @@ export function PAAdminPanel() {
         .or("pa_stage.is.null,pa_stage.neq.dead");
       const byPa = {};
       (openRows || []).forEach((r) => { byPa[r.pa_id] = (byPa[r.pa_id] || 0) + 1; });
+      // "Needs assigning" = any damage deal with NO individual PA yet — whether
+      // truly unassigned OR sitting in a company pool the company never worked.
+      // (We drop the old pa_company_id=null filter so pool deals the company
+      // never assigned still surface here for U.S. Shingle to act on.)
       const { data: unassignedList } = await supabase.from("inspections")
-        .select("id, client_name, signed_at, address, city, state, zip, county, latitude, longitude")
-        .eq("result", "damage").is("pa_id", null).is("pa_company_id", null).not("jn_job_id", "is", null)
+        .select("id, client_name, signed_at, address, city, state, zip, county, latitude, longitude, pa_company_id")
+        .eq("result", "damage").is("pa_id", null).not("jn_job_id", "is", null)
         .is("cancelled_at", null).eq("pa_decision_needed", false).not("signed_at", "is", null)
         .order("signed_at", { ascending: false }).limit(200);
       const { data: dead } = await supabase.from("inspections")
@@ -906,7 +910,7 @@ export function PAAdminPanel() {
                       {g.jobs.map((d) => (
                         <div key={d.id} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "center", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 10px" }}>
                           <div style={{ minWidth: 0 }}>
-                            <div style={{ fontWeight: 700, fontSize: 13.5 }}>{d.client_name || "(no name)"}{d._dist != null && <span style={{ fontSize: 11, fontWeight: 700, color: "#0369a1", marginLeft: 6 }}>📍 {d._dist.toFixed(1)} mi</span>}</div>
+                            <div style={{ fontWeight: 700, fontSize: 13.5 }}>{d.client_name || "(no name)"}{d._dist != null && <span style={{ fontSize: 11, fontWeight: 700, color: "#0369a1", marginLeft: 6 }}>📍 {d._dist.toFixed(1)} mi</span>}{d.pa_company_id && <span style={{ fontSize: 11, fontWeight: 700, color: "#5b21b6", background: "#f5f3ff", border: "1px solid #c4b5fd", borderRadius: 999, padding: "1px 8px", marginLeft: 6 }}>🏢 in {companies.find((c) => c.id === d.pa_company_id)?.name || "company"} pool — never assigned</span>}</div>
                             <div style={{ fontSize: 11.5, color: "#6b7280" }}>{[d.address, d.city, d.state, d.zip].filter(Boolean).join(", ")}{d.signed_at ? ` · signed ${new Date(d.signed_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}</div>
                           </div>
                           <select disabled={bulkBusy} defaultValue="" onChange={(e) => { const v = e.target.value; if (v) assignOne(d.id, v); e.target.value = ""; }}
