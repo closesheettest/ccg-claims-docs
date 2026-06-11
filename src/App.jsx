@@ -4410,6 +4410,91 @@ function CorrectionPage({ inspectionId }) {
 // PA COMPANY admin screen — standalone at /?pa_company=<token>. The company's
 // admin sees every homeowner routed to their pool and assigns each to one of
 // their active PAs. Token-gated via pa-company-api. Self-contained.
+// U.S. Shingle "Add to JobNimbus" queue. Lists every PA a company added that
+// still needs creating in JobNimbus. Copy each field → paste into JN (so the
+// email matches exactly) → tap Completed to link them. Token-gated.
+function JnAddQueuePage({ token }) {
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+  const [pending, setPending] = useState([]);
+  const [busyId, setBusyId] = useState(null);
+  const [note, setNote] = useState(null);      // { id, kind, text }
+  const [copied, setCopied] = useState("");     // `${id}:${field}`
+
+  const load = async () => {
+    try {
+      const res = await fetch("/.netlify/functions/pa-jn-queue", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, action: "load" }),
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok || !out.ok) { setErr(out.error || "Couldn't load the queue."); setPending([]); }
+      else { setPending(out.pending || []); setErr(""); }
+    } catch { setErr("Network error."); }
+    setLoading(false);
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [token]);
+
+  const copy = (id, field, val) => { navigator.clipboard?.writeText(val || ""); setCopied(`${id}:${field}`); setTimeout(() => setCopied(""), 1200); };
+  const complete = async (p) => {
+    setBusyId(p.id); setNote(null);
+    try {
+      const res = await fetch("/.netlify/functions/pa-jn-queue", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, action: "complete", paId: p.id }),
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok || !out.ok) { setNote({ id: p.id, kind: "err", text: out.error || "Failed." }); }
+      else if (out.linked) { setPending((l) => l.filter((x) => x.id !== p.id)); setNote({ id: p.id, kind: "ok", text: `✅ ${p.name} linked — their company can activate them now.` }); }
+      else { setNote({ id: p.id, kind: "err", text: out.error || "Not in JobNimbus yet — add them first." }); }
+    } catch { setNote({ id: p.id, kind: "err", text: "Network error." }); }
+    setBusyId(null);
+  };
+
+  const wrap = { minHeight: "100vh", background: "#f3f4f6", padding: "20px 14px 60px", fontFamily: "system-ui, sans-serif" };
+  if (loading) return <div style={wrap}><div style={{ maxWidth: 720, margin: "60px auto", textAlign: "center", color: "#6b7280" }}>Loading…</div></div>;
+  if (err && !pending.length) return <div style={wrap}><Card style={{ maxWidth: 520, margin: "50px auto", padding: 28, textAlign: "center" }}><div style={{ fontSize: 40 }}>🔒</div><div style={{ fontSize: 16, marginTop: 8, color: "#991b1b" }}>{err}</div></Card></div>;
+
+  const fieldRow = (p, label, field, val) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+      <span style={{ fontSize: 11, fontWeight: 700, color: "#6b7280", width: 56 }}>{label}</span>
+      <code style={{ flex: 1, fontSize: 13, background: "#f1f5f9", padding: "6px 10px", borderRadius: 8, color: "#0f172a", wordBreak: "break-all" }}>{val || <span style={{ color: "#cbd5e1" }}>—</span>}</code>
+      {val && <button type="button" onClick={() => copy(p.id, field, val)} style={{ ...secondaryBtn, fontSize: 11, padding: "6px 12px", whiteSpace: "nowrap" }}>{copied === `${p.id}:${field}` ? "✓ Copied" : "📋 Copy"}</button>}
+    </div>
+  );
+
+  return (
+    <div style={wrap}>
+      <div style={{ maxWidth: 720, margin: "0 auto" }}>
+        <div style={{ fontSize: 22, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#111827" }}>🧰 Add to JobNimbus</div>
+        <div style={{ fontSize: 13, color: "#6b7280", marginTop: 2, marginBottom: 16 }}>
+          For each person below: <b>Copy</b> each field → paste into JobNimbus (Settings → Manage Team). Keep the email <b>exact</b>. When they're added in JN, tap <b>Completed</b> — we'll link them and tell their company to activate.
+        </div>
+        {pending.length === 0 ? (
+          <Card style={{ padding: 28, textAlign: "center" }}><div style={{ fontSize: 34 }}>🎉</div><div style={{ fontSize: 15, marginTop: 8, color: "#374151" }}>Nobody waiting — all caught up.</div></Card>
+        ) : (
+          <div style={{ display: "grid", gap: 12 }}>
+            {pending.map((p) => (
+              <div key={p.id} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: 14 }}>
+                <div style={{ fontSize: 16, fontWeight: 800, color: "#111827" }}>{p.name}</div>
+                <div style={{ fontSize: 12, color: "#5b21b6", fontWeight: 700, marginTop: 1 }}>🏢 {p.company_name}</div>
+                {fieldRow(p, "Name", "name", p.name)}
+                {fieldRow(p, "Email", "email", p.email)}
+                {fieldRow(p, "Phone", "phone", p.phone)}
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
+                  <Button onClick={() => complete(p)} disabled={busyId === p.id}>{busyId === p.id ? "Linking…" : "✅ Completed — added in JobNimbus"}</Button>
+                  {note && note.id === p.id && <span style={{ fontSize: 12, fontWeight: 700, color: note.kind === "ok" ? "#047857" : "#b91c1c" }}>{note.text}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{ marginTop: 14 }}><Button variant="outline" onClick={load}>↻ Refresh</Button></div>
+      </div>
+    </div>
+  );
+}
+
 function PACompanyAdminPage({ token }) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -5240,6 +5325,13 @@ export default function App() {
     const paCompanyToken = params.get("pa_company");
     if (paCompanyToken && paCompanyToken.trim()) {
       return <PACompanyAdminPage token={paCompanyToken.trim()} />;
+    }
+
+    // /?jn_queue=<token> — U.S. Shingle "Add to JobNimbus" queue: copy-paste
+    // each pending PA into JN, then click Completed to link them.
+    const jnQueueToken = params.get("jn_queue");
+    if (jnQueueToken && jnQueueToken.trim()) {
+      return <JnAddQueuePage token={jnQueueToken.trim()} />;
     }
   }
 

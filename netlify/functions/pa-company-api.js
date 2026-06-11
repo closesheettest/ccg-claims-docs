@@ -181,11 +181,13 @@ exports.handler = async (event) => {
       method: "POST", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify(row),
     });
     if (!ins.ok) return cors(500, JSON.stringify({ ok: false, error: `Couldn't add: ${(await ins.text()).slice(0, 160)}` }));
-    // Notification → name/email/phone ONLY (what JobNimbus needs).
+    // Notification → name/email/phone ONLY (what JobNimbus needs) + a link to
+    // the copy-paste queue page (no mistyping → email matches → auto-links).
+    const queueLink = `${base}/?jn_queue=jnq_7Kx2pV9mQ4sR1bN8wL3`;
     const msg =
       `🧰 New PA to add in JobNimbus — from ${company.name}.\n` +
-      `Add this person as a JN user, typed EXACTLY as shown so it auto-links:\n` +
-      `Name: ${name}\nEmail: ${email}\nPhone: ${phone}`;
+      `Name: ${name}\nEmail: ${email}\nPhone: ${phone}\n` +
+      `Tip: open the queue and copy-paste so the email matches exactly, then tap Completed:\n${queueLink}`;
     await notifyJnAdmins(base, msg);
     return cors(200, JSON.stringify({ ok: true }));
   }
