@@ -5107,6 +5107,14 @@ export function ConfirmResultsPanel() {
     const alreadyFired = !!insp.jn_pushed_at;
     const chosen = overrides[insp.id] || insp.result;
     const isChange = action === "confirm" && chosen !== insp.result;
+    // Fail-safe: a result can't be confirmed/fired with no photos —
+    // including No Damage. (Only "lost" is photo-free.) Stops pre-fix
+    // no-photo submissions from firing a broken cert / PA notice.
+    const photoCount = Array.isArray(insp.inspection_photos) ? insp.inspection_photos.length : 0;
+    if (action === "confirm" && chosen !== "lost" && photoCount === 0) {
+      alert(`${insp.client_name} has NO photos.\n\nEvery result — including No Damage — needs photos before it can be confirmed and fired. Reject this one and have the inspector re-inspect to add photos.`);
+      return;
+    }
     let warn;
     if (action === "confirm" && isChange) {
       // Manager corrected the inspector's call. Spell out exactly what
@@ -5260,6 +5268,12 @@ export function ConfirmResultsPanel() {
                       {insp.inspector_name && <span>👤 {insp.inspector_name}</span>}
                       {insp.result_at && <span>🕑 {new Date(insp.result_at).toLocaleString()}</span>}
                       {photos.length > 0 && <span>📷 {photos.length}</span>}
+                      {photos.length === 0 && (overrides[insp.id] || insp.result) !== "lost" && (
+                        <span style={{ background: "#fef2f2", color: "#991b1b", border: "1px solid #fecaca", borderRadius: 999, padding: "2px 8px", fontSize: 11, fontWeight: 700 }}
+                          title="No photos on this inspection — it can't be confirmed/fired. Reject and have the inspector re-inspect.">
+                          ⚠ No photos
+                        </span>
+                      )}
                       {insp.jn_pushed_at && (
                         <span
                           style={{
@@ -5293,20 +5307,29 @@ export function ConfirmResultsPanel() {
                     )}
                   </div>
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    <button
-                      type="button"
-                      onClick={() => act(insp, "confirm")}
-                      disabled={busy}
-                      style={{ ...primaryBtn, fontSize: 12, padding: "8px 14px", opacity: busy ? 0.6 : 1, cursor: busy ? "wait" : "pointer" }}
-                    >
-                      {busy
-                        ? "Working…"
-                        : (overrides[insp.id] && overrides[insp.id] !== insp.result)
-                          ? "✓ Change & re-file"
-                          : insp.jn_pushed_at
-                            ? "✓ Mark reviewed"
-                            : "✓ Confirm & fire"}
-                    </button>
+                    {(() => {
+                      const noPhotoBlock = photos.length === 0 && (overrides[insp.id] || insp.result) !== "lost";
+                      const disabled = busy || noPhotoBlock;
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => act(insp, "confirm")}
+                          disabled={disabled}
+                          title={noPhotoBlock ? "Can't confirm — no photos. Reject and re-inspect." : ""}
+                          style={{ ...primaryBtn, fontSize: 12, padding: "8px 14px", opacity: disabled ? 0.5 : 1, cursor: busy ? "wait" : noPhotoBlock ? "not-allowed" : "pointer" }}
+                        >
+                          {busy
+                            ? "Working…"
+                            : noPhotoBlock
+                              ? "✓ Confirm (needs photos)"
+                              : (overrides[insp.id] && overrides[insp.id] !== insp.result)
+                                ? "✓ Change & re-file"
+                                : insp.jn_pushed_at
+                                  ? "✓ Mark reviewed"
+                                  : "✓ Confirm & fire"}
+                        </button>
+                      );
+                    })()}
                     <button
                       type="button"
                       onClick={() => act(insp, "reject")}
