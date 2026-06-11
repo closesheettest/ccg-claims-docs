@@ -4533,6 +4533,7 @@ function PACompanyAdminPage({ token }) {
   const [addForm, setAddForm] = useState({ name: "", email: "", phone: "", home_address: "", max_distance_miles: "" });
   const [addBusy, setAddBusy] = useState(false);
   const [activateBusy, setActivateBusy] = useState(null);
+  const [resendBusy, setResendBusy] = useState(null);   // PA whose link is being resent
   const [showView, setShowView] = useState(false); // "view a PA's portal" panel
   const [viewPaId, setViewPaId] = useState("");     // which of MY PAs to view as
 
@@ -4667,6 +4668,21 @@ function PACompanyAdminPage({ token }) {
       else { setErr(""); await load(); }
     } catch { setErr("Network error."); }
     setActivateBusy(null);
+  };
+  // Re-send an adjuster their PRIVATE portal link (?mode=pa&pa=…) by text/email.
+  const resendPaLink = async (p) => {
+    if (!p.phone && !p.email) { setErr("No email or phone on file for this adjuster — add one via Edit first."); return; }
+    setResendBusy(p.id);
+    try {
+      const res = await fetch("/.netlify/functions/pa-company-api", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, action: "resend_link", paId: p.id }),
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok || !out.ok) setErr(out.error || "Couldn't send the link.");
+      else { setErr(""); alert(`✅ Portal link sent to ${p.name}${out.channel_used ? " (" + out.channel_used + ")" : ""}.`); }
+    } catch { setErr("Network error."); }
+    setResendBusy(null);
   };
 
   const fld = { width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 14, marginTop: 3 };
@@ -4900,6 +4916,7 @@ function PACompanyAdminPage({ token }) {
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     {p.ready_to_activate && <Button onClick={() => activatePa(p)} disabled={activateBusy === p.id}>{activateBusy === p.id ? "…" : "Activate"}</Button>}
+                    {p.active && <Button variant="outline" onClick={() => resendPaLink(p)} disabled={resendBusy === p.id}>{resendBusy === p.id ? "…" : "📤 Resend link"}</Button>}
                     <Button variant="outline" onClick={() => startEdit(p)}>Edit</Button>
                   </div>
                 </div>

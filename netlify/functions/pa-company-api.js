@@ -192,6 +192,27 @@ exports.handler = async (event) => {
     return cors(200, JSON.stringify({ ok: true }));
   }
 
+  // action "resend_link": re-send one of THEIR adjusters their PRIVATE
+  // portal link (?mode=pa&pa=<id>). Use when they need the link again or
+  // never got it. Scoped to this company's PAs.
+  if (action === "resend_link") {
+    const paId = (body.paId || "").trim();
+    const target = pas.find((p) => p.id === paId);
+    if (!target) return cors(400, JSON.stringify({ ok: false, error: "That PA isn't in your company." }));
+    if (!target.email && !target.phone) return cors(400, JSON.stringify({ ok: false, error: "No email or phone on file — add one via Edit first." }));
+    try {
+      const r = await fetch(`${base}/.netlify/functions/send-pa-app-invite`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paId, channel: "auto" }),
+      });
+      const out = await r.json().catch(() => ({}));
+      if (!r.ok || !out.ok) return cors(502, JSON.stringify({ ok: false, error: out.error || "Couldn't send the link." }));
+      return cors(200, JSON.stringify({ ok: true, channel_used: out.channel_used || "auto" }));
+    } catch (e) {
+      return cors(500, JSON.stringify({ ok: false, error: e.message || "Network error sending link." }));
+    }
+  }
+
   // action "activate_pa": company admin flips one of THEIR adjusters live —
   // only once the PA is in JobNimbus (jn_user_id set). Sends the portal invite.
   if (action === "activate_pa") {
