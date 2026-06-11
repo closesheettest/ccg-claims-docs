@@ -269,16 +269,25 @@ const TMS_SB_KEY = "sb_publishable_Nfr-w2esI_2JoBwBXOWpIg_rWJWkBrN";
 async function notifyJnAdmins(base, message) {
   try {
     const r = await fetch(
-      `${TMS_SB_URL}/rest/v1/notification_recipients?select=name,phone,notify_via_sms&active=eq.true&subscribed_events=cs.%7B%22pa_needs_jn_add%22%7D`,
+      `${TMS_SB_URL}/rest/v1/notification_recipients?select=name,phone,email,notify_via_sms,notify_via_email&active=eq.true&subscribed_events=cs.%7B%22pa_needs_jn_add%22%7D`,
       { headers: { apikey: TMS_SB_KEY, Authorization: `Bearer ${TMS_SB_KEY}` } },
     );
     const rows = r.ok ? await r.json().catch(() => []) : [];
-    const phones = (rows || []).filter((x) => x.notify_via_sms !== false && x.phone);
-    for (const p of phones) {
-      await fetch(`${base}/.netlify/functions/ghl-sms`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: p.phone, name: p.name || "JN admin", message }),
-      }).catch(() => {});
+    const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#1e293b">${message.replace(/\n/g, "<br>")}</div>`;
+    for (const x of rows || []) {
+      // Send on each channel the subscriber has on + a value for.
+      if (x.notify_via_sms !== false && x.phone) {
+        await fetch(`${base}/.netlify/functions/ghl-sms`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ to: x.phone, name: x.name || "JN admin", message }),
+        }).catch(() => {});
+      }
+      if (x.notify_via_email !== false && x.email) {
+        await fetch(`${base}/.netlify/functions/send-email`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ to: x.email, subject: "New PA to add in JobNimbus", html }),
+        }).catch(() => {});
+      }
     }
   } catch (e) { console.warn("notifyJnAdmins failed:", e.message || e); }
 }
