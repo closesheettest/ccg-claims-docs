@@ -1989,7 +1989,7 @@ function PAJobList({ me, onOpenJob, wide }) {
               </div>
               <div style={{ display: "grid", gap: 8, gridTemplateColumns: wide ? "repeat(auto-fill, minmax(320px, 1fr))" : "1fr" }}>
                 {g.jobs.map((job) => (
-                  <PAJobCard key={job.id} job={job} onOpen={() => onOpenJob(job.id)} />
+                  <PAJobCard key={job.id} job={job} me={me} onOpen={() => onOpenJob(job.id)} />
                 ))}
               </div>
             </div>
@@ -2027,15 +2027,26 @@ function MapLinks({ address, lat, lng, size = "sm" }) {
 // Minimal list card: just name + signed date + Open pipeline. Everything
 // else (signup, notes, can't-reach, dead, milestones) lives in the pipeline
 // detail view so the list stays a clean, scannable queue.
-function PAJobCard({ job, onOpen }) {
+function PAJobCard({ job, onOpen, me }) {
   const signed = job.signed_at
     ? new Date(job.signed_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
     : "—";
+  // Distance from the PA's home base to this homeowner — shown on the card
+  // so they can prioritize without opening the pipeline. Needs both the
+  // PA's coords (home address geocoded) and the deal's coords.
+  const dist = (me && me.latitude != null && me.longitude != null && job.latitude != null && job.longitude != null)
+    ? milesBetween(me.latitude, me.longitude, job.latitude, job.longitude)
+    : null;
   return (
     <div style={{ padding: 12, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
       <div style={{ minWidth: 150 }}>
         <div style={{ fontWeight: 700, fontSize: 16 }}>
           {job.client_name || "(no name)"}
+          {dist != null && (
+            <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: "#0369a1", background: "#e0f2fe", border: "1px solid #7dd3fc", borderRadius: 999, padding: "1px 8px", verticalAlign: "middle" }}>
+              📍 {dist.toFixed(1)} mi
+            </span>
+          )}
           {job.correction_needed && (
             <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: "#92400e", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 999, padding: "1px 8px", verticalAlign: "middle" }}>
               ⏳ awaiting rep
