@@ -23,10 +23,15 @@ const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 
 // A status is a "no sit" if, once stripped to letters/numbers/spaces, it
 // starts with "no sit" — catches "No Sit", "No Sit - No Show",
-// "No-Sit Reschedule", etc.
+// "No Sit- Need to Reschedule", etc. BUT we exclude "No Sit - Rescheduled":
+// those are already back on the calendar, so there's nothing to re-book.
+// (Note: "need to reschedule" normalizes to "...reschedule" without the
+// trailing "d", so it is NOT caught by the "rescheduled" exclusion.)
 function isNoSit(statusName) {
   const s = String(statusName || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-  return s.startsWith("no sit");
+  if (!s.startsWith("no sit")) return false;
+  if (s.includes("rescheduled")) return false;
+  return true;
 }
 
 exports.handler = async (event) => {
