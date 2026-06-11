@@ -4854,10 +4854,10 @@ function AppUpdateAnnouncer() {
     } catch { (dry ? setPreview : setResult)({ ok: false, error: "Network error" }); }
     setBusy(false);
   };
+  const audLabel = { pa: "field PAs", company_admin: "company owners", inspector: "inspectors", all: "everyone" };
   const send = async () => {
     const n = preview?.would_send;
-    const who = audience === "both" ? "PAs + inspectors" : audience === "pa" ? "PAs" : "inspectors";
-    if (!window.confirm(`Text ${n != null ? n : "all selected"} ${who} a link to What's New?`)) return;
+    if (!window.confirm(`Text ${n != null ? n : "all selected"} ${audLabel[audience] || audience} a link to What's New?`)) return;
     await call(false);
   };
   const chip = (v, l) => (
@@ -4875,7 +4875,7 @@ function AppUpdateAnnouncer() {
           Texts a friendly link to the <a href="/whats-new/" target="_blank" rel="noreferrer" style={{ color: "#3730a3", fontWeight: 700 }}>What's New</a> page (explained super simply). Add the newest change to the top of that page first.
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-          {chip("pa", "Public Adjusters")}{chip("inspector", "Inspectors")}{chip("both", "Both")}
+          {chip("pa", "Field PAs")}{chip("company_admin", "Company owners")}{chip("inspector", "Inspectors")}{chip("all", "Everyone")}
         </div>
         <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="Optional extra line (keep it simple)…"
           style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 14, marginBottom: 10, resize: "vertical" }} />
@@ -4885,7 +4885,7 @@ function AppUpdateAnnouncer() {
         </div>
         {preview && preview.ok && (
           <div style={{ marginTop: 10, fontSize: 13, color: "#334155", background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 10, padding: 10 }}>
-            Will text <b>{preview.would_send}</b> {audience === "both" ? "people" : audience === "pa" ? "PAs" : "inspectors"}.{preview.would_send === 0 ? " (Nobody active with a phone in that group.)" : ""}
+            Will text <b>{preview.would_send}</b> {audLabel[audience] || audience}.{preview.would_send === 0 ? " (Nobody active with a phone in that group.)" : ""}
             {preview.message_samples?.[0] && <div style={{ marginTop: 8, fontStyle: "italic", color: "#475569", whiteSpace: "pre-wrap" }}>“{preview.message_samples[0]}”</div>}
           </div>
         )}

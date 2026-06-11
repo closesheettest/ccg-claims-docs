@@ -21,8 +21,8 @@ exports.handler = async (event) => {
   let body;
   try { body = JSON.parse(event.body || "{}"); } catch { return json(400, { ok: false, error: "Invalid JSON" }); }
   const audience = (body.audience || "").trim().toLowerCase();
-  if (!["pa", "inspector", "both"].includes(audience)) {
-    return json(400, { ok: false, error: 'audience must be "pa", "inspector", or "both"' });
+  if (!["pa", "company_admin", "inspector", "both", "all"].includes(audience)) {
+    return json(400, { ok: false, error: 'audience must be "pa", "company_admin", "inspector", "both", or "all"' });
   }
   const note = (body.note || "").toString().trim();
   const dry = body.dry === true || body.dry === "1";
@@ -35,11 +35,17 @@ exports.handler = async (event) => {
 
   const recipients = [];
 
-  if (audience === "pa" || audience === "both") {
+  const all = audience === "all";
+  if (all || audience === "pa" || audience === "both") {
     const rows = await get(`${SB_URL}/rest/v1/pas?active=eq.true&phone=not.is.null&select=name,phone`, sb);
     for (const r of rows) if (r.phone) recipients.push({ role: "pa", name: r.name || "there", phone: r.phone, link: `${PAGE}?for=pa` });
   }
-  if (audience === "inspector" || audience === "both") {
+  if (all || audience === "company_admin") {
+    // Company OWNERS/ADMINS only (pa_companies.admin_phone) — NOT field PAs.
+    const rows = await get(`${SB_URL}/rest/v1/pa_companies?active=eq.true&admin_phone=not.is.null&select=admin_name,admin_phone`, sb);
+    for (const r of rows) if (r.admin_phone) recipients.push({ role: "company_admin", name: r.admin_name || "there", phone: r.admin_phone, link: `${PAGE}?for=company_admin` });
+  }
+  if (all || audience === "inspector" || audience === "both") {
     const rows = await get(`${SB_URL}/rest/v1/inspectors?active=eq.true&info_updated_at=not.is.null&phone=not.is.null&select=name,phone`, sb);
     for (const r of rows) if (r.phone) recipients.push({ role: "inspector", name: r.name || "there", phone: r.phone, link: `${PAGE}?for=inspector` });
   }

@@ -102,9 +102,9 @@ exports.handler = async (event) => {
   if (insp.jn_job_id) {
     try {
       const note =
-        `♻️ Re-inspect: previous ${photos.length} photo${photos.length === 1 ? "" : "s"} cleared (wrong house). ` +
+        `♻️ Re-inspect: previous ${photos.length} photo${photos.length === 1 ? "" : "s"} cleared for retake. ` +
         `Inspector is retaking — a new certificate will replace the old one. ` +
-        `If wrong-house photos remain on this job's Files, delete them manually.`;
+        `If old photos remain on this job's Files, delete them manually.`;
       const nr = await fetch(`${JN_BASE}/activities`, {
         method: "POST",
         headers: { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" },

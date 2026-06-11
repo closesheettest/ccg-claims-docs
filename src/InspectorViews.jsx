@@ -2195,7 +2195,7 @@ function InspectorJobList({ me, onOpenJob, onOpenReports }) {
   async function reinspect(job) {
     if (!window.confirm(
       `Re-inspect ${job.client_name || "this job"}?\n\n` +
-      `This DELETES the photos you submitted and reopens the job so you can retake them at the correct house. The certificate regenerates from the new photos.`
+      `This DELETES the photos you submitted and reopens the job so you can retake them (for any reason — wrong house, blurry, missed a slope, etc.). The certificate regenerates from the new photos.`
     )) return;
     setFixBusyId(job.id); setFixMsg(null);
     try {
@@ -2389,7 +2389,7 @@ function InspectorJobList({ me, onOpenJob, onOpenReports }) {
       <div>
         <button type="button" onClick={() => (showFix ? setShowFix(false) : loadFinished())}
           style={{ background: "none", border: "none", color: "#3730a3", fontSize: 12.5, fontWeight: 700, cursor: "pointer", padding: "2px 0", textAlign: "left" }}>
-          ♻️ Took photos of the wrong house on a finished job? {showFix ? "Hide" : "Fix it"}
+          ♻️ Need to retake an inspection's photos? {showFix ? "Hide" : "Fix it"}
         </button>
         {showFix && (
           <div style={{ marginTop: 6, border: "1px solid #c7d2fe", borderRadius: 10, background: "#eef2ff", padding: 10 }}>

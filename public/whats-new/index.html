@@ -29,7 +29,9 @@
     padding:3px 9px;border-radius:999px;margin-bottom:8px;}
   .tag.pa{background:#eef2ff;color:var(--indigo);}
   .tag.inspector{background:#ecfdf5;color:var(--green);}
+  .tag.company_admin{background:#f5f3ff;color:#5b21b6;}
   .tag.both{background:#fff7ed;color:#b45309;}
+  .tag.all{background:#fff7ed;color:#b45309;}
   .card h2{font-size:19px;margin:0 0 4px;}
   .card .what{font-size:15.5px;color:#334155;margin:0 0 12px;}
   .how-label{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:0 0 8px;}
@@ -74,19 +76,19 @@
     },
     {
       for: "inspector",
-      title: "♻️ Re-inspect — took pictures of the wrong house",
-      what: "If you took the photos at the wrong house, you can redo that job. The old pictures go away and you take new ones at the right house.",
+      title: "♻️ Re-inspect — need to retake an inspection's photos",
+      what: "Need to retake the photos for an inspection — for any reason (wrong house, blurry shots, missed a slope, whatever)? You can reopen that job and redo it. The old pictures go away and you take new ones.",
       steps: [
-        "On your job list, tap <b>♻️ Took photos of the wrong house on a finished job? Fix it</b>.",
+        "On your job list, tap <b>♻️ Need to retake an inspection's photos? Fix it</b>.",
         "Find the customer in the little list (it shows jobs you finished in the last 7 days).",
         "Tap <b>♻️ Re-inspect</b> next to that customer, then tap <b>OK</b>.",
-        "The wrong pictures are deleted and the job comes back to <b>🛠 My inspections</b>.",
-        "Open it, drive to the <b>correct</b> house, take the photos, pick the result, and tap <b>Submit</b> — just like normal. A fresh certificate is made automatically."
+        "The old pictures are deleted and the job comes back to <b>🛠 My inspections</b>.",
+        "Open it, take the photos again, pick the result, and tap <b>Submit</b> — just like normal. A fresh certificate is made automatically."
       ],
       date: "June 2026"
     },
     {
-      for: "pa",
+      for: "company_admin",
       title: "📏 Max travel distance (for company owners)",
       what: "If you run a PA company, you can now tell the system how far each of your adjusters will drive. Then you only get shown jobs that are close enough for them.",
       steps: [
@@ -105,13 +107,14 @@
   const sub = document.getElementById("sub");
   if (who === "pa") sub.textContent = "New things for Public Adjusters — and how to use them.";
   else if (who === "inspector") sub.textContent = "New things for inspectors — and how to use them.";
+  else if (who === "company_admin") sub.textContent = "New things for PA company owners — and how to use them.";
 
-  const shown = UPDATES.filter((u) => !who || u.for === who || u.for === "both");
+  const shown = UPDATES.filter((u) => !who || u.for === who || u.for === "both" || u.for === "all");
   const list = document.getElementById("list");
   if (shown.length === 0) {
     list.innerHTML = '<div class="empty">Nothing new right now. We’ll text you when there is. 👍</div>';
   } else {
-    const tagText = { pa: "For Public Adjusters", inspector: "For Inspectors", both: "For Everyone" };
+    const tagText = { pa: "For Public Adjusters", inspector: "For Inspectors", company_admin: "For Company Owners", both: "For Everyone", all: "For Everyone" };
     list.innerHTML = shown.map((u) => `
       <div class="card">
         <span class="tag ${u.for}">${tagText[u.for] || ""}</span>
