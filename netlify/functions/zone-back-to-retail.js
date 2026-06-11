@@ -1,134 +1,155 @@
 // netlify/functions/zone-back-to-retail.js
 //
-// "Back to retail" report for a regional manager. Pulls JobNimbus jobs
-// whose status is any "Back to Retail…" (the insurance angle is dead, so
-// the homeowner becomes a retail roof sale), scoped to ONE zone, grouped
-// by rep — sorted like the leaderboard. Shows WHEN the appointment was
-// for (the JN job's date_start).
+// "Back to retail" report for a regional manager. Pulls CCG inspections
+// whose result is "retail" (the insurance angle is dead, so the
+// homeowner becomes a retail roof sale), scoped to ONE zone, grouped by
+// the deal's sales rep — sorted like the leaderboard. Shows when it was
+// inspected.
 //
 // Any deal whose sales rep is NO LONGER ACTIVE is split into a separate
 // `inactive_reps` group so the manager can pass those leads back out to
-// an active rep.
+// an active rep (e.g. a dedicated inspector ran it and the owning rep has
+// since left).
 //
 // CORS-open: called from the TMS regional-manager dashboard.
 //
-// GET /.netlify/functions/zone-back-to-retail?zone=Zone%204[&days=90]
+// GET /.netlify/functions/zone-back-to-retail?zone=Zone%204[&days=120]
 // → { ok, zone, total, reps:[...], inactive_reps:[...] }
-//   each rep: { rep, count, inactive, deals:[{ name, customer, address, appt, appt_label, status }] }
+//   each rep: { rep, count, inactive, deals:[{ customer, address, appt, appt_label, status }] }
 //
-// Env: JOBNIMBUS_API_KEY.
+// Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY.
 
-const JN_BASE = "https://app.jobnimbus.com/api1";
+const RESULT = "retail";
+const SB_URL = process.env.VITE_SUPABASE_URL;
+const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1";
-const JN_KEY = process.env.JOBNIMBUS_API_KEY;
-
-// A status is "back to retail" if, once stripped to letters/numbers/
-// spaces, it starts with "back to retail" — catches "Back to Retail",
-// "Back To Retail - Needs Rep", "Back-to-Retail", etc.
-function matchesStatus(statusName) {
-  const s = String(statusName || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-  return s.startsWith("back to retail");
-}
 
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return cors(200, "");
   if (event.httpMethod !== "GET") return cors(405, JSON.stringify({ ok: false, error: "Method Not Allowed" }));
-  if (!JN_KEY) return cors(500, JSON.stringify({ ok: false, error: "Missing JOBNIMBUS_API_KEY" }));
+  if (!SB_URL || !SB_KEY) return cors(500, JSON.stringify({ ok: false, error: "Server misconfigured (missing Supabase env)" }));
 
   const qp = event.queryStringParameters || {};
   const zone = (qp.zone || "").trim();
   if (!zone) return cors(400, JSON.stringify({ ok: false, error: "zone required" }));
-  const days = Math.min(Math.max(parseInt(qp.days, 10) || 90, 7), 365);
+  const days = Math.min(Math.max(parseInt(qp.days, 10) || 120, 7), 365);
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-  const jnHeaders = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
-  const sinceSec = Math.floor(Date.now() / 1000) - days * 24 * 60 * 60;
-
-  const jobs = await fetchRecentJobs(jnHeaders, sinceSec);
-
-  // TEMP debug: ?debug=1 → distinct status_name counts (to discover the
-  // exact JN status strings). Remove after wiring the matcher.
-  if (qp.debug) {
-    const counts = {};
-    for (const j of jobs) { const s = j.cf_string_34 || "(none)"; counts[s] = (counts[s] || 0) + 1; }
-    const sample = jobs.find((j) => /retail/i.test(j.cf_string_34 || ""));
-    return cors(200, JSON.stringify({ ok: true, jobs: jobs.length, cf_string_34: counts, sample_retail: sample ? { name: sample.name, status_name: sample.status_name, record_type_name: sample.record_type_name, date_start: sample.date_start, sales_rep_name: sample.sales_rep_name } : null }));
+  try {
+    return await buildReport({ zone, days, since, resultValue: RESULT });
+  } catch (e) {
+    return cors(500, JSON.stringify({ ok: false, error: e.message || "Unknown error" }));
   }
-
-  const matched = jobs.filter((j) => matchesStatus(j.status_name));
-  const dir = await fetchRepDirectory();
-
-  const result = groupByZone(matched, dir, zone);
-  return cors(200, JSON.stringify({ ok: true, zone, days, ...result }));
 };
 
-// Shared grouping: scope to one zone, split active vs. non-active reps.
-function groupByZone(matched, dir, zone) {
+async function buildReport({ zone, days, since, resultValue }) {
+  // Inspections with this result, not cancelled, in the window.
+  const rows = await fetchTable("inspections", {
+    select: "id,sales_rep_id,sales_rep_name,inspector_name,signed_at,result,result_at,client_name,address,zip,cancelled_at",
+    filter:
+      `result=eq.${encodeURIComponent(resultValue)}` +
+      `&cancelled_at=is.null` +
+      `&result_at=gte.${encodeURIComponent(since.toISOString())}`,
+    limit: 3000,
+  });
+
+  const deduped = dedupByHome(rows);
+  const resolve = await buildZoneResolver();
+
   const active = {}, inactive = {};
   let total = 0;
-  for (const j of matched) {
-    const rec = dir(j.sales_rep, j.sales_rep_name);
-    if (!rec || rec.zone !== zone) continue;
+  for (const r of deduped) {
+    const rec = resolve(r.sales_rep_id, r.sales_rep_name);
+    if (!rec || rec.zone !== zone) continue; // unknown / other-zone deals not shown here
     total++;
-    const rep = (j.sales_rep_name || "").trim() || "(no rep)";
-    const customer = j.primary && j.primary.name ? String(j.primary.name).replace(/\s+/g, " ").trim() : "—";
-    const address = [j.address_line1, j.city, j.state_text, j.zip].filter(Boolean).join(", ");
-    const apptSec = Number(j.date_start);
-    const appt = Number.isFinite(apptSec) && apptSec > 0 ? apptSec : null;
+    const rep = (r.sales_rep_name || "").trim() || "(no rep)";
+    const when = r.result_at || r.signed_at || null;
+    const appt = when ? new Date(when).getTime() : null;
     const bucket = rec.active ? active : inactive;
     (bucket[rep] = bucket[rep] || []).push({
-      name: j.name || "(no name)",
-      customer,
-      address,
+      customer: (r.client_name || "—").replace(/\s+/g, " ").trim(),
+      address: r.address || "",
       appt,
-      appt_label: appt ? apptLabel(new Date(appt * 1000)) : "No appt date set",
-      status: j.status_name || "",
+      appt_label: when ? dateLabel(new Date(when)) : "—",
+      status: r.inspector_name ? `Inspected by ${r.inspector_name}` : "",
     });
   }
+
   const shape = (obj, isInactive) => Object.entries(obj)
     .map(([rep, deals]) => ({ rep, count: deals.length, inactive: isInactive, deals: deals.sort((a, b) => (b.appt || 0) - (a.appt || 0)) }))
     .sort((a, b) => b.count - a.count || a.rep.localeCompare(b.rep));
-  return { total, reps: shape(active, false), inactive_reps: shape(inactive, true) };
+
+  return cors(200, JSON.stringify({ ok: true, zone, days, total, reps: shape(active, false), inactive_reps: shape(inactive, true) }));
 }
 
-// "Mon, Jun 9 · 5:30 PM" in Eastern — but if the appt has no real time
-// (stored at midnight = date only), show just the date.
-function apptLabel(date) {
-  const datePart = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric" }).format(date);
-  const hm = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(date);
-  if (hm === "00:00" || hm === "24:00") return datePart;
-  const timePart = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }).format(date);
-  return `${datePart} · ${timePart}`;
-}
-
-async function fetchRecentJobs(jnHeaders, sinceSec) {
-  const all = [];
-  for (let page = 0; page < 15; page++) {
-    const r = await fetch(`${JN_BASE}/jobs?size=100&from=${page * 100}&sort=-date_updated&date_updated_after=${sinceSec}`, { headers: jnHeaders });
-    if (!r.ok) break;
-    const d = await r.json().catch(() => ({}));
-    const rows = d.results || d.jobs || [];
-    all.push(...rows);
-    if (rows.length < 100) break;
+// One row per homeowner: keep the most recent by result_at/signed_at.
+function dedupByHome(rows) {
+  const key = (r) => {
+    const n = (r.client_name || "").trim().toLowerCase().replace(/\s+/g, " ");
+    const z = (r.zip || "").trim();
+    return z ? `${n}|zip:${z}` : `${n}|st:${(r.address || "").split(",")[0].trim().toLowerCase()}`;
+  };
+  const m = new Map();
+  for (const r of rows || []) {
+    const k = key(r);
+    const ex = m.get(k);
+    if (!ex) { m.set(k, r); continue; }
+    const t = (x) => (x.result_at ? Date.parse(x.result_at) : x.signed_at ? Date.parse(x.signed_at) : 0);
+    if (t(r) > t(ex)) m.set(k, r);
   }
-  return all;
+  return [...m.values()];
 }
-async function fetchRepDirectory() {
-  let reps = [];
-  try { const res = await fetch(TMS_REP_ZONES_URL); if (res.ok) reps = (await res.json()).reps || []; }
+
+// "Mon, Jun 9" in Eastern.
+function dateLabel(date) {
+  return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric" }).format(date);
+}
+
+// rep (CCG sales_rep_id or name) → { zone, active }. Bridges CCG
+// sales_reps → TMS rep-zones (include_inactive), and also matches the
+// inspection's rep name directly against TMS reps as a fallback.
+async function buildZoneResolver() {
+  let tmsReps = [];
+  try { const res = await fetch(TMS_REP_ZONES_URL); if (res.ok) tmsReps = (await res.json()).reps || []; }
   catch (e) { console.warn("rep-zones fetch failed:", e.message || e); }
-  const byJnId = {}, byName = {};
-  for (const r of reps) {
+  const byJnId = {}, byNorm = {};
+  for (const r of tmsReps) {
     const entry = { zone: r.zone || null, active: r.active !== false };
     if (r.jobnimbus_id) byJnId[r.jobnimbus_id] = entry;
-    if (r.name) byName[normalizeName(r.name)] = entry;
+    if (r.name) byNorm[normalizeName(r.name)] = entry;
   }
-  return (jnId, name) => (jnId && byJnId[jnId]) || byName[normalizeName(name)] || null;
+
+  const salesReps = await fetchTable("sales_reps", { select: "id,name,jobnimbus_id", limit: 2000 });
+  const byId = {}, byName = {};
+  for (const sr of salesReps || []) {
+    const entry = (sr.jobnimbus_id && byJnId[sr.jobnimbus_id]) || byNorm[normalizeName(sr.name)] || null;
+    if (!entry) continue;
+    if (sr.id != null) byId[String(sr.id)] = entry;
+    if (sr.name) byName[normalizeName(sr.name)] = entry;
+  }
+
+  return (repId, repName) =>
+    (repId != null && byId[String(repId)]) ||
+    byName[normalizeName(repName)] ||
+    byNorm[normalizeName(repName)] ||
+    null;
 }
+
 function normalizeName(s) {
   return String(s || "").toLowerCase()
     .replace(/["“”]([^"“”]*)["“”]/g, "").replace(/'([^']*)'/g, "").replace(/\(([^)]*)\)/g, "")
     .replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
 }
+
+async function fetchTable(table, { select, filter, limit }) {
+  let url = `${SB_URL}/rest/v1/${table}?select=${encodeURIComponent(select)}`;
+  if (filter) url += `&${filter}`;
+  if (limit) url += `&limit=${limit}`;
+  const res = await fetch(url, { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } });
+  if (!res.ok) { console.warn(`Supabase ${table} failed: ${res.status}`); return []; }
+  return await res.json().catch(() => []);
+}
+
 function cors(status, body) {
   return {
     statusCode: status,
