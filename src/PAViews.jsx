@@ -223,6 +223,7 @@ export function PAAdminPanel() {
   const [showNeeds, setShowNeeds] = useState(false);
   const [showReassign, setShowReassign] = useState(false);
   const [showDead, setShowDead] = useState(false);
+  const [needsSel, setNeedsSel] = useState(() => new Set());   // multi-select in Needs assigning
 
   useEffect(() => { loadPas(); loadDecisions(); loadOverview(); loadAllDeals(); loadCompanies(); }, []);
 
@@ -464,6 +465,32 @@ export function PAAdminPanel() {
     setMessage({ kind: "success", text: `Assigned to ${who}.` });
     loadOverview(); loadAllDeals(); loadPas();
   }
+
+  // Bulk-assign several Needs-assigning deals at once (a company pool or a PA).
+  async function assignNeedsMany(target) {
+    const ids = [...needsSel];
+    if (!ids.length) { setMessage({ kind: "error", text: "Tick at least one deal first." }); return; }
+    if (!target) return;
+    setBulkBusy(true);
+    const nowIso = new Date().toISOString();
+    let patch, who;
+    if (target.startsWith("company:")) {
+      const cid = target.slice("company:".length);
+      patch = { pa_company_id: cid, pa_company_at: nowIso, pa_id: null, pa_claimed_at: null, pa_stage: null, pa_stage_at: nowIso, pa_opened_at: null };
+      who = `${companies.find((c) => c.id === cid)?.name || "company"} pool`;
+    } else {
+      patch = { pa_id: target, pa_company_id: null, pa_claimed_at: nowIso, pa_stage: "active", pa_stage_at: nowIso };
+      who = pas.find((p) => p.id === target)?.name || "PA";
+    }
+    const { error } = await supabase.from("inspections").update(patch).in("id", ids);
+    setBulkBusy(false);
+    if (error) { setMessage({ kind: "error", text: error.message }); return; }
+    setMessage({ kind: "success", text: `Assigned ${ids.length} deal${ids.length === 1 ? "" : "s"} to ${who}.` });
+    setNeedsSel(new Set());
+    loadOverview(); loadAllDeals(); loadPas();
+  }
+  const toggleNeed = (id) => setNeedsSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const setNeedsMany = (ids, on) => setNeedsSel((s) => { const n = new Set(s); ids.forEach((id) => on ? n.add(id) : n.delete(id)); return n; });
 
   async function bulkApply(target) {
     const ids = [...selected];
@@ -920,16 +947,31 @@ export function PAAdminPanel() {
                   </button>
                 )}
               </div>
-              {showNeeds && (
+              {showNeeds && (<>
+              {/* Group-assign bar: tick deals (or whole counties) and assign them all at once */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8, padding: "8px 10px", background: "#fff", border: "1px solid #fcd34d", borderRadius: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "#92400e" }}>{needsSel.size} selected</span>
+                {(() => { const allIds = ordered.flatMap((g) => g.jobs.map((j) => j.id)); const allOn = allIds.length > 0 && allIds.every((id) => needsSel.has(id)); return (
+                  <button type="button" onClick={() => setNeedsMany(allIds, !allOn)} style={{ ...secondaryBtn, fontSize: 11, padding: "5px 10px" }}>{allOn ? "Clear all" : "Select all"}</button>
+                ); })()}
+                <select disabled={bulkBusy || needsSel.size === 0} value="" onChange={(e) => { const v = e.target.value; if (v) assignNeedsMany(v); e.target.value = ""; }}
+                  style={{ fontSize: 12, padding: "6px 8px", borderRadius: 8, border: "1px solid #f59e0b", background: "#fffbeb", opacity: needsSel.size === 0 ? 0.6 : 1 }}>
+                  <option value="">⚡ Assign selected to…</option>
+                  {companies.filter((c) => c.active).length > 0 && <optgroup label="Company pool">{companies.filter((c) => c.active).map((c) => <option key={c.id} value={`company:${c.id}`}>{c.name} (pool)</option>)}</optgroup>}
+                  {pas.filter((p) => p.active).length > 0 && <optgroup label="Direct to PA">{pas.filter((p) => p.active).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</optgroup>}
+                </select>
+              </div>
               <div style={{ display: "grid", gap: 12 }}>
                 {ordered.map((g) => (
                   <div key={g.county}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 10px", marginBottom: 6, background: "#ecfeff", border: "1px solid #a5f3fc", borderRadius: 8, fontWeight: 800, fontSize: 13.5, color: "#0e7490" }}>
+                      <input type="checkbox" title="Select all in this county" checked={g.jobs.length > 0 && g.jobs.every((j) => needsSel.has(j.id))} onChange={(e) => setNeedsMany(g.jobs.map((j) => j.id), e.target.checked)} />
                       📍 {g.county} <span style={{ fontSize: 11, fontWeight: 700, color: "#0891b2" }}>({g.jobs.length})</span>
                     </div>
                     <div style={{ display: "grid", gap: 6 }}>
                       {g.jobs.map((d) => (
-                        <div key={d.id} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "center", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 10px" }}>
+                        <div key={d.id} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 8, alignItems: "center", background: needsSel.has(d.id) ? "#fffbeb" : "#fff", border: `1px solid ${needsSel.has(d.id) ? "#fcd34d" : "#e5e7eb"}`, borderRadius: 8, padding: "8px 10px" }}>
+                          <input type="checkbox" checked={needsSel.has(d.id)} onChange={() => toggleNeed(d.id)} />
                           <div style={{ minWidth: 0 }}>
                             <div style={{ fontWeight: 700, fontSize: 13.5 }}>{d.client_name || "(no name)"}{d._dist != null && <span style={{ fontSize: 11, fontWeight: 700, color: "#0369a1", marginLeft: 6 }}>📍 {d._dist.toFixed(1)} mi</span>}{d.pa_company_id && <span style={{ fontSize: 11, fontWeight: 700, color: "#5b21b6", background: "#f5f3ff", border: "1px solid #c4b5fd", borderRadius: 999, padding: "1px 8px", marginLeft: 6 }}>🏢 in {companies.find((c) => c.id === d.pa_company_id)?.name || "company"} pool — never assigned</span>}</div>
                             <div style={{ fontSize: 11.5, color: "#6b7280" }}>{[d.address, d.city, d.state, d.zip].filter(Boolean).join(", ")}{d.signed_at ? ` · signed ${new Date(d.signed_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}</div>
@@ -950,7 +992,7 @@ export function PAAdminPanel() {
                   </div>
                 ))}
               </div>
-              )}
+              </>)}
             </div>
           );
         })()}
