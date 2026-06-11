@@ -4420,6 +4420,10 @@ function PACompanyAdminPage({ token }) {
   const [geoErr, setGeoErr] = useState("");
   const [card, setCard] = useState(null);         // scorecard rows | null (hidden)
   const [cardBusy, setCardBusy] = useState(false);
+  const [showPas, setShowPas] = useState(false);  // adjuster management section
+  const [editId, setEditId] = useState(null);     // PA being edited
+  const [editForm, setEditForm] = useState(null);
+  const [savingPa, setSavingPa] = useState(false);
 
   const loadCard = async () => {
     if (card) { setCard(null); return; }
@@ -4464,6 +4468,54 @@ function PACompanyAdminPage({ token }) {
     setBusyId(null);
   };
 
+  const startEdit = (p) => {
+    setEditId(p.id);
+    setEditForm({
+      name: p.name || "", phone: p.phone || "", email: p.email || "",
+      home_address: p.home_address || "",
+      max_distance_miles: p.max_distance_miles != null ? String(p.max_distance_miles) : "",
+      active: p.active !== false,
+    });
+  };
+  const cancelEdit = () => { setEditId(null); setEditForm(null); };
+  const savePa = async (p) => {
+    if (!editForm) return;
+    setSavingPa(true);
+    try {
+      const patch = {
+        name: editForm.name, phone: editForm.phone, email: editForm.email,
+        home_address: editForm.home_address, active: editForm.active,
+        max_distance_miles: editForm.max_distance_miles === "" ? null : Number(editForm.max_distance_miles),
+      };
+      // Geocode when the home address changed, so distance-based assigning
+      // keeps working (same pattern the master admin uses).
+      const addr = (editForm.home_address || "").trim();
+      if (addr !== (p.home_address || "").trim()) {
+        if (!addr) { patch.latitude = null; patch.longitude = null; }
+        else {
+          try {
+            const r = await fetch("/.netlify/functions/geocode-place", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ query: addr }),
+            });
+            const g = await r.json().catch(() => ({}));
+            if (g.ok && typeof g.lat === "number") { patch.latitude = g.lat; patch.longitude = g.lng; }
+            else { patch.latitude = null; patch.longitude = null; }
+          } catch { patch.latitude = null; patch.longitude = null; }
+        }
+      }
+      const res = await fetch("/.netlify/functions/pa-company-api", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, action: "update_pa", paId: p.id, patch }),
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok || !out.ok) setErr(out.error || "Couldn't save adjuster.");
+      else { setErr(""); cancelEdit(); await load(); }
+    } catch { setErr("Network error."); }
+    setSavingPa(false);
+  };
+
+  const fld = { width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 14, marginTop: 3 };
   const wrap = { minHeight: "100vh", background: "#f3f4f6", padding: "20px 14px 60px", fontFamily: "system-ui, sans-serif" };
   if (loading) return <div style={wrap}><div style={{ maxWidth: 760, margin: "60px auto", textAlign: "center", color: "#6b7280" }}>Loading…</div></div>;
   if (err && !data) return <div style={wrap}><Card style={{ maxWidth: 520, margin: "50px auto", padding: 28, textAlign: "center" }}><div style={{ fontSize: 40 }}>🔒</div><div style={{ fontSize: 16, marginTop: 8, color: "#991b1b" }}>{err}</div></Card></div>;
@@ -4486,7 +4538,13 @@ function PACompanyAdminPage({ token }) {
   }));
   const sortDist = (arr) => (refCoords ? [...arr].sort((a, b) => (a._dist ?? 1e9) - (b._dist ?? 1e9)) : arr);
   const allDeals = withDist(data.deals || []);
-  const unassigned = sortDist(allDeals.filter((d) => !d.pa_id));
+  // When a specific PA is selected AND they have a max travel distance set,
+  // only show pool deals within that radius of their home — so the company
+  // admin only assigns them work they'll actually drive to.
+  const refMax = refPa && distFrom !== "__me__" && refPa.max_distance_miles ? refPa.max_distance_miles : null;
+  const unassignedAll = sortDist(allDeals.filter((d) => !d.pa_id));
+  const unassigned = refMax ? unassignedAll.filter((d) => d._dist != null && d._dist <= refMax) : unassignedAll;
+  const unassignedHidden = unassignedAll.length - unassigned.length;
   const assigned = sortDist(allDeals.filter((d) => d.pa_id));
   const stale = allDeals.filter((d) => !d.touched && (d.stale_hours ?? 0) >= 48);
 
@@ -4546,9 +4604,14 @@ function PACompanyAdminPage({ token }) {
             <div style={{ fontSize: 22, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#111827" }}>🏢 {data.company.name}</div>
             <div style={{ fontSize: 13, color: "#6b7280", marginTop: 2, marginBottom: 14 }}>Assign each homeowner to one of your adjusters. {activePas.length} active PA{activePas.length === 1 ? "" : "s"}.</div>
           </div>
-          <Button variant="outline" onClick={loadCard} disabled={cardBusy}>
-            {cardBusy ? "Building…" : card ? "📊 Hide report card" : "📊 PA report card"}
-          </Button>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <Button variant="outline" onClick={() => { setShowPas((v) => !v); cancelEdit(); }}>
+              {showPas ? "👥 Hide adjusters" : "👥 Adjusters"}
+            </Button>
+            <Button variant="outline" onClick={loadCard} disabled={cardBusy}>
+              {cardBusy ? "Building…" : card ? "📊 Hide report card" : "📊 PA report card"}
+            </Button>
+          </div>
         </div>
 
         {card && (
@@ -4582,6 +4645,47 @@ function PACompanyAdminPage({ token }) {
             </table>
             <div style={{ fontSize: 11, color: "#6b7280", padding: "8px 10px", borderTop: "1px solid #e0e7ff" }}>
               Percentages are over everything ever given to each PA. Avg days→sign &amp; Taken % accrue from when tracking went live.
+            </div>
+          </div>
+        )}
+
+        {showPas && (
+          <div style={{ marginBottom: 16, border: "1px solid #e5e7eb", borderRadius: 12, background: "#fff", padding: 12 }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: "#111827", marginBottom: 4 }}>👥 Your adjusters</div>
+            <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 10 }}>Edit contact info, home address, and the max distance each PA will travel. Set a max distance, then tap that PA under “📏 Distance from” below to see only the deals within range.</div>
+            <div style={{ display: "grid", gap: 8 }}>
+              {(data.pas || []).map((p) => editId === p.id ? (
+                <div key={p.id} style={{ border: "1px solid #c7d2fe", borderRadius: 10, padding: 12, background: "#eef2ff" }}>
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {[["Name", "name", "text"], ["Phone", "phone", "tel"], ["Email", "email", "email"], ["Home address", "home_address", "text"]].map(([lbl, key, type]) => (
+                      <label key={key} style={{ fontSize: 12, fontWeight: 700, color: "#374151" }}>{lbl}
+                        <input type={type} value={editForm[key]} onChange={(e) => setEditForm((f) => ({ ...f, [key]: e.target.value }))} style={fld} />
+                      </label>
+                    ))}
+                    <label style={{ fontSize: 12, fontWeight: 700, color: "#374151" }}>Max travel distance (miles) — blank = no limit
+                      <input type="number" min="1" inputMode="numeric" value={editForm.max_distance_miles} placeholder="e.g. 100"
+                        onChange={(e) => setEditForm((f) => ({ ...f, max_distance_miles: e.target.value }))} style={fld} />
+                    </label>
+                    <label style={{ fontSize: 13, fontWeight: 700, color: "#374151", display: "flex", gap: 8, alignItems: "center" }}>
+                      <input type="checkbox" checked={editForm.active} onChange={(e) => setEditForm((f) => ({ ...f, active: e.target.checked }))} /> Active
+                    </label>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <Button onClick={() => savePa(p)} disabled={savingPa}>{savingPa ? "Saving…" : "Save"}</Button>
+                      <Button variant="outline" onClick={cancelEdit} disabled={savingPa}>Cancel</Button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div key={p.id} style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: "10px 12px", display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "center" }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 800, fontSize: 14.5 }}>{p.name}{p.active === false && <span style={{ fontSize: 11, fontWeight: 700, color: "#991b1b", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 999, padding: "1px 7px", marginLeft: 6 }}>inactive</span>}</div>
+                    <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 1 }}>{[p.phone, p.email].filter(Boolean).join(" · ") || "no contact info"}</div>
+                    <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 1 }}>{p.home_address ? `🏠 ${p.home_address} ` : "no home address "}{p.lat != null ? <span style={{ color: "#16a34a" }}>· 📍 geocoded</span> : <span style={{ color: "#b45309" }}>· ⚠ not geocoded</span>}</div>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: "#3730a3", marginTop: 1 }}>{p.max_distance_miles ? `📏 Max ${p.max_distance_miles} mi` : "📏 No distance limit"}</div>
+                  </div>
+                  <Button variant="outline" onClick={() => startEdit(p)}>Edit</Button>
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -4623,6 +4727,8 @@ function PACompanyAdminPage({ token }) {
             })()}
           </div>
           {refCoords && <div style={{ fontSize: 12, color: "#0369a1", fontWeight: 700, marginTop: 8 }}>Showing nearest first ✓ (mileage on each card)</div>}
+          {refMax && <div style={{ fontSize: 12, color: "#3730a3", fontWeight: 700, marginTop: 4 }}>📏 Only showing deals within {refMax} mi of {refPa.name}{unassignedHidden > 0 ? ` · ${unassignedHidden} beyond range hidden` : ""}.</div>}
+          {refPa && distFrom !== "__me__" && !refPa.max_distance_miles && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>No max distance set for {refPa.name} — set one under 👥 Adjusters to filter by range.</div>}
           {geoErr && <div style={{ fontSize: 12, color: "#b91c1c", marginTop: 8 }}>{geoErr}</div>}
         </div>
 
