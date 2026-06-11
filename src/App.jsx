@@ -4725,7 +4725,7 @@ function PACompanyAdminPage({ token }) {
             {addOpen && (
               <div style={{ border: "1px solid #c4b5fd", borderRadius: 10, padding: 12, background: "#f5f3ff", marginBottom: 10 }}>
                 <div style={{ fontSize: 13, fontWeight: 800, color: "#5b21b6", marginBottom: 6 }}>➕ Add a new adjuster</div>
-                <div style={{ fontSize: 12, color: "#6b21a8", marginBottom: 8 }}>We'll send this to U.S. Shingle for approval. They'll show as “⏳ Waiting on U.S. Shingle approval,” then turn into “✅ Ready” for you to activate — usually within a few minutes.</div>
+                <div style={{ fontSize: 12, color: "#6b21a8", marginBottom: 8 }}>We'll send this to U.S. Shingle for approval. They'll show as “⏳ Waiting on U.S. Shingle approval,” usually within the hour. You'll get a notification when they're approved — then come back and activate them.</div>
                 <label style={{ fontSize: 12, fontWeight: 700, color: "#374151" }}>Full name<input value={addForm.name} onChange={(e) => setAddForm((f) => ({ ...f, name: e.target.value }))} style={fld} placeholder="First Last" /></label>
                 <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginTop: 6 }}>Email (used to link them to the U.S. Shingle system)<input type="email" value={addForm.email} onChange={(e) => setAddForm((f) => ({ ...f, email: e.target.value }))} style={fld} placeholder="name@example.com" /></label>
                 <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginTop: 6 }}>Phone<input type="tel" value={addForm.phone} onChange={(e) => setAddForm((f) => ({ ...f, phone: e.target.value }))} style={fld} placeholder="+1…" /></label>
