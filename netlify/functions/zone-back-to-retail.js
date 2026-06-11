@@ -44,6 +44,15 @@ exports.handler = async (event) => {
   const sinceSec = Math.floor(Date.now() / 1000) - days * 24 * 60 * 60;
 
   const jobs = await fetchRecentJobs(jnHeaders, sinceSec);
+
+  // TEMP debug: ?debug=1 → distinct status_name counts (to discover the
+  // exact JN status strings). Remove after wiring the matcher.
+  if (qp.debug) {
+    const counts = {};
+    for (const j of jobs) { const s = j.status_name || "(none)"; counts[s] = (counts[s] || 0) + 1; }
+    return cors(200, JSON.stringify({ ok: true, jobs: jobs.length, statuses: counts }));
+  }
+
   const matched = jobs.filter((j) => matchesStatus(j.status_name));
   const dir = await fetchRepDirectory();
 
