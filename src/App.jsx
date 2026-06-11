@@ -4551,6 +4551,22 @@ function PACompanyAdminPage({ token }) {
   const assigned = sortDist(allDeals.filter((d) => d.pa_id));
   const stale = allDeals.filter((d) => !d.touched && (d.stale_hours ?? 0) >= 48);
 
+  // Group "Needs assigning" by county; within each county, nearest first
+  // when a distance reference is active (office / PA / GPS), else newest
+  // signed first. County order alphabetical, "no county" last.
+  const groupByCounty = (arr) => {
+    const groups = {};
+    for (const d of arr) { const c = d.county || "Other / no county"; (groups[c] = groups[c] || []).push(d); }
+    for (const c of Object.keys(groups)) {
+      groups[c].sort((a, b) => refCoords
+        ? (a._dist ?? 1e9) - (b._dist ?? 1e9)
+        : new Date(b.signed_at || 0) - new Date(a.signed_at || 0));
+    }
+    return Object.keys(groups)
+      .sort((a, b) => (a === "Other / no county" ? 1 : b === "Other / no county" ? -1 : a.localeCompare(b)))
+      .map((c) => ({ county: c, jobs: groups[c] }));
+  };
+
   const useMyLocation = () => {
     setGeoErr("");
     if (!navigator.geolocation) { setGeoErr("This device doesn't support GPS."); return; }
@@ -4745,8 +4761,19 @@ function PACompanyAdminPage({ token }) {
 
         {unassigned.length > 0 && (
           <>
-            <div style={{ fontSize: 14, fontWeight: 800, color: "#92400e", margin: "6px 0 8px" }}>🆕 Needs assigning ({unassigned.length})</div>
-            <div style={{ display: "grid", gap: 8, marginBottom: 18 }}>{unassigned.map(row)}</div>
+            <div style={{ fontSize: 14, fontWeight: 800, color: "#92400e", margin: "6px 0 8px" }}>
+              🆕 Needs assigning ({unassigned.length}) — by county{refCoords ? ", nearest first" : ""}
+            </div>
+            <div style={{ marginBottom: 18, display: "grid", gap: 12 }}>
+              {groupByCounty(unassigned).map((g) => (
+                <div key={g.county}>
+                  <div style={{ position: "sticky", top: 0, zIndex: 1, display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", marginBottom: 8, background: "#ecfeff", border: "1px solid #a5f3fc", borderRadius: 8, fontWeight: 800, fontSize: 14, color: "#0e7490" }}>
+                    📍 {g.county} <span style={{ fontSize: 12, fontWeight: 700, color: "#0891b2" }}>({g.jobs.length})</span>
+                  </div>
+                  <div style={{ display: "grid", gap: 8 }}>{g.jobs.map(row)}</div>
+                </div>
+              ))}
+            </div>
           </>
         )}
         <div style={{ fontSize: 14, fontWeight: 800, color: "#1e40af", margin: "6px 0 8px" }}>✅ Assigned ({assigned.length})</div>
