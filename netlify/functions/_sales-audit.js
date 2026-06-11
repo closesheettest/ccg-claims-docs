@@ -78,18 +78,18 @@ export function auditJob(job) {
   // ── Insulation (+ price-per-sqft mistake) ────────────────────────────
   if (yes("Insulation")) {
     if (!pos("Insulation SqFt")) errors.push("Insulation SqFt is 0 (Insulation sold)");
-    if (!pos("Insulation Cost")) errors.push("Insulation Cost is 0 (Insulation sold)");
-    else if (pos("Insulation SqFt") && numv("Insulation Cost") < numv("Insulation SqFt")) {
-      errors.push(`Insulation Cost ($${numv("Insulation Cost")}) looks like price-per-sqft, not the contract total`);
+    if (!pos("Insulation Total Cost")) errors.push("Insulation Total Cost is 0 (Insulation sold)");
+    else if (pos("Insulation SqFt") && numv("Insulation Total Cost") < numv("Insulation SqFt")) {
+      errors.push(`Insulation Total Cost ($${numv("Insulation Total Cost")}) looks like price-per-sqft, not the contract total`);
     }
   }
 
   // ── Radiant Barrier (+ price-per-sqft mistake) ───────────────────────
   if (yes("Radiant Barrier")) {
     if (!pos("Radiant Barrier SqFt")) errors.push("Radiant Barrier SqFt is 0 (Radiant Barrier sold)");
-    if (!pos("Radiant Barrier Cost")) errors.push("Radiant Barrier Cost is 0 (Radiant Barrier sold)");
-    else if (pos("Radiant Barrier SqFt") && numv("Radiant Barrier Cost") < numv("Radiant Barrier SqFt")) {
-      errors.push(`Radiant Barrier Cost ($${numv("Radiant Barrier Cost")}) looks like price-per-sqft, not the contract total`);
+    if (!pos("Radiant Barrier Total Cost")) errors.push("Radiant Barrier Total Cost is 0 (Radiant Barrier sold)");
+    else if (pos("Radiant Barrier SqFt") && numv("Radiant Barrier Total Cost") < numv("Radiant Barrier SqFt")) {
+      errors.push(`Radiant Barrier Total Cost ($${numv("Radiant Barrier Total Cost")}) looks like price-per-sqft, not the contract total`);
     }
   }
 
