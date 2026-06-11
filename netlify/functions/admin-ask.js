@@ -290,23 +290,32 @@ async function answerData(plan) {
     }
 
     case "sales_this_week": {
-      const d = await fetchSales();
+      // Sales default to THIS week, but honor any asked-about window
+      // (last week, this month, custom). JN's Sold Date drives it.
+      const range = (plan.date_range && plan.date_range !== "all_time") ? plan.date_range : "this_week";
+      const swin = resolveWindow(range, plan.custom_start, plan.custom_end);
+      const lbl = windowLabel(range);
+      const d = await fetchSales(swin);
       const n = d.total || 0;
       const revenue = (d.zones || []).reduce((s, z) => s + (z.total_amount || 0), 0);
       const byZone = {};
       for (const z of d.zones || []) byZone[z.zone] = z.count;
       const out = {
         ok: true, kind: "data", number: n,
-        answerText: `${plan.note_retail ? "Retail sales: " : ""}${n} ${plural(n, "sale")} this week${money(revenue)}.`,
-        link: { label: "Open Rep Dashboard", url: "https://us-shingle-rep-dashboard.netlify.app" },
+        answerText: `${plan.note_retail ? "Retail sales: " : ""}${n} ${plural(n, "sale")} ${lbl}${money(revenue)}.`,
       };
+      // Rep dashboard shows CURRENT standings — only link it for this week.
+      if (range === "this_week") out.link = { label: "Open Rep Dashboard", url: "https://us-shingle-rep-dashboard.netlify.app" };
       if (Object.keys(byZone).length > 1) out.breakdown = byZone;
       return json(200, out);
     }
 
     case "sales_by_rep": {
       if (!plan.person_name) return clarify("Which sales rep do you mean?");
-      const d = await fetchSales();
+      const range = (plan.date_range && plan.date_range !== "all_time") ? plan.date_range : "this_week";
+      const swin = resolveWindow(range, plan.custom_start, plan.custom_end);
+      const lbl = windowLabel(range);
+      const d = await fetchSales(swin);
       const deals = allDeals(d).filter((dl) => nameMatches(dl.rep, plan.person_name));
       const distinct = [...new Set(deals.map((dl) => dl.rep).filter(Boolean))];
       if (distinct.length > 1) return clarify(`Multiple reps match "${plan.person_name}": ${distinct.join(", ")}. Which one?`);
@@ -315,9 +324,9 @@ async function answerData(plan) {
       const who = distinct[0] || plan.person_name;
       const out = {
         ok: true, kind: "data", number: n,
-        answerText: `${who} has ${n} ${plural(n, "sale")} this week${money(revenue)}.`,
-        link: { label: "Open Rep Dashboard", url: "https://us-shingle-rep-dashboard.netlify.app" },
+        answerText: `${who} has ${n} ${plural(n, "sale")} ${lbl}${money(revenue)}.`,
       };
+      if (range === "this_week") out.link = { label: "Open Rep Dashboard", url: "https://us-shingle-rep-dashboard.netlify.app" };
       if (n) out.list = deals.map((dl) => dl.customer || "(deal)");
       return json(200, out);
     }
@@ -329,9 +338,15 @@ async function answerData(plan) {
 
 // JobNimbus sales — reuse the existing zone-sales-leaderboard function (which
 // reads JN directly) instead of re-querying JN here. Current week only.
-async function fetchSales() {
+async function fetchSales(win) {
   const base = process.env.URL || process.env.DEPLOY_PRIME_URL || "https://free-roof-inspections.netlify.app";
-  const r = await fetch(`${base}/.netlify/functions/zone-sales-leaderboard`);
+  // Pass an explicit start/end window so the sales total reflects the
+  // asked-about period (last week, this month, etc.) — JN carries a Sold
+  // Date on every job, so any window is computable. No window → this week.
+  const qs = (win && win.start && win.end)
+    ? `?start=${encodeURIComponent(win.start)}&end=${encodeURIComponent(win.end)}`
+    : "";
+  const r = await fetch(`${base}/.netlify/functions/zone-sales-leaderboard${qs}`);
   if (!r.ok) throw new Error(`zone-sales-leaderboard ${r.status}`);
   return await r.json();
 }

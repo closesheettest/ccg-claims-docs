@@ -68,9 +68,21 @@ export const handler = async (event) => {
   const debug = (event.queryStringParameters || {}).debug === '1'
 
   try {
-    // ?period=month → month-to-date (1st of the ET month → now). Default week.
-    const period = (event.queryStringParameters || {}).period === 'month' ? 'month' : 'week'
-    const { start, end } = period === 'month' ? monthRange() : weekRange()
+    // Window selection, in priority order:
+    //   1. explicit ?start=<ISO>&end=<ISO>  (any range — e.g. "last week")
+    //   2. ?period=month                    (month-to-date)
+    //   3. default                          (this Mon→Sun ET week)
+    // Sold Date drives membership, so any window is computable from JN.
+    const qp = event.queryStringParameters || {}
+    let start, end, period
+    if (qp.start && qp.end) {
+      const s = new Date(qp.start), e = new Date(qp.end)
+      if (!Number.isNaN(s.getTime()) && !Number.isNaN(e.getTime())) { start = s; end = e; period = 'custom' }
+    }
+    if (!start) {
+      period = qp.period === 'month' ? 'month' : 'week'
+      ;({ start, end } = period === 'month' ? monthRange() : weekRange())
+    }
     const startMs = start.getTime()
     const endMs = end.getTime()
 
