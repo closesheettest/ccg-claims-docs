@@ -2030,7 +2030,7 @@ function MapLinks({ address, lat, lng, size = "sm" }) {
 function PAJobCard({ job, onOpen, me }) {
   const signedDt = job.signed_at ? new Date(job.signed_at) : null;
   const signed = signedDt
-    ? signedDt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/New_York" })
+    ? signedDt.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "America/New_York" })
     : "—";
   // Time of day the homeowner was signed (Eastern) — useful for knowing
   // when you talked to them so you can recontact at a similar time. Hidden
@@ -2071,7 +2071,7 @@ function PAJobCard({ job, onOpen, me }) {
             </span>
           )}
         </div>
-        <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 2 }}>🖊 Signed {signed}{signedTime ? ` · ${signedTime}` : ""}</div>
+        <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 2 }}>🖊 Signed {signed}{signedTime ? ` at ${signedTime}` : ""}</div>
         {lastContact && <div style={{ fontSize: 12, color: "#0e7490", marginTop: 1 }}>🗒 Last contact {lastContact}</div>}
         {job.mobile
           ? <div style={{ fontSize: 13.5, marginTop: 3 }}><a href={`tel:${String(job.mobile).replace(/[^\d+]/g, "")}`} onClick={(e) => e.stopPropagation()} style={{ color: "#0e7490", fontWeight: 700, textDecoration: "none" }}>📞 {job.mobile}</a></div>
