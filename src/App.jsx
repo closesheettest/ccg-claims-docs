@@ -4424,6 +4424,10 @@ function PACompanyAdminPage({ token }) {
   const [editId, setEditId] = useState(null);     // PA being edited
   const [editForm, setEditForm] = useState(null);
   const [savingPa, setSavingPa] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);  // "add adjuster" form
+  const [addForm, setAddForm] = useState({ name: "", email: "", phone: "" });
+  const [addBusy, setAddBusy] = useState(false);
+  const [activateBusy, setActivateBusy] = useState(null);
 
   const loadCard = async () => {
     if (card) { setCard(null); return; }
@@ -4513,6 +4517,38 @@ function PACompanyAdminPage({ token }) {
       else { setErr(""); cancelEdit(); await load(); }
     } catch { setErr("Network error."); }
     setSavingPa(false);
+  };
+
+  // Add a brand-new adjuster: creates them (inactive, awaiting JobNimbus) and
+  // texts whoever manages JN to add them. They show as "Waiting for JobNimbus"
+  // until the 5-min linker matches them, then become "Ready to activate."
+  const addPa = async () => {
+    const name = addForm.name.trim(), email = addForm.email.trim();
+    if (!name || !email) { setErr("Name and email are both required."); return; }
+    setAddBusy(true);
+    try {
+      const res = await fetch("/.netlify/functions/pa-company-api", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, action: "add_pa", name, email, phone: addForm.phone.trim() }),
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok || !out.ok) { setErr(out.error || "Couldn't add adjuster."); }
+      else { setErr(""); setAddForm({ name: "", email: "", phone: "" }); setAddOpen(false); await load(); }
+    } catch { setErr("Network error."); }
+    setAddBusy(false);
+  };
+  const activatePa = async (p) => {
+    setActivateBusy(p.id);
+    try {
+      const res = await fetch("/.netlify/functions/pa-company-api", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, action: "activate_pa", paId: p.id }),
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok || !out.ok) setErr(out.error || "Couldn't activate.");
+      else { setErr(""); await load(); }
+    } catch { setErr("Network error."); }
+    setActivateBusy(null);
   };
 
   const fld = { width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 14, marginTop: 3 };
@@ -4670,8 +4706,21 @@ function PACompanyAdminPage({ token }) {
 
         {showPas && (
           <div style={{ marginBottom: 16, border: "1px solid #e5e7eb", borderRadius: 12, background: "#fff", padding: 12 }}>
-            <div style={{ fontSize: 14, fontWeight: 800, color: "#111827", marginBottom: 4 }}>👥 Your adjusters</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: "#111827" }}>👥 Your adjusters</div>
+              <Button variant="outline" onClick={() => { setAddOpen((v) => !v); setErr(""); }}>{addOpen ? "Cancel" : "➕ Add adjuster"}</Button>
+            </div>
             <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 10 }}>Edit contact info, home address, and the max distance each PA will travel. Set a max distance, then tap that PA under “📏 Distance from” below to see only the deals within range.</div>
+            {addOpen && (
+              <div style={{ border: "1px solid #c4b5fd", borderRadius: 10, padding: 12, background: "#f5f3ff", marginBottom: 10 }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: "#5b21b6", marginBottom: 6 }}>➕ Add a new adjuster</div>
+                <div style={{ fontSize: 12, color: "#6b21a8", marginBottom: 8 }}>We'll ask U.S. Shingle to add them in JobNimbus. They'll show as “⏳ Waiting for JobNimbus,” then turn into “✅ Ready” for you to activate — usually within a few minutes.</div>
+                <label style={{ fontSize: 12, fontWeight: 700, color: "#374151" }}>Full name<input value={addForm.name} onChange={(e) => setAddForm((f) => ({ ...f, name: e.target.value }))} style={fld} placeholder="First Last" /></label>
+                <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginTop: 6 }}>Email (used to link them to JobNimbus)<input type="email" value={addForm.email} onChange={(e) => setAddForm((f) => ({ ...f, email: e.target.value }))} style={fld} placeholder="name@example.com" /></label>
+                <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginTop: 6 }}>Phone (optional)<input type="tel" value={addForm.phone} onChange={(e) => setAddForm((f) => ({ ...f, phone: e.target.value }))} style={fld} placeholder="+1…" /></label>
+                <div style={{ marginTop: 10 }}><Button onClick={addPa} disabled={addBusy}>{addBusy ? "Adding…" : "Add adjuster & notify U.S. Shingle"}</Button></div>
+              </div>
+            )}
             <div style={{ display: "grid", gap: 8 }}>
               {(data.pas || []).map((p) => editId === p.id ? (
                 <div key={p.id} style={{ border: "1px solid #c7d2fe", borderRadius: 10, padding: 12, background: "#eef2ff" }}>
@@ -4697,12 +4746,20 @@ function PACompanyAdminPage({ token }) {
               ) : (
                 <div key={p.id} style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: "10px 12px", display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "center" }}>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontWeight: 800, fontSize: 14.5 }}>{p.name}{p.active === false && <span style={{ fontSize: 11, fontWeight: 700, color: "#991b1b", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 999, padding: "1px 7px", marginLeft: 6 }}>inactive</span>}</div>
+                    <div style={{ fontWeight: 800, fontSize: 14.5 }}>{p.name}
+                      {p.active ? null
+                        : p.in_jn
+                          ? <span style={{ fontSize: 11, fontWeight: 700, color: "#065f46", background: "#ecfdf5", border: "1px solid #6ee7b7", borderRadius: 999, padding: "1px 7px", marginLeft: 6 }}>✅ Ready to activate</span>
+                          : <span style={{ fontSize: 11, fontWeight: 700, color: "#92400e", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 999, padding: "1px 7px", marginLeft: 6 }}>⏳ Waiting for JobNimbus</span>}
+                    </div>
                     <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 1 }}>{[p.phone, p.email].filter(Boolean).join(" · ") || "no contact info"}</div>
                     <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 1 }}>{p.home_address ? `🏠 ${p.home_address} ` : "no home address "}{p.lat != null ? <span style={{ color: "#16a34a" }}>· 📍 geocoded</span> : <span style={{ color: "#b45309" }}>· ⚠ not geocoded</span>}</div>
                     <div style={{ fontSize: 12.5, fontWeight: 700, color: "#3730a3", marginTop: 1 }}>{p.max_distance_miles ? `📏 Max ${p.max_distance_miles} mi` : "📏 No distance limit"}</div>
                   </div>
-                  <Button variant="outline" onClick={() => startEdit(p)}>Edit</Button>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {p.ready_to_activate && <Button onClick={() => activatePa(p)} disabled={activateBusy === p.id}>{activateBusy === p.id ? "…" : "Activate"}</Button>}
+                    <Button variant="outline" onClick={() => startEdit(p)}>Edit</Button>
+                  </div>
                 </div>
               ))}
             </div>

@@ -24,6 +24,7 @@ exports.handler = async (event) => {
   if (event.httpMethod !== "POST") return cors(405, JSON.stringify({ ok: false, error: "Method not allowed" }));
   if (!SB_URL || !SB_KEY) return cors(500, JSON.stringify({ ok: false, error: "Missing Supabase env" }));
   const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
+  const base = (process.env.URL || process.env.DEPLOY_URL || process.env.PUBLIC_SITE_URL || "https://free-roof-inspections.netlify.app").replace(/\/$/, "");
 
   let body = {};
   try { body = JSON.parse(event.body || "{}"); } catch { return cors(400, JSON.stringify({ ok: false, error: "Bad JSON" })); }
@@ -46,9 +47,9 @@ exports.handler = async (event) => {
   // Active PAs in this company (+ home coords for distance sorting + takeaways).
   // Full select includes max_distance_miles (added by pa_max_distance.sql).
   // If that column isn't there yet, fall back so the page still loads.
-  let pas = await get(`${SB_URL}/rest/v1/pas?pa_company_id=eq.${company.id}&select=id,name,active,home_address,latitude,longitude,pa_takeaways,phone,email,max_distance_miles&order=name.asc`, sb);
+  let pas = await get(`${SB_URL}/rest/v1/pas?pa_company_id=eq.${company.id}&select=id,name,active,home_address,latitude,longitude,pa_takeaways,phone,email,max_distance_miles,jn_user_id&order=name.asc`, sb);
   if (!pas.length) {
-    pas = await get(`${SB_URL}/rest/v1/pas?pa_company_id=eq.${company.id}&select=id,name,active,home_address,latitude,longitude,pa_takeaways,phone,email&order=name.asc`, sb);
+    pas = await get(`${SB_URL}/rest/v1/pas?pa_company_id=eq.${company.id}&select=id,name,active,home_address,latitude,longitude,pa_takeaways,phone,email,jn_user_id&order=name.asc`, sb);
   }
 
   // Scorecard for THIS company's PAs only — same metrics as the master admin
@@ -151,6 +152,52 @@ exports.handler = async (event) => {
     return cors(200, JSON.stringify({ ok: true }));
   }
 
+  // action "add_pa": company admin adds a NEW adjuster. We can't create a
+  // JobNimbus user via API, so we create the PA here (inactive, no jn_user_id
+  // yet, tied to THIS company) and text whoever manages JN to add them —
+  // EXACTLY as spelled — so the 5-min linker (cron-link-pending-pas) can
+  // match the new JN user back to this PA by email.
+  if (action === "add_pa") {
+    const name = String(body.name || "").trim();
+    const email = String(body.email || "").trim().toLowerCase();
+    const phone = String(body.phone || "").trim();
+    if (!name) return cors(400, JSON.stringify({ ok: false, error: "Name is required." }));
+    if (!/^\S+@\S+\.\S+$/.test(email)) return cors(400, JSON.stringify({ ok: false, error: "A valid email is required — it's how we link them to JobNimbus." }));
+    const dupe = await get(`${SB_URL}/rest/v1/pas?pa_company_id=eq.${company.id}&email=eq.${encodeURIComponent(email)}&select=id&limit=1`, sb);
+    if (dupe.length) return cors(409, JSON.stringify({ ok: false, error: "You already added someone with that email." }));
+    const ins = await fetch(`${SB_URL}/rest/v1/pas`, {
+      method: "POST", headers: { ...sb, Prefer: "return=minimal" },
+      body: JSON.stringify({ name, email, phone: phone || null, pa_company_id: company.id, active: false }),
+    });
+    if (!ins.ok) return cors(500, JSON.stringify({ ok: false, error: `Couldn't add: ${(await ins.text()).slice(0, 160)}` }));
+    const msg =
+      `🧰 New PA to add in JobNimbus — from ${company.name}.\n` +
+      `Add this person as a JN user, typed EXACTLY as shown so it auto-links:\n` +
+      `Name: ${name}\nEmail: ${email}` + (phone ? `\nPhone: ${phone}` : "");
+    await notifyJnAdmins(base, msg);
+    return cors(200, JSON.stringify({ ok: true }));
+  }
+
+  // action "activate_pa": company admin flips one of THEIR adjusters live —
+  // only once the PA is in JobNimbus (jn_user_id set). Sends the portal invite.
+  if (action === "activate_pa") {
+    const paId = (body.paId || "").trim();
+    const target = pas.find((p) => p.id === paId);
+    if (!target) return cors(400, JSON.stringify({ ok: false, error: "That PA isn't in your company." }));
+    if (!target.jn_user_id) return cors(400, JSON.stringify({ ok: false, error: "They're not in JobNimbus yet — wait for the green “Ready” status." }));
+    const upd = await fetch(`${SB_URL}/rest/v1/pas?id=eq.${encodeURIComponent(paId)}&pa_company_id=eq.${company.id}`, {
+      method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify({ active: true }),
+    });
+    if (!upd.ok) return cors(500, JSON.stringify({ ok: false, error: `Activate failed: ${(await upd.text()).slice(0, 160)}` }));
+    try {
+      await fetch(`${base}/.netlify/functions/send-pa-app-invite`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paId, channel: "auto" }),
+      });
+    } catch { /* invite is best-effort */ }
+    return cors(200, JSON.stringify({ ok: true }));
+  }
+
   // action "load": every open homeowner in this company's pool.
   const deals = await get(
     `${SB_URL}/rest/v1/inspections?pa_company_id=eq.${company.id}` +
@@ -201,7 +248,7 @@ exports.handler = async (event) => {
       lat: typeof company.latitude === "number" ? company.latitude : null,
       lng: typeof company.longitude === "number" ? company.longitude : null,
     },
-    pas: pas.map((p) => ({ id: p.id, name: p.name, active: p.active, phone: p.phone || null, email: p.email || null, home_address: p.home_address || null, max_distance_miles: typeof p.max_distance_miles === "number" ? p.max_distance_miles : null, lat: typeof p.latitude === "number" ? p.latitude : null, lng: typeof p.longitude === "number" ? p.longitude : null })),
+    pas: pas.map((p) => ({ id: p.id, name: p.name, active: p.active, phone: p.phone || null, email: p.email || null, home_address: p.home_address || null, max_distance_miles: typeof p.max_distance_miles === "number" ? p.max_distance_miles : null, lat: typeof p.latitude === "number" ? p.latitude : null, lng: typeof p.longitude === "number" ? p.longitude : null, in_jn: !!p.jn_user_id, ready_to_activate: !!p.jn_user_id && p.active === false })),
     deals: shaped,
   }));
 };
@@ -210,6 +257,30 @@ async function get(url, headers) {
   const r = await fetch(url, { headers });
   if (!r.ok) { console.warn(`query ${r.status}: ${(await r.text().catch(() => "")).slice(0, 160)}`); return []; }
   return await r.json().catch(() => []);
+}
+
+// Text whoever's subscribed to the TMS "pa_needs_jn_add" notification event
+// (managed on TMS → Settings → Notifications). Reads the TMS Supabase with
+// its PUBLIC publishable key (anon SELECT on notification_recipients is
+// allowed — same one the TMS frontend uses), so no env/secret setup. Sends
+// via the existing ghl-sms function. Best-effort.
+const TMS_SB_URL = "https://yfmzktvmlfeqcubnvhxr.supabase.co";
+const TMS_SB_KEY = "sb_publishable_Nfr-w2esI_2JoBwBXOWpIg_rWJWkBrN";
+async function notifyJnAdmins(base, message) {
+  try {
+    const r = await fetch(
+      `${TMS_SB_URL}/rest/v1/notification_recipients?select=name,phone,notify_via_sms&active=eq.true&subscribed_events=cs.%7B%22pa_needs_jn_add%22%7D`,
+      { headers: { apikey: TMS_SB_KEY, Authorization: `Bearer ${TMS_SB_KEY}` } },
+    );
+    const rows = r.ok ? await r.json().catch(() => []) : [];
+    const phones = (rows || []).filter((x) => x.notify_via_sms !== false && x.phone);
+    for (const p of phones) {
+      await fetch(`${base}/.netlify/functions/ghl-sms`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: p.phone, name: p.name || "JN admin", message }),
+      }).catch(() => {});
+    }
+  } catch (e) { console.warn("notifyJnAdmins failed:", e.message || e); }
 }
 
 function cors(status, body) {
