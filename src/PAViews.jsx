@@ -1054,7 +1054,28 @@ function PACompaniesPanel({ companies, pas, busy, onUpdate, onCreate }) {
                     onBlur={(e) => { const v = e.target.value.trim(); if (v !== (c.admin_name || "")) onUpdate(c.id, { admin_name: v || null }); }} />
                   <input defaultValue={c.admin_phone || ""} placeholder="Admin phone (+1…)" style={inputStyle}
                     onBlur={(e) => { const v = e.target.value.trim(); if (v !== (c.admin_phone || "")) onUpdate(c.id, { admin_phone: v || null }); }} />
+                  <input defaultValue={c.email || ""} placeholder="Company email" style={inputStyle}
+                    onBlur={(e) => { const v = e.target.value.trim(); if (v !== (c.email || "")) onUpdate(c.id, { email: v || null }); }} />
+                  <input defaultValue={c.address || ""} placeholder="Office address (for distance)" style={inputStyle}
+                    onBlur={async (e) => {
+                      const v = e.target.value.trim();
+                      if (v === (c.address || "")) return;
+                      if (!v) { onUpdate(c.id, { address: null, latitude: null, longitude: null }); return; }
+                      const patch = { address: v };
+                      try {
+                        const r = await fetch("/.netlify/functions/geocode-place", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: v }) });
+                        const g = await r.json().catch(() => ({}));
+                        if (g.ok && typeof g.lat === "number") { patch.latitude = g.lat; patch.longitude = g.lng; }
+                        else { patch.latitude = null; patch.longitude = null; }
+                      } catch { patch.latitude = null; patch.longitude = null; }
+                      onUpdate(c.id, patch);
+                    }} />
                 </div>
+                {c.address && (
+                  <div style={{ fontSize: 11, marginTop: 4, color: c.latitude != null ? "#16a34a" : "#b45309" }}>
+                    {c.latitude != null ? "📍 Office geocoded — the company admin can sort homeowners from “🏢 My office.”" : "⚠ Office address not geocoded yet — re-enter the address to retry."}
+                  </div>
+                )}
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
                   <code style={{ fontSize: 11, background: "#f1f5f9", padding: "4px 8px", borderRadius: 6, color: "#334155", wordBreak: "break-all", flex: 1, minWidth: 200 }}>{link}</code>
                   {c.token && (

@@ -4531,7 +4531,10 @@ function PACompanyAdminPage({ token }) {
     return R * 2 * Math.asin(Math.sqrt(s));
   };
   const refPa = activePas.find((p) => p.id === distFrom);
-  const refCoords = distFrom === "__me__" ? myCoords : (refPa && refPa.lat != null ? { lat: refPa.lat, lng: refPa.lng } : null);
+  const office = data.company && data.company.lat != null ? { lat: data.company.lat, lng: data.company.lng } : null;
+  const refCoords = distFrom === "__me__" ? myCoords
+    : distFrom === "__office__" ? office
+    : (refPa && refPa.lat != null ? { lat: refPa.lat, lng: refPa.lng } : null);
   const withDist = (arr) => arr.map((d) => ({
     ...d,
     _dist: refCoords && d.lat != null && d.lng != null ? milesBetween(refCoords.lat, refCoords.lng, d.lat, d.lng) : null,
@@ -4714,6 +4717,11 @@ function PACompanyAdminPage({ token }) {
               return (
                 <>
                   <button type="button" onClick={() => setDistFrom("")} style={chip(distFrom === "", false)}>Off</button>
+                  {office && (
+                    <button type="button" onClick={() => setDistFrom("__office__")} style={chip(distFrom === "__office__", false)} title="Distances from your office address">
+                      🏢 My office
+                    </button>
+                  )}
                   {activePas.map((p) => (
                     <button key={p.id} type="button" disabled={p.lat == null}
                       onClick={() => setDistFrom(p.id)} style={chip(distFrom === p.id, p.lat == null)}

@@ -32,7 +32,7 @@ exports.handler = async (event) => {
   if (!token) return cors(400, JSON.stringify({ ok: false, error: "token required" }));
 
   // Validate token → company.
-  const companies = await get(`${SB_URL}/rest/v1/pa_companies?token=eq.${encodeURIComponent(token)}&select=id,name,active&limit=1`, sb);
+  const companies = await get(`${SB_URL}/rest/v1/pa_companies?token=eq.${encodeURIComponent(token)}&select=id,name,active,address,email,latitude,longitude&limit=1`, sb);
   const company = companies[0];
   if (!company) return cors(404, JSON.stringify({ ok: false, error: "Invalid link" }));
   if (company.active === false) return cors(403, JSON.stringify({ ok: false, error: "This company is inactive — contact U.S. Shingle." }));
@@ -183,7 +183,13 @@ exports.handler = async (event) => {
 
   return cors(200, JSON.stringify({
     ok: true,
-    company: { name: company.name },
+    company: {
+      name: company.name,
+      address: company.address || null,
+      email: company.email || null,
+      lat: typeof company.latitude === "number" ? company.latitude : null,
+      lng: typeof company.longitude === "number" ? company.longitude : null,
+    },
     pas: pas.map((p) => ({ id: p.id, name: p.name, active: p.active, phone: p.phone || null, email: p.email || null, home_address: p.home_address || null, max_distance_miles: typeof p.max_distance_miles === "number" ? p.max_distance_miles : null, lat: typeof p.latitude === "number" ? p.latitude : null, lng: typeof p.longitude === "number" ? p.longitude : null })),
     deals: shaped,
   }));
