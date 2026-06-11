@@ -85,8 +85,15 @@ export const handler = async (event) => {
     const counts = {}
     const dealsByZone = {} // zone → [{ rep, customer, amount }]
     const matched = []
+    const soldThisWeekAll = [] // debug: every job sold this week, ANY status
     let unattributed = 0
     for (const j of jobs) {
+      if (debug) {
+        const sMs = soldDateMs(j);
+        if (sMs != null && sMs >= startMs && sMs <= endMs) {
+          soldThisWeekAll.push({ name: j.name, rep: j.sales_rep_name || null, status: j.status_name, sold: new Date(sMs).toISOString().slice(0, 10) });
+        }
+      }
       // Normalize the JN status before matching: JN names several stages
       // with separators/punctuation ("Sit - Sold", not "Sit Sold"), so a
       // plain lowercase compare missed sold deals. Collapse everything
@@ -140,6 +147,7 @@ export const handler = async (event) => {
       payload.scanned = jobs.length
       payload.unattributed = unattributed
       payload.matched = matched
+      payload.sold_this_week_all = soldThisWeekAll
     }
     return cors(200, JSON.stringify(payload))
   } catch (e) {
