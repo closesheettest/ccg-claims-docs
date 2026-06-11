@@ -28,14 +28,15 @@ export function auditJob(job) {
   if (!has("*Payment Type*")) missing.push("Payment Type");
   if (!has("Preferred Communication")) missing.push("Preferred Communication");
   if (!has("Sales Rep Harvested")) missing.push("Sales Rep Harvested (Yes/No)");
-  if (!answered("Previous Pending")) missing.push("Previous Pending (Yes/No)");
-  if (!answered("Detached Structure Included")) missing.push("Detached Structure Included (Yes/No)");
-  if (!answered("Solar Panels")) missing.push("Solar Panels (Yes/No)");
-  if (!answered("IRBADS")) missing.push("IRBADS (Yes/No)");
-  if (!answered("Insulation")) missing.push("Insulation (Yes/No)");
-  if (!answered("Radiant Barrier")) missing.push("Radiant Barrier (Yes/No)");
-  if (!answered("Modified Bitman")) missing.push("Modified Bitumen (Yes/No)");
-  if (!answered("TPO")) missing.push("TPO (Yes/No)");
+  // Yes/No fields (Previous Pending, Detached Structure, Solar Panels,
+  // IRBADS, Insulation, Radiant Barrier, Modified Bitumen, TPO) are a
+  // DROPDOWN on JN web but a TOGGLE in the JN mobile app — which is what
+  // reps use. A toggle has no explicit "No"; OFF (and an untouched toggle,
+  // which JN stores as no value at all) simply means No. So we do NOT
+  // require an explicit answer — off / blank / false all count as "No".
+  // We only act when a toggle is turned ON (yes(...)), via the conditional
+  // checks below (e.g. IRBADS → IRBADS Area, Insulation → SqFt + Cost).
+  // This kills the wall of unfixable "(Yes/No)" flags reps were getting.
   if (!has("Measurements Needed?")) missing.push("Measurements Needed?");
   if (!has("# of Stories")) missing.push("# of Stories");
   if (!pos("Roof Price ONLY")) errors.push("Roof Price ONLY is 0 / blank");
