@@ -2031,6 +2031,26 @@ function PAJobCard({ job, onOpen, me }) {
   const signed = job.signed_at
     ? new Date(job.signed_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
     : "—";
+  // Relative age of the signing — the recontact-relevance signal ("how
+  // stale is this lead?"). Computed from the signed_at timestamp.
+  const signedAgo = (() => {
+    if (!job.signed_at) return "";
+    const days = Math.floor((Date.now() - new Date(job.signed_at).getTime()) / 86400000);
+    if (days < 0) return "";
+    if (days === 0) return "today";
+    if (days === 1) return "yesterday";
+    if (days < 30) return `${days}d ago`;
+    const mo = Math.floor(days / 30);
+    return mo < 12 ? `${mo}mo ago` : `${Math.floor(mo / 12)}y ago`;
+  })();
+  // Last time the PA logged contact (a note) — the truest "when did we
+  // last talk to them" for recontacting. From the timestamped notes log.
+  const lastNote = Array.isArray(job.pa_notes_log) && job.pa_notes_log.length
+    ? job.pa_notes_log[job.pa_notes_log.length - 1]
+    : null;
+  const lastContact = lastNote?.at
+    ? new Date(lastNote.at).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+    : null;
   // Distance from the PA's home base to this homeowner — shown on the card
   // so they can prioritize without opening the pipeline. Needs both the
   // PA's coords (home address geocoded) and the deal's coords.
@@ -2053,7 +2073,8 @@ function PAJobCard({ job, onOpen, me }) {
             </span>
           )}
         </div>
-        <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 2 }}>🖊 Signed {signed}</div>
+        <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 2 }}>🖊 Signed {signed}{signedAgo ? ` · ${signedAgo}` : ""}</div>
+        {lastContact && <div style={{ fontSize: 12, color: "#0e7490", marginTop: 1 }}>🗒 Last contact {lastContact}</div>}
         {job.mobile
           ? <div style={{ fontSize: 13.5, marginTop: 3 }}><a href={`tel:${String(job.mobile).replace(/[^\d+]/g, "")}`} onClick={(e) => e.stopPropagation()} style={{ color: "#0e7490", fontWeight: 700, textDecoration: "none" }}>📞 {job.mobile}</a></div>
           : <div style={{ fontSize: 12.5, color: "#b45309", marginTop: 3 }}>📞 no phone on file</div>}
