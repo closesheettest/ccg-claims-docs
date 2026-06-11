@@ -227,12 +227,28 @@ exports.handler = async (event) => {
   // findings rows and damage-status copy. No Damage falls back to the
   // simpler 1-page photo report since there's nothing to certify.
   const reportDate = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+
+  // Roof type (Shingle | Tile) captured at intake — drives the cert's
+  // material + condition findings. Read from the inspections row; default
+  // Shingle if unset/unavailable.
+  let roofType = "Shingle";
+  if (SB_URL && SB_KEY) {
+    try {
+      const rt = await fetch(
+        `${SB_URL}/rest/v1/inspections?jn_job_id=eq.${encodeURIComponent(jnid)}&cancelled_at=is.null&roof_type=not.is.null&select=roof_type&limit=1`,
+        { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } },
+      );
+      if (rt.ok) { const rows = await rt.json().catch(() => []); if (rows[0]?.roof_type) roofType = rows[0].roof_type; }
+    } catch (e) { console.warn("roof_type lookup failed (defaulting Shingle):", e.message); }
+  }
+
   const record = {
     address: job.address_line1 || "",
     city: job.city || "",
     state: job.state_text || "",
     zip: job.zip || "",
     client_name: clientName,
+    roof_type: roofType,
   };
 
   let pdfBase64;
@@ -590,6 +606,47 @@ const INSP_ROWS_NO_DAMAGE = [
   { category: "Overall Structural Integrity", finding: "Roof system in serviceable condition",       result: "PASS" },
 ];
 
+// ── TILE-roof variants ──────────────────────────────────────────────
+// Used when the intake recorded a tile roof. Same structure as the
+// shingle/metal rows above, but the material + condition rows speak to
+// tile (we only sign up shingle or tile — no metal).
+const INSP_ROWS_DAMAGE_TILE = [
+  { category: "Roofing Material Type",       finding: "Tile Roofing System",                              result: "N/A"  },
+  { category: "Tile Condition",               finding: "Storm damage observed — cracked & displaced tiles", result: "FAIL" },
+  { category: "Metal Panel Condition",        finding: "N/A",                                              result: "N/A"  },
+  { category: "Flashing & Sealants",          finding: "N/A",                                              result: "N/A"  },
+  { category: "Gutters & Downspouts",         finding: "N/A",                                              result: "N/A"  },
+  { category: "Ridge & Hip Caps",             finding: "N/A",                                              result: "N/A"  },
+  { category: "Roof Deck (Visible)",          finding: "N/A",                                              result: "N/A"  },
+  { category: "Ventilation",                  finding: "N/A",                                              result: "N/A"  },
+  { category: "Water Intrusion / Leaks",      finding: "N/A",                                              result: "N/A"  },
+  { category: "Overall Structural Integrity", finding: "Structural damage confirmed — replacement required", result: "FAIL" },
+];
+const INSP_ROWS_RETAIL_TILE = [
+  { category: "Roofing Material Type",       finding: "Tile Roofing System",                              result: "N/A"  },
+  { category: "Tile Condition",               finding: "Significant tiles loose, tiles cracked, and very porous", result: "FAIL" },
+  { category: "Metal Panel Condition",        finding: "N/A",                                              result: "N/A"  },
+  { category: "Flashing & Sealants",          finding: "Thermal cycling fatigue",                          result: "FAIL" },
+  { category: "Gutters & Downspouts",         finding: "N/A",                                              result: "N/A"  },
+  { category: "Ridge & Hip Caps",             finding: "Cracked & loose ridge tiles",                      result: "FAIL" },
+  { category: "Roof Deck (Visible)",          finding: "Unknown",                                          result: "N/A"  },
+  { category: "Ventilation",                  finding: "N/A",                                              result: "N/A"  },
+  { category: "Water Intrusion / Leaks",      finding: "Not assessed at enrollment.",                      result: "N/A"  },
+  { category: "Overall Structural Integrity", finding: "Moderately poor to poor",                          result: "FAIL" },
+];
+const INSP_ROWS_NO_DAMAGE_TILE = [
+  { category: "Roofing Material Type",       finding: "Tile Roofing System",                              result: "N/A"  },
+  { category: "Tile Condition",               finding: "No cracked, loose, or displaced tiles — sound condition", result: "PASS" },
+  { category: "Metal Panel Condition",        finding: "No damage observed",                               result: "PASS" },
+  { category: "Flashing & Sealants",          finding: "Intact and sealed",                                result: "PASS" },
+  { category: "Gutters & Downspouts",         finding: "No damage observed",                               result: "PASS" },
+  { category: "Ridge & Hip Caps",             finding: "Sound condition",                                  result: "PASS" },
+  { category: "Roof Deck (Visible)",          finding: "No deformation observed",                          result: "PASS" },
+  { category: "Ventilation",                  finding: "Adequate",                                         result: "PASS" },
+  { category: "Water Intrusion / Leaks",      finding: "No active leaks or intrusion observed",            result: "PASS" },
+  { category: "Overall Structural Integrity", finding: "Roof system in serviceable condition",             result: "PASS" },
+];
+
 // ── Date helpers ─────────────────────────────────────────────────────
 function fmtDateLong(dateStr) {
   if (!dateStr) return "";
@@ -629,7 +686,14 @@ function buildCertificateHTML({ record, inspectorName, inspectionDateISO, logoUr
   const inspector = inspectorName || "Hank Smith";
   const isRetail = variant === "retail";
   const isNoDamage = variant === "no_damage";
-  const rows = isNoDamage ? INSP_ROWS_NO_DAMAGE : isRetail ? INSP_ROWS_RETAIL : INSP_ROWS_DAMAGE;
+  // Tile vs shingle/metal findings — driven by the roof type captured at
+  // intake (record.roof_type). Defaults to shingle when unset.
+  const isTile = String(record.roof_type || "").trim().toLowerCase() === "tile";
+  const rows = isNoDamage
+    ? (isTile ? INSP_ROWS_NO_DAMAGE_TILE : INSP_ROWS_NO_DAMAGE)
+    : isRetail
+    ? (isTile ? INSP_ROWS_RETAIL_TILE : INSP_ROWS_RETAIL)
+    : (isTile ? INSP_ROWS_DAMAGE_TILE : INSP_ROWS_DAMAGE);
   // Banner copy/colors per variant: green "NO DAMAGE FOUND" for a passing
   // roof, gray "NONE FOUND" for retail (failed but no storm damage), red
   // "DAMAGE FOUND" for storm damage.

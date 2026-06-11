@@ -5457,6 +5457,7 @@ export default function App() {
     state: "",
     zip: "",
     email: "",
+    roof_type: "",   // "Shingle" | "Tile" — picked at intake (no metal)
   };
   const [inspData, setInspData] = useState(initialInspData);
   const [inspSig, setInspSig] = useState("");
@@ -7542,7 +7543,7 @@ const renderSmsTemplate = (key, vars) => {
     // Phone is REQUIRED now (≥10 digits) so every record reaches the PA with
     // a number to call — fixes deals coming in with no phone.
     const inspPhoneDigits = (inspData.mobile || "").replace(/\D/g, "");
-    if (!effectiveInspSig || !inspData.clientName || !(inspData.address || "").trim() || inspPhoneDigits.length < 10) {
+    if (!effectiveInspSig || !inspData.clientName || !(inspData.address || "").trim() || inspPhoneDigits.length < 10 || !inspData.roof_type) {
       inspSubmittingRef.current = false;
       return;
     }
@@ -7583,6 +7584,7 @@ const renderSmsTemplate = (key, vars) => {
         sales_rep_name: data.salesRepName || "",
         sales_rep_id: data.salesRepId || "",
         sales_rep_email: data.salesRepEmail || "",
+        roof_type: inspData.roof_type || "Shingle",
         lead_source: data.leadSource || "Inspection",
       }]).select("id").single();
       if (inspSaveError) {
@@ -11856,6 +11858,26 @@ if (!hasDamage) {
                       <input type="text" value={inspData.zip} onChange={e => updateInsp("zip", e.target.value)}
                         placeholder="33782"
                         style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+                    </div>
+                    <div>
+                      <Label>Roof Type *</Label>
+                      <div style={{ display: "flex", gap: 10 }}>
+                        {[["Shingle", "🔨 Shingle"], ["Tile", "🧱 Tile"]].map(([val, label]) => {
+                          const sel = inspData.roof_type === val;
+                          const err = inspSubmitAttempted && !inspData.roof_type;
+                          return (
+                            <button key={val} type="button" onClick={() => updateInsp("roof_type", val)}
+                              style={{
+                                flex: 1, height: 44, borderRadius: 14, cursor: "pointer", fontSize: 14, fontWeight: 700,
+                                border: sel ? "2px solid #0a0a0a" : err ? "2px solid #ef4444" : "1px solid #d1d5db",
+                                background: sel ? "#0a0a0a" : "#fff", color: sel ? "#fff" : "#111827",
+                              }}>
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>We only sign up shingle &amp; tile roofs.</div>
                     </div>
                   </div>
                 </div>
