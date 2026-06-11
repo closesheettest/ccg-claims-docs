@@ -218,6 +218,10 @@ export function PAAdminPanel() {
   const [companies, setCompanies] = useState([]);
   const [companyBusy, setCompanyBusy] = useState(false);
   const [geocodingPas, setGeocodingPas] = useState(false);
+  // Collapsible sections (collapsed by default so the page opens tidy).
+  const [showNeeds, setShowNeeds] = useState(false);
+  const [showReassign, setShowReassign] = useState(false);
+  const [showDead, setShowDead] = useState(false);
 
   useEffect(() => { loadPas(); loadDecisions(); loadOverview(); loadAllDeals(); loadCompanies(); }, []);
 
@@ -887,19 +891,24 @@ export function PAAdminPanel() {
           const ordered = Object.keys(groups).sort((a, b) => a === "Other / no county" ? 1 : b === "Other / no county" ? -1 : a.localeCompare(b)).map((c) => ({ county: c, jobs: groups[c] }));
           return (
             <div style={{ marginTop: 14, border: "1px solid #fcd34d", borderRadius: 12, background: "#fffbeb", padding: 14 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-                <div style={{ fontSize: 14, fontWeight: 800, color: "#92400e" }}>🆕 Needs assigning ({overview.unassignedList.length}) — by county{needsGps ? ", nearest first" : ""}</div>
-                <button type="button" onClick={() => {
-                  if (needsGps) { setNeedsGps(null); return; }
-                  if (!navigator.geolocation) { setMessage({ kind: "error", text: "No GPS on this device." }); return; }
-                  navigator.geolocation.getCurrentPosition(
-                    (p) => setNeedsGps({ lat: p.coords.latitude, lng: p.coords.longitude }),
-                    () => setMessage({ kind: "error", text: "Couldn't get your location." }),
-                    { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 });
-                }} style={{ ...secondaryBtn, fontSize: 12, borderColor: "#fcd34d", color: "#92400e" }}>
-                  {needsGps ? "📍 Distance ON — tap to turn off" : "📍 Sort by distance from me"}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: showNeeds ? 8 : 0 }}>
+                <button type="button" onClick={() => setShowNeeds((v) => !v)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 14, fontWeight: 800, color: "#92400e" }}>
+                  {showNeeds ? "▾" : "▸"} 🆕 Needs assigning ({overview.unassignedList.length}){showNeeds ? ` — by county${needsGps ? ", nearest first" : ""}` : ""}
                 </button>
+                {showNeeds && (
+                  <button type="button" onClick={() => {
+                    if (needsGps) { setNeedsGps(null); return; }
+                    if (!navigator.geolocation) { setMessage({ kind: "error", text: "No GPS on this device." }); return; }
+                    navigator.geolocation.getCurrentPosition(
+                      (p) => setNeedsGps({ lat: p.coords.latitude, lng: p.coords.longitude }),
+                      () => setMessage({ kind: "error", text: "Couldn't get your location." }),
+                      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 });
+                  }} style={{ ...secondaryBtn, fontSize: 12, borderColor: "#fcd34d", color: "#92400e" }}>
+                    {needsGps ? "📍 Distance ON — tap to turn off" : "📍 Sort by distance from me"}
+                  </button>
+                )}
               </div>
+              {showNeeds && (
               <div style={{ display: "grid", gap: 12 }}>
                 {ordered.map((g) => (
                   <div key={g.county}>
@@ -929,6 +938,7 @@ export function PAAdminPanel() {
                   </div>
                 ))}
               </div>
+              )}
             </div>
           );
         })()}
@@ -937,14 +947,19 @@ export function PAAdminPanel() {
             and bulk-move them to a PA, or "— Unassign —" to pull them off.
             Built for onboarding a new PA: check a batch, move them over. */}
         <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #c7d2fe" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: "#3730a3" }}>🔀 Reassign / take away — no activity yet ({allDeals.length})</div>
-            <button type="button" onClick={() => setManySel(allDeals.map((d) => d.id), selected.size < allDeals.length)}
-              style={{ ...secondaryBtn, fontSize: 11, padding: "5px 10px" }}>
-              {selected.size < allDeals.length ? "Select all" : "Clear all"}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: showReassign ? 8 : 0 }}>
+            <button type="button" onClick={() => setShowReassign((v) => !v)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 13, fontWeight: 800, color: "#3730a3" }}>
+              {showReassign ? "▾" : "▸"} 🔀 Reassign / take away — no activity yet ({allDeals.length})
             </button>
+            {showReassign && (
+              <button type="button" onClick={() => setManySel(allDeals.map((d) => d.id), selected.size < allDeals.length)}
+                style={{ ...secondaryBtn, fontSize: 11, padding: "5px 10px" }}>
+                {selected.size < allDeals.length ? "Select all" : "Clear all"}
+              </button>
+            )}
           </div>
 
+          {showReassign && (<>
           {/* Bulk action bar */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8, padding: "8px 10px", background: "#fff", border: "1px solid #c7d2fe", borderRadius: 8 }}>
             <span style={{ fontSize: 12, fontWeight: 700, color: "#3730a3" }}>{selected.size} selected</span>
@@ -1006,12 +1021,16 @@ export function PAAdminPanel() {
             Only deals with <strong>no PA activity</strong> show here (never opened, no notes) — so you only move untouched ones. Deals a PA is actively working are hidden on purpose.
             {autoAssign && " With auto-assign ON, unassigned deals re-route within ~5 min — turn it off to park deals with nobody."}
           </div>
+          </>)}
         </div>
 
         {/* Dead deals report */}
         <div style={{ marginTop: 14 }}>
-          <div style={{ fontSize: 13, fontWeight: 800, color: "#7f1d1d", marginBottom: 6 }}>💀 Dead deals ({overview.dead.length})</div>
-          {overview.dead.length === 0 ? (
+          <button type="button" onClick={() => setShowDead((v) => !v)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 13, fontWeight: 800, color: "#7f1d1d", marginBottom: showDead ? 6 : 0 }}>
+            {showDead ? "▾" : "▸"} 💀 Dead deals ({overview.dead.length})
+          </button>
+          {showDead && (
+          overview.dead.length === 0 ? (
             <div style={{ fontSize: 12, color: "#6b7280" }}>None.</div>
           ) : (
             <div style={{ display: "grid", gap: 6, maxHeight: 240, overflowY: "auto" }}>
@@ -1029,7 +1048,7 @@ export function PAAdminPanel() {
                 );
               })}
             </div>
-          )}
+          ))}
         </div>
       </section>
 
