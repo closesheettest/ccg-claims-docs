@@ -4418,10 +4418,10 @@ function InspectorJobDetail({ me, jobId, onBack }) {
           />
         ) : (
           <WizardPhotoStep
-            title={`📷 ${detailLabel}`}
-            subtitle={`Still on the ${sideText} side. Now move in CLOSE and take detail photos of anything you see — hail strikes, missing or torn shingles, granule loss, wear marks, exposed nails, soft spots. Add as many photos as you need. Tap Done when this slope is fully documented.`}
+            title={`📷 ${detailLabel} (only if there's damage)`}
+            subtitle={`Still on the ${sideText} side. If you see damage, move in CLOSE and photograph it — hail strikes, missing or torn shingles, granule loss, wear marks, exposed nails, soft spots. Add as many as you need. If this slope has NO damage, that's fine — just tap Done (the slope overview is enough).`}
             ctaLabel={ctaLabel}
-            ctaEnabled={stagePhotos.length >= 1}
+            ctaEnabled={true}
             stagePhotos={stagePhotos}
             submitting={submitting}
             onAddPhotos={(files) => addPhotos(files, {
