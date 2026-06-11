@@ -209,6 +209,7 @@ export function PAAdminPanel() {
   // Auto-assign + oversight
   const [autoAssign, setAutoAssign] = useState(true);
   const [overview, setOverview] = useState({ byPa: {}, unassignedList: [], dead: [] });
+  const [needsGps, setNeedsGps] = useState(null);   // {lat,lng} → sort Needs-assigning by distance from me
   const [allDeals, setAllDeals] = useState([]);
   const [selected, setSelected] = useState(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -301,10 +302,10 @@ export function PAAdminPanel() {
       const byPa = {};
       (openRows || []).forEach((r) => { byPa[r.pa_id] = (byPa[r.pa_id] || 0) + 1; });
       const { data: unassignedList } = await supabase.from("inspections")
-        .select("id, client_name, signed_at")
+        .select("id, client_name, signed_at, address, city, state, zip, county, latitude, longitude")
         .eq("result", "damage").is("pa_id", null).is("pa_company_id", null).not("jn_job_id", "is", null)
         .is("cancelled_at", null).eq("pa_decision_needed", false).not("signed_at", "is", null)
-        .order("signed_at", { ascending: false }).limit(50);
+        .order("signed_at", { ascending: false }).limit(200);
       const { data: dead } = await supabase.from("inspections")
         .select("id, client_name, pa_id, pa_stage_at, pa_notes_log")
         .eq("pa_stage", "dead").order("pa_stage_at", { ascending: false }).limit(100);
@@ -427,6 +428,29 @@ export function PAAdminPanel() {
   // paId="" → unassign the selected deals; else assign/move them to that PA.
   // target: "" → unassign · "company:<id>" → drop into a company POOL (pa_id
   // cleared, company admin assigns) · else a PA id → assign directly.
+  // Assign a single unassigned deal to a company pool ("company:<id>") or a
+  // PA ("<paId>") — same patch shape as bulkApply, for the county-grouped
+  // "Needs assigning" list below.
+  async function assignOne(dealId, target) {
+    if (!target) return;
+    setBulkBusy(true);
+    const nowIso = new Date().toISOString();
+    let patch, who;
+    if (target.startsWith("company:")) {
+      const cid = target.slice("company:".length);
+      patch = { pa_company_id: cid, pa_company_at: nowIso, pa_id: null, pa_claimed_at: null, pa_stage: null, pa_stage_at: nowIso, pa_opened_at: null };
+      who = `${companies.find((c) => c.id === cid)?.name || "company"} pool`;
+    } else {
+      patch = { pa_id: target, pa_company_id: null, pa_claimed_at: nowIso, pa_stage: "active", pa_stage_at: nowIso };
+      who = pas.find((p) => p.id === target)?.name || "PA";
+    }
+    const { error } = await supabase.from("inspections").update(patch).eq("id", dealId);
+    setBulkBusy(false);
+    if (error) { setMessage({ kind: "error", text: error.message }); return; }
+    setMessage({ kind: "success", text: `Assigned to ${who}.` });
+    loadOverview(); loadAllDeals(); loadPas();
+  }
+
   async function bulkApply(target) {
     const ids = [...selected];
     if (!ids.length) { setMessage({ kind: "error", text: "Select at least one deal first." }); return; }
@@ -843,6 +867,67 @@ export function PAAdminPanel() {
         </div>
 
         {report && <PAProgressReport report={report} />}
+
+        {/* Needs assigning — unassigned damage deals, grouped by county;
+            within a county, nearest-first when GPS distance is on, else
+            newest-signed. Assign each to a company pool or straight to a PA. */}
+        {overview.unassignedList.length > 0 && (() => {
+          const items = overview.unassignedList.map((d) => ({
+            ...d,
+            _dist: needsGps && typeof d.latitude === "number" && typeof d.longitude === "number"
+              ? milesBetween(needsGps.lat, needsGps.lng, d.latitude, d.longitude) : null,
+          }));
+          const groups = {};
+          for (const d of items) { const c = d.county || "Other / no county"; (groups[c] = groups[c] || []).push(d); }
+          for (const c of Object.keys(groups)) groups[c].sort((a, b) => needsGps ? (a._dist ?? 1e9) - (b._dist ?? 1e9) : new Date(b.signed_at || 0) - new Date(a.signed_at || 0));
+          const ordered = Object.keys(groups).sort((a, b) => a === "Other / no county" ? 1 : b === "Other / no county" ? -1 : a.localeCompare(b)).map((c) => ({ county: c, jobs: groups[c] }));
+          return (
+            <div style={{ marginTop: 14, border: "1px solid #fcd34d", borderRadius: 12, background: "#fffbeb", padding: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: "#92400e" }}>🆕 Needs assigning ({overview.unassignedList.length}) — by county{needsGps ? ", nearest first" : ""}</div>
+                <button type="button" onClick={() => {
+                  if (needsGps) { setNeedsGps(null); return; }
+                  if (!navigator.geolocation) { setMessage({ kind: "error", text: "No GPS on this device." }); return; }
+                  navigator.geolocation.getCurrentPosition(
+                    (p) => setNeedsGps({ lat: p.coords.latitude, lng: p.coords.longitude }),
+                    () => setMessage({ kind: "error", text: "Couldn't get your location." }),
+                    { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 });
+                }} style={{ ...secondaryBtn, fontSize: 12, borderColor: "#fcd34d", color: "#92400e" }}>
+                  {needsGps ? "📍 Distance ON — tap to turn off" : "📍 Sort by distance from me"}
+                </button>
+              </div>
+              <div style={{ display: "grid", gap: 12 }}>
+                {ordered.map((g) => (
+                  <div key={g.county}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 10px", marginBottom: 6, background: "#ecfeff", border: "1px solid #a5f3fc", borderRadius: 8, fontWeight: 800, fontSize: 13.5, color: "#0e7490" }}>
+                      📍 {g.county} <span style={{ fontSize: 11, fontWeight: 700, color: "#0891b2" }}>({g.jobs.length})</span>
+                    </div>
+                    <div style={{ display: "grid", gap: 6 }}>
+                      {g.jobs.map((d) => (
+                        <div key={d.id} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "center", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 10px" }}>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontWeight: 700, fontSize: 13.5 }}>{d.client_name || "(no name)"}{d._dist != null && <span style={{ fontSize: 11, fontWeight: 700, color: "#0369a1", marginLeft: 6 }}>📍 {d._dist.toFixed(1)} mi</span>}</div>
+                            <div style={{ fontSize: 11.5, color: "#6b7280" }}>{[d.address, d.city, d.state, d.zip].filter(Boolean).join(", ")}{d.signed_at ? ` · signed ${new Date(d.signed_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}</div>
+                          </div>
+                          <select disabled={bulkBusy} defaultValue="" onChange={(e) => { const v = e.target.value; if (v) assignOne(d.id, v); e.target.value = ""; }}
+                            style={{ fontSize: 12.5, padding: "7px 9px", borderRadius: 8, border: "1px solid #f59e0b", background: "#fffbeb", maxWidth: 180 }}>
+                            <option value="">— Assign to —</option>
+                            {companies.filter((c) => c.active).length > 0 && (
+                              <optgroup label="Company pool">{companies.filter((c) => c.active).map((c) => <option key={c.id} value={`company:${c.id}`}>{c.name} (pool)</option>)}</optgroup>
+                            )}
+                            {pas.filter((p) => p.active).length > 0 && (
+                              <optgroup label="Direct to PA">{pas.filter((p) => p.active).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</optgroup>
+                            )}
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Reassign / take away — full checklist. Select any number of deals
             and bulk-move them to a PA, or "— Unassign —" to pull them off.
