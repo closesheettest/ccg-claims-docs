@@ -125,17 +125,13 @@ export const handler = async (event) => {
     }
 
     if (plan.kind === "data") {
-      // Deterministic guard: we track TOTAL sales, not a retail-vs-insurance
-      // split. Don't let a "retail/insurance sales" question return the total
-      // (misleading) — route it to a feature request instead.
+      // "Retail/insurance sales" questions: we don't split sales by channel,
+      // but the weekly TOTAL is the number people actually want (same figure
+      // as the leaderboard). So answer with the total and note it's combined,
+      // instead of punting to a feature request.
       const qlc = question.toLowerCase();
       if ((plan.metric === "sales_this_week" || plan.metric === "sales_by_rep") && /\b(retail|insurance)\b/.test(qlc)) {
-        try { await sendFeatureRequest(question, asker, "retail vs insurance sales split"); }
-        catch (e) { console.warn("feature-request email failed:", e.message); }
-        return json(200, {
-          ok: true, kind: "feature_request",
-          answerText: "We track total sales, but not a retail-vs-insurance split yet — I've sent your request to Neal to build it.",
-        });
+        plan.note_total_only = true;
       }
       return await answerData(plan);
     }
@@ -278,7 +274,7 @@ async function answerData(plan) {
       for (const z of d.zones || []) byZone[z.zone] = z.count;
       const out = {
         ok: true, kind: "data", number: n,
-        answerText: `${n} ${plural(n, "sale")} this week${money(revenue)}.`,
+        answerText: `${n} ${plural(n, "sale")} this week${money(revenue)}.${plan.note_total_only ? " (Total sales — we don't split retail vs insurance yet.)" : ""}`,
         link: { label: "Open Rep Dashboard", url: "https://us-shingle-rep-dashboard.netlify.app" },
       };
       if (Object.keys(byZone).length > 1) out.breakdown = byZone;
@@ -296,7 +292,7 @@ async function answerData(plan) {
       const who = distinct[0] || plan.person_name;
       const out = {
         ok: true, kind: "data", number: n,
-        answerText: `${who} has ${n} ${plural(n, "sale")} this week${money(revenue)}.`,
+        answerText: `${who} has ${n} ${plural(n, "sale")} this week${money(revenue)}.${plan.note_total_only ? " (Total sales — we don't split retail vs insurance yet.)" : ""}`,
         link: { label: "Open Rep Dashboard", url: "https://us-shingle-rep-dashboard.netlify.app" },
       };
       if (n) out.list = deals.map((dl) => dl.customer || "(deal)");
