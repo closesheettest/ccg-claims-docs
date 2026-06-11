@@ -32,13 +32,24 @@ exports.handler = async (event) => {
   if (!token) return cors(400, JSON.stringify({ ok: false, error: "token required" }));
 
   // Validate token → company.
-  const companies = await get(`${SB_URL}/rest/v1/pa_companies?token=eq.${encodeURIComponent(token)}&select=id,name,active,address,email,latitude,longitude&limit=1`, sb);
-  const company = companies[0];
+  // Try the full select (office fields). If those columns don't exist yet
+  // (migration not run), that 400s → get() returns []; fall back to the
+  // base columns so the page still works. Office fields just stay null
+  // until pa_company_office_and_audit_label.sql is run.
+  let company = (await get(`${SB_URL}/rest/v1/pa_companies?token=eq.${encodeURIComponent(token)}&select=id,name,active,address,email,latitude,longitude&limit=1`, sb))[0];
+  if (!company) {
+    company = (await get(`${SB_URL}/rest/v1/pa_companies?token=eq.${encodeURIComponent(token)}&select=id,name,active&limit=1`, sb))[0];
+  }
   if (!company) return cors(404, JSON.stringify({ ok: false, error: "Invalid link" }));
   if (company.active === false) return cors(403, JSON.stringify({ ok: false, error: "This company is inactive — contact U.S. Shingle." }));
 
   // Active PAs in this company (+ home coords for distance sorting + takeaways).
-  const pas = await get(`${SB_URL}/rest/v1/pas?pa_company_id=eq.${company.id}&select=id,name,active,home_address,latitude,longitude,pa_takeaways,phone,email,max_distance_miles&order=name.asc`, sb);
+  // Full select includes max_distance_miles (added by pa_max_distance.sql).
+  // If that column isn't there yet, fall back so the page still loads.
+  let pas = await get(`${SB_URL}/rest/v1/pas?pa_company_id=eq.${company.id}&select=id,name,active,home_address,latitude,longitude,pa_takeaways,phone,email,max_distance_miles&order=name.asc`, sb);
+  if (!pas.length) {
+    pas = await get(`${SB_URL}/rest/v1/pas?pa_company_id=eq.${company.id}&select=id,name,active,home_address,latitude,longitude,pa_takeaways,phone,email&order=name.asc`, sb);
+  }
 
   // Scorecard for THIS company's PAs only — same metrics as the master admin
   // report, scoped so a company never sees another company's numbers.
