@@ -435,6 +435,7 @@ const initialData = {
   state: "",
   zip: "",
   phone: "",
+  roof_type: "Shingle",   // "Shingle" | "Tile" — picked at intake (no metal)
   situation: "",
   claimStage: "pre_inspection", // "pre_inspection" | "post_inspection"
   dateOfLoss: "",
@@ -3838,6 +3839,25 @@ function GuidedIntakeFlow({
               onChange={(e) => update({ zip: e.target.value })} />
           </div>
         </div>
+        <div>
+          <Label>Roof Type *</Label>
+          <div style={{ display: "flex", gap: 10 }}>
+            {[["Shingle", "🔨 Shingle"], ["Tile", "🧱 Tile"]].map(([val, label]) => {
+              const sel = data.roof_type === val;
+              return (
+                <button key={val} type="button" onClick={() => update({ roof_type: val })}
+                  style={{
+                    flex: 1, height: 44, borderRadius: 12, cursor: "pointer", fontSize: 14, fontWeight: 700,
+                    border: sel ? "2px solid #0a0a0a" : "1px solid #d1d5db",
+                    background: sel ? "#0a0a0a" : "#fff", color: sel ? "#fff" : "#111827",
+                  }}>
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ fontSize: 12, color: "#6b7280", marginTop: 6 }}>We only sign up shingle &amp; tile roofs.</div>
+        </div>
       </div>
     );
   }
@@ -5457,7 +5477,7 @@ export default function App() {
     state: "",
     zip: "",
     email: "",
-    roof_type: "",   // "Shingle" | "Tile" — picked at intake (no metal)
+    roof_type: "Shingle",   // "Shingle" | "Tile" — picked at intake (no metal)
   };
   const [inspData, setInspData] = useState(initialInspData);
   const [inspSig, setInspSig] = useState("");
@@ -7359,6 +7379,7 @@ const renderSmsTemplate = (key, vars) => {
         state: data.state || prev.state,
         zip: data.zip || prev.zip,
         email: data.signerEmail || prev.email,
+        roof_type: data.roof_type || prev.roof_type,
       }));
     }
 
@@ -10080,6 +10101,25 @@ if (!hasDamage) {
                       value={data.zip}
                       onChange={(v) => update("zip", v)}
                     />
+                    <div>
+                      <Label>Roof Type</Label>
+                      <div style={{ display: "flex", gap: 10 }}>
+                        {[["Shingle", "🔨 Shingle"], ["Tile", "🧱 Tile"]].map(([val, label]) => {
+                          const sel = data.roof_type === val;
+                          return (
+                            <button key={val} type="button" onClick={() => update("roof_type", val)}
+                              style={{
+                                flex: 1, height: 44, borderRadius: 14, cursor: "pointer", fontSize: 14, fontWeight: 700,
+                                border: sel ? "2px solid #0a0a0a" : "1px solid #d1d5db",
+                                background: sel ? "#0a0a0a" : "#fff", color: sel ? "#fff" : "#111827",
+                              }}>
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>We only sign up shingle &amp; tile roofs.</div>
+                    </div>
                   </div>
                 </Card>
 
