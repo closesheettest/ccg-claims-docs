@@ -206,7 +206,10 @@ exports.handler = async (event) => {
       console.log("JN fallback found photos:", photos.length);
     }
   }
-  if (photos.length === 0) {
+  // No Damage certs are a 1-page summary letter that doesn't embed photos,
+  // so they render fine with none. Only Damage / Retail reports (which show
+  // the roof photos) require at least one.
+  if (photos.length === 0 && resultLabel !== "No Damage") {
     return {
       statusCode: 400,
       body: JSON.stringify({
