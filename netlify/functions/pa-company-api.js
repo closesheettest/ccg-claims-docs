@@ -170,7 +170,7 @@ exports.handler = async (event) => {
     // has to come back and edit). The JobNimbus notification still only
     // carries name/email/phone — address & distance are ours, not JN's.
     if (!name) return cors(400, JSON.stringify({ ok: false, error: "Name is required." }));
-    if (!/^\S+@\S+\.\S+$/.test(email)) return cors(400, JSON.stringify({ ok: false, error: "A valid email is required — it's how we link them to JobNimbus." }));
+    if (!/^\S+@\S+\.\S+$/.test(email)) return cors(400, JSON.stringify({ ok: false, error: "A valid email is required — it's how we link them to the U.S. Shingle system." }));
     if (!phone) return cors(400, JSON.stringify({ ok: false, error: "Phone is required." }));
     if (!homeAddress) return cors(400, JSON.stringify({ ok: false, error: "Home address is required." }));
     const dupe = await get(`${SB_URL}/rest/v1/pas?pa_company_id=eq.${company.id}&email=eq.${encodeURIComponent(email)}&select=id&limit=1`, sb);
