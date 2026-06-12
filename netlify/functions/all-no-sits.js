@@ -101,6 +101,7 @@ exports.handler = async (event) => {
     zones: current.zones,
     benchmark_at: benchmark?.at || null,
     progress,
+    diag: current.diag,
   }));
 };
 
@@ -133,6 +134,7 @@ async function pullNoSits(days, geocache) {
   // No-sits whose APPOINTMENT (date_start) is within the window (default 90
   // days back). sinceSec = now − days. date_start is epoch seconds.
   const noSits = jobs.filter((j) => isNoSit(j.status_name) && Number(j.date_start) >= sinceSec);
+  const diag = { fetched: jobs.length, nosit_all: jobs.filter((j) => isNoSit(j.status_name)).length, nosit_recent: noSits.length };
   const jnidOf = (j) => j.jnid || j.id || `${j.sales_rep_name || ""}|${j.date_start || ""}|${j.name || ""}`;
   const addrOf = (j) => [j.address_line1, j.city, j.state_text, j.zip].filter(Boolean).join(", ");
 
@@ -194,7 +196,7 @@ async function pullNoSits(days, geocache) {
     }))
     .sort(zoneSort);
 
-  return { zones, total, idsByZone, statusByJnid, noSitDetails, cache, cacheChanged };
+  return { zones, total, idsByZone, statusByJnid, noSitDetails, cache, cacheChanged, diag };
 }
 
 // Geocode a property address → { county, lat } via Google Maps. county is
