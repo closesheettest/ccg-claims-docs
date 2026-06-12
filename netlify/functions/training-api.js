@@ -21,6 +21,10 @@
 const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
+// Source of truth for ACTIVE FIELD SALES REPS — the TMS roster (excludes
+// non-field staff + inactive reps, and carries phones). CCG's sales_reps table
+// includes non-reps, so we don't use it for William's picker.
+const REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones";
 
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return cors(200, "");
@@ -48,9 +52,7 @@ async function doInit(body) {
   if (!(await validTrainer(body.token))) return cors(403, JSON.stringify({ ok: false, error: "Invalid or expired link" }));
   const date = normDate(body.date) || todayET();
 
-  const reps = (await sbGet(`sales_reps?select=id,name,phone,active&order=name.asc&limit=2000`))
-    .filter((r) => r.active !== false && (r.name || "").trim())
-    .map((r) => ({ id: String(r.id), name: r.name, phone: r.phone || null }));
+  const reps = await fetchActiveReps();
 
   const picks = await sbGet(`ride_alongs?ride_date=eq.${date}&select=rep_id,rep_name,confirmed,start_time,end_time,text_sent_at&limit=500`);
 
@@ -63,7 +65,7 @@ async function doSave(body) {
   const repIds = Array.isArray(body.repIds) ? body.repIds.map(String) : [];
 
   const repMap = {};
-  for (const r of await sbGet(`sales_reps?select=id,name,phone&limit=2000`)) repMap[String(r.id)] = r;
+  for (const r of await fetchActiveReps()) repMap[r.id] = { name: r.name, phone: r.phone };
 
   const existing = await sbGet(`ride_alongs?ride_date=eq.${date}&select=id,rep_id,text_sent_at&limit=500`);
   const existingByRep = {};
@@ -128,6 +130,26 @@ async function validTrainer(token) {
   if (!stored) return false;
   const s = typeof stored === "string" ? stored : String(stored);
   return s.trim() === String(token).trim();
+}
+
+// Active field sales reps from the TMS roster → [{ id, name, phone }].
+// id = JobNimbus id when present, else a name slug (stable for the unique key).
+async function fetchActiveReps() {
+  try {
+    const res = await fetch(REP_ZONES_URL);
+    if (!res.ok) return [];
+    const data = await res.json().catch(() => ({}));
+    return (data.reps || [])
+      .filter((r) => (r.name || "").trim())
+      .map((r) => ({ id: r.jobnimbus_id || ("name:" + slug(r.name)), name: r.name, phone: r.phone || null }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  } catch {
+    return [];
+  }
+}
+
+function slug(s) {
+  return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, "-");
 }
 
 async function sbGet(path) {
