@@ -4543,12 +4543,10 @@ function TrainingPickerPage({ token }) {
           </div>
         ) : (
           <>
-            {picked.size === 0 && (
-              <button type="button" onClick={() => { setNoneMode(true); setErr(""); }}
-                style={{ width: "100%", margin: "16px 0 0", padding: "13px", borderRadius: 12, border: "1px solid #b8324f", background: "rgba(184,50,79,.12)", color: "#ffd9e0", fontWeight: 800, fontSize: 16, cursor: "pointer" }}>
-                🚫 No one rode with me — add a reason
-              </button>
-            )}
+            <button type="button" onClick={() => { setNoneMode(true); setErr(""); }}
+              style={{ width: "100%", margin: "16px 0 0", padding: "13px", borderRadius: 12, border: "1px solid #b8324f", background: "rgba(184,50,79,.12)", color: "#ffd9e0", fontWeight: 800, fontSize: 16, cursor: "pointer" }}>
+              🚫 No one rode with me — add a reason
+            </button>
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search reps…"
               style={{ width: "100%", boxSizing: "border-box", margin: "16px 0 8px", padding: "12px 14px", borderRadius: 10, border: "1px solid #2a3b57", background: "#0f2038", color: "#fff", fontSize: 16 }} />
             <div style={{ fontSize: 13, color: "#9fb3d1", marginBottom: 6 }}>{picked.size} selected</div>
