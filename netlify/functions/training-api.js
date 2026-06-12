@@ -96,8 +96,8 @@ async function doSave(body) {
   }
 
   const repMap = {};
-  for (const r of await fetchActiveReps()) repMap[r.id] = { name: r.name, phone: r.phone };
-  repMap[TEST_REP_ID] = { name: TEST_REP_NAME, phone: (await readSetting("training_test_phone")) || null };
+  for (const r of await fetchActiveReps()) repMap[r.id] = { name: r.name, phone: r.phone, zone: r.zone };
+  repMap[TEST_REP_ID] = { name: TEST_REP_NAME, phone: (await readSetting("training_test_phone")) || null, zone: null };
 
   const existingByRep = {};
   for (const e of existing) existingByRep[String(e.rep_id)] = e;
@@ -145,13 +145,16 @@ async function doSave(body) {
     const rid = String(x.repId);
     const note = (x.note || "").trim() || null;
     const ex = existingByRep[rid];
+    const wasRefused = !!(ex && ex.refused_to_ride); // already a refusal → don't re-text the manager
+    const r = repMap[rid];
     if (ex) {
       await fetch(`${SB_URL}/rest/v1/ride_alongs?id=eq.${ex.id}`, { method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify({ refused_to_ride: true, confirmed: false, decline_reason: note, text_sent_at: ex.text_sent_at || new Date().toISOString() }) });
     } else {
-      const r = repMap[rid];
       if (!r) continue;
       await fetch(`${SB_URL}/rest/v1/ride_alongs`, { method: "POST", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify([{ ride_date: date, rep_id: rid, rep_name: r.name, rep_phone: r.phone || null, confirm_token: crypto.randomUUID(), refused_to_ride: true, confirmed: false, decline_reason: note, text_sent_at: new Date().toISOString() }]) });
     }
+    // Newly-flagged refusal → text the rep's regional manager.
+    if (!wasRefused && r) await notifyManagerOfRefusal(r, note);
   }
 
   // Remove un-checked reps — but only if they haven't been texted yet
@@ -163,6 +166,25 @@ async function doSave(body) {
   }
 
   return cors(200, JSON.stringify({ ok: true, date, added: toInsert.length, removed: toDelete.length, texted, refused: refusals.length }));
+}
+
+// Text the rep's regional manager that William tried to take them out for
+// training but they wouldn't ride. rep → zone (from the TMS roster) →
+// regional_managers (CCG) for the manager's phone — same lookup the PA
+// "refused to sign" alert uses.
+async function notifyManagerOfRefusal(rep, note) {
+  const zone = rep && rep.zone;
+  if (!zone) return false;
+  const rows = await sbGet(`regional_managers?zone=eq.${encodeURIComponent(zone)}&select=name,phone&limit=1`);
+  const mgr = rows?.[0];
+  if (!mgr || !mgr.phone) return false;
+  const base = process.env.URL || process.env.DEPLOY_URL || process.env.PUBLIC_SITE_URL || "";
+  if (!base) return false;
+  const message = `🚗 Training heads-up: William tried to take ${rep.name} out for field training today, but they wouldn't ride${note ? `. Reason: "${note}"` : "."}`;
+  try {
+    const r = await fetch(`${base}/.netlify/functions/ghl-sms`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: mgr.phone, name: mgr.name, message }) });
+    return r.ok;
+  } catch { return false; }
 }
 
 // Build + send a rep's confirm text now (used for back-dated saves).
@@ -234,7 +256,7 @@ async function fetchActiveReps() {
     const data = await res.json().catch(() => ({}));
     return (data.reps || [])
       .filter((r) => (r.name || "").trim())
-      .map((r) => ({ id: r.jobnimbus_id || ("name:" + slug(r.name)), name: r.name, phone: r.phone || null }))
+      .map((r) => ({ id: r.jobnimbus_id || ("name:" + slug(r.name)), name: r.name, phone: r.phone || null, zone: r.zone || null }))
       .sort((a, b) => a.name.localeCompare(b.name));
   } catch {
     return [];
