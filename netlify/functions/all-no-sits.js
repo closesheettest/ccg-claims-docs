@@ -53,6 +53,20 @@ exports.handler = async (event) => {
   const action = (qp.action || "").trim();
   const days = Math.min(Math.max(parseInt(qp.days, 10) || 90, 7), 365);
 
+  if (action === "debug") {
+    const jnHeaders = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
+    const sinceSec = Math.floor(Date.now() / 1000) - days * 24 * 60 * 60;
+    const jobs = await fetchRecentJobs(jnHeaders, sinceSec);
+    const noSits = jobs.filter((j) => isNoSit(j.status_name));
+    const sample = noSits.slice(0, 6).map((j) => ({
+      name: j.name, status: j.status_name,
+      date_start: j.date_start, date_end: j.date_end,
+      date_created: j.date_created, date_status: j.date_status, date_updated: j.date_updated,
+      keys: Object.keys(j),
+    }));
+    return cors(200, JSON.stringify({ ok: true, count: noSits.length, sample }));
+  }
+
   if (action === "clear-benchmark") {
     await writeBenchmark(null);
     return cors(200, JSON.stringify({ ok: true, cleared: true }));
