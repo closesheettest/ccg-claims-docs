@@ -22,6 +22,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "./lib/supabase";
+import { fmtSigned } from "./lib/dates";
 
 // Haversine distance in miles between two lat/lng pairs. Mirrors the
 // inspector portal's milesBetween so PA distances match inspector ones.
@@ -987,7 +988,7 @@ export function PAAdminPanel() {
                           <input type="checkbox" checked={needsSel.has(d.id)} onChange={() => toggleNeed(d.id)} />
                           <div style={{ minWidth: 0 }}>
                             <div style={{ fontWeight: 700, fontSize: 13.5 }}>{d.client_name || "(no name)"}{d._dist != null && <span style={{ fontSize: 11, fontWeight: 700, color: "#0369a1", marginLeft: 6 }}>📍 {d._dist.toFixed(1)} mi</span>}{d.pa_company_id && <span style={{ fontSize: 11, fontWeight: 700, color: "#5b21b6", background: "#f5f3ff", border: "1px solid #c4b5fd", borderRadius: 999, padding: "1px 8px", marginLeft: 6 }}>🏢 in {companies.find((c) => c.id === d.pa_company_id)?.name || "company"} pool — never assigned</span>}</div>
-                            <div style={{ fontSize: 11.5, color: "#6b7280" }}>{[d.address, d.city, d.state, d.zip].filter(Boolean).join(", ")}{d.signed_at ? ` · signed ${new Date(d.signed_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}</div>
+                            <div style={{ fontSize: 11.5, color: "#6b7280" }}>{[d.address, d.city, d.state, d.zip].filter(Boolean).join(", ")}{d.signed_at ? ` · signed ${fmtSigned(d.signed_at, { withYear: false })}` : ""}</div>
                           </div>
                           <select disabled={bulkBusy} defaultValue="" onChange={(e) => { const v = e.target.value; if (v) assignOne(d.id, v); e.target.value = ""; }}
                             style={{ fontSize: 12.5, padding: "7px 9px", borderRadius: 8, border: "1px solid #f59e0b", background: "#fffbeb", maxWidth: 180 }}>
@@ -1375,8 +1376,7 @@ function PADecisionRow({ deal, priorPaName, busy, onPool, onDismiss }) {
   const [photosLoading, setPhotosLoading] = useState(false);
   const [photosErr, setPhotosErr] = useState(null);
   const addr = [deal.address, deal.city, deal.state, deal.zip].filter(Boolean).join(", ");
-  const fmtIso = (iso) => { if (!iso) return null; const d = new Date(iso); return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString("en-US"); };
-  const signedDisp = fmtIso(deal.signed_at);
+  const signedDisp = fmtSigned(deal.signed_at);
   const resultLabel = { damage: "Damage", no_damage: "No Damage", retail: "Retail", lost: "Lost" }[deal.result] || (deal.result || "—");
   const resultColor = deal.result === "damage" ? "#991b1b" : deal.result === "retail" ? "#1e40af" : "#475569";
   const resultBg = deal.result === "damage" ? "#fef2f2" : deal.result === "retail" ? "#eff6ff" : "#f1f5f9";

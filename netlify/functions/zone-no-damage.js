@@ -100,9 +100,14 @@ function dedupByHome(rows) {
   return [...m.values()];
 }
 
-// "Mon, Jun 9" in Eastern.
+// "Mon, Jun 9, 2:45 PM" in Eastern. Imported date-only records sit at
+// midnight — for those we drop the time (no real clock time was captured).
 function dateLabel(date) {
-  return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric" }).format(date);
+  const d = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric" }).format(date);
+  const hm = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(date);
+  if (hm === "00:00" || hm === "24:00") return d;
+  const t = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }).format(date);
+  return `${d}, ${t}`;
 }
 
 // rep (CCG sales_rep_id or name) → { zone, active }. Bridges CCG

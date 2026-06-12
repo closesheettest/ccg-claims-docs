@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { fmtSigned } from './lib/dates'
 
 // Zone-scoped Regional Manager records page.
 //
@@ -983,7 +984,7 @@ function DealRow({ deal, selected, onSelect, theme, token, onDealPatch, assignRe
 function DealFacts({ deal, push }) {
   const result = deal.inspection_result || deal.result
   const rows = [
-    ['Signed', deal.signed_at ? fmtDate(deal.signed_at) : 'Not signed yet'],
+    ['Signed', deal.signed_at ? fmtSigned(deal.signed_at) : 'Not signed yet'],
     ['Inspection', result || (deal.signed_at ? 'Awaiting result' : '—')],
     ['PA result', paResultLabel(deal)],
     ['In JobNimbus', jnPushLabel(push, !!result, photosRequired(result))],

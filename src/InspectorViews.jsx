@@ -22,6 +22,7 @@
 
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import { supabase } from "./lib/supabase";
+import { fmtSigned } from "./lib/dates";
 import { AddressAutocomplete } from "./lib/AddressAutocomplete";
 
 const SIGNED_BUCKET = "signed-documents";
@@ -2593,7 +2594,7 @@ function JobCard({ job, accent, cta, onClick, disabled, showStopNumber, showNavi
           {job.sales_rep_name ? `Rep: ${job.sales_rep_name}` : ""}
           {job._dist != null ? ` · ${Math.round(job._dist)} mi` : ""}
           {job._legDist != null ? ` (next leg ${Math.round(job._legDist)} mi)` : ""}
-          {job.signed_at ? ` · ${new Date(job.signed_at).toLocaleDateString()}` : ""}
+          {job.signed_at ? ` · ${fmtSigned(job.signed_at, { withYear: false })}` : ""}
         </div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "stretch" }}>

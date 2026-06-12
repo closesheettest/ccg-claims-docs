@@ -8,6 +8,7 @@ import {
   Send,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
+import { fmtSigned } from "./lib/dates";
 import { InspectorMobileApp, InspectorsAdminPanel, InspectorSetupPage, ManagerInspectorReports, InspectionAssignmentsPanel, ManagerRoutePlanner, PAHandoffPanel, PAReportPanel, SitSoldPaReportPanel, ConfirmResultsPanel } from "./InspectorViews";
 import { PAMobileApp, PAAdminPanel } from "./PAViews";
 import { TeamRolesPanel } from "./TeamRolesPanel";
@@ -667,7 +668,7 @@ function DuplicateScreen({ duplicateRecord, signMode, signerEmail, onGoBack, onP
   const isInsp = duplicateRecord.type === "inspection";
   const name = isInsp ? rec.client_name : [rec.homeowner1, rec.homeowner2].filter(Boolean).join(" & ");
   const addr = [rec.address, rec.city, rec.state, rec.zip].filter(Boolean).join(", ");
-  const signedDate = rec.signed_at ? new Date(rec.signed_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : null;
+  const signedDate = fmtSigned(rec.signed_at);
 
   return (
     <div style={{ maxWidth: 520, margin: "0 auto", padding: "40px 20px" }}>
@@ -4774,7 +4775,7 @@ function PACompanyAdminPage({ token }) {
           : <div style={{ fontSize: 12, color: "#b45309", marginTop: 3 }}>📞 no phone on file</div>}
         {d.county && <div style={{ fontSize: 13, fontWeight: 800, color: "#0e7490", marginTop: 3 }}>📍 {d.county}</div>}
         <div style={{ fontSize: 11.5, color: "#9ca3af", marginTop: 2 }}>
-          {d.signed_at ? `Signed ${new Date(d.signed_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}
+          {d.signed_at ? `Signed ${fmtSigned(d.signed_at, { withYear: false })}` : ""}
           {d.last_note ? `${d.signed_at ? " · " : ""}📝 ${d.last_note.slice(0, 60)}` : ""}
         </div>
       </div>
