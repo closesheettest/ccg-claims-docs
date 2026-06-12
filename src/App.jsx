@@ -4504,8 +4504,10 @@ function TrainingPickerPage({ token }) {
     <div style={wrap}>
       <div style={{ height: 4, background: "#b8324f" }} />
       <div style={card}>
-        <h1 style={{ fontSize: 24, fontWeight: 800, margin: "8px 0 2px" }}>🚗 Field Training</h1>
-        <div style={{ fontSize: 14, color: "#9fb3d1" }}>Check off who rode with you for training.</div>
+        <div style={{ background: "#F5B400", borderRadius: 16, padding: "20px 18px", textAlign: "center", margin: "8px 0 4px", boxShadow: "0 6px 20px rgba(245,180,0,.25)" }}>
+          <div style={{ fontSize: 32, fontWeight: 900, color: "#0a1730", lineHeight: 1.05, letterSpacing: ".01em" }}>🚗 FIELD TRAINING</div>
+          <div style={{ fontSize: 19, fontWeight: 800, color: "#0a1730", marginTop: 8 }}>Check off who is riding with you today for training</div>
+        </div>
         <label style={{ display: "block", margin: "16px 0 4px", fontSize: 12, color: "#9fb3d1", textTransform: "uppercase", letterSpacing: ".05em" }}>Day</label>
         <input type="date" value={date} onChange={(e) => load(e.target.value)}
           style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #2a3b57", background: "#0f2038", color: "#fff", fontSize: 16 }} />
