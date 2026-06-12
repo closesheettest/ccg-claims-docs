@@ -70,19 +70,21 @@ exports.handler = async (event) => {
     return cors(200, JSON.stringify({ ok: true, cleared: true }));
   }
 
-  // Pull the current no-sits across every zone.
-  const current = await pullNoSits(days); // { zones:[...], total, idsByZone }
+  // Pull the current no-sits across every zone (+ all-job status map).
+  const current = await pullNoSits(days);
 
   if (action === "set-benchmark") {
-    const snapshot = { at: new Date().toISOString(), zones: current.idsByZone };
+    // Freeze each current no-sit WITH its status + the freeze time, so later
+    // we can see which ones flipped back to an appointment.
+    const snapshot = { at: new Date().toISOString(), jobs: current.noSitDetails };
     const saved = await writeBenchmark(snapshot);
     if (!saved) return cors(502, JSON.stringify({ ok: false, error: "Could not save benchmark" }));
-    return cors(200, JSON.stringify({ ok: true, benchmark_at: snapshot.at }));
+    return cors(200, JSON.stringify({ ok: true, benchmark_at: snapshot.at, frozen: Object.keys(current.noSitDetails).length }));
   }
 
   // Default: report + progress vs the stored benchmark (if any).
   const benchmark = await readBenchmark();
-  const progress = benchmark ? computeProgress(benchmark, current.idsByZone) : null;
+  const progress = benchmark ? computeProgress(benchmark, current) : null;
 
   return cors(200, JSON.stringify({
     ok: true,
@@ -100,12 +102,23 @@ async function pullNoSits(days) {
   const sinceSec = Math.floor(Date.now() / 1000) - days * 24 * 60 * 60;
 
   const jobs = await fetchRecentJobs(jnHeaders, sinceSec);
-  const noSits = jobs.filter((j) => isNoSit(j.status_name));
   const dir = await fetchRepDirectory();
+
+  // Map EVERY job's current status by jnid, so the progress report can look
+  // up where a frozen no-sit has since moved (converted back to an
+  // appointment, sold, dead, etc.) even though it's no longer a no-sit.
+  const statusByJnid = {};
+  for (const j of jobs) {
+    const id = j.jnid || j.id;
+    if (id) statusByJnid[id] = j.status_name || "";
+  }
+
+  const noSits = jobs.filter((j) => isNoSit(j.status_name));
 
   // zone -> rep -> [deals]
   const byZone = {};
   const idsByZone = {};
+  const noSitDetails = {}; // jnid -> { zone, rep, status } — used to freeze a benchmark
   let total = 0;
   for (const j of noSits) {
     const zone = dir(j.sales_rep, j.sales_rep_name)?.zone || "Unassigned";
@@ -120,6 +133,7 @@ async function pullNoSits(days) {
     const createdSec = Number(j.date_created);
     const created = Number.isFinite(createdSec) && createdSec > 0 ? createdSec : null;
 
+    noSitDetails[jnid] = { zone, rep, status: j.status_name || "No Sit" };
     (idsByZone[zone] = idsByZone[zone] || []).push(jnid);
     const zoneBucket = (byZone[zone] = byZone[zone] || {});
     (zoneBucket[rep] = zoneBucket[rep] || []).push({
@@ -144,29 +158,53 @@ async function pullNoSits(days) {
     }))
     .sort(zoneSort);
 
-  return { zones, total, idsByZone };
+  return { zones, total, idsByZone, statusByJnid, noSitDetails };
 }
 
-// ── Progress: diff current vs benchmark, per zone + company total ─────
-function computeProgress(benchmark, currentIdsByZone) {
-  const benchZones = benchmark.zones || {};
-  const allZones = new Set([...Object.keys(benchZones), ...Object.keys(currentIdsByZone)]);
+// A no-sit has "converted back to an appointment" if its current status is
+// "Appointment Scheduled" or any "...Rescheduled" (back on the calendar).
+// "Refused Appointment" is NOT a conversion.
+function isBackOnCalendar(statusName) {
+  const s = String(statusName || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  if (s.includes("appointment scheduled")) return true;
+  if (s.includes("rescheduled")) return true;
+  return false;
+}
 
+// ── Progress: classify each FROZEN no-sit by its CURRENT status, per zone
+//    + company total. Converted = flipped back to an appointment.
+function computeProgress(benchmark, current) {
+  const benchJobs = benchmark.jobs || {};
+  const statusByJnid = current.statusByJnid || {};
+  const idsByZone = current.idsByZone || {};
+
+  // Build per-zone tallies for the frozen jobs.
+  const byZone = {}; // zone -> { started, converted, still, other }
+  const ensure = (z) => (byZone[z] = byZone[z] || { started: 0, converted: 0, still: 0, other: 0 });
+  for (const [jnid, info] of Object.entries(benchJobs)) {
+    const zone = info.zone || "Unassigned";
+    const t = ensure(zone);
+    t.started++;
+    const cur = statusByJnid[jnid]; // current status (undefined if not seen in window)
+    if (cur === undefined) { t.still++; continue; }        // untouched → still a no-sit
+    if (isNoSit(cur)) { t.still++; }
+    else if (isBackOnCalendar(cur)) { t.converted++; }     // 🎯 converted back to appt
+    else { t.other++; }                                    // sold / dead / dq / etc.
+  }
+
+  // "Added" = current no-sits that were NOT in the benchmark; "now" = current
+  // no-sit list size per zone.
+  const allZones = new Set([...Object.keys(byZone), ...Object.keys(idsByZone)]);
+  const benchIds = new Set(Object.keys(benchJobs));
   const zones = [];
-  const totals = { started: 0, moved_off: 0, added: 0, current: 0 };
+  const totals = { started: 0, converted: 0, still: 0, other: 0, added: 0, now: 0 };
   for (const zone of allZones) {
-    const bench = new Set(benchZones[zone] || []);
-    const cur = new Set(currentIdsByZone[zone] || []);
-    let moved_off = 0;
-    for (const id of bench) if (!cur.has(id)) moved_off++;
-    let added = 0;
-    for (const id of cur) if (!bench.has(id)) added++;
-    const row = { zone, started: bench.size, moved_off, added, current: cur.size };
+    const t = ensure(zone);
+    const curIds = idsByZone[zone] || [];
+    const added = curIds.filter((id) => !benchIds.has(id)).length;
+    const row = { zone, started: t.started, converted: t.converted, still: t.still, other: t.other, added, now: curIds.length };
     zones.push(row);
-    totals.started += row.started;
-    totals.moved_off += row.moved_off;
-    totals.added += row.added;
-    totals.current += row.current;
+    for (const k of Object.keys(totals)) totals[k] += row[k];
   }
   zones.sort(zoneSort);
   return { total: totals, zones };
@@ -193,7 +231,7 @@ async function readBenchmark() {
     const v = rows?.[0]?.value;
     if (!v) return null;
     const parsed = typeof v === "string" ? JSON.parse(v) : v;
-    return parsed && parsed.zones ? parsed : null;
+    return parsed && parsed.jobs ? parsed : null;
   } catch {
     return null;
   }
