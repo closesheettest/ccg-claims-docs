@@ -52,6 +52,21 @@ const SOLD_STATUSES = new Set([
   'install set',
 ])
 
+// Exact JobNimbus status_name spellings for the sold stages — used to pull
+// ONLY sold-stage jobs from JN by status, instead of scanning the 1,500
+// most-recently-updated jobs of every status (which truncated and dropped
+// real sold deals that hadn't been touched recently). The normalized
+// SOLD_STATUSES set above still does the authoritative filter, so any
+// over-match (e.g. "Sit - Sold" also returning "Sit Sold Insp") is dropped.
+const SOLD_STATUS_NAMES = [
+  'Sit - Sold',
+  'Signed Contract',
+  'Production Review',
+  'Job Prep',
+  'Upcoming Installs',
+  'Install Set',
+]
+
 const jnHeaders = {
   Authorization: `Bearer ${JN_KEY}`,
   'Content-Type': 'application/json',
@@ -90,7 +105,7 @@ export const handler = async (event) => {
     // this week necessarily changed status (→ updated) this week, so this
     // window captures them all. 2-day pad guards ET/UTC + manual edits.
     const since = Math.floor(startMs / 1000) - 2 * 24 * 60 * 60
-    const jobs = await fetchRecentJobs(since)
+    const jobs = await fetchSoldJobs(since)
 
     const zoneOf = await fetchZoneResolver()
 
@@ -162,22 +177,29 @@ export const handler = async (event) => {
 // ────────────────────────────────────────────────────────────────────
 // JN jobs — paged list, newest-updated first, bounded to the week window.
 
-async function fetchRecentJobs(since) {
-  const all = []
-  const MAX_PAGES = 15
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const from = page * 100
-    const r = await fetch(
-      `${JN_BASE}/jobs?size=100&from=${from}&sort=-date_updated&date_updated_after=${since}`,
-      { headers: jnHeaders }
-    )
-    if (!r.ok) break
-    const d = await r.json().catch(() => ({}))
-    const rows = d.results || d.jobs || []
-    all.push(...rows)
-    if (rows.length < 100) break
+// Pull jobs BY SOLD STATUS (server-side filter), updated since the window
+// opened — so the scan only ever contains sold-stage jobs (a small set),
+// never the 1,500-job cap of mixed statuses. One query per sold status;
+// deduped by jnid. Each query is bounded by date_updated_after (a deal sold
+// this week was necessarily touched this week) so volume stays tiny.
+async function fetchSoldJobs(since) {
+  const byId = new Map()
+  for (const name of SOLD_STATUS_NAMES) {
+    const filter = encodeURIComponent(JSON.stringify({ must: [{ match_phrase: { status_name: name } }] }))
+    for (let page = 0; page < 20; page++) {
+      const from = page * 100
+      const r = await fetch(
+        `${JN_BASE}/jobs?size=100&from=${from}&sort=-date_updated&date_updated_after=${since}&filter=${filter}`,
+        { headers: jnHeaders }
+      )
+      if (!r.ok) break
+      const d = await r.json().catch(() => ({}))
+      const rows = d.results || d.jobs || []
+      for (const j of rows) byId.set(j.jnid || j.id, j)
+      if (rows.length < 100) break
+    }
   }
-  return all
+  return [...byId.values()]
 }
 
 // "Sold Date" is exposed both as a labeled key and as cf_date_5; read
