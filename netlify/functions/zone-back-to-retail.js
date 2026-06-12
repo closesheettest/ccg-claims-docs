@@ -25,7 +25,22 @@ const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1";
 // Zone is decided by the PROPERTY's county (same territory map used to assign
 // reps to zones), not the rep — so departed reps / trainers land correctly.
-const { countyToZone } = require("./_zones");
+// Inlined (no local require) to keep this a self-contained CommonJS function.
+const ZONE_COUNTIES = {
+  "Zone 1": ["Nassau", "Duval", "Baker", "Union", "Bradford", "Clay", "St. Johns", "Putnam", "Flagler", "Alachua", "Levy", "Marion", "Sumter", "Lake", "Seminole", "Volusia"],
+  "Zone 2": ["Pasco", "Hillsborough", "Polk", "Osceola", "Indian River", "Highlands", "Citrus", "Hernando"],
+  "Zone 3": ["Pinellas", "Manatee", "Sarasota", "Charlotte", "Lee", "Collier", "Monroe", "Hardee", "DeSoto", "Glades", "Hendry", "St. Lucie", "Okeechobee"],
+  "Zone 4": ["Martin", "Palm Beach", "Broward", "Miami-Dade"],
+};
+const SPLIT_LAT = 28.55; // Brevard & Orange: north→Zone 1, south→Zone 2
+function normCounty(s) { return String(s || "").toLowerCase().replace(/\bcounty\b/g, "").replace(/[^a-z0-9]+/g, " ").trim(); }
+const COUNTY_ZONE = (() => { const m = {}; for (const [z, cs] of Object.entries(ZONE_COUNTIES)) for (const c of cs) m[normCounty(c)] = z; return m; })();
+function countyToZone(county, lat) {
+  const n = normCounty(county);
+  if (!n) return "Unassigned";
+  if (n === "brevard" || n === "orange") return (lat != null && lat >= SPLIT_LAT) ? "Zone 1" : "Zone 2";
+  return COUNTY_ZONE[n] || "Unassigned";
+}
 
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return cors(200, "");

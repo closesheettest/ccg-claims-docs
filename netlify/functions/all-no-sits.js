@@ -35,9 +35,25 @@ const BENCHMARK_KEY = "nosit_benchmark";
 const GEOCACHE_KEY = "nosit_geocache";     // jnid -> { county, zone }
 const GEO_BUDGET = 50;                       // max NEW addresses geocoded per request
 
-// Shared Florida territory model — the no-sit's zone is decided by WHERE THE
-// PROPERTY IS (geocoded county → zone), not by the rep. Unplaceable → "Unassigned".
-const { ZONE_ORDER, countyToZone } = require("./_zones");
+// Florida territory model — the no-sit's zone is decided by WHERE THE PROPERTY
+// IS (geocoded county → zone), not by the rep. Unplaceable → "Unassigned".
+// Inlined (no local require) to keep this a self-contained CommonJS function.
+const ZONE_ORDER = ["Zone 1", "Zone 2", "Zone 3", "Zone 4"];
+const ZONE_COUNTIES = {
+  "Zone 1": ["Nassau", "Duval", "Baker", "Union", "Bradford", "Clay", "St. Johns", "Putnam", "Flagler", "Alachua", "Levy", "Marion", "Sumter", "Lake", "Seminole", "Volusia"],
+  "Zone 2": ["Pasco", "Hillsborough", "Polk", "Osceola", "Indian River", "Highlands", "Citrus", "Hernando"],
+  "Zone 3": ["Pinellas", "Manatee", "Sarasota", "Charlotte", "Lee", "Collier", "Monroe", "Hardee", "DeSoto", "Glades", "Hendry", "St. Lucie", "Okeechobee"],
+  "Zone 4": ["Martin", "Palm Beach", "Broward", "Miami-Dade"],
+};
+const SPLIT_LAT = 28.55; // Brevard & Orange: north→Zone 1, south→Zone 2
+function normCounty(s) { return String(s || "").toLowerCase().replace(/\bcounty\b/g, "").replace(/[^a-z0-9]+/g, " ").trim(); }
+const COUNTY_ZONE = (() => { const m = {}; for (const [z, cs] of Object.entries(ZONE_COUNTIES)) for (const c of cs) m[normCounty(c)] = z; return m; })();
+function countyToZone(county, lat) {
+  const n = normCounty(county);
+  if (!n) return "Unassigned";
+  if (n === "brevard" || n === "orange") return (lat != null && lat >= SPLIT_LAT) ? "Zone 1" : "Zone 2";
+  return COUNTY_ZONE[n] || "Unassigned";
+}
 
 // A status is a "no sit" if, stripped to letters/numbers/spaces, it starts
 // with "no sit" — but NOT "No Sit - Rescheduled" (already re-booked).
