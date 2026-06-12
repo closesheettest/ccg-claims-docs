@@ -53,31 +53,6 @@ exports.handler = async (event) => {
   const action = (qp.action || "").trim();
   const days = Math.min(Math.max(parseInt(qp.days, 10) || 90, 7), 365);
 
-  if (action === "debug") {
-    const jnHeaders = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
-    const sinceSec = Math.floor(Date.now() / 1000) - days * 24 * 60 * 60;
-    const jobs = await fetchRecentJobs(jnHeaders, sinceSec);
-    const noSits = jobs.filter((j) => isNoSit(j.status_name));
-    const sample = noSits.slice(0, 10).map((j) => ({
-      name: j.name, status: j.status_name,
-      all_day: j.all_day, all_day_start_date: j.all_day_start_date, all_day_end_date: j.all_day_end_date,
-      date_start: j.date_start, date_end: j.date_end, task_count: j.task_count,
-    }));
-    // For the first no-sit, pull its related tasks/activities to see whether a
-    // TIMED appointment lives there (vs the all-day job-level date).
-    let tasks = null;
-    const first = noSits[0];
-    if (first && first.jnid) {
-      try {
-        const tr = await fetch(`${JN_BASE}/tasks?size=10&filter=${encodeURIComponent(JSON.stringify({ must: [{ term: { "related.id": first.jnid } }] }))}`, { headers: jnHeaders });
-        const td = await tr.json().catch(() => ({}));
-        const rows = td.results || td.activity || td.tasks || [];
-        tasks = { http: tr.status, count: rows.length, sample: rows.slice(0, 5).map((t) => ({ type: t.type, record_type_name: t.record_type_name, title: t.title || t.name, all_day: t.all_day, date_start: t.date_start, date_end: t.date_end })) };
-      } catch (e) { tasks = { error: e.message }; }
-    }
-    return cors(200, JSON.stringify({ ok: true, count: noSits.length, first_jnid: first?.jnid, tasks, sample }));
-  }
-
   if (action === "clear-benchmark") {
     await writeBenchmark(null);
     return cors(200, JSON.stringify({ ok: true, cleared: true }));
@@ -129,6 +104,9 @@ async function pullNoSits(days) {
     const address = [j.address_line1, j.city, j.state_text, j.zip].filter(Boolean).join(", ");
     const apptSec = Number(j.date_start);
     const appt = Number.isFinite(apptSec) && apptSec > 0 ? apptSec : null;
+    // "Scheduled" = when the JN record was created (when they booked it).
+    const createdSec = Number(j.date_created);
+    const created = Number.isFinite(createdSec) && createdSec > 0 ? createdSec : null;
 
     (idsByZone[zone] = idsByZone[zone] || []).push(jnid);
     const zoneBucket = (byZone[zone] = byZone[zone] || {});
@@ -138,6 +116,8 @@ async function pullNoSits(days) {
       address,
       appt,
       appt_label: appt ? apptLabel(new Date(appt * 1000)) : "No appt date set",
+      scheduled: created,
+      scheduled_label: created ? dtLabel(new Date(created * 1000)) : null,
       status: j.status_name || "No Sit",
     });
   }
@@ -232,6 +212,12 @@ function apptLabel(date) {
   if (hm === "00:00" || hm === "24:00") return datePart;
   const timePart = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }).format(date);
   return `${datePart} · ${timePart}`;
+}
+
+// Date + time in Eastern — used for the "scheduled" (record-created) stamp,
+// which always carries a real clock time.
+function dtLabel(date) {
+  return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(date);
 }
 
 async function fetchRecentJobs(jnHeaders, sinceSec) {

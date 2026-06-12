@@ -68,12 +68,17 @@ exports.handler = async (event) => {
     const address = [j.address_line1, j.city, j.state_text, j.zip].filter(Boolean).join(", ");
     const apptSec = Number(j.date_start);
     const appt = Number.isFinite(apptSec) && apptSec > 0 ? apptSec : null;
+    // "Scheduled" = when the JN record was created (when they booked it).
+    const createdSec = Number(j.date_created);
+    const created = Number.isFinite(createdSec) && createdSec > 0 ? createdSec : null;
     (byRep[rep] = byRep[rep] || []).push({
       name: j.name || "(no name)",
       customer,
       address,
       appt,
       appt_label: appt ? apptLabel(new Date(appt * 1000)) : "No appt date set",
+      scheduled: created,
+      scheduled_label: created ? dtLabel(new Date(created * 1000)) : null,
       status: j.status_name || "No Sit",
     });
   }
@@ -93,6 +98,11 @@ function apptLabel(date) {
   if (hm === "00:00" || hm === "24:00") return datePart;
   const timePart = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }).format(date);
   return `${datePart} · ${timePart}`;
+}
+
+// Date + time in Eastern — used for the "scheduled" (record-created) stamp.
+function dtLabel(date) {
+  return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(date);
 }
 
 async function fetchRecentJobs(jnHeaders, sinceSec) {
