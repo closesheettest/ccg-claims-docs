@@ -4467,6 +4467,7 @@ function TrainingPickerPage({ token }) {
   const [savedAt, setSavedAt] = useState(null);
   const [noneMode, setNoneMode] = useState(false);
   const [noneReason, setNoneReason] = useState("");
+  const [refusals, setRefusals] = useState({}); // rep id -> "wouldn't ride" note
 
   const load = async (forDate) => {
     setLoading(true); setErr("");
@@ -4480,16 +4481,39 @@ function TrainingPickerPage({ token }) {
       setDate(d.date);
       setReps(d.reps || []);
       const pk = d.picks || [];
+      const repIdSet = new Set((d.reps || []).map((r) => String(r.id)));
       const noneRow = pk.find((p) => String(p.rep_id) === "__none__");
-      if (noneRow) { setNoneMode(true); setNoneReason(noneRow.decline_reason || ""); setPicked(new Set()); }
-      else { setNoneMode(false); setNoneReason(""); setPicked(new Set(pk.map((p) => String(p.rep_id)))); }
+      if (noneRow) { setNoneMode(true); setNoneReason(noneRow.decline_reason || ""); setPicked(new Set()); setRefusals({}); }
+      else {
+        setNoneMode(false); setNoneReason("");
+        // Separate rode vs "wouldn't ride", ignoring stray ids not in the list.
+        const pickedSet = new Set(); const refMap = {};
+        for (const p of pk) {
+          const id = String(p.rep_id);
+          if (!repIdSet.has(id)) continue;
+          if (p.refused_to_ride) refMap[id] = p.decline_reason || "";
+          else pickedSet.add(id);
+        }
+        setPicked(pickedSet); setRefusals(refMap);
+      }
       setSavedAt(null);
       setLoading(false);
     } catch { setErr("Network error."); setLoading(false); }
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [token]);
 
-  const toggle = (id) => { setNoneMode(false); setPicked((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }); };
+  const toggle = (id) => {
+    setNoneMode(false);
+    setRefusals((prev) => { if (!(id in prev)) return prev; const n = { ...prev }; delete n[id]; return n; });
+    setPicked((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  };
+  const markRefused = (id, name) => {
+    const note = window.prompt(`${name} wouldn't ride today — add a quick note (why):`);
+    if (note === null) return; // cancelled
+    setNoneMode(false);
+    setRefusals((prev) => ({ ...prev, [id]: note.trim() }));
+    setPicked((prev) => { const n = new Set(prev); n.delete(id); return n; });
+  };
 
   const saveNone = async () => {
     if (!noneReason.trim()) { setErr("Add a quick reason first."); return; }
@@ -4510,7 +4534,7 @@ function TrainingPickerPage({ token }) {
     try {
       const res = await fetch("/.netlify/functions/training-api", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "save", token, date, repIds: [...picked] }),
+        body: JSON.stringify({ action: "save", token, date, repIds: [...picked], refusals: Object.entries(refusals).map(([repId, note]) => ({ repId, note })) }),
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok || !d.ok) { setErr(d.error || "Save failed."); setSaving(false); return; }
@@ -4555,23 +4579,32 @@ function TrainingPickerPage({ token }) {
             </button>
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search reps…"
               style={{ width: "100%", boxSizing: "border-box", margin: "16px 0 8px", padding: "12px 14px", borderRadius: 10, border: "1px solid #2a3b57", background: "#0f2038", color: "#fff", fontSize: 16 }} />
-            <div style={{ fontSize: 13, color: "#9fb3d1", marginBottom: 6 }}>{picked.size} selected</div>
+            <div style={{ fontSize: 13, color: "#9fb3d1", marginBottom: 6 }}>{picked.size} rode{Object.keys(refusals).length ? ` · ${Object.keys(refusals).length} wouldn't ride` : ""}</div>
             <div style={{ border: "1px solid #2a3b57", borderRadius: 12, overflow: "hidden", maxHeight: "48vh", overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
               {shown.map((r) => {
                 const on = picked.has(r.id);
+                const refusedNote = r.id in refusals ? refusals[r.id] : null;
+                const refused = refusedNote !== null;
                 return (
-                  <button key={r.id} type="button" onClick={() => toggle(r.id)}
-                    style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left", padding: "13px 14px", border: "none", borderBottom: "1px solid #1a2942", background: on ? "rgba(245,180,0,.14)" : "transparent", color: "#fff", cursor: "pointer", fontSize: 16 }}>
-                    <span style={{ width: 22, height: 22, borderRadius: 6, border: on ? "none" : "2px solid #4a5d7e", background: on ? "#F5B400" : "transparent", color: "#0a1730", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, flex: "0 0 auto" }}>{on ? "✓" : ""}</span>
-                    <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-                      <span style={{ fontWeight: on ? 700 : 500 }}>{r.name}{!r.phone ? <span style={{ color: "#ffb3c0", fontSize: 12 }}> · no phone</span> : ""}</span>
-                      <span style={{ fontSize: 12, color: r.last ? "#7f93b3" : "#5fa8d3" }}>{r.last ? `Last rode ${fmtShortDate(r.last)}` : "Hasn't ridden with you yet"}</span>
-                    </span>
-                  </button>
+                  <div key={r.id} style={{ display: "flex", alignItems: "stretch", borderBottom: "1px solid #1a2942", background: on ? "rgba(245,180,0,.14)" : refused ? "rgba(184,50,79,.14)" : "transparent" }}>
+                    <button type="button" onClick={() => toggle(r.id)}
+                      style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 12, textAlign: "left", padding: "13px 14px", border: "none", background: "transparent", color: "#fff", cursor: "pointer", fontSize: 16 }}>
+                      <span style={{ width: 22, height: 22, borderRadius: 6, border: on ? "none" : "2px solid #4a5d7e", background: on ? "#F5B400" : "transparent", color: "#0a1730", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, flex: "0 0 auto" }}>{on ? "✓" : ""}</span>
+                      <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                        <span style={{ fontWeight: on ? 700 : 500 }}>{r.name}{!r.phone ? <span style={{ color: "#ffb3c0", fontSize: 12 }}> · no phone</span> : ""}</span>
+                        {refused
+                          ? <span style={{ fontSize: 12, color: "#ff9aab" }}>✋ Wouldn't ride{refusedNote ? ` — ${refusedNote}` : ""}</span>
+                          : <span style={{ fontSize: 12, color: r.last ? "#7f93b3" : "#5fa8d3" }}>{r.last ? `Last rode ${fmtShortDate(r.last)}` : "Hasn't ridden with you yet"}</span>}
+                      </span>
+                    </button>
+                    <button type="button" onClick={() => markRefused(r.id, r.name)} title="Tried but they wouldn't ride"
+                      style={{ flex: "0 0 auto", padding: "0 14px", border: "none", borderLeft: "1px solid #1a2942", background: refused ? "rgba(184,50,79,.35)" : "transparent", color: refused ? "#ffd9e0" : "#6b7f9e", fontSize: 18, cursor: "pointer" }}>✋</button>
+                  </div>
                 );
               })}
               {shown.length === 0 && <div style={{ padding: 16, color: "#9fb3d1" }}>No reps match.</div>}
             </div>
+            <div style={{ fontSize: 12, color: "#6b7f9e", marginTop: 6 }}>Tap a name = rode with you. Tap ✋ = you tried but they wouldn't.</div>
           </>
         )}
         {err && <div style={{ color: "#ffb3c0", marginTop: 10 }}>{err}</div>}
@@ -4579,9 +4612,9 @@ function TrainingPickerPage({ token }) {
         <div style={{ position: "sticky", bottom: 0, paddingTop: 12, paddingBottom: 10, background: "linear-gradient(to top, #0a1730 70%, rgba(10,23,48,0))" }}>
           <button type="button" onClick={noneMode ? saveNone : save} disabled={saving}
             style={{ width: "100%", padding: "16px", borderRadius: 12, border: "none", background: noneMode ? "#b8324f" : "#27c46b", color: noneMode ? "#fff" : "#06281a", fontWeight: 800, fontSize: 18, cursor: "pointer", opacity: saving ? 0.6 : 1 }}>
-            {saving ? "Saving…" : noneMode ? "Save — no one rode" : `Save today's riders${picked.size ? ` (${picked.size})` : ""}`}
+            {saving ? "Saving…" : noneMode ? "Save — no one rode" : "Save today's training log"}
           </button>
-          {savedAt && <div style={{ textAlign: "center", color: "#27c46b", fontWeight: 700, marginTop: 10 }}>✓ Saved — {savedAt.none ? "logged that no one rode that day." : savedAt.texted > 0 ? "confirmation text sent to them now." : "they'll get a text tomorrow morning to confirm their hours."}</div>}
+          {savedAt && <div style={{ textAlign: "center", color: "#27c46b", fontWeight: 700, marginTop: 10 }}>✓ Saved — {savedAt.none ? "logged that no one rode that day." : savedAt.texted > 0 ? "confirmation text sent to them now." : "riders get a text to confirm their hours."}{savedAt.refused > 0 ? ` ${savedAt.refused} marked "wouldn't ride."` : ""}</div>}
         </div>
       </div>
     </div>
@@ -4712,7 +4745,7 @@ function TrainingReport() {
     setErr("");
     const { data, error } = await supabase
       .from("ride_alongs")
-      .select("ride_date,rep_id,rep_name,trainer_name,rep_phone,text_sent_at,confirmed,start_time,end_time,decline_reason,responded_at")
+      .select("ride_date,rep_id,rep_name,trainer_name,rep_phone,text_sent_at,confirmed,start_time,end_time,decline_reason,refused_to_ride,responded_at")
       .gte("ride_date", from).lte("ride_date", to)
       .order("ride_date", { ascending: false }).order("rep_name", { ascending: true });
     if (error) { setErr(error.message); setRows([]); return; }
@@ -4786,6 +4819,7 @@ function TrainingReport() {
   const link = token ? `${window.location.origin}/?training=${token}` : "";
   const statusOf = (r) => {
     if (r.rep_id === "__none__") return { t: `🚫 No one rode${r.decline_reason ? ` — "${r.decline_reason}"` : ""}`, c: "#6b7280" };
+    if (r.refused_to_ride) return { t: `✋ Wouldn't ride${r.decline_reason ? ` — "${r.decline_reason}"` : ""}`, c: "#b45309" };
     if (r.confirmed === true) return { t: `✅ Confirmed${r.start_time ? ` · ${r.start_time}–${r.end_time || "?"}` : ""}`, c: "#16a34a" };
     if (r.confirmed === false) return { t: `❌ Rep said no${r.decline_reason ? ` — "${r.decline_reason}"` : ""}`, c: "#b45309" };
     if (r.text_sent_at) return { t: "📲 Texted — awaiting reply", c: "#2563eb" };

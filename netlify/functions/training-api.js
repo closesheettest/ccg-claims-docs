@@ -58,7 +58,7 @@ async function doInit(body) {
   // goes to you, never a real rep.
   reps.push({ id: TEST_REP_ID, name: TEST_REP_NAME, phone: (await readSetting("training_test_phone")) || null });
 
-  const picks = await sbGet(`ride_alongs?ride_date=eq.${date}&select=rep_id,rep_name,confirmed,start_time,end_time,decline_reason,text_sent_at&limit=500`);
+  const picks = await sbGet(`ride_alongs?ride_date=eq.${date}&select=rep_id,rep_name,confirmed,start_time,end_time,decline_reason,refused_to_ride,text_sent_at&limit=500`);
 
   // Each rep's most recent PRIOR ride-along date (ignore the day being edited),
   // so William can see who he hasn't taken out in a while.
@@ -82,7 +82,7 @@ async function doSave(body) {
   const noneReason = (body.noneReason || "").trim();
   const repIds = Array.isArray(body.repIds) ? body.repIds.map(String) : [];
 
-  const existing = await sbGet(`ride_alongs?ride_date=eq.${date}&select=id,rep_id,text_sent_at&limit=500`);
+  const existing = await sbGet(`ride_alongs?ride_date=eq.${date}&select=id,rep_id,text_sent_at,refused_to_ride&limit=500`);
 
   // ── "No one rode" day: clear non-texted rows, log a single reason row ──
   if (noneReason) {
@@ -104,10 +104,18 @@ async function doSave(body) {
   // Picking real reps cancels any prior "no one rode" entry for the day.
   if (existingByRep[NONE_ID]) await fetch(`${SB_URL}/rest/v1/ride_alongs?ride_date=eq.${date}&rep_id=eq.${NONE_ID}`, { method: "DELETE", headers: sb });
 
-  // Insert newly-checked reps (skip ones already logged for the day).
+  // Insert newly-checked reps (skip ones already logged for the day). If a rep
+  // was previously marked "wouldn't ride" and is now checked as rode, flip it
+  // back to a normal pending ride.
   const toInsert = [];
   for (const rid of repIds) {
-    if (existingByRep[rid]) continue;
+    const ex = existingByRep[rid];
+    if (ex) {
+      if (ex.refused_to_ride) {
+        await fetch(`${SB_URL}/rest/v1/ride_alongs?id=eq.${ex.id}`, { method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify({ refused_to_ride: false, confirmed: null, decline_reason: null, text_sent_at: null }) });
+      }
+      continue;
+    }
     const r = repMap[rid];
     if (!r) continue;
     toInsert.push({ ride_date: date, rep_id: rid, rep_name: r.name, rep_phone: r.phone || null, confirm_token: crypto.randomUUID() });
@@ -128,15 +136,33 @@ async function doSave(body) {
     }
   }
 
+  // ── "Tried but they wouldn't ride" — trainer-reported refusals ──
+  // No confirm text is sent (William is reporting it himself). Stored as
+  // confirmed=false + refused_to_ride=true + his note in decline_reason.
+  const refusals = Array.isArray(body.refusals) ? body.refusals.filter((x) => x && x.repId) : [];
+  const refusedIds = new Set(refusals.map((x) => String(x.repId)));
+  for (const x of refusals) {
+    const rid = String(x.repId);
+    const note = (x.note || "").trim() || null;
+    const ex = existingByRep[rid];
+    if (ex) {
+      await fetch(`${SB_URL}/rest/v1/ride_alongs?id=eq.${ex.id}`, { method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify({ refused_to_ride: true, confirmed: false, decline_reason: note, text_sent_at: ex.text_sent_at || new Date().toISOString() }) });
+    } else {
+      const r = repMap[rid];
+      if (!r) continue;
+      await fetch(`${SB_URL}/rest/v1/ride_alongs`, { method: "POST", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify([{ ride_date: date, rep_id: rid, rep_name: r.name, rep_phone: r.phone || null, confirm_token: crypto.randomUUID(), refused_to_ride: true, confirmed: false, decline_reason: note, text_sent_at: new Date().toISOString() }]) });
+    }
+  }
+
   // Remove un-checked reps — but only if they haven't been texted yet
-  // (don't delete a row a rep may already be confirming).
-  const keep = new Set(repIds);
+  // (don't delete a row a rep may already be confirming). Refused reps stay.
+  const keep = new Set([...repIds, ...refusedIds]);
   const toDelete = existing.filter((e) => !keep.has(String(e.rep_id)) && !e.text_sent_at).map((e) => e.id);
   for (const id of toDelete) {
     await fetch(`${SB_URL}/rest/v1/ride_alongs?id=eq.${id}`, { method: "DELETE", headers: sb });
   }
 
-  return cors(200, JSON.stringify({ ok: true, date, added: toInsert.length, removed: toDelete.length, texted }));
+  return cors(200, JSON.stringify({ ok: true, date, added: toInsert.length, removed: toDelete.length, texted, refused: refusals.length }));
 }
 
 // Build + send a rep's confirm text now (used for back-dated saves).
