@@ -4431,6 +4431,13 @@ function CorrectionPage({ inspectionId }) {
 }
 
 // ── Field-training ride-along ────────────────────────────────────────
+// Hour-only options (5 AM–9 PM) for the rep's start/finish — easier than a
+// minute-precise time picker on a phone.
+const TRAINING_HOURS = (() => {
+  const out = [];
+  for (let h = 5; h <= 21; h++) { const ap = h >= 12 ? "PM" : "AM"; let hh = h % 12; if (hh === 0) hh = 12; out.push(`${hh}:00 ${ap}`); }
+  return out;
+})();
 // Convert an <input type="time"> value ("14:30") to "2:30 PM" for storage/display.
 function timeTo12h(v) {
   if (!v) return "";
@@ -4660,7 +4667,7 @@ function RideAlongConfirmPage({ token }) {
     try {
       const res = await fetch("/.netlify/functions/training-api", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "confirm", token, yes, start: timeTo12h(start), end: timeTo12h(end), reason: reason.trim() }),
+        body: JSON.stringify({ action: "confirm", token, yes, start, end, reason: reason.trim() }),
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok || !d.ok) { setErr(d.error || "Couldn't save."); setBusy(false); return; }
@@ -4701,9 +4708,15 @@ function RideAlongConfirmPage({ token }) {
             <div style={{ fontSize: 14, color: "#9fb3d1", marginBottom: 10 }}>What time did you start and finish?</div>
             <div style={{ display: "flex", gap: 12 }}>
               <label style={{ flex: 1 }}><div style={{ fontSize: 12, color: "#9fb3d1", marginBottom: 4 }}>From</div>
-                <input type="time" value={start} onChange={(e) => setStart(e.target.value)} style={{ width: "100%", boxSizing: "border-box", padding: "16px 14px", borderRadius: 12, border: "2px solid #F5B400", background: "#16335c", color: "#fff", fontSize: 22, fontWeight: 700, letterSpacing: ".02em", colorScheme: "dark" }} /></label>
+                <select value={start} onChange={(e) => setStart(e.target.value)} style={{ width: "100%", boxSizing: "border-box", padding: "16px 14px", borderRadius: 12, border: "2px solid #F5B400", background: "#16335c", color: "#fff", fontSize: 22, fontWeight: 700, colorScheme: "dark" }}>
+                  <option value="">Pick…</option>
+                  {TRAINING_HOURS.map((h) => <option key={h} value={h}>{h}</option>)}
+                </select></label>
               <label style={{ flex: 1 }}><div style={{ fontSize: 12, color: "#9fb3d1", marginBottom: 4 }}>To</div>
-                <input type="time" value={end} onChange={(e) => setEnd(e.target.value)} style={{ width: "100%", boxSizing: "border-box", padding: "16px 14px", borderRadius: 12, border: "2px solid #F5B400", background: "#16335c", color: "#fff", fontSize: 22, fontWeight: 700, letterSpacing: ".02em", colorScheme: "dark" }} /></label>
+                <select value={end} onChange={(e) => setEnd(e.target.value)} style={{ width: "100%", boxSizing: "border-box", padding: "16px 14px", borderRadius: 12, border: "2px solid #F5B400", background: "#16335c", color: "#fff", fontSize: 22, fontWeight: 700, colorScheme: "dark" }}>
+                  <option value="">Pick…</option>
+                  {TRAINING_HOURS.map((h) => <option key={h} value={h}>{h}</option>)}
+                </select></label>
             </div>
           </div>
         )}
