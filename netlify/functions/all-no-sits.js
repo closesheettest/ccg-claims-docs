@@ -26,7 +26,9 @@
 // Env: JOBNIMBUS_API_KEY, VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY.
 
 const JN_BASE = "https://app.jobnimbus.com/api1";
-const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones";
+// include_inactive=1 so a no-sit from a departed rep still resolves to that
+// rep's zone (lands in the correct region) instead of falling to Unassigned.
+const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1";
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
