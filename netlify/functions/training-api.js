@@ -53,6 +53,10 @@ async function doInit(body) {
   const date = normDate(body.date) || todayET();
 
   const reps = await fetchActiveReps();
+  // Append a safe Test Rep at the bottom so the trainer flow can be dry-run.
+  // Its phone = the saved test number (admin Training Report), so any text
+  // goes to you, never a real rep.
+  reps.push({ id: TEST_REP_ID, name: TEST_REP_NAME, phone: (await readSetting("training_test_phone")) || null });
 
   const picks = await sbGet(`ride_alongs?ride_date=eq.${date}&select=rep_id,rep_name,confirmed,start_time,end_time,decline_reason,text_sent_at&limit=500`);
 
@@ -82,6 +86,7 @@ async function doSave(body) {
 
   const repMap = {};
   for (const r of await fetchActiveReps()) repMap[r.id] = { name: r.name, phone: r.phone };
+  repMap[TEST_REP_ID] = { name: TEST_REP_NAME, phone: (await readSetting("training_test_phone")) || null };
 
   const existingByRep = {};
   for (const e of existing) existingByRep[String(e.rep_id)] = e;
@@ -165,6 +170,15 @@ async function doConfirm(body) {
 }
 
 // ── helpers ──────────────────────────────────────────────────────────
+const TEST_REP_ID = "test:rep";
+const TEST_REP_NAME = "🧪 Test Rep (dry-run)";
+
+async function readSetting(key) {
+  const rows = await sbGet(`app_settings?key=eq.${encodeURIComponent(key)}&select=value&limit=1`);
+  const v = rows?.[0]?.value;
+  return v == null ? null : (typeof v === "string" ? v : String(v));
+}
+
 async function validTrainer(token) {
   if (!token) return false;
   const rows = await sbGet(`app_settings?key=eq.training_link_token&select=value&limit=1`);
