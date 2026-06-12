@@ -4507,6 +4507,7 @@ function TrainingPickerPage({ token }) {
         <div style={{ background: "#F5B400", borderRadius: 16, padding: "20px 18px", textAlign: "center", margin: "8px 0 4px", boxShadow: "0 6px 20px rgba(245,180,0,.25)" }}>
           <div style={{ fontSize: 32, fontWeight: 900, color: "#0a1730", lineHeight: 1.05, letterSpacing: ".01em" }}>🚗 FIELD TRAINING</div>
           <div style={{ fontSize: 19, fontWeight: 800, color: "#0a1730", marginTop: 8 }}>Check off who is riding with you today for training</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#5a4500", marginTop: 6 }}>👍 You can pick more than one</div>
         </div>
         <label style={{ display: "block", margin: "16px 0 4px", fontSize: 12, color: "#9fb3d1", textTransform: "uppercase", letterSpacing: ".05em" }}>Day</label>
         <input type="date" value={date} onChange={(e) => load(e.target.value)}
@@ -4514,7 +4515,7 @@ function TrainingPickerPage({ token }) {
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search reps…"
           style={{ width: "100%", boxSizing: "border-box", margin: "16px 0 8px", padding: "12px 14px", borderRadius: 10, border: "1px solid #2a3b57", background: "#0f2038", color: "#fff", fontSize: 16 }} />
         <div style={{ fontSize: 13, color: "#9fb3d1", marginBottom: 6 }}>{picked.size} selected</div>
-        <div style={{ border: "1px solid #2a3b57", borderRadius: 12, overflow: "hidden" }}>
+        <div style={{ border: "1px solid #2a3b57", borderRadius: 12, overflow: "hidden", maxHeight: "48vh", overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
           {shown.map((r) => {
             const on = picked.has(r.id);
             return (
@@ -4528,11 +4529,14 @@ function TrainingPickerPage({ token }) {
           {shown.length === 0 && <div style={{ padding: 16, color: "#9fb3d1" }}>No reps match.</div>}
         </div>
         {err && <div style={{ color: "#ffb3c0", marginTop: 10 }}>{err}</div>}
-        <button type="button" onClick={save} disabled={saving}
-          style={{ width: "100%", marginTop: 18, padding: "15px", borderRadius: 12, border: "none", background: "#27c46b", color: "#06281a", fontWeight: 800, fontSize: 17, cursor: "pointer", opacity: saving ? 0.6 : 1 }}>
-          {saving ? "Saving…" : "Save today's riders"}
-        </button>
-        {savedAt && <div style={{ textAlign: "center", color: "#27c46b", fontWeight: 700, marginTop: 12 }}>✓ Saved — they'll get a text tomorrow morning to confirm their hours.</div>}
+        {/* Sticky so the Save button stays on screen on a phone no matter how long the list is. */}
+        <div style={{ position: "sticky", bottom: 0, paddingTop: 12, paddingBottom: 10, background: "linear-gradient(to top, #0a1730 70%, rgba(10,23,48,0))" }}>
+          <button type="button" onClick={save} disabled={saving}
+            style={{ width: "100%", padding: "16px", borderRadius: 12, border: "none", background: "#27c46b", color: "#06281a", fontWeight: 800, fontSize: 18, cursor: "pointer", opacity: saving ? 0.6 : 1 }}>
+            {saving ? "Saving…" : `Save today's riders${picked.size ? ` (${picked.size})` : ""}`}
+          </button>
+          {savedAt && <div style={{ textAlign: "center", color: "#27c46b", fontWeight: 700, marginTop: 10 }}>✓ Saved — they'll get a text tomorrow morning to confirm their hours.</div>}
+        </div>
       </div>
     </div>
   );
