@@ -53,6 +53,18 @@ exports.handler = async (event) => {
   const action = (qp.action || "").trim();
   const days = Math.min(Math.max(parseInt(qp.days, 10) || 90, 7), 365);
 
+  if (action === "statuses") {
+    // Diagnostic: distinct JN status names + counts in the window. Handy for
+    // tuning which statuses count as "converted back to an appointment".
+    const jnHeaders = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
+    const sinceSec = Math.floor(Date.now() / 1000) - days * 24 * 60 * 60;
+    const jobs = await fetchRecentJobs(jnHeaders, sinceSec);
+    const counts = {};
+    for (const j of jobs) { const n = j.status_name || "(none)"; counts[n] = (counts[n] || 0) + 1; }
+    const list = Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([name, count]) => ({ name, count }));
+    return cors(200, JSON.stringify({ ok: true, total_jobs: jobs.length, statuses: list }));
+  }
+
   if (action === "clear-benchmark") {
     await writeBenchmark(null);
     return cors(200, JSON.stringify({ ok: true, cleared: true }));
