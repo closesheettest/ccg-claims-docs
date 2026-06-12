@@ -4592,6 +4592,7 @@ function TrainingPickerPage({ token }) {
                       <span style={{ width: 22, height: 22, borderRadius: 6, border: on ? "none" : "2px solid #4a5d7e", background: on ? "#F5B400" : "transparent", color: "#0a1730", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, flex: "0 0 auto" }}>{on ? "✓" : ""}</span>
                       <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
                         <span style={{ fontWeight: on ? 700 : 500 }}>{r.name}{!r.phone ? <span style={{ color: "#ffb3c0", fontSize: 12 }}> · no phone</span> : ""}</span>
+                        <span style={{ fontSize: 12, color: "#8aa0c0" }}>{[r.zone, r.county ? `${r.county} County` : null].filter(Boolean).join(" · ") || "No team set"}</span>
                         {refused
                           ? <span style={{ fontSize: 12, color: "#ff9aab" }}>✋ Wouldn't ride{refusedNote ? ` — ${refusedNote}` : ""}</span>
                           : <span style={{ fontSize: 12, color: r.last ? "#7f93b3" : "#5fa8d3" }}>{r.last ? `Last rode ${fmtShortDate(r.last)}` : "Hasn't ridden with you yet"}</span>}

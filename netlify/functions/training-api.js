@@ -254,10 +254,13 @@ async function fetchActiveReps() {
     const res = await fetch(REP_ZONES_URL);
     if (!res.ok) return [];
     const data = await res.json().catch(() => ({}));
+    const ZONE_ORDER = ["Zone 1", "Zone 2", "Zone 3", "Zone 4"];
+    const zr = (z) => { const i = ZONE_ORDER.indexOf(z || ""); return i === -1 ? 98 : i; };
     return (data.reps || [])
       .filter((r) => (r.name || "").trim())
-      .map((r) => ({ id: r.jobnimbus_id || ("name:" + slug(r.name)), name: r.name, phone: r.phone || null, zone: r.zone || null }))
-      .sort((a, b) => a.name.localeCompare(b.name));
+      .map((r) => ({ id: r.jobnimbus_id || ("name:" + slug(r.name)), name: r.name, phone: r.phone || null, zone: r.zone || null, county: r.county || null }))
+      // Sort by team (zone) first, then name — unknown/no-zone reps last.
+      .sort((a, b) => zr(a.zone) - zr(b.zone) || (a.zone || "~").localeCompare(b.zone || "~") || a.name.localeCompare(b.name));
   } catch {
     return [];
   }
