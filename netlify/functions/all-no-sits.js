@@ -34,36 +34,10 @@ const GOOGLE_GEOCODE = "https://maps.googleapis.com/maps/api/geocode/json";
 const BENCHMARK_KEY = "nosit_benchmark";
 const GEOCACHE_KEY = "nosit_geocache";     // jnid -> { county, zone }
 const GEO_BUDGET = 50;                       // max NEW addresses geocoded per request
-const ZONE_ORDER = ["Zone 1", "Zone 2", "Zone 3", "Zone 4"];
 
-// Florida territory model — county → Zone (mirrors TMS lib/zones.js).
-// The no-sit's zone is decided by WHERE THE PROPERTY IS (geocoded), not by
-// the rep. Anything we can't place → "Unassigned".
-const ZONE_COUNTIES = {
-  "Zone 1": ["Nassau", "Duval", "Baker", "Union", "Bradford", "Clay", "St. Johns", "Putnam", "Flagler", "Alachua", "Levy", "Marion", "Sumter", "Lake", "Seminole", "Volusia"],
-  "Zone 2": ["Pasco", "Hillsborough", "Polk", "Osceola", "Indian River", "Highlands", "Citrus", "Hernando"],
-  "Zone 3": ["Pinellas", "Manatee", "Sarasota", "Charlotte", "Lee", "Collier", "Monroe", "Hardee", "DeSoto", "Glades", "Hendry", "St. Lucie", "Okeechobee"],
-  "Zone 4": ["Martin", "Palm Beach", "Broward", "Miami-Dade"],
-};
-// Brevard & Orange straddle Rt 50: north → Zone 1, south → Zone 2.
-const SPLIT_LAT = 28.55;
-const COUNTY_ZONE = (() => {
-  const m = {};
-  for (const [z, cs] of Object.entries(ZONE_COUNTIES)) for (const c of cs) m[normCounty(c)] = z;
-  return m;
-})();
-
-function normCounty(s) {
-  return String(s || "").toLowerCase().replace(/\bcounty\b/g, "").replace(/[^a-z0-9]+/g, " ").trim();
-}
-
-// county name (+ lat for the two split counties) → Zone string.
-function countyToZone(county, lat) {
-  const n = normCounty(county);
-  if (!n) return "Unassigned";
-  if (n === "brevard" || n === "orange") return (lat != null && lat >= SPLIT_LAT) ? "Zone 1" : "Zone 2";
-  return COUNTY_ZONE[n] || "Unassigned";
-}
+// Shared Florida territory model — the no-sit's zone is decided by WHERE THE
+// PROPERTY IS (geocoded county → zone), not by the rep. Unplaceable → "Unassigned".
+const { ZONE_ORDER, countyToZone } = require("./_zones");
 
 // A status is a "no sit" if, stripped to letters/numbers/spaces, it starts
 // with "no sit" — but NOT "No Sit - Rescheduled" (already re-booked).
@@ -138,7 +112,14 @@ async function pullNoSits(days, geocache) {
   const jnHeaders = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
   const sinceSec = Math.floor(Date.now() / 1000) - days * 24 * 60 * 60;
 
-  const jobs = await fetchRecentJobs(jnHeaders, sinceSec);
+  // Pull by STATUS (not by date) so we get EVERY no-sit, not just recently
+  // updated ones. Also pull the "back on calendar" statuses so the progress
+  // report can detect conversions of frozen no-sits.
+  const jobs = await fetchJobsByStatuses(jnHeaders, [
+    "No Sit- Need to Reschedule",
+    "Appointment Scheduled",
+    "No Sit - Rescheduled",
+  ]);
 
   // Map EVERY job's current status by jnid, so the progress report can look
   // up where a frozen no-sit has since moved (converted back to an
@@ -149,7 +130,9 @@ async function pullNoSits(days, geocache) {
     if (id) statusByJnid[id] = j.status_name || "";
   }
 
-  const noSits = jobs.filter((j) => isNoSit(j.status_name));
+  // No-sits whose APPOINTMENT (date_start) is within the window (default 90
+  // days back). sinceSec = now − days. date_start is epoch seconds.
+  const noSits = jobs.filter((j) => isNoSit(j.status_name) && Number(j.date_start) >= sinceSec);
   const jnidOf = (j) => j.jnid || j.id || `${j.sales_rep_name || ""}|${j.date_start || ""}|${j.name || ""}`;
   const addrOf = (j) => [j.address_line1, j.city, j.state_text, j.zip].filter(Boolean).join(", ");
 
@@ -354,6 +337,25 @@ async function fetchRecentJobs(jnHeaders, sinceSec) {
     const rows = d.results || d.jobs || [];
     all.push(...rows);
     if (rows.length < 100) break;
+  }
+  return all;
+}
+
+// Pull jobs by exact status_name (server-side filter), no date cap — so we
+// get EVERY job in the status, not just recently-updated ones. Pages until a
+// short page; one pass per status.
+async function fetchJobsByStatuses(jnHeaders, statuses) {
+  const all = [];
+  for (const status of statuses) {
+    const filter = encodeURIComponent(JSON.stringify({ must: [{ match_phrase: { status_name: status } }] }));
+    for (let page = 0; page < 40; page++) {
+      const r = await fetch(`${JN_BASE}/jobs?size=100&from=${page * 100}&filter=${filter}`, { headers: jnHeaders });
+      if (!r.ok) break;
+      const d = await r.json().catch(() => ({}));
+      const rows = d.results || d.jobs || [];
+      all.push(...rows);
+      if (rows.length < 100) break;
+    }
   }
   return all;
 }

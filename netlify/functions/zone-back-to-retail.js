@@ -23,6 +23,9 @@ const RESULT = "retail";
 const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1";
+// Zone is decided by the PROPERTY's county (same territory map used to assign
+// reps to zones), not the rep — so departed reps / trainers land correctly.
+const { countyToZone } = require("./_zones");
 
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return cors(200, "");
@@ -45,7 +48,7 @@ exports.handler = async (event) => {
 async function buildReport({ zone, days, since, resultValue }) {
   // Inspections with this result, not cancelled, in the window.
   const rows = await fetchTable("inspections", {
-    select: "id,sales_rep_id,sales_rep_name,inspector_name,signed_at,result,result_at,client_name,address,zip,cancelled_at",
+    select: "id,sales_rep_id,sales_rep_name,inspector_name,signed_at,result,result_at,client_name,address,zip,county,latitude,cancelled_at",
     filter:
       `result=eq.${encodeURIComponent(resultValue)}` +
       `&cancelled_at=is.null` +
@@ -60,12 +63,17 @@ async function buildReport({ zone, days, since, resultValue }) {
   let total = 0;
   for (const r of deduped) {
     const rec = resolve(r.sales_rep_id, r.sales_rep_name);
-    if (!rec || rec.zone !== zone) continue; // unknown / other-zone deals not shown here
+    // Zone by PROPERTY county (same territory map used to assign reps to
+    // zones); fall back to the rep's zone only when the address can't be
+    // placed. So departed reps / trainers (e.g. William) land in the right zone.
+    const byCounty = countyToZone(r.county, r.latitude);
+    const dealZone = byCounty !== "Unassigned" ? byCounty : (rec?.zone || "Unassigned");
+    if (dealZone !== zone) continue;
     total++;
     const rep = (r.sales_rep_name || "").trim() || "(no rep)";
     const when = r.result_at || r.signed_at || null;
     const appt = when ? new Date(when).getTime() : null;
-    const bucket = rec.active ? active : inactive;
+    const bucket = (rec && rec.active !== false) ? active : inactive;
     (bucket[rep] = bucket[rep] || []).push({
       customer: (r.client_name || "—").replace(/\s+/g, " ").trim(),
       address: r.address || "",
