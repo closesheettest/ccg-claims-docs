@@ -26,14 +26,44 @@
 // Env: JOBNIMBUS_API_KEY, VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY.
 
 const JN_BASE = "https://app.jobnimbus.com/api1";
-// include_inactive=1 so a no-sit from a departed rep still resolves to that
-// rep's zone (lands in the correct region) instead of falling to Unassigned.
-const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1";
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
+const GOOGLE_KEY = process.env.GOOGLE_MAPS_API_KEY || process.env.VITE_GOOGLE_PLACES_API_KEY;
+const GOOGLE_GEOCODE = "https://maps.googleapis.com/maps/api/geocode/json";
 const BENCHMARK_KEY = "nosit_benchmark";
+const GEOCACHE_KEY = "nosit_geocache";     // jnid -> { county, zone }
+const GEO_BUDGET = 50;                       // max NEW addresses geocoded per request
 const ZONE_ORDER = ["Zone 1", "Zone 2", "Zone 3", "Zone 4"];
+
+// Florida territory model — county → Zone (mirrors TMS lib/zones.js).
+// The no-sit's zone is decided by WHERE THE PROPERTY IS (geocoded), not by
+// the rep. Anything we can't place → "Unassigned".
+const ZONE_COUNTIES = {
+  "Zone 1": ["Nassau", "Duval", "Baker", "Union", "Bradford", "Clay", "St. Johns", "Putnam", "Flagler", "Alachua", "Levy", "Marion", "Sumter", "Lake", "Seminole", "Volusia"],
+  "Zone 2": ["Pasco", "Hillsborough", "Polk", "Osceola", "Indian River", "Highlands", "Citrus", "Hernando"],
+  "Zone 3": ["Pinellas", "Manatee", "Sarasota", "Charlotte", "Lee", "Collier", "Monroe", "Hardee", "DeSoto", "Glades", "Hendry", "St. Lucie", "Okeechobee"],
+  "Zone 4": ["Martin", "Palm Beach", "Broward", "Miami-Dade"],
+};
+// Brevard & Orange straddle Rt 50: north → Zone 1, south → Zone 2.
+const SPLIT_LAT = 28.55;
+const COUNTY_ZONE = (() => {
+  const m = {};
+  for (const [z, cs] of Object.entries(ZONE_COUNTIES)) for (const c of cs) m[normCounty(c)] = z;
+  return m;
+})();
+
+function normCounty(s) {
+  return String(s || "").toLowerCase().replace(/\bcounty\b/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+// county name (+ lat for the two split counties) → Zone string.
+function countyToZone(county, lat) {
+  const n = normCounty(county);
+  if (!n) return "Unassigned";
+  if (n === "brevard" || n === "orange") return (lat != null && lat >= SPLIT_LAT) ? "Zone 1" : "Zone 2";
+  return COUNTY_ZONE[n] || "Unassigned";
+}
 
 // A status is a "no sit" if, stripped to letters/numbers/spaces, it starts
 // with "no sit" — but NOT "No Sit - Rescheduled" (already re-booked).
@@ -70,8 +100,12 @@ exports.handler = async (event) => {
     return cors(200, JSON.stringify({ ok: true, cleared: true }));
   }
 
-  // Pull the current no-sits across every zone (+ all-job status map).
-  const current = await pullNoSits(days);
+  // Pull the current no-sits across every zone (+ all-job status map). Zone
+  // is decided by geocoding each property; results are cached by jnid so we
+  // only ever geocode a given job once.
+  const geocache = (await readSetting(GEOCACHE_KEY)) || {};
+  const current = await pullNoSits(days, geocache);
+  if (current.cacheChanged) await writeSetting(GEOCACHE_KEY, current.cache);
 
   if (action === "set-benchmark") {
     // Freeze each current no-sit WITH its status + the freeze time, so later
@@ -97,12 +131,14 @@ exports.handler = async (event) => {
 };
 
 // ── Pull + group current no-sits across all zones ────────────────────
-async function pullNoSits(days) {
+// Zone is decided by geocoding the PROPERTY (county → zone), not the rep.
+// `geocache` (jnid → {county, zone}) is read/written by the caller so each
+// job is only geocoded once.
+async function pullNoSits(days, geocache) {
   const jnHeaders = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
   const sinceSec = Math.floor(Date.now() / 1000) - days * 24 * 60 * 60;
 
   const jobs = await fetchRecentJobs(jnHeaders, sinceSec);
-  const dir = await fetchRepDirectory();
 
   // Map EVERY job's current status by jnid, so the progress report can look
   // up where a frozen no-sit has since moved (converted back to an
@@ -114,6 +150,23 @@ async function pullNoSits(days) {
   }
 
   const noSits = jobs.filter((j) => isNoSit(j.status_name));
+  const jnidOf = (j) => j.jnid || j.id || `${j.sales_rep_name || ""}|${j.date_start || ""}|${j.name || ""}`;
+  const addrOf = (j) => [j.address_line1, j.city, j.state_text, j.zip].filter(Boolean).join(", ");
+
+  // Geocode any no-sit we haven't placed yet (bounded per request; the rest
+  // fill in on later loads and are instant from cache thereafter).
+  const cache = geocache || {};
+  const need = noSits.filter((j) => !cache[jnidOf(j)]).slice(0, GOOGLE_KEY ? GEO_BUDGET : 0);
+  const CHUNK = 12;
+  for (let i = 0; i < need.length; i += CHUNK) {
+    const chunk = need.slice(i, i + CHUNK);
+    const results = await Promise.all(chunk.map((j) => { const a = addrOf(j); return a ? geocodeCounty(a) : Promise.resolve(null); }));
+    chunk.forEach((j, idx) => {
+      const g = results[idx];
+      cache[jnidOf(j)] = g && g.county ? { county: g.county, zone: countyToZone(g.county, g.lat) } : { county: null, zone: "Unassigned" };
+    });
+  }
+  const cacheChanged = need.length > 0;
 
   // zone -> rep -> [deals]
   const byZone = {};
@@ -121,8 +174,8 @@ async function pullNoSits(days) {
   const noSitDetails = {}; // jnid -> { zone, rep, status } — used to freeze a benchmark
   let total = 0;
   for (const j of noSits) {
-    const zone = dir(j.sales_rep, j.sales_rep_name)?.zone || "Unassigned";
-    const jnid = j.jnid || j.id || `${j.sales_rep_name || ""}|${j.date_start || ""}|${j.name || ""}`;
+    const jnid = jnidOf(j);
+    const zone = cache[jnid]?.zone || "Unassigned";
     total++;
     const rep = (j.sales_rep_name || "").trim() || "(no rep)";
     const customer = j.primary && j.primary.name ? String(j.primary.name).replace(/\s+/g, " ").trim() : "—";
@@ -158,7 +211,28 @@ async function pullNoSits(days) {
     }))
     .sort(zoneSort);
 
-  return { zones, total, idsByZone, statusByJnid, noSitDetails };
+  return { zones, total, idsByZone, statusByJnid, noSitDetails, cache, cacheChanged };
+}
+
+// Geocode a property address → { county, lat } via Google Maps. county is
+// the administrative_area_level_2 component (e.g. "Duval"), trimmed.
+async function geocodeCounty(addr) {
+  if (!GOOGLE_KEY) return null;
+  try {
+    const r = await fetch(`${GOOGLE_GEOCODE}?address=${encodeURIComponent(addr)}&region=us&key=${GOOGLE_KEY}`);
+    if (!r.ok) return null;
+    const d = await r.json().catch(() => ({}));
+    const res = d.results && d.results[0];
+    if (!res) return null;
+    let county = null;
+    for (const c of res.address_components || []) {
+      if ((c.types || []).includes("administrative_area_level_2")) { county = c.long_name; break; }
+    }
+    const loc = res.geometry && res.geometry.location;
+    return { county: county ? county.replace(/\s+county$/i, "").trim() : null, lat: loc ? loc.lat : null };
+  } catch {
+    return null;
+  }
 }
 
 // A no-sit has "converted back to an appointment" if its current status is
@@ -216,44 +290,45 @@ function zoneSort(a, b) {
   return ar - br || a.zone.localeCompare(b.zone);
 }
 
-// ── Benchmark storage (shared app_settings key/value table) ──────────
+// ── Key/value storage (shared app_settings table) ────────────────────
 const sbHeaders = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
 
-async function readBenchmark() {
+async function readSetting(key) {
   if (!SB_URL || !SB_KEY) return null;
   try {
     const r = await fetch(
-      `${SB_URL}/rest/v1/app_settings?key=eq.${encodeURIComponent(BENCHMARK_KEY)}&select=value&limit=1`,
+      `${SB_URL}/rest/v1/app_settings?key=eq.${encodeURIComponent(key)}&select=value&limit=1`,
       { headers: sbHeaders },
     );
     if (!r.ok) return null;
     const rows = await r.json().catch(() => []);
     const v = rows?.[0]?.value;
     if (!v) return null;
-    const parsed = typeof v === "string" ? JSON.parse(v) : v;
-    return parsed && parsed.jobs ? parsed : null;
+    return typeof v === "string" ? JSON.parse(v) : v;
   } catch {
     return null;
   }
 }
 
-async function writeBenchmark(snapshot) {
+async function writeSetting(key, obj) {
   if (!SB_URL || !SB_KEY) return false;
   try {
     const r = await fetch(`${SB_URL}/rest/v1/app_settings?on_conflict=key`, {
       method: "POST",
       headers: { ...sbHeaders, Prefer: "resolution=merge-duplicates,return=minimal" },
-      body: JSON.stringify({
-        key: BENCHMARK_KEY,
-        value: snapshot ? JSON.stringify(snapshot) : null,
-        updated_at: new Date().toISOString(),
-      }),
+      body: JSON.stringify({ key, value: obj ? JSON.stringify(obj) : null, updated_at: new Date().toISOString() }),
     });
     return r.ok;
   } catch {
     return false;
   }
 }
+
+async function readBenchmark() {
+  const parsed = await readSetting(BENCHMARK_KEY);
+  return parsed && parsed.jobs ? parsed : null;
+}
+const writeBenchmark = (snapshot) => writeSetting(BENCHMARK_KEY, snapshot);
 
 // ── JN + rep-zone helpers (same as zone-no-sits) ─────────────────────
 function apptLabel(date) {
@@ -281,25 +356,6 @@ async function fetchRecentJobs(jnHeaders, sinceSec) {
     if (rows.length < 100) break;
   }
   return all;
-}
-
-async function fetchRepDirectory() {
-  let reps = [];
-  try { const res = await fetch(TMS_REP_ZONES_URL); if (res.ok) reps = (await res.json()).reps || []; }
-  catch (e) { console.warn("rep-zones fetch failed:", e.message || e); }
-  const byJnId = {}, byName = {};
-  for (const r of reps) {
-    const entry = { zone: r.zone || null };
-    if (r.jobnimbus_id) byJnId[r.jobnimbus_id] = entry;
-    if (r.name) byName[normalizeName(r.name)] = entry;
-  }
-  return (jnId, name) => (jnId && byJnId[jnId]) || byName[normalizeName(name)] || null;
-}
-
-function normalizeName(s) {
-  return String(s || "").toLowerCase()
-    .replace(/["“”]([^"“”]*)["“”]/g, "").replace(/'([^']*)'/g, "").replace(/\(([^)]*)\)/g, "")
-    .replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
 }
 
 function cors(status, body) {
