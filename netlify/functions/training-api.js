@@ -110,6 +110,7 @@ async function doConfirm(body) {
     confirmed: yes,
     start_time: yes ? (body.start || null) : null,
     end_time: yes ? (body.end || null) : null,
+    decline_reason: yes ? null : ((body.reason || "").trim() || null),
     responded_at: new Date().toISOString(),
   };
   const r = await fetch(`${SB_URL}/rest/v1/ride_alongs?confirm_token=eq.${encodeURIComponent(token)}`, {

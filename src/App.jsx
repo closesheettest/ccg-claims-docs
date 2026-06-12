@@ -4545,6 +4545,7 @@ function RideAlongConfirmPage({ token }) {
   const [answer, setAnswer] = useState(null); // 'yes' | 'no'
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
+  const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
 
@@ -4568,11 +4569,12 @@ function RideAlongConfirmPage({ token }) {
     if (busy) return;
     const yes = answer === "yes";
     if (yes && (!start || !end)) { setErr("Please enter both a start and end time."); return; }
+    if (!yes && !reason.trim()) { setErr("Please tell us why you didn't go out."); return; }
     setBusy(true); setErr("");
     try {
       const res = await fetch("/.netlify/functions/training-api", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "confirm", token, yes, start: timeTo12h(start), end: timeTo12h(end) }),
+        body: JSON.stringify({ action: "confirm", token, yes, start: timeTo12h(start), end: timeTo12h(end), reason: reason.trim() }),
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok || !d.ok) { setErr(d.error || "Couldn't save."); setBusy(false); return; }
@@ -4619,6 +4621,13 @@ function RideAlongConfirmPage({ token }) {
             </div>
           </div>
         )}
+        {answer === "no" && (
+          <div style={{ marginTop: 22 }}>
+            <div style={{ fontSize: 14, color: "#9fb3d1", marginBottom: 10 }}>No problem — why didn't you go out with William?</div>
+            <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} placeholder="e.g. I had my own appointments, was sick, day off…"
+              style={{ width: "100%", boxSizing: "border-box", padding: "12px", borderRadius: 10, border: "1px solid #2a3b57", background: "#0f2038", color: "#fff", fontSize: 16, resize: "vertical" }} />
+          </div>
+        )}
         {err && <div style={{ color: "#ffb3c0", marginTop: 12 }}>{err}</div>}
         {answer && (
           <button type="button" onClick={submit} disabled={busy}
@@ -4647,7 +4656,7 @@ function TrainingReport() {
     setErr("");
     const { data, error } = await supabase
       .from("ride_alongs")
-      .select("ride_date,rep_name,trainer_name,rep_phone,text_sent_at,confirmed,start_time,end_time,responded_at")
+      .select("ride_date,rep_name,trainer_name,rep_phone,text_sent_at,confirmed,start_time,end_time,decline_reason,responded_at")
       .gte("ride_date", from).lte("ride_date", to)
       .order("ride_date", { ascending: false }).order("rep_name", { ascending: true });
     if (error) { setErr(error.message); setRows([]); return; }
@@ -4676,7 +4685,7 @@ function TrainingReport() {
   const link = token ? `${window.location.origin}/?training=${token}` : "";
   const statusOf = (r) => {
     if (r.confirmed === true) return { t: `✅ Confirmed${r.start_time ? ` · ${r.start_time}–${r.end_time || "?"}` : ""}`, c: "#16a34a" };
-    if (r.confirmed === false) return { t: "❌ Rep said no", c: "#b45309" };
+    if (r.confirmed === false) return { t: `❌ Rep said no${r.decline_reason ? ` — "${r.decline_reason}"` : ""}`, c: "#b45309" };
     if (r.text_sent_at) return { t: "📲 Texted — awaiting reply", c: "#2563eb" };
     return { t: "🕗 Logged — text goes out next morning", c: "#6b7280" };
   };
