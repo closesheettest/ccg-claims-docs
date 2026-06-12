@@ -37,6 +37,27 @@ exports.handler = async (event) => {
     return { statusCode: 200, body: JSON.stringify({ filled, empty_keys: empty }, null, 2) };
   }
 
+  // ?jnsearch=<text> → server-side JN search (finds a job regardless of how
+  // long ago it was updated, unlike the 60-day local scan below). Returns the
+  // exact fields the sales leaderboard reads, so we can see why a specific
+  // job is/isn't counted.
+  if (params.jnsearch) {
+    const r = await fetch(`${JN_BASE}/jobs?search=${encodeURIComponent(params.jnsearch.trim())}&size=15`, { headers: jnHeaders });
+    const d = await r.json().catch(() => ({}));
+    const rows = d.results || d.jobs || [];
+    const fmt = (sec) => (sec ? new Date(sec * 1000).toLocaleString("en-US", { timeZone: "America/New_York" }) : null);
+    const out = rows.map((j) => ({
+      name: j.name, number: j.number, jnid: j.jnid || j.id,
+      status_name: j.status_name, record_type_name: j.record_type_name,
+      sales_rep_name: j.sales_rep_name, sales_rep: j.sales_rep,
+      location: j.location && j.location.id,
+      cf_date_5: j.cf_date_5, cf_date_5_et: fmt(j.cf_date_5),
+      date_start: j.date_start, date_start_et: fmt(j.date_start),
+      date_updated: j.date_updated, date_updated_et: fmt(j.date_updated),
+    }));
+    return { statusCode: 200, body: JSON.stringify({ q: params.jnsearch, count: out.length, jobs: out }, null, 2) };
+  }
+
   const wantFieldCatalog = params.fields === "1";
   const searchNames = (params.name || "").split(",").map(s => s.trim()).filter(Boolean);
   // ?rep=Tabitha Gregor → find every recent job CREDITED to that sales rep
