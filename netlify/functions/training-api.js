@@ -54,22 +54,39 @@ async function doInit(body) {
 
   const reps = await fetchActiveReps();
 
-  const picks = await sbGet(`ride_alongs?ride_date=eq.${date}&select=rep_id,rep_name,confirmed,start_time,end_time,text_sent_at&limit=500`);
+  const picks = await sbGet(`ride_alongs?ride_date=eq.${date}&select=rep_id,rep_name,confirmed,start_time,end_time,decline_reason,text_sent_at&limit=500`);
 
   return cors(200, JSON.stringify({ ok: true, date, reps, picks }));
 }
 
+const NONE_ID = "__none__"; // sentinel rep_id for a "no one rode" day
+
 async function doSave(body) {
   if (!(await validTrainer(body.token))) return cors(403, JSON.stringify({ ok: false, error: "Invalid or expired link" }));
   const date = normDate(body.date) || todayET();
+  const noneReason = (body.noneReason || "").trim();
   const repIds = Array.isArray(body.repIds) ? body.repIds.map(String) : [];
+
+  const existing = await sbGet(`ride_alongs?ride_date=eq.${date}&select=id,rep_id,text_sent_at&limit=500`);
+
+  // ── "No one rode" day: clear non-texted rows, log a single reason row ──
+  if (noneReason) {
+    const del = existing.filter((e) => !e.text_sent_at).map((e) => e.id);
+    for (const id of del) await fetch(`${SB_URL}/rest/v1/ride_alongs?id=eq.${id}`, { method: "DELETE", headers: sb });
+    await fetch(`${SB_URL}/rest/v1/ride_alongs`, {
+      method: "POST", headers: { ...sb, Prefer: "return=minimal" },
+      body: JSON.stringify([{ ride_date: date, rep_id: NONE_ID, rep_name: "No one rode", rep_phone: null, confirm_token: crypto.randomUUID(), decline_reason: noneReason }]),
+    });
+    return cors(200, JSON.stringify({ ok: true, date, none: true }));
+  }
 
   const repMap = {};
   for (const r of await fetchActiveReps()) repMap[r.id] = { name: r.name, phone: r.phone };
 
-  const existing = await sbGet(`ride_alongs?ride_date=eq.${date}&select=id,rep_id,text_sent_at&limit=500`);
   const existingByRep = {};
   for (const e of existing) existingByRep[String(e.rep_id)] = e;
+  // Picking real reps cancels any prior "no one rode" entry for the day.
+  if (existingByRep[NONE_ID]) await fetch(`${SB_URL}/rest/v1/ride_alongs?ride_date=eq.${date}&rep_id=eq.${NONE_ID}`, { method: "DELETE", headers: sb });
 
   // Insert newly-checked reps (skip ones already logged for the day).
   const toInsert = [];
