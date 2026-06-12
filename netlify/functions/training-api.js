@@ -259,8 +259,8 @@ async function fetchActiveReps() {
     return (data.reps || [])
       .filter((r) => (r.name || "").trim())
       .map((r) => ({ id: r.jobnimbus_id || ("name:" + slug(r.name)), name: r.name, phone: r.phone || null, zone: r.zone || null, county: r.county || null }))
-      // Sort by team (zone) first, then name — unknown/no-zone reps last.
-      .sort((a, b) => zr(a.zone) - zr(b.zone) || (a.zone || "~").localeCompare(b.zone || "~") || a.name.localeCompare(b.name));
+      // Sort by team (zone), then county, then name — unknown/no-zone reps last.
+      .sort((a, b) => zr(a.zone) - zr(b.zone) || (a.zone || "~").localeCompare(b.zone || "~") || (a.county || "~").localeCompare(b.county || "~") || a.name.localeCompare(b.name));
   } catch {
     return [];
   }

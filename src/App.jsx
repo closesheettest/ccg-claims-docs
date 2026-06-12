@@ -4431,6 +4431,13 @@ function CorrectionPage({ inspectionId }) {
 }
 
 // ── Field-training ride-along ────────────────────────────────────────
+// Zone → team name (mirrors zone-sales-leaderboard ZONE_TEAMS). Used as the
+// section headers in William's picker.
+const TRAINING_ZONE_TEAMS = { "Zone 1": "SQUAD", "Zone 2": "SitSold", "Zone 3": "SHARKS", "Zone 4": "HURRICANE" };
+function teamHeader(zone) {
+  if (!zone || zone === "__noteam__") return "Other / Test";
+  return TRAINING_ZONE_TEAMS[zone] ? `${TRAINING_ZONE_TEAMS[zone]} · ${zone}` : zone;
+}
 // Hour-only options (5 AM–9 PM) for the rep's start/finish — easier than a
 // minute-precise time picker on a phone.
 const TRAINING_HOURS = (() => {
@@ -4588,29 +4595,39 @@ function TrainingPickerPage({ token }) {
               style={{ width: "100%", boxSizing: "border-box", margin: "16px 0 8px", padding: "12px 14px", borderRadius: 10, border: "1px solid #2a3b57", background: "#0f2038", color: "#fff", fontSize: 16 }} />
             <div style={{ fontSize: 13, color: "#9fb3d1", marginBottom: 6 }}>{picked.size} rode{Object.keys(refusals).length ? ` · ${Object.keys(refusals).length} wouldn't ride` : ""}</div>
             <div style={{ border: "1px solid #2a3b57", borderRadius: 12, overflow: "hidden", maxHeight: "48vh", overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
-              {shown.map((r) => {
-                const on = picked.has(r.id);
-                const refusedNote = r.id in refusals ? refusals[r.id] : null;
-                const refused = refusedNote !== null;
-                return (
-                  <div key={r.id} style={{ display: "flex", alignItems: "stretch", borderBottom: "1px solid #1a2942", background: on ? "rgba(245,180,0,.14)" : refused ? "rgba(184,50,79,.14)" : "transparent" }}>
-                    <button type="button" onClick={() => toggle(r.id)}
-                      style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 12, textAlign: "left", padding: "13px 14px", border: "none", background: "transparent", color: "#fff", cursor: "pointer", fontSize: 16 }}>
-                      <span style={{ width: 22, height: 22, borderRadius: 6, border: on ? "none" : "2px solid #4a5d7e", background: on ? "#F5B400" : "transparent", color: "#0a1730", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, flex: "0 0 auto" }}>{on ? "✓" : ""}</span>
-                      <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-                        <span style={{ fontWeight: on ? 700 : 500 }}>{r.name}{!r.phone ? <span style={{ color: "#ffb3c0", fontSize: 12 }}> · no phone</span> : ""}</span>
-                        <span style={{ fontSize: 12, color: "#8aa0c0" }}>{[r.zone, r.county ? `${r.county} County` : null].filter(Boolean).join(" · ") || "No team set"}</span>
-                        {refused
-                          ? <span style={{ fontSize: 12, color: "#ff9aab" }}>✋ Wouldn't ride{refusedNote ? ` — ${refusedNote}` : ""}</span>
-                          : <span style={{ fontSize: 12, color: r.last ? "#7f93b3" : "#5fa8d3" }}>{r.last ? `Last rode ${fmtShortDate(r.last)}` : "Hasn't ridden with you yet"}</span>}
-                      </span>
-                    </button>
-                    <button type="button" onClick={() => markRefused(r.id, r.name)} title="Tried but they wouldn't ride"
-                      style={{ flex: "0 0 auto", padding: "0 14px", border: "none", borderLeft: "1px solid #1a2942", background: refused ? "rgba(184,50,79,.35)" : "transparent", color: refused ? "#ffd9e0" : "#6b7f9e", fontSize: 18, cursor: "pointer" }}>✋</button>
-                  </div>
-                );
-              })}
               {shown.length === 0 && <div style={{ padding: 16, color: "#9fb3d1" }}>No reps match.</div>}
+              {(() => {
+                const groups = [];
+                let g = null;
+                for (const r of shown) { const z = r.zone || "__noteam__"; if (!g || g.zone !== z) { g = { zone: z, reps: [] }; groups.push(g); } g.reps.push(r); }
+                return groups.map((grp) => (
+                  <div key={grp.zone}>
+                    <div style={{ position: "sticky", top: 0, zIndex: 1, background: "#0c1d38", color: "#F5B400", fontWeight: 800, fontSize: 12, letterSpacing: ".07em", textTransform: "uppercase", padding: "8px 14px", borderBottom: "1px solid #1a2942" }}>{teamHeader(grp.zone)}</div>
+                    {grp.reps.map((r) => {
+                      const on = picked.has(r.id);
+                      const refusedNote = r.id in refusals ? refusals[r.id] : null;
+                      const refused = refusedNote !== null;
+                      return (
+                        <div key={r.id} style={{ display: "flex", alignItems: "stretch", borderBottom: "1px solid #1a2942", background: on ? "rgba(245,180,0,.14)" : refused ? "rgba(184,50,79,.14)" : "transparent" }}>
+                          <button type="button" onClick={() => toggle(r.id)}
+                            style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 12, textAlign: "left", padding: "13px 14px", border: "none", background: "transparent", color: "#fff", cursor: "pointer", fontSize: 16 }}>
+                            <span style={{ width: 22, height: 22, borderRadius: 6, border: on ? "none" : "2px solid #4a5d7e", background: on ? "#F5B400" : "transparent", color: "#0a1730", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, flex: "0 0 auto" }}>{on ? "✓" : ""}</span>
+                            <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                              <span style={{ fontWeight: on ? 700 : 500 }}>{r.name}{!r.phone ? <span style={{ color: "#ffb3c0", fontSize: 12 }}> · no phone</span> : ""}</span>
+                              <span style={{ fontSize: 12, color: "#8aa0c0" }}>{r.county ? `${r.county} County` : "No county set"}</span>
+                              {refused
+                                ? <span style={{ fontSize: 12, color: "#ff9aab" }}>✋ Wouldn't ride{refusedNote ? ` — ${refusedNote}` : ""}</span>
+                                : <span style={{ fontSize: 12, color: r.last ? "#7f93b3" : "#5fa8d3" }}>{r.last ? `Last rode ${fmtShortDate(r.last)}` : "Hasn't ridden with you yet"}</span>}
+                            </span>
+                          </button>
+                          <button type="button" onClick={() => markRefused(r.id, r.name)} title="Tried but they wouldn't ride"
+                            style={{ flex: "0 0 auto", padding: "0 14px", border: "none", borderLeft: "1px solid #1a2942", background: refused ? "rgba(184,50,79,.35)" : "transparent", color: refused ? "#ffd9e0" : "#6b7f9e", fontSize: 18, cursor: "pointer" }}>✋</button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ));
+              })()}
             </div>
             <div style={{ fontSize: 12, color: "#6b7f9e", marginTop: 6 }}>Tap a name = rode with you. Tap ✋ = you tried but they wouldn't.</div>
           </>
