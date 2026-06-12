@@ -4660,9 +4660,9 @@ function RideAlongConfirmPage({ token }) {
             <div style={{ fontSize: 14, color: "#9fb3d1", marginBottom: 10 }}>What time did you start and finish?</div>
             <div style={{ display: "flex", gap: 12 }}>
               <label style={{ flex: 1 }}><div style={{ fontSize: 12, color: "#9fb3d1", marginBottom: 4 }}>From</div>
-                <input type="time" value={start} onChange={(e) => setStart(e.target.value)} style={{ width: "100%", boxSizing: "border-box", padding: "12px", borderRadius: 10, border: "1px solid #2a3b57", background: "#0f2038", color: "#fff", fontSize: 16 }} /></label>
+                <input type="time" value={start} onChange={(e) => setStart(e.target.value)} style={{ width: "100%", boxSizing: "border-box", padding: "16px 14px", borderRadius: 12, border: "2px solid #F5B400", background: "#16335c", color: "#fff", fontSize: 22, fontWeight: 700, letterSpacing: ".02em", colorScheme: "dark" }} /></label>
               <label style={{ flex: 1 }}><div style={{ fontSize: 12, color: "#9fb3d1", marginBottom: 4 }}>To</div>
-                <input type="time" value={end} onChange={(e) => setEnd(e.target.value)} style={{ width: "100%", boxSizing: "border-box", padding: "12px", borderRadius: 10, border: "1px solid #2a3b57", background: "#0f2038", color: "#fff", fontSize: 16 }} /></label>
+                <input type="time" value={end} onChange={(e) => setEnd(e.target.value)} style={{ width: "100%", boxSizing: "border-box", padding: "16px 14px", borderRadius: 12, border: "2px solid #F5B400", background: "#16335c", color: "#fff", fontSize: 22, fontWeight: 700, letterSpacing: ".02em", colorScheme: "dark" }} /></label>
             </div>
           </div>
         )}
