@@ -69,6 +69,14 @@
 [functions."cron-daily-leaderboard"]
   schedule = "0 13 * * *"
 
+# Scheduled function: next-morning ride-along confirmation texts. Each rep
+# William logged as training with him YESTERDAY gets a link to confirm their
+# hours (/?ridealong=<token>). Runs at 13:00 & 14:00 UTC to hit 9:30 AM ET in
+# both EDT and EST; the function guards to ET hour 9 so it fires once a day.
+# exports.config.schedule mirrors this.
+[functions."cron-training-confirm"]
+  schedule = "30 13,14 * * *"
+
 # Scheduled function: auto-assign damage deals to Public Adjusters every 5
 # minutes (replaces PA self-claiming). Least-loaded round-robin across
 # active PAs; with one PA everything goes to him. Pause via the auto_sms

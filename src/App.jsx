@@ -4143,6 +4143,7 @@ const MANAGER_TILES = [
   { group: "signing", key: "analytics", emoji: "📈", label: "Submission Analytics", desc: "Totals, category % and avg days per rep" },
   { group: "signing", key: "dupes", emoji: "👯", label: "Find Duplicates", desc: (<><span style={{ color: "#dc2626", fontWeight: 800 }}>⚠️ DO NOT USE</span> unless you've been trained on it. Address-based deduper — deletes records.</>) },
   { group: "signing", key: "browseall", emoji: "📚", label: "Browse All Records", desc: "Step through every record one-by-one to verify accuracy" },
+  { group: "signing", key: "training", emoji: "🚗", label: "Training Report", desc: "Who rode with William for field training each day + confirmed hours. Get William's daily picker link here." },
   // ── Inspections ──
   { group: "inspections", key: "team_roles", emoji: "🧑‍🤝‍🧑", label: "Team Roles", desc: "One list of everyone — check Inspector and/or PA to set each person's role. Start here when setting someone up." },
   { group: "inspections", key: "inspectors", emoji: "🔍", label: "Inspectors", desc: "Roster — sync from JN, edit, activate/deactivate" },
@@ -4194,6 +4195,7 @@ const ADMIN_REPORTS = [
   { tileKey: "inspector_reports" },
   { tileKey: "lookup" },
   { tileKey: "browseall" },
+  { tileKey: "training" },
 ];
 
 // Colors for result-count chips in Smart Q&A answers (no shared STATUS_META exists).
@@ -4425,6 +4427,318 @@ function CorrectionPage({ inspectionId }) {
         </div>
       </Card>
     </div>
+  );
+}
+
+// ── Field-training ride-along ────────────────────────────────────────
+// Convert an <input type="time"> value ("14:30") to "2:30 PM" for storage/display.
+function timeTo12h(v) {
+  if (!v) return "";
+  const m = String(v).match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return v;
+  let h = Number(m[1]); const min = m[2];
+  const ap = h >= 12 ? "PM" : "AM";
+  h = h % 12; if (h === 0) h = 12;
+  return `${h}:${min} ${ap}`;
+}
+function fmtRideDate(d) {
+  if (!d) return "";
+  const dt = new Date(String(d).slice(0, 10) + "T12:00:00Z");
+  if (Number.isNaN(dt.getTime())) return d;
+  return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "long", month: "long", day: "numeric" }).format(dt);
+}
+
+// TrainingPickerPage — standalone at /?training=<trainer token>. William's
+// private bookmark. Each day he checks off which active reps rode with him.
+function TrainingPickerPage({ token }) {
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+  const [date, setDate] = useState("");
+  const [reps, setReps] = useState([]);
+  const [picked, setPicked] = useState(() => new Set());
+  const [search, setSearch] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState(null);
+
+  const load = async (forDate) => {
+    setLoading(true); setErr("");
+    try {
+      const res = await fetch("/.netlify/functions/training-api", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "init", token, date: forDate }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.ok) { setErr(d.error || "Couldn't load."); setLoading(false); return; }
+      setDate(d.date);
+      setReps(d.reps || []);
+      setPicked(new Set((d.picks || []).map((p) => String(p.rep_id))));
+      setLoading(false);
+    } catch { setErr("Network error."); setLoading(false); }
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [token]);
+
+  const toggle = (id) => setPicked((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  const save = async () => {
+    setSaving(true); setErr("");
+    try {
+      const res = await fetch("/.netlify/functions/training-api", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "save", token, date, repIds: [...picked] }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.ok) { setErr(d.error || "Save failed."); setSaving(false); return; }
+      setSavedAt(Date.now()); setSaving(false);
+    } catch { setErr("Network error."); setSaving(false); }
+  };
+
+  const wrap = { minHeight: "100vh", background: "#0a1730", color: "#fff", fontFamily: "system-ui, sans-serif" };
+  const card = { maxWidth: 560, margin: "0 auto", padding: "24px 16px 60px" };
+  if (loading) return <div style={wrap}><div style={card}><p>Loading…</p></div></div>;
+  if (err && !reps.length) return <div style={wrap}><div style={card}><p style={{ color: "#ffb3c0" }}>{err}</p></div></div>;
+
+  const q = search.trim().toLowerCase();
+  const shown = q ? reps.filter((r) => r.name.toLowerCase().includes(q)) : reps;
+
+  return (
+    <div style={wrap}>
+      <div style={{ height: 4, background: "#b8324f" }} />
+      <div style={card}>
+        <h1 style={{ fontSize: 24, fontWeight: 800, margin: "8px 0 2px" }}>🚗 Field Training</h1>
+        <div style={{ fontSize: 14, color: "#9fb3d1" }}>Check off who rode with you for training.</div>
+        <label style={{ display: "block", margin: "16px 0 4px", fontSize: 12, color: "#9fb3d1", textTransform: "uppercase", letterSpacing: ".05em" }}>Day</label>
+        <input type="date" value={date} onChange={(e) => load(e.target.value)}
+          style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #2a3b57", background: "#0f2038", color: "#fff", fontSize: 16 }} />
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search reps…"
+          style={{ width: "100%", boxSizing: "border-box", margin: "16px 0 8px", padding: "12px 14px", borderRadius: 10, border: "1px solid #2a3b57", background: "#0f2038", color: "#fff", fontSize: 16 }} />
+        <div style={{ fontSize: 13, color: "#9fb3d1", marginBottom: 6 }}>{picked.size} selected</div>
+        <div style={{ border: "1px solid #2a3b57", borderRadius: 12, overflow: "hidden" }}>
+          {shown.map((r) => {
+            const on = picked.has(r.id);
+            return (
+              <button key={r.id} type="button" onClick={() => toggle(r.id)}
+                style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left", padding: "13px 14px", border: "none", borderBottom: "1px solid #1a2942", background: on ? "rgba(245,180,0,.14)" : "transparent", color: "#fff", cursor: "pointer", fontSize: 16 }}>
+                <span style={{ width: 22, height: 22, borderRadius: 6, border: on ? "none" : "2px solid #4a5d7e", background: on ? "#F5B400" : "transparent", color: "#0a1730", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, flex: "0 0 auto" }}>{on ? "✓" : ""}</span>
+                <span style={{ fontWeight: on ? 700 : 500 }}>{r.name}{!r.phone ? <span style={{ color: "#ffb3c0", fontSize: 12 }}> · no phone on file</span> : ""}</span>
+              </button>
+            );
+          })}
+          {shown.length === 0 && <div style={{ padding: 16, color: "#9fb3d1" }}>No reps match.</div>}
+        </div>
+        {err && <div style={{ color: "#ffb3c0", marginTop: 10 }}>{err}</div>}
+        <button type="button" onClick={save} disabled={saving}
+          style={{ width: "100%", marginTop: 18, padding: "15px", borderRadius: 12, border: "none", background: "#27c46b", color: "#06281a", fontWeight: 800, fontSize: 17, cursor: "pointer", opacity: saving ? 0.6 : 1 }}>
+          {saving ? "Saving…" : "Save today's riders"}
+        </button>
+        {savedAt && <div style={{ textAlign: "center", color: "#27c46b", fontWeight: 700, marginTop: 12 }}>✓ Saved — they'll get a text tomorrow morning to confirm their hours.</div>}
+      </div>
+    </div>
+  );
+}
+
+// RideAlongConfirmPage — standalone at /?ridealong=<confirm token>. The link
+// each rep gets the morning after, to confirm they trained with William + hours.
+function RideAlongConfirmPage({ token }) {
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+  const [info, setInfo] = useState(null);
+  const [answer, setAnswer] = useState(null); // 'yes' | 'no'
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/.netlify/functions/training-api", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "get", token }),
+        });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok || !d.ok) { setErr(d.error || "Link not found."); setLoading(false); return; }
+        setInfo(d);
+        if (d.confirmed != null) setDone(true);
+        setLoading(false);
+      } catch { setErr("Network error."); setLoading(false); }
+    })();
+  }, [token]);
+
+  const submit = async () => {
+    if (busy) return;
+    const yes = answer === "yes";
+    if (yes && (!start || !end)) { setErr("Please enter both a start and end time."); return; }
+    setBusy(true); setErr("");
+    try {
+      const res = await fetch("/.netlify/functions/training-api", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "confirm", token, yes, start: timeTo12h(start), end: timeTo12h(end) }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.ok) { setErr(d.error || "Couldn't save."); setBusy(false); return; }
+      setDone(true); setBusy(false);
+    } catch { setErr("Network error."); setBusy(false); }
+  };
+
+  const wrap = { minHeight: "100vh", background: "#0a1730", color: "#fff", fontFamily: "system-ui, sans-serif" };
+  const card = { maxWidth: 480, margin: "0 auto", padding: "28px 18px" };
+  const btn = (bg, fg) => ({ flex: 1, padding: "16px", borderRadius: 12, border: "none", background: bg, color: fg, fontWeight: 800, fontSize: 17, cursor: "pointer" });
+  if (loading) return <div style={wrap}><div style={card}><p>Loading…</p></div></div>;
+  if (err && !info) return <div style={wrap}><div style={card}><p style={{ color: "#ffb3c0" }}>{err}</p></div></div>;
+
+  if (done) {
+    return (
+      <div style={wrap}><div style={{ height: 4, background: "#b8324f" }} /><div style={card}>
+        <h1 style={{ fontSize: 22, fontWeight: 800 }}>✓ Thank you!</h1>
+        <p style={{ color: "#cfe0f5" }}>Your training time has been recorded. You can close this page.</p>
+      </div></div>
+    );
+  }
+
+  return (
+    <div style={wrap}>
+      <div style={{ height: 4, background: "#b8324f" }} />
+      <div style={card}>
+        <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 6 }}>Field Training Check-in</h1>
+        <p style={{ fontSize: 17, color: "#cfe0f5" }}>
+          Hi {info?.rep_name?.split(" ")[0] || "there"} — did you go out with <b>William</b> for training on{" "}
+          <b>{fmtRideDate(info?.ride_date)}</b>?
+        </p>
+        <div style={{ display: "flex", gap: 12, marginTop: 18 }}>
+          <button type="button" onClick={() => setAnswer("yes")} style={btn(answer === "yes" ? "#27c46b" : "#13294b", answer === "yes" ? "#06281a" : "#fff")}>Yes</button>
+          <button type="button" onClick={() => setAnswer("no")} style={btn(answer === "no" ? "#b8324f" : "#13294b", "#fff")}>No</button>
+        </div>
+        {answer === "yes" && (
+          <div style={{ marginTop: 22 }}>
+            <div style={{ fontSize: 14, color: "#9fb3d1", marginBottom: 10 }}>What time did you start and finish?</div>
+            <div style={{ display: "flex", gap: 12 }}>
+              <label style={{ flex: 1 }}><div style={{ fontSize: 12, color: "#9fb3d1", marginBottom: 4 }}>From</div>
+                <input type="time" value={start} onChange={(e) => setStart(e.target.value)} style={{ width: "100%", boxSizing: "border-box", padding: "12px", borderRadius: 10, border: "1px solid #2a3b57", background: "#0f2038", color: "#fff", fontSize: 16 }} /></label>
+              <label style={{ flex: 1 }}><div style={{ fontSize: 12, color: "#9fb3d1", marginBottom: 4 }}>To</div>
+                <input type="time" value={end} onChange={(e) => setEnd(e.target.value)} style={{ width: "100%", boxSizing: "border-box", padding: "12px", borderRadius: 10, border: "1px solid #2a3b57", background: "#0f2038", color: "#fff", fontSize: 16 }} /></label>
+            </div>
+          </div>
+        )}
+        {err && <div style={{ color: "#ffb3c0", marginTop: 12 }}>{err}</div>}
+        {answer && (
+          <button type="button" onClick={submit} disabled={busy}
+            style={{ width: "100%", marginTop: 22, padding: "15px", borderRadius: 12, border: "none", background: "#F5B400", color: "#0a1730", fontWeight: 800, fontSize: 17, cursor: "pointer", opacity: busy ? 0.6 : 1 }}>
+            {busy ? "Submitting…" : "Submit"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// TrainingReport — admin tile (Signing → Training Report). Who rode with
+// William each day + their confirmed hours, plus William's bookmarkable
+// picker link. Reads ride_alongs / app_settings directly via supabase.
+function TrainingReport() {
+  const isoAgo = (days) => { const d = new Date(); d.setDate(d.getDate() - days); return d.toISOString().slice(0, 10); };
+  const [rows, setRows] = useState(null);
+  const [err, setErr] = useState("");
+  const [from, setFrom] = useState(() => isoAgo(14));
+  const [to, setTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [token, setToken] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  const load = async () => {
+    setErr("");
+    const { data, error } = await supabase
+      .from("ride_alongs")
+      .select("ride_date,rep_name,trainer_name,rep_phone,text_sent_at,confirmed,start_time,end_time,responded_at")
+      .gte("ride_date", from).lte("ride_date", to)
+      .order("ride_date", { ascending: false }).order("rep_name", { ascending: true });
+    if (error) { setErr(error.message); setRows([]); return; }
+    setRows(data || []);
+  };
+  // Ensure a stable trainer link token exists (auto-create on first view).
+  const ensureToken = async () => {
+    const { data } = await supabase.from("app_settings").select("value").eq("key", "training_link_token").maybeSingle();
+    let t = data?.value || null;
+    if (!t) {
+      t = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+      await supabase.from("app_settings").upsert({ key: "training_link_token", value: t, updated_at: new Date().toISOString() }, { onConflict: "key" });
+    }
+    setToken(t);
+  };
+  useEffect(() => { load(); ensureToken(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => { if (rows !== null) load(); /* eslint-disable-next-line */ }, [from, to]);
+
+  const resetToken = async () => {
+    if (!window.confirm("Reset William's link? The old bookmark will stop working and you'll need to send him the new one.")) return;
+    const t = crypto.randomUUID();
+    await supabase.from("app_settings").upsert({ key: "training_link_token", value: t, updated_at: new Date().toISOString() }, { onConflict: "key" });
+    setToken(t);
+  };
+
+  const link = token ? `${window.location.origin}/?training=${token}` : "";
+  const statusOf = (r) => {
+    if (r.confirmed === true) return { t: `✅ Confirmed${r.start_time ? ` · ${r.start_time}–${r.end_time || "?"}` : ""}`, c: "#16a34a" };
+    if (r.confirmed === false) return { t: "❌ Rep said no", c: "#b45309" };
+    if (r.text_sent_at) return { t: "📲 Texted — awaiting reply", c: "#2563eb" };
+    return { t: "🕗 Logged — text goes out next morning", c: "#6b7280" };
+  };
+  const fmtShort = (d) => { const dt = new Date(String(d).slice(0, 10) + "T12:00:00Z"); return Number.isNaN(dt.getTime()) ? d : new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric" }).format(dt); };
+  const cell = { padding: "8px 10px", borderBottom: "1px solid #eef2f7", fontSize: 14, textAlign: "left", verticalAlign: "top" };
+
+  return (
+    <Card style={{ padding: 20, background: "#f8fafc" }}>
+      <h3 style={{ margin: "0 0 4px", fontSize: 18, fontWeight: 800, color: "#0f172a" }}>🚗 Training Report</h3>
+      <div style={{ fontSize: 13, color: "#64748b" }}>Who rode with William for field training each day, and the hours they confirmed.</div>
+
+      {/* William's link */}
+      <div style={{ marginTop: 14, padding: 12, border: "1px solid #e2e8f0", borderRadius: 10, background: "#fff" }}>
+        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", color: "#94a3b8" }}>William's daily picker link (send him this once — he bookmarks it)</div>
+        <div style={{ marginTop: 6, fontFamily: "monospace", fontSize: 12, wordBreak: "break-all", color: "#334155" }}>{link || "Generating…"}</div>
+        <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button type="button" disabled={!link} onClick={() => { navigator.clipboard?.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+            style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: "#0f172a", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>{copied ? "Copied!" : "Copy link"}</button>
+          <button type="button" onClick={resetToken}
+            style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #fecaca", background: "#fff", color: "#dc2626", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>Reset link</button>
+        </div>
+      </div>
+
+      {/* date range */}
+      <div style={{ marginTop: 14, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <label style={{ fontSize: 13, color: "#475569" }}>From <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ marginLeft: 4, padding: "4px 6px", borderRadius: 6, border: "1px solid #cbd5e1" }} /></label>
+        <label style={{ fontSize: 13, color: "#475569" }}>To <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ marginLeft: 4, padding: "4px 6px", borderRadius: 6, border: "1px solid #cbd5e1" }} /></label>
+      </div>
+
+      {err && <div style={{ color: "#dc2626", marginTop: 10 }}>{err}</div>}
+
+      <div style={{ marginTop: 12, overflowX: "auto", background: "#fff", borderRadius: 10, border: "1px solid #e2e8f0" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead><tr style={{ background: "#f1f5f9" }}>
+            <th style={{ ...cell, fontWeight: 700, color: "#475569" }}>Day</th>
+            <th style={{ ...cell, fontWeight: 700, color: "#475569" }}>Rep</th>
+            <th style={{ ...cell, fontWeight: 700, color: "#475569" }}>Status / Hours</th>
+          </tr></thead>
+          <tbody>
+            {rows === null ? (
+              <tr><td style={cell} colSpan={3}>Loading…</td></tr>
+            ) : rows.length === 0 ? (
+              <tr><td style={cell} colSpan={3}>No ride-alongs logged in this range.</td></tr>
+            ) : rows.map((r, i) => {
+              const s = statusOf(r);
+              return (
+                <tr key={i}>
+                  <td style={cell}>{fmtShort(r.ride_date)}</td>
+                  <td style={{ ...cell, fontWeight: 600 }}>{r.rep_name}</td>
+                  <td style={{ ...cell, color: s.c, fontWeight: 600 }}>{s.t}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {rows && rows.length > 0 && (
+        <div style={{ marginTop: 8, fontSize: 13, color: "#64748b" }}>
+          {rows.length} ride-along{rows.length === 1 ? "" : "s"} · {rows.filter((r) => r.confirmed === true).length} confirmed
+        </div>
+      )}
+    </Card>
   );
 }
 
@@ -5382,6 +5696,18 @@ export default function App() {
     const correctId = params.get("correct");
     if (correctId && correctId.trim()) {
       return <CorrectionPage inspectionId={correctId.trim()} />;
+    }
+    // /?training=<token> — William's private daily ride-along picker. He
+    // checks off which active reps rode with him for field training today.
+    const trainingToken = params.get("training");
+    if (trainingToken && trainingToken.trim()) {
+      return <TrainingPickerPage token={trainingToken.trim()} />;
+    }
+    // /?ridealong=<token> — the link each rep gets the next morning to confirm
+    // they trained with William yesterday + the hours.
+    const rideAlongToken = params.get("ridealong");
+    if (rideAlongToken && rideAlongToken.trim()) {
+      return <RideAlongConfirmPage token={rideAlongToken.trim()} />;
     }
     // /?pa_company=<token> — a PA COMPANY admin's scoped screen: the master
     // list of every homeowner routed to their company's pool, with assign-to-
@@ -14006,6 +14332,7 @@ if (!hasDamage) {
                       </div>
                     ) : null}
                   </Card>}
+                  {managerSection === "training" && <TrainingReport />}
                   {managerSection === "report" && <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Weekly Report</SectionTitle>
                     <div style={{ display: "grid", gap: 12, marginBottom: 16 }}>
