@@ -60,6 +60,17 @@ async function doInit(body) {
 
   const picks = await sbGet(`ride_alongs?ride_date=eq.${date}&select=rep_id,rep_name,confirmed,start_time,end_time,decline_reason,text_sent_at&limit=500`);
 
+  // Each rep's most recent PRIOR ride-along date (ignore the day being edited),
+  // so William can see who he hasn't taken out in a while.
+  const hist = await sbGet(`ride_alongs?select=rep_id,ride_date&order=ride_date.desc&limit=5000`);
+  const lastByRep = {};
+  for (const h of hist) {
+    if (h.ride_date === date) continue;
+    const id = String(h.rep_id);
+    if (!lastByRep[id]) lastByRep[id] = h.ride_date;
+  }
+  for (const r of reps) r.last = lastByRep[r.id] || null;
+
   return cors(200, JSON.stringify({ ok: true, date, reps, picks }));
 }
 

@@ -4447,6 +4447,12 @@ function fmtRideDate(d) {
   if (Number.isNaN(dt.getTime())) return d;
   return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "long", month: "long", day: "numeric" }).format(dt);
 }
+function fmtShortDate(d) {
+  if (!d) return "";
+  const dt = new Date(String(d).slice(0, 10) + "T12:00:00Z");
+  if (Number.isNaN(dt.getTime())) return d;
+  return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" }).format(dt);
+}
 
 // TrainingPickerPage — standalone at /?training=<trainer token>. William's
 // private bookmark. Each day he checks off which active reps rode with him.
@@ -4557,7 +4563,10 @@ function TrainingPickerPage({ token }) {
                   <button key={r.id} type="button" onClick={() => toggle(r.id)}
                     style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left", padding: "13px 14px", border: "none", borderBottom: "1px solid #1a2942", background: on ? "rgba(245,180,0,.14)" : "transparent", color: "#fff", cursor: "pointer", fontSize: 16 }}>
                     <span style={{ width: 22, height: 22, borderRadius: 6, border: on ? "none" : "2px solid #4a5d7e", background: on ? "#F5B400" : "transparent", color: "#0a1730", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, flex: "0 0 auto" }}>{on ? "✓" : ""}</span>
-                    <span style={{ fontWeight: on ? 700 : 500 }}>{r.name}{!r.phone ? <span style={{ color: "#ffb3c0", fontSize: 12 }}> · no phone on file</span> : ""}</span>
+                    <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                      <span style={{ fontWeight: on ? 700 : 500 }}>{r.name}{!r.phone ? <span style={{ color: "#ffb3c0", fontSize: 12 }}> · no phone</span> : ""}</span>
+                      <span style={{ fontSize: 12, color: r.last ? "#7f93b3" : "#5fa8d3" }}>{r.last ? `Last rode ${fmtShortDate(r.last)}` : "Hasn't ridden with you yet"}</span>
+                    </span>
                   </button>
                 );
               })}
