@@ -79,8 +79,20 @@ async function doSave(body) {
     if (!r) continue;
     toInsert.push({ ride_date: date, rep_id: rid, rep_name: r.name, rep_phone: r.phone || null, confirm_token: crypto.randomUUID() });
   }
+  let texted = 0;
   if (toInsert.length) {
     await fetch(`${SB_URL}/rest/v1/ride_alongs`, { method: "POST", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify(toInsert) });
+    // Back-dated days (logging LAST WEEK) get the confirm text RIGHT AWAY so we
+    // can collect answers now. Today's picks wait for tomorrow's 9:30 AM cron.
+    if (date < todayET()) {
+      for (const row of toInsert) {
+        if (!row.rep_phone) continue;
+        if (await sendConfirmSms(row)) {
+          await fetch(`${SB_URL}/rest/v1/ride_alongs?confirm_token=eq.${encodeURIComponent(row.confirm_token)}`, { method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify({ text_sent_at: new Date().toISOString() }) });
+          texted++;
+        }
+      }
+    }
   }
 
   // Remove un-checked reps — but only if they haven't been texted yet
@@ -91,7 +103,20 @@ async function doSave(body) {
     await fetch(`${SB_URL}/rest/v1/ride_alongs?id=eq.${id}`, { method: "DELETE", headers: sb });
   }
 
-  return cors(200, JSON.stringify({ ok: true, date, added: toInsert.length, removed: toDelete.length }));
+  return cors(200, JSON.stringify({ ok: true, date, added: toInsert.length, removed: toDelete.length, texted }));
+}
+
+// Build + send a rep's confirm text now (used for back-dated saves).
+async function sendConfirmSms(row) {
+  const base = process.env.URL || process.env.DEPLOY_URL || process.env.PUBLIC_SITE_URL || "";
+  if (!base) return false;
+  const first = (row.rep_name || "").trim().split(/\s+/)[0] || "";
+  const link = `${base}/?ridealong=${row.confirm_token}`;
+  const message = `Hey${first ? " " + first : ""}! Quick one — did you go out with William for training? Tap to confirm your hours: ${link}`;
+  try {
+    const r = await fetch(`${base}/.netlify/functions/ghl-sms`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: row.rep_phone, name: row.rep_name, message }) });
+    return r.ok;
+  } catch { return false; }
 }
 
 // ── Rep confirm actions ──────────────────────────────────────────────

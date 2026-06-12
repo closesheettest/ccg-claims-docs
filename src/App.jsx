@@ -4488,7 +4488,7 @@ function TrainingPickerPage({ token }) {
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok || !d.ok) { setErr(d.error || "Save failed."); setSaving(false); return; }
-      setSavedAt(Date.now()); setSaving(false);
+      setSavedAt(d); setSaving(false);
     } catch { setErr("Network error."); setSaving(false); }
   };
 
@@ -4535,7 +4535,7 @@ function TrainingPickerPage({ token }) {
             style={{ width: "100%", padding: "16px", borderRadius: 12, border: "none", background: "#27c46b", color: "#06281a", fontWeight: 800, fontSize: 18, cursor: "pointer", opacity: saving ? 0.6 : 1 }}>
             {saving ? "Saving…" : `Save today's riders${picked.size ? ` (${picked.size})` : ""}`}
           </button>
-          {savedAt && <div style={{ textAlign: "center", color: "#27c46b", fontWeight: 700, marginTop: 10 }}>✓ Saved — they'll get a text tomorrow morning to confirm their hours.</div>}
+          {savedAt && <div style={{ textAlign: "center", color: "#27c46b", fontWeight: 700, marginTop: 10 }}>✓ Saved — {savedAt.texted > 0 ? "confirmation text sent to them now." : "they'll get a text tomorrow morning to confirm their hours."}</div>}
         </div>
       </div>
     </div>
@@ -4657,6 +4657,10 @@ function TrainingReport() {
   const [to, setTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [token, setToken] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [trainerPhone, setTrainerPhone] = useState("");
+  const [testPhone, setTestPhone] = useState("");
+  const [toolMsg, setToolMsg] = useState("");
+  const [toolBusy, setToolBusy] = useState("");
 
   const load = async () => {
     setErr("");
@@ -4678,8 +4682,53 @@ function TrainingReport() {
     }
     setToken(t);
   };
-  useEffect(() => { load(); ensureToken(); /* eslint-disable-next-line */ }, []);
+  const loadPhones = async () => {
+    const { data } = await supabase.from("app_settings").select("key,value").in("key", ["training_trainer_phone", "training_test_phone"]);
+    for (const r of (data || [])) {
+      if (r.key === "training_trainer_phone") setTrainerPhone(r.value || "");
+      if (r.key === "training_test_phone") setTestPhone(r.value || "");
+    }
+  };
+  useEffect(() => { load(); ensureToken(); loadPhones(); /* eslint-disable-next-line */ }, []);
   useEffect(() => { if (rows !== null) load(); /* eslint-disable-next-line */ }, [from, to]);
+
+  const savePhone = (key, val) => supabase.from("app_settings").upsert({ key, value: val, updated_at: new Date().toISOString() }, { onConflict: "key" });
+  const sendSms = async (to, name, message) => {
+    try {
+      const r = await fetch("/.netlify/functions/ghl-sms", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to, name, message }) });
+      return r.ok;
+    } catch { return false; }
+  };
+
+  // Text William his bookmarkable picker link.
+  const textWilliamLink = async () => {
+    const phone = trainerPhone.trim();
+    if (!phone) { setToolMsg("Enter William's phone number first."); return; }
+    setToolBusy("william"); setToolMsg("");
+    const msg = `Here's your daily Field Training link — bookmark it on your phone and each day check off who rides with you:\n${link}`;
+    const ok = await sendSms(phone, "William", msg);
+    await savePhone("training_trainer_phone", phone);
+    setToolBusy(""); setToolMsg(ok ? "✓ Texted William his link." : "Could not send — double-check the number.");
+  };
+
+  // Dry-run the REP side to yourself: creates a test ride-along and texts you
+  // the confirm link right now so you can walk the whole flow.
+  const testRepFlow = async () => {
+    const phone = testPhone.trim();
+    if (!phone) { setToolMsg("Enter your phone number first."); return; }
+    setToolBusy("test"); setToolMsg("");
+    const tok = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : Math.random().toString(36).slice(2);
+    const today = new Date().toISOString().slice(0, 10);
+    const { error } = await supabase.from("ride_alongs").insert({
+      ride_date: today, rep_id: "test:" + Date.now(), rep_name: "TEST — rep flow (you)", rep_phone: phone, confirm_token: tok, text_sent_at: new Date().toISOString(),
+    });
+    if (error) { setToolBusy(""); setToolMsg("Test failed: " + error.message); return; }
+    const link2 = `${window.location.origin}/?ridealong=${tok}`;
+    const ok = await sendSms(phone, "Trainer test", `TEST — Field Training: did you go out with William for training? Tap to confirm your hours: ${link2}`);
+    await savePhone("training_test_phone", phone);
+    setToolBusy(""); setToolMsg(ok ? "✓ Sent you the test rep text — open it on your phone to walk the flow. It shows below as a TEST row." : "Could not send — double-check the number.");
+    load();
+  };
 
   const resetToken = async () => {
     if (!window.confirm("Reset William's link? The old bookmark will stop working and you'll need to send him the new one.")) return;
@@ -4710,10 +4759,32 @@ function TrainingReport() {
         <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button type="button" disabled={!link} onClick={() => { navigator.clipboard?.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
             style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: "#0f172a", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>{copied ? "Copied!" : "Copy link"}</button>
+          {link && <a href={link} target="_blank" rel="noopener noreferrer" style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", fontWeight: 700, fontSize: 13, textDecoration: "none" }}>Open ↗</a>}
           <button type="button" onClick={resetToken}
             style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #fecaca", background: "#fff", color: "#dc2626", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>Reset link</button>
         </div>
+        <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <input value={trainerPhone} onChange={(e) => setTrainerPhone(e.target.value)} placeholder="William's phone"
+            style={{ padding: "7px 10px", borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 14, width: 160 }} />
+          <button type="button" onClick={textWilliamLink} disabled={toolBusy === "william"}
+            style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: "#2563eb", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: toolBusy === "william" ? 0.6 : 1 }}>📲 Text William the link</button>
+        </div>
       </div>
+
+      {/* Dry-run the rep side to yourself */}
+      <div style={{ marginTop: 12, padding: 12, border: "1px dashed #cbd5e1", borderRadius: 10, background: "#fff" }}>
+        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", color: "#94a3b8" }}>Test it on yourself</div>
+        <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>
+          Walk the whole rep flow: tap <b>Open ↗</b> above to see William's picker, then text yourself the confirmation to answer it as a rep.
+        </div>
+        <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <input value={testPhone} onChange={(e) => setTestPhone(e.target.value)} placeholder="Your phone"
+            style={{ padding: "7px 10px", borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 14, width: 160 }} />
+          <button type="button" onClick={testRepFlow} disabled={toolBusy === "test"}
+            style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: "#7c3aed", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: toolBusy === "test" ? 0.6 : 1 }}>🧪 Text me the rep test</button>
+        </div>
+      </div>
+      {toolMsg && <div style={{ marginTop: 8, fontSize: 13, fontWeight: 600, color: toolMsg.startsWith("✓") ? "#16a34a" : "#dc2626" }}>{toolMsg}</div>}
 
       {/* date range */}
       <div style={{ marginTop: 14, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
