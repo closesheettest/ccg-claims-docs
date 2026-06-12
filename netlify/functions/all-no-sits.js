@@ -58,13 +58,24 @@ exports.handler = async (event) => {
     const sinceSec = Math.floor(Date.now() / 1000) - days * 24 * 60 * 60;
     const jobs = await fetchRecentJobs(jnHeaders, sinceSec);
     const noSits = jobs.filter((j) => isNoSit(j.status_name));
-    const sample = noSits.slice(0, 6).map((j) => ({
+    const sample = noSits.slice(0, 10).map((j) => ({
       name: j.name, status: j.status_name,
-      date_start: j.date_start, date_end: j.date_end,
-      date_created: j.date_created, date_status: j.date_status, date_updated: j.date_updated,
-      keys: Object.keys(j),
+      all_day: j.all_day, all_day_start_date: j.all_day_start_date, all_day_end_date: j.all_day_end_date,
+      date_start: j.date_start, date_end: j.date_end, task_count: j.task_count,
     }));
-    return cors(200, JSON.stringify({ ok: true, count: noSits.length, sample }));
+    // For the first no-sit, pull its related tasks/activities to see whether a
+    // TIMED appointment lives there (vs the all-day job-level date).
+    let tasks = null;
+    const first = noSits[0];
+    if (first && first.jnid) {
+      try {
+        const tr = await fetch(`${JN_BASE}/tasks?size=10&filter=${encodeURIComponent(JSON.stringify({ must: [{ term: { "related.id": first.jnid } }] }))}`, { headers: jnHeaders });
+        const td = await tr.json().catch(() => ({}));
+        const rows = td.results || td.activity || td.tasks || [];
+        tasks = { http: tr.status, count: rows.length, sample: rows.slice(0, 5).map((t) => ({ type: t.type, record_type_name: t.record_type_name, title: t.title || t.name, all_day: t.all_day, date_start: t.date_start, date_end: t.date_end })) };
+      } catch (e) { tasks = { error: e.message }; }
+    }
+    return cors(200, JSON.stringify({ ok: true, count: noSits.length, first_jnid: first?.jnid, tasks, sample }));
   }
 
   if (action === "clear-benchmark") {
