@@ -4771,6 +4771,7 @@ function TrainingReport() {
   const [testPhone, setTestPhone] = useState("");
   const [toolMsg, setToolMsg] = useState("");
   const [toolBusy, setToolBusy] = useState("");
+  const [showTests, setShowTests] = useState(false);
 
   const load = async () => {
     setErr("");
@@ -4858,6 +4859,10 @@ function TrainingReport() {
   };
   const fmtShort = (d) => { const dt = new Date(String(d).slice(0, 10) + "T12:00:00Z"); return Number.isNaN(dt.getTime()) ? d : new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric" }).format(dt); };
   const cell = { padding: "8px 10px", borderBottom: "1px solid #eef2f7", fontSize: 14, textAlign: "left", verticalAlign: "top" };
+  // Hide dry-run test rows (rep_id "test:…") by default — toggle to show them.
+  const isTestRow = (r) => String(r.rep_id || "").startsWith("test:");
+  const visible = rows ? rows.filter((r) => showTests || !isTestRow(r)) : null;
+  const testCount = rows ? rows.filter(isTestRow).length : 0;
 
   return (
     <Card style={{ padding: 20, background: "#f8fafc" }}>
@@ -4902,6 +4907,11 @@ function TrainingReport() {
       <div style={{ marginTop: 14, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
         <label style={{ fontSize: 13, color: "#475569" }}>From <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ marginLeft: 4, padding: "4px 6px", borderRadius: 6, border: "1px solid #cbd5e1" }} /></label>
         <label style={{ fontSize: 13, color: "#475569" }}>To <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ marginLeft: 4, padding: "4px 6px", borderRadius: 6, border: "1px solid #cbd5e1" }} /></label>
+        {testCount > 0 && (
+          <label style={{ fontSize: 13, color: "#475569", display: "flex", alignItems: "center", gap: 5 }}>
+            <input type="checkbox" checked={showTests} onChange={(e) => setShowTests(e.target.checked)} /> Show test rows ({testCount})
+          </label>
+        )}
       </div>
 
       {err && <div style={{ color: "#dc2626", marginTop: 10 }}>{err}</div>}
@@ -4914,11 +4924,11 @@ function TrainingReport() {
             <th style={{ ...cell, fontWeight: 700, color: "#475569" }}>Status / Hours</th>
           </tr></thead>
           <tbody>
-            {rows === null ? (
+            {visible === null ? (
               <tr><td style={cell} colSpan={3}>Loading…</td></tr>
-            ) : rows.length === 0 ? (
+            ) : visible.length === 0 ? (
               <tr><td style={cell} colSpan={3}>No ride-alongs logged in this range.</td></tr>
-            ) : rows.map((r, i) => {
+            ) : visible.map((r, i) => {
               const s = statusOf(r);
               return (
                 <tr key={i}>
@@ -4931,9 +4941,9 @@ function TrainingReport() {
           </tbody>
         </table>
       </div>
-      {rows && rows.length > 0 && (
+      {visible && visible.length > 0 && (
         <div style={{ marginTop: 8, fontSize: 13, color: "#64748b" }}>
-          {rows.length} ride-along{rows.length === 1 ? "" : "s"} · {rows.filter((r) => r.confirmed === true).length} confirmed
+          {visible.length} ride-along{visible.length === 1 ? "" : "s"} · {visible.filter((r) => r.confirmed === true).length} confirmed
         </div>
       )}
     </Card>
