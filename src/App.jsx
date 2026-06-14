@@ -4617,13 +4617,17 @@ function TrainingPickerPage({ token }) {
           <div style={{ margin: "14px 0 2px", border: "1px solid #e0664a", borderRadius: 14, background: "rgba(224,102,74,.12)", padding: "14px 14px 12px" }}>
             <div style={{ fontSize: 16, fontWeight: 900, color: "#ffd2c5" }}>🎯 Take these reps out — {neverSigned.length} haven't signed a single inspection yet</div>
             <div style={{ fontSize: 13, color: "#f0b6a6", margin: "4px 0 10px" }}>They need to get back out in the field. Tap a name to add them to today.</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {neverSigned.map((r) => {
                 const on = picked.has(r.id);
                 return (
                   <button key={r.id} type="button" onClick={() => toggle(r.id)}
-                    style={{ padding: "7px 12px", borderRadius: 999, border: on ? "none" : "1px solid #e0664a", background: on ? "#27c46b" : "rgba(224,102,74,.18)", color: on ? "#06281a" : "#ffd2c5", fontWeight: 800, fontSize: 14, cursor: "pointer" }}>
-                    {on ? "✓ " : ""}{r.name}
+                    style={{ display: "flex", alignItems: "center", gap: 10, textAlign: "left", padding: "8px 11px", borderRadius: 10, border: on ? "none" : "1px solid rgba(224,102,74,.5)", background: on ? "#27c46b" : "rgba(224,102,74,.14)", color: on ? "#06281a" : "#ffd2c5", cursor: "pointer", width: "100%" }}>
+                    <span style={{ width: 20, height: 20, borderRadius: 5, border: on ? "none" : "2px solid #e0664a", background: on ? "#06281a" : "transparent", color: "#27c46b", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, flex: "0 0 auto", fontSize: 13 }}>{on ? "✓" : ""}</span>
+                    <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                      <span style={{ fontWeight: 800, fontSize: 15 }}>{r.name}</span>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: on ? "#0a3d24" : r.last ? "#f0b6a6" : "#ffcf9e" }}>{r.last ? `Last rode ${fmtShortDate(r.last)}` : "🚩 Hasn't ridden with you yet"}</span>
+                    </span>
                   </button>
                 );
               })}
