@@ -67,7 +67,7 @@ export const handler = async (event) => {
     const zeroEst = sj.filter((j) => n0(j.approved_estimate_total) <= 0).length;
     const zeroInv = sj.filter((j) => n0(j.approved_invoice_total) <= 0).length;
     const zeroBoth = sj.filter((j) => n0(j.approved_estimate_total) <= 0 && n0(j.approved_invoice_total) <= 0 && n0(j.last_budget_revenue) <= 0).length;
-    const probe = sj.filter((j) => `${j.name || ""}`.toLowerCase().includes("3941")).map((j) => ({ name: j.name, rep: j.sales_rep_name, est: j.approved_estimate_total, inv: j.approved_invoice_total, rev: j.last_budget_revenue, roofPriceOnly: trimmedFieldMap(j)["Roof Price ONLY"] }));
+    const probe = sj.filter((j) => `${j.name || ""}`.toLowerCase().includes("3941")).map((j) => ({ name: j.name, rep: j.sales_rep_name, est: j.approved_estimate_total, inv: j.approved_invoice_total, rev: j.last_budget_revenue, roofPriceOnly: j["Roof Price ONLY"] ?? null }));
     return cors(200, JSON.stringify({ sold: sj.length, zero_approved_estimate: zeroEst, zero_approved_invoice: zeroInv, zero_all_three: zeroBoth, probe }, null, 2));
   }
 
