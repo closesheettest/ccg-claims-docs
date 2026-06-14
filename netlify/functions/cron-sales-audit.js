@@ -60,12 +60,25 @@ export const handler = async (event) => {
 
   const qp = event?.queryStringParameters || {};
   const dry = qp.dry === "1";
-  // Rolling window: re-flag EVERY still-unfixed sold deal from the last N days
-  // (default 30) every day — not just yesterday's — so a deal sold days ago
-  // that's still broken keeps nagging the manager until it's actually fixed.
-  const lookbackDays = Math.min(Math.max(parseInt(qp.days, 10) || 30, 1), 120);
+  // Audit floor = June 1, 2026 — the agreed benchmark/start date. We re-flag
+  // EVERY still-unfixed sold deal SINCE the floor each day (not just
+  // yesterday's), so a broken deal keeps nagging the manager until it's fixed.
+  // This matches the on-demand "All JN sales that need to be fixed" view
+  // (all-deals-to-fix.js), which uses the same fixed floor — so the daily text
+  // and the app never disagree. ?since=YYYY-MM-DD overrides the floor;
+  // ?days=N falls back to a rolling N-day window (manual testing only).
+  const FLOOR_DEFAULT = "2026-06-01";
   const nowSec = Math.floor(Date.now() / 1000);
-  const windowStartSec = nowSec - lookbackDays * 86400;
+  let windowStartSec, windowLabel;
+  if (qp.days) {
+    const lookbackDays = Math.min(Math.max(parseInt(qp.days, 10) || 30, 1), 120);
+    windowStartSec = nowSec - lookbackDays * 86400;
+    windowLabel = `last ${lookbackDays} days`;
+  } else {
+    const since = /^\d{4}-\d{2}-\d{2}$/.test(qp.since || "") ? qp.since : FLOOR_DEFAULT;
+    windowStartSec = Math.floor(new Date(`${since}T04:00:00Z`).getTime() / 1000); // ~ET midnight (EDT)
+    windowLabel = `since ${since}`;
+  }
 
   // Send gating + extra recipients (scheduled runs). Dry runs never send.
   // The detailed missing-info goes to the REGIONAL MANAGER (not the rep).
@@ -154,14 +167,14 @@ export const handler = async (event) => {
       ...extraRecipients,
     ]);
     for (const a of adminPhones) {
-      const r = await sendSms(base, a, "Admin", adminMessage(lookbackDays, flagged, notified, noZone));
+      const r = await sendSms(base, a, "Admin", adminMessage(windowLabel, flagged, notified, noZone));
       notified.admin.push({ to: a, ok: r.ok, error: r.error });
     }
   }
 
   return json(200, {
     ok: true,
-    window_days: lookbackDays,
+    window: windowLabel,
     dry,
     sent: !dry && sendAtAll,
     extra_recipients: extraRecipients,
@@ -202,8 +215,8 @@ function managerMessage(zone, list) {
   return s.trim() + "\n\nHave the rep correct their items in JobNimbus. 👔 Start date items are yours to fix — reps don't touch Start date.";
 }
 
-function adminMessage(days, flagged, notified, noZone) {
-  let s = `📊 Sales audit (last ${days} days): ${flagged.length} sold deal(s) still need fixing.\n`;
+function adminMessage(windowLabel, flagged, notified, noZone) {
+  let s = `📊 Sales audit (${windowLabel}): ${flagged.length} sold deal(s) still need fixing.\n`;
   flagged.forEach((f) => {
     const n = f.missing.length + f.errors.length;
     s += `\n• ${f.customer} — ${f.rep_name} (${f.name})${f.sold ? ` · sold ${f.sold}` : ""} — ${n} issue${n === 1 ? "" : "s"}`;
