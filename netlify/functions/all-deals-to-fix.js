@@ -33,6 +33,15 @@ const SOLD_STATUSES = new Set([
   "upcoming installs", "install set",
 ]);
 
+// Exact JN status_name spellings — pull jobs BY these statuses (not the 1,500
+// most-recently-updated of all statuses, which truncated and dropped older
+// sold deals). The normalized SOLD_STATUSES set above stays the authority, so
+// over-matches (e.g. "Sit Sold Insp" from a "Sit - Sold" phrase) are dropped.
+const SOLD_STATUS_NAMES = [
+  "Sit - Sold", "Signed Contract", "Production Review", "Job Prep",
+  "Upcoming Installs", "Install Set",
+];
+
 // Stable display order for the four regions (everything else lands last).
 const ZONE_ORDER = ["Zone 1", "Zone 2", "Zone 3", "Zone 4"];
 
@@ -48,8 +57,9 @@ export const handler = async (event) => {
   const cutoffMs = new Date(`${since}T04:00:00Z`).getTime(); // ~ET midnight (EDT)
   const sinceSec = Math.floor(cutoffMs / 1000) - 2 * 24 * 60 * 60; // pad the fetch window
 
-  // 1. Pull recent jobs, keep sales sold within the window.
-  const jobs = await fetchRecentJobs(jnHeaders, sinceSec);
+  // 1. Pull jobs BY sold status (server-side filter) so no sold deal is lost
+  //    to a scan cap; then keep those actually sold within the window.
+  const jobs = await fetchSoldJobs(jnHeaders, sinceSec);
   const sold = jobs.filter((j) => {
     const sd = soldDateSec(j);
     if (sd == null || sd * 1000 < cutoffMs) return false;
@@ -105,17 +115,22 @@ export const handler = async (event) => {
 };
 
 // ── infra (mirrors zone-deals-to-fix.js; checklist shared in _sales-audit.js) ──
-async function fetchRecentJobs(jnHeaders, sinceSec) {
-  const all = [];
-  for (let page = 0; page < 15; page++) {
-    const r = await fetch(`${JN_BASE}/jobs?size=100&from=${page * 100}&sort=-date_updated&date_updated_after=${sinceSec}`, { headers: jnHeaders });
-    if (!r.ok) break;
-    const d = await r.json().catch(() => ({}));
-    const rows = d.results || d.jobs || [];
-    all.push(...rows);
-    if (rows.length < 100) break;
+// Pull jobs by each sold status_name (server-side filter), updated since the
+// window opened — small, capped-proof result set; deduped by jnid.
+async function fetchSoldJobs(jnHeaders, sinceSec) {
+  const byId = new Map();
+  for (const name of SOLD_STATUS_NAMES) {
+    const filter = encodeURIComponent(JSON.stringify({ must: [{ match_phrase: { status_name: name } }] }));
+    for (let page = 0; page < 20; page++) {
+      const r = await fetch(`${JN_BASE}/jobs?size=100&from=${page * 100}&sort=-date_updated&date_updated_after=${sinceSec}&filter=${filter}`, { headers: jnHeaders });
+      if (!r.ok) break;
+      const d = await r.json().catch(() => ({}));
+      const rows = d.results || d.jobs || [];
+      for (const j of rows) byId.set(j.jnid || j.id, j);
+      if (rows.length < 100) break;
+    }
   }
-  return all;
+  return [...byId.values()];
 }
 function soldDateSec(job) {
   const v = job["Sold Date"] != null ? job["Sold Date"] : job.cf_date_5;

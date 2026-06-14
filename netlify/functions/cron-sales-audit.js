@@ -40,6 +40,12 @@ const SOLD_STATUSES = new Set([
   "sit sold", "signed contract", "production review", "job prep",
   "upcoming installs", "install set",
 ]);
+// Exact JN status_name spellings — pull jobs BY these statuses so older sold
+// deals aren't lost to the 1,500-job scan cap. SOLD_STATUSES stays the filter.
+const SOLD_STATUS_NAMES = [
+  "Sit - Sold", "Signed Contract", "Production Review", "Job Prep",
+  "Upcoming Installs", "Install Set",
+];
 
 export const handler = async (event) => {
   for (const k of ["VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY", "JOBNIMBUS_API_KEY"]) {
@@ -76,7 +82,7 @@ export const handler = async (event) => {
 
   // 1. Pull recent jobs (sold yesterday → updated yesterday). 4-day pad.
   const sinceSec = Math.floor(Date.now() / 1000) - 4 * 24 * 60 * 60;
-  const jobs = await fetchRecentJobs(jnHeaders, sinceSec);
+  const jobs = await fetchSoldJobs(jnHeaders, sinceSec);
 
   // 2. Keep jobs whose Sold Date (ET) == target day AND status is "sold".
   const sold = jobs.filter((j) => {
@@ -201,20 +207,25 @@ function adminMessage(date, flagged, notified, noZone) {
 // ──────────────────────────────────────────────────────────────────────
 // JN fetch + helpers.
 
-async function fetchRecentJobs(jnHeaders, sinceSec) {
-  const all = [];
-  for (let page = 0; page < 15; page++) {
-    const r = await fetch(
-      `${JN_BASE}/jobs?size=100&from=${page * 100}&sort=-date_updated&date_updated_after=${sinceSec}`,
-      { headers: jnHeaders },
-    );
-    if (!r.ok) break;
-    const d = await r.json().catch(() => ({}));
-    const rows = d.results || d.jobs || [];
-    all.push(...rows);
-    if (rows.length < 100) break;
+// Pull jobs by each sold status_name (server-side filter), updated since the
+// window opened — capped-proof; deduped by jnid.
+async function fetchSoldJobs(jnHeaders, sinceSec) {
+  const byId = new Map();
+  for (const name of SOLD_STATUS_NAMES) {
+    const filter = encodeURIComponent(JSON.stringify({ must: [{ match_phrase: { status_name: name } }] }));
+    for (let page = 0; page < 20; page++) {
+      const r = await fetch(
+        `${JN_BASE}/jobs?size=100&from=${page * 100}&sort=-date_updated&date_updated_after=${sinceSec}&filter=${filter}`,
+        { headers: jnHeaders },
+      );
+      if (!r.ok) break;
+      const d = await r.json().catch(() => ({}));
+      const rows = d.results || d.jobs || [];
+      for (const j of rows) byId.set(j.jnid || j.id, j);
+      if (rows.length < 100) break;
+    }
   }
-  return all;
+  return [...byId.values()];
 }
 
 function soldDateSec(job) {
