@@ -114,14 +114,15 @@ export function auditJob(job) {
   const rep = String(job.sales_rep_name || "").trim();
   if (!rep || /\bai\s*bot\b/i.test(rep)) errors.push("No real sales rep assigned (AI Bot / blank)");
 
-  // Start Date must not MISMATCH the Sold Date. JN's weekly reports key on
-  // Start Date, so a Start Date on a different day than the Sold Date hides /
-  // misdates the sale. Only flag when BOTH are set and differ (a blank date
-  // is fine — it just can't disagree).
+  // Start Date must land in the SAME WEEK as the Sold Date. JN's weekly
+  // reports bucket by Start Date, so a start date in a different week shows
+  // the sale in the wrong week (or hides it). Same week (Mon–Sun) is fine,
+  // exact day doesn't matter. Only flag when BOTH are set and in different
+  // weeks (a blank date is fine — it just can't disagree).
   const soldSec = Number(job.cf_date_5) || Number(job["Sold Date"]) || 0;
   const startSec = Number(job.date_start) || 0;
-  if (soldSec > 0 && startSec > 0 && ymdET(startSec) !== ymdET(soldSec)) {
-    errors.push(`Start date (${ymdET(startSec)}) doesn't match Sold date (${ymdET(soldSec)}) — update the Start date`);
+  if (soldSec > 0 && startSec > 0 && weekKeyET(startSec) !== weekKeyET(soldSec)) {
+    errors.push(`Start date (${ymdET(startSec)}) is a different week than the Sold date (${ymdET(soldSec)}) — update the Start date`);
   }
 
   return { missing, errors };
@@ -131,6 +132,20 @@ export function auditJob(job) {
 function ymdET(sec) {
   try { return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "numeric", day: "numeric" }).format(new Date(sec * 1000)); }
   catch { return String(sec); }
+}
+
+// unix seconds → the Monday (Eastern) of that week, "YYYY-MM-DD". Two dates in
+// the same Mon–Sun week share a key (matches the leaderboard's week window).
+function weekKeyET(sec) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(sec * 1000));
+    const get = (t) => parts.find((p) => p.type === t)?.value;
+    const DOW = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+    const dow = DOW[get("weekday")] ?? 0;
+    const d = new Date(`${get("year")}-${get("month")}-${get("day")}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - (dow === 0 ? 6 : dow - 1)); // back to Monday
+    return d.toISOString().slice(0, 10);
+  } catch { return String(sec); }
 }
 
 // JN echoes friendly labels as keys (sometimes with trailing spaces or *…*).
