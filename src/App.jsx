@@ -4484,6 +4484,7 @@ function TrainingPickerPage({ token }) {
   const [refusals, setRefusals] = useState({}); // rep id -> "wouldn't ride" note
   const [weeks, setWeeks] = useState(null);     // [{weekStart, days:[{date,rode,refused,none}]}, …]
   const [notes, setNotes] = useState({});       // rep id -> trainer "how it went" note
+  const [pickNames, setPickNames] = useState({}); // rep id -> name (from saved picks, survives roster changes)
 
   const load = async (forDate) => {
     setLoading(true); setErr("");
@@ -4512,10 +4513,10 @@ function TrainingPickerPage({ token }) {
         }
         setPicked(pickedSet); setRefusals(refMap);
       }
-      // Trainer "how it went" notes, keyed by rep id.
-      const noteMap = {};
-      for (const p of pk) { if (p.trainer_note) noteMap[String(p.rep_id)] = p.trainer_note; }
-      setNotes(noteMap);
+      // Trainer "how it went" notes + a rep-id→name map, keyed by rep id.
+      const noteMap = {}; const nameMap = {};
+      for (const p of pk) { if (p.trainer_note) noteMap[String(p.rep_id)] = p.trainer_note; if (p.rep_name) nameMap[String(p.rep_id)] = p.rep_name; }
+      setNotes(noteMap); setPickNames(nameMap);
       setSavedAt(null);
       setLoading(false);
     } catch { setErr("Network error."); setLoading(false); }
@@ -4662,6 +4663,25 @@ function TrainingPickerPage({ token }) {
         {isFuture && (
           <div style={{ marginTop: 8, padding: "8px 12px", borderRadius: 8, background: "rgba(95,168,211,.12)", border: "1px solid #2f6f93", color: "#bfe1f3", fontSize: 13 }}>
             📅 Scheduling <b>{fmtShortDate(date)}</b> — pick who's going out. They'll get their confirm text the morning after.
+          </div>
+        )}
+        {/* Who's logged for the tapped day — names show up immediately so a day's
+            count is "clickable to see who went", not just a silent date switch. */}
+        {!noneMode && (picked.size > 0 || Object.keys(refusals).length > 0) && (
+          <div style={{ marginTop: 12, border: "1px solid #27c46b", borderRadius: 12, background: "rgba(39,196,107,.08)", padding: "12px 14px" }}>
+            <div style={{ fontSize: 12, color: "#9fb3d1", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 8 }}>
+              {isFuture ? "📅 Scheduled" : "✓ Who went out"} — {fmtShortDate(date)}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {[...picked].map((id) => {
+                const nm = pickNames[id] || (reps.find((x) => String(x.id) === String(id)) || {}).name || id;
+                return <span key={id} style={{ padding: "5px 11px", borderRadius: 999, background: "rgba(39,196,107,.20)", color: "#9fe7bd", fontWeight: 700, fontSize: 14 }}>{nm}</span>;
+              })}
+              {Object.keys(refusals).map((id) => {
+                const nm = pickNames[id] || (reps.find((x) => String(x.id) === String(id)) || {}).name || id;
+                return <span key={id} style={{ padding: "5px 11px", borderRadius: 999, background: "rgba(184,50,79,.20)", color: "#ff9aab", fontWeight: 700, fontSize: 14 }}>✋ {nm}</span>;
+              })}
+            </div>
           </div>
         )}
         {noneMode ? (
