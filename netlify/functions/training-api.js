@@ -41,6 +41,7 @@ exports.handler = async (event) => {
     if (action === "save") return await doSave(body);
     if (action === "week") return await doWeek(body);
     if (action === "note") return await doNote(body);
+    if (action === "baseline") return await doBaseline(body);
     if (action === "get") return await doGet(body);
     if (action === "confirm") return await doConfirm(body);
     return cors(400, JSON.stringify({ ok: false, error: `Unknown action "${action}"` }));
@@ -201,9 +202,10 @@ async function doWeek(body) {
   const thisMon = normDate(body.weekStart) || mondayET();
   const nextMon = addDaysISO(thisMon, 7);
   const rangeEnd = addDaysISO(nextMon, 6); // end of next week
-  const rows = await sbGet(`ride_alongs?ride_date=gte.${thisMon}&ride_date=lte.${rangeEnd}&select=ride_date,rep_id,refused_to_ride&limit=4000`);
+  const rows = await sbGet(`ride_alongs?ride_date=gte.${thisMon}&ride_date=lte.${rangeEnd}&select=ride_date,rep_id,refused_to_ride,baseline&limit=4000`);
   const byDay = {};
   for (const r of rows) {
+    if (r.baseline) continue; // baseline seeds aren't real rides — don't count them
     const d = r.ride_date;
     const b = (byDay[d] = byDay[d] || { rode: 0, refused: 0, none: 0 });
     if (String(r.rep_id) === NONE_ID) b.none++;
@@ -220,6 +222,40 @@ async function doWeek(body) {
     { weekStart: nextMon, days: weekDays(nextMon) },
   ];
   return cors(200, JSON.stringify({ ok: true, weekStart: thisMon, weeks, days: weeks[0].days }));
+}
+
+// Baseline: William checks off reps who rode with him BEFORE tracking started.
+// We seed each one a ride_along dated to the EARLIEST recorded ride date (our
+// benchmark) so they leave "never ridden" and enter the rotation as "due."
+// These rows are flagged baseline=true + confirmed=true + text_sent_at set, so
+// they never trigger a confirmation text and don't count in the daily totals.
+// Real rides logged afterward timestamp normally and move them down the list.
+async function doBaseline(body) {
+  if (!(await validTrainer(body.token))) return cors(403, JSON.stringify({ ok: false, error: "Invalid or expired link" }));
+  const repIds = Array.isArray(body.repIds) ? body.repIds.map(String) : [];
+  if (!repIds.length) return cors(400, JSON.stringify({ ok: false, error: "No reps selected" }));
+
+  // Benchmark = the earliest ride date we have on record (today if none yet).
+  const earliest = await sbGet(`ride_alongs?rep_id=neq.${NONE_ID}&select=ride_date&order=ride_date.asc&limit=1`);
+  const baselineDate = (earliest[0] && earliest[0].ride_date) || todayET();
+
+  const repMap = {};
+  for (const r of await fetchActiveReps()) repMap[r.id] = { name: r.name, phone: r.phone };
+
+  // Skip anyone who already has a ride_along (they're not truly "never ridden").
+  const inList = repIds.map(encodeURIComponent).join(",");
+  const existing = await sbGet(`ride_alongs?rep_id=in.(${inList})&select=rep_id&limit=1000`);
+  const have = new Set(existing.map((e) => String(e.rep_id)));
+
+  const toInsert = [];
+  for (const rid of repIds) {
+    if (have.has(rid)) continue;
+    const r = repMap[rid];
+    if (!r) continue;
+    toInsert.push({ ride_date: baselineDate, rep_id: rid, rep_name: r.name, rep_phone: r.phone || null, confirm_token: crypto.randomUUID(), baseline: true, confirmed: true, text_sent_at: new Date().toISOString() });
+  }
+  if (toInsert.length) await fetch(`${SB_URL}/rest/v1/ride_alongs`, { method: "POST", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify(toInsert) });
+  return cors(200, JSON.stringify({ ok: true, baselineDate, added: toInsert.length }));
 }
 
 // Trainer's end-of-day note on how it went with a rep.

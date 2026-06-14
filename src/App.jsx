@@ -4487,6 +4487,8 @@ function TrainingPickerPage({ token }) {
   const [pickNames, setPickNames] = useState({}); // rep id -> name (from saved picks, survives roster changes)
   const [showNever, setShowNever] = useState(false); // never-signed callout collapsed by default (long on a phone)
   const [tab, setTab] = useState("today"); // "today" | "week" | "priority" — one focused screen at a time
+  const [baselineMode, setBaselineMode] = useState(false); // checking off reps who rode before tracking
+  const [baselinePick, setBaselinePick] = useState(() => new Set());
 
   const load = async (forDate) => {
     setLoading(true); setErr("");
@@ -4586,6 +4588,23 @@ function TrainingPickerPage({ token }) {
       const d = await res.json().catch(() => ({}));
       if (!res.ok || !d.ok) { setErr(d.error || "Save failed."); setSaving(false); return; }
       setSavedAt(d); setSaving(false); loadWeek();
+    } catch { setErr("Network error."); setSaving(false); }
+  };
+
+  const toggleBaseline = (id) => setBaselinePick((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const saveBaseline = async () => {
+    if (!baselinePick.size) return;
+    setSaving(true); setErr("");
+    try {
+      const res = await fetch("/.netlify/functions/training-api", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "baseline", token, repIds: [...baselinePick] }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.ok) { setErr(d.error || "Couldn't set baseline."); setSaving(false); return; }
+      setBaselineMode(false); setBaselinePick(new Set());
+      await load(); await loadWeek();
+      setSaving(false);
     } catch { setErr("Network error."); setSaving(false); }
   };
 
@@ -4783,10 +4802,32 @@ function TrainingPickerPage({ token }) {
       )}
       {neverRidden.length > 0 && (
         <>
-          <div style={{ fontSize: 12, color: "#ffcf9e", textTransform: "uppercase", letterSpacing: ".05em", margin: "16px 0 6px" }}>Haven't ridden yet — {neverRidden.length}</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {neverRidden.map((r) => priRow(r, "New — no ride logged yet", "#ffcf9e"))}
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", margin: "16px 0 6px", gap: 8 }}>
+            <span style={{ fontSize: 12, color: "#ffcf9e", textTransform: "uppercase", letterSpacing: ".05em" }}>Haven't ridden yet — {neverRidden.length}</span>
+            {!baselineMode
+              ? <button type="button" onClick={() => { setBaselineMode(true); setBaselinePick(new Set()); }} style={{ background: "none", border: "none", color: "#9fb3d1", fontSize: 12, textDecoration: "underline", cursor: "pointer", whiteSpace: "nowrap" }}>Some rode before? Mark them</button>
+              : <button type="button" onClick={() => { setBaselineMode(false); setBaselinePick(new Set()); }} style={{ background: "none", border: "none", color: "#9fb3d1", fontSize: 12, textDecoration: "underline", cursor: "pointer", whiteSpace: "nowrap" }}>Cancel</button>}
           </div>
+          {baselineMode && <div style={{ fontSize: 12, color: "#bfe1f3", margin: "0 0 8px" }}>Check anyone who rode with you before tracking started. We'll record them as a baseline so they join the rotation.</div>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {neverRidden.map((r) => {
+              if (!baselineMode) return priRow(r, "New — no ride logged yet", "#ffcf9e");
+              const on = baselinePick.has(r.id);
+              return (
+                <button key={r.id} type="button" onClick={() => toggleBaseline(r.id)}
+                  style={{ display: "flex", alignItems: "center", gap: 10, textAlign: "left", padding: "10px 12px", borderRadius: 10, border: "1px solid #2a3b57", background: on ? "rgba(95,168,211,.18)" : "#0f2038", color: "#fff", cursor: "pointer", width: "100%" }}>
+                  <span style={{ width: 20, height: 20, borderRadius: 5, border: on ? "none" : "2px solid #4a5d7e", background: on ? "#5fa8d3" : "transparent", color: "#06283a", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, flex: "0 0 auto", fontSize: 13 }}>{on ? "✓" : ""}</span>
+                  <span style={{ fontWeight: 700, fontSize: 15 }}>{r.name}</span>
+                </button>
+              );
+            })}
+          </div>
+          {baselineMode && (
+            <button type="button" onClick={saveBaseline} disabled={saving || !baselinePick.size}
+              style={{ width: "100%", marginTop: 12, padding: "14px", borderRadius: 12, border: "none", background: "#5fa8d3", color: "#06283a", fontWeight: 800, fontSize: 16, cursor: "pointer", opacity: (saving || !baselinePick.size) ? 0.5 : 1 }}>
+              {saving ? "Saving…" : `Mark ${baselinePick.size} as ridden before`}
+            </button>
+          )}
         </>
       )}
       {realReps.length === 0 && <div style={{ padding: "28px 8px", textAlign: "center", color: "#9fb3d1" }}>No active reps.</div>}
@@ -4966,6 +5007,7 @@ function TrainingReport() {
     const { data, error } = await supabase
       .from("ride_alongs")
       .select("ride_date,rep_id,rep_name,trainer_name,rep_phone,text_sent_at,confirmed,start_time,end_time,decline_reason,refused_to_ride,trainer_note,responded_at")
+      .not("baseline", "is", true) // hide baseline seeds — they aren't real rides
       .gte("ride_date", from).lte("ride_date", to)
       .order("ride_date", { ascending: false }).order("rep_name", { ascending: true });
     if (error) { setErr(error.message); setRows([]); return; }
