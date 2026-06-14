@@ -60,7 +60,12 @@ export const handler = async (event) => {
 
   const qp = event?.queryStringParameters || {};
   const dry = qp.dry === "1";
-  const targetYmd = (qp.date && /^\d{4}-\d{2}-\d{2}$/.test(qp.date)) ? qp.date : prevEtYmd();
+  // Rolling window: re-flag EVERY still-unfixed sold deal from the last N days
+  // (default 30) every day — not just yesterday's — so a deal sold days ago
+  // that's still broken keeps nagging the manager until it's actually fixed.
+  const lookbackDays = Math.min(Math.max(parseInt(qp.days, 10) || 30, 1), 120);
+  const nowSec = Math.floor(Date.now() / 1000);
+  const windowStartSec = nowSec - lookbackDays * 86400;
 
   // Send gating + extra recipients (scheduled runs). Dry runs never send.
   // The detailed missing-info goes to the REGIONAL MANAGER (not the rep).
@@ -80,15 +85,14 @@ export const handler = async (event) => {
     if (tmsSubs.length) extraRecipients = extraRecipients.concat(tmsSubs);
   }
 
-  // 1. Pull recent jobs (sold yesterday → updated yesterday). 4-day pad.
-  const sinceSec = Math.floor(Date.now() / 1000) - 4 * 24 * 60 * 60;
+  // 1. Pull sold jobs across the whole window (+2-day pad on the JN fetch).
+  const sinceSec = windowStartSec - 2 * 86400;
   const jobs = await fetchSoldJobs(jnHeaders, sinceSec);
 
-  // 2. Keep jobs whose Sold Date (ET) == target day AND status is "sold".
+  // 2. Keep jobs sold WITHIN the window with a "sold" status.
   const sold = jobs.filter((j) => {
     const sd = soldDateSec(j);
-    if (sd == null) return false;
-    if (etYMD(new Date(sd * 1000)) !== targetYmd) return false;
+    if (sd == null || sd < windowStartSec) return false;
     const status = String(j.status_name || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
     return SOLD_STATUSES.has(status);
   });
@@ -104,6 +108,7 @@ export const handler = async (event) => {
         customer: (j.primary && j.primary.name ? String(j.primary.name).replace(/\s+/g, " ").trim() : "—"),
         rep_id: j.sales_rep || null,
         rep_name: (j.sales_rep_name || "").trim() || "(no rep)",
+        sold: (() => { const sd = soldDateSec(j); return sd ? etYMD(new Date(sd * 1000)) : null; })(),
         missing: issues.missing,
         errors: issues.errors,
       });
@@ -149,14 +154,14 @@ export const handler = async (event) => {
       ...extraRecipients,
     ]);
     for (const a of adminPhones) {
-      const r = await sendSms(base, a, "Admin", adminMessage(targetYmd, flagged, notified, noZone));
+      const r = await sendSms(base, a, "Admin", adminMessage(lookbackDays, flagged, notified, noZone));
       notified.admin.push({ to: a, ok: r.ok, error: r.error });
     }
   }
 
   return json(200, {
     ok: true,
-    date: targetYmd,
+    window_days: lookbackDays,
     dry,
     sent: !dry && sendAtAll,
     extra_recipients: extraRecipients,
@@ -190,18 +195,18 @@ function issueLines(f) {
 // Regional manager gets the FULL per-deal detail for their zone (rep,
 // customer, job, and exactly what's missing/wrong). Reps are NOT texted.
 function managerMessage(zone, list) {
-  let s = `🗂 ${zone} — ${list.length} sale${list.length === 1 ? "" : "s"} from yesterday need fixing:\n`;
+  let s = `🗂 ${zone} — ${list.length} sale${list.length === 1 ? "" : "s"} STILL need fixing:\n`;
   list.forEach((f) => {
-    s += `\n— ${f.rep_name} · ${f.customer}\nJob: ${f.name}\n${issueLines(f)}\n`;
+    s += `\n— ${f.rep_name} · ${f.customer}${f.sold ? ` · sold ${f.sold}` : ""}\nJob: ${f.name}\n${issueLines(f)}\n`;
   });
   return s.trim() + "\n\nHave the rep correct their items in JobNimbus. 👔 Start date items are yours to fix — reps don't touch Start date.";
 }
 
-function adminMessage(date, flagged, notified, noZone) {
-  let s = `📊 Sales audit ${date}: ${flagged.length} record(s) need fixing.\n`;
+function adminMessage(days, flagged, notified, noZone) {
+  let s = `📊 Sales audit (last ${days} days): ${flagged.length} sold deal(s) still need fixing.\n`;
   flagged.forEach((f) => {
     const n = f.missing.length + f.errors.length;
-    s += `\n• ${f.customer} — ${f.rep_name} (${f.name}) — ${n} issue${n === 1 ? "" : "s"}`;
+    s += `\n• ${f.customer} — ${f.rep_name} (${f.name})${f.sold ? ` · sold ${f.sold}` : ""} — ${n} issue${n === 1 ? "" : "s"}`;
   });
   const mgrOk = (notified.managers || []).filter((m) => m.ok).map((m) => m.zone);
   const mgrBad = (notified.managers || []).filter((m) => !m.ok).map((m) => `${m.zone} (${m.error})`);
