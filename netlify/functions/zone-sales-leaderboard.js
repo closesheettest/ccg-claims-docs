@@ -112,10 +112,11 @@ export const handler = async (event) => {
     if (qp.probe) {
       const terms = qp.probe.toLowerCase().split(',').map((t) => t.trim()).filter(Boolean)
       const hits = jobs.filter((j) => terms.some((t) => `${j.name || ''}`.toLowerCase().includes(t)))
+      const et = (sec) => (sec ? new Date(sec * 1000).toLocaleString('en-US', { timeZone: 'America/New_York' }) : null)
       return cors(200, JSON.stringify(hits.map((j) => ({
-        name: j.name, status: j.status_name, rep: j.sales_rep_name, location: j.location && j.location.id,
-        source: j.source_name, cf_date_5: j.cf_date_5, sold_date_field: j['Sold Date'] ?? null,
-        approved_estimate_total: j.approved_estimate_total, record_type_name: j.record_type_name,
+        name: j.name, status: j.status_name, rep: j.sales_rep_name,
+        sold_cf_date_5: et(j.cf_date_5), date_start: et(j.date_start), date_status_change: et(j.date_status_change),
+        date_created: et(j.date_created),
       })), null, 2))
     }
 
