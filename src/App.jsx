@@ -4593,6 +4593,9 @@ function TrainingPickerPage({ token }) {
 
   const q = search.trim().toLowerCase();
   const shown = q ? reps.filter((r) => r.name.toLowerCase().includes(q)) : reps;
+  // Active reps who've never signed a single inspection — they need to go back
+  // out, so surface them up top as a quick-pick list for William.
+  const neverSigned = reps.filter((r) => r.neverSigned && r.id !== "test:rep");
 
   return (
     <div style={wrap}>
@@ -4603,6 +4606,25 @@ function TrainingPickerPage({ token }) {
           <div style={{ fontSize: 19, fontWeight: 800, color: "#0a1730", marginTop: 8 }}>Check off who is riding with you today for training</div>
           <div style={{ fontSize: 14, fontWeight: 700, color: "#5a4500", marginTop: 6 }}>👍 You can pick more than one</div>
         </div>
+        {/* Reps who've never signed an inspection — they need to go back out.
+            Tap a name to add them to today's riders. */}
+        {neverSigned.length > 0 && (
+          <div style={{ margin: "14px 0 2px", border: "1px solid #e0664a", borderRadius: 14, background: "rgba(224,102,74,.12)", padding: "14px 14px 12px" }}>
+            <div style={{ fontSize: 16, fontWeight: 900, color: "#ffd2c5" }}>🎯 Take these reps out — {neverSigned.length} haven't signed a single inspection yet</div>
+            <div style={{ fontSize: 13, color: "#f0b6a6", margin: "4px 0 10px" }}>They need to get back out in the field. Tap a name to add them to today.</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {neverSigned.map((r) => {
+                const on = picked.has(r.id);
+                return (
+                  <button key={r.id} type="button" onClick={() => toggle(r.id)}
+                    style={{ padding: "7px 12px", borderRadius: 999, border: on ? "none" : "1px solid #e0664a", background: on ? "#27c46b" : "rgba(224,102,74,.18)", color: on ? "#06281a" : "#ffd2c5", fontWeight: 800, fontSize: 14, cursor: "pointer" }}>
+                    {on ? "✓ " : ""}{r.name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
         {/* This week — tap a day to schedule / log it. Counts show who's set. */}
         {week && (
           <>
@@ -4666,7 +4688,7 @@ function TrainingPickerPage({ token }) {
                             style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 12, textAlign: "left", padding: "13px 14px", border: "none", background: "transparent", color: "#fff", cursor: "pointer", fontSize: 16 }}>
                             <span style={{ width: 22, height: 22, borderRadius: 6, border: on ? "none" : "2px solid #4a5d7e", background: on ? "#F5B400" : "transparent", color: "#0a1730", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, flex: "0 0 auto" }}>{on ? "✓" : ""}</span>
                             <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-                              <span style={{ fontWeight: on ? 700 : 500 }}>{r.name}{!r.phone ? <span style={{ color: "#ffb3c0", fontSize: 12 }}> · no phone</span> : ""}</span>
+                              <span style={{ fontWeight: on ? 700 : 500 }}>{r.name}{r.neverSigned && r.id !== "test:rep" ? <span style={{ color: "#ffb86b", fontSize: 11, fontWeight: 800 }}> · 🎯 0 inspections</span> : ""}{!r.phone ? <span style={{ color: "#ffb3c0", fontSize: 12 }}> · no phone</span> : ""}</span>
                               <span style={{ fontSize: 12, color: "#8aa0c0" }}>{r.county ? `${r.county} County` : "No county set"}</span>
                               {refused
                                 ? <span style={{ fontSize: 12, color: "#ff9aab" }}>✋ Wouldn't ride{refusedNote ? ` — ${refusedNote}` : ""}</span>

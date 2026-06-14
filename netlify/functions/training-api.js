@@ -73,6 +73,10 @@ async function doInit(body) {
   }
   for (const r of reps) r.last = lastByRep[r.id] || null;
 
+  // Flag active reps who have NEVER signed a single inspection (all-time) —
+  // these reps need to go back out, so William should prioritize them.
+  await markNeverSigned(reps);
+
   return cors(200, JSON.stringify({ ok: true, date, reps, picks }));
 }
 
@@ -320,6 +324,49 @@ async function fetchActiveReps() {
 
 function slug(s) {
   return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, "-");
+}
+
+// Mutates `reps`, setting r.neverSigned = true on any active rep with ZERO
+// signed inspections all-time (cancelled excluded). Matches a rep to the
+// inspections table the same way the leaderboard does — bridge the TMS rep
+// (JN id / name) → CCG sales_reps id, then check both sales_rep_id and
+// sales_rep_name — so a name variant alone can't falsely flag a real signer.
+async function markNeverSigned(reps) {
+  const insp = await sbGet(`inspections?cancelled_at=is.null&select=sales_rep_id,sales_rep_name&limit=10000`);
+  const signedIds = new Set();
+  const signedNames = new Set();
+  for (const r of insp) {
+    if (r.sales_rep_id != null && r.sales_rep_id !== "") signedIds.add(String(r.sales_rep_id));
+    if (r.sales_rep_name) signedNames.add(normName(r.sales_rep_name));
+  }
+  const ccg = await sbGet(`sales_reps?select=id,name,jobnimbus_id&limit=2000`);
+  const ccgIdByJn = {};
+  const ccgIdByName = {};
+  for (const s of ccg) {
+    if (s.jobnimbus_id) ccgIdByJn[String(s.jobnimbus_id)] = String(s.id);
+    if (s.name) ccgIdByName[normName(s.name)] = String(s.id);
+  }
+  for (const r of reps) {
+    if (r.id === TEST_REP_ID) { r.neverSigned = false; continue; }
+    const nn = normName(r.name);
+    const jn = String(r.id).startsWith("name:") ? null : String(r.id);
+    const ccgId = (jn && ccgIdByJn[jn]) || ccgIdByName[nn] || null;
+    const hasSigned = (ccgId && signedIds.has(ccgId)) || signedNames.has(nn);
+    r.neverSigned = !hasSigned;
+  }
+}
+
+// Same name normalization the leaderboard / weekly report use, so variants
+// ('James "Jimmy" Bates' → 'james bates') collapse identically.
+function normName(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/["“”]([^"“”]*)["“”]/g, "")
+    .replace(/'([^']*)'/g, "")
+    .replace(/\(([^)]*)\)/g, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 async function sbGet(path) {
