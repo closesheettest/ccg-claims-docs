@@ -39,6 +39,8 @@ exports.handler = async (event) => {
   try {
     if (action === "init") return await doInit(body);
     if (action === "save") return await doSave(body);
+    if (action === "week") return await doWeek(body);
+    if (action === "note") return await doNote(body);
     if (action === "get") return await doGet(body);
     if (action === "confirm") return await doConfirm(body);
     return cors(400, JSON.stringify({ ok: false, error: `Unknown action "${action}"` }));
@@ -58,7 +60,7 @@ async function doInit(body) {
   // goes to you, never a real rep.
   reps.push({ id: TEST_REP_ID, name: TEST_REP_NAME, phone: (await readSetting("training_test_phone")) || null });
 
-  const picks = await sbGet(`ride_alongs?ride_date=eq.${date}&select=rep_id,rep_name,confirmed,start_time,end_time,decline_reason,refused_to_ride,text_sent_at&limit=500`);
+  const picks = await sbGet(`ride_alongs?ride_date=eq.${date}&select=rep_id,rep_name,confirmed,start_time,end_time,decline_reason,refused_to_ride,trainer_note,text_sent_at&limit=500`);
 
   // Each rep's most recent PRIOR ride-along date (ignore the day being edited),
   // so William can see who he hasn't taken out in a while.
@@ -185,6 +187,56 @@ async function notifyManagerOfRefusal(rep, note) {
     const r = await fetch(`${base}/.netlify/functions/ghl-sms`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: mgr.phone, name: mgr.name, message }) });
     return r.ok;
   } catch { return false; }
+}
+
+// Week overview: per-day counts for the Mon–Sun week containing `weekStart`
+// (or this week). Powers William's week strip so he can schedule ahead.
+async function doWeek(body) {
+  if (!(await validTrainer(body.token))) return cors(403, JSON.stringify({ ok: false, error: "Invalid or expired link" }));
+  const start = normDate(body.weekStart) || mondayET();
+  const end = addDaysISO(start, 6);
+  const rows = await sbGet(`ride_alongs?ride_date=gte.${start}&ride_date=lte.${end}&select=ride_date,rep_id,refused_to_ride&limit=2000`);
+  const byDay = {};
+  for (const r of rows) {
+    const d = r.ride_date;
+    const b = (byDay[d] = byDay[d] || { rode: 0, refused: 0, none: 0 });
+    if (String(r.rep_id) === NONE_ID) b.none++;
+    else if (r.refused_to_ride) b.refused++;
+    else b.rode++;
+  }
+  const days = [];
+  for (let i = 0; i < 7; i++) { const d = addDaysISO(start, i); days.push({ date: d, ...(byDay[d] || { rode: 0, refused: 0, none: 0 }) }); }
+  return cors(200, JSON.stringify({ ok: true, weekStart: start, days }));
+}
+
+// Trainer's end-of-day note on how it went with a rep.
+async function doNote(body) {
+  if (!(await validTrainer(body.token))) return cors(403, JSON.stringify({ ok: false, error: "Invalid or expired link" }));
+  const date = normDate(body.date);
+  const repId = String(body.repId || "");
+  const note = (body.note || "").trim() || null;
+  if (!date || !repId) return cors(400, JSON.stringify({ ok: false, error: "date + repId required" }));
+  const r = await fetch(`${SB_URL}/rest/v1/ride_alongs?ride_date=eq.${date}&rep_id=eq.${encodeURIComponent(repId)}`, {
+    method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify({ trainer_note: note }),
+  });
+  if (!r.ok) return cors(502, JSON.stringify({ ok: false, error: "Could not save note" }));
+  return cors(200, JSON.stringify({ ok: true }));
+}
+
+// Monday (ET) of the current week, YYYY-MM-DD.
+function mondayET() {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+  const get = (t) => parts.find((p) => p.type === t)?.value;
+  const DOW = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  const dow = DOW[get("weekday")] ?? 0;
+  const d = new Date(`${get("year")}-${get("month")}-${get("day")}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - (dow === 0 ? 6 : dow - 1));
+  return d.toISOString().slice(0, 10);
+}
+function addDaysISO(ymd, n) {
+  const d = new Date(`${ymd}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
 }
 
 // Build + send a rep's confirm text now (used for back-dated saves).

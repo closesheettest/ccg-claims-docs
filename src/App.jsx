@@ -4482,6 +4482,8 @@ function TrainingPickerPage({ token }) {
   const [noneMode, setNoneMode] = useState(false);
   const [noneReason, setNoneReason] = useState("");
   const [refusals, setRefusals] = useState({}); // rep id -> "wouldn't ride" note
+  const [week, setWeek] = useState(null);       // [{date, rode, refused, none}]
+  const [notes, setNotes] = useState({});       // rep id -> trainer "how it went" note
 
   const load = async (forDate) => {
     setLoading(true); setErr("");
@@ -4510,11 +4512,39 @@ function TrainingPickerPage({ token }) {
         }
         setPicked(pickedSet); setRefusals(refMap);
       }
+      // Trainer "how it went" notes, keyed by rep id.
+      const noteMap = {};
+      for (const p of pk) { if (p.trainer_note) noteMap[String(p.rep_id)] = p.trainer_note; }
+      setNotes(noteMap);
       setSavedAt(null);
       setLoading(false);
     } catch { setErr("Network error."); setLoading(false); }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [token]);
+  const loadWeek = async () => {
+    try {
+      const res = await fetch("/.netlify/functions/training-api", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "week", token }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok && d.ok) setWeek(d.days || []);
+    } catch { /* week strip is best-effort */ }
+  };
+  useEffect(() => { load(); loadWeek(); /* eslint-disable-next-line */ }, [token]);
+
+  // End-of-day note on how it went with a rep who rode.
+  const editNote = async (id, name) => {
+    const cur = notes[id] || "";
+    const note = window.prompt(`How did training go with ${name}?`, cur);
+    if (note === null) return;
+    setNotes((prev) => ({ ...prev, [id]: note.trim() }));
+    try {
+      await fetch("/.netlify/functions/training-api", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "note", token, date, repId: id, note: note.trim() }),
+      });
+    } catch { /* non-fatal */ }
+  };
 
   const toggle = (id) => {
     setNoneMode(false);
@@ -4539,7 +4569,7 @@ function TrainingPickerPage({ token }) {
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok || !d.ok) { setErr(d.error || "Save failed."); setSaving(false); return; }
-      setSavedAt({ none: true }); setSaving(false);
+      setSavedAt({ none: true }); setSaving(false); loadWeek();
     } catch { setErr("Network error."); setSaving(false); }
   };
 
@@ -4552,7 +4582,7 @@ function TrainingPickerPage({ token }) {
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok || !d.ok) { setErr(d.error || "Save failed."); setSaving(false); return; }
-      setSavedAt(d); setSaving(false);
+      setSavedAt(d); setSaving(false); loadWeek();
     } catch { setErr("Network error."); setSaving(false); }
   };
 
@@ -4573,7 +4603,30 @@ function TrainingPickerPage({ token }) {
           <div style={{ fontSize: 19, fontWeight: 800, color: "#0a1730", marginTop: 8 }}>Check off who is riding with you today for training</div>
           <div style={{ fontSize: 14, fontWeight: 700, color: "#5a4500", marginTop: 6 }}>👍 You can pick more than one</div>
         </div>
-        <label style={{ display: "block", margin: "16px 0 4px", fontSize: 12, color: "#9fb3d1", textTransform: "uppercase", letterSpacing: ".05em" }}>Day</label>
+        {/* This week — tap a day to schedule / log it. Counts show who's set. */}
+        {week && (
+          <>
+            <div style={{ margin: "16px 0 6px", fontSize: 12, color: "#9fb3d1", textTransform: "uppercase", letterSpacing: ".05em" }}>This week — tap a day to schedule</div>
+            <div style={{ display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 2 }}>
+              {week.map((d) => {
+                const sel = d.date === date;
+                const total = (d.rode || 0) + (d.refused || 0);
+                const dt = new Date(d.date + "T12:00:00Z");
+                const wd = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short" }).format(dt);
+                const dn = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", day: "numeric" }).format(dt);
+                return (
+                  <button key={d.date} type="button" onClick={() => load(d.date)}
+                    style={{ flex: "1 0 auto", minWidth: 56, padding: "8px 6px", borderRadius: 10, border: sel ? "2px solid #F5B400" : "1px solid #2a3b57", background: sel ? "rgba(245,180,0,.14)" : "#0f2038", color: "#fff", cursor: "pointer", textAlign: "center" }}>
+                    <div style={{ fontSize: 11, color: "#9fb3d1" }}>{wd}</div>
+                    <div style={{ fontSize: 18, fontWeight: 800 }}>{dn}</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: d.none ? "#9aa0a6" : total ? "#27c46b" : "#3a4d6e" }}>{d.none ? "none" : total ? `${total}` : "—"}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
+        <label style={{ display: "block", margin: "16px 0 4px", fontSize: 12, color: "#9fb3d1", textTransform: "uppercase", letterSpacing: ".05em" }}>Day (or pick another date)</label>
         <input type="date" value={date} onChange={(e) => load(e.target.value)}
           style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #2a3b57", background: "#0f2038", color: "#fff", fontSize: 16 }} />
         {noneMode ? (
@@ -4617,11 +4670,18 @@ function TrainingPickerPage({ token }) {
                               <span style={{ fontSize: 12, color: "#8aa0c0" }}>{r.county ? `${r.county} County` : "No county set"}</span>
                               {refused
                                 ? <span style={{ fontSize: 12, color: "#ff9aab" }}>✋ Wouldn't ride{refusedNote ? ` — ${refusedNote}` : ""}</span>
-                                : <span style={{ fontSize: 12, color: r.last ? "#7f93b3" : "#5fa8d3" }}>{r.last ? `Last rode ${fmtShortDate(r.last)}` : "Hasn't ridden with you yet"}</span>}
+                                : on && notes[r.id]
+                                  ? <span style={{ fontSize: 12, color: "#7fd1a0" }}>📝 {notes[r.id]}</span>
+                                  : <span style={{ fontSize: 12, color: r.last ? "#7f93b3" : "#5fa8d3" }}>{r.last ? `Last rode ${fmtShortDate(r.last)}` : "Hasn't ridden with you yet"}</span>}
                             </span>
                           </button>
                           {on ? (
-                            <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", padding: "0 16px", borderLeft: "1px solid #1a2942", background: "rgba(39,196,107,.22)", color: "#27c46b", fontWeight: 900, fontSize: 14, letterSpacing: ".06em" }}>✓ RODE</div>
+                            <button type="button" onClick={() => editNote(r.id, r.name)} title="Add a note on how it went"
+                              style={{ flex: "0 0 auto", minWidth: 86, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 12px", border: "none", borderLeft: "1px solid #1a2942", background: "rgba(39,196,107,.22)", color: "#27c46b", cursor: "pointer" }}>
+                              <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".05em" }}>✓ RODE</span>
+                              <span style={{ fontSize: 15, fontWeight: 900 }}>{fmtShortDate(date)}</span>
+                              <span style={{ fontSize: 10, color: notes[r.id] ? "#bdf0d2" : "#1f7a4d" }}>{notes[r.id] ? "📝 edit note" : "+ note"}</span>
+                            </button>
                           ) : (
                             <button type="button" onClick={() => markRefused(r.id, r.name)} title="Tried but they wouldn't ride"
                               style={{ flex: "0 0 auto", padding: "0 14px", border: "none", borderLeft: "1px solid #1a2942", background: refused ? "rgba(184,50,79,.35)" : "transparent", color: refused ? "#ffd9e0" : "#6b7f9e", fontSize: 18, cursor: "pointer" }}>✋</button>
@@ -4781,7 +4841,7 @@ function TrainingReport() {
     setErr("");
     const { data, error } = await supabase
       .from("ride_alongs")
-      .select("ride_date,rep_id,rep_name,trainer_name,rep_phone,text_sent_at,confirmed,start_time,end_time,decline_reason,refused_to_ride,responded_at")
+      .select("ride_date,rep_id,rep_name,trainer_name,rep_phone,text_sent_at,confirmed,start_time,end_time,decline_reason,refused_to_ride,trainer_note,responded_at")
       .gte("ride_date", from).lte("ride_date", to)
       .order("ride_date", { ascending: false }).order("rep_name", { ascending: true });
     if (error) { setErr(error.message); setRows([]); return; }
@@ -4938,7 +4998,7 @@ function TrainingReport() {
                 <tr key={i}>
                   <td style={cell}>{fmtShort(r.ride_date)}</td>
                   <td style={{ ...cell, fontWeight: 600 }}>{r.rep_name}</td>
-                  <td style={{ ...cell, color: s.c, fontWeight: 600 }}>{s.t}</td>
+                  <td style={{ ...cell, color: s.c, fontWeight: 600 }}>{s.t}{r.trainer_note ? <div style={{ color: "#475569", fontWeight: 400, fontStyle: "italic", marginTop: 2 }}>📝 {r.trainer_note}</div> : null}</td>
                 </tr>
               );
             })}
