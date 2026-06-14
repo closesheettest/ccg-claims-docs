@@ -202,11 +202,11 @@ async function doWeek(body) {
   const thisMon = normDate(body.weekStart) || mondayET();
   const nextMon = addDaysISO(thisMon, 7);
   const rangeEnd = addDaysISO(nextMon, 6); // end of next week
-  const rows = await sbGet(`ride_alongs?ride_date=gte.${thisMon}&ride_date=lte.${rangeEnd}&select=ride_date,rep_id,refused_to_ride,baseline&limit=4000`);
+  const rows = await sbGet(`ride_alongs?ride_date=gte.${thisMon}&ride_date=lte.${rangeEnd}&select=ride_date,rep_id,refused_to_ride&limit=4000`);
   const byDay = {};
   for (const r of rows) {
-    if (r.baseline) continue; // baseline seeds aren't real rides — don't count them
-    const d = r.ride_date;
+    const d = r.ride_date; // baseline rows are dated to the earliest record — out of this window
+
     const b = (byDay[d] = byDay[d] || { rode: 0, refused: 0, none: 0 });
     if (String(r.rep_id) === NONE_ID) b.none++;
     else if (r.refused_to_ride) b.refused++;
