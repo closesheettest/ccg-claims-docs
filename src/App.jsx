@@ -4688,7 +4688,7 @@ function TrainingPickerPage({ token }) {
                       style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 12, textAlign: "left", padding: "13px 14px", border: "none", background: "transparent", color: "#fff", cursor: "pointer", fontSize: 16 }}>
                       <span style={{ width: 22, height: 22, borderRadius: 6, border: on ? "none" : "2px solid #4a5d7e", background: on ? colGreen : "transparent", color: "#06281a", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, flex: "0 0 auto" }}>{on ? "✓" : ""}</span>
                       <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-                        <span style={{ fontWeight: on ? 700 : 500 }}>{r.name}{r.neverSigned && r.id !== "test:rep" ? <span style={{ color: "#ffb86b", fontSize: 11, fontWeight: 800 }}> · needs 1st</span> : ""}{!r.phone ? <span style={{ color: "#ffb3c0", fontSize: 12 }}> · no phone</span> : ""}</span>
+                        <span style={{ fontWeight: on ? 700 : 500 }}>{r.name}{r.neverSigned && r.id !== "test:rep" ? <span style={{ color: "#ffb86b", fontSize: 11, fontWeight: 800 }}> · hasn't signed anyone yet</span> : ""}{!r.phone ? <span style={{ color: "#ffb3c0", fontSize: 12 }}> · no phone</span> : ""}</span>
                         {refused
                           ? <span style={{ fontSize: 12, color: "#ff9aab" }}>✋ Wouldn't ride{refusedNote ? ` — ${refusedNote}` : ""}</span>
                           : on && notes[r.id]
@@ -4782,7 +4782,7 @@ function TrainingPickerPage({ token }) {
         style={{ display: "flex", alignItems: "center", gap: 10, textAlign: "left", padding: "10px 12px", borderRadius: 10, border: "1px solid #2a3b57", background: on ? "rgba(39,196,107,.14)" : "#0f2038", color: "#fff", cursor: "pointer", width: "100%" }}>
         <span style={{ width: 20, height: 20, borderRadius: 5, border: on ? "none" : "2px solid #4a5d7e", background: on ? colGreen : "transparent", color: "#06281a", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, flex: "0 0 auto", fontSize: 13 }}>{on ? "✓" : ""}</span>
         <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-          <span style={{ fontWeight: 700, fontSize: 15 }}>{r.name}{r.neverSigned ? <span style={{ color: "#ffb86b", fontSize: 11, fontWeight: 800 }}> · needs 1st inspection</span> : ""}</span>
+          <span style={{ fontWeight: 700, fontSize: 15 }}>{r.name}{r.neverSigned ? <span style={{ color: "#ffb86b", fontSize: 11, fontWeight: 800 }}> · hasn't signed anyone yet</span> : ""}</span>
           <span style={{ fontSize: 12, color: subColor }}>{sub}</span>
         </span>
       </button>
