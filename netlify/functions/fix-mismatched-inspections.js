@@ -56,7 +56,7 @@ exports.handler = async (event) => {
   const stage = body.stage === "B" ? "B" : "A";
   try {
     if (stage === "A") return json(200, { ok: true, stage: "A", results: await stageA() });
-    return json(200, { ok: true, stage: "B", apply: !!body.apply, results: await stageB(!!body.apply) });
+    return json(200, { ok: true, stage: "B", apply: !!body.apply, results: await stageB(!!body.apply, body.deleteIds) });
   } catch (e) {
     return json(500, { ok: false, error: e.message || "error" });
   }
@@ -124,26 +124,40 @@ async function stageA() {
   return out;
 }
 
-// ── Stage B — remove the mis-uploaded certs from the neighbor jobs ───────
-async function stageB(apply) {
+// ── Stage B — inspect / remove documents on the neighbor jobs ────────────
+// Dry-run (apply falsey): lists EVERY document on each neighbor job with its
+// filename + created date + id, so we can identify the mis-uploaded cert by
+// eye (filenames may carry the neighbor's name, not the homeowner's, because
+// the original cert generator picked whichever row shared the job id).
+// To delete: pass { stage:"B", apply:true, deleteIds:["<file jnid>", …] } —
+// only those exact file ids are removed.
+async function stageB(apply, deleteIds) {
   const out = [];
+  const wantDelete = new Set((deleteIds || []).map(String));
   for (const t of TARGETS) {
-    const step = { neighbor: t.neighborLabel, neighborJnid: t.neighborJnid, token: t.wrongNameToken };
+    const step = { neighbor: t.neighborLabel, neighborJnid: t.neighborJnid };
     try {
       const r = await fetch(`${JN_BASE}/files?related=${encodeURIComponent(t.neighborJnid)}&type=1&size=50`, { headers: jnHeaders });
       const d = await r.json().catch(() => ({}));
       const files = d.files || d.results || d.items || [];
-      const tok = t.wrongNameToken.toLowerCase();
-      // Only files whose name carries the WRONG homeowner's name — never the
-      // neighbor's own cert.
-      const wrong = files.filter((f) => (f.filename || "").toLowerCase().includes(tok));
-      step.candidates = wrong.map((f) => ({ jnid: f.jnid || f.id, filename: f.filename }));
-      if (!apply) { step.dryRun = true; out.push(step); continue; }
-      step.deleted = [];
-      for (const f of wrong) {
-        const fid = f.jnid || f.id;
-        const del = await fetch(`${JN_BASE}/files/${encodeURIComponent(fid)}`, { method: "DELETE", headers: jnHeaders });
-        step.deleted.push({ jnid: fid, filename: f.filename, status: del.status, ok: del.ok });
+      step.documents = files.map((f) => ({
+        jnid: f.jnid || f.id,
+        filename: f.filename,
+        description: f.description,
+        date_created: f.date_created,
+        created_et: f.date_created ? new Date(f.date_created * 1000).toLocaleString("en-US", { timeZone: "America/New_York" }) : null,
+      }));
+      if (apply && wantDelete.size) {
+        step.deleted = [];
+        for (const f of files) {
+          const fid = String(f.jnid || f.id);
+          if (!wantDelete.has(fid)) continue;
+          const del = await fetch(`${JN_BASE}/files/${encodeURIComponent(fid)}`, { method: "DELETE", headers: jnHeaders });
+          const body = await del.text().catch(() => "");
+          step.deleted.push({ jnid: fid, filename: f.filename, status: del.status, ok: del.ok, body: body.slice(0, 150) });
+        }
+      } else {
+        step.dryRun = true;
       }
     } catch (e) {
       step.error = e.message;
