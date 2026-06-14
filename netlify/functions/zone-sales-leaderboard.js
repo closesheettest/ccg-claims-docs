@@ -107,19 +107,6 @@ export const handler = async (event) => {
     const since = Math.floor(startMs / 1000) - 2 * 24 * 60 * 60
     const jobs = await fetchSoldJobs(since)
 
-    // Temp probe: ?probe=a,b → dump fields for matching jobs to compare why
-    // JN's saved report excludes some.
-    if (qp.probe) {
-      const terms = qp.probe.toLowerCase().split(',').map((t) => t.trim()).filter(Boolean)
-      const hits = jobs.filter((j) => terms.some((t) => `${j.name || ''}`.toLowerCase().includes(t)))
-      const et = (sec) => (sec ? new Date(sec * 1000).toLocaleString('en-US', { timeZone: 'America/New_York' }) : null)
-      return cors(200, JSON.stringify(hits.map((j) => ({
-        name: j.name, status: j.status_name, rep: j.sales_rep_name,
-        sold_cf_date_5: et(j.cf_date_5), date_start: et(j.date_start), date_status_change: et(j.date_status_change),
-        date_created: et(j.date_created),
-      })), null, 2))
-    }
-
     const zoneOf = await fetchZoneResolver()
 
     const counts = {}
