@@ -60,6 +60,16 @@ export const handler = async (event) => {
   // 1. Pull jobs BY sold status (server-side filter) so no sold deal is lost
   //    to a scan cap; then keep those actually sold within the window.
   const jobs = await fetchSoldJobs(jnHeaders, sinceSec);
+
+  // Temp probe: ?probe=<term> → show why a specific job is/ isn't flagged.
+  if (qp.probe) {
+    const term = qp.probe.toLowerCase();
+    const hits = jobs.filter((j) => `${j.name || ""} ${j.sales_rep_name || ""} ${j.number || ""}`.toLowerCase().includes(term));
+    return cors(200, JSON.stringify({
+      fetched: jobs.length, matches: hits.length,
+      jobs: hits.slice(0, 5).map((j) => { const a = auditJob(j); return { name: j.name, status: j.status_name, rep: j.sales_rep_name, sold_date_field: j["Sold Date"] ?? null, cf_date_5: j.cf_date_5 ?? null, soldSec: soldDateSec(j), missing: a.missing, errors: a.errors }; }),
+    }, null, 2));
+  }
   const sold = jobs.filter((j) => {
     const sd = soldDateSec(j);
     if (sd == null || sd * 1000 < cutoffMs) return false;
