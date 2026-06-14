@@ -99,6 +99,21 @@ export function auditJob(job) {
     }
   }
 
+  // ── Deal-level checks (read the JN job directly, not custom fields) ──────
+  // $0 value: a sold deal with no dollar amount on the job (no approved
+  // estimate / invoice / budget revenue) — the estimate was never built in JN,
+  // so it shows $0 even if "Roof Price ONLY" is filled.
+  const dealValue = Math.max(
+    Number(job.approved_estimate_total) || 0,
+    Number(job.approved_invoice_total) || 0,
+    Number(job.last_budget_revenue) || 0,
+  );
+  if (dealValue <= 0) errors.push("Deal value is $0 in JobNimbus — build the estimate (no approved $ on the job)");
+
+  // No real sales rep (e.g. auto-created and left on "AI Bot", or blank).
+  const rep = String(job.sales_rep_name || "").trim();
+  if (!rep || /\bai\s*bot\b/i.test(rep)) errors.push("No real sales rep assigned (AI Bot / blank)");
+
   return { missing, errors };
 }
 
