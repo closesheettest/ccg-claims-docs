@@ -114,16 +114,14 @@ export function auditJob(job) {
   const rep = String(job.sales_rep_name || "").trim();
   if (!rep || /\bai\s*bot\b/i.test(rep)) errors.push("No real sales rep assigned (AI Bot / blank)");
 
-  // Start Date must match the Sold Date. JN's weekly reports key on Start
-  // Date, so a stale/blank Start Date hides a real sale from those reports.
+  // Start Date must not MISMATCH the Sold Date. JN's weekly reports key on
+  // Start Date, so a Start Date on a different day than the Sold Date hides /
+  // misdates the sale. Only flag when BOTH are set and differ (a blank date
+  // is fine — it just can't disagree).
   const soldSec = Number(job.cf_date_5) || Number(job["Sold Date"]) || 0;
   const startSec = Number(job.date_start) || 0;
-  if (soldSec > 0) {
-    if (startSec <= 0) {
-      errors.push("Start date is blank — set it to the Sold date");
-    } else if (ymdET(startSec) !== ymdET(soldSec)) {
-      errors.push(`Start date (${ymdET(startSec)}) doesn't match Sold date (${ymdET(soldSec)}) — update the Start date`);
-    }
+  if (soldSec > 0 && startSec > 0 && ymdET(startSec) !== ymdET(soldSec)) {
+    errors.push(`Start date (${ymdET(startSec)}) doesn't match Sold date (${ymdET(soldSec)}) — update the Start date`);
   }
 
   return { missing, errors };
