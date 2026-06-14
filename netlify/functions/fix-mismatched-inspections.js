@@ -55,7 +55,7 @@ exports.handler = async (event) => {
 
   const stage = body.stage === "B" ? "B" : "A";
   try {
-    if (stage === "A") return json(200, { ok: true, stage: "A", results: await stageA() });
+    if (stage === "A") return json(200, { ok: true, stage: "A", results: await stageA(body.inspectionIds) });
     return json(200, { ok: true, stage: "B", apply: !!body.apply, results: await stageB(!!body.apply, body.deleteIds) });
   } catch (e) {
     return json(500, { ok: false, error: e.message || "error" });
@@ -63,10 +63,16 @@ exports.handler = async (event) => {
 };
 
 // ── Stage A — create job, repoint, re-cert ──────────────────────────────
-async function stageA() {
+// Operates on the hardcoded TARGETS by default, or an explicit list of
+// inspection ids passed in the request (so a single inspection can be fixed
+// without re-running the originals, which would create duplicate jobs).
+async function stageA(inspectionIds) {
   const base = process.env.URL || process.env.DEPLOY_URL || process.env.PUBLIC_SITE_URL || "";
+  const targets = (Array.isArray(inspectionIds) && inspectionIds.length)
+    ? inspectionIds.map((id) => ({ inspectionId: String(id) }))
+    : TARGETS;
   const out = [];
-  for (const t of TARGETS) {
+  for (const t of targets) {
     const step = { inspectionId: t.inspectionId };
     try {
       const rows = await sbGet(`inspections?id=eq.${t.inspectionId}&select=id,client_name,address,city,state,zip,email,sales_rep_id,sales_rep_name,signed_at,result,jn_job_id&limit=1`);
@@ -80,14 +86,21 @@ async function stageA() {
       const contactId = await findOrCreateContact(r, name);
       step.contactId = contactId;
 
-      // 2. job — mirror the neighbor's own RETAIL inspection job.
+      // 2. job — mirror the right template for the inspection's RESULT:
+      //    retail  → Lead / location 1 (Retail) / cf "Retail" / status 599
+      //    damage/ → PA   / location 3 (Insurance) / cf "Damage"|"No Damage" /
+      //    no_dmg     status 597 — same shape jobnimbus-sync.js builds.
+      const res = String(r.result || "").toLowerCase();
+      const isRetail = res === "retail";
+      const cfLabel = isRetail ? "Retail" : res === "no_damage" ? "No Damage" : res === "damage" ? "Damage" : "Needs Inspection";
+      step.result = res;
       const jobPayload = {
         name: `${name} - ${r.address || ""}`.trim(),
-        record_type_name: "Lead",
-        status: 599,
+        record_type_name: isRetail ? "Lead" : "PA",
+        status: isRetail ? 599 : 597,
         status_name: "Sit Sold Insp",
         primary: { id: contactId },
-        location: { id: 1 }, // Retail
+        location: { id: isRetail ? 1 : 3 },
         source: 38,
         source_name: "Inspection",
         address_line1: r.address || "",
@@ -96,7 +109,7 @@ async function stageA() {
         zip: r.zip || "",
         sales_rep: r.sales_rep_id || undefined,
         owners: r.sales_rep_id ? [{ id: r.sales_rep_id }] : undefined,
-        cf_string_34: "Retail",
+        cf_string_34: cfLabel,
         cf_date_5: signedUnix,
         date_start: signedUnix,
       };
