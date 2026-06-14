@@ -3742,18 +3742,52 @@ function InspectorJobDetail({ me, jobId, onBack }) {
     try {
       const additions = await Promise.all(Array.from(files).map(async (rawFile) => {
         const file = await resizeImageForUpload(rawFile);
+        // Precompute a STABLE path + id now, so the photo can be uploaded
+        // immediately (below) and re-found in state when that upload finishes.
+        const uid = (typeof crypto !== "undefined" && crypto.randomUUID)
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const ext = ((rawFile.name || "").split(".").pop() || "jpg").toLowerCase();
+        const ts = new Date().toISOString().replace(/[:.]/g, "-");
+        const slug = labelToSlug(metadata && metadata.label);
+        const path = `${PHOTO_PATH_PREFIX}/${jobId}/${slug}_${ts}_${uid}.${ext}`;
         return {
           file,
           previewUrl: URL.createObjectURL(file),
           uploaded: false,
-          path: null,
+          uploading: true,
+          path,
+          uid,
           ...metadata,
         };
       }));
       setPhotos((prev) => [...prev, ...additions]);
+      // SAFETY COPY: upload each photo to our server (Supabase Storage) the
+      // moment it's captured — not batched at submit. So if the inspector
+      // never completes submit (crash, dead signal, app killed, or the result
+      // lands on the wrong job), the originals still live server-side under
+      // inspection-photos/<jobId>/ and can always be recovered. Fire-and-
+      // forget; submit() is the backstop that re-uploads any that didn't finish.
+      additions.forEach((p) => uploadPhotoNow(p));
     } finally {
       pendingAddsRef.current -= 1
       setPendingAdds(pendingAddsRef.current)
+    }
+  }
+
+  // Upload one already-resized photo to Storage at its precomputed path and
+  // mark it uploaded in state (matched by its stable uid). Best-effort: on
+  // failure we just clear the "uploading" flag and let submit() retry.
+  async function uploadPhotoNow(p) {
+    try {
+      const { error } = await supabase.storage
+        .from(SIGNED_BUCKET)
+        .upload(p.path, p.file, { contentType: p.file.type || "image/jpeg", upsert: true });
+      setPhotos((prev) => prev.map((x) =>
+        x.uid === p.uid ? { ...x, uploaded: !error, uploading: false } : x));
+    } catch {
+      setPhotos((prev) => prev.map((x) =>
+        x.uid === p.uid ? { ...x, uploading: false } : x));
     }
   }
 
@@ -3862,10 +3896,16 @@ function InspectorJobDetail({ me, jobId, onBack }) {
           uploadedPhotos[i] = { path: p.path, label: p.label };
           return;
         }
-        const ext = (p.file.name.split(".").pop() || "jpg").toLowerCase();
-        const ts = new Date().toISOString().replace(/[:.]/g, "-");
-        const slug = labelToSlug(p.label);
-        const path = `${PHOTO_PATH_PREFIX}/${jobId}/${slug}_${ts}_${i}.${ext}`;
+        // Reuse the stable path assigned at capture (so the file we already
+        // uploaded incrementally is the same one we reference). Fall back to a
+        // computed path only for older photo objects without one.
+        let path = p.path;
+        if (!path) {
+          const ext = (p.file.name.split(".").pop() || "jpg").toLowerCase();
+          const ts = new Date().toISOString().replace(/[:.]/g, "-");
+          const slug = labelToSlug(p.label);
+          path = `${PHOTO_PATH_PREFIX}/${jobId}/${slug}_${ts}_${i}.${ext}`;
+        }
         // Retry once on failure — phone networks blip.
         let lastErr = null;
         for (let attempt = 1; attempt <= 2; attempt++) {
