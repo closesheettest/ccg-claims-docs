@@ -4486,6 +4486,7 @@ function TrainingPickerPage({ token }) {
   const [notes, setNotes] = useState({});       // rep id -> trainer "how it went" note
   const [pickNames, setPickNames] = useState({}); // rep id -> name (from saved picks, survives roster changes)
   const [showNever, setShowNever] = useState(false); // never-signed callout collapsed by default (long on a phone)
+  const [tab, setTab] = useState("today"); // "today" | "week" | "priority" — one focused screen at a time
 
   const load = async (forDate) => {
     setLoading(true); setErr("");
@@ -4602,176 +4603,232 @@ function TrainingPickerPage({ token }) {
   // is being *scheduled*, so the wording changes from "rode" to "scheduled".
   const todayStr = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   const isFuture = !!date && date > todayStr;
+  // Priority = ride rotation. Reps who've ridden, sorted oldest-ride-first (most
+  // overdue at top); reps who've never ridden (new grads) sit at the bottom.
+  // Computed here so the tab badge and the panel stay in sync.
+  const realReps = reps.filter((r) => r.id !== "test:rep");
+  const riddenReps = realReps.filter((r) => r.last).sort((a, b) => (a.last || "").localeCompare(b.last || ""));
+  const neverRidden = realReps.filter((r) => !r.last).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const daysAgo = (ymd) => { const ms = Date.parse(todayStr + "T00:00:00Z") - Date.parse(ymd + "T00:00:00Z"); return Number.isFinite(ms) ? Math.max(0, Math.round(ms / 864e5)) : null; };
+
+  // One focused screen at a time. switchTab keeps the Today screen on today's
+  // date; pickFromPriority adds a never-signed rep to today and jumps there.
+  const switchTab = (t) => { setTab(t); if (t === "today" && date !== todayStr) load(todayStr); };
+  const pickFromPriority = async (id) => { if (date !== todayStr) await load(todayStr); setPicked((p) => { const n = new Set(p); n.add(String(id)); return n; }); setTab("today"); };
+  const colGreen = "#27c46b";
+  const tabBtn = (key, label) => (
+    <button type="button" key={key} onClick={() => switchTab(key)}
+      style={{ textAlign: "center", fontSize: 13, fontWeight: tab === key ? 800 : 500, padding: "9px 4px", borderRadius: 8, border: "none", cursor: "pointer", background: tab === key ? "#1c3354" : "transparent", color: tab === key ? "#fff" : "#9fb3d1" }}>{label}</button>
+  );
+
+  // "Going today" / scheduled / who-went chips.
+  const goingChips = !noneMode && (picked.size > 0 || Object.keys(refusals).length > 0) ? (
+    <div style={{ marginTop: 12, border: "1px solid " + colGreen, borderRadius: 12, background: "rgba(39,196,107,.08)", padding: "12px 14px" }}>
+      <div style={{ fontSize: 12, color: "#9fb3d1", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 8 }}>
+        {isFuture ? "📅 Scheduled" : date === todayStr ? "Going today" : "✓ Who went out"}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {[...picked].map((id) => { const nm = pickNames[id] || (reps.find((x) => String(x.id) === String(id)) || {}).name || id; return <span key={id} style={{ padding: "5px 11px", borderRadius: 999, background: "rgba(39,196,107,.20)", color: "#9fe7bd", fontWeight: 700, fontSize: 14 }}>{nm}</span>; })}
+        {Object.keys(refusals).map((id) => { const nm = pickNames[id] || (reps.find((x) => String(x.id) === String(id)) || {}).name || id; return <span key={id} style={{ padding: "5px 11px", borderRadius: 999, background: "rgba(184,50,79,.20)", color: "#ff9aab", fontWeight: 700, fontSize: 14 }}>✋ {nm}</span>; })}
+      </div>
+    </div>
+  ) : null;
+
+  // The day editor body: the "no one rode" reason, or the searchable team-
+  // grouped rep checklist.
+  const repBody = noneMode ? (
+    <div style={{ marginTop: 16, border: "1px solid #b8324f", borderRadius: 12, background: "rgba(184,50,79,.12)", padding: 14 }}>
+      <div style={{ fontSize: 17, fontWeight: 800, color: "#fff" }}>🚫 No one rode with you</div>
+      <div style={{ fontSize: 14, color: "#ffd9e0", margin: "6px 0 10px" }}>Why didn't anyone ride with you on this day?</div>
+      <textarea value={noneReason} onChange={(e) => setNoneReason(e.target.value)} rows={3} placeholder="e.g. Everyone had their own appointments, I was in meetings, day off…"
+        style={{ width: "100%", boxSizing: "border-box", padding: "12px", borderRadius: 10, border: "1px solid #2a3b57", background: "#0f2038", color: "#fff", fontSize: 16, resize: "vertical" }} />
+      <button type="button" onClick={() => { setNoneMode(false); setNoneReason(""); }}
+        style={{ marginTop: 10, background: "none", border: "none", color: "#9fb3d1", fontSize: 14, textDecoration: "underline", cursor: "pointer", padding: 0 }}>← Actually, I'll pick reps</button>
+    </div>
+  ) : (
+    <>
+      <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search reps…"
+        style={{ width: "100%", boxSizing: "border-box", margin: "14px 0 8px", padding: "12px 14px", borderRadius: 10, border: "1px solid #2a3b57", background: "#0f2038", color: "#fff", fontSize: 16 }} />
+      <div style={{ fontSize: 13, color: "#9fb3d1", marginBottom: 6 }}>{picked.size} {isFuture ? "scheduled" : "rode"}{Object.keys(refusals).length ? ` · ${Object.keys(refusals).length} wouldn't ride` : ""}</div>
+      <div style={{ border: "1px solid #2a3b57", borderRadius: 12, overflow: "hidden", maxHeight: "52vh", overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
+        {shown.length === 0 && <div style={{ padding: 16, color: "#9fb3d1" }}>No reps match.</div>}
+        {(() => {
+          const groups = [];
+          let g = null;
+          for (const r of shown) { const z = r.zone || "__noteam__"; if (!g || g.zone !== z) { g = { zone: z, reps: [] }; groups.push(g); } g.reps.push(r); }
+          return groups.map((grp) => (
+            <div key={grp.zone}>
+              <div style={{ position: "sticky", top: 0, zIndex: 1, background: "#0c1d38", color: "#9fb3d1", fontWeight: 800, fontSize: 12, letterSpacing: ".07em", textTransform: "uppercase", padding: "8px 14px", borderBottom: "1px solid #1a2942" }}>{teamHeader(grp.zone)}</div>
+              {grp.reps.map((r) => {
+                const on = picked.has(r.id);
+                const refusedNote = r.id in refusals ? refusals[r.id] : null;
+                const refused = refusedNote !== null;
+                return (
+                  <div key={r.id} style={{ display: "flex", alignItems: "stretch", borderBottom: "1px solid #1a2942", background: on ? "rgba(39,196,107,.12)" : refused ? "rgba(184,50,79,.14)" : "transparent" }}>
+                    <button type="button" onClick={() => toggle(r.id)}
+                      style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 12, textAlign: "left", padding: "13px 14px", border: "none", background: "transparent", color: "#fff", cursor: "pointer", fontSize: 16 }}>
+                      <span style={{ width: 22, height: 22, borderRadius: 6, border: on ? "none" : "2px solid #4a5d7e", background: on ? colGreen : "transparent", color: "#06281a", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, flex: "0 0 auto" }}>{on ? "✓" : ""}</span>
+                      <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                        <span style={{ fontWeight: on ? 700 : 500 }}>{r.name}{r.neverSigned && r.id !== "test:rep" ? <span style={{ color: "#ffb86b", fontSize: 11, fontWeight: 800 }}> · needs 1st</span> : ""}{!r.phone ? <span style={{ color: "#ffb3c0", fontSize: 12 }}> · no phone</span> : ""}</span>
+                        {refused
+                          ? <span style={{ fontSize: 12, color: "#ff9aab" }}>✋ Wouldn't ride{refusedNote ? ` — ${refusedNote}` : ""}</span>
+                          : on && notes[r.id]
+                            ? <span style={{ fontSize: 12, color: "#7fd1a0" }}>📝 {notes[r.id]}</span>
+                            : <span style={{ fontSize: 12, color: "#8aa0c0" }}>{r.county ? `${r.county} County` : "No county"}{r.last ? ` · last rode ${fmtShortDate(r.last)}` : " · not ridden yet"}</span>}
+                      </span>
+                    </button>
+                    {on ? (
+                      <button type="button" onClick={() => editNote(r.id, r.name)} title="Add a note on how it went"
+                        style={{ flex: "0 0 auto", minWidth: 80, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 12px", border: "none", borderLeft: "1px solid #1a2942", background: "rgba(39,196,107,.18)", color: colGreen, cursor: "pointer" }}>
+                        <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".05em" }}>{isFuture ? "📅 SET" : "✓ RODE"}</span>
+                        {!isFuture && <span style={{ fontSize: 10, color: notes[r.id] ? "#bdf0d2" : "#1f7a4d" }}>{notes[r.id] ? "edit note" : "+ note"}</span>}
+                      </button>
+                    ) : (
+                      <button type="button" onClick={() => markRefused(r.id, r.name)} title="Tried but they wouldn't ride"
+                        style={{ flex: "0 0 auto", padding: "0 14px", border: "none", borderLeft: "1px solid #1a2942", background: refused ? "rgba(184,50,79,.35)" : "transparent", color: refused ? "#ffd9e0" : "#6b7f9e", fontSize: 18, cursor: "pointer" }}>✋</button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ));
+        })()}
+      </div>
+      <div style={{ fontSize: 12, color: "#6b7f9e", marginTop: 6 }}>Tap a name = rode. Tap ✋ = you tried but they wouldn't.</div>
+    </>
+  );
+
+  const saveBarJsx = (
+    <div style={{ position: "sticky", bottom: 0, paddingTop: 12, paddingBottom: 10, background: "linear-gradient(to top, #0a1730 70%, rgba(10,23,48,0))" }}>
+      <button type="button" onClick={noneMode ? saveNone : save} disabled={saving}
+        style={{ width: "100%", padding: "16px", borderRadius: 12, border: "none", background: noneMode ? "#b8324f" : colGreen, color: noneMode ? "#fff" : "#06281a", fontWeight: 800, fontSize: 18, cursor: "pointer", opacity: saving ? 0.6 : 1 }}>
+        {saving ? "Saving…" : noneMode ? "Save — no one rode" : isFuture ? `Save schedule — ${picked.size}` : `Save${picked.size ? ` — ${picked.size} rider${picked.size === 1 ? "" : "s"}` : ""}`}
+      </button>
+      {savedAt && <div style={{ textAlign: "center", color: colGreen, fontWeight: 700, marginTop: 10 }}>✓ Saved — {savedAt.none ? "logged that no one rode that day." : savedAt.texted > 0 ? "confirmation text sent now." : "riders get a text to confirm their hours."}{savedAt.refused > 0 ? ` ${savedAt.refused} marked "wouldn't ride."` : ""}</div>}
+    </div>
+  );
+
+  const noneLink = !noneMode ? (
+    <div style={{ textAlign: "center", marginTop: 14 }}>
+      <button type="button" onClick={() => { setNoneMode(true); setErr(""); }}
+        style={{ background: "none", border: "none", color: "#9fb3d1", fontSize: 14, textDecoration: "underline", cursor: "pointer" }}>No one rode {date === todayStr ? "today" : "that day"}</button>
+    </div>
+  ) : null;
+
+  const dayBody = (
+    <>
+      {isFuture && (
+        <div style={{ marginTop: 4, marginBottom: 4, padding: "8px 12px", borderRadius: 8, background: "rgba(95,168,211,.12)", border: "1px solid #2f6f93", color: "#bfe1f3", fontSize: 13 }}>
+          📅 Scheduling <b>{fmtShortDate(date)}</b> — they'll get their confirm text the morning after.
+        </div>
+      )}
+      {goingChips}
+      {repBody}
+      {err && <div style={{ color: "#ffb3c0", marginTop: 10 }}>{err}</div>}
+      {saveBarJsx}
+      {noneLink}
+    </>
+  );
+
+  const weekStrips = weeks && weeks.map((wk, wi) => (
+    <div key={wk.weekStart}>
+      <div style={{ margin: wi === 0 ? "4px 0 6px" : "16px 0 6px", fontSize: 12, color: wi === 0 ? "#9fb3d1" : "#F5B400", textTransform: "uppercase", letterSpacing: ".05em", fontWeight: wi === 0 ? 400 : 800 }}>
+        {wi === 0 ? "This week — tap a day" : "Next week — tap a day to schedule"}
+      </div>
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 2 }}>
+        {wk.days.map((d) => {
+          const sel = d.date === date;
+          const fut = d.date > todayStr;
+          const total = (d.rode || 0) + (d.refused || 0);
+          const dt = new Date(d.date + "T12:00:00Z");
+          const wd = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short" }).format(dt);
+          const dn = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", day: "numeric" }).format(dt);
+          return (
+            <button key={d.date} type="button" onClick={() => load(d.date)}
+              style={{ flex: "1 0 auto", minWidth: 52, padding: "8px 6px", borderRadius: 10, border: sel ? "2px solid " + colGreen : "1px solid #2a3b57", background: sel ? "rgba(39,196,107,.14)" : "#0f2038", color: "#fff", cursor: "pointer", textAlign: "center" }}>
+              <div style={{ fontSize: 11, color: "#9fb3d1" }}>{wd}</div>
+              <div style={{ fontSize: 18, fontWeight: 800 }}>{dn}</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: d.none ? "#9aa0a6" : total ? colGreen : fut ? "#5fa8d3" : "#3a4d6e" }}>{d.none ? "none" : total ? `${total}` : fut ? "+" : "—"}</div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  ));
+
+  const priRow = (r, sub, subColor) => {
+    const on = picked.has(r.id);
+    return (
+      <button key={r.id} type="button" onClick={() => pickFromPriority(r.id)}
+        style={{ display: "flex", alignItems: "center", gap: 10, textAlign: "left", padding: "10px 12px", borderRadius: 10, border: "1px solid #2a3b57", background: on ? "rgba(39,196,107,.14)" : "#0f2038", color: "#fff", cursor: "pointer", width: "100%" }}>
+        <span style={{ width: 20, height: 20, borderRadius: 5, border: on ? "none" : "2px solid #4a5d7e", background: on ? colGreen : "transparent", color: "#06281a", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, flex: "0 0 auto", fontSize: 13 }}>{on ? "✓" : ""}</span>
+        <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+          <span style={{ fontWeight: 700, fontSize: 15 }}>{r.name}{r.neverSigned ? <span style={{ color: "#ffb86b", fontSize: 11, fontWeight: 800 }}> · needs 1st inspection</span> : ""}</span>
+          <span style={{ fontSize: 12, color: subColor }}>{sub}</span>
+        </span>
+      </button>
+    );
+  };
+  const priorityPanel = (
+    <>
+      <p style={{ fontSize: 18, fontWeight: 800, margin: "0 0 4px" }}>Who to take out next</p>
+      <p style={{ fontSize: 13, color: "#9fb3d1", margin: "0 0 14px" }}>Top of the list = longest since they rode with you. New reps with no ride yet are at the bottom. Tap a name to add them to today.</p>
+      {riddenReps.length > 0 && (
+        <>
+          <div style={{ fontSize: 12, color: "#9fb3d1", textTransform: "uppercase", letterSpacing: ".05em", margin: "0 0 6px" }}>Due for a ride</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {riddenReps.map((r) => { const d = daysAgo(r.last); return priRow(r, `Last rode ${fmtShortDate(r.last)}${d != null ? ` · ${d} day${d === 1 ? "" : "s"} ago` : ""}`, "#9fb6cf"); })}
+          </div>
+        </>
+      )}
+      {neverRidden.length > 0 && (
+        <>
+          <div style={{ fontSize: 12, color: "#ffcf9e", textTransform: "uppercase", letterSpacing: ".05em", margin: "16px 0 6px" }}>Haven't ridden yet — {neverRidden.length}</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {neverRidden.map((r) => priRow(r, "New — no ride logged yet", "#ffcf9e"))}
+          </div>
+        </>
+      )}
+      {realReps.length === 0 && <div style={{ padding: "28px 8px", textAlign: "center", color: "#9fb3d1" }}>No active reps.</div>}
+    </>
+  );
 
   return (
     <div style={wrap}>
-      <div style={{ height: 4, background: "#b8324f" }} />
+      <div style={{ height: 4, background: colGreen }} />
       <div style={card}>
-        <div style={{ background: "#F5B400", borderRadius: 16, padding: "20px 18px", textAlign: "center", margin: "8px 0 4px", boxShadow: "0 6px 20px rgba(245,180,0,.25)" }}>
-          <div style={{ fontSize: 32, fontWeight: 900, color: "#0a1730", lineHeight: 1.05, letterSpacing: ".01em" }}>🚗 FIELD TRAINING</div>
-          <div style={{ fontSize: 19, fontWeight: 800, color: "#0a1730", marginTop: 8 }}>Check off who is riding with you today for training</div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#5a4500", marginTop: 6 }}>👍 You can pick more than one</div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "6px 0 14px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 22 }}>🚗</span>
+            <span style={{ fontSize: 18, fontWeight: 800 }}>Field training</span>
+          </div>
+          {date && <span style={{ fontSize: 13, color: "#9fb3d1" }}>{fmtShortDate(date)}</span>}
         </div>
-        {/* Reps who've never signed an inspection — they need to go back out.
-            Tap a name to add them to today's riders. */}
-        {neverSigned.length > 0 && (
-          <div style={{ margin: "14px 0 2px", border: "1px solid #e0664a", borderRadius: 14, background: "rgba(224,102,74,.12)", padding: "12px 14px" }}>
-            <button type="button" onClick={() => setShowNever((v) => !v)}
-              style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", background: "none", border: "none", padding: 0, cursor: "pointer", color: "#ffd2c5" }}>
-              <span style={{ fontSize: 18, flex: "0 0 auto", transform: showNever ? "rotate(90deg)" : "none", transition: "transform .12s" }}>▸</span>
-              <span style={{ fontSize: 16, fontWeight: 900, lineHeight: 1.2 }}>🎯 Take these reps out — {neverSigned.length} haven't signed an inspection yet</span>
-            </button>
-            {!showNever && <div style={{ fontSize: 12, color: "#f0b6a6", marginTop: 6, marginLeft: 28 }}>Tap to see the list →</div>}
-            {showNever && (<>
-            <div style={{ fontSize: 13, color: "#f0b6a6", margin: "8px 0 10px" }}>They need to get back out in the field. Tap a name to add them to today.</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {neverSigned.map((r) => {
-                const on = picked.has(r.id);
-                return (
-                  <button key={r.id} type="button" onClick={() => toggle(r.id)}
-                    style={{ display: "flex", alignItems: "center", gap: 10, textAlign: "left", padding: "8px 11px", borderRadius: 10, border: on ? "none" : "1px solid rgba(224,102,74,.5)", background: on ? "#27c46b" : "rgba(224,102,74,.14)", color: on ? "#06281a" : "#ffd2c5", cursor: "pointer", width: "100%" }}>
-                    <span style={{ width: 20, height: 20, borderRadius: 5, border: on ? "none" : "2px solid #e0664a", background: on ? "#06281a" : "transparent", color: "#27c46b", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, flex: "0 0 auto", fontSize: 13 }}>{on ? "✓" : ""}</span>
-                    <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-                      <span style={{ fontWeight: 800, fontSize: 15 }}>{r.name}</span>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: on ? "#0a3d24" : r.last ? "#f0b6a6" : "#ffcf9e" }}>{r.last ? `Last rode ${fmtShortDate(r.last)}` : "🚩 Hasn't ridden with you yet"}</span>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-            </>)}
-          </div>
-        )}
-        {/* This week + next week — tap any day to schedule / log it. Counts
-            show who's set. Future days are for scheduling the week ahead. */}
-        {weeks && weeks.map((wk, wi) => (
-          <div key={wk.weekStart}>
-            <div style={{ margin: "16px 0 6px", fontSize: 12, color: wi === 0 ? "#9fb3d1" : "#F5B400", textTransform: "uppercase", letterSpacing: ".05em", fontWeight: wi === 0 ? 400 : 800 }}>
-              {wi === 0 ? "This week — tap a day to log it" : "📅 Next week — tap a day to schedule riders"}
-            </div>
-            <div style={{ display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 2 }}>
-              {wk.days.map((d) => {
-                const sel = d.date === date;
-                const fut = d.date > todayStr;
-                const total = (d.rode || 0) + (d.refused || 0);
-                const dt = new Date(d.date + "T12:00:00Z");
-                const wd = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short" }).format(dt);
-                const dn = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", day: "numeric" }).format(dt);
-                return (
-                  <button key={d.date} type="button" onClick={() => load(d.date)}
-                    style={{ flex: "1 0 auto", minWidth: 56, padding: "8px 6px", borderRadius: 10, border: sel ? "2px solid #F5B400" : "1px solid #2a3b57", background: sel ? "rgba(245,180,0,.14)" : "#0f2038", color: "#fff", cursor: "pointer", textAlign: "center" }}>
-                    <div style={{ fontSize: 11, color: "#9fb3d1" }}>{wd}</div>
-                    <div style={{ fontSize: 18, fontWeight: 800 }}>{dn}</div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: d.none ? "#9aa0a6" : total ? "#27c46b" : fut ? "#5fa8d3" : "#3a4d6e" }}>{d.none ? "none" : total ? `${total}` : fut ? "+" : "—"}</div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-        <label style={{ display: "block", margin: "16px 0 4px", fontSize: 12, color: "#9fb3d1", textTransform: "uppercase", letterSpacing: ".05em" }}>Day (or pick another date)</label>
-        <input type="date" value={date} onChange={(e) => load(e.target.value)}
-          style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #2a3b57", background: "#0f2038", color: "#fff", fontSize: 16 }} />
-        {isFuture && (
-          <div style={{ marginTop: 8, padding: "8px 12px", borderRadius: 8, background: "rgba(95,168,211,.12)", border: "1px solid #2f6f93", color: "#bfe1f3", fontSize: 13 }}>
-            📅 Scheduling <b>{fmtShortDate(date)}</b> — pick who's going out. They'll get their confirm text the morning after.
-          </div>
-        )}
-        {/* Who's logged for the tapped day — names show up immediately so a day's
-            count is "clickable to see who went", not just a silent date switch. */}
-        {!noneMode && (picked.size > 0 || Object.keys(refusals).length > 0) && (
-          <div style={{ marginTop: 12, border: "1px solid #27c46b", borderRadius: 12, background: "rgba(39,196,107,.08)", padding: "12px 14px" }}>
-            <div style={{ fontSize: 12, color: "#9fb3d1", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 8 }}>
-              {isFuture ? "📅 Scheduled" : "✓ Who went out"} — {fmtShortDate(date)}
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {[...picked].map((id) => {
-                const nm = pickNames[id] || (reps.find((x) => String(x.id) === String(id)) || {}).name || id;
-                return <span key={id} style={{ padding: "5px 11px", borderRadius: 999, background: "rgba(39,196,107,.20)", color: "#9fe7bd", fontWeight: 700, fontSize: 14 }}>{nm}</span>;
-              })}
-              {Object.keys(refusals).map((id) => {
-                const nm = pickNames[id] || (reps.find((x) => String(x.id) === String(id)) || {}).name || id;
-                return <span key={id} style={{ padding: "5px 11px", borderRadius: 999, background: "rgba(184,50,79,.20)", color: "#ff9aab", fontWeight: 700, fontSize: 14 }}>✋ {nm}</span>;
-              })}
-            </div>
-          </div>
-        )}
-        {noneMode ? (
-          <div style={{ marginTop: 16, border: "1px solid #b8324f", borderRadius: 12, background: "rgba(184,50,79,.12)", padding: 14 }}>
-            <div style={{ fontSize: 17, fontWeight: 800, color: "#fff" }}>🚫 No one rode with you</div>
-            <div style={{ fontSize: 14, color: "#ffd9e0", margin: "6px 0 10px" }}>Why didn't anyone ride with you on this day?</div>
-            <textarea value={noneReason} onChange={(e) => setNoneReason(e.target.value)} rows={3} placeholder="e.g. Everyone had their own appointments, I was in meetings, day off…"
-              style={{ width: "100%", boxSizing: "border-box", padding: "12px", borderRadius: 10, border: "1px solid #2a3b57", background: "#0f2038", color: "#fff", fontSize: 16, resize: "vertical" }} />
-            <button type="button" onClick={() => { setNoneMode(false); setNoneReason(""); }}
-              style={{ marginTop: 10, background: "none", border: "none", color: "#9fb3d1", fontSize: 14, textDecoration: "underline", cursor: "pointer", padding: 0 }}>← Actually, I'll pick reps</button>
-          </div>
-        ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, background: "#0f2038", borderRadius: 12, padding: 4, marginBottom: 18 }}>
+          {tabBtn("today", "Today")}
+          {tabBtn("week", "Plan week")}
+          {tabBtn("priority", <span>Priority{neverRidden.length ? <span style={{ marginLeft: 5, background: "#e0664a", color: "#2a0f06", fontSize: 11, fontWeight: 800, padding: "1px 6px", borderRadius: 10 }}>{neverRidden.length}</span> : ""}</span>)}
+        </div>
+
+        {tab === "today" && (
           <>
-            <button type="button" onClick={() => { setNoneMode(true); setErr(""); }}
-              style={{ width: "100%", margin: "16px 0 0", padding: "13px", borderRadius: 12, border: "1px solid #b8324f", background: "rgba(184,50,79,.12)", color: "#ffd9e0", fontWeight: 800, fontSize: 16, cursor: "pointer" }}>
-              🚫 No one rode with me — add a reason
-            </button>
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search reps…"
-              style={{ width: "100%", boxSizing: "border-box", margin: "16px 0 8px", padding: "12px 14px", borderRadius: 10, border: "1px solid #2a3b57", background: "#0f2038", color: "#fff", fontSize: 16 }} />
-            <div style={{ fontSize: 13, color: "#9fb3d1", marginBottom: 6 }}>{picked.size} {isFuture ? "scheduled" : "rode"}{Object.keys(refusals).length ? ` · ${Object.keys(refusals).length} wouldn't ride` : ""}</div>
-            <div style={{ border: "1px solid #2a3b57", borderRadius: 12, overflow: "hidden", maxHeight: "48vh", overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
-              {shown.length === 0 && <div style={{ padding: 16, color: "#9fb3d1" }}>No reps match.</div>}
-              {(() => {
-                const groups = [];
-                let g = null;
-                for (const r of shown) { const z = r.zone || "__noteam__"; if (!g || g.zone !== z) { g = { zone: z, reps: [] }; groups.push(g); } g.reps.push(r); }
-                return groups.map((grp) => (
-                  <div key={grp.zone}>
-                    <div style={{ position: "sticky", top: 0, zIndex: 1, background: "#0c1d38", color: "#F5B400", fontWeight: 800, fontSize: 12, letterSpacing: ".07em", textTransform: "uppercase", padding: "8px 14px", borderBottom: "1px solid #1a2942" }}>{teamHeader(grp.zone)}</div>
-                    {grp.reps.map((r) => {
-                      const on = picked.has(r.id);
-                      const refusedNote = r.id in refusals ? refusals[r.id] : null;
-                      const refused = refusedNote !== null;
-                      return (
-                        <div key={r.id} style={{ display: "flex", alignItems: "stretch", borderBottom: "1px solid #1a2942", background: on ? "rgba(245,180,0,.14)" : refused ? "rgba(184,50,79,.14)" : "transparent" }}>
-                          <button type="button" onClick={() => toggle(r.id)}
-                            style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 12, textAlign: "left", padding: "13px 14px", border: "none", background: "transparent", color: "#fff", cursor: "pointer", fontSize: 16 }}>
-                            <span style={{ width: 22, height: 22, borderRadius: 6, border: on ? "none" : "2px solid #4a5d7e", background: on ? "#F5B400" : "transparent", color: "#0a1730", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, flex: "0 0 auto" }}>{on ? "✓" : ""}</span>
-                            <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-                              <span style={{ fontWeight: on ? 700 : 500 }}>{r.name}{r.neverSigned && r.id !== "test:rep" ? <span style={{ color: "#ffb86b", fontSize: 11, fontWeight: 800 }}> · 🎯 0 inspections</span> : ""}{!r.phone ? <span style={{ color: "#ffb3c0", fontSize: 12 }}> · no phone</span> : ""}</span>
-                              <span style={{ fontSize: 12, color: "#8aa0c0" }}>{r.county ? `${r.county} County` : "No county set"}</span>
-                              {refused
-                                ? <span style={{ fontSize: 12, color: "#ff9aab" }}>✋ Wouldn't ride{refusedNote ? ` — ${refusedNote}` : ""}</span>
-                                : on && notes[r.id]
-                                  ? <span style={{ fontSize: 12, color: "#7fd1a0" }}>📝 {notes[r.id]}</span>
-                                  : <span style={{ fontSize: 12, color: r.last ? "#7f93b3" : "#5fa8d3" }}>{r.last ? `Last rode ${fmtShortDate(r.last)}` : "Hasn't ridden with you yet"}</span>}
-                            </span>
-                          </button>
-                          {on ? (
-                            <button type="button" onClick={() => editNote(r.id, r.name)} title="Add a note on how it went"
-                              style={{ flex: "0 0 auto", minWidth: 86, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 12px", border: "none", borderLeft: "1px solid #1a2942", background: "rgba(39,196,107,.22)", color: "#27c46b", cursor: "pointer" }}>
-                              <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".05em" }}>{isFuture ? "📅 SET" : "✓ RODE"}</span>
-                              <span style={{ fontSize: 15, fontWeight: 900 }}>{fmtShortDate(date)}</span>
-                              {!isFuture && <span style={{ fontSize: 10, color: notes[r.id] ? "#bdf0d2" : "#1f7a4d" }}>{notes[r.id] ? "📝 edit note" : "+ note"}</span>}
-                            </button>
-                          ) : (
-                            <button type="button" onClick={() => markRefused(r.id, r.name)} title="Tried but they wouldn't ride"
-                              style={{ flex: "0 0 auto", padding: "0 14px", border: "none", borderLeft: "1px solid #1a2942", background: refused ? "rgba(184,50,79,.35)" : "transparent", color: refused ? "#ffd9e0" : "#6b7f9e", fontSize: 18, cursor: "pointer" }}>✋</button>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ));
-              })()}
-            </div>
-            <div style={{ fontSize: 12, color: "#6b7f9e", marginTop: 6 }}>Tap a name = rode with you. Tap ✋ = you tried but they wouldn't.</div>
+            <p style={{ fontSize: 18, fontWeight: 800, margin: "0 0 4px" }}>Who rode with you today?</p>
+            <p style={{ fontSize: 13, color: "#9fb3d1", margin: "0 0 4px" }}>Tap each rep who came out. Pick as many as you like.</p>
+            {dayBody}
           </>
         )}
-        {err && <div style={{ color: "#ffb3c0", marginTop: 10 }}>{err}</div>}
-        {/* Sticky so the Save button stays on screen on a phone no matter how long the list is. */}
-        <div style={{ position: "sticky", bottom: 0, paddingTop: 12, paddingBottom: 10, background: "linear-gradient(to top, #0a1730 70%, rgba(10,23,48,0))" }}>
-          <button type="button" onClick={noneMode ? saveNone : save} disabled={saving}
-            style={{ width: "100%", padding: "16px", borderRadius: 12, border: "none", background: noneMode ? "#b8324f" : "#27c46b", color: noneMode ? "#fff" : "#06281a", fontWeight: 800, fontSize: 18, cursor: "pointer", opacity: saving ? 0.6 : 1 }}>
-            {saving ? "Saving…" : noneMode ? "Save — no one rode" : isFuture ? `Save schedule for ${fmtShortDate(date)}` : "Save today's training log"}
-          </button>
-          {savedAt && <div style={{ textAlign: "center", color: "#27c46b", fontWeight: 700, marginTop: 10 }}>✓ Saved — {savedAt.none ? "logged that no one rode that day." : savedAt.texted > 0 ? "confirmation text sent to them now." : "riders get a text to confirm their hours."}{savedAt.refused > 0 ? ` ${savedAt.refused} marked "wouldn't ride."` : ""}</div>}
-        </div>
+
+        {tab === "week" && (
+          <>
+            {weekStrips}
+            <div style={{ margin: "18px 0 0", fontSize: 14, color: "#9fb3d1" }}>
+              {isFuture ? <>📅 Scheduling <b style={{ color: "#bfe1f3" }}>{fmtShortDate(date)}</b></> : <>Logging <b style={{ color: "#fff" }}>{fmtShortDate(date)}</b></>} — pick who {isFuture ? "will go" : "went"} out.
+            </div>
+            {dayBody}
+          </>
+        )}
+
+        {tab === "priority" && priorityPanel}
       </div>
     </div>
   );
