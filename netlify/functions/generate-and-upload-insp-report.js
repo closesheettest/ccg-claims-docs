@@ -431,7 +431,7 @@ async function fetchSupabasePhotosByJnId(jnJobId, { resultLabel } = {}) {
     // 400'd with "No photos found". Pull all non-cancelled rows and
     // pick the one that actually has photos.
     const lookupRes = await fetch(
-      `${SB_URL}/rest/v1/inspections?jn_job_id=eq.${encodeURIComponent(jnJobId)}&cancelled_at=is.null&select=inspection_photos`,
+      `${SB_URL}/rest/v1/inspections?jn_job_id=eq.${encodeURIComponent(jnJobId)}&cancelled_at=is.null&select=id,inspection_photos`,
       { headers: sbHeaders },
     );
     if (!lookupRes.ok) {
@@ -442,7 +442,25 @@ async function fetchSupabasePhotosByJnId(jnJobId, { resultLabel } = {}) {
     const photoCounts = (Array.isArray(rows) ? rows : []).map((r) =>
       Array.isArray(r.inspection_photos) ? r.inspection_photos : [],
     );
-    const raw = photoCounts.sort((a, b) => b.length - a.length)[0] || [];
+    let raw = photoCounts.sort((a, b) => b.length - a.length)[0] || [];
+
+    // RECOVERY FALLBACK: the inspection_photos array is empty, but photos may
+    // still be on the server from the inspector app's incremental safety-copy
+    // upload (the originals land in Storage under inspection-photos/<id>/ the
+    // moment they're captured, even if submit never wrote the DB array — e.g.
+    // a crashed or misrouted submit). Pull them straight from Storage so the
+    // cert can still be produced automatically, no manual recovery.
+    if ((!Array.isArray(raw) || raw.length === 0) && Array.isArray(rows)) {
+      for (const r of rows) {
+        if (!r.id) continue;
+        const fromStorage = await listStoragePhotos(r.id);
+        if (fromStorage.length) {
+          console.log(`inspection_photos empty for ${jnJobId} — recovered ${fromStorage.length} photos from Storage under inspection-photos/${r.id}/`);
+          raw = fromStorage;
+          break;
+        }
+      }
+    }
     if (!Array.isArray(raw) || raw.length === 0) return [];
 
     // For Retail inspections the inspector is prompted to walk the
@@ -497,6 +515,38 @@ async function fetchSupabasePhotosByJnId(jnJobId, { resultLabel } = {}) {
     return results.filter(Boolean);
   } catch (e) {
     console.warn("fetchSupabasePhotosByJnId error:", e.message);
+    return [];
+  }
+}
+
+// List the photo objects an inspection has in Storage (the incremental
+// safety copies), keyed by inspection id. Returns the same shape as
+// inspection_photos entries ({ path, bucket, category, captured_at }) so the
+// caller can treat them identically. Category is inferred from the filename
+// when possible (retail worst-spot photos); when it can't be, the retail
+// filter simply falls back to using all photos.
+async function listStoragePhotos(inspectionId) {
+  try {
+    const res = await fetch(`${SB_URL}/storage/v1/object/list/${SIGNED_BUCKET}`, {
+      method: "POST",
+      headers: { ...sbHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify({ prefix: `inspection-photos/${inspectionId}/`, limit: 200, sortBy: { column: "name", order: "asc" } }),
+    });
+    if (!res.ok) {
+      console.warn("listStoragePhotos list failed:", res.status);
+      return [];
+    }
+    const objs = await res.json().catch(() => []);
+    return (Array.isArray(objs) ? objs : [])
+      .filter((o) => o && o.name && /\.(jpe?g|png|webp|heic)$/i.test(o.name))
+      .map((o) => {
+        const lower = o.name.toLowerCase();
+        const category = (lower.includes("retail_worst") || lower.includes("retail-worst")) ? "retail_worst" : null;
+        const captured_at = o.created_at || o.updated_at || (o.metadata && o.metadata.lastModified) || null;
+        return { path: `inspection-photos/${inspectionId}/${o.name}`, bucket: SIGNED_BUCKET, category, captured_at };
+      });
+  } catch (e) {
+    console.warn("listStoragePhotos error:", e.message);
     return [];
   }
 }
