@@ -4485,6 +4485,7 @@ function TrainingPickerPage({ token }) {
   const [weeks, setWeeks] = useState(null);     // [{weekStart, days:[{date,rode,refused,none}]}, …]
   const [notes, setNotes] = useState({});       // rep id -> trainer "how it went" note
   const [pickNames, setPickNames] = useState({}); // rep id -> name (from saved picks, survives roster changes)
+  const [showNever, setShowNever] = useState(false); // never-signed callout collapsed by default (long on a phone)
 
   const load = async (forDate) => {
     setLoading(true); setErr("");
@@ -4614,9 +4615,15 @@ function TrainingPickerPage({ token }) {
         {/* Reps who've never signed an inspection — they need to go back out.
             Tap a name to add them to today's riders. */}
         {neverSigned.length > 0 && (
-          <div style={{ margin: "14px 0 2px", border: "1px solid #e0664a", borderRadius: 14, background: "rgba(224,102,74,.12)", padding: "14px 14px 12px" }}>
-            <div style={{ fontSize: 16, fontWeight: 900, color: "#ffd2c5" }}>🎯 Take these reps out — {neverSigned.length} haven't signed a single inspection yet</div>
-            <div style={{ fontSize: 13, color: "#f0b6a6", margin: "4px 0 10px" }}>They need to get back out in the field. Tap a name to add them to today.</div>
+          <div style={{ margin: "14px 0 2px", border: "1px solid #e0664a", borderRadius: 14, background: "rgba(224,102,74,.12)", padding: "12px 14px" }}>
+            <button type="button" onClick={() => setShowNever((v) => !v)}
+              style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", background: "none", border: "none", padding: 0, cursor: "pointer", color: "#ffd2c5" }}>
+              <span style={{ fontSize: 18, flex: "0 0 auto", transform: showNever ? "rotate(90deg)" : "none", transition: "transform .12s" }}>▸</span>
+              <span style={{ fontSize: 16, fontWeight: 900, lineHeight: 1.2 }}>🎯 Take these reps out — {neverSigned.length} haven't signed an inspection yet</span>
+            </button>
+            {!showNever && <div style={{ fontSize: 12, color: "#f0b6a6", marginTop: 6, marginLeft: 28 }}>Tap to see the list →</div>}
+            {showNever && (<>
+            <div style={{ fontSize: 13, color: "#f0b6a6", margin: "8px 0 10px" }}>They need to get back out in the field. Tap a name to add them to today.</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {neverSigned.map((r) => {
                 const on = picked.has(r.id);
@@ -4632,6 +4639,7 @@ function TrainingPickerPage({ token }) {
                 );
               })}
             </div>
+            </>)}
           </div>
         )}
         {/* This week + next week — tap any day to schedule / log it. Counts
