@@ -4482,7 +4482,7 @@ function TrainingPickerPage({ token }) {
   const [noneMode, setNoneMode] = useState(false);
   const [noneReason, setNoneReason] = useState("");
   const [refusals, setRefusals] = useState({}); // rep id -> "wouldn't ride" note
-  const [week, setWeek] = useState(null);       // [{date, rode, refused, none}]
+  const [weeks, setWeeks] = useState(null);     // [{weekStart, days:[{date,rode,refused,none}]}, …]
   const [notes, setNotes] = useState({});       // rep id -> trainer "how it went" note
 
   const load = async (forDate) => {
@@ -4527,7 +4527,7 @@ function TrainingPickerPage({ token }) {
         body: JSON.stringify({ action: "week", token }),
       });
       const d = await res.json().catch(() => ({}));
-      if (res.ok && d.ok) setWeek(d.days || []);
+      if (res.ok && d.ok) setWeeks(d.weeks || (d.days ? [{ weekStart: d.weekStart, days: d.days }] : []));
     } catch { /* week strip is best-effort */ }
   };
   useEffect(() => { load(); loadWeek(); /* eslint-disable-next-line */ }, [token]);
@@ -4596,6 +4596,10 @@ function TrainingPickerPage({ token }) {
   // Active reps who've never signed a single inspection — they need to go back
   // out, so surface them up top as a quick-pick list for William.
   const neverSigned = reps.filter((r) => r.neverSigned && r.id !== "test:rep");
+  // Today (ET) and whether the day being edited is in the future — a future day
+  // is being *scheduled*, so the wording changes from "rode" to "scheduled".
+  const todayStr = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  const isFuture = !!date && date > todayStr;
 
   return (
     <div style={wrap}>
@@ -4625,13 +4629,17 @@ function TrainingPickerPage({ token }) {
             </div>
           </div>
         )}
-        {/* This week — tap a day to schedule / log it. Counts show who's set. */}
-        {week && (
-          <>
-            <div style={{ margin: "16px 0 6px", fontSize: 12, color: "#9fb3d1", textTransform: "uppercase", letterSpacing: ".05em" }}>This week — tap a day to schedule</div>
+        {/* This week + next week — tap any day to schedule / log it. Counts
+            show who's set. Future days are for scheduling the week ahead. */}
+        {weeks && weeks.map((wk, wi) => (
+          <div key={wk.weekStart}>
+            <div style={{ margin: "16px 0 6px", fontSize: 12, color: wi === 0 ? "#9fb3d1" : "#F5B400", textTransform: "uppercase", letterSpacing: ".05em", fontWeight: wi === 0 ? 400 : 800 }}>
+              {wi === 0 ? "This week — tap a day to log it" : "📅 Next week — tap a day to schedule riders"}
+            </div>
             <div style={{ display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 2 }}>
-              {week.map((d) => {
+              {wk.days.map((d) => {
                 const sel = d.date === date;
+                const fut = d.date > todayStr;
                 const total = (d.rode || 0) + (d.refused || 0);
                 const dt = new Date(d.date + "T12:00:00Z");
                 const wd = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short" }).format(dt);
@@ -4641,16 +4649,21 @@ function TrainingPickerPage({ token }) {
                     style={{ flex: "1 0 auto", minWidth: 56, padding: "8px 6px", borderRadius: 10, border: sel ? "2px solid #F5B400" : "1px solid #2a3b57", background: sel ? "rgba(245,180,0,.14)" : "#0f2038", color: "#fff", cursor: "pointer", textAlign: "center" }}>
                     <div style={{ fontSize: 11, color: "#9fb3d1" }}>{wd}</div>
                     <div style={{ fontSize: 18, fontWeight: 800 }}>{dn}</div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: d.none ? "#9aa0a6" : total ? "#27c46b" : "#3a4d6e" }}>{d.none ? "none" : total ? `${total}` : "—"}</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: d.none ? "#9aa0a6" : total ? "#27c46b" : fut ? "#5fa8d3" : "#3a4d6e" }}>{d.none ? "none" : total ? `${total}` : fut ? "+" : "—"}</div>
                   </button>
                 );
               })}
             </div>
-          </>
-        )}
+          </div>
+        ))}
         <label style={{ display: "block", margin: "16px 0 4px", fontSize: 12, color: "#9fb3d1", textTransform: "uppercase", letterSpacing: ".05em" }}>Day (or pick another date)</label>
         <input type="date" value={date} onChange={(e) => load(e.target.value)}
           style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #2a3b57", background: "#0f2038", color: "#fff", fontSize: 16 }} />
+        {isFuture && (
+          <div style={{ marginTop: 8, padding: "8px 12px", borderRadius: 8, background: "rgba(95,168,211,.12)", border: "1px solid #2f6f93", color: "#bfe1f3", fontSize: 13 }}>
+            📅 Scheduling <b>{fmtShortDate(date)}</b> — pick who's going out. They'll get their confirm text the morning after.
+          </div>
+        )}
         {noneMode ? (
           <div style={{ marginTop: 16, border: "1px solid #b8324f", borderRadius: 12, background: "rgba(184,50,79,.12)", padding: 14 }}>
             <div style={{ fontSize: 17, fontWeight: 800, color: "#fff" }}>🚫 No one rode with you</div>
@@ -4668,7 +4681,7 @@ function TrainingPickerPage({ token }) {
             </button>
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search reps…"
               style={{ width: "100%", boxSizing: "border-box", margin: "16px 0 8px", padding: "12px 14px", borderRadius: 10, border: "1px solid #2a3b57", background: "#0f2038", color: "#fff", fontSize: 16 }} />
-            <div style={{ fontSize: 13, color: "#9fb3d1", marginBottom: 6 }}>{picked.size} rode{Object.keys(refusals).length ? ` · ${Object.keys(refusals).length} wouldn't ride` : ""}</div>
+            <div style={{ fontSize: 13, color: "#9fb3d1", marginBottom: 6 }}>{picked.size} {isFuture ? "scheduled" : "rode"}{Object.keys(refusals).length ? ` · ${Object.keys(refusals).length} wouldn't ride` : ""}</div>
             <div style={{ border: "1px solid #2a3b57", borderRadius: 12, overflow: "hidden", maxHeight: "48vh", overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
               {shown.length === 0 && <div style={{ padding: 16, color: "#9fb3d1" }}>No reps match.</div>}
               {(() => {
@@ -4700,9 +4713,9 @@ function TrainingPickerPage({ token }) {
                           {on ? (
                             <button type="button" onClick={() => editNote(r.id, r.name)} title="Add a note on how it went"
                               style={{ flex: "0 0 auto", minWidth: 86, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 12px", border: "none", borderLeft: "1px solid #1a2942", background: "rgba(39,196,107,.22)", color: "#27c46b", cursor: "pointer" }}>
-                              <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".05em" }}>✓ RODE</span>
+                              <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".05em" }}>{isFuture ? "📅 SET" : "✓ RODE"}</span>
                               <span style={{ fontSize: 15, fontWeight: 900 }}>{fmtShortDate(date)}</span>
-                              <span style={{ fontSize: 10, color: notes[r.id] ? "#bdf0d2" : "#1f7a4d" }}>{notes[r.id] ? "📝 edit note" : "+ note"}</span>
+                              {!isFuture && <span style={{ fontSize: 10, color: notes[r.id] ? "#bdf0d2" : "#1f7a4d" }}>{notes[r.id] ? "📝 edit note" : "+ note"}</span>}
                             </button>
                           ) : (
                             <button type="button" onClick={() => markRefused(r.id, r.name)} title="Tried but they wouldn't ride"
@@ -4723,7 +4736,7 @@ function TrainingPickerPage({ token }) {
         <div style={{ position: "sticky", bottom: 0, paddingTop: 12, paddingBottom: 10, background: "linear-gradient(to top, #0a1730 70%, rgba(10,23,48,0))" }}>
           <button type="button" onClick={noneMode ? saveNone : save} disabled={saving}
             style={{ width: "100%", padding: "16px", borderRadius: 12, border: "none", background: noneMode ? "#b8324f" : "#27c46b", color: noneMode ? "#fff" : "#06281a", fontWeight: 800, fontSize: 18, cursor: "pointer", opacity: saving ? 0.6 : 1 }}>
-            {saving ? "Saving…" : noneMode ? "Save — no one rode" : "Save today's training log"}
+            {saving ? "Saving…" : noneMode ? "Save — no one rode" : isFuture ? `Save schedule for ${fmtShortDate(date)}` : "Save today's training log"}
           </button>
           {savedAt && <div style={{ textAlign: "center", color: "#27c46b", fontWeight: 700, marginTop: 10 }}>✓ Saved — {savedAt.none ? "logged that no one rode that day." : savedAt.texted > 0 ? "confirmation text sent to them now." : "riders get a text to confirm their hours."}{savedAt.refused > 0 ? ` ${savedAt.refused} marked "wouldn't ride."` : ""}</div>}
         </div>

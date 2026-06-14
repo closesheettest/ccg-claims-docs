@@ -193,13 +193,15 @@ async function notifyManagerOfRefusal(rep, note) {
   } catch { return false; }
 }
 
-// Week overview: per-day counts for the Mon–Sun week containing `weekStart`
-// (or this week). Powers William's week strip so he can schedule ahead.
+// Week overview: per-day counts for THIS week + NEXT week (Mon–Sun each), so
+// William can both review this week and schedule riders for the week ahead.
+// Returns weeks:[{weekStart,days:[7]},…]; `days` (this week) kept for back-compat.
 async function doWeek(body) {
   if (!(await validTrainer(body.token))) return cors(403, JSON.stringify({ ok: false, error: "Invalid or expired link" }));
-  const start = normDate(body.weekStart) || mondayET();
-  const end = addDaysISO(start, 6);
-  const rows = await sbGet(`ride_alongs?ride_date=gte.${start}&ride_date=lte.${end}&select=ride_date,rep_id,refused_to_ride&limit=2000`);
+  const thisMon = normDate(body.weekStart) || mondayET();
+  const nextMon = addDaysISO(thisMon, 7);
+  const rangeEnd = addDaysISO(nextMon, 6); // end of next week
+  const rows = await sbGet(`ride_alongs?ride_date=gte.${thisMon}&ride_date=lte.${rangeEnd}&select=ride_date,rep_id,refused_to_ride&limit=4000`);
   const byDay = {};
   for (const r of rows) {
     const d = r.ride_date;
@@ -208,9 +210,16 @@ async function doWeek(body) {
     else if (r.refused_to_ride) b.refused++;
     else b.rode++;
   }
-  const days = [];
-  for (let i = 0; i < 7; i++) { const d = addDaysISO(start, i); days.push({ date: d, ...(byDay[d] || { rode: 0, refused: 0, none: 0 }) }); }
-  return cors(200, JSON.stringify({ ok: true, weekStart: start, days }));
+  const weekDays = (start) => {
+    const out = [];
+    for (let i = 0; i < 7; i++) { const d = addDaysISO(start, i); out.push({ date: d, ...(byDay[d] || { rode: 0, refused: 0, none: 0 }) }); }
+    return out;
+  };
+  const weeks = [
+    { weekStart: thisMon, days: weekDays(thisMon) },
+    { weekStart: nextMon, days: weekDays(nextMon) },
+  ];
+  return cors(200, JSON.stringify({ ok: true, weekStart: thisMon, weeks, days: weeks[0].days }));
 }
 
 // Trainer's end-of-day note on how it went with a rep.
