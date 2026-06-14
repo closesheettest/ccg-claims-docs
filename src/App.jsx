@@ -4620,8 +4620,12 @@ function TrainingPickerPage({ token }) {
                                 : <span style={{ fontSize: 12, color: r.last ? "#7f93b3" : "#5fa8d3" }}>{r.last ? `Last rode ${fmtShortDate(r.last)}` : "Hasn't ridden with you yet"}</span>}
                             </span>
                           </button>
-                          <button type="button" onClick={() => markRefused(r.id, r.name)} title="Tried but they wouldn't ride"
-                            style={{ flex: "0 0 auto", padding: "0 14px", border: "none", borderLeft: "1px solid #1a2942", background: refused ? "rgba(184,50,79,.35)" : "transparent", color: refused ? "#ffd9e0" : "#6b7f9e", fontSize: 18, cursor: "pointer" }}>✋</button>
+                          {on ? (
+                            <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", padding: "0 16px", borderLeft: "1px solid #1a2942", background: "rgba(39,196,107,.22)", color: "#27c46b", fontWeight: 900, fontSize: 14, letterSpacing: ".06em" }}>✓ RODE</div>
+                          ) : (
+                            <button type="button" onClick={() => markRefused(r.id, r.name)} title="Tried but they wouldn't ride"
+                              style={{ flex: "0 0 auto", padding: "0 14px", border: "none", borderLeft: "1px solid #1a2942", background: refused ? "rgba(184,50,79,.35)" : "transparent", color: refused ? "#ffd9e0" : "#6b7f9e", fontSize: 18, cursor: "pointer" }}>✋</button>
+                          )}
                         </div>
                       );
                     })}
