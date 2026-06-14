@@ -173,10 +173,17 @@ export const handler = async (event) => {
 // morning audit + the regional-manager "Deals need to be fixed" view share
 // one source of truth — see the import at the top.)
 
+// Start-date mismatches are the MANAGER's to fix (only they touch Start date);
+// everything else is the rep's. Split them so the manager text is clear.
+function isStartDateIssue(x) { return /start date/i.test(x) && /sold date/i.test(x); }
+
 function issueLines(f) {
+  const repErrors = (f.errors || []).filter((x) => !isStartDateIssue(x));
+  const mgrErrors = (f.errors || []).filter(isStartDateIssue);
   let s = "";
-  if (f.missing.length) s += "Missing:\n" + f.missing.map((x) => `• ${x}`).join("\n") + "\n";
-  if (f.errors.length) s += "Wrong:\n" + f.errors.map((x) => `• ${x}`).join("\n") + "\n";
+  if (f.missing.length) s += "Rep — missing:\n" + f.missing.map((x) => `• ${x}`).join("\n") + "\n";
+  if (repErrors.length) s += "Rep — wrong:\n" + repErrors.map((x) => `• ${x}`).join("\n") + "\n";
+  if (mgrErrors.length) s += "👔 You fix (Start date):\n" + mgrErrors.map((x) => `• ${x}`).join("\n") + "\n";
   return s.trim();
 }
 
@@ -187,7 +194,7 @@ function managerMessage(zone, list) {
   list.forEach((f) => {
     s += `\n— ${f.rep_name} · ${f.customer}\nJob: ${f.name}\n${issueLines(f)}\n`;
   });
-  return s.trim() + "\n\nHave the rep open each job in JobNimbus and correct these.";
+  return s.trim() + "\n\nHave the rep correct their items in JobNimbus. 👔 Start date items are yours to fix — reps don't touch Start date.";
 }
 
 function adminMessage(date, flagged, notified, noZone) {
