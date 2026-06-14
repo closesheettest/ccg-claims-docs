@@ -60,6 +60,17 @@ export const handler = async (event) => {
   // 1. Pull jobs BY sold status (server-side filter) so no sold deal is lost
   //    to a scan cap; then keep those actually sold within the window.
   const jobs = await fetchSoldJobs(jnHeaders, sinceSec);
+
+  if (qp.probe2) {
+    const sj = jobs.filter((j) => { const sd = soldDateSec(j); if (sd == null || sd * 1000 < cutoffMs) return false; const st = String(j.status_name || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); return SOLD_STATUSES.has(st); });
+    const n0 = (v) => Number(v) || 0;
+    const zeroEst = sj.filter((j) => n0(j.approved_estimate_total) <= 0).length;
+    const zeroInv = sj.filter((j) => n0(j.approved_invoice_total) <= 0).length;
+    const zeroBoth = sj.filter((j) => n0(j.approved_estimate_total) <= 0 && n0(j.approved_invoice_total) <= 0 && n0(j.last_budget_revenue) <= 0).length;
+    const probe = sj.filter((j) => `${j.name || ""}`.toLowerCase().includes("3941")).map((j) => ({ name: j.name, rep: j.sales_rep_name, est: j.approved_estimate_total, inv: j.approved_invoice_total, rev: j.last_budget_revenue, roofPriceOnly: trimmedFieldMap(j)["Roof Price ONLY"] }));
+    return cors(200, JSON.stringify({ sold: sj.length, zero_approved_estimate: zeroEst, zero_approved_invoice: zeroInv, zero_all_three: zeroBoth, probe }, null, 2));
+  }
+
   const sold = jobs.filter((j) => {
     const sd = soldDateSec(j);
     if (sd == null || sd * 1000 < cutoffMs) return false;
