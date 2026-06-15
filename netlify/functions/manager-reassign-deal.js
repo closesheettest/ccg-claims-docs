@@ -19,6 +19,8 @@
 
 const JN_BASE = "https://app.jobnimbus.com/api1";
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
+const SB_URL = process.env.VITE_SUPABASE_URL;
+const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones";
 const jnHeaders = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
 
@@ -32,6 +34,10 @@ export const handler = async (event) => {
   const jnid = String(body.jnid || "").trim();
   const assigneeId = String(body.assigneeId || "").trim();
   const salesRepId = String(body.salesRepId || "").trim();
+  const kind = String(body.kind || "").trim();        // back_to_retail | no_damage | no_sit
+  const customer = String(body.customer || "").trim();
+  const address = String(body.address || "").trim();
+  const zone = String(body.zone || "").trim();
   if (!jnid) return cors(400, JSON.stringify({ ok: false, error: "jnid required" }));
   if (!assigneeId && !salesRepId) return cors(400, JSON.stringify({ ok: false, error: "pick an assign rep and/or sales rep" }));
 
@@ -67,16 +73,59 @@ export const handler = async (event) => {
     const text = await pr.text();
     if (!pr.ok) return cors(502, JSON.stringify({ ok: false, error: `JN update ${pr.status}: ${text.slice(0, 200)}` }));
 
+    // Text the rep who'll work it (the assignee; fall back to the sales rep)
+    // with a context-specific hype message — "Sam just assigned you a …".
+    let texted = false;
+    const recipient = byId[assigneeId] || byId[salesRepId] || null;
+    if (recipient && recipient.phone) {
+      const mgr = await managerName(zone);
+      const message = buildAssignMsg(kind, mgr, customer, address);
+      const base = process.env.URL || process.env.DEPLOY_URL || process.env.PUBLIC_SITE_URL || "";
+      if (base) {
+        try {
+          const r = await fetch(`${base}/.netlify/functions/ghl-sms`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ to: recipient.phone, name: recipient.name, message }),
+          });
+          texted = r.ok;
+        } catch { /* SMS best-effort */ }
+      }
+    }
+
     return cors(200, JSON.stringify({
       ok: true,
       jnid,
       owners: patch.owners ? patch.owners.map((o) => byId[o.id]?.name || o.id) : undefined,
       sales_rep: patch.sales_rep_name || undefined,
+      texted,
+      textedRep: recipient?.name,
     }));
   } catch (e) {
     return cors(500, JSON.stringify({ ok: false, error: e.message || "error" }));
   }
 };
+
+// Manager's name for this zone (regional_managers), for the "<Sam> just
+// assigned you…" line. Falls back to a generic phrase.
+async function managerName(zone) {
+  if (!zone || !SB_URL || !SB_KEY) return "Your manager";
+  try {
+    const r = await fetch(`${SB_URL}/rest/v1/regional_managers?zone=eq.${encodeURIComponent(zone)}&select=name&limit=1`,
+      { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } });
+    const rows = await r.json().catch(() => []);
+    return (rows[0] && rows[0].name) || "Your manager";
+  } catch { return "Your manager"; }
+}
+
+// Context-specific assignment text by report type.
+function buildAssignMsg(kind, mgr, customer, address) {
+  const who = customer || "a homeowner";
+  const at = address ? `, ${address}` : "";
+  if (kind === "back_to_retail") return `${mgr} just assigned you a back-to-retail — ${who}${at}. Go get that appointment!`;
+  if (kind === "no_damage") return `${mgr} just assigned you a no-damage — ${who}${at}. Go give them the great news and get referrals — who else can we help?`;
+  if (kind === "no_sit") return `${mgr} just assigned you a no-sit to re-book — ${who}${at}. Get it back on the calendar!`;
+  return `${mgr} just assigned you a deal — ${who}${at}. Go get it!`;
+}
 
 async function fetchActiveReps() {
   try {
