@@ -10929,6 +10929,14 @@ if (!hasDamage) {
                       onChange={(v) => update("signerEmail", v)}
                       showError={submitAttempted}
                     />
+                    {/* Spanish-only flag — travels with the record so a damage
+                        claim shows the PA "Spanish only" before they go out. */}
+                    <div style={{ gridColumn: "1 / -1" }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderRadius: 14, border: "1px solid #d1d5db", background: data.spanish_only ? "#fef9c3" : "#fff", cursor: "pointer" }}>
+                        <input type="checkbox" style={{ width: 20, height: 20 }} checked={!!data.spanish_only} onChange={(e) => update("spanish_only", e.target.checked)} />
+                        <span style={{ fontWeight: 700, fontSize: 14 }}>🇪🇸 Spanish only <span style={{ fontWeight: 400, color: "#6b7280" }}>— homeowner speaks Spanish only</span></span>
+                      </label>
+                    </div>
                     <div style={{ gridColumn: "1 / -1" }}>
                       <Label>Address</Label>
                       <AddressAutocomplete
