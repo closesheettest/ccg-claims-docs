@@ -73,6 +73,21 @@ export const handler = async (event) => {
     const text = await pr.text();
     if (!pr.ok) return cors(502, JSON.stringify({ ok: false, error: `JN update ${pr.status}: ${text.slice(0, 200)}` }));
 
+    // Keep our Supabase inspections row in sync so the back-to-retail / no-damage
+    // reports (which group by inspections.sales_rep_name) re-group this deal
+    // under the NEW sales rep — moving it out of the departed-rep section into
+    // the active rep's group on the next load. (No-sits reads JN directly, so
+    // that one's already handled by the JN write above.)
+    if (salesRepId && SB_URL && SB_KEY) {
+      try {
+        await fetch(`${SB_URL}/rest/v1/inspections?jn_job_id=eq.${encodeURIComponent(jnid)}`, {
+          method: "PATCH",
+          headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+          body: JSON.stringify({ sales_rep_id: salesRepId, sales_rep_name: byId[salesRepId].name }),
+        });
+      } catch { /* report still reflects the JN side; non-fatal */ }
+    }
+
     // Text the rep who'll work it (the assignee; fall back to the sales rep)
     // with a context-specific hype message — "Sam just assigned you a …".
     let texted = false;
