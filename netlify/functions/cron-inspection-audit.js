@@ -49,8 +49,9 @@ export const handler = async (event) => {
       if (!["damage", "no_damage", "retail"].includes(String(r.result || ""))) continue;
       const arr = Array.isArray(r.inspection_photos) ? r.inspection_photos : [];
       if (arr.length > 0) continue;
-      const inStorage = await countStoragePhotos(r.id);
-      if (inStorage === 0) noPhotos.push(r);
+      if ((await countStoragePhotos(r.id)) > 0) continue;
+      if (JN_KEY && r.jn_job_id && (await jnHasPhotos(r.jn_job_id))) continue; // photos on the JN job — not a no-photo case
+      noPhotos.push(r);
     }
 
     // ── 2. SHARED JOB (whole table — different homeowners on one jn_job_id) ──
@@ -148,6 +149,18 @@ async function countStoragePhotos(inspectionId) {
     const objs = await res.json().catch(() => []);
     return (Array.isArray(objs) ? objs : []).filter((o) => o && o.name && /\.(jpe?g|png|webp|heic)$/i.test(o.name)).length;
   } catch { return 0; }
+}
+
+// Does the JN job have photos (Files type=2)? If so it's not a no-photo case.
+// Fail-safe: on error return true so we never falsely flag an unchecked job.
+async function jnHasPhotos(jnid) {
+  try {
+    const r = await fetch(`${JN_BASE}/files?related=${encodeURIComponent(jnid)}&type=2&size=3`, { headers: jnHeaders });
+    if (!r.ok) return true;
+    const d = await r.json().catch(() => ({}));
+    const files = d.files || d.results || d.items || [];
+    return Array.isArray(files) && files.length > 0;
+  } catch { return true; }
 }
 
 async function getJobAddr(jnid) {

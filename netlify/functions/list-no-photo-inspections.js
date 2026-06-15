@@ -12,6 +12,9 @@
 
 const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
+const JN_BASE = "https://app.jobnimbus.com/api1";
+const JN_KEY = process.env.JOBNIMBUS_API_KEY;
+const jnHeaders = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
 const BUCKET = "signed-documents";
 const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
 
@@ -30,8 +33,9 @@ export const handler = async (event) => {
 
     const items = [];
     for (const r of emptyDb) {
-      if ((await countStoragePhotos(r.id)) > 0) continue; // has photos in storage — fine
-      items.push(r);
+      if ((await countStoragePhotos(r.id)) > 0) continue;      // photos in our Storage — fine
+      if (JN_KEY && r.jn_job_id && (await jnHasPhotos(r.jn_job_id))) continue; // photos on the JN job — fine
+      items.push(r);                                            // truly no photos anywhere
     }
 
     // Resolve inspector name/phone for the flagged rows.
@@ -72,6 +76,18 @@ async function countStoragePhotos(inspectionId) {
     const objs = await res.json().catch(() => []);
     return (Array.isArray(objs) ? objs : []).filter((o) => o && o.name && /\.(jpe?g|png|webp|heic)$/i.test(o.name)).length;
   } catch { return 0; }
+}
+// Does the JN job carry any photos (Files type=2)? If so it's NOT a no-photo
+// case — the cert can be built from JN. Fail-safe: on error return true so we
+// DON'T falsely flag a job we couldn't check.
+async function jnHasPhotos(jnid) {
+  try {
+    const r = await fetch(`${JN_BASE}/files?related=${encodeURIComponent(jnid)}&type=2&size=3`, { headers: jnHeaders });
+    if (!r.ok) return true;
+    const d = await r.json().catch(() => ({}));
+    const files = d.files || d.results || d.items || [];
+    return Array.isArray(files) && files.length > 0;
+  } catch { return true; }
 }
 async function sbGet(path) {
   const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: sb });
