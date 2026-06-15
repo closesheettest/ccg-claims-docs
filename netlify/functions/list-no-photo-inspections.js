@@ -19,7 +19,13 @@ export const handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return cors(200, "");
   if (!SB_URL || !SB_KEY) return cors(500, JSON.stringify({ ok: false, error: "Supabase env missing" }));
   try {
-    const rows = await sbGet(`inspections?cancelled_at=is.null&result=in.(damage,no_damage,retail)&select=id,client_name,address,result,signed_at,inspector_id,jn_job_id,inspection_photos&order=signed_at.desc&limit=2000`);
+    // Only "actually inspected, recently" cases: an inspector is assigned (so
+    // photos SHOULD exist) and it's within the last 30 days. This targets real
+    // photo-upload failures (Bastos) instead of old sales-marked retail deals
+    // that never had an inspector. ?days= overrides the window.
+    const days = Math.min(Math.max(parseInt((event.queryStringParameters || {}).days, 10) || 30, 1), 365);
+    const cutoff = new Date(Date.now() - days * 864e5).toISOString();
+    const rows = await sbGet(`inspections?cancelled_at=is.null&result=in.(damage,no_damage,retail)&inspector_id=not.is.null&signed_at=gte.${encodeURIComponent(cutoff)}&select=id,client_name,address,result,signed_at,inspector_id,jn_job_id,inspection_photos&order=signed_at.desc&limit=2000`);
     const emptyDb = rows.filter((r) => !(Array.isArray(r.inspection_photos) && r.inspection_photos.length > 0));
 
     const items = [];
