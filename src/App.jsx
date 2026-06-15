@@ -4152,6 +4152,7 @@ const MANAGER_TILES = [
   { group: "inspections", key: "inspector_routes", emoji: "🗺", label: "Inspector Routes", desc: "Optimize the day's route from home or current location" },
   { group: "inspections", key: "inspector_reports", emoji: "📊", label: "Inspector Reports", desc: "Completed this week by status + per-inspector + by day" },
   { group: "inspections", key: "lookup", emoji: "🔍", label: "Record Lookup & Results", desc: "Find inspections, record damage/no damage" },
+  { group: "inspections", key: "reinspect", emoji: "📷", label: "No-photo re-inspects", desc: "Inspections with a result but NO photos — text the inspector to go back and re-inspect (one-off, manual)." },
   { group: "inspections", key: "jnreport", emoji: "📄", label: "JN Inspection Report", desc: "Generate insp report PDF with photos and upload to JN" },
   { group: "inspections", key: "bulkreport", emoji: "📦", label: "Bulk Inspection Reports", desc: "Run insp reports across every JN job with a chosen status" },
   // ── Public Adjuster ──
@@ -4196,6 +4197,7 @@ const ADMIN_REPORTS = [
   { tileKey: "lookup" },
   { tileKey: "browseall" },
   { tileKey: "training" },
+  { tileKey: "reinspect" },
 ];
 
 // Colors for result-count chips in Smart Q&A answers (no shared STATUS_META exists).
@@ -4988,6 +4990,76 @@ function RideAlongConfirmPage({ token }) {
 // TrainingReport — admin tile (Signing → Training Report). Who rode with
 // William each day + their confirmed hours, plus William's bookmarkable
 // picker link. Reads ride_alongs / app_settings directly via supabase.
+// Admin list of inspections that have a result but NO photos (DB + Storage) —
+// the Bastos-style cases. Each row has a manual "Text inspector to re-inspect"
+// button that reopens the job + texts the assigned inspector a link.
+function NoPhotoReinspects() {
+  const [items, setItems] = useState(null);
+  const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(null);   // inspection id being sent
+  const [sent, setSent] = useState({});     // id -> result text
+
+  const load = async () => {
+    setLoading(true); setErr("");
+    try {
+      const r = await fetch("/.netlify/functions/list-no-photo-inspections");
+      const d = await r.json();
+      if (r.ok && d.ok) setItems(d.items || []);
+      else setErr(d.error || "Couldn't load.");
+    } catch { setErr("Network error."); }
+    setLoading(false);
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+
+  const sendReinspect = async (it) => {
+    if (!window.confirm(`Text ${it.inspector_name || "the inspector"} to go back and re-inspect ${it.client_name}? This also reopens the job.`)) return;
+    setBusy(it.id);
+    try {
+      const r = await fetch("/.netlify/functions/request-reinspect-sms", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inspectionId: it.id }),
+      });
+      const d = await r.json();
+      setSent((p) => ({ ...p, [it.id]: r.ok && d.ok ? `✓ Texted ${d.inspector || ""} & reopened` : `⚠️ ${d.error || d.smsErr || "Failed"}` }));
+    } catch { setSent((p) => ({ ...p, [it.id]: "⚠️ Network error" })); }
+    setBusy(null);
+  };
+
+  return (
+    <Card style={{ padding: 20, background: "#f8fafc" }}>
+      <SectionTitle>📷 No-photo re-inspects</SectionTitle>
+      <div style={{ fontSize: 13, color: "#475569", marginBottom: 12 }}>
+        Inspections that have a result but <b>no photos on the server</b>. Text the inspector to go back out — it reopens the job and sends them the inspector-app link. Manual, one at a time.
+      </div>
+      <button type="button" onClick={load} disabled={loading}
+        style={{ marginBottom: 12, padding: "6px 14px", borderRadius: 8, border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer", fontWeight: 600 }}>
+        {loading ? "Checking…" : "↻ Refresh"}
+      </button>
+      {err && <div style={{ color: "#dc2626", fontSize: 13, marginBottom: 10 }}>{err}</div>}
+      {items && items.length === 0 && <div style={{ color: "#166534", fontSize: 14 }}>✅ No inspections are missing photos right now.</div>}
+      {items && items.map((it) => (
+        <div key={it.id} style={{ border: "1px solid #e2e8f0", borderRadius: 12, background: "#fff", padding: "12px 14px", marginBottom: 8 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 700 }}>{it.client_name || "—"} <span style={{ fontSize: 11, fontWeight: 700, color: "#b45309", textTransform: "uppercase" }}>· {it.result}</span></div>
+              <div style={{ fontSize: 12, color: "#64748b" }}>{it.address}</div>
+              <div style={{ fontSize: 12, color: "#475569", marginTop: 2 }}>
+                Inspector: {it.inspector_name || <span style={{ color: "#dc2626" }}>none assigned</span>}{it.inspector_phone ? "" : it.inspector_name ? " (no phone)" : ""}
+              </div>
+            </div>
+            <button type="button" onClick={() => sendReinspect(it)} disabled={busy === it.id || !it.inspector_phone}
+              style={{ flex: "0 0 auto", padding: "8px 14px", borderRadius: 8, border: "none", background: it.inspector_phone ? "#2563eb" : "#cbd5e1", color: "#fff", fontWeight: 700, cursor: it.inspector_phone ? "pointer" : "not-allowed" }}>
+              {busy === it.id ? "Sending…" : "📲 Text inspector to re-inspect"}
+            </button>
+          </div>
+          {sent[it.id] && <div style={{ marginTop: 8, fontSize: 12, color: sent[it.id].startsWith("✓") ? "#166534" : "#dc2626", fontWeight: 600 }}>{sent[it.id]}</div>}
+        </div>
+      ))}
+    </Card>
+  );
+}
+
 function TrainingReport() {
   const isoAgo = (days) => { const d = new Date(); d.setDate(d.getDate() - days); return d.toISOString().slice(0, 10); };
   const [rows, setRows] = useState(null);
@@ -14771,6 +14843,7 @@ if (!hasDamage) {
                     ) : null}
                   </Card>}
                   {managerSection === "training" && <TrainingReport />}
+                  {managerSection === "reinspect" && <NoPhotoReinspects />}
                   {managerSection === "report" && <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Weekly Report</SectionTitle>
                     <div style={{ display: "grid", gap: 12, marginBottom: 16 }}>
