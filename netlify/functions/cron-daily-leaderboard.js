@@ -42,6 +42,15 @@ export const handler = async (event) => {
   const base =
     process.env.URL || process.env.DEPLOY_URL || process.env.PUBLIC_SITE_URL || "";
 
+  // Monday morning the board is freshly reset to 0 — a "current standings"
+  // text would just say "nobody's signed yet." So scheduled Monday runs are
+  // skipped; the separate weekly-recap cron owns Monday 9 AM with last week's
+  // final results. (Manual GET still runs any day, for testing.)
+  const etDay = new Date().toLocaleDateString("en-US", { weekday: "short", timeZone: "America/New_York" });
+  if (etDay === "Mon" && event?.httpMethod !== "GET") {
+    return json(200, { ok: true, fired: false, reason: "Monday — handled by weekly recap" });
+  }
+
   // 1. On/off + extra copy-recipients from the auto_sms registry.
   const cfg = await loadAutoSms(AUTO_SMS_KEY);
   if (!cfg.enabled) {

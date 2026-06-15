@@ -69,6 +69,14 @@
 [functions."cron-daily-leaderboard"]
   schedule = "0 13 * * *"
 
+# cron-weekly-recap: MONDAY 9 AM EDT (13:00 UTC, Mon only) hype blast recapping
+# LAST week's final standings for BOTH boards (signed + sold). Monday is ideal —
+# the boards just reset to 0, so the daily snapshot skips Monday and this takes
+# its slot. On/off + extra recipients via the auto_sms row 'weekly_recap'.
+# exports.config.schedule mirrors this.
+[functions."cron-weekly-recap"]
+  schedule = "0 13 * * 1"
+
 # Scheduled function: next-morning ride-along confirmation texts. Each rep
 # William logged as training with him YESTERDAY gets a link to confirm their
 # hours (/?ridealong=<token>). Runs at 13:00 & 14:00 UTC to hit 9:30 AM ET in

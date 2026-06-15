@@ -95,8 +95,8 @@ export const handler = async (event) => {
       if (!Number.isNaN(s.getTime()) && !Number.isNaN(e.getTime())) { start = s; end = e; period = 'custom' }
     }
     if (!start) {
-      period = qp.period === 'month' ? 'month' : 'week'
-      ;({ start, end } = period === 'month' ? monthRange() : weekRange())
+      period = qp.period === 'month' ? 'month' : qp.period === 'lastweek' ? 'lastweek' : 'week'
+      ;({ start, end } = period === 'month' ? monthRange() : period === 'lastweek' ? lastWeekRange() : weekRange())
     }
     const startMs = start.getTime()
     const endMs = end.getTime()
@@ -291,6 +291,15 @@ function weekRange(now = new Date()) {
   endBase.setUTCDate(endBase.getUTCDate() + 6)
   const end = etWallToUTC(endBase.getUTCFullYear(), endBase.getUTCMonth() + 1, endBase.getUTCDate(), 23, 59, 59)
   return { start, end }
+}
+
+// Prior Mon–Sun week (this week's window shifted back 7 days) — Monday recap.
+function lastWeekRange(now = new Date()) {
+  const { start, end } = weekRange(now)
+  return {
+    start: new Date(start.getTime() - 7 * 24 * 60 * 60 * 1000),
+    end: new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000),
+  }
 }
 
 function cors(status, body) {
