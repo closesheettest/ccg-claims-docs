@@ -63,7 +63,7 @@ exports.handler = async (event) => {
 async function buildReport({ zone, days, since, resultValue }) {
   // Inspections with this result, not cancelled, in the window.
   const rows = await fetchTable("inspections", {
-    select: "id,sales_rep_id,sales_rep_name,inspector_name,signed_at,result,result_at,client_name,address,zip,county,latitude,cancelled_at",
+    select: "id,jn_job_id,sales_rep_id,sales_rep_name,inspector_name,signed_at,result,result_at,client_name,address,zip,county,latitude,cancelled_at",
     filter:
       `result=eq.${encodeURIComponent(resultValue)}` +
       `&cancelled_at=is.null` +
@@ -95,6 +95,7 @@ async function buildReport({ zone, days, since, resultValue }) {
       appt,
       appt_label: when ? dateLabel(new Date(when)) : "—",
       status: r.inspector_name ? `Inspected by ${r.inspector_name}` : "",
+      jnid: r.jn_job_id || null,
     });
   }
 

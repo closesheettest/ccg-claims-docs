@@ -56,11 +56,12 @@ exports.handler = async (event) => {
   // 2. Rep → zone resolver (TMS rep-zones).
   const dir = await fetchRepDirectory();
 
-  // 3. Filter to THIS zone + group by rep.
-  const byRep = {};
+  // 3. Filter to THIS zone + group by rep, split active vs departed.
+  const active = {}, inactive = {};
   let total = 0;
   for (const j of noSits) {
-    const z = dir(j.sales_rep, j.sales_rep_name)?.zone || null;
+    const rec = dir(j.sales_rep, j.sales_rep_name);
+    const z = rec?.zone || null;
     if (z !== zone) continue;
     total++;
     const rep = (j.sales_rep_name || "").trim() || "(no rep)";
@@ -71,7 +72,8 @@ exports.handler = async (event) => {
     // "Scheduled" = when the JN record was created (when they booked it).
     const createdSec = Number(j.date_created);
     const created = Number.isFinite(createdSec) && createdSec > 0 ? createdSec : null;
-    (byRep[rep] = byRep[rep] || []).push({
+    const bucket = (rec && rec.active === false) ? inactive : active;
+    (bucket[rep] = bucket[rep] || []).push({
       name: j.name || "(no name)",
       customer,
       address,
@@ -80,14 +82,15 @@ exports.handler = async (event) => {
       scheduled: created,
       scheduled_label: created ? dtLabel(new Date(created * 1000)) : null,
       status: j.status_name || "No Sit",
+      jnid: j.jnid || j.id || null,
     });
   }
 
-  const reps = Object.entries(byRep)
-    .map(([rep, deals]) => ({ rep, count: deals.length, deals: deals.sort((a, b) => (b.appt || 0) - (a.appt || 0)) }))
+  const shape = (obj, isInactive) => Object.entries(obj)
+    .map(([rep, deals]) => ({ rep, count: deals.length, inactive: isInactive, deals: deals.sort((a, b) => (b.appt || 0) - (a.appt || 0)) }))
     .sort((a, b) => b.count - a.count || a.rep.localeCompare(b.rep));
 
-  return cors(200, JSON.stringify({ ok: true, zone, days, total, reps }));
+  return cors(200, JSON.stringify({ ok: true, zone, days, total, reps: shape(active, false), inactive_reps: shape(inactive, true) }));
 };
 
 // "Mon, Jun 9 · 5:30 PM" in Eastern — but if the appt has no real time
@@ -123,7 +126,7 @@ async function fetchRepDirectory() {
   catch (e) { console.warn("rep-zones fetch failed:", e.message || e); }
   const byJnId = {}, byName = {};
   for (const r of reps) {
-    const entry = { zone: r.zone || null };
+    const entry = { zone: r.zone || null, active: r.active !== false };
     if (r.jobnimbus_id) byJnId[r.jobnimbus_id] = entry;
     if (r.name) byName[normalizeName(r.name)] = entry;
   }
