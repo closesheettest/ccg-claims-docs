@@ -237,7 +237,7 @@ exports.handler = async (event) => {
   const deals = await get(
     `${SB_URL}/rest/v1/inspections?pa_company_id=eq.${company.id}` +
       `&cancelled_at=is.null&or=(pa_stage.is.null,pa_stage.neq.dead)` +
-      `&select=id,client_name,address,city,state,zip,county,signed_at,mobile,latitude,longitude,pa_id,pa_stage,pa_opened_at,pa_notes_log,correction_needed,pa_company_at` +
+      `&select=id,client_name,address,city,state,zip,county,signed_at,mobile,latitude,longitude,pa_id,pa_stage,pa_opened_at,pa_notes_log,correction_needed,pa_company_at,spanish_only` +
       `&order=signed_at.desc&limit=500`,
     sb,
   );
@@ -269,6 +269,7 @@ exports.handler = async (event) => {
       touched,
       opened: !!d.pa_opened_at,
       correction_needed: !!d.correction_needed,
+      spanish_only: !!d.spanish_only,
       last_note: lastNote ? lastNote.text : null,
       stale_hours: staleHrs,
     };

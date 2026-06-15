@@ -3780,6 +3780,13 @@ function GuidedIntakeFlow({
             onChange={(e) => update({ signerEmail: e.target.value })}
             autoCapitalize="off" autoCorrect="off" />
         </div>
+        {/* Spanish-only flag — travels with the record so if it comes back
+            damaged, the PA knows to bring Spanish before heading out. */}
+        <label style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderRadius: 12, border: "1px solid #d1d5db", background: data.spanish_only ? "#fef9c3" : "#fff", cursor: "pointer", fontFamily: "'Nunito', sans-serif" }}>
+          <input type="checkbox" style={{ width: 20, height: 20 }} checked={!!data.spanish_only}
+            onChange={(e) => update({ spanish_only: e.target.checked })} />
+          <span style={{ fontWeight: 700, fontSize: 14 }}>🇪🇸 Spanish only <span style={{ fontWeight: 400, color: "#6b7280" }}>— homeowner speaks Spanish only</span></span>
+        </label>
       </div>
     );
   }
@@ -5590,6 +5597,7 @@ function PACompanyAdminPage({ token }) {
           {d.name}
           {statusBadge(d)}
           {d.correction_needed && <span style={{ fontSize: 11, fontWeight: 700, color: "#92400e", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 999, padding: "1px 8px" }}>⏳ correction</span>}
+          {d.spanish_only && <span style={{ fontSize: 11, fontWeight: 700, color: "#9a3412", background: "#fff7ed", border: "1px solid #fdba74", borderRadius: 999, padding: "1px 8px" }}>🇪🇸 Spanish only</span>}
           {!d.touched && (d.stale_hours ?? 0) >= 48 && <span style={{ fontSize: 11, fontWeight: 700, color: "#b91c1c", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 999, padding: "1px 8px" }}>⚠ {d.stale_hours}h untouched</span>}
           {d._dist != null && <span style={{ fontSize: 11, fontWeight: 700, color: "#0369a1", background: "#e0f2fe", border: "1px solid #7dd3fc", borderRadius: 999, padding: "1px 8px" }}>📍 {d._dist.toFixed(1)} mi</span>}
         </div>
@@ -8464,6 +8472,7 @@ const renderSmsTemplate = (key, vars) => {
         sales_rep_email: data.salesRepEmail || "",
         roof_type: inspData.roof_type || "Shingle",
         lead_source: data.leadSource || "Inspection",
+        spanish_only: !!data.spanish_only,
       }]).select("id").single();
       if (inspSaveError) {
         console.error("Inspection save error:", inspSaveError);
@@ -8836,6 +8845,7 @@ const renderSmsTemplate = (key, vars) => {
           sales_rep_id: data.salesRepId || "",
           sales_rep_email: data.salesRepEmail || "",
           lead_source: data.leadSource || "Inspection",
+          spanish_only: !!data.spanish_only,
         }]).select("id").single();
         if (inspInsertErr) {
           console.error("Inspection insert error:", inspInsertErr);
