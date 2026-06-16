@@ -4160,6 +4160,7 @@ const MANAGER_TILES = [
   { group: "inspections", key: "inspector_reports", emoji: "📊", label: "Inspector Reports", desc: "Completed this week by status + per-inspector + by day" },
   { group: "inspections", key: "lookup", emoji: "🔍", label: "Record Lookup & Results", desc: "Find inspections, record damage/no damage" },
   { group: "inspections", key: "reinspect", emoji: "📷", label: "No-photo re-inspects", desc: "Inspections with a result but NO photos — text the inspector to go back and re-inspect (one-off, manual)." },
+  { group: "inspections", key: "inspmap", emoji: "🗺️", label: "Inspections Map", desc: "Map of every inspection still to be done — red = unassigned, blue = claimed." },
   { group: "pa", key: "dialer", emoji: "📞", label: "Power Dialer", desc: "Damage-lead call queue: the dialer link, what's left to dial, and a report of who's been called + each outcome." },
   { group: "inspections", key: "jnreport", emoji: "📄", label: "JN Inspection Report", desc: "Generate insp report PDF with photos and upload to JN" },
   { group: "inspections", key: "bulkreport", emoji: "📦", label: "Bulk Inspection Reports", desc: "Run insp reports across every JN job with a chosen status" },
@@ -4206,6 +4207,7 @@ const ADMIN_REPORTS = [
   { tileKey: "browseall" },
   { tileKey: "training" },
   { tileKey: "reinspect" },
+  { tileKey: "inspmap" },
   { tileKey: "dialer" },
 ];
 
@@ -5172,6 +5174,97 @@ function DialerAdmin() {
         </>
       )}
     </Card>
+  );
+}
+
+// Map of inspections still to be done (result not set yet), plotted by their
+// geocoded location on a Google Map. Red pin = unassigned (in the pool), blue =
+// already claimed by an inspector. Tap a pin for the homeowner + status.
+function PendingInspectionsMap() {
+  const mapRef = useRef(null);
+  const [items, setItems] = useState(null);
+  const [err, setErr] = useState("");
+  const [onlyUnassigned, setOnlyUnassigned] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await supabase
+        .from("inspections")
+        .select("id, client_name, address, city, latitude, longitude, inspector_id, inspector_name, signed_at")
+        .is("result", null)
+        .is("cancelled_at", null)
+        .not("latitude", "is", null)
+        .not("longitude", "is", null)
+        .limit(3000);
+      if (error) { setErr(error.message); setItems([]); return; }
+      setItems(data || []);
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!items || !mapRef.current) return;
+    let cleanup = () => {};
+    const esc = (s) => String(s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    (async () => {
+      try {
+        await loadGooglePlaces();
+        const { Map, InfoWindow } = await window.google.maps.importLibrary("maps");
+        const { Marker } = await window.google.maps.importLibrary("marker");
+        const shown = items.filter((i) => (onlyUnassigned ? !i.inspector_id : true));
+        const map = new Map(mapRef.current, { center: { lat: 27.95, lng: -81.7 }, zoom: 7, mapTypeControl: false, streetViewControl: false });
+        const info = new InfoWindow();
+        const bounds = new window.google.maps.LatLngBounds();
+        const markers = shown.map((i) => {
+          const position = { lat: Number(i.latitude), lng: Number(i.longitude) };
+          const m = new Marker({
+            position, map, title: i.client_name || "",
+            icon: { url: `https://maps.google.com/mapfiles/ms/icons/${i.inspector_id ? "blue" : "red"}-dot.png` },
+          });
+          m.addListener("click", () => {
+            info.setContent(
+              `<div style="font-family:system-ui;font-size:13px;max-width:230px">` +
+              `<b>${esc(i.client_name)}</b><br>${esc([i.address, i.city].filter(Boolean).join(", "))}<br>` +
+              (i.inspector_id ? `Inspector: ${esc(i.inspector_name || "assigned")}` : `<b style="color:#c8102e">Unassigned (in pool)</b>`) +
+              `</div>`,
+            );
+            info.open(map, m);
+          });
+          bounds.extend(position);
+          return m;
+        });
+        if (shown.length) map.fitBounds(bounds);
+        cleanup = () => markers.forEach((m) => m.setMap(null));
+      } catch (e) {
+        setErr(e.message || "Map failed to load — make sure the Maps JavaScript API is enabled in Google Cloud.");
+      }
+    })();
+    return () => cleanup();
+  }, [items, onlyUnassigned]);
+
+  const total = items ? items.length : 0;
+  const unassigned = items ? items.filter((i) => !i.inspector_id).length : 0;
+
+  return (
+    <div>
+      <h2 style={{ margin: "0 0 4px", fontSize: 20, fontWeight: 800 }}>🗺️ Inspections to do — map</h2>
+      <p style={{ margin: "0 0 12px", color: "#64748b", fontSize: 13 }}>
+        Every inspection still needing a result, by location. <span style={{ color: "#c8102e", fontWeight: 700 }}>● Red</span> = unassigned (in the pool), <span style={{ color: "#1d4ed8", fontWeight: 700 }}>● Blue</span> = claimed by an inspector. Tap a pin for details.
+      </p>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+        {items === null ? <span style={{ color: "#64748b" }}>Loading…</span> : (
+          <>
+            <span style={{ background: "#e0f2fe", color: "#075985", borderRadius: 8, padding: "4px 10px", fontWeight: 700, fontSize: 13 }}>{total} to do</span>
+            <span style={{ background: "#fee2e2", color: "#991b1b", borderRadius: 8, padding: "4px 10px", fontWeight: 700, fontSize: 13 }}>{unassigned} unassigned</span>
+            <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+              <input type="checkbox" checked={onlyUnassigned} onChange={(e) => setOnlyUnassigned(e.target.checked)} />
+              Show only unassigned
+            </label>
+          </>
+        )}
+      </div>
+      {err && <div style={{ color: "#c8102e", fontSize: 13, marginBottom: 8 }}>{err}</div>}
+      <div ref={mapRef} style={{ width: "100%", height: "70vh", borderRadius: 12, background: "#e5e7eb" }} />
+    </div>
   );
 }
 
@@ -15323,6 +15416,7 @@ if (!hasDamage) {
                   </Card>}
                   {managerSection === "training" && <TrainingReport />}
                   {managerSection === "reinspect" && <NoPhotoReinspects />}
+                  {managerSection === "inspmap" && <Card style={{ padding: 20, background: "#f8fafc" }}><PendingInspectionsMap /></Card>}
                   {managerSection === "dialer" && <DialerAdmin />}
                   {managerSection === "report" && <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Weekly Report</SectionTitle>
