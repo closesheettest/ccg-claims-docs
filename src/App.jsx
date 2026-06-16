@@ -5450,6 +5450,11 @@ function PowerDialerPage({ token }) {
   const [cbAt, setCbAt] = useState("");          // callback datetime-local
   const [showCb, setShowCb] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Appointment scheduling (pa-schedule-api): open slots across all PAs.
+  const [schedOpen, setSchedOpen] = useState(false);
+  const [slots, setSlots] = useState(null);
+  const [schedErr, setSchedErr] = useState("");
+  const [booking, setBooking] = useState("");   // start_at|pa_id being booked
 
   const api = async (action, extra = {}) => {
     const res = await fetch("/.netlify/functions/dialer-api", {
@@ -5494,6 +5499,35 @@ function PowerDialerPage({ token }) {
     setSaving(true);
     try { await api("release", { lead_id: lead.id }); await getNext(); } catch (e) { setErr(e.message || "Failed."); }
     setSaving(false);
+  };
+
+  const schedApi = async (action, extra = {}) => {
+    const res = await fetch("/.netlify/functions/pa-schedule-api", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, token, ...extra }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok || !out.ok) throw new Error(out.error || "Request failed");
+    return out;
+  };
+  const openSchedule = async () => {
+    setSchedOpen(true); setSlots(null); setSchedErr("");
+    try { const o = await schedApi("slots"); setSlots(o.slots || []); }
+    catch (e) { setSchedErr(e.message || "Could not load availability."); }
+  };
+  const bookSlot = async (slot) => {
+    if (!lead) return;
+    setBooking(slot.start_at + "|" + slot.pa_id); setSchedErr("");
+    try {
+      await schedApi("book", {
+        pa_id: slot.pa_id, start_at: slot.start_at, inspection_id: lead.inspection_id,
+        homeowner_name: lead.client_name, homeowner_phone: lead.phone, address: lead.address, booked_by: caller,
+      });
+      await refreshCounts();
+      setSchedOpen(false); setSlots(null);
+      await getNext();   // booking marked this lead done server-side
+    } catch (e) { setSchedErr(e.message || "Could not book."); }
+    setBooking("");
   };
 
   const saveName = () => {
@@ -5572,6 +5606,42 @@ function PowerDialerPage({ token }) {
             style={{ display: "block", marginTop: 14, padding: "16px", borderRadius: 12, background: "#22c55e", color: "#04210f", fontWeight: 800, fontSize: 20, textAlign: "center", textDecoration: "none" }}>
             📞 Call {lead.phone}
           </a>
+
+          <button type="button" onClick={openSchedule} disabled={saving}
+            style={{ marginTop: 10, width: "100%", padding: "12px", borderRadius: 12, background: "#1d4ed8", color: "#fff", fontWeight: 800, fontSize: 16, border: "none" }}>
+            📅 Check PA availability & schedule
+          </button>
+
+          {schedOpen && (
+            <div style={{ marginTop: 12, background: "#0b1220", border: "1px solid #1f2937", borderRadius: 12, padding: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <span style={{ fontWeight: 700 }}>Open slots (soonest first)</span>
+                <button type="button" onClick={() => { setSchedOpen(false); setSlots(null); }} style={{ background: "none", border: "none", color: "#9ca3af", cursor: "pointer" }}>✕</button>
+              </div>
+              {schedErr && <div style={{ color: "#fca5a5", fontSize: 13, marginBottom: 8 }}>{schedErr}</div>}
+              {slots === null && !schedErr && <div style={{ color: "#9ca3af", fontSize: 13 }}>Loading availability…</div>}
+              {slots && slots.length === 0 && <div style={{ color: "#9ca3af", fontSize: 13 }}>No open slots — have PAs set their availability in their portal.</div>}
+              {slots && slots.length > 0 && (
+                <div style={{ display: "grid", gap: 6, maxHeight: 320, overflowY: "auto" }}>
+                  {slots.map((s) => {
+                    const key = s.start_at + "|" + s.pa_id;
+                    return (
+                      <div key={key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, background: "#111827", borderRadius: 8, padding: "8px 10px" }}>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 14 }}>{s.label}</div>
+                          <div style={{ fontSize: 12, color: "#9ca3af" }}>{s.pa_name}{s.pa_company_name ? ` · ${s.pa_company_name}` : ""}</div>
+                        </div>
+                        <button type="button" onClick={() => bookSlot(s)} disabled={!!booking}
+                          style={{ padding: "8px 12px", borderRadius: 8, border: "none", background: "#22c55e", color: "#04210f", fontWeight: 800, fontSize: 13, opacity: booking ? 0.6 : 1 }}>
+                          {booking === key ? "Booking…" : "Book"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
           <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Notes (optional)"
             style={{ marginTop: 12, width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #374151", background: "#0b1220", color: "#fff", fontSize: 14, boxSizing: "border-box" }} />
@@ -5681,6 +5751,41 @@ function JnAddQueuePage({ token }) {
         )}
         <div style={{ marginTop: 14 }}><Button variant="outline" onClick={load}>↻ Refresh</Button></div>
       </div>
+    </div>
+  );
+}
+
+// Upcoming PA appointments for a company (shown on the PA-company portal).
+// Reads pa_appointments for the company's PAs directly via supabase.
+function CompanyAppointments({ pas }) {
+  const [appts, setAppts] = useState(null);
+  const paName = {};
+  for (const p of (pas || [])) paName[p.id] = p.name;
+  useEffect(() => {
+    const ids = (pas || []).map((p) => p.id);
+    if (!ids.length) { setAppts([]); return; }
+    supabase.from("pa_appointments").select("*").in("pa_id", ids).eq("status", "scheduled")
+      .gte("start_at", new Date().toISOString()).order("start_at", { ascending: true })
+      .then(({ data }) => setAppts(data || []));
+  }, [pas]);
+  if (appts === null) return null;
+  const fmt = (iso) => { try { return new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch { return iso; } };
+  return (
+    <div style={{ marginBottom: 16, border: "1px solid #bbf7d0", borderRadius: 12, background: "#f0fdf4", padding: 12 }}>
+      <div style={{ fontSize: 14, fontWeight: 800, color: "#166534", marginBottom: 8 }}>📅 Upcoming appointments ({appts.length})</div>
+      {appts.length === 0 ? (
+        <div style={{ fontSize: 13, color: "#6b7280" }}>None booked yet. Appointments your adjusters book (or that the office books for them) show here.</div>
+      ) : (
+        <div style={{ display: "grid", gap: 8 }}>
+          {appts.map((a) => (
+            <div key={a.id} style={{ background: "#fff", border: "1px solid #d1fae5", borderRadius: 10, padding: 10 }}>
+              <div style={{ fontWeight: 700 }}>{a.homeowner_name || "Homeowner"} <span style={{ color: "#15803d", fontWeight: 600 }}>· {fmt(a.start_at)}</span></div>
+              <div style={{ fontSize: 12, color: "#6b7280" }}>PA: {paName[a.pa_id] || "—"}{a.address ? ` · 📍 ${a.address}` : ""}</div>
+              {a.homeowner_phone && <div style={{ fontSize: 12 }}><a href={`tel:${a.homeowner_phone}`} style={{ color: "#0369a1" }}>📞 {a.homeowner_phone}</a></div>}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -5979,6 +6084,8 @@ function PACompanyAdminPage({ token }) {
             </Button>
           </div>
         </div>
+
+        <CompanyAppointments pas={data.pas} />
 
         {showView && (
           <div style={{ marginBottom: 16, border: "1px solid #ddd6fe", borderRadius: 12, background: "#faf5ff", padding: 12 }}>

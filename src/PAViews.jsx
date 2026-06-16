@@ -1618,6 +1618,12 @@ export function PAMobileApp({ embedded = false, paId = null, allowPaIds = null }
             style={{ ...secondaryBtn, fontSize: 11 }}>
             {wide ? "📱 Mobile view" : "🖥 Desktop view"}
           </button>
+          {me && (stage === "list" || stage === "availability") && (
+            <button type="button" onClick={() => setStage(stage === "availability" ? "list" : "availability")}
+              style={{ ...secondaryBtn, fontSize: 11, borderColor: "#86efac", color: "#15803d" }}>
+              {stage === "availability" ? "← Back" : "📅 My Availability"}
+            </button>
+          )}
           {me && inspCounterpart && (
             <button type="button" onClick={goToInspectorPortal}
               style={{ ...secondaryBtn, fontSize: 11, borderColor: "#7dd3fc", color: "#0369a1" }}>
@@ -1650,9 +1656,120 @@ export function PAMobileApp({ embedded = false, paId = null, allowPaIds = null }
         <PAJobList me={me} wide={wide} onOpenJob={(jobId) => setStage({ kind: "detail", jobId })} />
       )}
 
+      {stage === "availability" && me && (
+        <PAAvailability me={me} onBack={() => setStage("list")} />
+      )}
+
       {stage && stage.kind === "detail" && me && (
         <PAPipelineDetail me={me} wide={wide} adminView={adminView} jobId={stage.jobId} onBack={() => setStage("list")} />
       )}
+    </div>
+  );
+}
+
+// PA recurring weekly availability editor + the PA's upcoming appointments.
+// Availability is stored as pa_availability rows (weekday + start/end minutes,
+// Eastern). The dialer turns these into open 2-hour slots across all PAs.
+const WEEKDAYS = [[1, "Monday"], [2, "Tuesday"], [3, "Wednesday"], [4, "Thursday"], [5, "Friday"], [6, "Saturday"], [0, "Sunday"]];
+function toMin(hhmm) { const [h, m] = String(hhmm || "").split(":").map(Number); return (h || 0) * 60 + (m || 0); }
+function toHHMM(min) { const h = Math.floor((min || 0) / 60), m = (min || 0) % 60; return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`; }
+function PAAvailability({ me, onBack }) {
+  const [windows, setWindows] = useState([]); // [{weekday, start:"HH:MM", end:"HH:MM"}]
+  const [appts, setAppts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    const a = await supabase.from("pa_availability").select("weekday,start_min,end_min").eq("pa_id", me.id);
+    setWindows((a.data || []).map((w) => ({ weekday: w.weekday, start: toHHMM(w.start_min), end: toHHMM(w.end_min) }))
+      .sort((x, y) => (x.weekday === 0 ? 7 : x.weekday) - (y.weekday === 0 ? 7 : y.weekday) || x.start.localeCompare(y.start)));
+    const ap = await supabase.from("pa_appointments").select("*").eq("pa_id", me.id).eq("status", "scheduled")
+      .gte("start_at", new Date().toISOString()).order("start_at", { ascending: true });
+    setAppts(ap.data || []);
+    setLoading(false);
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [me.id]);
+
+  const addWindow = (weekday) => setWindows((w) => [...w, { weekday, start: "13:00", end: "17:00" }]);
+  const setField = (i, k, v) => setWindows((w) => w.map((x, j) => (j === i ? { ...x, [k]: v } : x)));
+  const removeWindow = (i) => setWindows((w) => w.filter((_, j) => j !== i));
+
+  const save = async () => {
+    setSaving(true); setMsg(null);
+    const valid = windows.filter((w) => toMin(w.end) > toMin(w.start));
+    const del = await supabase.from("pa_availability").delete().eq("pa_id", me.id);
+    if (del.error) { setMsg({ ok: false, text: del.error.message }); setSaving(false); return; }
+    if (valid.length) {
+      const rows = valid.map((w) => ({ pa_id: me.id, weekday: w.weekday, start_min: toMin(w.start), end_min: toMin(w.end) }));
+      const ins = await supabase.from("pa_availability").insert(rows);
+      if (ins.error) { setMsg({ ok: false, text: ins.error.message }); setSaving(false); return; }
+    }
+    setMsg({ ok: true, text: "✓ Availability saved." });
+    setSaving(false);
+  };
+
+  const cancelAppt = async (id) => {
+    if (!window.confirm("Cancel this appointment?")) return;
+    await supabase.from("pa_appointments").update({ status: "cancelled" }).eq("id", id);
+    load();
+  };
+
+  const fmt = (iso) => { try { return new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch { return iso; } };
+  const card = { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, marginBottom: 16 };
+  const timeInput = { padding: "6px 8px", borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 14 };
+
+  if (loading) return <div style={{ padding: 24, color: "#6b7280" }}>Loading…</div>;
+
+  return (
+    <div>
+      {/* Upcoming appointments */}
+      <div style={card}>
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 10, fontFamily: "'Oswald', sans-serif" }}>📅 Your upcoming appointments</div>
+        {appts.length === 0 ? <div style={{ color: "#6b7280", fontSize: 14 }}>No appointments booked yet.</div> : (
+          <div style={{ display: "grid", gap: 8 }}>
+            {appts.map((a) => (
+              <div key={a.id} style={{ border: "1px solid #d1fae5", background: "#f0fdf4", borderRadius: 10, padding: 10 }}>
+                <div style={{ fontWeight: 700 }}>{a.homeowner_name || "Homeowner"} <span style={{ color: "#15803d" }}>· {fmt(a.start_at)}</span></div>
+                {a.address && <div style={{ fontSize: 13, color: "#475569" }}>📍 {a.address}</div>}
+                {a.homeowner_phone && <div style={{ fontSize: 13 }}><a href={`tel:${a.homeowner_phone}`} style={{ color: "#0369a1" }}>📞 {a.homeowner_phone}</a></div>}
+                <button type="button" onClick={() => cancelAppt(a.id)} style={{ marginTop: 6, fontSize: 11, color: "#b91c1c", background: "none", border: "none", textDecoration: "underline", cursor: "pointer" }}>Cancel</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Weekly availability editor */}
+      <div style={card}>
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4, fontFamily: "'Oswald', sans-serif" }}>🗓 Weekly availability</div>
+        <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 12 }}>Set the hours you can meet homeowners each week. The office books 2-hour appointments inside these times.</div>
+        {WEEKDAYS.map(([wd, label]) => {
+          const dayWins = windows.map((w, i) => ({ ...w, i })).filter((w) => w.weekday === wd);
+          return (
+            <div key={wd} style={{ padding: "8px 0", borderBottom: "1px solid #f1f5f9" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontWeight: 600 }}>{label}</span>
+                <button type="button" onClick={() => addWindow(wd)} style={{ fontSize: 12, color: "#15803d", background: "none", border: "none", cursor: "pointer" }}>+ Add hours</button>
+              </div>
+              {dayWins.length === 0 ? <div style={{ fontSize: 12, color: "#9ca3af" }}>Not available</div> : dayWins.map((w) => (
+                <div key={w.i} style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+                  <input type="time" value={w.start} onChange={(e) => setField(w.i, "start", e.target.value)} style={timeInput} />
+                  <span style={{ color: "#6b7280" }}>to</span>
+                  <input type="time" value={w.end} onChange={(e) => setField(w.i, "end", e.target.value)} style={timeInput} />
+                  <button type="button" onClick={() => removeWindow(w.i)} style={{ color: "#b91c1c", background: "none", border: "none", cursor: "pointer", fontSize: 16 }}>×</button>
+                </div>
+              ))}
+            </div>
+          );
+        })}
+        {msg && <div style={{ marginTop: 10, fontSize: 13, color: msg.ok ? "#15803d" : "#b91c1c" }}>{msg.text}</div>}
+        <button type="button" onClick={save} disabled={saving} style={{ marginTop: 14, padding: "10px 20px", borderRadius: 10, border: "none", background: "#16a34a", color: "#fff", fontWeight: 700, cursor: "pointer", opacity: saving ? 0.6 : 1 }}>
+          {saving ? "Saving…" : "Save availability"}
+        </button>
+        <button type="button" onClick={onBack} style={{ marginLeft: 8, padding: "10px 16px", borderRadius: 10, border: "1px solid #cbd5e1", background: "#fff", fontWeight: 600, cursor: "pointer" }}>Back</button>
+      </div>
     </div>
   );
 }
