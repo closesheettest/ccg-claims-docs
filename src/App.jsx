@@ -5512,7 +5512,7 @@ function PowerDialerPage({ token }) {
   };
   const openSchedule = async () => {
     setSchedOpen(true); setSlots(null); setSchedErr("");
-    try { const o = await schedApi("slots"); setSlots(o.slots || []); }
+    try { const o = await schedApi("slots", { inspection_id: lead?.inspection_id }); setSlots(o.slots || []); }
     catch (e) { setSchedErr(e.message || "Could not load availability."); }
   };
   const bookSlot = async (slot) => {
@@ -5629,7 +5629,7 @@ function PowerDialerPage({ token }) {
                       <div key={key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, background: "#111827", borderRadius: 8, padding: "8px 10px" }}>
                         <div>
                           <div style={{ fontWeight: 700, fontSize: 14 }}>{s.label}</div>
-                          <div style={{ fontSize: 12, color: "#9ca3af" }}>{s.pa_name}{s.pa_company_name ? ` · ${s.pa_company_name}` : ""}</div>
+                          <div style={{ fontSize: 12, color: "#9ca3af" }}>{s.pa_name}{s.pa_company_name ? ` · ${s.pa_company_name}` : ""}{s.distance_mi != null ? ` · 📍 ${s.distance_mi} mi` : ""}</div>
                         </div>
                         <button type="button" onClick={() => bookSlot(s)} disabled={!!booking}
                           style={{ padding: "8px 12px", borderRadius: 8, border: "none", background: "#22c55e", color: "#04210f", fontWeight: 800, fontSize: 13, opacity: booking ? 0.6 : 1 }}>

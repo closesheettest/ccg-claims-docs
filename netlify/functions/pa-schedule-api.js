@@ -41,7 +41,15 @@ exports.handler = async (event) => {
   try {
     if (action === "slots") {
       const days = Math.min(Math.max(parseInt(body.days, 10) || HORIZON_DAYS, 1), 30);
-      return cors(200, JSON.stringify({ ok: true, slots: await buildSlots(days) }));
+      // Homeowner location (for distance) — from the inspection, or passed direct.
+      let home = null;
+      const inspId = String(body.inspection_id || "").trim();
+      if (inspId) {
+        const r = (await sbGet(`inspections?id=eq.${encodeURIComponent(inspId)}&select=latitude,longitude&limit=1`))[0];
+        if (r && r.latitude != null && r.longitude != null) home = { lat: +r.latitude, lng: +r.longitude };
+      }
+      if (!home && body.lat != null && body.lng != null) home = { lat: +body.lat, lng: +body.lng };
+      return cors(200, JSON.stringify({ ok: true, slots: await buildSlots(days, home) }));
     }
     if (action === "book") return await book(body);
     return cors(400, JSON.stringify({ ok: false, error: `Unknown action: ${action}` }));
@@ -50,10 +58,15 @@ exports.handler = async (event) => {
   }
 };
 
-async function buildSlots(days) {
-  const pas = await sbGet(`pas?active=eq.true&select=id,name,pa_company_id&limit=500`);
+async function buildSlots(days, home) {
+  const pas = await sbGet(`pas?active=eq.true&select=id,name,pa_company_id,latitude,longitude&limit=500`);
   if (!pas.length) return [];
-  const paById = {}; for (const p of pas) paById[p.id] = p;
+  // Distance (mi) from the homeowner to each PA's home base, when both geocoded.
+  const distByPa = {};
+  for (const p of pas) {
+    distByPa[p.id] = (home && p.latitude != null && p.longitude != null)
+      ? Math.round(haversineMi(home.lat, home.lng, +p.latitude, +p.longitude)) : null;
+  }
   const companyIds = [...new Set(pas.map((p) => p.pa_company_id).filter(Boolean))];
   const companies = companyIds.length
     ? await sbGet(`pa_companies?id=in.(${companyIds.map((x) => `"${x}"`).join(",")})&select=id,name`)
@@ -80,20 +93,35 @@ async function buildSlots(days) {
           if (startMs <= nowMs) continue;                       // no past slots
           const taken = (apptByPa[pa.id] || []).some(([as, ae]) => startMs < ae && endMs > as);
           if (taken) continue;
+          const dist = distByPa[pa.id];
+          if (dist != null && dist > MAX_MI) continue;        // too far for an in-person 2hr appt
           slots.push({
             start_at: new Date(startMs).toISOString(),
             end_at: new Date(endMs).toISOString(),
             pa_id: pa.id, pa_name: pa.name,
             pa_company_id: pa.pa_company_id || null,
             pa_company_name: companyName[pa.pa_company_id] || null,
+            distance_mi: dist,
             label: etLabel(startMs, endMs),
           });
         }
       }
     }
   }
-  slots.sort((a, b) => Date.parse(a.start_at) - Date.parse(b.start_at) || (a.pa_name || "").localeCompare(b.pa_name || ""));
+  // Soonest first; for the same time, the closer PA first (unknown distance last).
+  slots.sort((a, b) =>
+    Date.parse(a.start_at) - Date.parse(b.start_at) ||
+    ((a.distance_mi ?? 1e9) - (b.distance_mi ?? 1e9)) ||
+    (a.pa_name || "").localeCompare(b.pa_name || ""));
   return slots.slice(0, 60);
+}
+
+// Great-circle distance in miles.
+function haversineMi(lat1, lon1, lat2, lon2) {
+  const R = 3958.8, toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
 }
 
 async function book(body) {
