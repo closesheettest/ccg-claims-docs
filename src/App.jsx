@@ -5265,6 +5265,177 @@ function TrainingReport() {
 // U.S. Shingle "Add to JobNimbus" queue. Lists every PA a company added that
 // still needs creating in JobNimbus. Copy each field → paste into JN (so the
 // email matches exactly) → tap Completed to link them. Token-gated.
+// ── Power Dialer ────────────────────────────────────────────────────
+// Standalone fast call queue for the DAMAGE leads. Opens at /?dialer=<token>.
+// Hands one homeowner at a time (claimed so multiple callers never collide),
+// tap-to-dial, log a one-tap outcome, auto-advance. Backed by dialer-api.
+function PowerDialerPage({ token }) {
+  const [caller, setCaller] = useState(() => {
+    try { return localStorage.getItem("dialer_caller") || ""; } catch { return ""; }
+  });
+  const [nameInput, setNameInput] = useState("");
+  const [counts, setCounts] = useState(null);
+  const [lead, setLead] = useState(null);       // current claimed lead | null
+  const [empty, setEmpty] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
+  const [notes, setNotes] = useState("");
+  const [cbAt, setCbAt] = useState("");          // callback datetime-local
+  const [showCb, setShowCb] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const api = async (action, extra = {}) => {
+    const res = await fetch("/.netlify/functions/dialer-api", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, token, caller, ...extra }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok || !out.ok) throw new Error(out.error || "Request failed");
+    return out;
+  };
+
+  const refreshCounts = async () => { try { const o = await api("stats"); setCounts(o.counts); } catch { /* */ } };
+  const getNext = async () => {
+    setLoading(true); setErr(""); setNotes(""); setCbAt(""); setShowCb(false);
+    try {
+      const o = await api("next");
+      if (o.lead) { setLead(o.lead); setEmpty(false); }
+      else { setLead(null); setEmpty(true); }
+    } catch (e) { setErr(e.message || "Could not load the next lead."); }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    if (!caller) return;
+    (async () => { await refreshCounts(); await getNext(); })();
+    // eslint-disable-next-line
+  }, [caller]);
+
+  const disposition = async (disp) => {
+    if (!lead) return;
+    if (disp === "callback" && !cbAt) { setShowCb(true); return; }
+    setSaving(true); setErr("");
+    try {
+      await api("disposition", { lead_id: lead.id, disposition: disp, notes, callback_at: cbAt ? new Date(cbAt).toISOString() : null });
+      await refreshCounts();
+      await getNext();
+    } catch (e) { setErr(e.message || "Failed to save."); }
+    setSaving(false);
+  };
+  const skip = async () => {
+    if (!lead) return;
+    setSaving(true);
+    try { await api("release", { lead_id: lead.id }); await getNext(); } catch (e) { setErr(e.message || "Failed."); }
+    setSaving(false);
+  };
+
+  const saveName = () => {
+    const n = nameInput.trim();
+    if (!n) return;
+    try { localStorage.setItem("dialer_caller", n); } catch { /* */ }
+    setCaller(n);
+  };
+
+  const wrap = { minHeight: "100vh", background: "#0b1220", color: "#e5e7eb", padding: "18px 14px 60px", fontFamily: "system-ui, sans-serif" };
+  const card = { maxWidth: 560, margin: "0 auto" };
+
+  // Name gate
+  if (!caller) {
+    return (
+      <div style={wrap}><div style={{ ...card, marginTop: 60 }}>
+        <h1 style={{ fontSize: 26, fontWeight: 800, margin: "0 0 6px" }}>📞 Power Dialer</h1>
+        <p style={{ color: "#9ca3af", marginTop: 0 }}>Enter your name so we don't hand the same homeowner to two callers.</p>
+        <input value={nameInput} onChange={(e) => setNameInput(e.target.value)} placeholder="Your name"
+          onKeyDown={(e) => e.key === "Enter" && saveName()}
+          style={{ width: "100%", padding: "12px 14px", borderRadius: 10, border: "1px solid #374151", background: "#111827", color: "#fff", fontSize: 16 }} />
+        <button onClick={saveName} disabled={!nameInput.trim()}
+          style={{ marginTop: 12, width: "100%", padding: "12px", borderRadius: 10, border: "none", background: "#22c55e", color: "#04210f", fontWeight: 800, fontSize: 16 }}>
+          Start calling
+        </button>
+      </div></div>
+    );
+  }
+
+  const dispBtn = (label, disp, bg) => (
+    <button onClick={() => disposition(disp)} disabled={saving || loading}
+      style={{ padding: "12px 8px", borderRadius: 10, border: "1px solid #374151", background: bg || "#1f2937", color: "#fff", fontWeight: 700, fontSize: 14, opacity: saving ? 0.6 : 1 }}>
+      {label}
+    </button>
+  );
+
+  return (
+    <div style={wrap}><div style={card}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>📞 Power Dialer</h1>
+        <span style={{ fontSize: 12, color: "#9ca3af" }}>
+          {caller} · <a onClick={() => { try { localStorage.removeItem("dialer_caller"); } catch { /* */ } setCaller(""); }} style={{ color: "#60a5fa", cursor: "pointer", textDecoration: "underline" }}>change</a>
+        </span>
+      </div>
+      {counts && (
+        <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", fontSize: 12 }}>
+          <span style={{ background: "#0e2a17", color: "#86efac", padding: "4px 8px", borderRadius: 8 }}>📋 {counts.ready} to call</span>
+          <span style={{ background: "#1f2937", color: "#cbd5e1", padding: "4px 8px", borderRadius: 8 }}>⏰ {counts.scheduled} scheduled</span>
+          <span style={{ background: "#1f2937", color: "#cbd5e1", padding: "4px 8px", borderRadius: 8 }}>✅ {counts.done} done</span>
+          <span style={{ background: "#1f2937", color: "#cbd5e1", padding: "4px 8px", borderRadius: 8 }}>📞 {counts.calls_today} calls today</span>
+        </div>
+      )}
+
+      {err && <div style={{ marginTop: 12, color: "#fca5a5", fontSize: 14 }}>{err}</div>}
+      {loading && <div style={{ marginTop: 40, textAlign: "center", color: "#9ca3af" }}>Loading next lead…</div>}
+
+      {!loading && empty && (
+        <div style={{ marginTop: 40, textAlign: "center" }}>
+          <div style={{ fontSize: 40 }}>🎉</div>
+          <div style={{ fontWeight: 700, marginTop: 8 }}>No leads ready to call right now.</div>
+          {counts?.scheduled > 0 && <div style={{ color: "#9ca3af", fontSize: 13, marginTop: 4 }}>{counts.scheduled} are scheduled for later (callbacks / retries).</div>}
+          <button onClick={() => { refreshCounts(); getNext(); }} style={{ marginTop: 16, padding: "10px 18px", borderRadius: 10, border: "1px solid #374151", background: "#1f2937", color: "#fff", fontWeight: 700 }}>Refresh</button>
+        </div>
+      )}
+
+      {!loading && lead && (
+        <div style={{ marginTop: 16, background: "#111827", border: "1px solid #1f2937", borderRadius: 14, padding: 16 }}>
+          <div style={{ fontSize: 22, fontWeight: 800 }}>{lead.client_name}</div>
+          {lead.address && <div style={{ color: "#9ca3af", fontSize: 13, marginTop: 2 }}>{lead.address}{lead.zone ? ` · ${lead.zone}` : ""}</div>}
+          <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 4 }}>
+            {lead.attempts > 0 ? `Attempt #${lead.attempts + 1} (called ${lead.attempts}× before)` : "First attempt"}
+          </div>
+          {lead.notes && <div style={{ marginTop: 8, fontSize: 13, color: "#fcd34d", background: "#1f2937", padding: "6px 10px", borderRadius: 8 }}>📝 {lead.notes}</div>}
+
+          <a href={`tel:${lead.phone}`}
+            style={{ display: "block", marginTop: 14, padding: "16px", borderRadius: 12, background: "#22c55e", color: "#04210f", fontWeight: 800, fontSize: 20, textAlign: "center", textDecoration: "none" }}>
+            📞 Call {lead.phone}
+          </a>
+
+          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Notes (optional)"
+            style={{ marginTop: 12, width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #374151", background: "#0b1220", color: "#fff", fontSize: 14, boxSizing: "border-box" }} />
+
+          {showCb && (
+            <div style={{ marginTop: 10 }}>
+              <label style={{ fontSize: 13, color: "#cbd5e1" }}>Call back at:</label>
+              <input type="datetime-local" value={cbAt} onChange={(e) => setCbAt(e.target.value)}
+                style={{ display: "block", marginTop: 4, width: "100%", padding: "10px", borderRadius: 10, border: "1px solid #374151", background: "#0b1220", color: "#fff", boxSizing: "border-box" }} />
+            </div>
+          )}
+
+          <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            {dispBtn("✅ Reached", "reached", "#15803d")}
+            {dispBtn("📅 Callback", "callback", "#1d4ed8")}
+            {dispBtn("📵 No answer", "no_answer")}
+            {dispBtn("🎙️ Left VM", "left_vm")}
+            {dispBtn("🚫 Not interested", "not_interested")}
+            {dispBtn("❌ Bad number", "bad_number")}
+            {dispBtn("⛔ Do not call", "do_not_call", "#7f1d1d")}
+            <button onClick={skip} disabled={saving || loading}
+              style={{ padding: "12px 8px", borderRadius: 10, border: "1px dashed #4b5563", background: "transparent", color: "#9ca3af", fontWeight: 700, fontSize: 14 }}>
+              ⏭️ Skip
+            </button>
+          </div>
+        </div>
+      )}
+    </div></div>
+  );
+}
+
 function JnAddQueuePage({ token }) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -6240,6 +6411,14 @@ export default function App() {
     const jnQueueToken = params.get("jn_queue");
     if (jnQueueToken && jnQueueToken.trim()) {
       return <JnAddQueuePage token={jnQueueToken.trim()} />;
+    }
+
+    // /?dialer=<token> — the Power Dialer: a fast call queue for working the
+    // DAMAGE leads. Hands one homeowner at a time, tap-to-dial, one-tap
+    // outcome, auto-advance. Multi-caller safe (each gets a distinct lead).
+    const dialerToken = params.get("dialer");
+    if (dialerToken && dialerToken.trim()) {
+      return <PowerDialerPage token={dialerToken.trim()} />;
     }
   }
 
