@@ -4160,6 +4160,7 @@ const MANAGER_TILES = [
   { group: "inspections", key: "inspector_reports", emoji: "📊", label: "Inspector Reports", desc: "Completed this week by status + per-inspector + by day" },
   { group: "inspections", key: "lookup", emoji: "🔍", label: "Record Lookup & Results", desc: "Find inspections, record damage/no damage" },
   { group: "inspections", key: "reinspect", emoji: "📷", label: "No-photo re-inspects", desc: "Inspections with a result but NO photos — text the inspector to go back and re-inspect (one-off, manual)." },
+  { group: "inspections", key: "dialer", emoji: "📞", label: "Power Dialer", desc: "Damage-lead call queue: the dialer link, what's left to dial, and a report of who's been called + each outcome." },
   { group: "inspections", key: "jnreport", emoji: "📄", label: "JN Inspection Report", desc: "Generate insp report PDF with photos and upload to JN" },
   { group: "inspections", key: "bulkreport", emoji: "📦", label: "Bulk Inspection Reports", desc: "Run insp reports across every JN job with a chosen status" },
   // ── Public Adjuster ──
@@ -4205,6 +4206,7 @@ const ADMIN_REPORTS = [
   { tileKey: "browseall" },
   { tileKey: "training" },
   { tileKey: "reinspect" },
+  { tileKey: "dialer" },
 ];
 
 // Colors for result-count chips in Smart Q&A answers (no shared STATUS_META exists).
@@ -5000,6 +5002,171 @@ function RideAlongConfirmPage({ token }) {
 // Admin list of inspections that have a result but NO photos (DB + Storage) —
 // the Bastos-style cases. Each row has a manual "Text inspector to re-inspect"
 // button that reopens the job + texts the assigned inspector a link.
+// DialerAdmin — admin tile (Inspections → Power Dialer). Shows the dialer
+// link, what's still to be dialed, and a report: counts by status/outcome,
+// calls today per caller, and the full lead list. Reads call_queue / call_log
+// / app_settings directly via supabase (same as the other admin reports).
+const DISP_LABEL = {
+  reached: "✅ Reached", callback: "📅 Callback", no_answer: "📵 No answer",
+  left_vm: "🎙️ Left VM", not_interested: "🚫 Not interested",
+  bad_number: "❌ Bad number", do_not_call: "⛔ Do not call",
+};
+function DialerAdmin() {
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+  const [token, setToken] = useState("");
+  const [rows, setRows] = useState([]);
+  const [today, setToday] = useState([]);     // call_log rows since midnight
+  const [filter, setFilter] = useState("all"); // all | ready | scheduled | done | <disposition>
+  const [copied, setCopied] = useState(false);
+
+  const load = async () => {
+    setLoading(true); setErr("");
+    try {
+      const tk = await supabase.from("app_settings").select("value").eq("key", "dialer_token").maybeSingle();
+      setToken(tk.data?.value || "");
+      const q = await supabase.from("call_queue").select("*").order("updated_at", { ascending: false }).limit(5000);
+      if (q.error) throw new Error(q.error.message);
+      setRows(q.data || []);
+      const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
+      const lg = await supabase.from("call_log").select("caller,disposition,called_at").gte("called_at", midnight.toISOString());
+      setToday(lg.data || []);
+    } catch (e) { setErr(e.message || "Could not load."); }
+    setLoading(false);
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+
+  const now = Date.now();
+  const isReady = (r) => r.status === "new" && (!r.next_attempt_at || new Date(r.next_attempt_at).getTime() <= now);
+  const isScheduled = (r) => r.status === "new" && r.next_attempt_at && new Date(r.next_attempt_at).getTime() > now;
+  const stats = {
+    total: rows.length,
+    ready: rows.filter(isReady).length,
+    scheduled: rows.filter(isScheduled).length,
+    claimed: rows.filter((r) => r.status === "claimed").length,
+    done: rows.filter((r) => r.status === "done").length,
+  };
+  const byDisp = {};
+  for (const r of rows) if (r.disposition) byDisp[r.disposition] = (byDisp[r.disposition] || 0) + 1;
+  const callsToday = today.length;
+  const byCaller = {};
+  for (const l of today) { const c = (l.caller || "—").trim() || "—"; byCaller[c] = (byCaller[c] || 0) + 1; }
+
+  const link = token ? `${window.location.origin}/?dialer=${token}` : "";
+  const copy = () => { navigator.clipboard?.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1500); };
+
+  const filtered = rows.filter((r) => {
+    if (filter === "all") return true;
+    if (filter === "ready") return isReady(r);
+    if (filter === "scheduled") return isScheduled(r);
+    if (filter === "done") return r.status === "done";
+    return r.disposition === filter;
+  });
+
+  const fmt = (iso) => { if (!iso) return "—"; try { return new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch { return "—"; } };
+  const tile = (n, label, bg, color) => (
+    <div style={{ background: bg, color, borderRadius: 10, padding: "10px 14px", minWidth: 92, textAlign: "center" }}>
+      <div style={{ fontSize: 22, fontWeight: 800 }}>{n}</div>
+      <div style={{ fontSize: 11, fontWeight: 600, opacity: 0.85 }}>{label}</div>
+    </div>
+  );
+  const chip = (key, label, count) => (
+    <button type="button" onClick={() => setFilter(key)}
+      style={{ padding: "5px 10px", borderRadius: 999, border: filter === key ? "2px solid #0ea5e9" : "1px solid #cbd5e1", background: filter === key ? "#e0f2fe" : "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+      {label}{count != null ? ` (${count})` : ""}
+    </button>
+  );
+
+  const statusBadge = (r) => {
+    if (r.status === "done") return <span style={{ color: "#16a34a", fontWeight: 700 }}>{DISP_LABEL[r.disposition] || "Done"}</span>;
+    if (r.status === "claimed") return <span style={{ color: "#b45309", fontWeight: 700 }}>📞 On call ({r.claimed_by || "?"})</span>;
+    if (isScheduled(r)) return <span style={{ color: "#6b7280" }}>⏰ {r.disposition ? (DISP_LABEL[r.disposition] || r.disposition) : "Scheduled"} · {fmt(r.next_attempt_at)}</span>;
+    return <span style={{ color: "#0369a1", fontWeight: 700 }}>📋 To call{r.disposition ? ` (was ${DISP_LABEL[r.disposition] || r.disposition})` : ""}</span>;
+  };
+
+  return (
+    <Card style={{ padding: 20, background: "#f8fafc" }}>
+      <h2 style={{ margin: "0 0 4px", fontSize: 20, fontWeight: 800 }}>📞 Power Dialer</h2>
+      <p style={{ margin: "0 0 14px", color: "#64748b", fontSize: 13 }}>Damage-lead call queue. Share the link with your dialers; the report below is live.</p>
+
+      {loading ? <div style={{ color: "#64748b" }}>Loading…</div> : err ? <div style={{ color: "#dc2626" }}>{err}</div> : (
+        <>
+          {/* Link */}
+          <div style={{ background: "#0b1220", color: "#e5e7eb", borderRadius: 10, padding: 12, marginBottom: 16 }}>
+            <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 4 }}>Dialer link (open on a phone, share with callers):</div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <code style={{ fontSize: 13, wordBreak: "break-all", flex: 1 }}>{link || "No token set — run the dialer SQL."}</code>
+              {link && <button type="button" onClick={copy} style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: "#22c55e", color: "#04210f", fontWeight: 700, cursor: "pointer" }}>{copied ? "Copied!" : "Copy"}</button>}
+              {link && <a href={link} target="_blank" rel="noreferrer" style={{ padding: "6px 12px", borderRadius: 8, background: "#1d4ed8", color: "#fff", fontWeight: 700, textDecoration: "none" }}>Open</a>}
+            </div>
+          </div>
+
+          {/* Stats */}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+            {tile(stats.ready, "To call", "#dcfce7", "#166534")}
+            {tile(stats.scheduled, "Scheduled", "#fef9c3", "#854d0e")}
+            {tile(stats.claimed, "On call", "#ffedd5", "#9a3412")}
+            {tile(stats.done, "Done", "#e2e8f0", "#334155")}
+            {tile(stats.total, "Total", "#e0f2fe", "#075985")}
+            {tile(callsToday, "Calls today", "#ede9fe", "#5b21b6")}
+          </div>
+
+          {/* Calls today per caller */}
+          {callsToday > 0 && (
+            <div style={{ marginBottom: 14, fontSize: 13 }}>
+              <strong>Today by caller:</strong>{" "}
+              {Object.entries(byCaller).sort((a, b) => b[1] - a[1]).map(([c, n]) => `${c} (${n})`).join(" · ")}
+            </div>
+          )}
+
+          {/* Filters */}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+            {chip("all", "All", stats.total)}
+            {chip("ready", "📋 To call", stats.ready)}
+            {chip("scheduled", "⏰ Scheduled", stats.scheduled)}
+            {chip("done", "Done", stats.done)}
+            {Object.keys(DISP_LABEL).filter((d) => byDisp[d]).map((d) => chip(d, DISP_LABEL[d], byDisp[d]))}
+          </div>
+
+          {/* Lead list */}
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ textAlign: "left", color: "#64748b", borderBottom: "1px solid #e2e8f0" }}>
+                  <th style={{ padding: "6px 8px" }}>Customer</th>
+                  <th style={{ padding: "6px 8px" }}>Phone</th>
+                  <th style={{ padding: "6px 8px" }}>Zone</th>
+                  <th style={{ padding: "6px 8px" }}>Status</th>
+                  <th style={{ padding: "6px 8px" }}>Tries</th>
+                  <th style={{ padding: "6px 8px" }}>Last called</th>
+                  <th style={{ padding: "6px 8px" }}>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.slice(0, 500).map((r) => (
+                  <tr key={r.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                    <td style={{ padding: "6px 8px", fontWeight: 600 }}>{r.client_name}</td>
+                    <td style={{ padding: "6px 8px" }}>{r.phone}</td>
+                    <td style={{ padding: "6px 8px", color: "#64748b" }}>{r.zone || "—"}</td>
+                    <td style={{ padding: "6px 8px" }}>{statusBadge(r)}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "center" }}>{r.attempts || 0}</td>
+                    <td style={{ padding: "6px 8px", color: "#64748b" }}>{fmt(r.last_called_at)}</td>
+                    <td style={{ padding: "6px 8px", color: "#475569", maxWidth: 220 }}>{r.notes || ""}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {filtered.length === 0 && <div style={{ padding: 16, color: "#64748b" }}>No leads in this view.</div>}
+            {filtered.length > 500 && <div style={{ padding: 8, color: "#94a3b8", fontSize: 12 }}>Showing first 500 of {filtered.length}.</div>}
+          </div>
+
+          <button type="button" onClick={load} style={{ marginTop: 12, padding: "8px 16px", borderRadius: 8, border: "1px solid #cbd5e1", background: "#fff", fontWeight: 600, cursor: "pointer" }}>↻ Refresh</button>
+        </>
+      )}
+    </Card>
+  );
+}
+
 function NoPhotoReinspects() {
   const [items, setItems] = useState(null);
   const [err, setErr] = useState("");
@@ -15041,6 +15208,7 @@ if (!hasDamage) {
                   </Card>}
                   {managerSection === "training" && <TrainingReport />}
                   {managerSection === "reinspect" && <NoPhotoReinspects />}
+                  {managerSection === "dialer" && <DialerAdmin />}
                   {managerSection === "report" && <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Weekly Report</SectionTitle>
                     <div style={{ display: "grid", gap: 12, marginBottom: 16 }}>
