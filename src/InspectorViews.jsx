@@ -112,6 +112,7 @@ export function InspectorSetupPage({ token, onDone }) {
           phone: phone.trim() || null,
           latitude: lat,
           longitude: lng,
+          active: true,                         // auto-activate the moment setup is done
           info_updated_at: new Date().toISOString(),
         })
         .eq("id", insp.id);
@@ -120,6 +121,16 @@ export function InspectorSetupPage({ token, onDone }) {
         setSubmitting(false);
         return;
       }
+      // Auto-send the inspector their app link (no manual "Activate" needed).
+      // Best-effort: if the send hiccups, the manager can still resend from
+      // the Inspectors panel — the inspector is already active either way.
+      try {
+        await fetch("/.netlify/functions/send-inspector-app-invite", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ inspectorId: insp.id, channel: "auto" }),
+        });
+      } catch { /* non-fatal */ }
       setDone(true);
     } catch (e) {
       setError(e.message || "Network error");
@@ -147,8 +158,9 @@ export function InspectorSetupPage({ token, onDone }) {
           You're all set, {insp.name}!
         </div>
         <p style={{ color: "#475569", marginBottom: 20 }}>
-          Your home base is saved. Once your manager activates your account,
-          you'll start receiving inspection jobs in the app.
+          Your home base is saved and your account is now active — we just sent
+          you a text/email with the link to your inspector app. Open it to start
+          receiving inspection jobs near you.
         </p>
         {onDone && (
           <button
@@ -567,7 +579,9 @@ export function InspectorsAdminPanel() {
           <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
             Pull the list from JobNimbus (single source of truth for names + emails),
             then email each one a setup link so they confirm their home address.
-            Inspectors stay inactive until you flip them on AND they've completed setup.
+            When they finish setup the system <strong>auto-activates them and sends
+            their app link</strong> — no manual Activate needed. (You can still
+            deactivate, or re-send the link, here.)
           </div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
@@ -628,7 +642,7 @@ export function InspectorsAdminPanel() {
           <li>The new inspector shows up here as <em>Setup pending</em>.</li>
           <li>Open <strong>Edit</strong>, drop in their phone number, save.</li>
           <li>Click <strong>📧/📱 Send setup email/text</strong> — they confirm their home address from the link.</li>
-          <li>Once their row says <em>✓ Setup complete</em>, click <strong>Activate</strong> and they get the app link.</li>
+          <li>That's it — finishing setup <strong>auto-activates them and texts/emails their app link</strong> automatically.</li>
         </ol>
         <div style={{ marginTop: 10, fontSize: 11, color: "#475569" }}>
           We don't allow manual adds here — if an inspector isn't in JN, their job assignments and photo uploads won't sync, so JN has to come first.
