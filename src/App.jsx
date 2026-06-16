@@ -4160,7 +4160,7 @@ const MANAGER_TILES = [
   { group: "inspections", key: "inspector_reports", emoji: "📊", label: "Inspector Reports", desc: "Completed this week by status + per-inspector + by day" },
   { group: "inspections", key: "lookup", emoji: "🔍", label: "Record Lookup & Results", desc: "Find inspections, record damage/no damage" },
   { group: "inspections", key: "reinspect", emoji: "📷", label: "No-photo re-inspects", desc: "Inspections with a result but NO photos — text the inspector to go back and re-inspect (one-off, manual)." },
-  { group: "inspections", key: "dialer", emoji: "📞", label: "Power Dialer", desc: "Damage-lead call queue: the dialer link, what's left to dial, and a report of who's been called + each outcome." },
+  { group: "pa", key: "dialer", emoji: "📞", label: "Power Dialer", desc: "Damage-lead call queue: the dialer link, what's left to dial, and a report of who's been called + each outcome." },
   { group: "inspections", key: "jnreport", emoji: "📄", label: "JN Inspection Report", desc: "Generate insp report PDF with photos and upload to JN" },
   { group: "inspections", key: "bulkreport", emoji: "📦", label: "Bulk Inspection Reports", desc: "Run insp reports across every JN job with a chosen status" },
   // ── Public Adjuster ──
