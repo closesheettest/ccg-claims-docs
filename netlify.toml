@@ -12,6 +12,14 @@
 [functions."cron-push-pending-results"]
   schedule = "5 * * * *"
 
+# Scheduled function: track back-to-retail CONVERSIONS. Hourly snapshot of which
+# retail deals are at "Sit Sold Insp" vs have moved off it; logs each transition
+# (esp. → "Appointment Scheduled") into retail_status_tracking so the regional
+# dashboard can credit reps for re-engaging back-to-retail leads. The function
+# also declares this via exports.config.schedule; this entry keeps it visible.
+[functions."cron-track-retail-status"]
+  schedule = "0 * * * *"
+
 # Scheduled function: daily safety net for JN sync orphans. Once a day
 # checks the last 24h of signings for any that never reached JN, and
 # texts ADMIN_ALERT_PHONE the list so they can be re-synced. Quiet when
