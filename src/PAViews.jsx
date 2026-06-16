@@ -1667,14 +1667,15 @@ export function PAMobileApp({ embedded = false, paId = null, allowPaIds = null }
   );
 }
 
-// PA recurring weekly availability editor + the PA's upcoming appointments.
-// Availability is stored as pa_availability rows (weekday + start/end minutes,
-// Eastern). The dialer turns these into open 2-hour slots across all PAs.
-const WEEKDAYS = [[1, "Monday"], [2, "Tuesday"], [3, "Wednesday"], [4, "Thursday"], [5, "Friday"], [6, "Saturday"], [0, "Sunday"]];
-function toMin(hhmm) { const [h, m] = String(hhmm || "").split(":").map(Number); return (h || 0) * 60 + (m || 0); }
-function toHHMM(min) { const h = Math.floor((min || 0) / 60), m = (min || 0) % 60; return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`; }
+// PA availability editor (default-available grid) + upcoming appointments.
+// Every PA is available for ALL designated 2-hour slots by default; they tap the
+// ones they CAN'T do, stored as pa_slot_blocks rows (weekday + start minute, ET).
+const PA_WEEKDAYS = [[1, "Monday"], [2, "Tuesday"], [3, "Wednesday"], [4, "Thursday"], [5, "Friday"], [6, "Saturday"]];
+const PA_SLOT_HOURS = { 1: [9, 11, 13, 15, 17, 19], 2: [9, 11, 13, 15, 17, 19], 3: [9, 11, 13, 15, 17, 19], 4: [9, 11, 13, 15, 17, 19], 5: [9, 11, 13, 15, 17, 19], 6: [9, 11, 13, 15] };
+function slotHourLabel(min) { const h = Math.floor(min / 60); const ap = h >= 12 ? "PM" : "AM"; const h12 = h % 12 || 12; return `${h12} ${ap}`; }
+function slotRangeLabel(min) { return `${slotHourLabel(min)}–${slotHourLabel(min + 120)}`; }
 function PAAvailability({ me, onBack }) {
-  const [windows, setWindows] = useState([]); // [{weekday, start:"HH:MM", end:"HH:MM"}]
+  const [blocked, setBlocked] = useState(() => new Set()); // keys "weekday:startMin" the PA can't do
   const [appts, setAppts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1682,9 +1683,8 @@ function PAAvailability({ me, onBack }) {
 
   const load = async () => {
     setLoading(true);
-    const a = await supabase.from("pa_availability").select("weekday,start_min,end_min").eq("pa_id", me.id);
-    setWindows((a.data || []).map((w) => ({ weekday: w.weekday, start: toHHMM(w.start_min), end: toHHMM(w.end_min) }))
-      .sort((x, y) => (x.weekday === 0 ? 7 : x.weekday) - (y.weekday === 0 ? 7 : y.weekday) || x.start.localeCompare(y.start)));
+    const b = await supabase.from("pa_slot_blocks").select("weekday,start_min").eq("pa_id", me.id);
+    setBlocked(new Set((b.data || []).map((r) => `${r.weekday}:${r.start_min}`)));
     const ap = await supabase.from("pa_appointments").select("*").eq("pa_id", me.id).eq("status", "scheduled")
       .gte("start_at", new Date().toISOString()).order("start_at", { ascending: true });
     setAppts(ap.data || []);
@@ -1692,18 +1692,19 @@ function PAAvailability({ me, onBack }) {
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [me.id]);
 
-  const addWindow = (weekday) => setWindows((w) => [...w, { weekday, start: "13:00", end: "17:00" }]);
-  const setField = (i, k, v) => setWindows((w) => w.map((x, j) => (j === i ? { ...x, [k]: v } : x)));
-  const removeWindow = (i) => setWindows((w) => w.filter((_, j) => j !== i));
+  const toggle = (weekday, startMin) => setBlocked((prev) => {
+    const next = new Set(prev); const k = `${weekday}:${startMin}`;
+    next.has(k) ? next.delete(k) : next.add(k);
+    return next;
+  });
 
   const save = async () => {
     setSaving(true); setMsg(null);
-    const valid = windows.filter((w) => toMin(w.end) > toMin(w.start));
-    const del = await supabase.from("pa_availability").delete().eq("pa_id", me.id);
+    const del = await supabase.from("pa_slot_blocks").delete().eq("pa_id", me.id);
     if (del.error) { setMsg({ ok: false, text: del.error.message }); setSaving(false); return; }
-    if (valid.length) {
-      const rows = valid.map((w) => ({ pa_id: me.id, weekday: w.weekday, start_min: toMin(w.start), end_min: toMin(w.end) }));
-      const ins = await supabase.from("pa_availability").insert(rows);
+    const rows = [...blocked].map((k) => { const [wd, sm] = k.split(":").map(Number); return { pa_id: me.id, weekday: wd, start_min: sm }; });
+    if (rows.length) {
+      const ins = await supabase.from("pa_slot_blocks").insert(rows);
       if (ins.error) { setMsg({ ok: false, text: ins.error.message }); setSaving(false); return; }
     }
     setMsg({ ok: true, text: "✓ Availability saved." });
@@ -1718,7 +1719,6 @@ function PAAvailability({ me, onBack }) {
 
   const fmt = (iso) => { try { return new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch { return iso; } };
   const card = { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, marginBottom: 16 };
-  const timeInput = { padding: "6px 8px", borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 14 };
 
   if (loading) return <div style={{ padding: 24, color: "#6b7280" }}>Loading…</div>;
 
@@ -1741,29 +1741,30 @@ function PAAvailability({ me, onBack }) {
         )}
       </div>
 
-      {/* Weekly availability editor */}
+      {/* Weekly availability grid — default available, tap to turn OFF */}
       <div style={card}>
         <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4, fontFamily: "'Oswald', sans-serif" }}>🗓 Weekly availability</div>
-        <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 12 }}>Set the hours you can meet homeowners each week. The office books 2-hour appointments inside these times.</div>
-        {WEEKDAYS.map(([wd, label]) => {
-          const dayWins = windows.map((w, i) => ({ ...w, i })).filter((w) => w.weekday === wd);
-          return (
-            <div key={wd} style={{ padding: "8px 0", borderBottom: "1px solid #f1f5f9" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontWeight: 600 }}>{label}</span>
-                <button type="button" onClick={() => addWindow(wd)} style={{ fontSize: 12, color: "#15803d", background: "none", border: "none", cursor: "pointer" }}>+ Add hours</button>
-              </div>
-              {dayWins.length === 0 ? <div style={{ fontSize: 12, color: "#9ca3af" }}>Not available</div> : dayWins.map((w) => (
-                <div key={w.i} style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
-                  <input type="time" value={w.start} onChange={(e) => setField(w.i, "start", e.target.value)} style={timeInput} />
-                  <span style={{ color: "#6b7280" }}>to</span>
-                  <input type="time" value={w.end} onChange={(e) => setField(w.i, "end", e.target.value)} style={timeInput} />
-                  <button type="button" onClick={() => removeWindow(w.i)} style={{ color: "#b91c1c", background: "none", border: "none", cursor: "pointer", fontSize: 16 }}>×</button>
-                </div>
-              ))}
+        <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 12 }}>You're available for every 2-hour slot by default. <b>Tap any slot you can't do</b> to turn it off (gray). Green = available.</div>
+        {PA_WEEKDAYS.map(([wd, label]) => (
+          <div key={wd} style={{ padding: "8px 0", borderBottom: "1px solid #f1f5f9" }}>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>{label}</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {(PA_SLOT_HOURS[wd] || []).map((h) => {
+                const sm = h * 60;
+                const off = blocked.has(`${wd}:${sm}`);
+                return (
+                  <button key={sm} type="button" onClick={() => toggle(wd, sm)}
+                    style={{ padding: "8px 10px", borderRadius: 999, fontSize: 13, fontWeight: 700, cursor: "pointer",
+                      border: off ? "1px solid #e5e7eb" : "1px solid #16a34a",
+                      background: off ? "#f3f4f6" : "#dcfce7", color: off ? "#9ca3af" : "#166534",
+                      textDecoration: off ? "line-through" : "none" }}>
+                    {slotRangeLabel(sm)}
+                  </button>
+                );
+              })}
             </div>
-          );
-        })}
+          </div>
+        ))}
         {msg && <div style={{ marginTop: 10, fontSize: 13, color: msg.ok ? "#15803d" : "#b91c1c" }}>{msg.text}</div>}
         <button type="button" onClick={save} disabled={saving} style={{ marginTop: 14, padding: "10px 20px", borderRadius: 10, border: "none", background: "#16a34a", color: "#fff", fontWeight: 700, cursor: "pointer", opacity: saving ? 0.6 : 1 }}>
           {saving ? "Saving…" : "Save availability"}

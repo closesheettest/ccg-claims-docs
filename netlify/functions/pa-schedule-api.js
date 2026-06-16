@@ -24,6 +24,17 @@ const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
 const SLOT_MIN = 120;       // 2-hour appointments
 const HORIZON_DAYS = 14;    // how far out to offer slots
+const MAX_MI = 60;          // hide PAs farther than this from an in-person appt
+
+// Fixed grid of designated 2-hour appointment START times (hour, ET) per
+// weekday (0=Sun … 6=Sat). EVERY PA is available for ALL of these by default;
+// they only mark the ones they CAN'T do (stored in pa_slot_blocks).
+const WD_HOURS = {
+  1: [9, 11, 13, 15, 17, 19], 2: [9, 11, 13, 15, 17, 19], 3: [9, 11, 13, 15, 17, 19],
+  4: [9, 11, 13, 15, 17, 19], 5: [9, 11, 13, 15, 17, 19],
+  6: [9, 11, 13, 15],
+};
+const SLOT_TIMES_MIN = Object.fromEntries(Object.entries(WD_HOURS).map(([wd, hrs]) => [wd, hrs.map((h) => h * 60)]));
 
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return cors(200, "");
@@ -73,8 +84,9 @@ async function buildSlots(days, home) {
     : [];
   const companyName = {}; for (const c of companies) companyName[c.id] = c.name;
 
-  const avail = await sbGet(`pa_availability?select=pa_id,weekday,start_min,end_min&limit=5000`);
-  const availByPa = {}; for (const a of avail) (availByPa[a.pa_id] = availByPa[a.pa_id] || []).push(a);
+  // Blocked designated slots per PA (absence = available). Key: "weekday:startMin".
+  const blocks = await sbGet(`pa_slot_blocks?select=pa_id,weekday,start_min&limit=20000`);
+  const blockedByPa = {}; for (const b of blocks) (blockedByPa[b.pa_id] = blockedByPa[b.pa_id] || new Set()).add(`${b.weekday}:${b.start_min}`);
 
   // Existing scheduled appointments to subtract (overlap check per PA).
   const nowMs = Date.now();
@@ -84,27 +96,28 @@ async function buildSlots(days, home) {
   const slots = [];
   for (let d = 0; d < days; d++) {
     const { y, mo, day, weekday } = etDateParts(nowMs + d * 864e5);
+    const times = SLOT_TIMES_MIN[weekday] || [];
+    if (!times.length) continue;
     for (const pa of pas) {
-      const windows = (availByPa[pa.id] || []).filter((w) => w.weekday === weekday);
-      for (const w of windows) {
-        for (let s = w.start_min; s + SLOT_MIN <= w.end_min; s += SLOT_MIN) {
-          const startMs = etToUtcMs(y, mo, day, s);
-          const endMs = startMs + SLOT_MIN * 60000;
-          if (startMs <= nowMs) continue;                       // no past slots
-          const taken = (apptByPa[pa.id] || []).some(([as, ae]) => startMs < ae && endMs > as);
-          if (taken) continue;
-          const dist = distByPa[pa.id];
-          if (dist != null && dist > MAX_MI) continue;        // too far for an in-person 2hr appt
-          slots.push({
-            start_at: new Date(startMs).toISOString(),
-            end_at: new Date(endMs).toISOString(),
-            pa_id: pa.id, pa_name: pa.name,
-            pa_company_id: pa.pa_company_id || null,
-            pa_company_name: companyName[pa.pa_company_id] || null,
-            distance_mi: dist,
-            label: etLabel(startMs, endMs),
-          });
-        }
+      const dist = distByPa[pa.id];
+      if (dist != null && dist > MAX_MI) continue;            // too far for an in-person 2hr appt
+      const blocked = blockedByPa[pa.id];
+      for (const s of times) {
+        if (blocked && blocked.has(`${weekday}:${s}`)) continue;   // PA marked this one off
+        const startMs = etToUtcMs(y, mo, day, s);
+        const endMs = startMs + SLOT_MIN * 60000;
+        if (startMs <= nowMs) continue;                       // no past slots
+        const taken = (apptByPa[pa.id] || []).some(([as, ae]) => startMs < ae && endMs > as);
+        if (taken) continue;
+        slots.push({
+          start_at: new Date(startMs).toISOString(),
+          end_at: new Date(endMs).toISOString(),
+          pa_id: pa.id, pa_name: pa.name,
+          pa_company_id: pa.pa_company_id || null,
+          pa_company_name: companyName[pa.pa_company_id] || null,
+          distance_mi: dist,
+          label: etLabel(startMs, endMs),
+        });
       }
     }
   }
