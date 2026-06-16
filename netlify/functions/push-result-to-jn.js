@@ -87,10 +87,10 @@ exports.handler = async (event) => {
       const r = await fetch(`${JN_BASE}/jobs/${insp.jn_job_id}`, {
         method: "PUT",
         headers: jnHeaders,
-        body: JSON.stringify({ jnid: insp.jn_job_id, cf_string_34: "Lost" }),
+        body: JSON.stringify({ jnid: insp.jn_job_id, cf_string_34: "Lost", status_name: "Lost" }),
       });
       if (r.ok) jnUpdated = true;
-      else jnError = `cf_string_34 PUT failed (${r.status}): ${(await r.text()).slice(0, 200)}`;
+      else jnError = `cf_string_34/status PUT failed (${r.status}): ${(await r.text()).slice(0, 200)}`;
     } catch (e) {
       jnError = `cf_string_34 PUT exception: ${e.message}`;
     }
