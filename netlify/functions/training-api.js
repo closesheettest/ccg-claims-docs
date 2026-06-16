@@ -378,11 +378,12 @@ function slug(s) {
 // sales_rep_name — so a name variant alone can't falsely flag a real signer.
 async function markNeverSigned(reps) {
   const insp = await sbGet(`inspections?cancelled_at=is.null&select=sales_rep_id,sales_rep_name&limit=10000`);
-  const signedIds = new Set();
-  const signedNames = new Set();
+  // Tally signings per rep — by CCG sales_rep_id AND by normalized name.
+  const countById = {};
+  const countByName = {};
   for (const r of insp) {
-    if (r.sales_rep_id != null && r.sales_rep_id !== "") signedIds.add(String(r.sales_rep_id));
-    if (r.sales_rep_name) signedNames.add(normName(r.sales_rep_name));
+    if (r.sales_rep_id != null && r.sales_rep_id !== "") countById[String(r.sales_rep_id)] = (countById[String(r.sales_rep_id)] || 0) + 1;
+    if (r.sales_rep_name) { const n = normName(r.sales_rep_name); countByName[n] = (countByName[n] || 0) + 1; }
   }
   const ccg = await sbGet(`sales_reps?select=id,name,jobnimbus_id&limit=2000`);
   const ccgIdByJn = {};
@@ -392,12 +393,14 @@ async function markNeverSigned(reps) {
     if (s.name) ccgIdByName[normName(s.name)] = String(s.id);
   }
   for (const r of reps) {
-    if (r.id === TEST_REP_ID) { r.neverSigned = false; continue; }
+    if (r.id === TEST_REP_ID) { r.signedCount = 0; r.neverSigned = false; continue; }
     const nn = normName(r.name);
     const jn = String(r.id).startsWith("name:") ? null : String(r.id);
     const ccgId = (jn && ccgIdByJn[jn]) || ccgIdByName[nn] || null;
-    const hasSigned = (ccgId && signedIds.has(ccgId)) || signedNames.has(nn);
-    r.neverSigned = !hasSigned;
+    // Prefer the id-based count (most reliable); fall back to the name count.
+    const count = (ccgId && countById[ccgId]) || countByName[nn] || 0;
+    r.signedCount = count;
+    r.neverSigned = count === 0;
   }
 }
 
