@@ -110,6 +110,15 @@ exports.handler = async (event) => {
       return cors(200, JSON.stringify({ ok: true }));
     }
 
+    // Admin "clear stuck on-call": put every currently-claimed lead back in the
+    // pool. Used to clean up claims left hanging from testing or a closed tab.
+    if (action === "release_all") {
+      const before = await countRows("status=eq.claimed");
+      const nowIso = new Date().toISOString();
+      await patchByFilter("status=eq.claimed", { status: "new", claimed_by: null, claimed_at: null, next_attempt_at: nowIso, updated_at: nowIso });
+      return cors(200, JSON.stringify({ ok: true, released: before }));
+    }
+
     return cors(400, JSON.stringify({ ok: false, error: `Unknown action: ${action}` }));
   } catch (e) {
     return cors(500, JSON.stringify({ ok: false, error: e.message || "error" }));
@@ -176,6 +185,12 @@ async function patchLead(id, fields) {
     method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify(fields),
   });
   if (!r.ok) throw new Error(`patch ${r.status}`);
+}
+async function patchByFilter(filter, fields) {
+  const r = await fetch(`${SB_URL}/rest/v1/call_queue?${filter}`, {
+    method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify(fields),
+  });
+  if (!r.ok) throw new Error(`patch ${r.status}: ${(await r.text()).slice(0, 200)}`);
 }
 async function logCall(inspectionId, caller, disposition, notes) {
   // call_log keys off the queue row id we pass as lead context via inspection lookup

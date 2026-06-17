@@ -5029,6 +5029,7 @@ function DialerAdmin() {
   const [today, setToday] = useState([]);     // call_log rows since midnight
   const [filter, setFilter] = useState("all"); // all | ready | scheduled | done | <disposition>
   const [copied, setCopied] = useState(false);
+  const [clearing, setClearing] = useState(false);
 
   const load = async () => {
     setLoading(true); setErr("");
@@ -5064,6 +5065,24 @@ function DialerAdmin() {
 
   const link = token ? `${window.location.origin}/?dialer=${token}` : "";
   const copy = () => { navigator.clipboard?.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1500); };
+
+  // Put every currently-claimed ("On call") lead back in the pool. Clears
+  // claims left hanging from testing or a caller who closed their tab.
+  const clearStuck = async () => {
+    if (!token || !stats.claimed) return;
+    if (!window.confirm(`Put all ${stats.claimed} "On call" lead(s) back in the queue?`)) return;
+    setClearing(true);
+    try {
+      const res = await fetch("/.netlify/functions/dialer-api", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "release_all", token }),
+      });
+      const o = await res.json();
+      if (!o.ok) throw new Error(o.error || "failed");
+      await load();
+    } catch (e) { alert("Could not clear: " + (e.message || e)); }
+    setClearing(false);
+  };
 
   const filtered = rows.filter((r) => {
     if (filter === "all") return true;
@@ -5120,6 +5139,16 @@ function DialerAdmin() {
             {tile(stats.total, "Total", "#e0f2fe", "#075985")}
             {tile(callsToday, "Calls today", "#ede9fe", "#5b21b6")}
           </div>
+
+          {/* Clear stuck claims (e.g. left "On call" after testing or a closed tab) */}
+          {stats.claimed > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <button type="button" onClick={clearStuck} disabled={clearing}
+                style={{ padding: "7px 14px", borderRadius: 8, border: "1px solid #fdba74", background: "#fff7ed", color: "#9a3412", fontWeight: 700, fontSize: 13, cursor: clearing ? "default" : "pointer" }}>
+                {clearing ? "Clearing…" : `🧹 Clear ${stats.claimed} stuck "On call" → back to queue`}
+              </button>
+            </div>
+          )}
 
           {/* Calls today per caller */}
           {callsToday > 0 && (
