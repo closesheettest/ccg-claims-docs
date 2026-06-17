@@ -445,6 +445,39 @@ export function InspectorsAdminPanel() {
   // inspector on demand. Same SMS-or-email channel auto-pick as the
   // other inspector messaging. Confirm before firing because it
   // texts a real human and they'll see the message on their phone.
+  // Re-send the inspection-portal app link (same invite that fires on
+  // activation) for an active inspector who lost it or never got it.
+  async function sendAppLink(insp) {
+    if (!insp.active) {
+      setMessage({ kind: "error", text: `${insp.name} isn't active. Activate them first.` });
+      return;
+    }
+    if (!insp.email && !insp.phone) {
+      setMessage({ kind: "error", text: `${insp.name} has no email or phone on file.` });
+      return;
+    }
+    const dest = insp.phone ? `📱 SMS to ${insp.phone}` : `📧 email to ${insp.email}`;
+    if (!confirm(`Re-send the inspector portal link to ${insp.name}? (${dest})`)) return;
+    setSendingEmailId(insp.id);
+    try {
+      const res = await fetch("/.netlify/functions/send-inspector-app-invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inspectorId: insp.id, channel: "auto" }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!body.ok) {
+        setMessage({ kind: "error", text: body.error || `Send failed (status ${res.status})` });
+      } else {
+        const destSent = body.channel_used === "sms" ? `📱 SMS to ${body.phone}` : `📧 email to ${body.email}`;
+        setMessage({ kind: "success", text: `Portal link sent to ${insp.name} (${destSent}).` });
+      }
+    } catch (e) {
+      setMessage({ kind: "error", text: e.message || "Network error" });
+    }
+    setSendingEmailId(null);
+  }
+
   async function sendGuide(insp) {
     if (!insp.active) {
       setMessage({ kind: "error", text: `${insp.name} isn't active. Activate them first.` });
@@ -697,6 +730,7 @@ export function InspectorsAdminPanel() {
                   onDelete={() => deleteInspector(insp)}
                   onSendUpdateLink={() => sendUpdateLink(insp)}
                   onSendGuide={() => sendGuide(insp)}
+                  onResendLink={() => sendAppLink(insp)}
                 />
               ))}
             </div>
@@ -754,7 +788,7 @@ export function InspectorsAdminPanel() {
   );
 }
 
-function InspectorRow({ insp, sendingEmail, onToggle, onToggleConfirm, onUpdate, onDelete, onSendUpdateLink, onSendGuide }) {
+function InspectorRow({ insp, sendingEmail, onToggle, onToggleConfirm, onUpdate, onDelete, onSendUpdateLink, onSendGuide, onResendLink }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({
     name: insp.name,
@@ -863,6 +897,31 @@ function InspectorRow({ insp, sendingEmail, onToggle, onToggleConfirm, onUpdate,
                 }
               >
                 {sendingEmail ? "Sending…" : "📖 Send guide"}
+              </button>
+            )}
+            {/* Re-send the inspection-portal app link (the one they get at
+                activation) for an active inspector who lost it / never got it. */}
+            {insp.active && onResendLink && (
+              <button
+                type="button"
+                onClick={onResendLink}
+                disabled={sendingEmail || !hasContact}
+                style={{
+                  ...secondaryBtn,
+                  fontSize: 11,
+                  background: !hasContact ? "#f3f4f6" : "#eff6ff",
+                  borderColor: !hasContact ? "#e5e7eb" : "#93c5fd",
+                  color: !hasContact ? "#9ca3af" : "#1d4ed8",
+                  opacity: !hasContact ? 0.55 : 1,
+                  cursor: !hasContact ? "not-allowed" : "pointer",
+                }}
+                title={
+                  !hasContact
+                    ? "Add a phone or email via Edit first"
+                    : `Re-send the inspector app link via ${insp.phone ? "SMS to " + insp.phone : "email to " + insp.email}`
+                }
+              >
+                {sendingEmail ? "Sending…" : "📲 Resend portal link"}
               </button>
             )}
             {onToggleConfirm && (
