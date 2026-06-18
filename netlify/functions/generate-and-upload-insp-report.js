@@ -470,7 +470,22 @@ async function fetchSupabasePhotosByJnId(jnJobId, { resultLabel } = {}) {
     // we fall back to the most-recent 10 photos of any kind.
     let candidates;
     if (resultLabel === "Retail") {
-      const worst = raw.filter((p) => p.category === "retail_worst");
+      // Identify the inspector's 10 worst-condition close-ups. They may be
+      // tagged three different ways depending on how the row was written:
+      //   • category "retail_worst"        (in-app state — rarely persisted)
+      //   • label   "Retail worst condition" (what the DB array actually stores)
+      //   • path    "…/retail_worst_condition_…jpg" (filename / Storage-recovery)
+      // Match ANY of them — earlier the code only checked `category`, which the
+      // saved rows never carry, so the filter found nothing and silently fell
+      // back to "all photos." Combined with every photo sharing one captured_at
+      // (stamped at submit, not capture), slice(0,10) then took the FIRST ten —
+      // the survey/overview shots — and dropped the worst-condition close-ups,
+      // which are saved last. That's why retail certs showed non-close-up photos.
+      const isWorst = (p) =>
+        p.category === "retail_worst" ||
+        /worst\s*condition/i.test(p.label || "") ||
+        /retail[ _-]?worst/i.test(p.path || "");
+      const worst = raw.filter(isWorst);
       candidates = worst.length > 0 ? worst : raw;
       console.log(`Retail cert: using ${candidates.length} retail_worst photos (fell back to all=${worst.length === 0})`);
     } else {
