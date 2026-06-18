@@ -63,6 +63,14 @@
 [functions."cron-retry-missing-certs"]
   schedule = "20 * * * *"
 
+# cron-reconcile-jn-photos: daily safety net for the inspector-app photo gap.
+# Inspector photos upload one-by-one from the phone; if the app closes early
+# some never reach JN's Photos tab. This walks recent inspections, compares
+# app vs JN photo counts, and re-pushes any missing (deduped by filename).
+# exports.config.schedule mirrors this. Runs 4 AM ET, quiet on clean days.
+[functions."cron-reconcile-jn-photos"]
+  schedule = "10 8 * * *"
+
 # Scheduled function: leaderboard hype texts. Every 5 minutes it checks
 # the weekly team standings (via zone-leaderboard) and, when a NEW team
 # takes strict 1st place, texts all active sales reps + regional
