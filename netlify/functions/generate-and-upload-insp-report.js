@@ -301,6 +301,12 @@ exports.handler = async (event) => {
     };
   }
 
+  // Re-issue should REPLACE, not duplicate: remove any prior Inspection
+  // Report doc(s) on this job before uploading the fresh one. (First-time
+  // generation finds none, so this is a no-op then.) Only our own report
+  // docs are touched — never signed agreements, photos, or other files.
+  await deletePriorReports(jnid);
+
   const uploadResult = await uploadFileToJob(jnid, filename, pdfBase64);
   if (!uploadResult.success) {
     return {
@@ -1089,6 +1095,31 @@ async function jobAlreadyHasReport(jnid) {
     console.warn("jobAlreadyHasReport error (fail-open):", e.message);
     return false;
   }
+}
+
+// Delete any existing Inspection-Report document(s) on a job so a re-issue
+// replaces rather than piles up duplicates. Matches only our own report docs
+// by filename prefix / description; fail-soft (logs and continues on error).
+async function deletePriorReports(jnid) {
+  try {
+    const r = await fetch(`${JN_BASE}/files?related=${encodeURIComponent(jnid)}&type=1&size=50`, { headers: jnHeaders });
+    if (!r.ok) { console.warn("deletePriorReports list failed:", r.status); return 0; }
+    const data = await r.json().catch(() => ({}));
+    const files = data.files || data.results || [];
+    const reports = files.filter((f) => {
+      const fn = (f.filename || ""); const desc = (f.description || "");
+      return fn.startsWith("Inspection-Report-") || desc.startsWith("Inspection Report (with photos)");
+    });
+    let deleted = 0;
+    for (const f of reports) {
+      const id = f.jnid || f.id;
+      if (!id) continue;
+      const del = await fetch(`${JN_BASE}/files/${encodeURIComponent(id)}`, { method: "DELETE", headers: jnHeaders });
+      if (del.ok) { deleted++; console.log("deletePriorReports: removed", id); }
+      else console.warn("deletePriorReports: delete failed", id, del.status);
+    }
+    return deleted;
+  } catch (e) { console.warn("deletePriorReports error (fail-soft):", e.message); return 0; }
 }
 
 // ── Upload PDF as document on JN job ─────────────────────────────────
