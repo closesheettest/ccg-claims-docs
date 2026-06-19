@@ -25,10 +25,14 @@ const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const JN_BASE = "https://app.jobnimbus.com/api1";
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const jnHeaders = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
-// A retail lead only stays on this report while its JN job is STILL at "Sit
-// Sold Insp" — i.e. nobody's gone back out yet. The moment a rep works it and
-// the status moves to anything else (sold, lost, etc.), it drops off.
+// A retail lead stays in the OPEN list while its JN job is STILL at "Sit Sold
+// Insp" — nobody's gone back out yet. Once a rep works it and the homeowner
+// declines an appointment, the rep sets the JN status to "BTR - NI" (Back To
+// Retail – Not Interested): we surface those in a separate "Not Interested"
+// section (the rep gets credit for working it). Any other status (sold, lost,
+// appointment booked, …) drops the lead off this report entirely.
 const STILL_OPEN_STATUS = "Sit Sold Insp";
+const NOT_INTERESTED_STATUS = "BTR - NI";
 const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1";
 // Zone is decided by the PROPERTY's county (same territory map used to assign
 // reps to zones), not the rep — so departed reps / trainers land correctly.
@@ -85,10 +89,13 @@ async function buildReport({ zone, days, since, resultValue }) {
   // whose JN status has moved to anything else has been handled → drop it.
   // Fail-open: if JN is unreachable, we don't filter (show everything).
   const sinceSec = Math.floor(since.getTime() / 1000) - 30 * 24 * 60 * 60;
-  const stillOpen = JN_KEY ? await fetchStillOpenJnids(sinceSec) : null;
+  // Fail-open: if JN is unreachable both sets are null and we show everything
+  // as open (never filter on a bad read).
+  const stillOpen = JN_KEY ? await fetchJnidsByStatus(STILL_OPEN_STATUS, sinceSec) : null;
+  const notInterested = JN_KEY ? await fetchJnidsByStatus(NOT_INTERESTED_STATUS, sinceSec) : null;
 
-  const active = {}, inactive = {};
-  let total = 0;
+  const active = {}, inactive = {}, ni = {};
+  let total = 0, niTotal = 0;
   for (const r of deduped) {
     const rec = resolve(r.sales_rep_id, r.sales_rep_name);
     // Zone by PROPERTY county (same territory map used to assign reps to
@@ -97,39 +104,50 @@ async function buildReport({ zone, days, since, resultValue }) {
     const byCounty = countyToZone(r.county, r.latitude);
     const dealZone = byCounty !== "Unassigned" ? byCounty : (rec?.zone || "Unassigned");
     if (dealZone !== zone) continue;
-    // Has the rep gone back out? If the linked JN job is no longer "Sit Sold
-    // Insp", it's been worked — drop it off the back-to-retail list. (Deals
-    // with no JN link can't be checked, so they stay visible.)
-    if (stillOpen && r.jn_job_id && !stillOpen.has(r.jn_job_id)) continue;
-    total++;
+
     const rep = (r.sales_rep_name || "").trim() || "(no rep)";
     const when = r.result_at || r.signed_at || null;
-    const appt = when ? new Date(when).getTime() : null;
-    const bucket = (rec && rec.active !== false) ? active : inactive;
-    (bucket[rep] = bucket[rep] || []).push({
+    const deal = {
       customer: (r.client_name || "—").replace(/\s+/g, " ").trim(),
       address: [r.address, r.city].filter(Boolean).join(", "),
-      appt,
+      appt: when ? new Date(when).getTime() : null,
       appt_label: when ? dateLabel(new Date(when)) : "—",
       status: r.inspector_name ? `Inspected by ${r.inspector_name}` : "",
       jnid: r.jn_job_id || null,
-    });
+    };
+
+    // OPEN: still "Sit Sold Insp" (or no JN link / JN unreachable → can't tell).
+    const isOpen = !stillOpen || !r.jn_job_id || stillOpen.has(r.jn_job_id);
+    if (isOpen) {
+      total++;
+      const bucket = (rec && rec.active !== false) ? active : inactive;
+      (bucket[rep] = bucket[rep] || []).push(deal);
+    } else if (notInterested && r.jn_job_id && notInterested.has(r.jn_job_id)) {
+      // Worked, homeowner declined an appointment (BTR - NI).
+      niTotal++;
+      (ni[rep] = ni[rep] || []).push(deal);
+    }
+    // else: worked & moved on (sold / lost / appointment booked) → drop.
   }
 
   const shape = (obj, isInactive) => Object.entries(obj)
     .map(([rep, deals]) => ({ rep, count: deals.length, inactive: isInactive, deals: deals.sort((a, b) => (b.appt || 0) - (a.appt || 0)) }))
     .sort((a, b) => b.count - a.count || a.rep.localeCompare(b.rep));
 
-  return cors(200, JSON.stringify({ ok: true, zone, days, total, reps: shape(active, false), inactive_reps: shape(inactive, true) }));
+  return cors(200, JSON.stringify({
+    ok: true, zone, days, total,
+    reps: shape(active, false), inactive_reps: shape(inactive, true),
+    not_interested: shape(ni, false), not_interested_total: niTotal,
+  }));
 }
 
-// Set of JN job ids currently at "Sit Sold Insp" (status-filtered fetch, so we
+// Set of JN job ids currently at a given status (status-filtered fetch, so we
 // never hit the date-scan cap). Returns null on any JN error → caller fails
 // open (no status filtering, shows everything).
-async function fetchStillOpenJnids(sinceSec) {
+async function fetchJnidsByStatus(statusName, sinceSec) {
   try {
     const set = new Set();
-    const filter = encodeURIComponent(JSON.stringify({ must: [{ match_phrase: { status_name: STILL_OPEN_STATUS } }] }));
+    const filter = encodeURIComponent(JSON.stringify({ must: [{ match_phrase: { status_name: statusName } }] }));
     for (let page = 0; page < 40; page++) {
       const r = await fetch(`${JN_BASE}/jobs?size=100&from=${page * 100}&sort=-date_updated&date_updated_after=${sinceSec}&filter=${filter}`, { headers: jnHeaders });
       if (!r.ok) return page === 0 ? null : set;

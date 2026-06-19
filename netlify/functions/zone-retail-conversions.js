@@ -16,6 +16,9 @@
 const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` };
+// Not a win — homeowner declined an appointment. Lives in the Back to Retail
+// report's "Not Interested" section, not in conversions.
+const NOT_INTERESTED_STATUS = "BTR - NI";
 
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return cors(200, "");
@@ -31,7 +34,8 @@ exports.handler = async (event) => {
   try {
     const rows = await sbGet(
       `retail_status_tracking?zone=eq.${encodeURIComponent(zone)}&converted_at=gte.${encodeURIComponent(since)}` +
-      `&converted_at=not.is.null&select=client_name,address,sales_rep_name,converted_to,appointment,converted_at&order=converted_at.desc&limit=2000`
+      `&converted_at=not.is.null&converted_to=neq.${encodeURIComponent(NOT_INTERESTED_STATUS)}` +
+      `&select=client_name,address,sales_rep_name,converted_to,appointment,converted_at&order=converted_at.desc&limit=2000`
     );
 
     const byRep = {};
