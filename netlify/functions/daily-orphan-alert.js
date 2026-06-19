@@ -110,6 +110,10 @@ exports.handler = async (event) => {
         `&jn_job_id=not.is.null` +
         `&cancelled_at=is.null` +
         `&jn_cert_uploaded_at=is.null` +
+        // Exclude HELD inspections (gated inspector awaiting manager confirm) —
+        // the retry cron skips these on purpose, so they're not "failing,"
+        // they're waiting on a manager. Mirror cron-retry-missing-certs.
+        `&or=(pending_confirmation.is.null,pending_confirmation.eq.false)` +
         `&result_at=lt.${encodeURIComponent(cutoff24h)}` +
         `&order=result_at.asc` +
         `&limit=20`;
