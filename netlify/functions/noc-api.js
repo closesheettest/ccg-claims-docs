@@ -100,19 +100,30 @@ exports.handler = async (event) => {
       // The dropdown shows the contact NAME so the rep picks the right person.
       const q = String(body.q || "").trim();
       if (q.length < 3) return json(200, { ok: true, results: [] });
-      const filter = encodeURIComponent(JSON.stringify({ must: [{ match_phrase_prefix: { address_line1: q } }] }));
-      const r = await fetch(`${JN_BASE}/contacts?filter=${filter}&size=10&sort=-date_updated`, { headers: jnHeaders });
-      if (!r.ok) return json(502, { ok: false, error: `JN search ${r.status}` });
-      const d = await r.json().catch(() => ({}));
-      const rows = d.results || d.contacts || d.data || [];
-      const results = rows.map((c) => ({
-        contact_id: c.jnid || c.id,
-        name: `${c.first_name || ""} ${c.last_name || ""}`.trim() || c.display_name || "",
-        address: c.address_line1 || "",
-        city: c.city || "",
-        state: c.state_text || c.state || "",
-        zip: c.zip || "",
-      })).filter((x) => x.contact_id && (x.name || x.address));
+      // Forgiving address match: an exact leading prefix scores best, but a
+      // loose term-match also matches when the house number is missing, the
+      // words are out of order, or abbreviations differ (St/Street, E/East).
+      const filter = encodeURIComponent(JSON.stringify({ must: [{ bool: { should: [
+        { match_phrase_prefix: { address_line1: q } },
+        { match: { address_line1: q } },
+      ], minimum_should_match: 1 } }] }));
+      const byId = new Map();
+      // Search homeowner CONTACTS and JOBS (covers either record carrying the address).
+      try {
+        const cr = await fetch(`${JN_BASE}/contacts?filter=${filter}&size=12`, { headers: jnHeaders });
+        if (cr.ok) { const d = await cr.json().catch(() => ({})); for (const c of (d.results || d.contacts || d.data || [])) {
+          const id = c.jnid || c.id; if (!id || byId.has(id)) continue;
+          byId.set(id, { contact_id: id, name: `${c.first_name || ""} ${c.last_name || ""}`.trim() || c.display_name || "", address: c.address_line1 || "", city: c.city || "", state: c.state_text || c.state || "", zip: c.zip || "" });
+        } }
+      } catch { /* keep going */ }
+      try {
+        const jr = await fetch(`${JN_BASE}/jobs?filter=${filter}&size=12`, { headers: jnHeaders });
+        if (jr.ok) { const d = await jr.json().catch(() => ({})); for (const j of (d.results || d.data || [])) {
+          const p = j.primary || {}; const id = p.id; if (!id || byId.has(id)) continue;
+          byId.set(id, { contact_id: id, name: p.name || j.display_name || "", address: j.address_line1 || "", city: j.city || "", state: j.state_text || j.state || "", zip: j.zip || "" });
+        } }
+      } catch { /* keep going */ }
+      const results = [...byId.values()].filter((x) => x.contact_id && (x.name || x.address)).slice(0, 12);
       return json(200, { ok: true, results });
     }
 
