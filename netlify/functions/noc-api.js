@@ -100,13 +100,16 @@ exports.handler = async (event) => {
       // The dropdown shows the contact NAME so the rep picks the right person.
       const q = String(body.q || "").trim();
       if (q.length < 3) return json(200, { ok: true, results: [] });
-      // Forgiving address match: an exact leading prefix scores best, but a
-      // loose term-match also matches when the house number is missing, the
-      // words are out of order, or abbreviations differ (St/Street, E/East).
-      const filter = encodeURIComponent(JSON.stringify({ must: [{ bool: { should: [
-        { match_phrase_prefix: { address_line1: q } },
-        { match: { address_line1: q } },
-      ], minimum_should_match: 1 } }] }));
+      // JN's address_line1 only supports a leading-prefix match, AND its data
+      // is inconsistent (some "426 Southwest Avenue", some "1250 E Madison st").
+      // So we prefix-match the typed text PLUS its abbreviated and expanded
+      // variants, covering St↔Street, E↔East, etc. either way it's stored.
+      const ABBR = { north: "n", south: "s", east: "e", west: "w", northeast: "ne", northwest: "nw", southeast: "se", southwest: "sw", street: "st", avenue: "ave", drive: "dr", road: "rd", lane: "ln", court: "ct", circle: "cir", boulevard: "blvd", place: "pl", terrace: "ter", parkway: "pkwy", highway: "hwy", trail: "trl" };
+      const EXP = Object.fromEntries(Object.entries(ABBR).map(([k, v]) => [v, k]));
+      const mapWords = (s, m) => s.toLowerCase().split(/\s+/).map((w) => m[w] || w).join(" ");
+      const variants = [...new Set([q, mapWords(q, ABBR), mapWords(q, EXP)].map((x) => x.trim()).filter(Boolean))];
+      const should = variants.map((v) => ({ match_phrase_prefix: { address_line1: v } }));
+      const filter = encodeURIComponent(JSON.stringify({ must: [{ bool: { should, minimum_should_match: 1 } }] }));
       const byId = new Map();
       // Search homeowner CONTACTS and JOBS (covers either record carrying the address).
       try {
