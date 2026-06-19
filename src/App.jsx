@@ -7400,11 +7400,17 @@ export default function App() {
       // build the leaderboard AND filter for this rep in one query.
       const { data: rows, error } = await supabase
         .from("inspections")
-        .select("id, sales_rep_id, sales_rep_name, signed_at, result, result_at, client_name, address, city, state, zip, mobile, jn_status, cancelled_at, docs_signed, signed_pdfs")
+        .select("id, sales_rep_id, sales_rep_name, original_sales_rep_id, original_sales_rep_name, signed_at, result, result_at, client_name, address, city, state, zip, mobile, jn_status, cancelled_at, docs_signed, signed_pdfs")
         .gte("signed_at", lastMon.toISOString())
         .lte("signed_at", thisSun.toISOString())
         .is("cancelled_at", null);
       if (error) throw error;
+
+      // A sign-up is credited to whoever ORIGINALLY signed it, even after a
+      // retail deal is reassigned to a sales rep (the sale credit moves; the
+      // sign-up doesn't). Fall back to sales_rep_* for rows predating the freeze.
+      const signerId = (r) => r.original_sales_rep_id || r.sales_rep_id;
+      const signerName = (r) => r.original_sales_rep_name || r.sales_rep_name;
 
       // Apply the same dedup logic as Submission Analytics so a rep with
       // duplicate rows doesn't get double-counted.
@@ -7441,8 +7447,8 @@ export default function App() {
         const deduped = [...groupByKey.values()].filter(r => r.result || isActivePending(r));
         // Filter to a specific rep if requested
         const filtered = repFilter ? deduped.filter(r =>
-          (r.sales_rep_id && r.sales_rep_id === repFilter.id) ||
-          (r.sales_rep_name && r.sales_rep_name === repFilter.name)
+          (signerId(r) && signerId(r) === repFilter.id) ||
+          (signerName(r) && signerName(r) === repFilter.name)
         ) : deduped;
 
         const counts = { submissions: filtered.length, damage: 0, no_damage: 0, retail: 0, pending: 0 };
@@ -7473,10 +7479,10 @@ export default function App() {
       // damage / no_damage / retail / pending breakdown. We don't compute
       // a leaderboard for all-time since rankings shift over time and
       // people who have left the company would distort the picture.
-      const orFilter = `sales_rep_id.eq.${repIdOrName},sales_rep_name.eq.${repName}`;
+      const orFilter = `sales_rep_id.eq.${repIdOrName},sales_rep_name.eq.${repName},original_sales_rep_id.eq.${repIdOrName},original_sales_rep_name.eq.${repName}`;
       const { data: allTimeRaw } = await supabase
         .from("inspections")
-        .select("id, sales_rep_id, sales_rep_name, signed_at, result, result_at, client_name, address, city, state, zip, mobile, jn_status, cancelled_at, docs_signed, signed_pdfs")
+        .select("id, sales_rep_id, sales_rep_name, original_sales_rep_id, original_sales_rep_name, signed_at, result, result_at, client_name, address, city, state, zip, mobile, jn_status, cancelled_at, docs_signed, signed_pdfs")
         .or(orFilter)
         .is("cancelled_at", null)
         .order("signed_at", { ascending: false })
@@ -7538,8 +7544,8 @@ export default function App() {
       const allDeduped = dedupAndCount(thisWeekRows, null).rows;
       const byRep = new Map();
       for (const r of allDeduped) {
-        const key = r.sales_rep_id || r.sales_rep_name || "unknown";
-        const name = r.sales_rep_name || "(no rep)";
+        const key = signerId(r) || signerName(r) || "unknown";
+        const name = signerName(r) || "(no rep)";
         if (!byRep.has(key)) byRep.set(key, { id: key, name, submissions: 0, damage: 0, no_damage: 0, retail: 0 });
         const e = byRep.get(key);
         e.submissions++;
