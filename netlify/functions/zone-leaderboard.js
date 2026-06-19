@@ -64,7 +64,7 @@ export const handler = async (event) => {
     // server-side). Same column set the app's My Stats query uses.
     const rows = await fetchTable('inspections', {
       select:
-        'id,sales_rep_id,sales_rep_name,signed_at,result,result_at,' +
+        'id,sales_rep_id,sales_rep_name,original_sales_rep_id,original_sales_rep_name,signed_at,result,result_at,' +
         'client_name,address,zip,jn_status,cancelled_at',
       filter:
         `signed_at=gte.${encodeURIComponent(start.toISOString())}` +
@@ -81,15 +81,22 @@ export const handler = async (event) => {
     const counts = {} // zone → count
     const repsByZone = {} // zone → Map(repName → count)
     for (const r of signed) {
+      // Attribute the SIGN-UP to whoever originally signed it, not whoever the
+      // deal was later reassigned to. A retail deal handed to a sales rep still
+      // counts as the signer's inspection (e.g. William keeps his sign-ups);
+      // the SALE credit lives in zone-sales-leaderboard, which uses sales_rep.
+      // Fall back to sales_rep_* for rows signed before the freeze backfill.
+      const signerId = r.original_sales_rep_id || r.sales_rep_id
+      const signerName = r.original_sales_rep_name || r.sales_rep_name
       const zone =
-        (r.sales_rep_id != null && byId[String(r.sales_rep_id)]) ||
-        byName[normalizeName(r.sales_rep_name)] ||
+        (signerId != null && byId[String(signerId)]) ||
+        byName[normalizeName(signerName)] ||
         null
       if (!zone) continue // No Zone — not shown
       counts[zone] = (counts[zone] || 0) + 1
       // Per-rep tally for the dashboard drill-down (rep name + count only —
       // no homeowner or address, so this stays safe on the public feed).
-      const rep = (r.sales_rep_name || '—').trim() || '—'
+      const rep = (signerName || '—').trim() || '—'
       const m = repsByZone[zone] || (repsByZone[zone] = new Map())
       m.set(rep, (m.get(rep) || 0) + 1)
     }

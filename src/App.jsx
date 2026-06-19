@@ -9053,6 +9053,11 @@ const renderSmsTemplate = (key, vars) => {
         sales_rep_name: data.salesRepName || "",
         sales_rep_id: data.salesRepId || "",
         sales_rep_email: data.salesRepEmail || "",
+        // Frozen original signer — never overwritten by a later reassignment,
+        // so the signer (e.g. William) keeps "inspections signed" credit even
+        // after a retail deal is handed to a sales rep.
+        original_sales_rep_id: data.salesRepId || "",
+        original_sales_rep_name: data.salesRepName || "",
         roof_type: inspData.roof_type || "Shingle",
         lead_source: data.leadSource || "Inspection",
         spanish_only: !!data.spanish_only,
@@ -9427,6 +9432,9 @@ const renderSmsTemplate = (key, vars) => {
           sales_rep_name: data.salesRepName || "",
           sales_rep_id: data.salesRepId || "",
           sales_rep_email: data.salesRepEmail || "",
+          // Frozen original signer (see note on the other inspections insert).
+          original_sales_rep_id: data.salesRepId || "",
+          original_sales_rep_name: data.salesRepName || "",
           lead_source: data.leadSource || "Inspection",
           spanish_only: !!data.spanish_only,
         }]).select("id").single();
