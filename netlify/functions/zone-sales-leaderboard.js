@@ -48,8 +48,17 @@ const SOLD_STATUSES = new Set([
   'signed contract',
   'production review',
   'job prep',
+  'in funding',
+  'waiting on pace',
   'upcoming installs',
   'install set',
+  // Post-install stages — still a sale, just further along. A deal sold this
+  // month that advanced here (e.g. 2020 Providence Rd → Roof Started) was
+  // dropping off the monthly count.
+  'roof started',
+  'new roof',
+  'paid closed',          // "Paid & Closed"
+  'upcoming commissions',
 ])
 
 // Exact JobNimbus status_name spellings for the sold stages — used to pull
@@ -63,8 +72,14 @@ const SOLD_STATUS_NAMES = [
   'Signed Contract',
   'Production Review',
   'Job Prep',
+  'In Funding',
+  'Waiting on PACE',
   'Upcoming Installs',
   'Install Set',
+  'Roof Started',
+  'New Roof',
+  'Paid & Closed',
+  'Upcoming Commissions',
 ]
 
 const jnHeaders = {
