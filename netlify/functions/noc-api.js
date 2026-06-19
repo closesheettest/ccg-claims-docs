@@ -95,49 +95,40 @@ exports.handler = async (event) => {
     }
 
     if (action === "search") {
+      // Search the homeowner CONTACT by address (not the job) — works even
+      // before the deal hits Sit Sold, since the contact exists from the start.
+      // The dropdown shows the contact NAME so the rep picks the right person.
       const q = String(body.q || "").trim();
       if (q.length < 3) return json(200, { ok: true, results: [] });
       const filter = encodeURIComponent(JSON.stringify({ must: [{ match_phrase_prefix: { address_line1: q } }] }));
-      const r = await fetch(`${JN_BASE}/jobs?filter=${filter}&size=8&sort=-date_updated`, { headers: jnHeaders });
+      const r = await fetch(`${JN_BASE}/contacts?filter=${filter}&size=10&sort=-date_updated`, { headers: jnHeaders });
       if (!r.ok) return json(502, { ok: false, error: `JN search ${r.status}` });
       const d = await r.json().catch(() => ({}));
-      const rows = d.results || d.data || [];
-      const results = rows.map((j) => ({
-        jnid: j.jnid || j.id,
-        address: j.address_line1 || "",
-        city: j.city || "",
-        state: j.state_text || j.state || "",
-        zip: j.zip || "",
-        name: j.display_name || j.name || "",
-      })).filter((x) => x.jnid && x.address);
+      const rows = d.results || d.contacts || d.data || [];
+      const results = rows.map((c) => ({
+        contact_id: c.jnid || c.id,
+        name: `${c.first_name || ""} ${c.last_name || ""}`.trim() || c.display_name || "",
+        address: c.address_line1 || "",
+        city: c.city || "",
+        state: c.state_text || c.state || "",
+        zip: c.zip || "",
+      })).filter((x) => x.contact_id && (x.name || x.address));
       return json(200, { ok: true, results });
     }
 
     if (action === "select") {
-      const jnid = String(body.jnid || "").trim();
-      if (!jnid) return json(400, { ok: false, error: "jnid required" });
-      const jr = await fetch(`${JN_BASE}/jobs/${jnid}`, { headers: jnHeaders });
-      if (!jr.ok) return json(502, { ok: false, error: `JN job ${jr.status}` });
-      const job = await jr.json();
-      const address = job.address_line1 || "";
-      const city = job.city || "";
-      const state = job.state_text || job.state || "";
-      const zip = job.zip || "";
-
-      // Homeowner contact — pull the primary contact for phone + email.
-      let name = job.display_name || job.name || "";
-      let phone = "", email = "";
-      const contactId = job.primary?.id;
-      if (contactId) {
-        const cr = await fetch(`${JN_BASE}/contacts/${contactId}`, { headers: jnHeaders });
-        if (cr.ok) {
-          const c = await cr.json();
-          name = `${c.first_name || ""} ${c.last_name || ""}`.trim() || c.display_name || name;
-          phone = c.mobile_phone || c.home_phone || c.work_phone || "";
-          email = c.email || "";
-        }
-      }
-
+      const cid = String(body.contact_id || "").trim();
+      if (!cid) return json(400, { ok: false, error: "contact_id required" });
+      const cr = await fetch(`${JN_BASE}/contacts/${cid}`, { headers: jnHeaders });
+      if (!cr.ok) return json(502, { ok: false, error: `JN contact ${cr.status}` });
+      const c = await cr.json();
+      const name = `${c.first_name || ""} ${c.last_name || ""}`.trim() || c.display_name || "";
+      const phone = c.mobile_phone || c.home_phone || c.work_phone || "";
+      const email = c.email || "";
+      const address = c.address_line1 || "";
+      const city = c.city || "";
+      const state = c.state_text || c.state || "";
+      const zip = c.zip || "";
       const det = await detectCounty(address, city, state, zip);
       return json(200, { ok: true, name, phone, email, address, city, state, zip, county_key: det.key, county_label: det.label });
     }
