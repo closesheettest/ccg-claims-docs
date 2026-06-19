@@ -251,20 +251,36 @@ exports.handler = async (event) => {
     roof_type: roofType,
   };
 
+  // PDF-cache (the June PDFShift-spike fix): the costly step is the PDFShift
+  // render. If a prior attempt rendered fine but the JN upload failed, the job
+  // still looks "cert missing" and gets retried — historically re-rendering and
+  // burning another credit each time (2,400 renders for ~160 certs). So we stash
+  // every successful render in Storage keyed by job; a retry reuses those bytes
+  // and pays ZERO PDFShift. force:true always re-renders (content changed) and
+  // overwrites the cache. The cache is deleted once the cert safely lands in JN.
+  const cachePath = `cert-cache/${jnid}.pdf`;
   let pdfBase64;
-  try {
-    if (resultLabel === "Damage") {
-      pdfBase64 = await generateDamagePDF({ clientName, address, repName, date: reportDate, photos, record });
-    } else if (resultLabel === "Retail") {
-      pdfBase64 = await generateRetailPDF({ clientName, address, repName, date: reportDate, photos, record });
-    } else {
-      pdfBase64 = await generateNoDamagePDF({ clientName, address, repName, date: reportDate, photos, record });
-    }
-  } catch (e) {
-    return { statusCode: 500, body: JSON.stringify({ ok: false, error: "PDF generation failed", detail: e.message }) };
+  if (!force) {
+    const cached = await loadCachedPdf(cachePath);
+    if (cached) { pdfBase64 = cached; console.log("Reused cached cert PDF — no PDFShift render:", jnid); }
   }
   if (!pdfBase64) {
-    return { statusCode: 500, body: JSON.stringify({ ok: false, error: "PDF generation returned empty" }) };
+    try {
+      if (resultLabel === "Damage") {
+        pdfBase64 = await generateDamagePDF({ clientName, address, repName, date: reportDate, photos, record });
+      } else if (resultLabel === "Retail") {
+        pdfBase64 = await generateRetailPDF({ clientName, address, repName, date: reportDate, photos, record });
+      } else {
+        pdfBase64 = await generateNoDamagePDF({ clientName, address, repName, date: reportDate, photos, record });
+      }
+    } catch (e) {
+      return { statusCode: 500, body: JSON.stringify({ ok: false, error: "PDF generation failed", detail: e.message }) };
+    }
+    if (!pdfBase64) {
+      return { statusCode: 500, body: JSON.stringify({ ok: false, error: "PDF generation returned empty" }) };
+    }
+    // Stash the freshly rendered PDF so a failed JN upload retries for free.
+    try { await stashPdfInSupabase(cachePath, pdfBase64); } catch { /* cache is best-effort */ }
   }
 
   // ── 6. Upload PDF to JN's documents tab — OR — return base64 ─────
@@ -317,6 +333,9 @@ exports.handler = async (event) => {
 
   console.log("=== Report uploaded:", filename, "to job:", jnid);
 
+  // Cert is safely in JN now — drop the cached render so it can't be reused stale.
+  try { await deleteCachedPdf(cachePath); } catch { /* best-effort */ }
+
   // Stamp jn_cert_uploaded_at on the happy path. Historically ONLY the
   // hourly retry cron set this, so a normally-certified job stayed
   // jn_cert_uploaded_at=NULL forever — which made the retry cron treat
@@ -359,6 +378,31 @@ exports.handler = async (event) => {
 // downloads from the URL + uploads to JN. This keeps each Lambda well
 // under Netlify's 10s budget and prevents OOM on the JSON response
 // (returning multi-MB base64 in a JSON body was eating V8 heap).
+// Load a previously-stashed cert PDF (base64) from Storage, or null if none.
+// Used by the PDF-cache: a retry reuses these bytes instead of re-rendering.
+async function loadCachedPdf(path) {
+  if (!SB_URL || !SB_KEY) return null;
+  try {
+    const r = await fetch(`${SB_URL}/storage/v1/object/${SIGNED_BUCKET}/${path}`, {
+      headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` },
+    });
+    if (!r.ok) return null;
+    const buf = Buffer.from(await r.arrayBuffer());
+    return buf.length ? buf.toString("base64") : null;
+  } catch { return null; }
+}
+
+// Remove a cached cert PDF once the real cert is safely in JN (best-effort).
+async function deleteCachedPdf(path) {
+  if (!SB_URL || !SB_KEY) return;
+  try {
+    await fetch(`${SB_URL}/storage/v1/object/${SIGNED_BUCKET}/${path}`, {
+      method: "DELETE",
+      headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` },
+    });
+  } catch { /* best-effort */ }
+}
+
 async function stashPdfInSupabase(path, pdfBase64) {
   if (!SB_URL || !SB_KEY) {
     return { ok: false, error: "Supabase env not configured" };
