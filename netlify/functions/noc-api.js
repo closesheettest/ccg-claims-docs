@@ -109,6 +109,12 @@ exports.handler = async (event) => {
       const mapWords = (s, m) => s.toLowerCase().split(/\s+/).map((w) => m[w] || w).join(" ");
       const variants = [...new Set([q, mapWords(q, ABBR), mapWords(q, EXP)].map((x) => x.trim()).filter(Boolean))];
       const should = variants.map((v) => ({ match_phrase_prefix: { address_line1: v } }));
+      // A lone token (just the house number, e.g. "9251") won't prefix-match
+      // via match_phrase_prefix in JN — add prefix/wildcard so it still finds it.
+      if (q.split(/\s+/).filter(Boolean).length === 1) {
+        const lc = q.toLowerCase();
+        should.push({ prefix: { address_line1: lc } }, { wildcard: { address_line1: `${lc}*` } });
+      }
       const filter = encodeURIComponent(JSON.stringify({ must: [{ bool: { should, minimum_should_match: 1 } }] }));
       const byId = new Map();
       // Search homeowner CONTACTS and JOBS (covers either record carrying the address).
