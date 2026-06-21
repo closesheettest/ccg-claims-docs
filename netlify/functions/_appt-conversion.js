@@ -105,21 +105,36 @@ async function fetchSoldJobs(jnKey, startSec, endSec) {
   });
 }
 
-function newRep(rep) { return { rep, appts: 0, harv: 0, iq: 0, btr: 0, sales: 0, rb: 0, ins: 0 }; }
-
-// An appointment that happened in the period (+ its type buckets).
-function tallyAppt(rec, job) {
-  rec.appts++;
-  const F = fieldMap(job);
-  const src = String(job.source_name || "");
-  if (isYes(F["Sales Rep Harvested"])) rec.harv++;
-  if (src === "Instant Quote") rec.iq++;
-  if (src === "Inspection") rec.btr++;
+// Mutually-exclusive appointment category (so harv + comp + btr = total):
+//   btr  = source "Inspection"        → came from a free inspection, now retail
+//   harv = "Sales Rep Harvested" = Yes → harvested / canvassed appointment
+//   comp = everything else            → company-provided lead (IQ, AI Bot, FB…)
+function categoryOf(job) {
+  if (String(job.source_name || "") === "Inspection") return "btr";
+  if (isYes(fieldMap(job)["Sales Rep Harvested"])) return "harv";
+  return "comp";
+}
+// Dollar value of a sold deal (approved estimate / invoice / budget revenue).
+function saleAmount(job) {
+  return Math.max(Number(job.approved_estimate_total) || 0, Number(job.approved_invoice_total) || 0, Number(job.last_budget_revenue) || 0);
 }
 
-// A sale that closed in the period (+ Radiant Barrier / Insulation attach).
+function newRep(rep) {
+  return { rep, appts: 0, harvAp: 0, compAp: 0, btrAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, amt: 0, rb: 0, ins: 0 };
+}
+
+// An appointment that happened in the period (bucketed by category).
+function tallyAppt(rec, job) {
+  rec.appts++;
+  rec[categoryOf(job) + "Ap"]++;
+}
+
+// A sale that closed in the period — bucketed by category, with its $ amount
+// (for avg $/sale) and Radiant Barrier / Insulation attach.
 function tallySold(rec, job) {
   rec.sales++;
+  rec[categoryOf(job) + "Sl"]++;
+  rec.amt += saleAmount(job);
   const F = fieldMap(job);
   if (isYes(F["Radiant Barrier"])) rec.rb++;
   if (isYes(F["Insulation"])) rec.ins++;
@@ -128,17 +143,26 @@ function tallySold(rec, job) {
 function pct(n, d) { return d > 0 ? Math.round((n / d) * 100) : 0; }
 function shapeRep(r) {
   return {
-    rep: r.rep, appts: r.appts, harv: r.harv, iq: r.iq, btr: r.btr,
-    sales: r.sales, pct: pct(r.sales, r.appts),
+    rep: r.rep,
+    harvAp: r.harvAp, compAp: r.compAp, btrAp: r.btrAp, appts: r.appts,
+    harvSl: r.harvSl, compSl: r.compSl, btrSl: r.btrSl, sales: r.sales,
+    harvPct: pct(r.harvSl, r.harvAp), compPct: pct(r.compSl, r.compAp), btrPct: pct(r.btrSl, r.btrAp), pct: pct(r.sales, r.appts),
+    avg: r.sales > 0 ? Math.round(r.amt / r.sales) : 0,
     rb: r.rb, rb_pct: pct(r.rb, r.sales), ins: r.ins, ins_pct: pct(r.ins, r.sales),
   };
 }
 function sumTotals(reps) {
   const t = reps.reduce((s, r) => ({
-    appts: s.appts + r.appts, harv: s.harv + r.harv, iq: s.iq + r.iq, btr: s.btr + r.btr,
-    sales: s.sales + r.sales, rb: s.rb + r.rb, ins: s.ins + r.ins,
-  }), { appts: 0, harv: 0, iq: 0, btr: 0, sales: 0, rb: 0, ins: 0 });
-  return { ...t, pct: pct(t.sales, t.appts), rb_pct: pct(t.rb, t.sales), ins_pct: pct(t.ins, t.sales) };
+    appts: s.appts + r.appts, harvAp: s.harvAp + r.harvAp, compAp: s.compAp + r.compAp, btrAp: s.btrAp + r.btrAp,
+    sales: s.sales + r.sales, harvSl: s.harvSl + r.harvSl, compSl: s.compSl + r.compSl, btrSl: s.btrSl + r.btrSl,
+    amt: s.amt + r.amt, rb: s.rb + r.rb, ins: s.ins + r.ins,
+  }), { appts: 0, harvAp: 0, compAp: 0, btrAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, amt: 0, rb: 0, ins: 0 });
+  return {
+    ...t,
+    harvPct: pct(t.harvSl, t.harvAp), compPct: pct(t.compSl, t.compAp), btrPct: pct(t.btrSl, t.btrAp), pct: pct(t.sales, t.appts),
+    avg: t.sales > 0 ? Math.round(t.amt / t.sales) : 0,
+    rb_pct: pct(t.rb, t.sales), ins_pct: pct(t.ins, t.sales),
+  };
 }
 
 export { fetchApptJobs, fetchSoldJobs, newRep, tallyAppt, tallySold, shapeRep, sumTotals, pct };
