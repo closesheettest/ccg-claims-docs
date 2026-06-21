@@ -52,6 +52,12 @@ exports.handler = async (event) => {
 
     const byRep = {}; // rep -> { appts, sales, rb, ins }
     for (const j of jobs) {
+      // Skip free-inspection signings (record_type "PA"): those get a date_start
+      // too (= signed date), but they're inspections, not SALES appointments —
+      // they'd wrongly credit the inspection trainer (e.g. William) with appts.
+      // Retail deals that came from an inspection are record_type Lead/Retail, so
+      // they still count. (No sold deal is record_type PA.)
+      if ((j.record_type_name || "") === "PA") continue;
       const z = zoneOf(j.sales_rep, j.sales_rep_name);
       if (z !== zone) continue; // only this zone's reps
       const rep = (j.sales_rep_name || "").trim() || "(no rep)";
