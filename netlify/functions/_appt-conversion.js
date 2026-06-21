@@ -71,13 +71,22 @@ async function fetchApptJobs(jnKey, startSec, endSec) {
   return [...byId.values()];
 }
 
-// Tally one appointment job into a per-rep accumulator { appts, sales, rb, ins }.
+// Tally one appointment job into a per-rep accumulator.
+// Appointment TYPE buckets (counted over ALL appointments, not just sold):
+//   • harv = "Sales Rep Harvested" field is Yes  (a harvested / company appt)
+//   • iq   = source "Instant Quote"
+//   • btr  = source "Inspection"  → came from a free inspection, now worked retail
+// (a job can match more than one, so they're independent counts.)
 function tallyJob(rec, job) {
   rec.appts++;
+  const F = fieldMap(job);
+  const src = String(job.source_name || "");
+  if (isYes(F["Sales Rep Harvested"])) rec.harv = (rec.harv || 0) + 1;
+  if (src === "Instant Quote") rec.iq = (rec.iq || 0) + 1;
+  if (src === "Inspection") rec.btr = (rec.btr || 0) + 1;
   const status = String(job.status_name || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   if (SOLD_STATUSES.has(status)) {
     rec.sales++;
-    const F = fieldMap(job);
     if (isYes(F["Radiant Barrier"])) rec.rb++;
     if (isYes(F["Insulation"])) rec.ins++;
   }
@@ -85,10 +94,18 @@ function tallyJob(rec, job) {
 
 function pct(n, d) { return d > 0 ? Math.round((n / d) * 100) : 0; }
 function shapeRep(r) {
-  return { rep: r.rep, appts: r.appts, sales: r.sales, pct: pct(r.sales, r.appts), rb: r.rb, rb_pct: pct(r.rb, r.sales), ins: r.ins, ins_pct: pct(r.ins, r.sales) };
+  return {
+    rep: r.rep, appts: r.appts,
+    harv: r.harv || 0, iq: r.iq || 0, btr: r.btr || 0,
+    sales: r.sales, pct: pct(r.sales, r.appts),
+    rb: r.rb, rb_pct: pct(r.rb, r.sales), ins: r.ins, ins_pct: pct(r.ins, r.sales),
+  };
 }
 function sumTotals(reps) {
-  const t = reps.reduce((s, r) => ({ appts: s.appts + r.appts, sales: s.sales + r.sales, rb: s.rb + r.rb, ins: s.ins + r.ins }), { appts: 0, sales: 0, rb: 0, ins: 0 });
+  const t = reps.reduce((s, r) => ({
+    appts: s.appts + r.appts, sales: s.sales + r.sales, rb: s.rb + r.rb, ins: s.ins + r.ins,
+    harv: s.harv + (r.harv || 0), iq: s.iq + (r.iq || 0), btr: s.btr + (r.btr || 0),
+  }), { appts: 0, sales: 0, rb: 0, ins: 0, harv: 0, iq: 0, btr: 0 });
   return { ...t, pct: pct(t.sales, t.appts), rb_pct: pct(t.rb, t.sales), ins_pct: pct(t.ins, t.sales) };
 }
 
