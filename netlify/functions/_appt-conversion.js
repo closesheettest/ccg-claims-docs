@@ -92,4 +92,4 @@ function sumTotals(reps) {
   return { ...t, pct: pct(t.sales, t.appts), rb_pct: pct(t.rb, t.sales), ins_pct: pct(t.ins, t.sales) };
 }
 
-module.exports = { fetchApptJobs, tallyJob, shapeRep, sumTotals, pct };
+export { fetchApptJobs, tallyJob, shapeRep, sumTotals, pct };

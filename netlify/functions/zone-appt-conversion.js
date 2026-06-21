@@ -14,12 +14,12 @@
 //
 // Env: JOBNIMBUS_API_KEY.
 
-const { fetchApptJobs, tallyJob, shapeRep, sumTotals } = require("./_appt-conversion.js");
+import { fetchApptJobs, tallyJob, shapeRep, sumTotals } from "./_appt-conversion.js";
 
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1";
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return cors(200, "");
   if (event.httpMethod !== "GET") return cors(405, JSON.stringify({ ok: false, error: "Method Not Allowed" }));
   if (!JN_KEY) return cors(500, JSON.stringify({ ok: false, error: "Missing JOBNIMBUS_API_KEY" }));
