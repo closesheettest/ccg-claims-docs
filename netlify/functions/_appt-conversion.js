@@ -120,7 +120,7 @@ function saleAmount(job) {
 }
 
 function newRep(rep) {
-  return { rep, level: "", appts: 0, harvAp: 0, compAp: 0, btrAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, amt: 0, rb: 0, ins: 0 };
+  return { rep, level: "", appts: 0, harvAp: 0, compAp: 0, btrAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0 };
 }
 
 // TMS rep_level → short badge. "" when unknown (rep_level not set).
@@ -141,8 +141,11 @@ function tallyAppt(rec, job) {
 // (for avg $/sale) and Radiant Barrier / Insulation attach.
 function tallySold(rec, job) {
   rec.sales++;
-  rec[categoryOf(job) + "Sl"]++;
-  rec.amt += saleAmount(job);
+  const cat = categoryOf(job);
+  const amt = saleAmount(job);
+  rec[cat + "Sl"]++;          // count (used for the per-bucket conversion %)
+  rec[cat + "Amt"] += amt;    // $ value of this bucket's sales
+  rec.amt += amt;
   const F = fieldMap(job);
   if (isYes(F["Radiant Barrier"])) rec.rb++;
   if (isYes(F["Insulation"])) rec.ins++;
@@ -154,6 +157,7 @@ function shapeRep(r) {
     rep: r.rep, level: r.level || "",
     harvAp: r.harvAp, compAp: r.compAp, btrAp: r.btrAp, appts: r.appts,
     harvSl: r.harvSl, compSl: r.compSl, btrSl: r.btrSl, sales: r.sales,
+    harvAmt: Math.round(r.harvAmt), compAmt: Math.round(r.compAmt), btrAmt: Math.round(r.btrAmt),
     harvPct: pct(r.harvSl, r.harvAp), compPct: pct(r.compSl, r.compAp), btrPct: pct(r.btrSl, r.btrAp), pct: pct(r.sales, r.appts),
     amt: Math.round(r.amt),
     avg: r.sales > 0 ? Math.round(r.amt / r.sales) : 0,
@@ -164,10 +168,12 @@ function sumTotals(reps) {
   const t = reps.reduce((s, r) => ({
     appts: s.appts + r.appts, harvAp: s.harvAp + r.harvAp, compAp: s.compAp + r.compAp, btrAp: s.btrAp + r.btrAp,
     sales: s.sales + r.sales, harvSl: s.harvSl + r.harvSl, compSl: s.compSl + r.compSl, btrSl: s.btrSl + r.btrSl,
+    harvAmt: s.harvAmt + r.harvAmt, compAmt: s.compAmt + r.compAmt, btrAmt: s.btrAmt + r.btrAmt,
     amt: s.amt + r.amt, rb: s.rb + r.rb, ins: s.ins + r.ins,
-  }), { appts: 0, harvAp: 0, compAp: 0, btrAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, amt: 0, rb: 0, ins: 0 });
+  }), { appts: 0, harvAp: 0, compAp: 0, btrAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0 });
   return {
     ...t,
+    harvAmt: Math.round(t.harvAmt), compAmt: Math.round(t.compAmt), btrAmt: Math.round(t.btrAmt),
     harvPct: pct(t.harvSl, t.harvAp), compPct: pct(t.compSl, t.compAp), btrPct: pct(t.btrSl, t.btrAp), pct: pct(t.sales, t.appts),
     amt: Math.round(t.amt),
     avg: t.sales > 0 ? Math.round(t.amt / t.sales) : 0,
