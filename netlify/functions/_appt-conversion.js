@@ -120,7 +120,15 @@ function saleAmount(job) {
 }
 
 function newRep(rep) {
-  return { rep, appts: 0, harvAp: 0, compAp: 0, btrAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, amt: 0, rb: 0, ins: 0 };
+  return { rep, level: "", appts: 0, harvAp: 0, compAp: 0, btrAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, amt: 0, rb: 0, ins: 0 };
+}
+
+// TMS rep_level → short badge. "" when unknown (rep_level not set).
+function levelLabel(repLevel) {
+  const v = String(repLevel || "").toLowerCase();
+  if (v === "senior") return "SR";
+  if (v === "junior") return "JR";
+  return "";
 }
 
 // An appointment that happened in the period (bucketed by category).
@@ -143,7 +151,7 @@ function tallySold(rec, job) {
 function pct(n, d) { return d > 0 ? Math.round((n / d) * 100) : 0; }
 function shapeRep(r) {
   return {
-    rep: r.rep,
+    rep: r.rep, level: r.level || "",
     harvAp: r.harvAp, compAp: r.compAp, btrAp: r.btrAp, appts: r.appts,
     harvSl: r.harvSl, compSl: r.compSl, btrSl: r.btrSl, sales: r.sales,
     harvPct: pct(r.harvSl, r.harvAp), compPct: pct(r.compSl, r.compAp), btrPct: pct(r.btrSl, r.btrAp), pct: pct(r.sales, r.appts),
@@ -165,4 +173,4 @@ function sumTotals(reps) {
   };
 }
 
-export { fetchApptJobs, fetchSoldJobs, newRep, tallyAppt, tallySold, shapeRep, sumTotals, pct };
+export { fetchApptJobs, fetchSoldJobs, newRep, tallyAppt, tallySold, shapeRep, sumTotals, pct, levelLabel };

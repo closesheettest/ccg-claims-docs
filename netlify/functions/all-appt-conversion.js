@@ -12,7 +12,7 @@
 //
 // Env: JOBNIMBUS_API_KEY.
 
-import { fetchApptJobs, fetchSoldJobs, newRep, tallyAppt, tallySold, shapeRep, sumTotals } from "./_appt-conversion.js";
+import { fetchApptJobs, fetchSoldJobs, newRep, tallyAppt, tallySold, shapeRep, sumTotals, levelLabel } from "./_appt-conversion.js";
 
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1";
@@ -34,10 +34,13 @@ export const handler = async (event) => {
 
     const byZone = {}; // zone -> { rep -> accumulator }
     const recFor = (j) => {
-      const zone = zoneOf(j.sales_rep, j.sales_rep_name) || "Unassigned";
+      const e = zoneOf(j.sales_rep, j.sales_rep_name);
+      const zone = (e && e.zone) || "Unassigned";
       const rep = (j.sales_rep_name || "").trim() || "(no rep)";
       const reps = (byZone[zone] = byZone[zone] || {});
-      return (reps[rep] = reps[rep] || newRep(rep));
+      const r = (reps[rep] = reps[rep] || newRep(rep));
+      r.level = levelLabel(e && e.level);
+      return r;
     };
     for (const j of apptJobs) tallyAppt(recFor(j), j);   // appointments this week
     for (const j of soldJobs) tallySold(recFor(j), j);   // sales closed this week
@@ -62,7 +65,7 @@ async function fetchZoneResolver() {
   try { const res = await fetch(TMS_REP_ZONES_URL); if (res.ok) reps = (await res.json()).reps || []; }
   catch (e) { console.warn("rep-zones fetch failed:", e.message || e); }
   const byJnId = {}, byName = {};
-  for (const r of reps) { if (r.jobnimbus_id) byJnId[r.jobnimbus_id] = r.zone; if (r.name) byName[normalizeName(r.name)] = r.zone; }
+  for (const r of reps) { const e = { zone: r.zone, level: r.rep_level }; if (r.jobnimbus_id) byJnId[r.jobnimbus_id] = e; if (r.name) byName[normalizeName(r.name)] = e; }
   return (jnId, name) => (jnId && byJnId[jnId]) || byName[normalizeName(name)] || null;
 }
 function normalizeName(s) {
