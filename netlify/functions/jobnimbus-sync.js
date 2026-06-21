@@ -569,7 +569,11 @@ exports.handler = async (event) => {
       status_name: statusName,
       primary: { id: contactId },
       location: { id: locationId },
-      source_name: leadSource || "Inspection",
+      // A signed ROOF INSPECTION is always source = "Inspection" (this sync only
+      // creates Sit Sold Insp / Sit Sold PA jobs). Hardcoded — not leadSource —
+      // so the source is correct from signing forward, no matter what the rep
+      // picked, and JN's source-based reporting always credits the inspection.
+      source_name: "Inspection",
       // Address fields on the job so city shows in reports
       address_line1: address || "",
       city: (city || "").split(",")[0].trim(),
@@ -636,6 +640,7 @@ exports.handler = async (event) => {
           jnid: jobId,
           sales_rep: salesRepId || undefined,
           owners: salesRepId ? [{ id: salesRepId }] : undefined,
+          source_name: "Inspection",   // re-assert the inspection source
           cf_string_34: "Needs Inspection",
           cf_date_5: soldDateUnix,
           date_start: soldDateUnix,
@@ -654,6 +659,17 @@ exports.handler = async (event) => {
       await inspectJob(apiKey, jobId);
     } else {
       console.log("Skipped follow-up PUT to preserve manual JN edits on linked job");
+      // …but still enforce source = "Inspection" on the linked job — a signed
+      // roof inspection should always read as Inspection, even on a pre-existing
+      // job. Source-only PUT so we DON'T touch the cf result/date fields a
+      // manager may have already set (the reason we skip the full PUT above).
+      try {
+        await fetch(`${JN_BASE}/jobs/${jobId}`, {
+          method: "PUT",
+          headers: jnHeaders(apiKey),
+          body: JSON.stringify({ jnid: jobId, source_name: "Inspection" }),
+        });
+      } catch (e) { console.warn("Linked-job source PUT failed:", e.message); }
     }
 
     // ── Upload signed agreement PDF ─────────────────────────────────────
