@@ -12,7 +12,7 @@
 //
 // Env: JOBNIMBUS_API_KEY.
 
-import { fetchApptJobs, tallyJob, shapeRep, sumTotals } from "./_appt-conversion.js";
+import { fetchApptJobs, fetchSoldJobs, newRep, tallyAppt, tallySold, shapeRep, sumTotals } from "./_appt-conversion.js";
 
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1";
@@ -25,17 +25,22 @@ export const handler = async (event) => {
 
   try {
     const { start, end, period } = pickWindow(event.queryStringParameters || {});
-    const jobs = await fetchApptJobs(JN_KEY, Math.floor(start.getTime() / 1000), Math.floor(end.getTime() / 1000));
+    const startSec = Math.floor(start.getTime() / 1000), endSec = Math.floor(end.getTime() / 1000);
+    const [apptJobs, soldJobs] = await Promise.all([
+      fetchApptJobs(JN_KEY, startSec, endSec),
+      fetchSoldJobs(JN_KEY, startSec, endSec),
+    ]);
     const zoneOf = await fetchZoneResolver();
 
-    const byZone = {}; // zone -> { rep -> {rep,appts,sales,rb,ins} }
-    for (const j of jobs) {
+    const byZone = {}; // zone -> { rep -> accumulator }
+    const recFor = (j) => {
       const zone = zoneOf(j.sales_rep, j.sales_rep_name) || "Unassigned";
       const rep = (j.sales_rep_name || "").trim() || "(no rep)";
       const reps = (byZone[zone] = byZone[zone] || {});
-      const r = (reps[rep] = reps[rep] || { rep, appts: 0, sales: 0, rb: 0, ins: 0 });
-      tallyJob(r, j);
-    }
+      return (reps[rep] = reps[rep] || newRep(rep));
+    };
+    for (const j of apptJobs) tallyAppt(recFor(j), j);   // appointments this week
+    for (const j of soldJobs) tallySold(recFor(j), j);   // sales closed this week
 
     const zones = Object.entries(byZone).map(([zone, repsMap]) => {
       const reps = Object.values(repsMap).map(shapeRep).sort((a, b) => b.sales - a.sales || b.appts - a.appts || a.rep.localeCompare(b.rep));
