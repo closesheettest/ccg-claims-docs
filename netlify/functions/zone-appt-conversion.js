@@ -19,6 +19,10 @@ import { fetchApptJobs, fetchSoldJobs, newRep, tallyAppt, tallySold, shapeRep, s
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1";
 
+// In-memory cache (per warm instance) so a refresh is instant, not a ~5-6s re-pull.
+const CACHE = new Map();
+const TTL_MS = 90 * 1000;
+
 export const handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return cors(200, "");
   if (event.httpMethod !== "GET") return cors(405, JSON.stringify({ ok: false, error: "Method Not Allowed" }));
@@ -30,6 +34,9 @@ export const handler = async (event) => {
 
   try {
     const { start, end, period } = pickWindow(qp);
+    const cacheKey = `${zone}|${period}|${qp.start || ""}|${qp.end || ""}`;
+    const hit = CACHE.get(cacheKey);
+    if (hit && Date.now() - hit.ts < TTL_MS) return cors(200, hit.body);
     const startSec = Math.floor(start.getTime() / 1000), endSec = Math.floor(end.getTime() / 1000);
     const [apptJobs, soldJobs] = await Promise.all([
       fetchApptJobs(JN_KEY, startSec, endSec),
@@ -53,7 +60,9 @@ export const handler = async (event) => {
       .sort((a, b) => b.sales - a.sales || b.appts - a.appts || a.rep.localeCompare(b.rep));
     const totals = sumTotals(Object.values(byRep));
 
-    return cors(200, JSON.stringify({ ok: true, zone, period, range: { start: start.toISOString(), end: end.toISOString() }, totals, reps }));
+    const body = JSON.stringify({ ok: true, zone, period, range: { start: start.toISOString(), end: end.toISOString() }, totals, reps });
+    CACHE.set(cacheKey, { ts: Date.now(), body });
+    return cors(200, body);
   } catch (e) {
     return cors(500, JSON.stringify({ ok: false, error: e.message || "Unknown error" }));
   }

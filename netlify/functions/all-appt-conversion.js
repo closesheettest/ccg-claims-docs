@@ -18,13 +18,22 @@ const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1";
 const ZONE_ORDER = ["Zone 1", "Zone 2", "Zone 3", "Zone 4", "Unassigned"];
 
+// In-memory cache (per warm instance) so a refresh returns instantly instead of
+// re-pulling everything from JobNimbus (~5-6s) and risking a timeout.
+const CACHE = new Map();
+const TTL_MS = 90 * 1000;
+
 export const handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return cors(200, "");
   if (event.httpMethod !== "GET") return cors(405, JSON.stringify({ ok: false, error: "Method Not Allowed" }));
   if (!JN_KEY) return cors(500, JSON.stringify({ ok: false, error: "Missing JOBNIMBUS_API_KEY" }));
 
   try {
-    const { start, end, period } = pickWindow(event.queryStringParameters || {});
+    const qp = event.queryStringParameters || {};
+    const { start, end, period } = pickWindow(qp);
+    const cacheKey = `all|${period}|${qp.start || ""}|${qp.end || ""}`;
+    const hit = CACHE.get(cacheKey);
+    if (hit && Date.now() - hit.ts < TTL_MS) return cors(200, hit.body);
     const startSec = Math.floor(start.getTime() / 1000), endSec = Math.floor(end.getTime() / 1000);
     const [apptJobs, soldJobs] = await Promise.all([
       fetchApptJobs(JN_KEY, startSec, endSec),
@@ -54,7 +63,9 @@ export const handler = async (event) => {
     });
 
     const allReps = zones.flatMap((z) => Object.values(byZone[z.zone]));
-    return cors(200, JSON.stringify({ ok: true, period, range: { start: start.toISOString(), end: end.toISOString() }, totals: sumTotals(allReps), zones }));
+    const body = JSON.stringify({ ok: true, period, range: { start: start.toISOString(), end: end.toISOString() }, totals: sumTotals(allReps), zones });
+    CACHE.set(cacheKey, { ts: Date.now(), body });
+    return cors(200, body);
   } catch (e) {
     return cors(500, JSON.stringify({ ok: false, error: e.message || "Unknown error" }));
   }
