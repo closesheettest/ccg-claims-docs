@@ -51,8 +51,12 @@ export const handler = async (event) => {
       r.level = levelLabel(e && e.level);
       return r;
     };
-    for (const j of apptJobs) tallyAppt(recFor(j), j);   // appointments this week
-    for (const j of soldJobs) tallySold(recFor(j), j);   // sales closed this week
+    // A SOLD deal = 1 appointment + 1 sale (counted in its Sold-Date week — its
+    // own appt task is unreliable/post-sale). UNSOLD jobs count as appointments
+    // by their appt-task date (skip any in the sold set to avoid double-count).
+    const soldIds = new Set(soldJobs.map((j) => j.jnid || j.id));
+    for (const j of soldJobs) { const r = recFor(j); tallyAppt(r, j); tallySold(r, j); }
+    for (const j of apptJobs) { if (soldIds.has(j.jnid || j.id)) continue; tallyAppt(recFor(j), j); }
 
     const zones = Object.entries(byZone).map(([zone, repsMap]) => {
       const reps = Object.values(repsMap).map(shapeRep).sort((a, b) => b.sales - a.sales || b.appts - a.appts || a.rep.localeCompare(b.rep));

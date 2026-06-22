@@ -4,18 +4,22 @@
 // all-appt-conversion). Edit the rules HERE so the per-zone and company-wide
 // views never drift apart.
 //
-// Two cohorts, anchored on DIFFERENT dates (so the numbers match what managers
-// already trust):
-//   • APPOINTMENTS = jobs with a real APPOINTMENT TASK (Initial / Reset /
-//     Appointment) whose date is in the period. A free-inspection SIGNING has no
-//     appointment task, so it never counts. Type buckets:
-//        harv = "Sales Rep Harvested" = Yes · iq = source "Instant Quote" ·
-//        btr = source "Inspection" (came from an inspection, now retail).
-//   • SALES = deals whose SOLD DATE (cf_date_5) is in the period and are in a
-//     sold status — the same number the sales leaderboard shows (a deal sold
-//     this week counts even if its appointment was earlier or it had none).
-//   Sales % = sales ÷ appointments (a weekly ratio). RB / Insulation = how many
-//   of those SALES included each.
+// APPOINTMENTS (the denominator) = SOLD deals + UNSOLD appointments:
+//   • A SOLD deal (sold status, SOLD DATE / cf_date_5 in the period) counts as
+//     ONE appointment AND one sale, in its Sold-Date week. We do NOT use its own
+//     appointment task for timing — in JN, sold deals carry post-sale tasks
+//     ("collect payment", reschedules) dated AFTER the sale, which would mis-date
+//     or inflate things. A sale implies an appointment happened, so sold = 1+1.
+//   • An UNSOLD job with a real APPOINTMENT TASK (Initial / Reset / Appointment)
+//     whose date is in the period counts as one appointment. A free-inspection
+//     SIGNING has no appointment task, so it never counts. isStaleAppt() also
+//     drops a task on a deal that already sold in a PRIOR period (e.g. an
+//     Install-Complete job getting a new task) unless it's genuinely re-appointed
+//     (status "Appointment Scheduled" / "Reset Appointment").
+//   Type buckets (mutually exclusive): btr = source "Inspection" · harv =
+//   "Sales Rep Harvested" = Yes · comp = everything else.
+//   Sales % = sales ÷ appointments (always ≤ 100% now — every sale is also an
+//   appointment). RB / Insulation = how many of those SALES included each.
 
 const JN_BASE = "https://app.jobnimbus.com/api1";
 
