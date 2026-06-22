@@ -157,13 +157,19 @@ function fmtDate(sec) {
   catch { return ""; }
 }
 
-// Customer / address / status (+ sold & start dates) for the drill-down rows.
+// Customer / address / status (+ appt, sold & start dates) for the drill-down
+// rows. apptDate = the date that PUT this on the report: the appointment task
+// date for an unsold job, or the Sold Date for a sold deal (which we count as an
+// appointment in its sold week). "start" is JN's own date_start field, shown for
+// reference only — it does NOT drive the report.
 function dealInfo(job) {
+  const apptSec = Number(job.__apptDate) > 0 ? job.__apptDate : soldDateSec(job);
   return {
     customer: (job.primary && job.primary.name) || job.name || "—",
     address: [job.address_line1, job.city].filter(Boolean).join(", "),
     status: job.status_name || "",
-    sold: fmtDate(job.cf_date_5 != null ? job.cf_date_5 : job["Sold Date"]),
+    apptDate: fmtDate(apptSec),
+    sold: fmtDate(soldDateSec(job)),
     start: fmtDate(job.date_start),
   };
 }
