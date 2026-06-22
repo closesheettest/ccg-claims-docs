@@ -14,7 +14,7 @@
 //
 // Env: JOBNIMBUS_API_KEY.
 
-import { fetchApptJobs, fetchSoldJobs, newRep, tallyAppt, tallySold, shapeRep, sumTotals, levelLabel } from "./_appt-conversion.js";
+import { fetchApptJobs, fetchSoldJobs, newRep, tallyAppt, tallySold, shapeRep, sumTotals, levelLabel, fetchPitchMap, attachPitch } from "./_appt-conversion.js";
 
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1";
@@ -71,6 +71,8 @@ export const handler = async (event) => {
 
     const reps = Object.values(byRep).map(shapeRep)
       .sort((a, b) => b.sales - a.sales || b.appts - a.appts || a.rep.localeCompare(b.rep));
+    const pitchMap = await fetchPitchMap(reps.flatMap((r) => (r.details || []).map((d) => d.jnid)));
+    attachPitch(reps, pitchMap);
     const totals = sumTotals(Object.values(byRep));
 
     const body = JSON.stringify({ ok: true, zone, period, range: { start: start.toISOString(), end: end.toISOString() }, totals, reps });

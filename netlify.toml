@@ -3,7 +3,13 @@
 
 [functions]
   node_bundler = "esbuild"
-  external_node_modules = ["sharp"]
+  external_node_modules = ["sharp", "pdf-parse"]
+
+# Scheduled function: extracts roof PITCH from each sold deal's Roofr PDF
+# (the ratio isn't a JN field) into the roof_pitch table for the Appt→Sales
+# report. Runs nightly 4:30 AM ET; incremental + throttle-gentle.
+[functions."cron-extract-pitch"]
+  schedule = "30 8 * * *"
 
 # Scheduled function: pushes any inspector-classified results that
 # haven't reached JN yet. Runs hourly at :05. The function file also

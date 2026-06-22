@@ -165,6 +165,7 @@ function fmtDate(sec) {
 function dealInfo(job) {
   const apptSec = Number(job.__apptDate) > 0 ? job.__apptDate : soldDateSec(job);
   return {
+    jnid: job.jnid || job.id,                          // for joining roof_pitch
     customer: (job.primary && job.primary.name) || job.name || "—",
     address: [job.address_line1, job.city].filter(Boolean).join(", "),
     status: job.status_name || "",
@@ -241,4 +242,25 @@ function sumTotals(reps) {
   };
 }
 
-export { fetchApptJobs, fetchSoldJobs, newRep, tallyAppt, tallySold, shapeRep, sumTotals, pct, levelLabel };
+// Roof pitch (from the roof_pitch cache, filled by cron-extract-pitch) →
+// attach onto each sold deal's drill-down detail by jnid.
+async function fetchPitchMap(jnids) {
+  const SB_URL = process.env.VITE_SUPABASE_URL, SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
+  const ids = [...new Set((jnids || []).filter(Boolean))];
+  if (!SB_URL || !SB_KEY || !ids.length) return {};
+  const headers = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` };
+  const map = {};
+  for (let i = 0; i < ids.length; i += 150) {
+    const chunk = ids.slice(i, i + 150).map((x) => `"${x}"`).join(",");
+    const url = `${SB_URL}/rest/v1/roof_pitch?select=jnid,pitch&pitch=not.is.null&jnid=in.(${encodeURIComponent(chunk)})`;
+    try { const r = await fetch(url, { headers }); if (r.ok) for (const row of await r.json()) map[row.jnid] = row.pitch; }
+    catch { /* report still works without pitch */ }
+  }
+  return map;
+}
+// Attach pitch to every detail row of every rep, keyed by jnid.
+function attachPitch(reps, map) {
+  for (const r of reps) for (const d of (r.details || [])) if (d.jnid && map[d.jnid]) d.pitch = map[d.jnid];
+}
+
+export { fetchApptJobs, fetchSoldJobs, newRep, tallyAppt, tallySold, shapeRep, sumTotals, pct, levelLabel, fetchPitchMap, attachPitch };
