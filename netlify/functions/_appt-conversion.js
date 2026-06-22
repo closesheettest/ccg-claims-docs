@@ -34,6 +34,20 @@ const SOLD_STATUS_NAMES = [
 ];
 
 function isYes(v) { return v === true || v === "true" || v === "Yes" || v === "yes" || v === 1; }
+function normStatus(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); }
+
+// A deal that already SOLD, then later had an appointment task put in, should NOT
+// count that later appointment (it's a post-sale reschedule/follow-up, e.g. an
+// already-sold deal getting a 6/19 task when it sold 6/1) — UNLESS the job is
+// genuinely re-appointed (status "Appointment Scheduled" / "Reset Appointment").
+const ACTIVE_APPT_STATUSES = new Set(["appointment scheduled", "reset appointment"]);
+function isStaleAppt(job, apptDateSec) {
+  const sold = soldDateSec(job);
+  if (sold == null) return false;                       // never sold → a real appointment
+  const ad = Number(apptDateSec);
+  if (!Number.isFinite(ad) || sold >= ad) return false; // appt at/before the sale → it's the original sit
+  return !ACTIVE_APPT_STATUSES.has(normStatus(job.status_name)); // sold-then-later-appt → stale unless re-appointed
+}
 function fieldMap(job) {
   const m = {};
   for (const [k, v] of Object.entries(job)) {
@@ -49,10 +63,12 @@ function soldDateSec(job) {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-// APPOINTMENTS: jobs with an appointment task whose date_start is in the window.
+// APPOINTMENTS: jobs with an appointment task whose date is in the window. We
+// keep the EARLIEST in-window appt date per job so isStaleAppt() can drop a
+// post-sale reschedule (appt put in after the deal already sold).
 async function fetchApptJobs(jnKey, startSec, endSec) {
   const headers = { Authorization: `bearer ${jnKey}`, "Content-Type": "application/json" };
-  const jobIds = new Set();
+  const apptDateById = new Map(); // jobId -> earliest in-window appt task date (sec)
   const taskFilter = encodeURIComponent(JSON.stringify({ must: [{ range: { date_start: { gte: startSec, lte: endSec } } }] }));
   for (let page = 0; page < 40; page++) {
     const r = await fetch(`${JN_BASE}/tasks?size=100&from=${page * 100}&filter=${taskFilter}`, { headers });
@@ -61,11 +77,21 @@ async function fetchApptJobs(jnKey, startSec, endSec) {
     const rows = d.results || d.tasks || d.data || [];
     for (const t of rows) {
       if (!APPT_TASK_TYPES.has(t.record_type_name)) continue;
-      for (const rel of (t.related || [])) if (rel.type === "job" && rel.id) jobIds.add(rel.id);
+      const td = Number(t.date_start) || 0;
+      for (const rel of (t.related || [])) {
+        if (rel.type !== "job" || !rel.id) continue;
+        const prev = apptDateById.get(rel.id);
+        if (prev == null || td < prev) apptDateById.set(rel.id, td);
+      }
     }
     if (rows.length < 100) break;
   }
-  return fetchJobsByIds(headers, [...jobIds]);
+  const jobs = await fetchJobsByIds(headers, [...apptDateById.keys()]);
+  return jobs.filter((j) => {
+    const ad = apptDateById.get(j.jnid || j.id);
+    j.__apptDate = ad;
+    return !isStaleAppt(j, ad);   // drop post-sale reschedules (unless re-appointed)
+  });
 }
 
 async function fetchJobsByIds(headers, ids) {
@@ -119,12 +145,22 @@ function saleAmount(job) {
   return Math.max(Number(job.approved_estimate_total) || 0, Number(job.approved_invoice_total) || 0, Number(job.last_budget_revenue) || 0);
 }
 
-// Customer / address / status for the drill-down detail rows.
+// unix seconds → "M/D/YYYY" (ET), or "" when unset.
+function fmtDate(sec) {
+  const n = Number(sec);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  try { return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "numeric", day: "numeric", year: "numeric" }).format(new Date(n * 1000)); }
+  catch { return ""; }
+}
+
+// Customer / address / status (+ sold & start dates) for the drill-down rows.
 function dealInfo(job) {
   return {
     customer: (job.primary && job.primary.name) || job.name || "—",
     address: [job.address_line1, job.city].filter(Boolean).join(", "),
     status: job.status_name || "",
+    sold: fmtDate(job.cf_date_5 != null ? job.cf_date_5 : job["Sold Date"]),
+    start: fmtDate(job.date_start),
   };
 }
 
