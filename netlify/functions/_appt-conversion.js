@@ -164,6 +164,7 @@ function fmtDate(sec) {
 // reference only — it does NOT drive the report.
 function dealInfo(job) {
   const apptSec = Number(job.__apptDate) > 0 ? job.__apptDate : soldDateSec(job);
+  const F = fieldMap(job);
   return {
     jnid: job.jnid || job.id,                          // for joining roof_pitch
     customer: (job.primary && job.primary.name) || job.name || "—",
@@ -172,6 +173,8 @@ function dealInfo(job) {
     apptDate: fmtDate(apptSec),
     sold: fmtDate(soldDateSec(job)),
     start: fmtDate(job.date_start),
+    rb: isYes(F["Radiant Barrier"]),         // Radiant Barrier on the deal?
+    ins: isYes(F["Insulation"]),             // Insulation on the deal?
     fromAssigned: !!job.__repFromAssigned,   // rep came from Assigned field, not Sales Rep
   };
 }
@@ -252,15 +255,18 @@ async function fetchPitchMap(jnids) {
   const map = {};
   for (let i = 0; i < ids.length; i += 150) {
     const chunk = ids.slice(i, i + 150).map((x) => `"${x}"`).join(",");
-    const url = `${SB_URL}/rest/v1/roof_pitch?select=jnid,pitch&pitch=not.is.null&jnid=in.(${encodeURIComponent(chunk)})`;
-    try { const r = await fetch(url, { headers }); if (r.ok) for (const row of await r.json()) map[row.jnid] = row.pitch; }
+    const url = `${SB_URL}/rest/v1/roof_pitch?select=jnid,pitch,status&jnid=in.(${encodeURIComponent(chunk)})`;
+    try { const r = await fetch(url, { headers }); if (r.ok) for (const row of await r.json()) map[row.jnid] = { pitch: row.pitch, status: row.status }; }
     catch { /* report still works without pitch */ }
   }
   return map;
 }
-// Attach pitch to every detail row of every rep, keyed by jnid.
+// Attach pitch + Roofr status to every detail row of every rep, keyed by jnid.
 function attachPitch(reps, map) {
-  for (const r of reps) for (const d of (r.details || [])) if (d.jnid && map[d.jnid]) d.pitch = map[d.jnid];
+  for (const r of reps) for (const d of (r.details || [])) {
+    const e = d.jnid && map[d.jnid];
+    if (e) { if (e.pitch) d.pitch = e.pitch; d.roofrStatus = e.status; }
+  }
 }
 
 export { fetchApptJobs, fetchSoldJobs, newRep, tallyAppt, tallySold, shapeRep, sumTotals, pct, levelLabel, fetchPitchMap, attachPitch };
