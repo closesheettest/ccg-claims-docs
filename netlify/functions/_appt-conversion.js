@@ -189,6 +189,8 @@ function dealInfo(job) {
     customer: (job.primary && job.primary.name) || job.name || "—",
     address: [job.address_line1, job.city].filter(Boolean).join(", "),
     status: job.status_name || "",
+    source: job.source_name || "",         // JN lead source
+
     apptDate: fmtDate(apptSec),
     sold: fmtDate(soldDateSec(job)),
     start: fmtDate(job.date_start),
