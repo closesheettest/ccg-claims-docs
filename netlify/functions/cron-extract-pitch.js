@@ -39,9 +39,13 @@ export const handler = async (event) => {
 
   try {
     const sold = await fetchSoldJobs(JN_KEY, now - days * 86400, now);
-    // Already cached with a pitch → skip (incremental).
+    // Skip a deal if it already has a pitch, OR it was attempted recently (so a
+    // no-PDF/no-pitch deal doesn't get retried forever — but IS re-checked after
+    // 2 days, in case the Roofr PDF gets added later).
+    const recheck = Number(qp.recheck_days) || 2;
+    const cutoff = new Date((now - recheck * 86400) * 1000).toISOString();
     const have = new Set();
-    const hr = await fetch(`${SB_URL}/rest/v1/roof_pitch?select=jnid&pitch=not.is.null`, { headers: sb });
+    const hr = await fetch(`${SB_URL}/rest/v1/roof_pitch?select=jnid&or=(pitch.not.is.null,checked_at.gte.${encodeURIComponent(cutoff)})`, { headers: sb });
     if (hr.ok) for (const r of await hr.json()) have.add(r.jnid);
     const todo = sold.filter((j) => !have.has(j.jnid || j.id)).slice(0, limit);
 
