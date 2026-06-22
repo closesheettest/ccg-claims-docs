@@ -60,18 +60,17 @@ export const handler = async (event) => {
         stories: F["# of Stories"] || null,
       };
       try {
-        const pdf = await findRoofrPdf(jid);
-        if (!pdf) rec.status = "no_pdf";
+        const cands = await roofrCandidates(jid);
+        if (!cands.length) rec.status = "no_pdf";
         else {
-          rec.roofr_file = pdf.filename || pdf.name || null;
-          const buf = await downloadFile(pdf.jnid || pdf.id);
-          if (!buf) rec.status = "dl_fail";
-          else {
+          for (const f of cands.slice(0, 6)) {        // confirm by content, best-first
+            const buf = await downloadFile(f.jnid || f.id);
+            if (!buf) continue;
             const text = await pdfText(buf);
             const m = text.match(/Predominant pitch:?\s*(\d{1,2})\s*\/\s*12/i);
-            rec.pitch = m ? `${m[1]}/12` : null;
-            rec.status = rec.pitch ? "ok" : "no_pitch";
+            if (m) { rec.pitch = `${m[1]}/12`; rec.roofr_file = f.filename || f.name || null; break; }
           }
+          rec.status = rec.pitch ? "ok" : "no_pitch";   // PDFs existed but none had a pitch line
         }
       } catch (e) {
         rec.status = "error"; rec.err = (e && e.message) || String(e);
@@ -88,16 +87,21 @@ export const handler = async (event) => {
   }
 };
 
-// The Roofr report on a job = a PDF named by the address ("…, United States.pdf"),
-// or any PDF with "roofr" in the name.
-async function findRoofrPdf(jid) {
+// Clearly-not-Roofr PDF names — skip these in the content search.
+const NOT_ROOFR = /invoice|noc|ntbo|estimate|permit|afford|affidavit|permission|receipt|screenshot|contract|agreement|proposal|w-?9|insurance/i;
+
+// Candidate Roofr PDFs on a job, best-first: filename matches the Roofr pattern,
+// then any other PDF that isn't an obvious non-Roofr doc. We confirm by CONTENT
+// (parsing for "Predominant pitch"), so a mis-named Roofr report is still found.
+async function roofrCandidates(jid) {
   const flt = encodeURIComponent(JSON.stringify({ must: [{ terms: { "related.id": [jid] } }] }));
   const r = await fetch(`${JN_BASE}/files?size=100&filter=${flt}`, { headers: jnHeaders });
-  if (!r.ok) return null;
+  if (!r.ok) return [];
   const d = await r.json().catch(() => ({}));
-  const files = (d.results || d.files || d.data || []).filter((f) => String(f.content_type || "").includes("pdf"));
-  return files.find((f) => /united states\.pdf$/i.test(f.filename || f.name || "")) ||
-    files.find((f) => /roofr/i.test(f.filename || f.name || "")) || null;
+  const pdfs = (d.results || d.files || d.data || []).filter((f) => String(f.content_type || "").includes("pdf"));
+  const named = pdfs.filter((f) => /united states\.pdf$/i.test(f.filename || f.name || "") || /roofr/i.test(f.filename || f.name || ""));
+  const rest = pdfs.filter((f) => !named.includes(f) && !NOT_ROOFR.test(f.filename || f.name || ""));
+  return [...named, ...rest];
 }
 
 // JN serves files via a 302 to a signed CloudFront URL; fetch that WITHOUT the
