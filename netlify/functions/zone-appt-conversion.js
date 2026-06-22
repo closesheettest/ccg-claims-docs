@@ -46,9 +46,18 @@ export const handler = async (event) => {
 
     const byRep = {}; // rep -> accumulator
     const recFor = (j) => {
-      const e = zoneOf(j.sales_rep, j.sales_rep_name);
+      let name = (j.sales_rep_name || "").trim();
+      let e = zoneOf(j.sales_rep, j.sales_rep_name);
+      let fromAssigned = false;
+      if (!name) {
+        // No Sales Rep set — fall back to the Assigned (owners) field.
+        const ownerId = j.owners && j.owners[0] && j.owners[0].id;
+        const oe = ownerId ? zoneOf(ownerId, "") : null;
+        if (oe) { e = oe; name = oe.name || ""; fromAssigned = true; }
+      }
       if (!e || e.zone !== zone) return null; // only this zone's reps
-      const rep = (j.sales_rep_name || "").trim() || "(no rep)";
+      j.__repFromAssigned = fromAssigned;
+      const rep = name || "(no rep)";
       const r = (byRep[rep] = byRep[rep] || newRep(rep));
       r.level = levelLabel(e.level);
       return r;
@@ -79,7 +88,7 @@ async function fetchZoneResolver() {
   catch (e) { console.warn("rep-zones fetch failed:", e.message || e); }
   const byJnId = {}, byName = {};
   for (const r of reps) {
-    const e = { zone: r.zone, level: r.rep_level };
+    const e = { zone: r.zone, level: r.rep_level, name: r.name };
     if (r.jobnimbus_id) byJnId[r.jobnimbus_id] = e;
     if (r.name) byName[normalizeName(r.name)] = e;
   }

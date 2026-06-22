@@ -43,9 +43,19 @@ export const handler = async (event) => {
 
     const byZone = {}; // zone -> { rep -> accumulator }
     const recFor = (j) => {
-      const e = zoneOf(j.sales_rep, j.sales_rep_name);
+      let name = (j.sales_rep_name || "").trim();
+      let e = zoneOf(j.sales_rep, j.sales_rep_name);
+      let fromAssigned = false;
+      if (!name) {
+        // No Sales Rep set — fall back to the Assigned (owners) field so the deal
+        // lands under the right rep/zone instead of Unassigned; flag for fixing.
+        const ownerId = j.owners && j.owners[0] && j.owners[0].id;
+        const oe = ownerId ? zoneOf(ownerId, "") : null;
+        if (oe) { e = oe; name = oe.name || ""; fromAssigned = true; }
+      }
+      j.__repFromAssigned = fromAssigned;
       const zone = (e && e.zone) || "Unassigned";
-      const rep = (j.sales_rep_name || "").trim() || "(no rep)";
+      const rep = name || "(no rep)";
       const reps = (byZone[zone] = byZone[zone] || {});
       const r = (reps[rep] = reps[rep] || newRep(rep));
       r.level = levelLabel(e && e.level);
@@ -80,7 +90,7 @@ async function fetchZoneResolver() {
   try { const res = await fetch(TMS_REP_ZONES_URL); if (res.ok) reps = (await res.json()).reps || []; }
   catch (e) { console.warn("rep-zones fetch failed:", e.message || e); }
   const byJnId = {}, byName = {};
-  for (const r of reps) { const e = { zone: r.zone, level: r.rep_level }; if (r.jobnimbus_id) byJnId[r.jobnimbus_id] = e; if (r.name) byName[normalizeName(r.name)] = e; }
+  for (const r of reps) { const e = { zone: r.zone, level: r.rep_level, name: r.name }; if (r.jobnimbus_id) byJnId[r.jobnimbus_id] = e; if (r.name) byName[normalizeName(r.name)] = e; }
   return (jnId, name) => (jnId && byJnId[jnId]) || byName[normalizeName(name)] || null;
 }
 function normalizeName(s) {

@@ -171,6 +171,7 @@ function dealInfo(job) {
     apptDate: fmtDate(apptSec),
     sold: fmtDate(soldDateSec(job)),
     start: fmtDate(job.date_start),
+    fromAssigned: !!job.__repFromAssigned,   // rep came from Assigned field, not Sales Rep
   };
 }
 
