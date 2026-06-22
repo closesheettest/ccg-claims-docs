@@ -16,7 +16,7 @@ import { fetchApptJobs, fetchSoldJobs, newRep, tallyAppt, tallySold, shapeRep, s
 
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1";
-const ZONE_ORDER = ["Zone 1", "Zone 2", "Zone 3", "Zone 4", "Company Reps"];
+const ZONE_ORDER = ["Zone 1", "Zone 2", "Zone 3", "Zone 4", "Internal Reps"];
 
 // In-memory cache (per warm instance) so a refresh returns instantly instead of
 // re-pulling everything from JobNimbus (~5-6s) and risking a timeout.
@@ -54,7 +54,7 @@ export const handler = async (event) => {
         if (oe) { e = oe; name = oe.name || ""; fromAssigned = true; }
       }
       j.__repFromAssigned = fromAssigned;
-      const zone = (e && e.zone) || "Company Reps";
+      const zone = (e && e.zone) || "Internal Reps";
       const rep = name || "(no rep)";
       const reps = (byZone[zone] = byZone[zone] || {});
       const r = (reps[rep] = reps[rep] || newRep(rep));
