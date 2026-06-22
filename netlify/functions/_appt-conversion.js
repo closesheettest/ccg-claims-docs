@@ -119,8 +119,17 @@ function saleAmount(job) {
   return Math.max(Number(job.approved_estimate_total) || 0, Number(job.approved_invoice_total) || 0, Number(job.last_budget_revenue) || 0);
 }
 
+// Customer / address / status for the drill-down detail rows.
+function dealInfo(job) {
+  return {
+    customer: (job.primary && job.primary.name) || job.name || "—",
+    address: [job.address_line1, job.city].filter(Boolean).join(", "),
+    status: job.status_name || "",
+  };
+}
+
 function newRep(rep) {
-  return { rep, level: "", appts: 0, harvAp: 0, compAp: 0, btrAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0 };
+  return { rep, level: "", appts: 0, harvAp: 0, compAp: 0, btrAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0, details: [] };
 }
 
 // TMS rep_level → short badge. "" when unknown (rep_level not set).
@@ -133,8 +142,10 @@ function levelLabel(repLevel) {
 
 // An appointment that happened in the period (bucketed by category).
 function tallyAppt(rec, job) {
+  const cat = categoryOf(job);
   rec.appts++;
-  rec[categoryOf(job) + "Ap"]++;
+  rec[cat + "Ap"]++;
+  rec.details.push({ kind: "appt", cat, ...dealInfo(job) });   // drill-down detail
 }
 
 // A sale that closed in the period — bucketed by category, with its $ amount
@@ -149,6 +160,7 @@ function tallySold(rec, job) {
   const F = fieldMap(job);
   if (isYes(F["Radiant Barrier"])) rec.rb++;
   if (isYes(F["Insulation"])) rec.ins++;
+  rec.details.push({ kind: "sale", cat, amt: Math.round(amt), ...dealInfo(job) });   // drill-down detail
 }
 
 function pct(n, d) { return d > 0 ? Math.round((n / d) * 100) : 0; }
@@ -162,6 +174,7 @@ function shapeRep(r) {
     amt: Math.round(r.amt),
     avg: r.sales > 0 ? Math.round(r.amt / r.sales) : 0,
     rb: r.rb, rb_pct: pct(r.rb, r.sales), ins: r.ins, ins_pct: pct(r.ins, r.sales),
+    details: r.details || [],
   };
 }
 function sumTotals(reps) {
