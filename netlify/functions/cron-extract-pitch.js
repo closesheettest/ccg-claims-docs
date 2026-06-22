@@ -19,7 +19,7 @@
 // Env: JOBNIMBUS_API_KEY, VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY.
 
 import { fetchSoldJobs } from "./_appt-conversion.js";
-import { PDFParse } from "pdf-parse";
+import { extractText, getDocumentProxy } from "unpdf";
 
 const JN_BASE = "https://app.jobnimbus.com/api1";
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
@@ -115,9 +115,9 @@ async function downloadFile(fid) {
 }
 
 async function pdfText(buf) {
-  const p = new PDFParse({ data: new Uint8Array(buf) });
-  const res = await p.getText();
-  return (res && res.text) || "";
+  const pdf = await getDocumentProxy(new Uint8Array(buf));
+  const { text } = await extractText(pdf, { mergePages: true });
+  return text || "";
 }
 
 async function upsert(rec) {

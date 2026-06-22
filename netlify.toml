@@ -3,7 +3,7 @@
 
 [functions]
   node_bundler = "esbuild"
-  external_node_modules = ["sharp", "pdf-parse"]
+  external_node_modules = ["sharp"]
 
 # Scheduled function: extracts roof PITCH from each sold deal's Roofr PDF
 # (the ratio isn't a JN field) into the roof_pitch table for the Appt→Sales
