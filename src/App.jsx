@@ -13,6 +13,7 @@ import { InspectorMobileApp, InspectorsAdminPanel, InspectorSetupPage, ManagerIn
 import { PAMobileApp, PAAdminPanel } from "./PAViews";
 import { TeamRolesPanel } from "./TeamRolesPanel";
 import InspectionPhotosModal from "./InspectionPhotosModal";
+import RepVisitHub from "./RepVisitHub";
 import JnMatchPickerModal from "./JnMatchPickerModal";
 import ManagerRecordsView from "./ManagerRecordsView";
 
@@ -6824,6 +6825,15 @@ export default function App() {
     if (dialerToken && dialerToken.trim()) {
       return <PowerDialerPage token={dialerToken.trim()} />;
     }
+
+    // Default public landing: the rep "visit hub" (Who are you? → New
+    // inspection / Damage / No-Damage / Retail). Every recognized token route
+    // returned above; fall through to the existing signing intake only for
+    // ?intake=1 (the hub's "New inspection"), ?sign=… (email sign links), and
+    // ?mode=inspector (the inspector app, handled below via view state).
+    if (!params.get("intake") && !params.get("sign") && portalMode !== "inspector") {
+      return <RepVisitHub />;
+    }
   }
 
   // ?mode=inspector lands the inspector straight in the mobile app
@@ -6908,7 +6918,17 @@ export default function App() {
   // null | "damage" | "no_damage" | "retail" | "pending"
   const [myStatsDrilldown, setMyStatsDrilldown] = useState(null);
   const [signMode, setSignMode] = useState("now");
-  const [data, setData] = useState(initialData);
+  const [data, setData] = useState(() => {
+    // RepVisitHub "New inspection" lands here as /?intake=1&rep=&repName=&repEmail=
+    // — prefill the rep so the signing flow doesn't ask again.
+    if (typeof window !== "undefined") {
+      const p = new URLSearchParams(window.location.search);
+      if (p.get("intake") && (p.get("rep") || p.get("repName"))) {
+        return { ...initialData, salesRepId: p.get("rep") || "", salesRepName: p.get("repName") || "", salesRepEmail: p.get("repEmail") || "" };
+      }
+    }
+    return initialData;
+  });
   const [pendingSend, setPendingSend] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);

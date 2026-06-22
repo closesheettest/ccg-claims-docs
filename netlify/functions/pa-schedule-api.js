@@ -46,8 +46,9 @@ exports.handler = async (event) => {
   const action = String(body.action || "").trim();
   const token = String(body.token || "").trim();
   if (!token) return cors(400, JSON.stringify({ ok: false, error: "token required" }));
-  const want = await getSetting("dialer_token");
-  if (!want || token !== want) return cors(401, JSON.stringify({ ok: false, error: "Invalid link" }));
+  // Accept the dialer's token OR the public visit-hub token (rep Damage flow).
+  const [wantDialer, wantVisit] = await Promise.all([getSetting("dialer_token"), getSetting("visit_token")]);
+  if (token !== wantDialer && token !== wantVisit) return cors(401, JSON.stringify({ ok: false, error: "Invalid link" }));
 
   try {
     if (action === "slots") {
