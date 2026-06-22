@@ -12,7 +12,7 @@
 //
 // Env: JOBNIMBUS_API_KEY.
 
-import { fetchApptJobs, fetchSoldJobs, newRep, tallyAppt, tallySold, shapeRep, sumTotals, levelLabel, fetchPitchMap, attachPitch } from "./_appt-conversion.js";
+import { fetchApptTaskMeta, fetchApptJobs, fetchSoldJobs, newRep, tallyAppt, tallySold, shapeRep, sumTotals, levelLabel, fetchPitchMap, attachPitch } from "./_appt-conversion.js";
 
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1";
@@ -35,10 +35,13 @@ export const handler = async (event) => {
     const hit = CACHE.get(cacheKey);
     if (hit && Date.now() - hit.ts < TTL_MS) return cors(200, hit.body);
     const startSec = Math.floor(start.getTime() / 1000), endSec = Math.floor(end.getTime() / 1000);
+    const taskMeta = await fetchApptTaskMeta(JN_KEY, startSec, endSec);
     const [apptJobs, soldJobs] = await Promise.all([
-      fetchApptJobs(JN_KEY, startSec, endSec),
+      fetchApptJobs(JN_KEY, startSec, endSec, taskMeta),
       fetchSoldJobs(JN_KEY, startSec, endSec),
     ]);
+    // So "harvested" works for sold deals too: attach who created each job's appt task.
+    for (const j of soldJobs) { const m = taskMeta.get(j.jnid || j.id); j.__apptTaskCreators = m ? [...m.creators] : []; }
     const zoneOf = await fetchZoneResolver();
 
     const byZone = {}; // zone -> { rep -> accumulator }
@@ -46,14 +49,16 @@ export const handler = async (event) => {
       let name = (j.sales_rep_name || "").trim();
       let e = zoneOf(j.sales_rep, j.sales_rep_name);
       let fromAssigned = false;
+      let repId = j.sales_rep || null;
       if (!name) {
         // No Sales Rep set — fall back to the Assigned (owners) field so the deal
         // lands under the right rep/zone instead of Unassigned; flag for fixing.
         const ownerId = j.owners && j.owners[0] && j.owners[0].id;
         const oe = ownerId ? zoneOf(ownerId, "") : null;
-        if (oe) { e = oe; name = oe.name || ""; fromAssigned = true; }
+        if (oe) { e = oe; name = oe.name || ""; fromAssigned = true; repId = ownerId; }
       }
       j.__repFromAssigned = fromAssigned;
+      j.__repId = repId;
       const zone = (e && e.zone) || "Internal Reps";
       const rep = name || "(no rep)";
       const reps = (byZone[zone] = byZone[zone] || {});

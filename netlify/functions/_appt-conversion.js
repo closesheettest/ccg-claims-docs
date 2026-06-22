@@ -67,12 +67,12 @@ function soldDateSec(job) {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-// APPOINTMENTS: jobs with an appointment task whose date is in the window. We
-// keep the EARLIEST in-window appt date per job so isStaleAppt() can drop a
-// post-sale reschedule (appt put in after the deal already sold).
-async function fetchApptJobs(jnKey, startSec, endSec) {
+// Appointment-task metadata in the window: per job, the EARLIEST appt date (for
+// isStaleAppt) and the SET of who created its appt tasks (for "harvested" — a
+// rep who created the appointment task self-generated it).
+async function fetchApptTaskMeta(jnKey, startSec, endSec) {
   const headers = { Authorization: `bearer ${jnKey}`, "Content-Type": "application/json" };
-  const apptDateById = new Map(); // jobId -> earliest in-window appt task date (sec)
+  const meta = new Map(); // jobId -> { date, creators:Set<string> }
   const taskFilter = encodeURIComponent(JSON.stringify({ must: [{ range: { date_start: { gte: startSec, lte: endSec } } }] }));
   for (let page = 0; page < 40; page++) {
     const r = await fetch(`${JN_BASE}/tasks?size=100&from=${page * 100}&filter=${taskFilter}`, { headers });
@@ -82,19 +82,31 @@ async function fetchApptJobs(jnKey, startSec, endSec) {
     for (const t of rows) {
       if (!APPT_TASK_TYPES.has(t.record_type_name)) continue;
       const td = Number(t.date_start) || 0;
+      const by = t.created_by ? String(t.created_by) : null;
       for (const rel of (t.related || [])) {
         if (rel.type !== "job" || !rel.id) continue;
-        const prev = apptDateById.get(rel.id);
-        if (prev == null || td < prev) apptDateById.set(rel.id, td);
+        let m = meta.get(rel.id);
+        if (!m) { m = { date: td, creators: new Set() }; meta.set(rel.id, m); }
+        if (td && (!m.date || td < m.date)) m.date = td;
+        if (by) m.creators.add(by);
       }
     }
     if (rows.length < 100) break;
   }
-  const jobs = await fetchJobsByIds(headers, [...apptDateById.keys()]);
+  return meta;
+}
+
+// APPOINTMENTS: jobs with an appointment task whose date is in the window.
+// isStaleAppt() drops a post-sale reschedule (appt put in after the deal sold).
+async function fetchApptJobs(jnKey, startSec, endSec, taskMeta) {
+  const headers = { Authorization: `bearer ${jnKey}`, "Content-Type": "application/json" };
+  const meta = taskMeta || await fetchApptTaskMeta(jnKey, startSec, endSec);
+  const jobs = await fetchJobsByIds(headers, [...meta.keys()]);
   return jobs.filter((j) => {
-    const ad = apptDateById.get(j.jnid || j.id);
-    j.__apptDate = ad;
-    return !isStaleAppt(j, ad);   // drop post-sale reschedules (unless re-appointed)
+    const m = meta.get(j.jnid || j.id);
+    j.__apptDate = m && m.date;
+    j.__apptTaskCreators = m ? [...m.creators] : [];
+    return !isStaleAppt(j, j.__apptDate);
   });
 }
 
@@ -136,12 +148,19 @@ async function fetchSoldJobs(jnKey, startSec, endSec) {
 }
 
 // Mutually-exclusive appointment category (so harv + comp + btr = total):
-//   btr  = source "Inspection"        → came from a free inspection, now retail
-//   harv = "Sales Rep Harvested" = Yes → harvested / canvassed appointment
-//   comp = everything else            → company-provided lead (IQ, AI Bot, FB…)
+//   btr  = source "Inspection"  → came from a free inspection, now retail
+//   harv = the SALES REP self-generated it: the rep created the JOB
+//          (created_by === the rep) OR created the appointment TASK. If anyone
+//          else created both (office/intake/etc.), it's not harvested.
+//   comp = everything else      → company-provided lead (created by the office).
 function categoryOf(job) {
   if (String(job.source_name || "") === "Inspection") return "btr";
-  if (isYes(fieldMap(job)["Sales Rep Harvested"])) return "harv";
+  const repId = job.__repId || job.sales_rep;
+  if (repId) {
+    const rid = String(repId);
+    if (job.created_by && String(job.created_by) === rid) return "harv";          // rep created the job
+    if (Array.isArray(job.__apptTaskCreators) && job.__apptTaskCreators.includes(rid)) return "harv"; // rep created the appt task
+  }
   return "comp";
 }
 // Dollar value of a sold deal (approved estimate / invoice / budget revenue).
@@ -269,4 +288,4 @@ function attachPitch(reps, map) {
   }
 }
 
-export { fetchApptJobs, fetchSoldJobs, newRep, tallyAppt, tallySold, shapeRep, sumTotals, pct, levelLabel, fetchPitchMap, attachPitch };
+export { fetchApptTaskMeta, fetchApptJobs, fetchSoldJobs, newRep, tallyAppt, tallySold, shapeRep, sumTotals, pct, levelLabel, fetchPitchMap, attachPitch };
