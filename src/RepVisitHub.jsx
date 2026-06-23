@@ -32,6 +32,7 @@ export default function RepVisitHub() {
   const [geo, setGeo] = useState(null);
   const [deals, setDeals] = useState(null);
   const [deal, setDeal] = useState(null);
+  const [referrals, setReferrals] = useState(null);
   const [photosFor, setPhotosFor] = useState(null);
   const [err, setErr] = useState("");
 
@@ -50,6 +51,13 @@ export default function RepVisitHub() {
       const o = await api("visit-deal-list", { result: t, rep_jobnimbus_id: rep.jobnimbus_id, rep_name: rep.name, lat: geo?.lat, lng: geo?.lng });
       setDeals(o.deals || []);
     } catch (e) { setErr(e.message); setDeals([]); }
+  };
+  const startReferrals = async () => {
+    setReferrals(null); setErr(""); setStage("referrals");
+    try {
+      const o = await api("referral-list", { rep_name: rep.name });
+      setReferrals(o.referrals || []);
+    } catch (e) { setErr(e.message); setReferrals([]); }
   };
   // Open photos — first pull any JN-only photos into Supabase (idempotent;
   // no-op if they're already app-side), so deals whose photos live only in
@@ -78,7 +86,8 @@ export default function RepVisitHub() {
         {stage === "pick-rep" && <PickRep reps={reps} onPick={pickRep} />}
         {stage === "choose" && <Choose rep={rep} onNew={() => {
           window.location.href = `/?intake=1&rep=${encodeURIComponent(rep.jobnimbus_id || "")}&repName=${encodeURIComponent(rep.name || "")}&repEmail=${encodeURIComponent(rep.email || "")}`;
-        }} onType={startType} />}
+        }} onType={startType} onReferrals={startReferrals} />}
+        {stage === "referrals" && <ReferralsView referrals={referrals} onBack={() => setStage("choose")} />}
         {stage === "list" && <DealList type={visitType} deals={deals} onBack={() => setStage("choose")} onPick={(d) => { setDeal(d); setStage("panel"); }} />}
         {stage === "panel" && deal && (
           <Panel type={visitType} deal={deal} rep={rep} api={api} onBack={() => setStage("list")} onPhotos={() => openPhotos(deal)} />
@@ -125,7 +134,7 @@ function PickRep({ reps, onPick }) {
   );
 }
 
-function Choose({ rep, onNew, onType }) {
+function Choose({ rep, onNew, onType, onReferrals }) {
   const Btn = ({ color, emoji, label, sub, onClick }) => (
     <button onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", textAlign: "left", color: "#fff", background: color, border: "none", borderRadius: 14, padding: "16px 16px", marginBottom: 12, cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,.12)" }}>
       <span style={{ fontSize: 26 }}>{emoji}</span>
@@ -139,6 +148,37 @@ function Choose({ rep, onNew, onType }) {
       <Btn color="#b8324f" emoji="🏚️" label="Damage visit" sub="Set the PA appointment to start their claim" onClick={() => onType("damage")} />
       <Btn color="#16a34a" emoji="✅" label="No-Damage visit" sub="Get referrals + send their certificate" onClick={() => onType("no_damage")} />
       <Btn color="#d97706" emoji="🏠" label="Retail visit" sub="Schedule a retail options appointment" onClick={() => onType("retail")} />
+      <Btn color="#6d28d9" emoji="🤝" label="Referrals" sub="People you were referred to — who to sign up" onClick={onReferrals} />
+    </div>
+  );
+}
+
+function ReferralsView({ referrals, onBack }) {
+  // View-only. Each referral: who to sign up (name/phone/address), who referred
+  // them, and a free anywhere-in-FL "look up roof permit" web search.
+  const permitUrl = (addr) => `https://www.google.com/search?q=${encodeURIComponent(`roof permit ${addr}`)}`;
+  return (
+    <div>
+      <BackBar onBack={onBack} title="Your referrals" />
+      {referrals === null ? <p style={{ textAlign: "center", color: "#9ca3af", fontSize: 14, padding: "24px 0" }}>Loading…</p>
+        : !referrals.length ? <p style={{ textAlign: "center", color: "#6b7280", fontSize: 14, padding: "24px 0" }}>No referrals captured yet. Collect them on a No-Damage visit.</p>
+        : <div>{referrals.map((r) => {
+            const addr = [r.referral_address].filter(Boolean).join(", ");
+            return (
+              <div key={r.id} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "12px 14px", marginBottom: 10 }}>
+                <div style={{ fontSize: 16, fontWeight: 800, color: "#111827" }}>{r.referral_name || "(no name)"}</div>
+                {r.referral_phone && <a href={`tel:${r.referral_phone}`} style={{ display: "block", fontSize: 14, color: "#2563eb", fontWeight: 700, textDecoration: "none", marginTop: 2 }}>📞 {r.referral_phone}</a>}
+                {addr && <div style={{ fontSize: 13, color: "#6b7280", marginTop: 2 }}>📍 {addr}</div>}
+                {r.referred_by_name && <div style={{ fontSize: 12.5, color: "#9ca3af", marginTop: 6 }}>Referred by <b style={{ color: "#6b7280" }}>{r.referred_by_name}</b></div>}
+                {addr && (
+                  <a href={permitUrl(addr)} target="_blank" rel="noopener noreferrer"
+                    style={{ display: "inline-block", marginTop: 10, border: "1px solid #6d28d9", color: "#6d28d9", background: "#fff", borderRadius: 10, padding: "8px 12px", fontSize: 13, fontWeight: 700, textDecoration: "none" }}>
+                    🔍 Look up roof permit
+                  </a>
+                )}
+              </div>
+            );
+          })}</div>}
     </div>
   );
 }
