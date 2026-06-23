@@ -195,18 +195,46 @@ function DamagePanel({ deal, rep, api }) {
     setBooking("");
   };
   if (done) return <div style={S.done}>✓ {done}</div>;
+  if (slots === null) return <p style={{ textAlign: "center", color: "#9ca3af", padding: "16px 0", fontSize: 14 }}>Loading availability…</p>;
+
+  // Calendar view: group by ET day, today highlighted (not bookable — just for
+  // orientation), bookable days show start-time chips only.
+  const todayKey = ymdET();
+  const byDay = {};
+  for (const s of slots) {
+    const k = ymdET(new Date(s.start_at));
+    if (k === todayKey) continue;                 // today shown for reference, not bookable
+    (byDay[k] = byDay[k] || []).push(s);
+  }
+  const dayKeys = [...new Set([todayKey, ...Object.keys(byDay)])].sort();
   return (
     <div>
-      <p style={{ fontSize: 14, fontWeight: 700, color: "#374151", margin: "0 0 8px" }}>Pick a time for the PA to come out:</p>
+      <p style={{ fontSize: 14, fontWeight: 700, color: "#374151", margin: "0 0 8px" }}>Pick a day & time for the PA to come out:</p>
       {err && <div style={{ color: "#b91c1c", fontSize: 14, marginBottom: 8 }}>{err}</div>}
-      {slots === null ? <p style={{ textAlign: "center", color: "#9ca3af", padding: "16px 0", fontSize: 14 }}>Loading availability…</p>
-        : !slots.length ? <p style={{ textAlign: "center", color: "#6b7280", padding: "16px 0", fontSize: 14 }}>No open slots nearby.</p>
-        : <div style={{ maxHeight: "55vh", overflowY: "auto" }}>{slots.map((s) => (
-            <button key={s.start_at + s.pa_id} disabled={!!booking} onClick={() => book(s)} style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", textAlign: "left", border: "1px solid #e5e7eb", background: "#fff", borderRadius: 12, padding: "10px 12px", marginBottom: 8, cursor: "pointer", opacity: booking ? 0.6 : 1 }}>
-              <span><span style={{ display: "block", fontSize: 14, fontWeight: 700 }}>{s.label}</span><span style={{ display: "block", fontSize: 12, color: "#6b7280" }}>{s.pa_name}{s.distance_mi != null ? ` · ${s.distance_mi} mi` : ""}</span></span>
-              <span style={{ fontSize: 13, fontWeight: 800, color: "#16a34a" }}>{booking === s.start_at + s.pa_id ? "…" : "Book"}</span>
-            </button>
-          ))}</div>}
+      <div style={{ maxHeight: "55vh", overflowY: "auto" }}>
+        {dayKeys.map((k) => {
+          const isToday = k === todayKey;
+          const seen = new Set(); const uniq = [];
+          for (const s of (byDay[k] || [])) { const t = hourLabel(s.start_at); if (seen.has(t)) continue; seen.add(t); uniq.push(s); }
+          return (
+            <div key={k} style={{ marginBottom: 12 }}>
+              <p style={{ fontSize: 12.5, fontWeight: 800, margin: "0 0 6px", padding: isToday ? "3px 8px" : "0", borderRadius: 8, display: "inline-block", background: isToday ? "#fef3c7" : "transparent", color: isToday ? "#92400e" : "#374151" }}>
+                {dayLabel(k)}{isToday ? " · Today" : ""}
+              </p>
+              {isToday ? <p style={{ fontSize: 12, color: "#9ca3af", margin: 0 }}>(for reference — book a day below)</p>
+                : !uniq.length ? <p style={{ fontSize: 12, color: "#9ca3af", margin: 0 }}>No openings</p>
+                : <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {uniq.map((s) => (
+                      <button key={s.start_at + s.pa_id} disabled={!!booking} onClick={() => book(s)}
+                        style={{ border: "1px solid #16a34a", color: "#16a34a", background: "#fff", borderRadius: 12, padding: "9px 16px", fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: booking ? 0.6 : 1 }}>
+                        {booking === s.start_at + s.pa_id ? "…" : hourLabel(s.start_at)}
+                      </button>
+                    ))}
+                  </div>}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -287,6 +315,16 @@ function RetailPanel({ deal, rep, api }) {
 
 function BackBar({ onBack, title }) {
   return <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}><button onClick={onBack} style={S.back}>‹ Back</button><span style={{ fontWeight: 800, fontSize: 17 }}>{title}</span></div>;
+}
+function ymdET(d = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+}
+function dayLabel(key) {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" });
+}
+function hourLabel(iso) {
+  return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric" }).format(new Date(iso)); // "9 AM"
 }
 function etParts(ms) {
   const f = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "numeric", day: "numeric", weekday: "short" });
