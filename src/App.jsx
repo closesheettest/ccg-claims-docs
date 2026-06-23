@@ -14,6 +14,7 @@ import { PAMobileApp, PAAdminPanel } from "./PAViews";
 import { TeamRolesPanel } from "./TeamRolesPanel";
 import InspectionPhotosModal from "./InspectionPhotosModal";
 import RepVisitHub from "./RepVisitHub";
+import ReviewApptPicker from "./ReviewApptPicker";
 import JnMatchPickerModal from "./JnMatchPickerModal";
 import ManagerRecordsView from "./ManagerRecordsView";
 
@@ -6930,6 +6931,7 @@ export default function App() {
     return initialData;
   });
   const [pendingSend, setPendingSend] = useState(false);
+  const [reviewSlotIso, setReviewSlotIso] = useState("");   // results-review appt picked on intake
   // True when the rep already picked themselves on the visit hub and landed
   // here via /?intake=1&rep=… — then the intake hides the Sales Rep / Rep Email
   // pickers (already set on the previous screen).
@@ -9239,6 +9241,14 @@ const renderSmsTemplate = (key, vars) => {
             .eq("id", newInspId);
           if (updateErr) console.warn("Failed to save jn_job_id:", updateErr.message);
           else console.log("Saved jn_job_id:", d.jobId, "to record:", newInspId);
+          // Results-review appointment (if the rep booked one) — create the JN
+          // task + stamp review_appt_at now that the job exists.
+          if (reviewSlotIso && newInspId) {
+            fetch("/.netlify/functions/review-appt-create", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ inspection_id: newInspId, start_at_iso: reviewSlotIso, rep_jobnimbus_id: data.salesRepId, booked_by: data.salesRepName }),
+            }).catch((e) => console.warn("review-appt-create failed:", e));
+          }
         } else if (d.jobId && !newInspId) {
           // Fallback — insert didn't return an id (rare). Try the old path.
           const { error: updateErr } = await supabase
@@ -9252,6 +9262,7 @@ const renderSmsTemplate = (key, vars) => {
       }).catch(e => console.warn("JN sync handler failed:", e));
 
       // Reset inspection sig fields
+      setReviewSlotIso("");
       setInspSig("");
       setInspTypedSig("");
       setInspSubmitAttempted(false);
@@ -11353,6 +11364,12 @@ if (!hasDamage) {
 
         {view === "input" ? (
           <Card>
+            {repFromHub && (
+              <button type="button" onClick={() => { window.location.href = "/"; }}
+                style={{ background: "none", border: "none", color: "#1a2e5a", fontSize: 14, fontWeight: 700, cursor: "pointer", padding: "0 0 8px" }}>
+                ‹ Back to menu
+              </button>
+            )}
             <CardHeader>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                 <div>
@@ -11928,6 +11945,12 @@ if (!hasDamage) {
                     </div>
                     </>
                     )}
+                  </div>
+
+                  {/* Results-review appointment — book the "come back & go over
+                      findings" visit (~4 days out) before signing. */}
+                  <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px dashed #d1d5db" }}>
+                    <ReviewApptPicker value={reviewSlotIso} onChange={setReviewSlotIso} />
                   </div>
 
                   {/* ── My Stats Banner — shows once a rep is selected ───────────── */}
