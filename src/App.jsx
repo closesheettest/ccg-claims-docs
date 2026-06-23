@@ -6930,6 +6930,13 @@ export default function App() {
     return initialData;
   });
   const [pendingSend, setPendingSend] = useState(false);
+  // True when the rep already picked themselves on the visit hub and landed
+  // here via /?intake=1&rep=… — then the intake hides the Sales Rep / Rep Email
+  // pickers (already set on the previous screen).
+  const repFromHub = (() => {
+    if (typeof window === "undefined") return false;
+    try { const p = new URLSearchParams(window.location.search); return !!(p.get("intake") && (p.get("rep") || p.get("repName"))); } catch { return false; }
+  })();
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [testOverrideEmail, setTestOverrideEmail] = useState("");
@@ -11772,6 +11779,12 @@ if (!hasDamage) {
                       </div>
                     )}
 
+                    {repFromHub ? (
+                      <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 12, padding: "10px 12px", fontSize: 13, color: "#166534" }}>
+                        <span style={{ fontWeight: 700 }}>Sales Rep:</span> {data.salesRepName || "—"} <span style={{ color: "#6b7280", fontWeight: 400 }}>· set on the previous screen</span>
+                      </div>
+                    ) : (
+                    <>
                     {/* Sales Rep autocomplete typeahead */}
                     <div style={{ position: "relative" }}>
                       <Label>Sales Rep <span style={{ color: "#dc2626" }}>*</span> {repsLoaded && reps[0]?._fromJN ? <span style={{ fontSize: 11, color: "#16a34a", fontWeight: 400, marginLeft: 6 }}>● Live from JN</span> : null}</Label>
@@ -11913,6 +11926,8 @@ if (!hasDamage) {
                         </div>
                       ) : null}
                     </div>
+                    </>
+                    )}
                   </div>
 
                   {/* ── My Stats Banner — shows once a rep is selected ───────────── */}

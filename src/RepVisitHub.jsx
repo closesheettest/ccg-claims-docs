@@ -51,6 +51,13 @@ export default function RepVisitHub() {
       setDeals(o.deals || []);
     } catch (e) { setErr(e.message); setDeals([]); }
   };
+  // Open photos — first pull any JN-only photos into Supabase (idempotent;
+  // no-op if they're already app-side), so deals whose photos live only in
+  // JobNimbus still show.
+  const openPhotos = async (d) => {
+    try { await fetch(`${FN}/pull-jn-photos-to-app`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ inspectionId: d.inspection_id }) }) } catch { /* best-effort */ }
+    setPhotosFor(d.inspection_id)
+  }
   const api = async (fn, payload) => {
     const r = await fetch(`${FN}/${fn}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, ...payload }) });
     const o = await r.json().catch(() => ({}));
@@ -74,7 +81,7 @@ export default function RepVisitHub() {
         }} onType={startType} />}
         {stage === "list" && <DealList type={visitType} deals={deals} onBack={() => setStage("choose")} onPick={(d) => { setDeal(d); setStage("panel"); }} />}
         {stage === "panel" && deal && (
-          <Panel type={visitType} deal={deal} rep={rep} api={api} onBack={() => setStage("list")} onPhotos={() => setPhotosFor(deal.inspection_id)} />
+          <Panel type={visitType} deal={deal} rep={rep} api={api} onBack={() => setStage("list")} onPhotos={() => openPhotos(deal)} />
         )}
       </div>
       {photosFor && <InspectionPhotosModal inspectionId={photosFor} onClose={() => setPhotosFor(null)} />}
@@ -154,13 +161,15 @@ function DealList({ type, deals, onBack, onPick }) {
 }
 
 function Panel({ type, deal, rep, api, onBack, onPhotos }) {
+  const [loadingPhotos, setLoadingPhotos] = useState(false)
+  const viewPhotos = async () => { setLoadingPhotos(true); try { await onPhotos() } finally { setLoadingPhotos(false) } }
   return (
     <div>
       <BackBar onBack={onBack} title={deal.client_name} />
       <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "10px 12px", fontSize: 12.5, color: "#6b7280", marginBottom: 12 }}>
         {[deal.address, deal.city, deal.state].filter(Boolean).join(", ")}
       </div>
-      <button onClick={onPhotos} style={{ width: "100%", border: `1px solid ${NAVY}`, color: NAVY, background: "#fff", borderRadius: 12, padding: "11px 0", fontSize: 15, fontWeight: 700, marginBottom: 16, cursor: "pointer" }}>📷 View inspection photos</button>
+      <button onClick={viewPhotos} disabled={loadingPhotos} style={{ width: "100%", border: `1px solid ${NAVY}`, color: NAVY, background: "#fff", borderRadius: 12, padding: "11px 0", fontSize: 15, fontWeight: 700, marginBottom: 16, cursor: "pointer", opacity: loadingPhotos ? 0.6 : 1 }}>{loadingPhotos ? "Loading photos…" : "📷 View inspection photos"}</button>
       {type === "damage" && <DamagePanel deal={deal} rep={rep} api={api} />}
       {type === "no_damage" && <NoDamagePanel deal={deal} rep={rep} api={api} />}
       {type === "retail" && <RetailPanel deal={deal} rep={rep} api={api} />}
