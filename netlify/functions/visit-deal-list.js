@@ -41,10 +41,19 @@ exports.handler = async (event) => {
   try {
     // review_availability is a newer column; if it hasn't been added yet the
     // SELECT 400s and we'd get zero deals. Try with it, fall back without it.
-    const SEL_BASE = "id,client_name,address,city,state,zip,mobile,email,jn_job_id,latitude,longitude,result,result_at,pa_id";
+    const SEL_BASE = "id,client_name,address,city,state,zip,mobile,email,jn_job_id,latitude,longitude,result,result_at,pa_id,pa_signed_at,pa_stage,docs_signed";
     const tail = `&result=eq.${result}&cancelled_at=is.null&or=(${conds.join(",")})&order=result_at.desc&limit=500`;
     let rows = await sbGet(`inspections?select=${SEL_BASE},review_availability${tail}`);
     if (!rows.length) rows = await sbGet(`inspections?select=${SEL_BASE}${tail}`);
+
+    // Damage list: a rep is going out to PUSH the homeowner to start their claim.
+    // Once a PA has already signed them OR is actively working them, the rep
+    // shouldn't be sent there — drop those. (PA isn't involved in retail/no-damage.)
+    if (result === "damage") {
+      rows = rows.filter((r) =>
+        !(r.pa_signed_at || r.pa_stage === "active" || r.pa_stage === "waiting_docs" || /\b(lor|pac)\b/i.test(r.docs_signed || "")),
+      );
+    }
     const deals = rows.map((r) => {
       const dist = (lat != null && lng != null && r.latitude != null && r.longitude != null)
         ? Math.round(haversineMi(lat, lng, +r.latitude, +r.longitude) * 10) / 10 : null;
