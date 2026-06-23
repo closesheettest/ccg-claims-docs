@@ -39,10 +39,12 @@ exports.handler = async (event) => {
   if (!conds.length) return cors(400, JSON.stringify({ ok: false, error: "rep required" }));
 
   try {
-    const sel = "id,client_name,address,city,state,zip,mobile,email,jn_job_id,latitude,longitude,result,result_at,pa_id,review_availability";
-    const rows = await sbGet(
-      `inspections?select=${sel}&result=eq.${result}&cancelled_at=is.null&or=(${conds.join(",")})&order=result_at.desc&limit=500`,
-    );
+    // review_availability is a newer column; if it hasn't been added yet the
+    // SELECT 400s and we'd get zero deals. Try with it, fall back without it.
+    const SEL_BASE = "id,client_name,address,city,state,zip,mobile,email,jn_job_id,latitude,longitude,result,result_at,pa_id";
+    const tail = `&result=eq.${result}&cancelled_at=is.null&or=(${conds.join(",")})&order=result_at.desc&limit=500`;
+    let rows = await sbGet(`inspections?select=${SEL_BASE},review_availability${tail}`);
+    if (!rows.length) rows = await sbGet(`inspections?select=${SEL_BASE}${tail}`);
     const deals = rows.map((r) => {
       const dist = (lat != null && lng != null && r.latitude != null && r.longitude != null)
         ? Math.round(haversineMi(lat, lng, +r.latitude, +r.longitude) * 10) / 10 : null;

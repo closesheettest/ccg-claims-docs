@@ -9111,7 +9111,6 @@ const renderSmsTemplate = (key, vars) => {
         roof_type: inspData.roof_type || "Shingle",
         lead_source: data.leadSource || "Inspection",
         spanish_only: !!data.spanish_only,
-        review_availability: reviewAvail || null,
       }]).select("id").single();
       if (inspSaveError) {
         console.error("Inspection save error:", inspSaveError);
@@ -9129,6 +9128,13 @@ const renderSmsTemplate = (key, vars) => {
         alert("Warning: Could not save to database — " + inspSaveError.message);
       }
       const newInspId = insertedInsp?.id || null;
+      // Best-effort: stamp the homeowner's results-review availability. Tolerant
+      // of the review_availability column not existing yet (error ignored), so a
+      // signing never fails on it; lights up automatically once the column adds.
+      if (reviewAvail && newInspId) {
+        supabase.from("inspections").update({ review_availability: reviewAvail }).eq("id", newInspId)
+          .then(({ error }) => { if (error) console.warn("review_availability save skipped:", error.message); });
+      }
 
       // Fire-and-forget: geocode the new inspection's address into
       // latitude/longitude so the Inspector mobile app can immediately
@@ -9489,7 +9495,6 @@ const renderSmsTemplate = (key, vars) => {
           original_sales_rep_name: data.salesRepName || "",
           lead_source: data.leadSource || "Inspection",
           spanish_only: !!data.spanish_only,
-          review_availability: reviewAvail || null,
         }]).select("id").single();
         if (inspInsertErr) {
           console.error("Inspection insert error:", inspInsertErr);
@@ -9504,6 +9509,11 @@ const renderSmsTemplate = (key, vars) => {
           }
         }
         archiveInspectionId = insertedInsp?.id || null;
+        // Best-effort results-review availability (tolerant of a missing column).
+        if (reviewAvail && archiveInspectionId) {
+          supabase.from("inspections").update({ review_availability: reviewAvail }).eq("id", archiveInspectionId)
+            .then(({ error }) => { if (error) console.warn("review_availability save skipped:", error.message); });
+        }
 
         // Fire-and-forget geocode of the new inspection — populates
         // latitude/longitude so the Inspector mobile app's distance
