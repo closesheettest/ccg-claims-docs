@@ -4630,7 +4630,9 @@ function InspectorJobDetail({ me, jobId, onBack }) {
               disabled={submitting || pendingAdds > 0 || photos.length === 0}
               style={{
                 padding: "20px 20px",
-                background: (submitting || pendingAdds > 0 || photos.length === 0) ? "#9ca3af" : "#13294b",
+                background: (submitting || pendingAdds > 0 || photos.length === 0)
+                  ? "#9ca3af"
+                  : submitMsg?.kind === "error" ? "#dc2626" : "#13294b",
                 color: "#fff",
                 border: "none",
                 borderRadius: 12,
@@ -4645,7 +4647,9 @@ function InspectorJobDetail({ me, jobId, onBack }) {
                   ? `Processing ${pendingAdds} photo${pendingAdds === 1 ? '' : 's'}…`
                   : photos.length === 0
                     ? "Add a photo to submit"
-                    : "Submit inspection →"}
+                    : submitMsg?.kind === "error"
+                      ? "⚠️ Try again — tap to submit"
+                      : "Submit inspection →"}
             </button>
           )}
         </section>
@@ -4662,7 +4666,7 @@ function InspectorJobDetail({ me, jobId, onBack }) {
           <WizardPhotoStep
             title={`Worst-condition photos (${retailPhotoCount} / 10 minimum)`}
             subtitle=""
-            ctaLabel={retailReady ? `Submit inspection (${retailPhotoCount} photos) →` : `Need ${10 - retailPhotoCount} more`}
+            ctaLabel={retailReady ? (submitMsg?.kind === "error" ? "⚠️ Try again — tap to submit" : `Submit inspection (${retailPhotoCount} photos) →`) : `Need ${10 - retailPhotoCount} more`}
             ctaEnabled={retailReady && !submitting}
             stagePhotos={stagePhotos}
             submitting={submitting}
@@ -4821,14 +4825,28 @@ function InspectorJobDetail({ me, jobId, onBack }) {
 
       {submitMsg && (
         <div style={{
-          padding: "10px 14px",
+          padding: "16px",
           borderRadius: 10,
           fontSize: 14,
           background: submitMsg.kind === "success" ? "#ecfdf5" : "#fef2f2",
-          border: `1px solid ${submitMsg.kind === "success" ? "#86efac" : "#fca5a5"}`,
+          border: `2px solid ${submitMsg.kind === "success" ? "#16a34a" : "#ef4444"}`,
           color: submitMsg.kind === "success" ? "#065f46" : "#991b1b",
         }}>
-          {submitMsg.text}
+          {submitMsg.kind === "success" ? (
+            <div style={{ fontSize: 17, fontWeight: 800 }}>✅ {submitMsg.text}</div>
+          ) : (
+            // Loud, can't-miss failure. Inspectors were walking away on a
+            // silent error (banner used to sit small at the bottom), leaving
+            // the result + photos unlinked. The fix: tell them in plain words
+            // to keep tapping Submit until they see the green ✅.
+            <>
+              <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 6 }}>⚠️ NOT SAVED YET</div>
+              <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8, lineHeight: 1.4 }}>
+                Tap <span style={{ textDecoration: "underline" }}>Submit</span> again — and keep tapping until you see the green <strong>✅ Saved</strong> message. <strong>Don't leave this screen until you do.</strong> Your photos are safe — nothing was lost.
+              </div>
+              <div style={{ fontSize: 12, opacity: 0.8 }}>{submitMsg.text}</div>
+            </>
+          )}
         </div>
       )}
     </div>
