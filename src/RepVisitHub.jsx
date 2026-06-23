@@ -3,17 +3,25 @@ import { supabase } from "./lib/supabase";
 import InspectionPhotosModal from "./InspectionPhotosModal";
 
 // Public rep landing: "Who are you?" → 4 choices → (per outcome) pick a
-// homeowner (their deals, nearest-first) → view photos → take the action:
-//   New inspection → existing signing flow (?intake=1, rep prefilled)
-//   Damage   → book a PA appointment (nearest PA) — PA notified by SMS+email
-//   No Damage→ send the no-damage cert + Google review link; capture referrals
-//   Retail   → pick a fixed slot → creates a JN "Appointment" task on the job
-// Self-contained early-return page (mirrors ?mode=pa / ?dialer= pages).
+// homeowner (their deals, nearest-first) → view photos → take the action.
+// Self-contained early-return page. CCG uses INLINE STYLES (no Tailwind).
 
 const FN = "/.netlify/functions";
-// Retail fixed grid (ET): weekday 0=Sun..6=Sat → start hours (24h).
+const NAVY = "#1a2e5a";
 const RETAIL_HOURS = { 1: [11, 14, 17, 19], 2: [11, 14, 17, 19], 3: [11, 14, 17, 19], 4: [11, 14, 17, 19], 5: [9, 12, 15], 6: [9, 12] };
 const TYPE_LABEL = { damage: "Damage", no_damage: "No Damage", retail: "Retail" };
+
+const S = {
+  wrap: { minHeight: "100vh", background: "#f3f4f6", padding: "18px 16px 64px", fontFamily: "system-ui, -apple-system, sans-serif", color: "#111827" },
+  container: { maxWidth: 480, margin: "0 auto" },
+  card: { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: 16 },
+  h1: { fontFamily: "'Oswald', sans-serif", fontSize: 22, fontWeight: 800, color: NAVY, margin: 0 },
+  input: { width: "100%", boxSizing: "border-box", height: 46, padding: "0 12px", borderRadius: 12, border: "1px solid #d1d5db", fontSize: 16, background: "#fff" },
+  repBtn: { display: "block", width: "100%", textAlign: "left", padding: "13px 14px", borderRadius: 12, border: "1px solid #e5e7eb", background: "#fff", fontSize: 16, fontWeight: 600, marginBottom: 8, cursor: "pointer", color: "#111827" },
+  err: { background: "#fef2f2", color: "#b91c1c", padding: "10px 12px", borderRadius: 12, fontSize: 14, marginBottom: 12 },
+  back: { background: "none", border: "none", color: "#6b7280", fontSize: 14, cursor: "pointer", padding: 0 },
+  done: { background: "#ecfdf5", border: "1px solid #a7f3d0", color: "#065f46", borderRadius: 14, padding: "20px 16px", textAlign: "center", fontSize: 15, fontWeight: 700 },
+};
 
 export default function RepVisitHub() {
   const [reps, setReps] = useState([]);
@@ -28,8 +36,7 @@ export default function RepVisitHub() {
   const [err, setErr] = useState("");
 
   useEffect(() => {
-    supabase.from("sales_reps").select("id,name,email,jobnimbus_id,active").eq("active", true).order("name")
-      .then(({ data }) => setReps(data || []));
+    loadReps().then(setReps);
     supabase.from("app_settings").select("value").eq("key", "visit_token").maybeSingle()
       .then(({ data }) => setToken(data?.value || ""));
     if (navigator.geolocation) navigator.geolocation.getCurrentPosition(
@@ -52,30 +59,45 @@ export default function RepVisitHub() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
-      <div className="mx-auto max-w-md px-4 py-6">
-        <div className="mb-4 flex items-center justify-between">
-          <h1 className="text-lg font-extrabold text-[#1a2e5a]">U.S. Shingle — Field Visit</h1>
+    <div style={S.wrap}>
+      <div style={S.container}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+          <h1 style={S.h1}>U.S. Shingle — Field Visit</h1>
           {rep && stage !== "pick-rep" && (
-            <button onClick={() => { setStage("pick-rep"); }} className="text-xs text-slate-500 underline">{rep.name} ✎</button>
+            <button onClick={() => setStage("pick-rep")} style={{ ...S.back, color: NAVY, fontWeight: 700 }}>{rep.name} ✎</button>
           )}
         </div>
-
-        {err && <div className="mb-3 rounded bg-red-50 px-3 py-2 text-sm text-red-700">{err}</div>}
-
+        {err && <div style={S.err}>{err}</div>}
         {stage === "pick-rep" && <PickRep reps={reps} onPick={pickRep} />}
         {stage === "choose" && <Choose rep={rep} onNew={() => {
           window.location.href = `/?intake=1&rep=${encodeURIComponent(rep.jobnimbus_id || "")}&repName=${encodeURIComponent(rep.name || "")}&repEmail=${encodeURIComponent(rep.email || "")}`;
         }} onType={startType} />}
         {stage === "list" && <DealList type={visitType} deals={deals} onBack={() => setStage("choose")} onPick={(d) => { setDeal(d); setStage("panel"); }} />}
         {stage === "panel" && deal && (
-          <Panel type={visitType} deal={deal} rep={rep} api={api}
-            onBack={() => setStage("list")} onPhotos={() => setPhotosFor(deal.inspection_id)} />
+          <Panel type={visitType} deal={deal} rep={rep} api={api} onBack={() => setStage("list")} onPhotos={() => setPhotosFor(deal.inspection_id)} />
         )}
       </div>
       {photosFor && <InspectionPhotosModal inspectionId={photosFor} onClose={() => setPhotosFor(null)} />}
     </div>
   );
+}
+
+// Live from JobNimbus (same source as the intake), fall back to sales_reps.
+async function loadReps() {
+  try {
+    const res = await fetch(`${FN}/jobnimbus-users`);
+    if (res.ok) {
+      const j = await res.json();
+      if (j.members && j.members.length) {
+        return j.members
+          .filter((m) => m.name && !m.name.toLowerCase().includes("test"))
+          .map((m) => ({ id: m.jobnimbus_id, name: m.name, email: m.email || "", jobnimbus_id: m.jobnimbus_id }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+      }
+    }
+  } catch { /* fall through */ }
+  const { data } = await supabase.from("sales_reps").select("id,name,email,jobnimbus_id,active").eq("active", true).order("name");
+  return data || [];
 }
 
 function PickRep({ reps, onPick }) {
@@ -85,16 +107,12 @@ function PickRep({ reps, onPick }) {
     return s ? reps.filter((r) => (r.name || "").toLowerCase().includes(s)) : reps;
   }, [q, reps]);
   return (
-    <div>
-      <p className="mb-2 text-sm font-semibold text-slate-600">Who are you?</p>
-      <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search your name…"
-        className="mb-3 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-base" />
-      <div className="max-h-[60vh] space-y-1 overflow-y-auto">
-        {filtered.map((r) => (
-          <button key={r.id} onClick={() => onPick(r)}
-            className="block w-full rounded-lg border border-slate-200 bg-white px-3 py-3 text-left font-medium hover:bg-slate-50">{r.name}</button>
-        ))}
-        {!filtered.length && <p className="px-1 py-4 text-sm text-slate-400">No matches.</p>}
+    <div style={S.card}>
+      <p style={{ margin: "0 0 10px", fontSize: 15, fontWeight: 700, color: "#374151" }}>Who are you?</p>
+      <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search your name…" style={{ ...S.input, marginBottom: 12 }} />
+      <div style={{ maxHeight: "60vh", overflowY: "auto" }}>
+        {filtered.map((r) => <button key={r.id} onClick={() => onPick(r)} style={S.repBtn}>{r.name}</button>)}
+        {!filtered.length && <p style={{ color: "#9ca3af", fontSize: 14, padding: "12px 2px" }}>No matches.</p>}
       </div>
     </div>
   );
@@ -102,15 +120,15 @@ function PickRep({ reps, onPick }) {
 
 function Choose({ rep, onNew, onType }) {
   const Btn = ({ color, emoji, label, sub, onClick }) => (
-    <button onClick={onClick} className="flex w-full items-center gap-3 rounded-xl px-4 py-4 text-left text-white shadow" style={{ background: color }}>
-      <span className="text-2xl">{emoji}</span>
-      <span><span className="block text-base font-bold">{label}</span><span className="block text-xs opacity-90">{sub}</span></span>
+    <button onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", textAlign: "left", color: "#fff", background: color, border: "none", borderRadius: 14, padding: "16px 16px", marginBottom: 12, cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,.12)" }}>
+      <span style={{ fontSize: 26 }}>{emoji}</span>
+      <span><span style={{ display: "block", fontSize: 17, fontWeight: 800 }}>{label}</span><span style={{ display: "block", fontSize: 12.5, opacity: 0.92 }}>{sub}</span></span>
     </button>
   );
   return (
-    <div className="space-y-3">
-      <p className="text-sm text-slate-500">Hi {rep.name.split(" ")[0]} — what are you here to do?</p>
-      <Btn color="#1a2e5a" emoji="📝" label="New inspection" sub="Sign a new free roof inspection" onClick={onNew} />
+    <div>
+      <p style={{ fontSize: 14, color: "#6b7280", margin: "0 0 14px" }}>Hi {rep.name.split(" ")[0]} — what are you here to do?</p>
+      <Btn color={NAVY} emoji="📝" label="New inspection" sub="Sign a new free roof inspection" onClick={onNew} />
       <Btn color="#b8324f" emoji="🏚️" label="Damage visit" sub="Set the PA appointment to start their claim" onClick={() => onType("damage")} />
       <Btn color="#16a34a" emoji="✅" label="No-Damage visit" sub="Get referrals + send their certificate" onClick={() => onType("no_damage")} />
       <Btn color="#d97706" emoji="🏠" label="Retail visit" sub="Schedule a retail options appointment" onClick={() => onType("retail")} />
@@ -122,17 +140,15 @@ function DealList({ type, deals, onBack, onPick }) {
   return (
     <div>
       <BackBar onBack={onBack} title={`${TYPE_LABEL[type]} — your deals`} />
-      {deals === null ? <p className="py-6 text-center text-sm text-slate-400">Loading nearest first…</p>
-        : !deals.length ? <p className="py-6 text-center text-sm text-slate-500">No {TYPE_LABEL[type]} deals found for you.</p>
-        : <div className="space-y-1">
-            {deals.map((d) => (
-              <button key={d.inspection_id} onClick={() => onPick(d)} className="block w-full rounded-lg border border-slate-200 bg-white px-3 py-3 text-left hover:bg-slate-50">
-                <span className="block font-semibold">{d.client_name}</span>
-                <span className="block text-xs text-slate-500">{[d.address, d.city].filter(Boolean).join(", ")}</span>
-                <span className="block text-[11px] font-semibold text-slate-400">{d.distance_mi != null ? `${d.distance_mi} mi away` : "distance unknown"}</span>
-              </button>
-            ))}
-          </div>}
+      {deals === null ? <p style={{ textAlign: "center", color: "#9ca3af", fontSize: 14, padding: "24px 0" }}>Loading nearest first…</p>
+        : !deals.length ? <p style={{ textAlign: "center", color: "#6b7280", fontSize: 14, padding: "24px 0" }}>No {TYPE_LABEL[type]} deals found for you.</p>
+        : <div>{deals.map((d) => (
+            <button key={d.inspection_id} onClick={() => onPick(d)} style={{ ...S.repBtn, paddingTop: 11, paddingBottom: 11 }}>
+              <span style={{ display: "block", fontWeight: 700 }}>{d.client_name}</span>
+              <span style={{ display: "block", fontSize: 12.5, color: "#6b7280", fontWeight: 400 }}>{[d.address, d.city].filter(Boolean).join(", ")}</span>
+              <span style={{ display: "block", fontSize: 11.5, color: "#9ca3af", fontWeight: 700 }}>{d.distance_mi != null ? `${d.distance_mi} mi away` : "distance unknown"}</span>
+            </button>
+          ))}</div>}
     </div>
   );
 }
@@ -141,10 +157,10 @@ function Panel({ type, deal, rep, api, onBack, onPhotos }) {
   return (
     <div>
       <BackBar onBack={onBack} title={deal.client_name} />
-      <div className="mb-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+      <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "10px 12px", fontSize: 12.5, color: "#6b7280", marginBottom: 12 }}>
         {[deal.address, deal.city, deal.state].filter(Boolean).join(", ")}
       </div>
-      <button onClick={onPhotos} className="mb-4 w-full rounded-lg border border-[#1a2e5a] px-3 py-2.5 font-semibold text-[#1a2e5a]">📷 View inspection photos</button>
+      <button onClick={onPhotos} style={{ width: "100%", border: `1px solid ${NAVY}`, color: NAVY, background: "#fff", borderRadius: 12, padding: "11px 0", fontSize: 15, fontWeight: 700, marginBottom: 16, cursor: "pointer" }}>📷 View inspection photos</button>
       {type === "damage" && <DamagePanel deal={deal} rep={rep} api={api} />}
       {type === "no_damage" && <NoDamagePanel deal={deal} rep={rep} api={api} />}
       {type === "retail" && <RetailPanel deal={deal} rep={rep} api={api} />}
@@ -164,28 +180,24 @@ function DamagePanel({ deal, rep, api }) {
   const book = async (s) => {
     setBooking(s.start_at + s.pa_id); setErr("");
     try {
-      await api("pa-schedule-api", { action: "book", pa_id: s.pa_id, start_at: s.start_at, inspection_id: deal.inspection_id,
-        homeowner_name: deal.client_name, homeowner_phone: deal.mobile, address: deal.address, booked_by: rep.name });
+      await api("pa-schedule-api", { action: "book", pa_id: s.pa_id, start_at: s.start_at, inspection_id: deal.inspection_id, homeowner_name: deal.client_name, homeowner_phone: deal.mobile, address: deal.address, booked_by: rep.name });
       setDone(`Booked with ${s.pa_name} — ${s.label}. The PA was notified.`);
     } catch (e) { setErr(e.message); }
     setBooking("");
   };
-  if (done) return <Done msg={done} />;
+  if (done) return <div style={S.done}>✓ {done}</div>;
   return (
     <div>
-      <p className="mb-2 text-sm font-semibold text-slate-600">Pick a time for the PA to come out:</p>
-      {err && <div className="mb-2 text-sm text-red-600">{err}</div>}
-      {slots === null ? <p className="py-4 text-center text-sm text-slate-400">Loading availability…</p>
-        : !slots.length ? <p className="py-4 text-center text-sm text-slate-500">No open slots nearby.</p>
-        : <div className="max-h-[55vh] space-y-1 overflow-y-auto">
-            {slots.map((s) => (
-              <button key={s.start_at + s.pa_id} disabled={!!booking} onClick={() => book(s)}
-                className="flex w-full items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-left disabled:opacity-50">
-                <span><span className="block text-sm font-semibold">{s.label}</span><span className="block text-xs text-slate-500">{s.pa_name}{s.distance_mi != null ? ` · ${s.distance_mi} mi` : ""}</span></span>
-                <span className="text-xs font-bold text-[#16a34a]">{booking === s.start_at + s.pa_id ? "…" : "Book"}</span>
-              </button>
-            ))}
-          </div>}
+      <p style={{ fontSize: 14, fontWeight: 700, color: "#374151", margin: "0 0 8px" }}>Pick a time for the PA to come out:</p>
+      {err && <div style={{ color: "#b91c1c", fontSize: 14, marginBottom: 8 }}>{err}</div>}
+      {slots === null ? <p style={{ textAlign: "center", color: "#9ca3af", padding: "16px 0", fontSize: 14 }}>Loading availability…</p>
+        : !slots.length ? <p style={{ textAlign: "center", color: "#6b7280", padding: "16px 0", fontSize: 14 }}>No open slots nearby.</p>
+        : <div style={{ maxHeight: "55vh", overflowY: "auto" }}>{slots.map((s) => (
+            <button key={s.start_at + s.pa_id} disabled={!!booking} onClick={() => book(s)} style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", textAlign: "left", border: "1px solid #e5e7eb", background: "#fff", borderRadius: 12, padding: "10px 12px", marginBottom: 8, cursor: "pointer", opacity: booking ? 0.6 : 1 }}>
+              <span><span style={{ display: "block", fontSize: 14, fontWeight: 700 }}>{s.label}</span><span style={{ display: "block", fontSize: 12, color: "#6b7280" }}>{s.pa_name}{s.distance_mi != null ? ` · ${s.distance_mi} mi` : ""}</span></span>
+              <span style={{ fontSize: 13, fontWeight: 800, color: "#16a34a" }}>{booking === s.start_at + s.pa_id ? "…" : "Book"}</span>
+            </button>
+          ))}</div>}
     </div>
   );
 }
@@ -205,22 +217,21 @@ function NoDamagePanel({ deal, rep, api }) {
     } catch (e) { setErr(e.message); }
     setSending(false);
   };
-  if (done) return <Done msg={done} />;
+  if (done) return <div style={S.done}>✓ {done}</div>;
+  const halfInput = { ...S.input, height: 42, fontSize: 15 };
   return (
-    <div className="space-y-3">
-      <div>
-        <p className="mb-1 text-sm font-semibold text-slate-600">Ask for referrals</p>
-        {rows.map((r, i) => (
-          <div key={i} className="mb-1 flex gap-2">
-            <input value={r.name} onChange={(e) => set(i, "name", e.target.value)} placeholder="Name" className="w-1/2 rounded border border-slate-300 px-2 py-2 text-sm" />
-            <input value={r.phone} onChange={(e) => set(i, "phone", e.target.value)} placeholder="Phone" className="w-1/2 rounded border border-slate-300 px-2 py-2 text-sm" />
-          </div>
-        ))}
-        <button onClick={() => setRows((rs) => [...rs, { name: "", phone: "" }])} className="text-xs font-semibold text-[#1a2e5a]">+ add another</button>
-      </div>
-      {err && <div className="text-sm text-red-600">{err}</div>}
-      <button onClick={send} disabled={sending} className="w-full rounded-lg bg-[#16a34a] px-4 py-3 font-bold text-white disabled:opacity-50">
-        {sending ? "Sending…" : "Send certificate + review link to homeowner"}
+    <div>
+      <p style={{ fontSize: 14, fontWeight: 700, color: "#374151", margin: "0 0 8px" }}>Ask for referrals</p>
+      {rows.map((r, i) => (
+        <div key={i} style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+          <input value={r.name} onChange={(e) => set(i, "name", e.target.value)} placeholder="Name" style={{ ...halfInput, width: "50%" }} />
+          <input value={r.phone} onChange={(e) => set(i, "phone", e.target.value)} placeholder="Phone" style={{ ...halfInput, width: "50%" }} inputMode="tel" />
+        </div>
+      ))}
+      <button onClick={() => setRows((rs) => [...rs, { name: "", phone: "" }])} style={{ ...S.back, color: NAVY, fontWeight: 700, fontSize: 13, marginBottom: 14 }}>+ add another</button>
+      {err && <div style={{ color: "#b91c1c", fontSize: 14, marginBottom: 8 }}>{err}</div>}
+      <button onClick={send} disabled={sending} style={{ width: "100%", background: "#16a34a", color: "#fff", border: "none", borderRadius: 12, padding: "14px 0", fontSize: 15, fontWeight: 800, cursor: "pointer", opacity: sending ? 0.6 : 1 }}>
+        {sending ? "Sending…" : "Send certificate + review link"}
       </button>
     </div>
   );
@@ -239,19 +250,18 @@ function RetailPanel({ deal, rep, api }) {
     } catch (e) { setErr(e.message); }
     setPicking("");
   };
-  if (done) return <Done msg={done} />;
+  if (done) return <div style={S.done}>✓ {done}</div>;
   return (
     <div>
-      <p className="mb-2 text-sm font-semibold text-slate-600">Pick a retail appointment time:</p>
-      {err && <div className="mb-2 text-sm text-red-600">{err}</div>}
-      <div className="max-h-[55vh] space-y-3 overflow-y-auto">
+      <p style={{ fontSize: 14, fontWeight: 700, color: "#374151", margin: "0 0 8px" }}>Pick a retail appointment time:</p>
+      {err && <div style={{ color: "#b91c1c", fontSize: 14, marginBottom: 8 }}>{err}</div>}
+      <div style={{ maxHeight: "55vh", overflowY: "auto" }}>
         {days.map((day) => (
-          <div key={day.key}>
-            <p className="mb-1 text-xs font-bold uppercase text-slate-400">{day.label}</p>
-            <div className="flex flex-wrap gap-2">
+          <div key={day.key} style={{ marginBottom: 14 }}>
+            <p style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", color: "#9ca3af", margin: "0 0 6px" }}>{day.label}</p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {day.slots.map((s) => (
-                <button key={s.iso} disabled={!!picking} onClick={() => pick(s)}
-                  className="rounded-lg border border-[#d97706] px-3 py-2 text-sm font-semibold text-[#d97706] disabled:opacity-50">
+                <button key={s.iso} disabled={!!picking} onClick={() => pick(s)} style={{ border: "1px solid #d97706", color: "#d97706", background: "#fff", borderRadius: 12, padding: "9px 14px", fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: picking ? 0.6 : 1 }}>
                   {picking === s.iso ? "…" : s.time}
                 </button>
               ))}
@@ -263,12 +273,8 @@ function RetailPanel({ deal, rep, api }) {
   );
 }
 
-// ── helpers ──
 function BackBar({ onBack, title }) {
-  return <div className="mb-3 flex items-center gap-2"><button onClick={onBack} className="text-sm text-slate-500">‹ Back</button><span className="font-bold">{title}</span></div>;
-}
-function Done({ msg }) {
-  return <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-4 text-center text-sm font-semibold text-emerald-700">✓ {msg}</div>;
+  return <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}><button onClick={onBack} style={S.back}>‹ Back</button><span style={{ fontWeight: 800, fontSize: 17 }}>{title}</span></div>;
 }
 function etParts(ms) {
   const f = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "numeric", day: "numeric", weekday: "short" });
@@ -288,11 +294,8 @@ function buildRetailDays(n) {
     const { y, mo, day, weekday, wname } = etParts(ms);
     const hours = RETAIL_HOURS[weekday] || [];
     if (!hours.length) continue;
-    const slots = hours.map((h) => ({
-      iso: etToISO(y, mo, day, h),
-      time: `${((h + 11) % 12) + 1}${h < 12 ? "am" : "pm"}`,
-      label: `${wname} ${mo}/${day} ${((h + 11) % 12) + 1}${h < 12 ? "am" : "pm"}`,
-    })).filter((s) => Date.parse(s.iso) > now);
+    const slots = hours.map((h) => ({ iso: etToISO(y, mo, day, h), time: `${((h + 11) % 12) + 1}${h < 12 ? "am" : "pm"}`, label: `${wname} ${mo}/${day} ${((h + 11) % 12) + 1}${h < 12 ? "am" : "pm"}` }))
+      .filter((s) => Date.parse(s.iso) > now);
     if (slots.length) out.push({ key: `${y}-${mo}-${day}`, label: `${wname}, ${mo}/${day}`, slots });
   }
   return out;
