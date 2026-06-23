@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>Roof Permit Lookup</title>
+<style>
+  :root { --navy:#1a2e5a; --ink:#111827; --muted:#6b7280; --line:#e5e7eb; --bg:#f3f4f6; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 system-ui,-apple-system,sans-serif; }
+  .wrap { max-width:980px; margin:0 auto; padding:20px 16px 80px; }
+  h1 { font-size:22px; margin:0 0 2px; letter-spacing:.01em; }
+  .sub { color:var(--muted); font-size:13px; margin:0 0 18px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+  label { display:block; font-size:12.5px; font-weight:700; color:#374151; margin:0 0 5px; text-transform:uppercase; letter-spacing:.03em; }
+  input[type=password], input[type=number], input[type=file] { width:100%; padding:10px 12px; border:1px solid #d1d5db; border-radius:9px; font-size:15px; background:#fff; }
+  .row { display:flex; gap:14px; flex-wrap:wrap; }
+  .row > div { flex:1; min-width:160px; }
+  button { font:inherit; font-weight:800; border:none; border-radius:10px; padding:12px 20px; cursor:pointer; }
+  .primary { background:var(--navy); color:#fff; }
+  .primary:disabled { opacity:.5; cursor:default; }
+  .ghost { background:#fff; border:1px solid var(--navy); color:var(--navy); }
+  .pill { display:inline-block; font-size:11px; font-weight:800; padding:3px 9px; border-radius:999px; letter-spacing:.03em; }
+  .FLAG { background:#fef2f2; color:#b91c1c; } .RECENT { background:#ecfdf5; color:#065f46; }
+  .NOPERMIT { background:#fffbeb; color:#92400e; } .ERR { background:#f3f4f6; color:#4b5563; }
+  table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); }
+  .meta { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:10px; }
+  .counter { font-size:13px; color:var(--muted); font-variant-numeric:tabular-nums; }
+  .bar { height:6px; background:#e5e7eb; border-radius:99px; overflow:hidden; margin:8px 0 0; }
+  .bar > i { display:block; height:100%; background:var(--navy); width:0; transition:width .2s; }
+  .note { font-size:12px; color:var(--muted); margin-top:8px; }
+  .err { background:#fef2f2; color:#b91c1c; padding:9px 12px; border-radius:9px; font-size:13.5px; margin-top:10px; }
+  code { background:#f3f4f6; padding:1px 5px; border-radius:5px; font-size:12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🔍 Roof Permit Lookup</h1>
+  <p class="sub">Upload a list of homes → pull the most recent roofing permit for each (via Shovels.ai). Your API key stays on the server; this page only takes the shared password.</p>
+
+  <div class="card">
+    <div class="row" style="margin-bottom:14px">
+      <div style="flex:2">
+        <label>Password</label>
+        <input id="pw" type="password" placeholder="Shared password" autocomplete="current-password" />
+      </div>
+      <div>
+        <label>Flag if older than (years)</label>
+        <input id="threshold" type="number" value="15" min="0" max="60" />
+      </div>
+    </div>
+    <label>CSV file <span style="font-weight:400;text-transform:none;color:var(--muted)">— header row with an address column (name / city / state / zip optional)</span></label>
+    <input id="file" type="file" accept=".csv,text/csv" />
+    <div style="margin-top:14px; display:flex; gap:10px; align-items:center; flex-wrap:wrap">
+      <button id="run" class="primary" disabled>Run lookup</button>
+      <button id="dl" class="ghost" style="display:none">⬇ Download results CSV</button>
+      <span id="status" class="counter"></span>
+    </div>
+    <div class="bar"><i id="prog"></i></div>
+    <div id="error" class="err" style="display:none"></div>
+    <p class="note">Each address = <b>2 API calls</b> (resolve + permits), so the free 250 covers ~125 addresses. Runs stop cleanly if the key runs out — you can still download what finished. <b>Heads-up:</b> the date is when roof work was <i>permitted</i>, not the roof's true condition, and <code>NO PERMIT</code> can also mean a coverage gap (Shovels covers ~85% of the US) — spot-check a few you know.</p>
+  </div>
+
+  <div class="card" id="resultsCard" style="display:none">
+    <div class="meta">
+      <strong id="summary"></strong>
+      <span id="credits" class="counter"></span>
+    </div>
+    <div style="overflow:auto">
+      <table id="results"><thead><tr>
+        <th>Status</th><th>Name</th><th>Address</th><th>Last roof permit</th><th>Age</th><th>Jurisdiction</th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let rows = [], results = [];
+
+// ── tiny CSV parser (handles quoted fields + commas/newlines in quotes) ──
+function parseCSV(text) {
+  const out = []; let row = [], cur = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"') { if (text[i+1] === '"') { cur += '"'; i++; } else q = false; }
+      else cur += c;
+    } else if (c === '"') q = true;
+    else if (c === ",") { row.push(cur); cur = ""; }
+    else if (c === "\n") { row.push(cur); out.push(row); row = []; cur = ""; }
+    else if (c === "\r") { /* skip */ }
+    else cur += c;
+  }
+  if (cur.length || row.length) { row.push(cur); out.push(row); }
+  return out.filter(r => r.some(x => String(x).trim() !== ""));
+}
+// loose header → field matching
+function colIndex(headers, names) {
+  const h = headers.map(x => x.trim().toLowerCase());
+  for (const n of names) { const i = h.indexOf(n); if (i >= 0) return i; }
+  for (let i = 0; i < h.length; i++) if (names.some(n => h[i].includes(n))) return i;
+  return -1;
+}
+
+$("file").addEventListener("change", (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    const grid = parseCSV(r.result);
+    if (grid.length < 2) { showErr("CSV needs a header row + at least one data row."); return; }
+    const head = grid[0];
+    const iAddr = colIndex(head, ["address","street","addr","property address","situs"]);
+    if (iAddr < 0) { showErr("Couldn't find an address column. Add a header like 'address'."); return; }
+    const iName = colIndex(head, ["name","owner","homeowner","contact"]);
+    const iCity = colIndex(head, ["city","town"]);
+    const iState = colIndex(head, ["state","st"]);
+    const iZip = colIndex(head, ["zip","zipcode","postal","zip code"]);
+    rows = grid.slice(1).map(r => ({
+      name: iName >= 0 ? (r[iName]||"").trim() : "",
+      address: (r[iAddr]||"").trim(),
+      city: iCity >= 0 ? (r[iCity]||"").trim() : "",
+      state: iState >= 0 ? (r[iState]||"").trim() : "",
+      zip: iZip >= 0 ? (r[iZip]||"").trim() : "",
+    })).filter(x => x.address);
+    hideErr();
+    $("status").textContent = rows.length + " addresses loaded";
+    $("run").disabled = rows.length === 0;
+  };
+  r.readAsText(f);
+});
+
+$("run").addEventListener("click", async () => {
+  const token = $("pw").value.trim();
+  if (!token) { showErr("Enter the password."); return; }
+  if (!rows.length) return;
+  hideErr();
+  const threshold = Math.max(0, Number($("threshold").value) || 15);
+  results = [];
+  $("run").disabled = true; $("file").disabled = true; $("dl").style.display = "none";
+  $("resultsCard").style.display = "block";
+  const tbody = $("results").querySelector("tbody"); tbody.innerHTML = "";
+  const todayYear = new Date().getFullYear();
+  let credits = null, stopped = false;
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    $("prog").style.width = ((i) / rows.length * 100) + "%";
+    $("status").textContent = `Looking up ${i+1} of ${rows.length}…`;
+    let res;
+    try {
+      const r = await fetch("/.netlify/functions/shovels-permit", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, name: row.name, address: row.address, city: row.city, state: row.state, zip: row.zip }),
+      });
+      if (r.status === 401) { showErr("Wrong password — stopped. Fix it and run again."); stopped = true; break; }
+      res = await r.json();
+    } catch (e) { res = { ok:false, status:"ERROR", error:String(e) }; }
+
+    if (typeof res.credits_left === "number") { credits = res.credits_left; $("credits").textContent = `~${credits} requests left`; }
+
+    const last = res.last_roof_permit_date || "";
+    let age = "", cls = "ERR", label = res.status || "ERROR";
+    if (last) {
+      const yrs = Math.round((Date.now() - Date.parse(last)) / 31557600000 * 10) / 10;
+      age = yrs + " yr";
+      if (yrs >= threshold) { cls = "FLAG"; label = "FLAG"; } else { cls = "RECENT"; label = "RECENT"; }
+    } else if (res.status === "NO PERMIT") { cls = "NOPERMIT"; label = "NO PERMIT"; }
+    else if (res.status === "NOT FOUND") { cls = "ERR"; label = "NOT FOUND"; }
+
+    const rec = { ...row, status: label, last_roof_permit_date: last, age, jurisdiction: res.jurisdiction || "", error: res.error || "" };
+    results.push(rec);
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td><span class="pill ${cls}">${label}</span></td>
+      <td>${esc(row.name)}</td>
+      <td>${esc([row.address,row.city,row.state,row.zip].filter(Boolean).join(", "))}</td>
+      <td>${esc(last) || "—"}</td><td>${esc(age) || "—"}</td><td>${esc(res.jurisdiction||"")}</td>`;
+    tbody.appendChild(tr);
+
+    if (credits !== null && credits <= 1) { showErr("Out of Shovels requests — stopped. Download what completed below."); stopped = true; break; }
+  }
+
+  $("prog").style.width = "100%";
+  const flagged = results.filter(r => r.status === "FLAG").length;
+  $("summary").textContent = `${results.length} checked · ${flagged} flagged${stopped ? " · stopped early" : ""}`;
+  $("status").textContent = stopped ? "Stopped." : "Done.";
+  $("dl").style.display = results.length ? "inline-block" : "none";
+  $("run").disabled = false; $("file").disabled = false;
+});
+
+$("dl").addEventListener("click", () => {
+  const cols = ["status","name","address","city","state","zip","last_roof_permit_date","age","jurisdiction","error"];
+  const lines = [cols.join(",")].concat(results.map(r => cols.map(c => csvCell(r[c])).join(",")));
+  const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "roof-permits.csv"; a.click();
+});
+
+function csvCell(v) { v = String(v == null ? "" : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g,'""') + '"' : v; }
+function esc(s) { return String(s==null?"":s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+function showErr(m) { $("error").textContent = m; $("error").style.display = "block"; }
+function hideErr() { $("error").style.display = "none"; }
+</script>
+</body>
+</html>
