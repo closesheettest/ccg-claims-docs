@@ -6932,6 +6932,8 @@ export default function App() {
   });
   const [pendingSend, setPendingSend] = useState(false);
   const [reviewAvail, setReviewAvail] = useState("");   // homeowner's typical weekly availability for the results-review visit
+  // Complete = both a day AND a time chosen (buildLabel joins them with " · ").
+  const reviewComplete = (reviewAvail || "").includes(" · ");
   // True when the rep already picked themselves on the visit hub and landed
   // here via /?intake=1&rep=… — then the intake hides the Sales Rep / Rep Email
   // pickers (already set on the previous screen).
@@ -9062,7 +9064,7 @@ const renderSmsTemplate = (key, vars) => {
     // Phone is REQUIRED now (≥10 digits) so every record reaches the PA with
     // a number to call — fixes deals coming in with no phone.
     const inspPhoneDigits = (inspData.mobile || "").replace(/\D/g, "");
-    if (!effectiveInspSig || !inspData.clientName || !(inspData.address || "").trim() || inspPhoneDigits.length < 10 || !inspData.roof_type) {
+    if (!effectiveInspSig || !inspData.clientName || !(inspData.address || "").trim() || inspPhoneDigits.length < 10 || !inspData.roof_type || !reviewComplete) {
       inspSubmittingRef.current = false;
       return;
     }
@@ -11392,7 +11394,7 @@ if (!hasDamage) {
             {/* Results-review availability — ask up front (script at the top), so
                 the rep captures when to swing back once the inspection is done. */}
             <div style={{ marginBottom: 16 }}>
-              <ReviewApptPicker value={reviewAvail} onChange={setReviewAvail} />
+              <ReviewApptPicker value={reviewAvail} onChange={setReviewAvail} invalid={inspSubmitAttempted && !reviewComplete} />
             </div>
             <CardHeader>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
