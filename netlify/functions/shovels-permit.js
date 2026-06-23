@@ -51,15 +51,20 @@ exports.handler = async (event) => {
     const jurisdiction = addr.jurisdiction_name || addr.jurisdiction || addr.city || null;
 
     // ── Step 2: roofing permits for that geo_id ────────────────────────────
+    // Pull ALL permits for the address (one call), then identify roofing ones
+    // in code. We deliberately DON'T filter on permit_tags=roofing server-side:
+    // if Shovels' tag value differs from our guess, every address would falsely
+    // read "NO PERMIT". Keyword-matching the returned records is tag-proof.
     const today = new Date().toISOString().slice(0, 10);
-    const pUrl = `${BASE}/permits/search?geo_id=${encodeURIComponent(geoId)}&permit_tags=roofing&permit_from=${sinceYear}-01-01&permit_to=${today}&size=50`;
+    const pUrl = `${BASE}/permits/search?geo_id=${encodeURIComponent(geoId)}&permit_from=${sinceYear}-01-01&permit_to=${today}&size=100`;
     const pRes = await fetch(pUrl, { headers: H });
     creditsLeft = readCredits(pRes) ?? creditsLeft;
     const pJson = await pRes.json().catch(() => ({}));
     if (!pRes.ok) return cors(200, JSON.stringify({ ok: true, found: true, status: "ERROR", geo_id: geoId, jurisdiction, error: `permit lookup ${pRes.status}`, credits_left: creditsLeft, ...(debug ? { debug: pJson } : {}) }));
 
     const permits = listItems(pJson);
-    const dates = permits.map(permitDate).filter(Boolean).sort();   // ascending ISO strings
+    const roofing = permits.filter(isRoof);
+    const dates = roofing.map(permitDate).filter(Boolean).sort();   // ascending ISO strings
     const last = dates.length ? dates[dates.length - 1] : null;
 
     return cors(200, JSON.stringify({
@@ -70,6 +75,7 @@ exports.handler = async (event) => {
       jurisdiction,
       last_roof_permit_date: last,
       permit_count: permits.length,
+      roof_permit_count: roofing.length,
       credits_left: creditsLeft,
       ...(debug ? { debug: { samplePermit: permits[0] || null } } : {}),
     }));
@@ -86,15 +92,25 @@ function listItems(j) {
 }
 function firstItem(j) { return listItems(j)[0] || (j && typeof j === "object" && j.geo_id ? j : null); }
 
-// Most-recent meaningful date on a permit record, across the field names the
-// lean search response might use.
+// Is this permit a roofing permit? Tag-proof: keyword-match the descriptive
+// fields (and the tags array) rather than trusting one tag value.
+function isRoof(p) {
+  if (!p || typeof p !== "object") return false;
+  const fields = [p.tags, p.description, p.type, p.subtype, p.name, p.permit_type, p.classification, p.work_class, p.scope, p.job_type];
+  let hay = fields.filter((x) => x != null).map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join(" ").toLowerCase();
+  if (!hay) hay = JSON.stringify(p).toLowerCase();   // fall back to the whole record
+  return /roof/.test(hay);
+}
+// The representative date for a permit — prefer when the work was permitted
+// (issue), then finalized/filed, across the documented field names.
 function permitDate(p) {
   if (!p || typeof p !== "object") return null;
-  const cands = [p.final_date, p.issue_date, p.file_date, p.permit_from, p.start_date, p.approval_date, p.status_date, p.permit_to, p.end_date]
-    .map((x) => (x ? String(x).slice(0, 10) : null))
-    .filter((x) => x && /^\d{4}-\d{2}-\d{2}$/.test(x) && x <= new Date().toISOString().slice(0, 10));
-  cands.sort();
-  return cands.length ? cands[cands.length - 1] : null;
+  const today = new Date().toISOString().slice(0, 10);
+  for (const f of [p.issue_date, p.final_date, p.file_date, p.start_date, p.end_date, p.permit_from, p.approval_date, p.status_date]) {
+    const d = f ? String(f).slice(0, 10) : null;
+    if (d && /^\d{4}-\d{2}-\d{2}$/.test(d) && d <= today) return d;
+  }
+  return null;
 }
 function readCredits(res) {
   for (const h of ["x-credits-remaining", "x-ratelimit-remaining", "ratelimit-remaining", "x-quota-remaining"]) {
