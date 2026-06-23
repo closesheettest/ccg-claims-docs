@@ -193,7 +193,7 @@ function DealList({ type, deals, onBack, onPick }) {
             <button key={d.inspection_id} onClick={() => onPick(d)} style={{ ...S.repBtn, paddingTop: 11, paddingBottom: 11 }}>
               <span style={{ display: "block", fontWeight: 700 }}>{d.client_name}</span>
               <span style={{ display: "block", fontSize: 12.5, color: "#6b7280", fontWeight: 400 }}>{[d.address, d.city].filter(Boolean).join(", ")}</span>
-              <span style={{ display: "block", fontSize: 11.5, color: "#9ca3af", fontWeight: 700 }}>{d.distance_mi != null ? `${d.distance_mi} mi away` : "distance unknown"}{d.review_appt_at ? ` · 🏠 home ${whenLabel(d.review_appt_at)}` : ""}</span>
+              <span style={{ display: "block", fontSize: 11.5, color: "#9ca3af", fontWeight: 700 }}>{d.distance_mi != null ? `${d.distance_mi} mi away` : "distance unknown"}{d.review_availability ? ` · 🏠 ${d.review_availability}` : ""}</span>
             </button>
           ))}</div>}
     </div>
@@ -208,7 +208,7 @@ function Panel({ type, deal, rep, api, onBack, onPhotos }) {
       <BackBar onBack={onBack} title={deal.client_name} />
       <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "10px 12px", fontSize: 12.5, color: "#6b7280", marginBottom: 12 }}>
         {[deal.address, deal.city, deal.state].filter(Boolean).join(", ")}
-        {deal.review_appt_at && <span style={{ display: "block", marginTop: 4, color: "#166534", fontWeight: 700 }}>🏠 Homeowner said home: {whenLabel(deal.review_appt_at)}</span>}
+        {deal.review_availability && <span style={{ display: "block", marginTop: 4, color: "#166534", fontWeight: 700 }}>🏠 Best time to come by: {deal.review_availability}</span>}
       </div>
       <button onClick={viewPhotos} disabled={loadingPhotos} style={{ width: "100%", border: `1px solid ${NAVY}`, color: NAVY, background: "#fff", borderRadius: 12, padding: "11px 0", fontSize: 15, fontWeight: 700, marginBottom: 16, cursor: "pointer", opacity: loadingPhotos ? 0.6 : 1 }}>{loadingPhotos ? "Loading photos…" : "📷 View inspection photos"}</button>
       {type === "damage" && <DamagePanel deal={deal} rep={rep} api={api} />}
@@ -366,9 +366,6 @@ function dayLabel(key) {
 }
 function hourLabel(iso) {
   return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric" }).format(new Date(iso)); // "9 AM"
-}
-function whenLabel(iso) {
-  return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric" }).format(new Date(iso));
 }
 function etParts(ms) {
   const f = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "numeric", day: "numeric", weekday: "short" });

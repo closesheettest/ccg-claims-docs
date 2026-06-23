@@ -6931,7 +6931,7 @@ export default function App() {
     return initialData;
   });
   const [pendingSend, setPendingSend] = useState(false);
-  const [reviewSlotIso, setReviewSlotIso] = useState("");   // results-review appt picked on intake
+  const [reviewAvail, setReviewAvail] = useState("");   // homeowner's typical weekly availability for the results-review visit
   // True when the rep already picked themselves on the visit hub and landed
   // here via /?intake=1&rep=… — then the intake hides the Sales Rep / Rep Email
   // pickers (already set on the previous screen).
@@ -9111,6 +9111,7 @@ const renderSmsTemplate = (key, vars) => {
         roof_type: inspData.roof_type || "Shingle",
         lead_source: data.leadSource || "Inspection",
         spanish_only: !!data.spanish_only,
+        review_availability: reviewAvail || null,
       }]).select("id").single();
       if (inspSaveError) {
         console.error("Inspection save error:", inspSaveError);
@@ -9256,14 +9257,6 @@ const renderSmsTemplate = (key, vars) => {
             .eq("id", newInspId);
           if (updateErr) console.warn("Failed to save jn_job_id:", updateErr.message);
           else console.log("Saved jn_job_id:", d.jobId, "to record:", newInspId);
-          // Results-review appointment (if the rep booked one) — create the JN
-          // task + stamp review_appt_at now that the job exists.
-          if (reviewSlotIso && newInspId) {
-            fetch("/.netlify/functions/review-appt-create", {
-              method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ inspection_id: newInspId, start_at_iso: reviewSlotIso, rep_jobnimbus_id: data.salesRepId, booked_by: data.salesRepName }),
-            }).catch((e) => console.warn("review-appt-create failed:", e));
-          }
         } else if (d.jobId && !newInspId) {
           // Fallback — insert didn't return an id (rare). Try the old path.
           const { error: updateErr } = await supabase
@@ -9277,7 +9270,7 @@ const renderSmsTemplate = (key, vars) => {
       }).catch(e => console.warn("JN sync handler failed:", e));
 
       // Reset inspection sig fields
-      setReviewSlotIso("");
+      setReviewAvail("");
       setInspSig("");
       setInspTypedSig("");
       setInspSubmitAttempted(false);
@@ -9496,6 +9489,7 @@ const renderSmsTemplate = (key, vars) => {
           original_sales_rep_name: data.salesRepName || "",
           lead_source: data.leadSource || "Inspection",
           spanish_only: !!data.spanish_only,
+          review_availability: reviewAvail || null,
         }]).select("id").single();
         if (inspInsertErr) {
           console.error("Inspection insert error:", inspInsertErr);
@@ -11385,6 +11379,11 @@ if (!hasDamage) {
                 ‹ Back to menu
               </button>
             )}
+            {/* Results-review availability — ask up front (script at the top), so
+                the rep captures when to swing back once the inspection is done. */}
+            <div style={{ marginBottom: 16 }}>
+              <ReviewApptPicker value={reviewAvail} onChange={setReviewAvail} />
+            </div>
             <CardHeader>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                 <div>
@@ -11960,12 +11959,6 @@ if (!hasDamage) {
                     </div>
                     </>
                     )}
-                  </div>
-
-                  {/* Results-review appointment — book the "come back & go over
-                      findings" visit (~4 days out) before signing. */}
-                  <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px dashed #d1d5db" }}>
-                    <ReviewApptPicker value={reviewSlotIso} onChange={setReviewSlotIso} />
                   </div>
 
                   {/* ── My Stats Banner — shows once a rep is selected ───────────── */}

@@ -39,7 +39,7 @@ exports.handler = async (event) => {
   if (!conds.length) return cors(400, JSON.stringify({ ok: false, error: "rep required" }));
 
   try {
-    const sel = "id,client_name,address,city,state,zip,mobile,email,jn_job_id,latitude,longitude,result,result_at,pa_id,review_appt_at";
+    const sel = "id,client_name,address,city,state,zip,mobile,email,jn_job_id,latitude,longitude,result,result_at,pa_id,review_availability";
     const rows = await sbGet(
       `inspections?select=${sel}&result=eq.${result}&cancelled_at=is.null&or=(${conds.join(",")})&order=result_at.desc&limit=500`,
     );
@@ -49,7 +49,7 @@ exports.handler = async (event) => {
       return {
         inspection_id: r.id, client_name: r.client_name, address: r.address, city: r.city, state: r.state, zip: r.zip,
         mobile: r.mobile, email: r.email, jn_job_id: r.jn_job_id, latitude: r.latitude, longitude: r.longitude,
-        distance_mi: dist, result: r.result, result_at: r.result_at, pa_id: r.pa_id, review_appt_at: r.review_appt_at,
+        distance_mi: dist, result: r.result, result_at: r.result_at, pa_id: r.pa_id, review_availability: r.review_availability,
       };
     });
     deals.sort((a, b) => ((a.distance_mi ?? 1e9) - (b.distance_mi ?? 1e9)) || (a.client_name || "").localeCompare(b.client_name || ""));
