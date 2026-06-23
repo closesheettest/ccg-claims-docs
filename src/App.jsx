@@ -7765,12 +7765,12 @@ export default function App() {
       // earned — transparent without distorting the totals.
       const [claimsRes, inspRes, allInspRes, cancelledInspRes] = await Promise.allSettled([
         supabase.from("claims")
-          .select("id, homeowner1, homeowner2, address, city, state, zip, signed_at, sign_method, representative_name_old, sales_rep_name, sales_rep_email, docs_signed")
+          .select("id, homeowner1, homeowner2, address, city, state, zip, signed_at, sign_method, representative_name_old, sales_rep_name, sales_rep_id, sales_rep_email, docs_signed")
           .gte("signed_at", start)
           .lte("signed_at", end)
           .order("signed_at", { ascending: false }),
         supabase.from("inspections")
-          .select("id, client_name, address, city, state, zip, signed_at, sales_rep_name, sales_rep_email, docs_signed")
+          .select("id, client_name, address, city, state, zip, signed_at, sales_rep_name, sales_rep_id, sales_rep_email, docs_signed")
           .gte("signed_at", start)
           .lte("signed_at", end)
           .is("cancelled_at", null)
@@ -7927,6 +7927,7 @@ export default function App() {
           name: [c.homeowner1, c.homeowner2].filter(Boolean).join(" & ") || "—",
           address: [c.address, c.city, c.state].filter(Boolean).join(", "),
           rep: c.sales_rep_name || c.representative_name_old || "Unassigned",
+          repId: c.sales_rep_id || null,
           signedAt: c.signed_at,
           inspStatus,
           inspSignedAt,
@@ -7960,6 +7961,7 @@ export default function App() {
           name: i.client_name || "—",
           address: [i.address, i.city, i.state].filter(Boolean).join(", "),
           rep: i.sales_rep_name || "Unassigned",
+          repId: i.sales_rep_id || null,
           signedAt: i.signed_at,
           inspStatus: "current",
           inspSignedAt: i.signed_at,
@@ -8028,6 +8030,24 @@ export default function App() {
       //
       // Re-fetched on every report build so reassigning a Zone on TMS
       // is reflected immediately in the next report — no caching.
+      // Hoisted so the byZone grouping below can resolve a signing's zone
+      // directly from its OWN jobnimbus_id (most reliable), independent of
+      // whether the rep is bridged in CCG sales_reps.
+      // Mirror the TMS backfill function's name-normalization so the
+      // name-fallback path recognizes the same variants the backfill
+      // collides on. Strip quoted/parenthetical nicknames (James "Jimmy"
+      // Bates → "james bates"), then strip remaining punctuation.
+      const normalizeName = (s) =>
+        String(s || "")
+          .toLowerCase()
+          .replace(/["“”]([^"“”]*)["“”]/g, "")
+          .replace(/'([^']*)'/g, "")
+          .replace(/\(([^)]*)\)/g, "")
+          .replace(/[^\p{L}\p{N}\s]/gu, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+      const zoneByJnId = {};
+      const zoneByNormalizedName = {};
       const zoneByName = {};
       try {
         const tmsRes = await fetch(
@@ -8035,22 +8055,6 @@ export default function App() {
         );
         if (tmsRes.ok) {
           const tmsData = await tmsRes.json();
-          // Mirror the TMS backfill function's name-normalization so the
-          // name-fallback path here recognizes the same variants the
-          // backfill collides on. Strip quoted/parenthetical nicknames
-          // (James "Jimmy" Bates → "james bates"), then strip remaining
-          // punctuation and collapse whitespace.
-          const normalizeName = (s) =>
-            String(s || "")
-              .toLowerCase()
-              .replace(/["“”]([^"“”]*)["“”]/g, "")
-              .replace(/'([^']*)'/g, "")
-              .replace(/\(([^)]*)\)/g, "")
-              .replace(/[^\p{L}\p{N}\s]/gu, " ")
-              .replace(/\s+/g, " ")
-              .trim();
-          const zoneByJnId = {};
-          const zoneByNormalizedName = {};
           for (const r of tmsData.reps || []) {
             if (r.jobnimbus_id) zoneByJnId[r.jobnimbus_id] = r.zone;
             if (r.name) zoneByNormalizedName[normalizeName(r.name)] = r.zone;
@@ -8082,7 +8086,18 @@ export default function App() {
       const byZone = {};
       for (const z of ZONE_ORDER) byZone[z] = {};
       Object.entries(byRep).forEach(([rep, repRows]) => {
-        const zone = zoneByName[rep] || "No Zone";
+        // Resolve in order of reliability:
+        //   1. the signing's OWN jobnimbus_id → TMS zone (survives reps who
+        //      aren't bridged in CCG sales_reps, e.g. JN/TMS-only reps),
+        //   2. the CCG sales_reps name→jnid bridge,
+        //   3. a direct TMS name match,
+        //   else "No Zone".
+        const repId = repRows.find((r) => r.repId)?.repId || null;
+        const zone =
+          (repId && zoneByJnId[repId]) ||
+          zoneByName[rep] ||
+          zoneByNormalizedName[normalizeName(rep)] ||
+          "No Zone";
         if (!byZone[zone]) byZone[zone] = {};
         byZone[zone][rep] = repRows;
       });
