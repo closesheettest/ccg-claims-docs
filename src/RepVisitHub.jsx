@@ -203,7 +203,7 @@ function DamagePanel({ deal, rep, api }) {
 }
 
 function NoDamagePanel({ deal, rep, api }) {
-  const [rows, setRows] = useState([{ name: "", phone: "" }]);
+  const [rows, setRows] = useState([{ name: "", phone: "", address: "" }]);
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState("");
   const [done, setDone] = useState(null);
@@ -223,12 +223,15 @@ function NoDamagePanel({ deal, rep, api }) {
     <div>
       <p style={{ fontSize: 14, fontWeight: 700, color: "#374151", margin: "0 0 8px" }}>Ask for referrals</p>
       {rows.map((r, i) => (
-        <div key={i} style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-          <input value={r.name} onChange={(e) => set(i, "name", e.target.value)} placeholder="Name" style={{ ...halfInput, width: "50%" }} />
-          <input value={r.phone} onChange={(e) => set(i, "phone", e.target.value)} placeholder="Phone" style={{ ...halfInput, width: "50%" }} inputMode="tel" />
+        <div key={i} style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 8, marginBottom: 8 }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <input value={r.name} onChange={(e) => set(i, "name", e.target.value)} placeholder="Name" style={{ ...halfInput, width: "55%" }} />
+            <input value={r.phone} onChange={(e) => set(i, "phone", e.target.value)} placeholder="Phone" style={{ ...halfInput, width: "45%" }} inputMode="tel" />
+          </div>
+          <input value={r.address} onChange={(e) => set(i, "address", e.target.value)} placeholder="Address" style={{ ...halfInput, width: "100%" }} />
         </div>
       ))}
-      <button onClick={() => setRows((rs) => [...rs, { name: "", phone: "" }])} style={{ ...S.back, color: NAVY, fontWeight: 700, fontSize: 13, marginBottom: 14 }}>+ add another</button>
+      <button onClick={() => setRows((rs) => [...rs, { name: "", phone: "", address: "" }])} style={{ ...S.back, color: NAVY, fontWeight: 700, fontSize: 13, marginBottom: 14 }}>+ add another</button>
       {err && <div style={{ color: "#b91c1c", fontSize: 14, marginBottom: 8 }}>{err}</div>}
       <button onClick={send} disabled={sending} style={{ width: "100%", background: "#16a34a", color: "#fff", border: "none", borderRadius: 12, padding: "14px 0", fontSize: 15, fontWeight: 800, cursor: "pointer", opacity: sending ? 0.6 : 1 }}>
         {sending ? "Sending…" : "Send certificate + review link"}

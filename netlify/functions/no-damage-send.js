@@ -37,8 +37,8 @@ exports.handler = async (event) => {
     // Save referrals first (cheap, independent of sends).
     if (referrals.length) {
       const rows = referrals
-        .filter((x) => x && (x.name || x.phone))
-        .map((x) => ({ inspection_id: inspectionId, referred_by_name: insp.client_name || null, referral_name: x.name || null, referral_phone: x.phone || null, captured_by_rep: repName || null }));
+        .filter((x) => x && (x.name || x.phone || x.address))
+        .map((x) => ({ inspection_id: inspectionId, referred_by_name: insp.client_name || null, referral_name: x.name || null, referral_phone: x.phone || null, referral_address: x.address || null, captured_by_rep: repName || null }));
       if (rows.length) await fetch(`${SB_URL}/rest/v1/referrals`, { method: "POST", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify(rows) }).catch(() => {});
     }
 
