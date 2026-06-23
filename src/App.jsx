@@ -6826,12 +6826,10 @@ export default function App() {
       return <PowerDialerPage token={dialerToken.trim()} />;
     }
 
-    // Default public landing: the rep "visit hub" (Who are you? → New
-    // inspection / Damage / No-Damage / Retail). Every recognized token route
-    // returned above; fall through to the existing signing intake only for
-    // ?intake=1 (the hub's "New inspection"), ?sign=… (email sign links), and
-    // ?mode=inspector (the inspector app, handled below via view state).
-    if (!params.get("intake") && !params.get("sign") && portalMode !== "inspector") {
+    // Rep "visit hub" (Who are you? → New inspection / Damage / No-Damage /
+    // Retail). Gated behind ?visit=1 for now so the bare URL stays the normal
+    // signing intake; flip to a default landing once it's finished + approved.
+    if (params.get("visit")) {
       return <RepVisitHub />;
     }
   }

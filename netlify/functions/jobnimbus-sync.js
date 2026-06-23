@@ -583,12 +583,9 @@ exports.handler = async (event) => {
       owners: salesRepId ? [{ id: salesRepId }] : undefined,
       cf_string_34: "Needs Inspection",
       cf_date_5: soldDateUnix,
-      // Pin date_start to the actual signed date too, not just the
-      // custom sold-date field. JN's weekly "new this week" reports
-      // filter on date_start — without this, re-syncing an older
-      // record makes it show up under THIS week. Same Unix-seconds
-      // format as cf_date_5.
-      date_start: soldDateUnix,
+      // NOTE: we intentionally do NOT set date_start on signing — per the
+      // user, leave JN's Start Date alone for inspection sign-ups (the
+      // office sets it later). cf_date_5 (Sold Date) is still recorded.
     };
 
     console.log("Creating job payload:", JSON.stringify(jobPayload));
@@ -643,7 +640,7 @@ exports.handler = async (event) => {
           source_name: "Inspection",   // re-assert the inspection source
           cf_string_34: "Needs Inspection",
           cf_date_5: soldDateUnix,
-          date_start: soldDateUnix,
+          // date_start intentionally omitted — leave JN's Start Date alone.
         };
         console.log("PUT body:", JSON.stringify(putBody));
         const putRes = await fetch(`${JN_BASE}/jobs/${jobId}`, {
