@@ -1,37 +1,63 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 // Results-review appointment picker for the New Inspection flow: "we'll be done
-// in 3–4 days — when are you home to go over the findings?" Fixed grid (same as
-// the retail scheduler), earliest 4 days out. Controlled: value = ISO string,
-// onChange(iso). Self-contained inline styles (CCG doesn't use Tailwind).
+// in 3–4 days — when are you home to go over the findings?" A button opens a
+// full-screen popup of the fixed grid (same as retail), earliest 4 days out;
+// tapping a time selects it and closes the popup. Mobile-friendly.
+// Controlled: value = ISO string, onChange(iso). Inline styles (no Tailwind).
 
 const HOURS = { 1: [11, 14, 17, 19], 2: [11, 14, 17, 19], 3: [11, 14, 17, 19], 4: [11, 14, 17, 19], 5: [9, 12, 15], 6: [9, 12] };
 const MIN_LEAD_DAYS = 4;
 const NAVY = "#1a2e5a";
 
 export default function ReviewApptPicker({ value, onChange }) {
+  const [open, setOpen] = useState(false);
   const days = useMemo(() => buildDays(21), []);
+  const pick = (iso) => { onChange(iso); setOpen(false); };
+
   return (
     <div>
-      <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 4 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 6 }}>
         Results review appointment <span style={{ fontWeight: 400, color: "#6b7280" }}>— when will they be home (~4 days out)?</span>
       </div>
-      {value && <div style={{ fontSize: 12.5, color: "#166534", fontWeight: 700, marginBottom: 8 }}>✓ {labelFor(value)} <button type="button" onClick={() => onChange("")} style={{ background: "none", border: "none", color: "#9ca3af", cursor: "pointer", fontSize: 13 }}>change</button></div>}
-      {!value && (
-        <div style={{ maxHeight: 240, overflowY: "auto", border: "1px solid #e5e7eb", borderRadius: 12, padding: 10 }}>
-          {days.map((d) => (
-            <div key={d.key} style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", color: "#9ca3af", marginBottom: 5 }}>{d.label}</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {d.slots.map((s) => (
-                  <button key={s.iso} type="button" onClick={() => onChange(s.iso)}
-                    style={{ border: `1px solid ${NAVY}`, color: NAVY, background: "#fff", borderRadius: 10, padding: "7px 13px", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}>
-                    {s.time}
-                  </button>
-                ))}
-              </div>
+
+      {value ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 12, padding: "11px 14px" }}>
+          <span style={{ fontSize: 14, fontWeight: 800, color: "#166534" }}>✓ {labelFor(value)}</span>
+          <button type="button" onClick={() => setOpen(true)} style={{ marginLeft: "auto", background: "none", border: "none", color: NAVY, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>Change</button>
+        </div>
+      ) : (
+        <button type="button" onClick={() => setOpen(true)}
+          style={{ width: "100%", background: NAVY, color: "#fff", border: "none", borderRadius: 12, padding: "13px 0", fontSize: 15, fontWeight: 800, cursor: "pointer" }}>
+          📅 Pick a results-review time
+        </button>
+      )}
+
+      {open && (
+        <div onClick={() => setOpen(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.55)", zIndex: 1000, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ background: "#fff", width: "100%", maxWidth: 480, maxHeight: "85vh", borderRadius: "16px 16px 0 0", display: "flex", flexDirection: "column", boxShadow: "0 -4px 24px rgba(0,0,0,0.2)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderBottom: "1px solid #eee" }}>
+              <span style={{ fontSize: 16, fontWeight: 800, color: NAVY, fontFamily: "'Oswald', sans-serif" }}>When are they home?</span>
+              <button type="button" onClick={() => setOpen(false)} style={{ background: "none", border: "none", fontSize: 24, color: "#9ca3af", cursor: "pointer", lineHeight: 1, padding: 0 }}>×</button>
             </div>
-          ))}
+            <div style={{ overflowY: "auto", padding: "12px 16px 24px" }}>
+              {days.map((d) => (
+                <div key={d.key} style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", color: "#9ca3af", marginBottom: 8 }}>{d.label}</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {d.slots.map((s) => (
+                      <button key={s.iso} type="button" onClick={() => pick(s.iso)}
+                        style={{ border: `1px solid ${NAVY}`, color: NAVY, background: "#fff", borderRadius: 12, padding: "12px 18px", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>
+                        {s.time}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -61,6 +87,5 @@ function buildDays(n) {
   return out;
 }
 function labelFor(iso) {
-  const d = new Date(iso);
-  return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric" }).format(d);
+  return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric" }).format(new Date(iso));
 }
