@@ -1899,32 +1899,6 @@ function PAAvailability({ me, onBack }) {
         )}
       </div>
 
-      {/* Weekly availability grid — default available, tap to turn OFF */}
-      <div style={card}>
-        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4, fontFamily: "'Oswald', sans-serif" }}>🗓 Weekly availability</div>
-        <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 12 }}>You're available for every 2-hour slot by default. <b>Tap any slot you can't do</b> to turn it off (gray). Green = available.</div>
-        {PA_WEEKDAYS.map(([wd, label]) => (
-          <div key={wd} style={{ padding: "8px 0", borderBottom: "1px solid #f1f5f9" }}>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>{label}</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {(PA_SLOT_HOURS[wd] || []).map((h) => {
-                const sm = h * 60;
-                const off = blocked.has(`${wd}:${sm}`);
-                return (
-                  <button key={sm} type="button" onClick={() => toggle(wd, sm)}
-                    style={{ padding: "8px 10px", borderRadius: 999, fontSize: 13, fontWeight: 700, cursor: "pointer",
-                      border: off ? "1px solid #e5e7eb" : "1px solid #16a34a",
-                      background: off ? "#f3f4f6" : "#dcfce7", color: off ? "#9ca3af" : "#166534",
-                      textDecoration: off ? "line-through" : "none" }}>
-                    {slotRangeLabel(sm)}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
-
       {/* Specific dates — tap a calendar day, then turn off the slots you can't do */}
       <div style={card}>
         <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4, fontFamily: "'Oswald', sans-serif" }}>📌 Specific dates off</div>
