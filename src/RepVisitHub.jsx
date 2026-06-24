@@ -34,6 +34,7 @@ export default function RepVisitHub() {
   const [deal, setDeal] = useState(null);
   const [referrals, setReferrals] = useState(null);
   const [photosFor, setPhotosFor] = useState(null);
+  const [appts, setAppts] = useState(null);   // upcoming PA appointments this rep booked
   const [err, setErr] = useState("");
 
   useEffect(() => {
@@ -58,6 +59,26 @@ export default function RepVisitHub() {
       const o = await api("referral-list", { rep_name: rep.name });
       setReferrals(o.referrals || []);
     } catch (e) { setErr(e.message); setReferrals([]); }
+  };
+  // Upcoming adjuster (PA) appointments THIS rep booked — future only.
+  const startApptsBooked = async () => {
+    setAppts(null); setErr(""); setStage("appts");
+    try {
+      const nowIso = new Date().toISOString();
+      const { data, error } = await supabase.from("pa_appointments")
+        .select("id,homeowner_name,homeowner_phone,address,start_at,pa_id")
+        .eq("booked_by", rep.name).eq("status", "scheduled")
+        .gte("start_at", nowIso).order("start_at", { ascending: true });
+      if (error) throw error;
+      const rows = data || [];
+      const ids = [...new Set(rows.map((r) => r.pa_id).filter(Boolean))];
+      const nameById = {};
+      if (ids.length) {
+        const { data: pas } = await supabase.from("pas").select("id,name").in("id", ids);
+        for (const p of (pas || [])) nameById[p.id] = p.name;
+      }
+      setAppts(rows.map((r) => ({ ...r, pa_name: nameById[r.pa_id] || "Adjuster" })));
+    } catch (e) { setErr(e.message); setAppts([]); }
   };
   // Open photos — first pull any JN-only photos into Supabase (idempotent;
   // no-op if they're already app-side), so deals whose photos live only in
@@ -86,8 +107,9 @@ export default function RepVisitHub() {
         {stage === "pick-rep" && <PickRep reps={reps} onPick={pickRep} />}
         {stage === "choose" && <Choose rep={rep} onNew={() => {
           window.location.href = `/?intake=1&rep=${encodeURIComponent(rep.jobnimbus_id || "")}&repName=${encodeURIComponent(rep.name || "")}&repEmail=${encodeURIComponent(rep.email || "")}`;
-        }} onType={startType} onReferrals={startReferrals} />}
+        }} onType={startType} onReferrals={startReferrals} onApptsBooked={startApptsBooked} />}
         {stage === "referrals" && <ReferralsView referrals={referrals} onBack={() => setStage("choose")} />}
+        {stage === "appts" && <ApptsBookedView appts={appts} onBack={() => setStage("choose")} />}
         {stage === "list" && <DealList type={visitType} deals={deals} onBack={() => setStage("choose")} onPick={(d) => { setDeal(d); setStage("panel"); }} />}
         {stage === "panel" && deal && (
           <Panel type={visitType} deal={deal} rep={rep} api={api} onBack={() => setStage("list")} onPhotos={() => openPhotos(deal)} />
@@ -141,7 +163,7 @@ function PickRep({ reps, onPick }) {
   );
 }
 
-function Choose({ rep, onNew, onType, onReferrals }) {
+function Choose({ rep, onNew, onType, onReferrals, onApptsBooked }) {
   const Btn = ({ color, emoji, label, sub, onClick }) => (
     <button onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", textAlign: "left", color: "#fff", background: color, border: "none", borderRadius: 14, padding: "16px 16px", marginBottom: 12, cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,.12)" }}>
       <span style={{ fontSize: 26 }}>{emoji}</span>
@@ -156,6 +178,7 @@ function Choose({ rep, onNew, onType, onReferrals }) {
       <Btn color="#16a34a" emoji="✅" label="No-Damage visit" sub="Get referrals + send their certificate" onClick={() => onType("no_damage")} />
       <Btn color="#d97706" emoji="🏠" label="Retail visit" sub="Schedule a retail options appointment" onClick={() => onType("retail")} />
       <Btn color="#6d28d9" emoji="🤝" label="Referrals" sub="People you were referred to — who to sign up" onClick={onReferrals} />
+      <Btn color="#0e7490" emoji="📅" label="Adjuster appts booked" sub="Upcoming PA appointments you've set" onClick={onApptsBooked} />
     </div>
   );
 }
@@ -363,6 +386,27 @@ function RetailPanel({ deal, rep, api }) {
 
 function BackBar({ onBack, title }) {
   return <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}><button onClick={onBack} style={S.back}>‹ Back</button><span style={{ fontWeight: 800, fontSize: 17 }}>{title}</span></div>;
+}
+
+// Upcoming adjuster appointments the rep has booked (future only).
+function ApptsBookedView({ appts, onBack }) {
+  const fmt = (iso) => { try { return new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch { return iso; } };
+  return (
+    <div>
+      <BackBar onBack={onBack} title="Adjuster appointments booked" />
+      {appts === null ? <p style={{ textAlign: "center", color: "#9ca3af", fontSize: 14, padding: "24px 0" }}>Loading…</p>
+        : !appts.length ? <p style={{ textAlign: "center", color: "#6b7280", fontSize: 14, padding: "24px 0" }}>No upcoming adjuster appointments. Book one on a Damage visit.</p>
+        : <div>{appts.map((a) => (
+            <div key={a.id} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "12px 14px", marginBottom: 10 }}>
+              <div style={{ fontWeight: 800, fontSize: 15 }}>{a.homeowner_name || "Homeowner"}</div>
+              <div style={{ color: "#15803d", fontWeight: 700, fontSize: 13.5, marginTop: 2 }}>🗓 {fmt(a.start_at)}</div>
+              <div style={{ fontSize: 13, color: "#475569", marginTop: 2 }}>🧑‍⚖️ {a.pa_name}</div>
+              {a.address && <div style={{ fontSize: 13, color: "#475569", marginTop: 2 }}>📍 {a.address}</div>}
+              {a.homeowner_phone && <div style={{ fontSize: 13, marginTop: 2 }}><a href={`tel:${a.homeowner_phone}`} style={{ color: "#0369a1" }}>📞 {a.homeowner_phone}</a></div>}
+            </div>
+          ))}</div>}
+    </div>
+  );
 }
 function ymdET(d = new Date()) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
