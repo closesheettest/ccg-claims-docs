@@ -60,17 +60,37 @@ export default function RepVisitHub() {
       setReferrals(o.referrals || []);
     } catch (e) { setErr(e.message); setReferrals([]); }
   };
-  // Upcoming adjuster (PA) appointments THIS rep booked — future only.
+  // Upcoming adjuster (PA) appointments for THIS rep's homeowners — future only.
+  // Matches by the deal's sales rep (JobNimbus id, name fallback), so an appt the
+  // PA (or the company) booked still surfaces here — it's still the rep's homeowner.
+  // Also includes anything the rep booked directly.
   const startApptsBooked = async () => {
     setAppts(null); setErr(""); setStage("appts");
     try {
       const nowIso = new Date().toISOString();
-      const { data, error } = await supabase.from("pa_appointments")
-        .select("id,homeowner_name,homeowner_phone,address,start_at,pa_id")
-        .eq("booked_by", rep.name).eq("status", "scheduled")
-        .gte("start_at", nowIso).order("start_at", { ascending: true });
+      // 1) This rep's deals (their homeowners). Prefer JobNimbus id; name as fallback.
+      const repInspIds = new Set();
+      if (rep.jobnimbus_id) {
+        const { data } = await supabase.from("inspections").select("id")
+          .or(`sales_rep_id.eq.${rep.jobnimbus_id},original_sales_rep_id.eq.${rep.jobnimbus_id}`);
+        for (const r of (data || [])) repInspIds.add(r.id);
+      }
+      if (rep.name) {
+        try {
+          const { data } = await supabase.from("inspections").select("id")
+            .or(`sales_rep_name.eq.${rep.name},original_sales_rep_name.eq.${rep.name}`);
+          for (const r of (data || [])) repInspIds.add(r.id);
+        } catch { /* odd name → skip name match, id match still applies */ }
+      }
+      // 2) All upcoming scheduled PA appointments, then keep the ones for this
+      //    rep's homeowners OR that this rep booked.
+      const { data: all, error } = await supabase.from("pa_appointments")
+        .select("id,homeowner_name,homeowner_phone,address,start_at,pa_id,inspection_id,booked_by")
+        .eq("status", "scheduled").gte("start_at", nowIso)
+        .order("start_at", { ascending: true });
       if (error) throw error;
-      const rows = data || [];
+      const rows = (all || []).filter((a) =>
+        (a.inspection_id && repInspIds.has(a.inspection_id)) || (a.booked_by && a.booked_by === rep.name));
       const ids = [...new Set(rows.map((r) => r.pa_id).filter(Boolean))];
       const nameById = {};
       if (ids.length) {
@@ -109,7 +129,7 @@ export default function RepVisitHub() {
           window.location.href = `/?intake=1&rep=${encodeURIComponent(rep.jobnimbus_id || "")}&repName=${encodeURIComponent(rep.name || "")}&repEmail=${encodeURIComponent(rep.email || "")}`;
         }} onType={startType} onReferrals={startReferrals} onApptsBooked={startApptsBooked} />}
         {stage === "referrals" && <ReferralsView referrals={referrals} onBack={() => setStage("choose")} />}
-        {stage === "appts" && <ApptsBookedView appts={appts} onBack={() => setStage("choose")} />}
+        {stage === "appts" && <ApptsBookedView appts={appts} rep={rep} onBack={() => setStage("choose")} />}
         {stage === "list" && <DealList type={visitType} deals={deals} onBack={() => setStage("choose")} onPick={(d) => { setDeal(d); setStage("panel"); }} />}
         {stage === "panel" && deal && (
           <Panel type={visitType} deal={deal} rep={rep} api={api} onBack={() => setStage("list")} onPhotos={() => openPhotos(deal)} />
@@ -389,18 +409,18 @@ function BackBar({ onBack, title }) {
 }
 
 // Upcoming adjuster appointments the rep has booked (future only).
-function ApptsBookedView({ appts, onBack }) {
+function ApptsBookedView({ appts, rep, onBack }) {
   const fmt = (iso) => { try { return new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch { return iso; } };
   return (
     <div>
       <BackBar onBack={onBack} title="Adjuster appointments booked" />
       {appts === null ? <p style={{ textAlign: "center", color: "#9ca3af", fontSize: 14, padding: "24px 0" }}>Loading…</p>
-        : !appts.length ? <p style={{ textAlign: "center", color: "#6b7280", fontSize: 14, padding: "24px 0" }}>No upcoming adjuster appointments. Book one on a Damage visit.</p>
+        : !appts.length ? <p style={{ textAlign: "center", color: "#6b7280", fontSize: 14, padding: "24px 0" }}>No upcoming adjuster appointments for your homeowners. Book one on a Damage visit — or the adjuster can set it themselves.</p>
         : <div>{appts.map((a) => (
             <div key={a.id} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "12px 14px", marginBottom: 10 }}>
               <div style={{ fontWeight: 800, fontSize: 15 }}>{a.homeowner_name || "Homeowner"}</div>
               <div style={{ color: "#15803d", fontWeight: 700, fontSize: 13.5, marginTop: 2 }}>🗓 {fmt(a.start_at)}</div>
-              <div style={{ fontSize: 13, color: "#475569", marginTop: 2 }}>🧑‍⚖️ {a.pa_name}</div>
+              <div style={{ fontSize: 13, color: "#475569", marginTop: 2 }}>🧑‍⚖️ {a.pa_name}{a.booked_by && a.booked_by !== rep.name ? <span style={{ color: "#94a3b8" }}> · set by {a.booked_by}</span> : null}</div>
               {a.address && <div style={{ fontSize: 13, color: "#475569", marginTop: 2 }}>📍 {a.address}</div>}
               {a.homeowner_phone && <div style={{ fontSize: 13, marginTop: 2 }}><a href={`tel:${a.homeowner_phone}`} style={{ color: "#0369a1" }}>📞 {a.homeowner_phone}</a></div>}
             </div>
