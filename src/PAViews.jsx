@@ -1725,7 +1725,7 @@ export function FloridaZoneMap({ selected, counts, onToggle, home, radiusMi, hom
   }
   // Team view: one radius circle per PA home — their combined coverage footprint.
   const teamCircles = (homes || []).filter((h) => h && h.lat != null && h.lng != null).map((h, i) => {
-    const cx = projX(+h.lng), cy = projY(+h.lat), r = milesToR(h.radiusMi > 0 ? +h.radiusMi : 60);
+    const cx = projX(+h.lng), cy = projY(+h.lat), r = milesToR(h.radiusMi > 0 ? +h.radiusMi : 100);
     return (
       <g key={"h" + i} pointerEvents="none">
         <circle cx={cx} cy={cy} r={r} fill="#0e7490" fillOpacity="0.09" stroke="#0e7490" strokeWidth="1.1" strokeDasharray="3 2" />
@@ -1768,7 +1768,7 @@ export function FloridaZoneMap({ selected, counts, onToggle, home, radiusMi, hom
 // scheduler only offers you appointments in these zones (empty = everywhere).
 function PAZonesCard({ me }) {
   const [zones, setZones] = useState(() => new Set(Array.isArray(me.zones) ? me.zones : []));
-  const [radius, setRadius] = useState(me.max_distance_miles != null ? Math.min(60, +me.max_distance_miles) : 60);
+  const [radius, setRadius] = useState(me.max_distance_miles != null ? Math.min(100, +me.max_distance_miles) : 100);
   const [home, setHome] = useState(me.latitude != null && me.longitude != null ? { lat: +me.latitude, lng: +me.longitude } : null);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -1778,7 +1778,7 @@ function PAZonesCard({ me }) {
         const { data, error } = await supabase.from("pas").select("zones,max_distance_miles,latitude,longitude").eq("id", me.id).single();
         if (!error && data) {
           if (Array.isArray(data.zones)) setZones(new Set(data.zones));
-          if (data.max_distance_miles != null) setRadius(Math.min(60, +data.max_distance_miles));
+          if (data.max_distance_miles != null) setRadius(Math.min(100, +data.max_distance_miles));
           if (data.latitude != null && data.longitude != null) setHome({ lat: +data.latitude, lng: +data.longitude });
         }
       } catch { /* zones column not added yet */ }
@@ -1795,7 +1795,7 @@ function PAZonesCard({ me }) {
   return (
     <div style={card}>
       <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4, fontFamily: "'Oswald', sans-serif" }}>📍 My zones</div>
-      <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 12 }}>Tap the coast(s) you cover. You'll only be offered appointments on those coasts, within your mile radius below (max 60). No coast selected = anything within your radius.</div>
+      <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 12 }}>Tap the coast(s) you cover. You'll only be offered appointments on those coasts, within your mile radius below (max 100). No coast selected = anything within your radius.</div>
       <FloridaZoneMap selected={zones} onToggle={toggle} home={home} radiusMi={radius} />
       <div style={{ display: "grid", gap: 6, marginTop: 12 }}>
         {FL_ZONES.map((z) => {
@@ -1820,8 +1820,8 @@ function PAZonesCard({ me }) {
           <span style={{ fontSize: 13, fontWeight: 700 }}>📏 Also cover within radius</span>
           <span style={{ fontSize: 14, fontWeight: 800, color: "#0e7490" }}>{radius} mi</span>
         </div>
-        <input type="range" min="0" max="60" step="5" value={radius} onChange={(e) => setRadius(+e.target.value)} style={{ width: "100%" }} />
-        <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>How far you'll travel from home (the teal circle) — max 60 miles.{!home ? " Add your home address in setup to see the circle." : ""}</div>
+        <input type="range" min="0" max="100" step="5" value={radius} onChange={(e) => setRadius(+e.target.value)} style={{ width: "100%" }} />
+        <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>How far you'll travel from home (the teal circle) — max 100 miles.{!home ? " Add your home address in setup to see the circle." : ""}</div>
       </div>
       {msg && <div style={{ marginTop: 10, fontSize: 13, color: msg.ok ? "#15803d" : "#b91c1c" }}>{msg.text}</div>}
       <button type="button" onClick={save} disabled={saving} style={{ marginTop: 12, padding: "10px 20px", borderRadius: 10, border: "none", background: "#16a34a", color: "#fff", fontWeight: 700, cursor: "pointer", opacity: saving ? 0.6 : 1 }}>

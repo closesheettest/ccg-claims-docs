@@ -24,7 +24,7 @@ const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
 const SLOT_MIN = 120;       // 2-hour appointments
 const HORIZON_DAYS = 14;    // how far out to offer slots
-const MAX_MI = 60;          // hide PAs farther than this from an in-person appt
+const MAX_MI = 100;         // hide PAs farther than this from an in-person appt
 
 // Fixed grid of designated 2-hour appointment START times (hour, ET) per
 // weekday (0=Sun … 6=Sat). EVERY PA is available for ALL of these by default;
@@ -38,7 +38,7 @@ const SLOT_TIMES_MIN = Object.fromEntries(Object.entries(WD_HOURS).map(([wd, hrs
 
 // ── PA coverage zones: TWO coasts, the state split down the middle by longitude.
 // West of SPLIT_LNG = West Coast (Gulf + panhandle); east = East Coast (Atlantic).
-// Separate from the 4 sales zones in all-no-sits.js. Combined with a hard 60-mi
+// Separate from the 4 sales zones in all-no-sits.js. Combined with a hard 100-mi
 // cap, a PA is offered an appt only on a coast they cover AND within their radius.
 const SPLIT_LNG = -81.5;
 function lngToZone(lng) { return (lng == null || !Number.isFinite(+lng)) ? null : (+lng < SPLIT_LNG ? "West Coast" : "East Coast"); }
@@ -128,12 +128,12 @@ async function buildSlots(days, home, apptZone) {
     const dateStr = `${y}-${String(mo).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     for (const pa of pas) {
       // Coverage = on a COAST the PA covers AND within their mile RADIUS of home.
-      // Radius is hard-capped at MAX_MI (60) — no PA is ever offered an appt
+      // Radius is hard-capped at MAX_MI (100) — no PA is ever offered an appt
       // farther than that. Unknown distance (no home geocode) → don't exclude on
       // distance. No coasts picked → distance-only (within their radius).
       const dist = distByPa[pa.id];
       const radius = Math.min(MAX_MI, (pa.max_distance_miles > 0) ? +pa.max_distance_miles : MAX_MI);
-      if (dist != null && dist > radius) continue;               // beyond their radius (≤60 mi)
+      if (dist != null && dist > radius) continue;               // beyond their radius (≤100 mi)
       const zs = zonesByPa[pa.id];
       if (zs && zs.length && apptZone && !zs.includes(apptZone)) continue;  // wrong coast
       const blocked = blockedByPa[pa.id];
