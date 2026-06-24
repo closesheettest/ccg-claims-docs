@@ -233,14 +233,22 @@ exports.handler = async (event) => {
     return cors(200, JSON.stringify({ ok: true }));
   }
 
-  // action "load": every open homeowner in this company's pool.
-  const deals = await get(
-    `${SB_URL}/rest/v1/inspections?pa_company_id=eq.${company.id}` +
-      `&cancelled_at=is.null&or=(pa_stage.is.null,pa_stage.neq.dead)` +
-      `&select=id,client_name,address,city,state,zip,county,signed_at,mobile,latitude,longitude,pa_id,pa_stage,pa_opened_at,pa_notes_log,correction_needed,pa_company_at,spanish_only` +
-      `&order=signed_at.desc&limit=500`,
-    sb,
-  );
+  // action "load": every open homeowner the company should see — their POOL
+  // (pa_company_id) PLUS every deal currently assigned to one of their PAs.
+  // Booking (rep Damage visit or PA self-schedule) sets pa_company_id=null, so
+  // without the pa_id pass those booked deals would vanish from the company view.
+  const sel = `select=id,client_name,address,city,state,zip,county,signed_at,mobile,latitude,longitude,pa_id,pa_company_id,pa_stage,pa_opened_at,pa_notes_log,correction_needed,pa_company_at,spanish_only,cancelled_at`;
+  const dealMap = {};
+  for (const d of (await get(`${SB_URL}/rest/v1/inspections?pa_company_id=eq.${company.id}&${sel}&order=signed_at.desc&limit=500`, sb)) || []) dealMap[d.id] = d;
+  const paIdList = pas.map((p) => p.id);
+  if (paIdList.length) {
+    const inList = `(${paIdList.map((id) => `"${id}"`).join(",")})`;
+    for (const d of (await get(`${SB_URL}/rest/v1/inspections?pa_id=in.${encodeURIComponent(inList)}&${sel}&order=signed_at.desc&limit=500`, sb)) || []) dealMap[d.id] = d;
+  }
+  // Drop cancelled + dead, then newest-signed first.
+  const deals = Object.values(dealMap)
+    .filter((d) => !d.cancelled_at && d.pa_stage !== "dead")
+    .sort((a, b) => String(b.signed_at || "").localeCompare(String(a.signed_at || "")));
   const paName = {};
   for (const p of pas) paName[p.id] = p.name;
   const now = Date.now();
