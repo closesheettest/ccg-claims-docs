@@ -36,6 +36,25 @@ const WD_HOURS = {
 };
 const SLOT_TIMES_MIN = Object.fromEntries(Object.entries(WD_HOURS).map(([wd, hrs]) => [wd, hrs.map((h) => h * 60)]));
 
+// ── Florida Zones (county-based) ─────────────────────────────────────────────
+// Mirrors the authoritative map in all-no-sits.js — keep in sync. A PA covers a
+// set of these; an appointment's zone is decided by the property's county.
+const ZONE_COUNTIES = {
+  "Zone 1": ["Nassau", "Duval", "Baker", "Union", "Bradford", "Clay", "St. Johns", "Putnam", "Flagler", "Alachua", "Levy", "Marion", "Sumter", "Lake", "Seminole", "Volusia"],
+  "Zone 2": ["Pasco", "Hillsborough", "Polk", "Osceola", "Indian River", "Highlands", "Citrus", "Hernando"],
+  "Zone 3": ["Pinellas", "Manatee", "Sarasota", "Charlotte", "Lee", "Collier", "Monroe", "Hardee", "DeSoto", "Glades", "Hendry", "St. Lucie", "Okeechobee"],
+  "Zone 4": ["Martin", "Palm Beach", "Broward", "Miami-Dade"],
+};
+const SPLIT_LAT_ZONE = 28.55; // Brevard & Orange: north→Zone 1, south→Zone 2
+function normCty(s) { return String(s || "").toLowerCase().replace(/\bcounty\b/g, "").replace(/[^a-z0-9]+/g, " ").trim(); }
+const CTY_ZONE = (() => { const m = {}; for (const [z, cs] of Object.entries(ZONE_COUNTIES)) for (const c of cs) m[normCty(c)] = z; return m; })();
+function countyToZone(county, lat) {
+  const n = normCty(county);
+  if (!n) return null;
+  if (n === "brevard" || n === "orange") return (lat != null && +lat >= SPLIT_LAT_ZONE) ? "Zone 1" : "Zone 2";
+  return CTY_ZONE[n] || null;
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return cors(200, "");
   if (event.httpMethod !== "POST") return cors(405, JSON.stringify({ ok: false, error: "POST only" }));
@@ -53,15 +72,18 @@ exports.handler = async (event) => {
   try {
     if (action === "slots") {
       const days = Math.min(Math.max(parseInt(body.days, 10) || HORIZON_DAYS, 1), 30);
-      // Homeowner location (for distance) — from the inspection, or passed direct.
-      let home = null;
+      // Homeowner location (for distance) + zone (for PA coverage) — from the
+      // inspection, or passed direct.
+      let home = null, apptZone = null;
       const inspId = String(body.inspection_id || "").trim();
       if (inspId) {
-        const r = (await sbGet(`inspections?id=eq.${encodeURIComponent(inspId)}&select=latitude,longitude&limit=1`))[0];
+        const r = (await sbGet(`inspections?id=eq.${encodeURIComponent(inspId)}&select=latitude,longitude,county&limit=1`))[0];
         if (r && r.latitude != null && r.longitude != null) home = { lat: +r.latitude, lng: +r.longitude };
+        if (r && r.county) apptZone = countyToZone(r.county, r.latitude);
       }
       if (!home && body.lat != null && body.lng != null) home = { lat: +body.lat, lng: +body.lng };
-      return cors(200, JSON.stringify({ ok: true, slots: await buildSlots(days, home) }));
+      if (!apptZone && body.zone) apptZone = String(body.zone).trim();   // optional explicit override
+      return cors(200, JSON.stringify({ ok: true, slots: await buildSlots(days, home, apptZone) }));
     }
     if (action === "book") return await book(body);
     return cors(400, JSON.stringify({ ok: false, error: `Unknown action: ${action}` }));
@@ -70,9 +92,18 @@ exports.handler = async (event) => {
   }
 };
 
-async function buildSlots(days, home) {
+async function buildSlots(days, home, apptZone) {
   const pas = await sbGet(`pas?active=eq.true&select=id,name,pa_company_id,latitude,longitude&limit=500`);
   if (!pas.length) return [];
+  // PA zone coverage — fetched separately and tolerantly so this works even
+  // before the pas.zones column exists (then nobody is zone-filtered). A PA with
+  // an empty zones[] covers ALL zones (backward compatible).
+  const zonesByPa = {};
+  try {
+    for (const p of (await sbGet(`pas?active=eq.true&select=id,zones&limit=500`))) {
+      if (Array.isArray(p.zones) && p.zones.length) zonesByPa[p.id] = p.zones;
+    }
+  } catch { /* zones column not added yet — skip zone filtering */ }
   // Distance (mi) from the homeowner to each PA's home base, when both geocoded.
   const distByPa = {};
   for (const p of pas) {
@@ -110,6 +141,9 @@ async function buildSlots(days, home) {
     for (const pa of pas) {
       const dist = distByPa[pa.id];
       if (dist != null && dist > MAX_MI) continue;            // too far for an in-person 2hr appt
+      // Zone coverage: if we know the appointment's zone and the PA has set zones,
+      // only offer the PA when they cover it. (No zone known, or PA covers all → keep.)
+      if (apptZone && zonesByPa[pa.id] && !zonesByPa[pa.id].includes(apptZone)) continue;
       const blocked = blockedByPa[pa.id];
       const dblocked = dateBlockedByPa[pa.id];
       for (const s of times) {
