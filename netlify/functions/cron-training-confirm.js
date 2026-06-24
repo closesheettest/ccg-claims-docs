@@ -38,19 +38,22 @@ export const handler = async (event) => {
   const yesterday = yesterdayET();
 
   const rows = await sbGet(
-    `ride_alongs?ride_date=eq.${yesterday}&text_sent_at=is.null&select=id,rep_name,rep_phone,confirm_token&limit=500`,
+    `ride_alongs?ride_date=eq.${yesterday}&text_sent_at=is.null&select=id,rep_id,rep_name,rep_phone,confirm_token&limit=500`,
   );
+  const emailByRep = await fetchEmails(rows.map((r) => r.rep_id));
 
   let sent = 0, skipped = 0;
   const failures = [];
   for (const r of rows) {
-    if (!r.rep_phone) { skipped++; continue; }
+    const email = emailByRep[r.rep_id] || "";
+    if (!r.rep_phone && !email) { skipped++; continue; }
     const first = (r.rep_name || "").trim().split(/\s+/)[0] || "";
     const link = `${base}/?ridealong=${r.confirm_token}`;
     const message =
       `Hey${first ? " " + first : ""}! Quick one — did you go out with William for training yesterday? ` +
       `Tap to confirm your hours: ${link}`;
-    const ok = await sendSms(base, r.rep_phone, r.rep_name, message);
+    const emailBody = `Hey${first ? " " + first : ""}! Quick one — did you go out with William for training yesterday? Tap below to confirm your hours.`;
+    const ok = await sendBoth(base, r.rep_phone, email, r.rep_name, "Confirm your training hours with William", message, emailBody, link);
     if (ok) {
       await fetch(`${SB_URL}/rest/v1/ride_alongs?id=eq.${r.id}`, {
         method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify({ text_sent_at: new Date().toISOString() }),
@@ -68,19 +71,22 @@ export const handler = async (event) => {
   // expected) + rows with no phone.
   const cutoff = addDaysET(yesterday, -13); // 14-day window ending yesterday
   const pending = await sbGet(
-    `ride_alongs?text_sent_at=not.is.null&confirmed=is.null&ride_date=gte.${cutoff}&ride_date=lt.${yesterday}&rep_id=neq.__none__&select=id,rep_name,rep_phone,confirm_token,ride_date,refused_to_ride&limit=500`,
+    `ride_alongs?text_sent_at=not.is.null&confirmed=is.null&ride_date=gte.${cutoff}&ride_date=lt.${yesterday}&rep_id=neq.__none__&select=id,rep_id,rep_name,rep_phone,confirm_token,ride_date,refused_to_ride&limit=500`,
   );
+  const emailByRepRem = await fetchEmails(pending.map((r) => r.rep_id));
   let reminded = 0;
   const remindFailures = [];
   for (const r of pending) {
     if (r.refused_to_ride === true) continue; // trainer-reported, no rep text
-    if (!r.rep_phone) continue;
+    const email = emailByRepRem[r.rep_id] || "";
+    if (!r.rep_phone && !email) continue;
     const first = (r.rep_name || "").trim().split(/\s+/)[0] || "";
     const link = `${base}/?ridealong=${r.confirm_token}`;
     const message =
       `Reminder${first ? " " + first : ""} — we still need your training hours from ${fmtDate(r.ride_date)} with William. ` +
       `It only takes a sec: ${link}`;
-    const ok = await sendSms(base, r.rep_phone, r.rep_name, message);
+    const emailBody = `Reminder${first ? " " + first : ""} — we still need your training hours from ${fmtDate(r.ride_date)} with William. Tap below to confirm.`;
+    const ok = await sendBoth(base, r.rep_phone, email, r.rep_name, "Reminder: confirm your training hours", message, emailBody, link);
     if (ok) reminded++;
     else remindFailures.push(r.rep_name || r.id);
   }
@@ -98,6 +104,48 @@ async function sendSms(base, to, name, message) {
     console.warn("ghl-sms send failed:", e.message || e);
     return false;
   }
+}
+
+// Look up rep emails by their JobNimbus id (ride_alongs.rep_id = sales_reps.jobnimbus_id).
+async function fetchEmails(ids) {
+  const uniq = [...new Set((ids || []).filter(Boolean))];
+  if (!uniq.length) return {};
+  const chunk = uniq.map((x) => `"${x}"`).join(",");
+  const rows = await sbGet(`sales_reps?jobnimbus_id=in.(${encodeURIComponent(chunk)})&select=jobnimbus_id,email`);
+  const m = {};
+  for (const r of rows) if (r.email && String(r.email).includes("@")) m[r.jobnimbus_id] = r.email;
+  return m;
+}
+
+// Send by BOTH channels — SMS and email — so a DND / opted-out phone still gets
+// it. Returns true if EITHER channel succeeded.
+async function sendBoth(base, phone, email, name, subject, smsMessage, emailBody, link) {
+  let any = false;
+  if (phone && await sendSms(base, phone, name, smsMessage)) any = true;
+  if (email && await sendEmail(base, email, subject, emailBody, link)) any = true;
+  return any;
+}
+
+async function sendEmail(base, to, subject, bodyText, link) {
+  try {
+    const html =
+      `<div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;color:#111827">` +
+      `<p style="font-size:15px;line-height:1.6">${escapeHtml(bodyText)}</p>` +
+      `<p style="margin:18px 0"><a href="${link}" style="display:inline-block;background:#16a34a;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:700">Confirm my training hours</a></p>` +
+      `<p style="font-size:12px;color:#6b7280">Or open this link: <a href="${link}">${escapeHtml(link)}</a></p>` +
+      `</div>`;
+    const r = await fetch(`${base}/.netlify/functions/send-email`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to, subject, html }),
+    });
+    return r.ok;
+  } catch (e) {
+    console.warn("send-email failed:", e.message || e);
+    return false;
+  }
+}
+
+function escapeHtml(s) {
+  return String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
 
 async function sbGet(path) {
