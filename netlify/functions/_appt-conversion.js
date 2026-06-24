@@ -11,11 +11,16 @@
 //     ("collect payment", reschedules) dated AFTER the sale, which would mis-date
 //     or inflate things. A sale implies an appointment happened, so sold = 1+1.
 //   • An UNSOLD job with a real APPOINTMENT TASK (Initial / Reset / Appointment)
-//     whose date is in the period counts as one appointment. A free-inspection
-//     SIGNING has no appointment task, so it never counts. isStaleAppt() also
-//     drops a task on a deal that already sold in a PRIOR period (e.g. an
-//     Install-Complete job getting a new task) unless it's genuinely re-appointed
-//     (status "Appointment Scheduled" / "Reset Appointment").
+//     counts as one appointment, in the week of its LATEST appt task (the actual
+//     sit) — never an earlier no-show/original, so an original + reschedule of
+//     the SAME opportunity counts once, not in two periods. A free-inspection
+//     SIGNING has no appointment task, so it never counts.
+//   • A "no-sit reschedule" deal (status "No Sit- Need to Reschedule" / "No Sit
+//     - Rescheduled") NEVER PRESENTED, so it does not count against closing %.
+//     It counts later, in the week it actually re-sits (status moves off these).
+//   • isStaleAppt() also drops a task on a deal that already sold in a PRIOR
+//     period (e.g. an Install-Complete job getting a new task) unless it's
+//     genuinely re-appointed (status "Appointment Scheduled" / "Reset Appointment").
 //   Type buckets (mutually exclusive): btr = source "Inspection" · harv =
 //   "Sales Rep Harvested" = Yes · comp = everything else.
 //   Sales % = sales ÷ appointments (always ≤ 100% now — every sale is also an
@@ -52,6 +57,13 @@ function isStaleAppt(job, apptDateSec) {
   if (!Number.isFinite(ad) || sold >= ad) return false; // appt at/before the sale → it's the original sit
   return !ACTIVE_APPT_STATUSES.has(normStatus(job.status_name)); // sold-then-later-appt → stale unless re-appointed
 }
+
+// "No-sit reschedule" statuses: the rep NEVER PRESENTED (no-showed / homeowner
+// pushed it), so these do NOT count as appointments against closing %. They
+// count later, in the week the deal actually re-sits (status moves off these).
+// Exact JN status_name spellings mirror all-no-sits.js.
+const NO_SIT_RESCHEDULE_STATUSES = new Set(["no sit need to reschedule", "no sit rescheduled"]);
+function isNoSitReschedule(job) { return NO_SIT_RESCHEDULE_STATUSES.has(normStatus(job.status_name)); }
 function fieldMap(job) {
   const m = {};
   for (const [k, v] of Object.entries(job)) {
@@ -67,13 +79,20 @@ function soldDateSec(job) {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-// Appointment-task metadata in the window: per job, the EARLIEST appt date (for
-// isStaleAppt) and the SET of who created its appt tasks (for "harvested" — a
-// rep who created the appointment task self-generated it).
+// Appointment-task metadata: per job, the EARLIEST in-window appt date, the
+// LATEST appt date up to now (so we can count a reschedule in its actual-sit
+// week, never an earlier no-show), whether an in-window task was a Reset, and
+// the SET of who created the appt tasks (for "harvested" — a rep who created
+// the appointment task self-generated it).
 async function fetchApptTaskMeta(jnKey, startSec, endSec) {
   const headers = { Authorization: `bearer ${jnKey}`, "Content-Type": "application/json" };
-  const meta = new Map(); // jobId -> { date, creators:Set<string> }
-  const taskFilter = encodeURIComponent(JSON.stringify({ must: [{ range: { date_start: { gte: startSec, lte: endSec } } }] }));
+  const meta = new Map(); // jobId -> { date, latest, creators:Set, resetInWindow, inWindow }
+  // Scan from the window start through NOW — not just endSec — so a LATER reset
+  // of an in-window appointment is visible. A reset deal counts only in the week
+  // of its LATEST appt task (the real sit), so one opportunity never counts twice.
+  const nowSec = Math.floor(Date.now() / 1000);
+  const scanEnd = Math.max(endSec, nowSec);
+  const taskFilter = encodeURIComponent(JSON.stringify({ must: [{ range: { date_start: { gte: startSec, lte: scanEnd } } }] }));
   for (let page = 0; page < 40; page++) {
     const r = await fetch(`${JN_BASE}/tasks?size=100&from=${page * 100}&filter=${taskFilter}`, { headers });
     if (!r.ok) break;
@@ -82,13 +101,20 @@ async function fetchApptTaskMeta(jnKey, startSec, endSec) {
     for (const t of rows) {
       if (!APPT_TASK_TYPES.has(t.record_type_name)) continue;
       const td = Number(t.date_start) || 0;
+      const inWindow = td >= startSec && td <= endSec;
+      const isReset = t.record_type_name === "Reset Appointment";
       const by = t.created_by ? String(t.created_by) : null;
       for (const rel of (t.related || [])) {
         if (rel.type !== "job" || !rel.id) continue;
         let m = meta.get(rel.id);
-        if (!m) { m = { date: td, creators: new Set() }; meta.set(rel.id, m); }
-        if (td && (!m.date || td < m.date)) m.date = td;
+        if (!m) { m = { date: 0, latest: 0, creators: new Set(), resetInWindow: false, inWindow: false }; meta.set(rel.id, m); }
+        if (td > m.latest) m.latest = td;
         if (by) m.creators.add(by);
+        if (inWindow) {
+          m.inWindow = true;
+          if (td && (!m.date || td < m.date)) m.date = td;
+          if (isReset) m.resetInWindow = true;
+        }
       }
     }
     if (rows.length < 100) break;
@@ -96,16 +122,27 @@ async function fetchApptTaskMeta(jnKey, startSec, endSec) {
   return meta;
 }
 
-// APPOINTMENTS: jobs with an appointment task whose date is in the window.
-// isStaleAppt() drops a post-sale reschedule (appt put in after the deal sold).
+// APPOINTMENTS: jobs counted in the week of their LATEST appt task (the actual
+// sit). Drops: a post-sale reschedule (isStaleAppt), an opportunity whose latest
+// appt is in a LATER week (it counts there, not here — no double-count), and a
+// "no-sit reschedule" deal that never presented (it counts when it re-sits).
 async function fetchApptJobs(jnKey, startSec, endSec, taskMeta) {
   const headers = { Authorization: `bearer ${jnKey}`, "Content-Type": "application/json" };
   const meta = taskMeta || await fetchApptTaskMeta(jnKey, startSec, endSec);
   const jobs = await fetchJobsByIds(headers, [...meta.keys()]);
   return jobs.filter((j) => {
     const m = meta.get(j.jnid || j.id);
-    j.__apptDate = m && m.date;
-    j.__apptTaskCreators = m ? [...m.creators] : [];
+    if (!m) return false;
+    // Count the deal once, in the week of its LATEST appt task — never an
+    // earlier no-show/original. If the latest task is outside this window, it
+    // belongs to that (later) week's count, so skip it here.
+    if (!(m.latest >= startSec && m.latest <= endSec)) return false;
+    j.__apptDate = m.latest;
+    j.__apptTaskCreators = [...m.creators];
+    j.__isReset = m.resetInWindow;
+    // Never PRESENTED → not an appointment. The no-show/reschedule doesn't count
+    // against closing %; the deal counts later, in the week it actually re-sits.
+    if (isNoSitReschedule(j)) return false;
     return !isStaleAppt(j, j.__apptDate);
   });
 }
@@ -197,6 +234,7 @@ function dealInfo(job) {
     rb: isYes(F["Radiant Barrier"]),         // Radiant Barrier on the deal?
     ins: isYes(F["Insulation"]),             // Insulation on the deal?
     fromAssigned: !!job.__repFromAssigned,   // rep came from Assigned field, not Sales Rep
+    isReset: !!job.__isReset,                 // counted appt was a Reset Appointment (a re-sit/follow-up)
   };
 }
 
