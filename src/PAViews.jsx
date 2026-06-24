@@ -1708,7 +1708,7 @@ const FL_ZONES = [
   { zone: "East Coast", label: "East", desc: "Atlantic side — Daytona · Orlando · Palm Beach · Broward · Miami", color: "#ea580c" },
 ];
 const FL_ZONE_COLOR = Object.fromEntries(FL_ZONES.map((z) => [z.zone, z.color]));
-export function FloridaZoneMap({ selected, counts, onToggle, home, radiusMi, homes }) {
+export function FloridaZoneMap({ selected, counts, onToggle, home, radiusMi, homes, selectedId }) {
   const pick = !!onToggle;
   const projX = (lng) => (lng - FL_PROJ.minLng) * FL_PROJ.k * FL_PROJ.scale;
   const projY = (lat) => (FL_PROJ.maxLat - lat) * FL_PROJ.scale;
@@ -1724,12 +1724,16 @@ export function FloridaZoneMap({ selected, counts, onToggle, home, radiusMi, hom
     );
   }
   // Team view: one radius circle per PA home — their combined coverage footprint.
+  // When selectedId is set, that PA's circle is bold + labeled and the rest dim.
   const teamCircles = (homes || []).filter((h) => h && h.lat != null && h.lng != null).map((h, i) => {
-    const cx = projX(+h.lng), cy = projY(+h.lat), r = milesToR(h.radiusMi > 0 ? +h.radiusMi : 100);
+    const cx = projX(+h.lng), cy = projY(+h.lat), mi = h.radiusMi > 0 ? +h.radiusMi : 100, r = milesToR(mi);
+    const sel = selectedId != null && h.id === selectedId;
+    const dim = selectedId != null && !sel;
     return (
-      <g key={"h" + i} pointerEvents="none">
-        <circle cx={cx} cy={cy} r={r} fill="#0e7490" fillOpacity="0.09" stroke="#0e7490" strokeWidth="1.1" strokeDasharray="3 2" />
-        <circle cx={cx} cy={cy} r="2.6" fill="#0e7490" stroke="#fff" strokeWidth="0.7" />
+      <g key={"h" + i} pointerEvents="none" opacity={dim ? 0.16 : 1}>
+        <circle cx={cx} cy={cy} r={r} fill="#0e7490" fillOpacity={sel ? 0.18 : 0.09} stroke="#0e7490" strokeWidth={sel ? 2.1 : 1.1} strokeDasharray={sel ? "0" : "3 2"} />
+        <circle cx={cx} cy={cy} r={sel ? 3.4 : 2.6} fill="#0e7490" stroke="#fff" strokeWidth={sel ? 1 : 0.7} />
+        {sel && <text x={cx} y={cy - 6} textAnchor="middle" fontSize="11" fontWeight="800" fill="#0e7490" stroke="#fff" strokeWidth="0.7" paintOrder="stroke">{h.name} · {mi} mi</text>}
       </g>
     );
   });
