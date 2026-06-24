@@ -6832,7 +6832,7 @@ export default function App() {
     // returned above; fall through to the existing signing intake only for
     // ?intake=1 (the hub's "New inspection"), ?sign=… (email sign links), and
     // ?mode=inspector (the inspector app, handled below via view state).
-    if (!params.get("intake") && !params.get("sign") && portalMode !== "inspector") {
+    if (!params.get("intake") && !params.get("sign") && portalMode !== "inspector" && portalMode !== "manager") {
       return <RepVisitHub />;
     }
   }
