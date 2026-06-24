@@ -56,7 +56,15 @@ exports.handler = async (event) => {
       const j = byJnid[id];
       if (!ours) {
         const nm = (j.name || "").trim();
-        if (!/test/i.test(nm)) notInApp.push({ jnid: id, name: nm, address: j.address_line1 || "" });
+        // Only flag a genuine SOLD deal that's missing a record. Skip JN Leads and
+        // any job with no Sold Date (cf_date_5) — those are leads parked at this
+        // status, never sold/signed through the app, so there's no record to
+        // expect (they were the bulk of the daily-alert noise).
+        const isLead = String(j.record_type_name || "").toLowerCase() === "lead";
+        const soldDate = Number(j.cf_date_5 || j["Sold Date"] || 0);
+        if (!/test/i.test(nm) && !isLead && soldDate > 0) {
+          notInApp.push({ jnid: id, name: nm, address: j.address_line1 || "" });
+        }
         continue;
       }
       if (!ours.result) continue; // genuinely still needs inspection — leave it

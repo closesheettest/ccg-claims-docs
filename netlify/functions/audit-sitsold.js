@@ -42,12 +42,19 @@ exports.handler = async () => {
     const ourByJnid = {};
     for (const r of rows) if (!r.cancelled_at) ourByJnid[r.jn_job_id] = r;
 
-    const needs = [], doneStale = [], notInTable = [], noGeo = [];
+    const needs = [], doneStale = [], notInTable = [], noGeo = [], leadsOrUnsold = [];
     for (const id of jnids) {
       const ours = ourByJnid[id];
       const j = byJnid[id];
       const label = { jnid: id, name: j.name || "", address: j.address_line1 || "" };
-      if (!ours) { notInTable.push(label); continue; }
+      if (!ours) {
+        // Skip JN Leads / jobs with no Sold Date — leads parked at this status,
+        // never sold/signed through the app, so there's no record to expect.
+        const isLead = String(j.record_type_name || "").toLowerCase() === "lead";
+        const soldDate = Number(j.cf_date_5 || j["Sold Date"] || 0);
+        if (isLead || !(soldDate > 0)) { leadsOrUnsold.push(label); continue; }
+        notInTable.push(label); continue;
+      }
       if (ours.result) { doneStale.push({ ...label, our_result: ours.result, client: (ours.client_name || "").trim() }); continue; }
       if (ours.latitude == null || ours.longitude == null) { noGeo.push({ ...label, client: (ours.client_name || "").trim() }); continue; }
       needs.push(label);
@@ -56,10 +63,11 @@ exports.handler = async () => {
     return json(200, {
       ok: true,
       jn_total: jnids.length,
-      counts: { needs_inspection: needs.length, done_jn_stale: doneStale.length, not_in_table: notInTable.length, no_geo: noGeo.length },
+      counts: { needs_inspection: needs.length, done_jn_stale: doneStale.length, not_in_table: notInTable.length, no_geo: noGeo.length, leads_or_unsold: leadsOrUnsold.length },
       done_jn_stale: doneStale,
       not_in_table: notInTable,
       no_geo: noGeo,
+      leads_or_unsold: leadsOrUnsold,
     });
   } catch (e) {
     return json(500, { ok: false, error: e.message || "error" });
