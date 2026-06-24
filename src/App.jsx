@@ -5945,11 +5945,16 @@ function PACompanyAdminPage({ token }) {
   const [showView, setShowView] = useState(false); // "view a PA's portal" panel
   const [viewPaId, setViewPaId] = useState("");     // which of MY PAs to view as
   const [viewStage, setViewStage] = useState(null); // null=job list · "availability"=their calendar
+  const [viewJobId, setViewJobId] = useState(null); // open a specific deal in the embedded portal
+  const scrollToView = () => setTimeout(() => { try { document.getElementById("pa-portal-view")?.scrollIntoView({ behavior: "smooth", block: "start" }); } catch { /* ignore */ } }, 60);
   // Open a PA's embedded portal (optionally straight to their availability) and
   // scroll the panel into view. Lets the company manage a PA's calendar + book.
   const openPaPortal = (paId, stage) => {
-    setShowView(true); setViewPaId(paId); setViewStage(stage || null);
-    setTimeout(() => { try { document.getElementById("pa-portal-view")?.scrollIntoView({ behavior: "smooth", block: "start" }); } catch { /* ignore */ } }, 60);
+    setShowView(true); setViewPaId(paId); setViewStage(stage || null); setViewJobId(null); scrollToView();
+  };
+  // Open a specific deal straight into that PA's scheduler (the deal's assigned PA).
+  const openPaDeal = (paId, jobId) => {
+    setShowView(true); setViewPaId(paId); setViewStage(null); setViewJobId(jobId); scrollToView();
   };
 
   const loadCard = async () => {
@@ -6194,7 +6199,9 @@ function PACompanyAdminPage({ token }) {
           {d.last_note ? `${d.signed_at ? " · " : ""}📝 ${d.last_note.slice(0, 60)}` : ""}
         </div>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+        {d.pa_id && <button type="button" onClick={() => openPaDeal(d.pa_id, d.id)}
+          style={{ fontSize: 12, fontWeight: 700, padding: "8px 10px", borderRadius: 10, border: "1px solid #99f6e4", background: "#f0fdfa", color: "#0e7490", cursor: "pointer", whiteSpace: "nowrap" }}>📅 Schedule</button>}
         <select value={d.pa_id || ""} disabled={busyId === d.id} onChange={(e) => assign(d.id, e.target.value)}
           style={{ fontSize: 13, padding: "8px 10px", borderRadius: 10, border: `1px solid ${d.pa_id ? "#cbd5e1" : "#f59e0b"}`, background: d.pa_id ? "#fff" : "#fffbeb", maxWidth: 180 }}>
           <option value="">— Assign to —</option>
@@ -6233,7 +6240,7 @@ function PACompanyAdminPage({ token }) {
             <div style={{ fontSize: 12, color: "#6b21a8", marginBottom: 8 }}>See exactly what one of your adjusters sees and work on their behalf — <b>manage their calendar</b> (📅 My Availability) and <b>book appointments</b> for them (open a deal → Schedule). You can only view your own company's adjusters.</div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <label style={{ fontSize: 12, fontWeight: 700, color: "#374151" }}>Adjuster:&nbsp;
-                <select value={viewPaId} onChange={(e) => { setViewPaId(e.target.value); setViewStage(null); }} style={{ ...fld, display: "inline-block", width: "auto", minWidth: 200 }}>
+                <select value={viewPaId} onChange={(e) => { setViewPaId(e.target.value); setViewStage(null); setViewJobId(null); }} style={{ ...fld, display: "inline-block", width: "auto", minWidth: 200 }}>
                   <option value="">— Select an adjuster —</option>
                   {activePas.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
@@ -6242,15 +6249,15 @@ function PACompanyAdminPage({ token }) {
                 const pill = (on) => ({ padding: "6px 12px", borderRadius: 999, fontSize: 12, fontWeight: 700, cursor: "pointer", border: on ? "1.5px solid #7c3aed" : "1px solid #ddd6fe", background: on ? "#ede9fe" : "#fff", color: on ? "#5b21b6" : "#6b7280" });
                 return (
                   <div style={{ display: "inline-flex", gap: 6 }}>
-                    <button type="button" onClick={() => setViewStage(null)} style={pill(viewStage == null)}>📋 Deals</button>
-                    <button type="button" onClick={() => setViewStage("availability")} style={pill(viewStage === "availability")}>📅 Calendar</button>
+                    <button type="button" onClick={() => { setViewStage(null); setViewJobId(null); }} style={pill(viewStage == null && !viewJobId)}>📋 Deals</button>
+                    <button type="button" onClick={() => { setViewStage("availability"); setViewJobId(null); }} style={pill(viewStage === "availability")}>📅 Calendar</button>
                   </div>
                 );
               })()}
             </div>
             {viewPaId
               ? <div style={{ marginTop: 12, border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", background: "#fff" }}>
-                  <PAMobileApp embedded paId={viewPaId} allowPaIds={activePas.map((p) => p.id)} initialStage={viewStage} />
+                  <PAMobileApp embedded paId={viewPaId} allowPaIds={activePas.map((p) => p.id)} initialStage={viewStage} initialJobId={viewJobId} />
                 </div>
               : <div style={{ marginTop: 10, fontSize: 13, color: "#6b7280" }}>Pick an adjuster above to open their portal.</div>}
           </div>
