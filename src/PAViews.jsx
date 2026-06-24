@@ -23,7 +23,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "./lib/supabase";
 import { fmtSigned } from "./lib/dates";
-import { FL_VB, FL_LABELXY, FL_COUNTIES } from "./flCounties";
+import { FL_VB, FL_PROJ, FL_LABELXY, FL_COUNTIES } from "./flCounties";
 
 // Haversine distance in miles between two lat/lng pairs. Mirrors the
 // inspector portal's milesBetween so PA distances match inspector ones.
@@ -1710,8 +1710,20 @@ const FL_ZONES = [
   { zone: "Zone 4", label: "Southeast", desc: "Palm Beach · Broward · Miami-Dade · Martin", color: "#db2777" },
 ];
 const FL_ZONE_COLOR = Object.fromEntries(FL_ZONES.map((z) => [z.zone, z.color]));
-function FloridaZoneMap({ selected, counts, onToggle }) {
+function FloridaZoneMap({ selected, counts, onToggle, home, radiusMi }) {
   const pick = !!onToggle;
+  let circle = null;
+  if (pick && home && home.lat != null && home.lng != null && radiusMi > 0) {
+    const cx = (home.lng - FL_PROJ.minLng) * FL_PROJ.k * FL_PROJ.scale;
+    const cy = (FL_PROJ.maxLat - home.lat) * FL_PROJ.scale;
+    const r = (radiusMi / 69) * FL_PROJ.scale;   // ~69 miles per degree of latitude
+    circle = (
+      <g pointerEvents="none">
+        <circle cx={cx} cy={cy} r={r} fill="#0e7490" fillOpacity="0.12" stroke="#0e7490" strokeWidth="1.6" strokeDasharray="4 3" />
+        <circle cx={cx} cy={cy} r="3.5" fill="#0e7490" stroke="#fff" strokeWidth="1" />
+      </g>
+    );
+  }
   return (
     <svg viewBox={FL_VB} style={{ width: "100%", maxWidth: 430, height: "auto", display: "block", margin: "0 auto" }}>
       {/* Counties, filled by their zone (gray = outside the 4 zones / panhandle) */}
@@ -1723,6 +1735,8 @@ function FloridaZoneMap({ selected, counts, onToggle }) {
           stroke="#fff" strokeWidth="0.6" onClick={pick && col ? () => onToggle(c.z) : undefined}
           style={{ cursor: pick && col ? "pointer" : "default" }}><title>{c.n} County{col ? ` — ${c.z}` : ""}</title></path>;
       })}
+      {/* Mile-radius circle around the PA's home (picker only) */}
+      {circle}
       {/* Zone labels + (counts / ✓) at each zone's centroid */}
       {FL_ZONES.map((z) => {
         const xy = FL_LABELXY[z.zone]; if (!xy) return null;
@@ -1744,15 +1758,17 @@ function FloridaZoneMap({ selected, counts, onToggle }) {
 function PAZonesCard({ me }) {
   const [zones, setZones] = useState(() => new Set(Array.isArray(me.zones) ? me.zones : []));
   const [radius, setRadius] = useState(me.max_distance_miles != null ? +me.max_distance_miles : 60);
+  const [home, setHome] = useState(me.latitude != null && me.longitude != null ? { lat: +me.latitude, lng: +me.longitude } : null);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
   useEffect(() => {
     (async () => {
       try {
-        const { data, error } = await supabase.from("pas").select("zones,max_distance_miles").eq("id", me.id).single();
+        const { data, error } = await supabase.from("pas").select("zones,max_distance_miles,latitude,longitude").eq("id", me.id).single();
         if (!error && data) {
           if (Array.isArray(data.zones)) setZones(new Set(data.zones));
           if (data.max_distance_miles != null) setRadius(+data.max_distance_miles);
+          if (data.latitude != null && data.longitude != null) setHome({ lat: +data.latitude, lng: +data.longitude });
         }
       } catch { /* zones column not added yet */ }
     })(); // eslint-disable-next-line
@@ -1769,7 +1785,7 @@ function PAZonesCard({ me }) {
     <div style={card}>
       <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4, fontFamily: "'Oswald', sans-serif" }}>📍 My zones</div>
       <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 12 }}>Tap the Florida zones you cover. You'll be offered appointments in those zones <b>or</b> within your mile radius below — whichever applies. No zones selected = just the radius.</div>
-      <FloridaZoneMap selected={zones} onToggle={toggle} />
+      <FloridaZoneMap selected={zones} onToggle={toggle} home={home} radiusMi={radius} />
       <div style={{ display: "grid", gap: 6, marginTop: 12 }}>
         {FL_ZONES.map((z) => {
           const on = zones.has(z.zone);
@@ -1794,7 +1810,7 @@ function PAZonesCard({ me }) {
           <span style={{ fontSize: 14, fontWeight: 800, color: "#0e7490" }}>{radius} mi</span>
         </div>
         <input type="range" min="0" max="200" step="10" value={radius} onChange={(e) => setRadius(+e.target.value)} style={{ width: "100%" }} />
-        <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>Anything within {radius} miles of your home — even outside your zones. Set to 0 for zones only.</div>
+        <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>Anything within {radius} miles of your home — even outside your zones (the teal circle). Set to 0 for zones only.{!home ? " Add your home address in setup to see the circle." : ""}</div>
       </div>
       {msg && <div style={{ marginTop: 10, fontSize: 13, color: msg.ok ? "#15803d" : "#b91c1c" }}>{msg.text}</div>}
       <button type="button" onClick={save} disabled={saving} style={{ marginTop: 12, padding: "10px 20px", borderRadius: 10, border: "none", background: "#16a34a", color: "#fff", fontWeight: 700, cursor: "pointer", opacity: saving ? 0.6 : 1 }}>
