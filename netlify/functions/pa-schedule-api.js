@@ -71,7 +71,10 @@ exports.handler = async (event) => {
       if (!home && body.lat != null && body.lng != null) home = { lat: +body.lat, lng: +body.lng };
       if (home) apptZone = lngToZone(home.lng);                          // coast by longitude
       if (!apptZone && body.zone) apptZone = String(body.zone).trim();   // optional explicit override
-      return cors(200, JSON.stringify({ ok: true, slots: await buildSlots(days, home, apptZone) }));
+      // pa_id → restrict to ONE PA's own open slots (the PA self-scheduler shows
+      // only their availability; the rep booker omits pa_id to see every PA).
+      const onlyPaId = String(body.pa_id || "").trim() || null;
+      return cors(200, JSON.stringify({ ok: true, slots: await buildSlots(days, home, apptZone, onlyPaId) }));
     }
     if (action === "book") return await book(body);
     return cors(400, JSON.stringify({ ok: false, error: `Unknown action: ${action}` }));
@@ -80,8 +83,9 @@ exports.handler = async (event) => {
   }
 };
 
-async function buildSlots(days, home, apptZone) {
-  const pas = await sbGet(`pas?active=eq.true&select=id,name,pa_company_id,latitude,longitude,max_distance_miles&limit=500`);
+async function buildSlots(days, home, apptZone, onlyPaId) {
+  const paFilter = onlyPaId ? `id=eq.${encodeURIComponent(onlyPaId)}` : `active=eq.true`;
+  const pas = await sbGet(`pas?${paFilter}&select=id,name,pa_company_id,latitude,longitude,max_distance_miles&limit=500`);
   if (!pas.length) return [];
   // PA zone coverage — fetched separately and tolerantly so this works even
   // before the pas.zones column exists (then nobody is zone-filtered). A PA with
@@ -132,10 +136,14 @@ async function buildSlots(days, home, apptZone) {
       // farther than that. Unknown distance (no home geocode) → don't exclude on
       // distance. No coasts picked → distance-only (within their radius).
       const dist = distByPa[pa.id];
-      const radius = Math.min(MAX_MI, (pa.max_distance_miles > 0) ? +pa.max_distance_miles : MAX_MI);
-      if (dist != null && dist > radius) continue;               // beyond their radius (≤100 mi)
-      const zs = zonesByPa[pa.id];
-      if (zs && zs.length && apptZone && !zs.includes(apptZone)) continue;  // wrong coast
+      // A PA booking their OWN deal (onlyPaId) sees all their open slots — skip the
+      // coast/distance coverage gates the rep-facing booker applies.
+      if (!onlyPaId) {
+        const radius = Math.min(MAX_MI, (pa.max_distance_miles > 0) ? +pa.max_distance_miles : MAX_MI);
+        if (dist != null && dist > radius) continue;             // beyond their radius (≤100 mi)
+        const zs = zonesByPa[pa.id];
+        if (zs && zs.length && apptZone && !zs.includes(apptZone)) continue;  // wrong coast
+      }
       const blocked = blockedByPa[pa.id];
       const dblocked = dateBlockedByPa[pa.id];
       for (const s of times) {

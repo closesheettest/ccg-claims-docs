@@ -2622,6 +2622,102 @@ function milestoneProgress(paFields) {
 
 // ── Pipeline detail: one claimed deal. Photos + context + the 8 editable
 //    milestone date fields with per-field autosave to JN. ─────────────
+// PA self-scheduling for their OWN assigned deal. Unlike the rep's booker (which
+// shows EVERY PA's slots), this loads slots with pa_id=me.id, so the PA only ever
+// sees their own open availability. Books straight into pa_appointments.
+function PASelfSchedule({ me, job }) {
+  const [open, setOpen] = useState(false);
+  const [slots, setSlots] = useState(null);
+  const [err, setErr] = useState("");
+  const [booking, setBooking] = useState("");
+  const [done, setDone] = useState(null);
+
+  const load = async () => {
+    setSlots(null); setErr("");
+    try {
+      const res = await fetch("/.netlify/functions/pa-schedule-api", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "slots", inspection_id: job.id, pa_id: me.id }),
+      });
+      const o = await res.json().catch(() => ({}));
+      if (!res.ok || !o.ok) throw new Error(o.error || "Couldn't load your availability");
+      setSlots(o.slots || []);
+    } catch (e) { setErr(e.message); setSlots([]); }
+  };
+  const toggle = () => { const n = !open; setOpen(n); if (n && slots === null) load(); };
+  const book = async (s) => {
+    setBooking(s.start_at); setErr("");
+    try {
+      const res = await fetch("/.netlify/functions/pa-schedule-api", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "book", pa_id: me.id, start_at: s.start_at, inspection_id: job.id,
+          homeowner_name: job.client_name, homeowner_phone: job.mobile,
+          address: [job.address, job.city, job.state, job.zip].filter(Boolean).join(", "),
+          booked_by: me.name,
+        }),
+      });
+      const o = await res.json().catch(() => ({}));
+      if (!res.ok || !o.ok) throw new Error(o.error || "Couldn't book that slot");
+      setDone(s.label || "your appointment");
+    } catch (e) { setErr(e.message); }
+    setBooking("");
+  };
+
+  const dayKey = (iso) => new Date(iso).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const dayLabel = (k) => new Date(k + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  const timeLabel = (iso) => new Date(iso).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric" });
+
+  if (done) {
+    return (
+      <div style={{ padding: 14, background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: 12, marginBottom: 12, fontSize: 14, color: "#065f46", fontWeight: 700 }}>
+        ✓ Appointment booked — {done}. It's now in your upcoming appointments.
+      </div>
+    );
+  }
+
+  const byDay = {};
+  for (const s of (slots || [])) (byDay[dayKey(s.start_at)] = byDay[dayKey(s.start_at)] || []).push(s);
+  const dayKeys = Object.keys(byDay).sort();
+
+  return (
+    <div style={{ padding: 14, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, marginBottom: 12 }}>
+      <button type="button" onClick={toggle}
+        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+        <span style={{ fontSize: 15, fontWeight: 800, color: "#0e7490", fontFamily: "'Oswald', sans-serif" }}>📅 Schedule your appointment</span>
+        <span style={{ fontSize: 18, color: "#0e7490" }}>{open ? "▴" : "▾"}</span>
+      </button>
+      {open && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 10 }}>These are <b>your</b> open times only — the rep's booker shows every adjuster; this is just you. Tap a time to set it with {job.client_name || "the homeowner"}.</div>
+          {err && <div style={{ color: "#b91c1c", fontSize: 13, marginBottom: 8 }}>{err}</div>}
+          {slots === null ? <div style={{ color: "#9ca3af", fontSize: 13 }}>Loading your availability…</div>
+            : !dayKeys.length ? <div style={{ color: "#6b7280", fontSize: 13 }}>No open slots in your availability for the next 2 weeks. Open more under your Availability tab.</div>
+            : <div style={{ maxHeight: "50vh", overflowY: "auto" }}>
+                {dayKeys.map((k) => {
+                  const seen = new Set(); const uniq = [];
+                  for (const s of byDay[k]) { const t = timeLabel(s.start_at); if (seen.has(t)) continue; seen.add(t); uniq.push(s); }
+                  return (
+                    <div key={k} style={{ marginBottom: 12 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 800, color: "#374151", marginBottom: 6 }}>{dayLabel(k)}</div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                        {uniq.map((s) => (
+                          <button key={s.start_at} type="button" disabled={!!booking} onClick={() => book(s)}
+                            style={{ border: "1px solid #16a34a", color: "#16a34a", background: "#fff", borderRadius: 12, padding: "9px 16px", fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: booking ? 0.6 : 1 }}>
+                            {booking === s.start_at ? "…" : timeLabel(s.start_at)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
   const [job, setJob] = useState(null);
   const [fields, setFields] = useState({});      // epoch seconds | string | null
@@ -2998,6 +3094,9 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
           <span style={{ color: "#991b1b", fontWeight: 700 }}>DAMAGE</span>
         </div>
       </div>
+
+      {/* PA self-scheduling — book an appointment from the PA's OWN availability */}
+      <PASelfSchedule me={me} job={job} />
 
       {/* Context (auto-set by inspector) */}
       <div style={{ padding: 14, background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, marginBottom: 12 }}>
