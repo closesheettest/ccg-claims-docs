@@ -36,24 +36,12 @@ const WD_HOURS = {
 };
 const SLOT_TIMES_MIN = Object.fromEntries(Object.entries(WD_HOURS).map(([wd, hrs]) => [wd, hrs.map((h) => h * 60)]));
 
-// ── Florida Zones (county-based) ─────────────────────────────────────────────
-// Mirrors the authoritative map in all-no-sits.js — keep in sync. A PA covers a
-// set of these; an appointment's zone is decided by the property's county.
-const ZONE_COUNTIES = {
-  "Zone 1": ["Nassau", "Duval", "Baker", "Union", "Bradford", "Clay", "St. Johns", "Putnam", "Flagler", "Alachua", "Levy", "Marion", "Sumter", "Lake", "Seminole", "Volusia"],
-  "Zone 2": ["Pasco", "Hillsborough", "Polk", "Osceola", "Indian River", "Highlands", "Citrus", "Hernando"],
-  "Zone 3": ["Pinellas", "Manatee", "Sarasota", "Charlotte", "Lee", "Collier", "Monroe", "Hardee", "DeSoto", "Glades", "Hendry", "St. Lucie", "Okeechobee"],
-  "Zone 4": ["Martin", "Palm Beach", "Broward", "Miami-Dade"],
-};
-const SPLIT_LAT_ZONE = 28.55; // Brevard & Orange: north→Zone 1, south→Zone 2
-function normCty(s) { return String(s || "").toLowerCase().replace(/\bcounty\b/g, "").replace(/[^a-z0-9]+/g, " ").trim(); }
-const CTY_ZONE = (() => { const m = {}; for (const [z, cs] of Object.entries(ZONE_COUNTIES)) for (const c of cs) m[normCty(c)] = z; return m; })();
-function countyToZone(county, lat) {
-  const n = normCty(county);
-  if (!n) return null;
-  if (n === "brevard" || n === "orange") return (lat != null && +lat >= SPLIT_LAT_ZONE) ? "Zone 1" : "Zone 2";
-  return CTY_ZONE[n] || null;
-}
+// ── PA coverage zones: TWO coasts, the state split down the middle by longitude.
+// West of SPLIT_LNG = West Coast (Gulf + panhandle); east = East Coast (Atlantic).
+// Separate from the 4 sales zones in all-no-sits.js. Combined with a hard 60-mi
+// cap, a PA is offered an appt only on a coast they cover AND within their radius.
+const SPLIT_LNG = -81.5;
+function lngToZone(lng) { return (lng == null || !Number.isFinite(+lng)) ? null : (+lng < SPLIT_LNG ? "West Coast" : "East Coast"); }
 
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return cors(200, "");
@@ -77,11 +65,11 @@ exports.handler = async (event) => {
       let home = null, apptZone = null;
       const inspId = String(body.inspection_id || "").trim();
       if (inspId) {
-        const r = (await sbGet(`inspections?id=eq.${encodeURIComponent(inspId)}&select=latitude,longitude,county&limit=1`))[0];
+        const r = (await sbGet(`inspections?id=eq.${encodeURIComponent(inspId)}&select=latitude,longitude&limit=1`))[0];
         if (r && r.latitude != null && r.longitude != null) home = { lat: +r.latitude, lng: +r.longitude };
-        if (r && r.county) apptZone = countyToZone(r.county, r.latitude);
       }
       if (!home && body.lat != null && body.lng != null) home = { lat: +body.lat, lng: +body.lng };
+      if (home) apptZone = lngToZone(home.lng);                          // coast by longitude
       if (!apptZone && body.zone) apptZone = String(body.zone).trim();   // optional explicit override
       return cors(200, JSON.stringify({ ok: true, slots: await buildSlots(days, home, apptZone) }));
     }
@@ -139,19 +127,15 @@ async function buildSlots(days, home, apptZone) {
     if (!times.length) continue;
     const dateStr = `${y}-${String(mo).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     for (const pa of pas) {
-      // Coverage = selected ZONES (whole zone, no distance cap) OR within the PA's
-      // own mile RADIUS of home (additive — reaches into neighboring zones nearby).
-      // No zones picked → radius-only. Unknown distance (no home geocode) → don't
-      // exclude on distance. Radius defaults to MAX_MI when unset.
+      // Coverage = on a COAST the PA covers AND within their mile RADIUS of home.
+      // Radius is hard-capped at MAX_MI (60) — no PA is ever offered an appt
+      // farther than that. Unknown distance (no home geocode) → don't exclude on
+      // distance. No coasts picked → distance-only (within their radius).
       const dist = distByPa[pa.id];
-      const radius = (pa.max_distance_miles > 0) ? +pa.max_distance_miles : MAX_MI;
-      const withinRadius = (dist == null) ? true : dist <= radius;
+      const radius = Math.min(MAX_MI, (pa.max_distance_miles > 0) ? +pa.max_distance_miles : MAX_MI);
+      if (dist != null && dist > radius) continue;               // beyond their radius (≤60 mi)
       const zs = zonesByPa[pa.id];
-      if (zs && zs.length && apptZone) {
-        if (!zs.includes(apptZone) && !withinRadius) continue;   // not in a covered zone AND not near
-      } else {
-        if (!withinRadius) continue;                             // radius-only
-      }
+      if (zs && zs.length && apptZone && !zs.includes(apptZone)) continue;  // wrong coast
       const blocked = blockedByPa[pa.id];
       const dblocked = dateBlockedByPa[pa.id];
       for (const s of times) {
