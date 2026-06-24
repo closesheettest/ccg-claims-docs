@@ -18,6 +18,9 @@
 //   • A "no-sit reschedule" deal (status "No Sit- Need to Reschedule" / "No Sit
 //     - Rescheduled") NEVER PRESENTED, so it does not count against closing %.
 //     It counts later, in the week it actually re-sits (status moves off these).
+//   • A LOST/cancelled deal (status starts "Lost") is dead — it does not count
+//     as an appointment (and so is never flagged). If it sold then cancelled,
+//     the sale was already credited on its sold week; a loss isn't a new appt.
 //   • isStaleAppt() also drops a task on a deal that already sold in a PRIOR
 //     period (e.g. an Install-Complete job getting a new task) unless it's
 //     genuinely re-appointed (status "Appointment Scheduled" / "Reset Appointment").
@@ -64,6 +67,11 @@ function isStaleAppt(job, apptDateSec) {
 // Exact JN status_name spellings mirror all-no-sits.js.
 const NO_SIT_RESCHEDULE_STATUSES = new Set(["no sit need to reschedule", "no sit rescheduled"]);
 function isNoSitReschedule(job) { return NO_SIT_RESCHEDULE_STATUSES.has(normStatus(job.status_name)); }
+// A LOST deal is dead — it does NOT count as an appointment (and so never gets
+// flagged either, since the flag only runs on counted rows). If it had sold then
+// cancelled, the sale was already credited in its sold week; a later loss isn't a
+// new appointment, so we simply stop counting it.
+function isLost(job) { return normStatus(job.status_name).startsWith("lost"); }
 function fieldMap(job) {
   const m = {};
   for (const [k, v] of Object.entries(job)) {
@@ -143,6 +151,8 @@ async function fetchApptJobs(jnKey, startSec, endSec, taskMeta) {
     // Never PRESENTED → not an appointment. The no-show/reschedule doesn't count
     // against closing %; the deal counts later, in the week it actually re-sits.
     if (isNoSitReschedule(j)) return false;
+    // LOST/cancelled deal → dead, don't count it (and so it's not flagged either).
+    if (isLost(j)) return false;
     return !isStaleAppt(j, j.__apptDate);
   });
 }
