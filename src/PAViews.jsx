@@ -1676,6 +1676,9 @@ function slotHourLabel(min) { const h = Math.floor(min / 60); const ap = h >= 12
 function slotRangeLabel(min) { return `${slotHourLabel(min)}–${slotHourLabel(min + 120)}`; }
 function PAAvailability({ me, onBack }) {
   const [blocked, setBlocked] = useState(() => new Set()); // keys "weekday:startMin" the PA can't do
+  const [dateBlocked, setDateBlocked] = useState(() => new Set()); // keys "YYYY-MM-DD:startMin" — off on a SPECIFIC date
+  const [extraDates, setExtraDates] = useState([]);    // dates opened for editing that have no blocked slot yet
+  const [newDate, setNewDate] = useState("");
   const [appts, setAppts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1685,6 +1688,11 @@ function PAAvailability({ me, onBack }) {
     setLoading(true);
     const b = await supabase.from("pa_slot_blocks").select("weekday,start_min").eq("pa_id", me.id);
     setBlocked(new Set((b.data || []).map((r) => `${r.weekday}:${r.start_min}`)));
+    // Date-specific blocks (tolerant of the pa_date_blocks table not existing yet).
+    try {
+      const db = await supabase.from("pa_date_blocks").select("date,start_min").eq("pa_id", me.id);
+      if (!db.error) setDateBlocked(new Set((db.data || []).map((r) => `${r.date}:${r.start_min}`)));
+    } catch { /* table not set up yet */ }
     const ap = await supabase.from("pa_appointments").select("*").eq("pa_id", me.id).eq("status", "scheduled")
       .gte("start_at", new Date().toISOString()).order("start_at", { ascending: true });
     setAppts(ap.data || []);
@@ -1698,6 +1706,24 @@ function PAAvailability({ me, onBack }) {
     return next;
   });
 
+  // ── Date-specific helpers ──
+  const toggleDate = (dateStr, startMin) => setDateBlocked((prev) => {
+    const next = new Set(prev); const k = `${dateStr}:${startMin}`;
+    next.has(k) ? next.delete(k) : next.add(k);
+    return next;
+  });
+  const wdOf = (dateStr) => new Date(dateStr + "T12:00:00").getDay();                 // 0=Sun … 6=Sat
+  const dateLabelOf = (dateStr) => new Date(dateStr + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  const addDate = () => { if (!newDate) return; setExtraDates((p) => p.includes(newDate) ? p : [...p, newDate]); setNewDate(""); };
+  const removeDate = (dateStr) => {
+    setExtraDates((p) => p.filter((d) => d !== dateStr));
+    setDateBlocked((prev) => new Set([...prev].filter((k) => k.slice(0, k.lastIndexOf(":")) !== dateStr)));
+  };
+  const allDayOff = (dateStr) => setDateBlocked((prev) => {
+    const next = new Set(prev); for (const h of (PA_SLOT_HOURS[wdOf(dateStr)] || [])) next.add(`${dateStr}:${h * 60}`);
+    return next;
+  });
+
   const save = async () => {
     setSaving(true); setMsg(null);
     const del = await supabase.from("pa_slot_blocks").delete().eq("pa_id", me.id);
@@ -1706,6 +1732,16 @@ function PAAvailability({ me, onBack }) {
     if (rows.length) {
       const ins = await supabase.from("pa_slot_blocks").insert(rows);
       if (ins.error) { setMsg({ ok: false, text: ins.error.message }); setSaving(false); return; }
+    }
+    // Date-specific blocks (tolerant of the pa_date_blocks table not being set up yet).
+    try {
+      const ddel = await supabase.from("pa_date_blocks").delete().eq("pa_id", me.id);
+      if (ddel.error) throw ddel.error;
+      const drows = [...dateBlocked].map((k) => { const i = k.lastIndexOf(":"); return { pa_id: me.id, date: k.slice(0, i), start_min: Number(k.slice(i + 1)) }; });
+      if (drows.length) { const dins = await supabase.from("pa_date_blocks").insert(drows); if (dins.error) throw dins.error; }
+    } catch (e) {
+      setMsg({ ok: false, text: "Weekly saved — date-specific not saved (ask admin to run the pa_date_blocks setup): " + (e.message || e) });
+      setSaving(false); return;
     }
     setMsg({ ok: true, text: "✓ Availability saved." });
     setSaving(false);
@@ -1719,6 +1755,12 @@ function PAAvailability({ me, onBack }) {
 
   const fmt = (iso) => { try { return new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch { return iso; } };
   const card = { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, marginBottom: 16 };
+
+  // Today (ET, YYYY-MM-DD) for the date picker min + filtering out past dates.
+  const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  // Dates to show: any the PA opened + any that already have a blocked slot, future-only.
+  const exceptionDates = [...new Set([...extraDates, ...[...dateBlocked].map((k) => k.slice(0, k.lastIndexOf(":")))])]
+    .filter((ds) => ds >= todayStr).sort();
 
   if (loading) return <div style={{ padding: 24, color: "#6b7280" }}>Loading…</div>;
 
@@ -1765,6 +1807,48 @@ function PAAvailability({ me, onBack }) {
             </div>
           </div>
         ))}
+      </div>
+
+      {/* Specific dates — one-off slots off, layered on top of the weekly default */}
+      <div style={card}>
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4, fontFamily: "'Oswald', sans-serif" }}>📌 Specific dates off</div>
+        <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 12 }}>Off for a one-off day? Add the date and tap the slots you can't do — this overrides your weekly availability for that date only, so reps won't be offered you then.</div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+          <input type="date" value={newDate} min={todayStr} onChange={(e) => setNewDate(e.target.value)}
+            style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 14 }} />
+          <button type="button" onClick={addDate} disabled={!newDate}
+            style={{ padding: "8px 14px", borderRadius: 8, border: "none", background: "#0e7490", color: "#fff", fontWeight: 700, cursor: newDate ? "pointer" : "default", opacity: newDate ? 1 : 0.5 }}>+ Add date</button>
+        </div>
+        {exceptionDates.length === 0 ? (
+          <div style={{ fontSize: 13, color: "#9ca3af" }}>No specific dates added — your weekly availability applies to every date.</div>
+        ) : exceptionDates.map((ds) => {
+          const hrs = PA_SLOT_HOURS[wdOf(ds)] || [];
+          return (
+            <div key={ds} style={{ padding: "8px 0", borderBottom: "1px solid #f1f5f9" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <span style={{ fontWeight: 700 }}>{dateLabelOf(ds)}</span>
+                {hrs.length > 0 && <button type="button" onClick={() => allDayOff(ds)} style={{ fontSize: 11, color: "#b91c1c", background: "none", border: "none", textDecoration: "underline", cursor: "pointer" }}>Whole day off</button>}
+                <button type="button" onClick={() => removeDate(ds)} style={{ fontSize: 11, color: "#6b7280", background: "none", border: "none", textDecoration: "underline", cursor: "pointer", marginLeft: "auto" }}>Remove</button>
+              </div>
+              {hrs.length === 0 ? <div style={{ fontSize: 12, color: "#9ca3af" }}>No appointment slots offered on this day.</div> : (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {hrs.map((h) => {
+                    const sm = h * 60; const off = dateBlocked.has(`${ds}:${sm}`);
+                    return (
+                      <button key={sm} type="button" onClick={() => toggleDate(ds, sm)}
+                        style={{ padding: "8px 10px", borderRadius: 999, fontSize: 13, fontWeight: 700, cursor: "pointer",
+                          border: off ? "1px solid #e5e7eb" : "1px solid #16a34a",
+                          background: off ? "#f3f4f6" : "#dcfce7", color: off ? "#9ca3af" : "#166534",
+                          textDecoration: off ? "line-through" : "none" }}>
+                        {slotRangeLabel(sm)}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
         {msg && <div style={{ marginTop: 10, fontSize: 13, color: msg.ok ? "#15803d" : "#b91c1c" }}>{msg.text}</div>}
         <button type="button" onClick={save} disabled={saving} style={{ marginTop: 14, padding: "10px 20px", borderRadius: 10, border: "none", background: "#16a34a", color: "#fff", fontWeight: 700, cursor: "pointer", opacity: saving ? 0.6 : 1 }}>
           {saving ? "Saving…" : "Save availability"}

@@ -89,6 +89,13 @@ async function buildSlots(days, home) {
   const blocks = await sbGet(`pa_slot_blocks?select=pa_id,weekday,start_min&limit=20000`);
   const blockedByPa = {}; for (const b of blocks) (blockedByPa[b.pa_id] = blockedByPa[b.pa_id] || new Set()).add(`${b.weekday}:${b.start_min}`);
 
+  // DATE-specific blocks per PA — one-off days/slots off (e.g. "off June 2nd
+  // 9–11"), layered ON TOP of the weekly pattern. Key: "YYYY-MM-DD:startMin".
+  // Tolerant of the pa_date_blocks table not existing yet (treats as none).
+  let dateBlocks = [];
+  try { dateBlocks = (await sbGet(`pa_date_blocks?select=pa_id,date,start_min&limit=20000`)) || []; } catch { dateBlocks = []; }
+  const dateBlockedByPa = {}; for (const b of dateBlocks) (dateBlockedByPa[b.pa_id] = dateBlockedByPa[b.pa_id] || new Set()).add(`${b.date}:${b.start_min}`);
+
   // Existing scheduled appointments to subtract (overlap check per PA).
   const nowMs = Date.now();
   const appts = await sbGet(`pa_appointments?status=eq.scheduled&start_at=gte.${encodeURIComponent(new Date(nowMs - 864e5).toISOString())}&select=pa_id,start_at,end_at&limit=5000`);
@@ -99,12 +106,15 @@ async function buildSlots(days, home) {
     const { y, mo, day, weekday } = etDateParts(nowMs + d * 864e5);
     const times = SLOT_TIMES_MIN[weekday] || [];
     if (!times.length) continue;
+    const dateStr = `${y}-${String(mo).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     for (const pa of pas) {
       const dist = distByPa[pa.id];
       if (dist != null && dist > MAX_MI) continue;            // too far for an in-person 2hr appt
       const blocked = blockedByPa[pa.id];
+      const dblocked = dateBlockedByPa[pa.id];
       for (const s of times) {
-        if (blocked && blocked.has(`${weekday}:${s}`)) continue;   // PA marked this one off
+        if (blocked && blocked.has(`${weekday}:${s}`)) continue;   // weekly: PA marked this one off
+        if (dblocked && dblocked.has(`${dateStr}:${s}`)) continue;  // date-specific: off this exact date
         const startMs = etToUtcMs(y, mo, day, s);
         const endMs = startMs + SLOT_MIN * 60000;
         if (startMs <= nowMs) continue;                       // no past slots
