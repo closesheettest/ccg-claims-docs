@@ -8940,28 +8940,40 @@ const renderSmsTemplate = (key, vars) => {
     }
 
     try {
-      const opt = {
+      const baseOpt = (scale) => ({
         margin: 0,
         filename,
-        image: { type: "jpeg", quality: 0.98 },
+        image: { type: "jpeg", quality: 0.95 },
         html2canvas: {
-          scale: 1.5,
+          scale,
           useCORS: true,
           allowTaint: true,
           logging: false,
+          backgroundColor: "#ffffff",
           ignoreElements: (el) => el.tagName === "IMG" && el.naturalWidth === 0,
           scrollX: 0,
           scrollY: 0,
         },
-        jsPDF: {
-          unit: "in",
-          format: "letter",
-          orientation: "portrait",
-        },
+        jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
         pagebreak: { mode: ["css"] },
-      };
-
-      return await html2pdf().set(opt).from(element).outputPdf("blob");
+      });
+      // Render at progressively LOWER canvas scales until we get a real PDF.
+      // Weaker / older devices (especially iOS Safari) silently produce a BLANK
+      // canvas above their max-canvas-area limit, which yields an empty PDF — the
+      // exact failure that orphaned Kelly Edwards / Marcelo Dezembro. Dropping the
+      // scale shrinks the canvas so it fits, so the agreement actually generates
+      // instead of blocking the rep.
+      let lastBlob = null;
+      for (const scale of [1.5, 1, 0.75]) {
+        try {
+          const blob = await html2pdf().set(baseOpt(scale)).from(element).outputPdf("blob");
+          if (blob && blob.size >= 20000) return blob;   // good render — done
+          if (blob && (!lastBlob || blob.size > lastBlob.size)) lastBlob = blob;
+        } catch (e) {
+          console.warn(`PDF render at scale ${scale} failed:`, e?.message || e);
+        }
+      }
+      return lastBlob;   // best-effort; the sign/submit size-guard still rejects an empty one
     } finally {
       setIsExportingPdf(false);
     }
