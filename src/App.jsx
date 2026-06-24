@@ -9089,8 +9089,27 @@ const renderSmsTemplate = (key, vars) => {
     try {
       // Generate PDF
       const blob = await generatePDF("#inspection-printable", "Free-Roof-Inspection-Agreement.pdf");
+      // GUARD: html2pdf can resolve with an empty/broken blob on a device
+      // that failed to paint the agreement (images not loaded, low memory).
+      // The homeowner's signature lives ONLY inside this PDF, so an empty
+      // one is unrecoverable — and if we proceed, we create a signed record
+      // + JobNimbus job with no agreement anywhere (the Kevin Brown 6/22
+      // failure). A real signed agreement is ~100KB+; anything tiny is broken.
+      // Block here, save nothing, and tell the rep to sign again on the spot.
+      if (!blob || blob.size < 20000) {
+        alert("⚠️ The signed agreement didn't generate (the file came out empty). NOTHING was saved.\n\nTap Submit again. If it keeps failing, have the homeowner sign once more before moving on.");
+        setInspSubmitting(false);
+        inspSubmittingRef.current = false;
+        return;
+      }
       const base64 = await blobToBase64(blob);
       const base64Content = String(base64).split(",")[1];
+      if (!base64Content) {
+        alert("⚠️ The signed agreement didn't encode correctly. NOTHING was saved. Tap Submit again.");
+        setInspSubmitting(false);
+        inspSubmittingRef.current = false;
+        return;
+      }
 
       // Save to Supabase inspections table
       const { data: insertedInsp, error: inspSaveError } = await supabase.from("inspections").insert([{
@@ -9205,18 +9224,36 @@ const renderSmsTemplate = (key, vars) => {
       }
 
       // ── Archive signed inspection PDF to Supabase Storage ──────────────────
-      // Free-Inspection-only flow: archive the signed insp PDF so it can be
-      // re-sent later via the admin Re-send Docs button.
+      // AWAITED + verified (was fire-and-forget). This is the durable copy of
+      // the signed agreement used by the admin "Re-send Docs" button. A silent
+      // archive failure used to leave a signed record with no recoverable doc
+      // (Kevin Brown). Retry once; if it still fails, tell the rep loudly so the
+      // homeowner can re-sign on the spot rather than it surfacing days later.
       if (newInspId && base64Content) {
         const pdfsToArchive = {
           insp: { filename: "Free-Roof-Inspection-Agreement.pdf", base64: base64Content },
         };
-        fetch("/.netlify/functions/archive-signed-docs", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ inspectionId: newInspId, pdfs: pdfsToArchive }),
-        }).then(r => r.ok ? console.log("📁 Inspection PDF archived") : console.warn("Archive returned not-ok"))
-          .catch(e => console.warn("Archive call failed (non-fatal):", e));
+        let archiveOk = false;
+        for (let attempt = 1; attempt <= 2 && !archiveOk; attempt++) {
+          try {
+            const ar = await fetch("/.netlify/functions/archive-signed-docs", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ inspectionId: newInspId, pdfs: pdfsToArchive }),
+            });
+            const ab = await ar.json().catch(() => ({}));
+            archiveOk = ar.ok && (ab.ok === true || (ab.uploaded || 0) > 0);
+          } catch (e) {
+            console.warn(`Archive attempt ${attempt} failed:`, e?.message);
+          }
+          if (!archiveOk && attempt < 2) await new Promise((r) => setTimeout(r, 1500));
+        }
+        if (archiveOk) {
+          console.log("📁 Inspection PDF archived");
+        } else {
+          console.warn("Archive failed after retry");
+          alert("⚠️ The record saved, but the signed agreement did NOT store. It may be missing from JobNimbus.\n\nHave the homeowner sign once more (or re-send the signing link) so we have the signed copy.");
+        }
       }
 
       // ── Job Nimbus sync ──────────────────────────────────────────────────
@@ -9645,13 +9682,29 @@ const renderSmsTemplate = (key, vars) => {
           else if (fn.includes("welcome"))             key = "welcome";
           pdfsToArchive[key] = { filename: att.filename, base64: att.content };
         });
-        // Fire and forget — don't block signing on archive success
-        fetch("/.netlify/functions/archive-signed-docs", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ inspectionId: archiveInspectionId, pdfs: pdfsToArchive }),
-        }).then(r => r.ok ? console.log("📁 Signed docs archived to storage") : console.warn("Archive call returned not-ok"))
-          .catch(e => console.warn("Archive call failed (non-fatal):", e));
+        // AWAITED + verified (was fire-and-forget) — same durability fix as
+        // the inspection path: a silent archive failure must not pass as a
+        // clean signing. Retry once, then warn loudly.
+        let archiveOk = false;
+        for (let attempt = 1; attempt <= 2 && !archiveOk; attempt++) {
+          try {
+            const ar = await fetch("/.netlify/functions/archive-signed-docs", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ inspectionId: archiveInspectionId, pdfs: pdfsToArchive }),
+            });
+            const ab = await ar.json().catch(() => ({}));
+            archiveOk = ar.ok && (ab.ok === true || (ab.uploaded || 0) > 0);
+          } catch (e) {
+            console.warn(`Archive attempt ${attempt} failed:`, e?.message);
+          }
+          if (!archiveOk && attempt < 2) await new Promise((r) => setTimeout(r, 1500));
+        }
+        if (archiveOk) console.log("📁 Signed docs archived to storage");
+        else {
+          console.warn("Archive failed after retry");
+          alert("⚠️ Docs signed, but the signed PDFs did NOT store. They may be missing from JobNimbus — have the homeowner re-sign or re-send the link.");
+        }
       }
 
       // ── PA notification email — different content based on claim stage ──
