@@ -60,7 +60,7 @@ export const handler = async (event) => {
         stories: F["# of Stories"] || null,
       };
       try {
-        const cands = await roofrCandidates(jid);
+        const { all: cands, hasRoofr } = await roofrCandidates(jid);
         if (!cands.length) rec.status = "no_pdf";
         else {
           for (const f of cands.slice(0, 6)) {        // confirm by content, best-first
@@ -70,7 +70,10 @@ export const handler = async (event) => {
             const m = text.match(/Predominant pitch:?\s*(\d{1,2})\s*\/\s*12/i);
             if (m) { rec.pitch = `${m[1]}/12`; rec.roofr_file = f.filename || f.name || null; break; }
           }
-          rec.status = rec.pitch ? "ok" : "no_pitch";   // PDFs existed but none had a pitch line
+          // Pitch found → ok. No pitch but a genuine Roofr is attached → no_pitch.
+          // No pitch and only non-Roofr PDFs → NO ROOFR (no_pdf), so a missing
+          // Roofr isn't hidden behind a "—".
+          rec.status = rec.pitch ? "ok" : (hasRoofr ? "no_pitch" : "no_pdf");
         }
       } catch (e) {
         rec.status = "error"; rec.err = (e && e.message) || String(e);
@@ -101,7 +104,12 @@ async function roofrCandidates(jid) {
   const pdfs = (d.results || d.files || d.data || []).filter((f) => String(f.content_type || "").includes("pdf"));
   const named = pdfs.filter((f) => /united states\.pdf$/i.test(f.filename || f.name || "") || /roofr/i.test(f.filename || f.name || ""));
   const rest = pdfs.filter((f) => !named.includes(f) && !NOT_ROOFR.test(f.filename || f.name || ""));
-  return [...named, ...rest];
+  // `named` = a genuine Roofr export ("…, United States.pdf" or "roofr" in the
+  // name). `rest` = other PDFs we still scan in case a Roofr was renamed. hasRoofr
+  // lets the caller distinguish "a real Roofr is attached but had no pitch line"
+  // (no_pitch) from "no Roofr at all" (no_pdf) — otherwise a stray non-Roofr PDF
+  // makes a missing-Roofr deal show "—" instead of NO ROOFR.
+  return { all: [...named, ...rest], hasRoofr: named.length > 0 };
 }
 
 // JN serves files via a 302 to a signed CloudFront URL; fetch that WITHOUT the
