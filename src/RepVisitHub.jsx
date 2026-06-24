@@ -92,6 +92,13 @@ export default function RepVisitHub() {
         {stage === "panel" && deal && (
           <Panel type={visitType} deal={deal} rep={rep} api={api} onBack={() => setStage("list")} onPhotos={() => openPhotos(deal)} />
         )}
+        {/* Manager access — goes to the Manager Console (PIN-gated). Reps ignore it. */}
+        <div style={{ textAlign: "center", marginTop: 22 }}>
+          <button type="button" onClick={() => { window.location.href = "/?mode=manager"; }}
+            style={{ background: "transparent", border: "1px solid #d1d5db", borderRadius: 10, padding: "6px 14px", fontSize: 12, fontFamily: "'Oswald', sans-serif", fontWeight: 600, letterSpacing: "0.04em", color: "#6b7280", cursor: "pointer", textTransform: "uppercase" }}>
+            ⚙️ Manager
+          </button>
+        </div>
       </div>
       {photosFor && <InspectionPhotosModal inspectionId={photosFor} onClose={() => setPhotosFor(null)} />}
     </div>
