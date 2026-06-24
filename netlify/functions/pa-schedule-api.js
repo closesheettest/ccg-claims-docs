@@ -93,7 +93,7 @@ exports.handler = async (event) => {
 };
 
 async function buildSlots(days, home, apptZone) {
-  const pas = await sbGet(`pas?active=eq.true&select=id,name,pa_company_id,latitude,longitude&limit=500`);
+  const pas = await sbGet(`pas?active=eq.true&select=id,name,pa_company_id,latitude,longitude,max_distance_miles&limit=500`);
   if (!pas.length) return [];
   // PA zone coverage — fetched separately and tolerantly so this works even
   // before the pas.zones column exists (then nobody is zone-filtered). A PA with
@@ -139,11 +139,19 @@ async function buildSlots(days, home, apptZone) {
     if (!times.length) continue;
     const dateStr = `${y}-${String(mo).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     for (const pa of pas) {
+      // Coverage = selected ZONES (whole zone, no distance cap) OR within the PA's
+      // own mile RADIUS of home (additive — reaches into neighboring zones nearby).
+      // No zones picked → radius-only. Unknown distance (no home geocode) → don't
+      // exclude on distance. Radius defaults to MAX_MI when unset.
       const dist = distByPa[pa.id];
-      if (dist != null && dist > MAX_MI) continue;            // too far for an in-person 2hr appt
-      // Zone coverage: if we know the appointment's zone and the PA has set zones,
-      // only offer the PA when they cover it. (No zone known, or PA covers all → keep.)
-      if (apptZone && zonesByPa[pa.id] && !zonesByPa[pa.id].includes(apptZone)) continue;
+      const radius = (pa.max_distance_miles > 0) ? +pa.max_distance_miles : MAX_MI;
+      const withinRadius = (dist == null) ? true : dist <= radius;
+      const zs = zonesByPa[pa.id];
+      if (zs && zs.length && apptZone) {
+        if (!zs.includes(apptZone) && !withinRadius) continue;   // not in a covered zone AND not near
+      } else {
+        if (!withinRadius) continue;                             // radius-only
+      }
       const blocked = blockedByPa[pa.id];
       const dblocked = dateBlockedByPa[pa.id];
       for (const s of times) {

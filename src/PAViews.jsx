@@ -1743,25 +1743,32 @@ function FloridaZoneMap({ selected, counts, onToggle }) {
 // scheduler only offers you appointments in these zones (empty = everywhere).
 function PAZonesCard({ me }) {
   const [zones, setZones] = useState(() => new Set(Array.isArray(me.zones) ? me.zones : []));
+  const [radius, setRadius] = useState(me.max_distance_miles != null ? +me.max_distance_miles : 60);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
   useEffect(() => {
     (async () => {
-      try { const { data, error } = await supabase.from("pas").select("zones").eq("id", me.id).single(); if (!error && data && Array.isArray(data.zones)) setZones(new Set(data.zones)); } catch { /* zones column not added yet */ }
+      try {
+        const { data, error } = await supabase.from("pas").select("zones,max_distance_miles").eq("id", me.id).single();
+        if (!error && data) {
+          if (Array.isArray(data.zones)) setZones(new Set(data.zones));
+          if (data.max_distance_miles != null) setRadius(+data.max_distance_miles);
+        }
+      } catch { /* zones column not added yet */ }
     })(); // eslint-disable-next-line
   }, [me.id]);
   const toggle = (z) => setZones((prev) => { const n = new Set(prev); n.has(z) ? n.delete(z) : n.add(z); return n; });
   const save = async () => {
     setSaving(true); setMsg(null);
-    const { error } = await supabase.from("pas").update({ zones: [...zones] }).eq("id", me.id);
+    const { error } = await supabase.from("pas").update({ zones: [...zones], max_distance_miles: radius }).eq("id", me.id);
     setSaving(false);
-    setMsg(error ? { ok: false, text: "Couldn't save zones (ask admin to run the zones setup): " + error.message } : { ok: true, text: "✓ Zones saved." });
+    setMsg(error ? { ok: false, text: "Couldn't save (ask admin to run the zones setup): " + error.message } : { ok: true, text: "✓ Zones & radius saved." });
   };
   const card = { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, marginBottom: 16 };
   return (
     <div style={card}>
       <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4, fontFamily: "'Oswald', sans-serif" }}>📍 My zones</div>
-      <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 12 }}>Tap the Florida zones you cover. You'll only be offered appointments in these zones (plus your distance limit). Leave all unselected to cover everywhere.</div>
+      <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 12 }}>Tap the Florida zones you cover. You'll be offered appointments in those zones <b>or</b> within your mile radius below — whichever applies. No zones selected = just the radius.</div>
       <FloridaZoneMap selected={zones} onToggle={toggle} />
       <div style={{ display: "grid", gap: 6, marginTop: 12 }}>
         {FL_ZONES.map((z) => {
@@ -1780,9 +1787,18 @@ function PAZonesCard({ me }) {
           );
         })}
       </div>
+      {/* Mile radius — additive coverage beyond the selected zones */}
+      <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #f1f5f9" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+          <span style={{ fontSize: 13, fontWeight: 700 }}>📏 Also cover within radius</span>
+          <span style={{ fontSize: 14, fontWeight: 800, color: "#0e7490" }}>{radius} mi</span>
+        </div>
+        <input type="range" min="0" max="200" step="10" value={radius} onChange={(e) => setRadius(+e.target.value)} style={{ width: "100%" }} />
+        <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>Anything within {radius} miles of your home — even outside your zones. Set to 0 for zones only.</div>
+      </div>
       {msg && <div style={{ marginTop: 10, fontSize: 13, color: msg.ok ? "#15803d" : "#b91c1c" }}>{msg.text}</div>}
       <button type="button" onClick={save} disabled={saving} style={{ marginTop: 12, padding: "10px 20px", borderRadius: 10, border: "none", background: "#16a34a", color: "#fff", fontWeight: 700, cursor: "pointer", opacity: saving ? 0.6 : 1 }}>
-        {saving ? "Saving…" : "Save zones"}
+        {saving ? "Saving…" : "Save zones & radius"}
       </button>
     </div>
   );
