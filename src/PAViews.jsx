@@ -1528,7 +1528,7 @@ function PADecisionRow({ deal, priorPaName, busy, onPool, onDismiss }) {
 // ═════════════════════════════════════════════════════════════════════
 // PA MOBILE APP — ?mode=pa
 // ═════════════════════════════════════════════════════════════════════
-export function PAMobileApp({ embedded = false, paId = null, allowPaIds = null } = {}) {
+export function PAMobileApp({ embedded = false, paId = null, allowPaIds = null, initialStage = null } = {}) {
   // Embedded mode: rendered INSIDE the PA-company admin portal so the
   // company admin can view a PA's portal and switch between PAs — but only
   // their own. Driven entirely by the `paId` prop (no URL param / no
@@ -1608,9 +1608,9 @@ export function PAMobileApp({ embedded = false, paId = null, allowPaIds = null }
     if (!embedded) return;
     if (!paId) { setMe(null); setStage("pick"); return; }
     const found = pas.find((p) => p.id === paId);
-    if (found) { setMe(found); setStage("list"); }
+    if (found) { setMe(found); setStage(initialStage || "list"); }
     else { setMe(null); setStage("pick"); }
-  }, [embedded, paId, pas]);
+  }, [embedded, paId, pas, initialStage]);
 
   // Look up whether the signed-in PA is also an active, setup-complete
   // inspector. We require info_updated_at (home base saved) because the

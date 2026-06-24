@@ -5944,6 +5944,13 @@ function PACompanyAdminPage({ token }) {
   const [resendBusy, setResendBusy] = useState(null);   // PA whose link is being resent
   const [showView, setShowView] = useState(false); // "view a PA's portal" panel
   const [viewPaId, setViewPaId] = useState("");     // which of MY PAs to view as
+  const [viewStage, setViewStage] = useState(null); // null=job list · "availability"=their calendar
+  // Open a PA's embedded portal (optionally straight to their availability) and
+  // scroll the panel into view. Lets the company manage a PA's calendar + book.
+  const openPaPortal = (paId, stage) => {
+    setShowView(true); setViewPaId(paId); setViewStage(stage || null);
+    setTimeout(() => { try { document.getElementById("pa-portal-view")?.scrollIntoView({ behavior: "smooth", block: "start" }); } catch { /* ignore */ } }, 60);
+  };
 
   const loadCard = async () => {
     if (card) { setCard(null); return; }
@@ -6221,18 +6228,29 @@ function PACompanyAdminPage({ token }) {
         <CompanyAppointments pas={data.pas} />
 
         {showView && (
-          <div style={{ marginBottom: 16, border: "1px solid #ddd6fe", borderRadius: 12, background: "#faf5ff", padding: 12 }}>
+          <div id="pa-portal-view" style={{ marginBottom: 16, border: "1px solid #ddd6fe", borderRadius: 12, background: "#faf5ff", padding: 12 }}>
             <div style={{ fontSize: 14, fontWeight: 800, color: "#5b21b6", marginBottom: 6 }}>👁 View a PA's portal</div>
-            <div style={{ fontSize: 12, color: "#6b21a8", marginBottom: 8 }}>See exactly what one of your adjusters sees, and work their deals on their behalf. You can only view your own company's adjusters.</div>
-            <label style={{ fontSize: 12, fontWeight: 700, color: "#374151" }}>Adjuster:&nbsp;
-              <select value={viewPaId} onChange={(e) => setViewPaId(e.target.value)} style={{ ...fld, display: "inline-block", width: "auto", minWidth: 200 }}>
-                <option value="">— Select an adjuster —</option>
-                {activePas.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </label>
+            <div style={{ fontSize: 12, color: "#6b21a8", marginBottom: 8 }}>See exactly what one of your adjusters sees and work on their behalf — <b>manage their calendar</b> (📅 My Availability) and <b>book appointments</b> for them (open a deal → Schedule). You can only view your own company's adjusters.</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "#374151" }}>Adjuster:&nbsp;
+                <select value={viewPaId} onChange={(e) => { setViewPaId(e.target.value); setViewStage(null); }} style={{ ...fld, display: "inline-block", width: "auto", minWidth: 200 }}>
+                  <option value="">— Select an adjuster —</option>
+                  {activePas.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </label>
+              {viewPaId && (() => {
+                const pill = (on) => ({ padding: "6px 12px", borderRadius: 999, fontSize: 12, fontWeight: 700, cursor: "pointer", border: on ? "1.5px solid #7c3aed" : "1px solid #ddd6fe", background: on ? "#ede9fe" : "#fff", color: on ? "#5b21b6" : "#6b7280" });
+                return (
+                  <div style={{ display: "inline-flex", gap: 6 }}>
+                    <button type="button" onClick={() => setViewStage(null)} style={pill(viewStage == null)}>📋 Deals</button>
+                    <button type="button" onClick={() => setViewStage("availability")} style={pill(viewStage === "availability")}>📅 Calendar</button>
+                  </div>
+                );
+              })()}
+            </div>
             {viewPaId
               ? <div style={{ marginTop: 12, border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", background: "#fff" }}>
-                  <PAMobileApp embedded paId={viewPaId} allowPaIds={activePas.map((p) => p.id)} />
+                  <PAMobileApp embedded paId={viewPaId} allowPaIds={activePas.map((p) => p.id)} initialStage={viewStage} />
                 </div>
               : <div style={{ marginTop: 10, fontSize: 13, color: "#6b7280" }}>Pick an adjuster above to open their portal.</div>}
           </div>
@@ -6386,6 +6404,8 @@ function PACompanyAdminPage({ token }) {
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     {p.ready_to_activate && <Button onClick={() => activatePa(p)} disabled={activateBusy === p.id}>{activateBusy === p.id ? "…" : "Activate"}</Button>}
+                    {p.active && <Button variant="outline" onClick={() => openPaPortal(p.id, "availability")}>📅 Calendar</Button>}
+                    {p.active && <Button variant="outline" onClick={() => openPaPortal(p.id, null)}>📋 Schedule / deals</Button>}
                     {p.active && <Button variant="outline" onClick={() => resendPaLink(p)} disabled={resendBusy === p.id}>{resendBusy === p.id ? "…" : "📤 Resend link"}</Button>}
                     <Button variant="outline" onClick={() => startEdit(p)}>Edit</Button>
                   </div>
