@@ -1244,6 +1244,10 @@ function PACompaniesPanel({ companies, pas, busy, onUpdate, onCreate }) {
                       style={{ ...secondaryBtn, fontSize: 11 }}>{copiedId === c.id ? "✓ Copied" : "Copy link"}</button>
                   )}
                   {c.token && (
+                    <button type="button" onClick={() => window.open(link, "_blank", "noopener")}
+                      style={{ ...secondaryBtn, fontSize: 11 }}>🔗 Open link</button>
+                  )}
+                  {c.token && (
                     <button type="button" onClick={() => { setSendOpenId(sendOpenId === c.id ? null : c.id); setSendNote(null); }}
                       style={{ ...secondaryBtn, fontSize: 11, borderColor: "#c4b5fd", color: "#5b21b6" }}>📤 Send link</button>
                   )}
@@ -1837,8 +1841,6 @@ function PAZonesCard({ me }) {
 function PAAvailability({ me, onBack }) {
   const [blocked, setBlocked] = useState(() => new Set()); // keys "weekday:startMin" the PA can't do
   const [dateBlocked, setDateBlocked] = useState(() => new Set()); // keys "YYYY-MM-DD:startMin" — off on a SPECIFIC date
-  const [cal, setCal] = useState(() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; }); // displayed month
-  const [selectedDate, setSelectedDate] = useState(null);          // YYYY-MM-DD tapped on the calendar
   const [appts, setAppts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1874,7 +1876,6 @@ function PAAvailability({ me, onBack }) {
   });
   const wdOf = (dateStr) => new Date(dateStr + "T12:00:00").getDay();                 // 0=Sun … 6=Sat
   const dateLabelOf = (dateStr) => new Date(dateStr + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-  const shiftMonth = (delta) => setCal((c) => { const d = new Date(c.y, c.m + delta, 1); return { y: d.getFullYear(), m: d.getMonth() }; });
   const clearDay = (dateStr) => setDateBlocked((prev) => new Set([...prev].filter((k) => k.slice(0, k.lastIndexOf(":")) !== dateStr)));
   const allDayOff = (dateStr) => setDateBlocked((prev) => {
     const next = new Set(prev); for (const h of (PA_SLOT_HOURS[wdOf(dateStr)] || [])) next.add(`${dateStr}:${h * 60}`);
@@ -1913,15 +1914,12 @@ function PAAvailability({ me, onBack }) {
   const fmt = (iso) => { try { return new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch { return iso; } };
   const card = { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, marginBottom: 16 };
 
-  // Today (ET, YYYY-MM-DD) so past days are disabled on the calendar.
+  // Today (ET, YYYY-MM-DD) → the next 2 weeks of days the PA sets availability for
+  // (same horizon the rep books within). Rendered as the rep's day-by-day list.
   const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-  const dstr = (y, m, d) => `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
   const offCountOf = (ds) => { let n = 0; for (const k of dateBlocked) if (k.slice(0, k.lastIndexOf(":")) === ds) n++; return n; };
-  const monthLabel = new Date(cal.y, cal.m, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
-  const firstDow = new Date(cal.y, cal.m, 1).getDay();
-  const daysInMonth = new Date(cal.y, cal.m + 1, 0).getDate();
-  const calCells = []; for (let i = 0; i < firstDow; i++) calCells.push(null); for (let d = 1; d <= daysInMonth; d++) calCells.push(d);
-  const navBtn = { padding: "4px 14px", borderRadius: 8, border: "1px solid #cbd5e1", background: "#fff", fontWeight: 700, fontSize: 16, cursor: "pointer" };
+  const addDays = (ymd, n) => { const d = new Date(ymd + "T12:00:00"); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+  const dayList = Array.from({ length: 14 }, (_, i) => addDays(todayStr, i));
 
   if (loading) return <div style={{ padding: 24, color: "#6b7280" }}>Loading…</div>;
 
@@ -1948,72 +1946,44 @@ function PAAvailability({ me, onBack }) {
 
       {/* Specific dates — tap a calendar day, then turn off the slots you can't do */}
       <div style={card}>
-        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4, fontFamily: "'Oswald', sans-serif" }}>📌 Specific dates off</div>
-        <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 12 }}>Tap a day, then turn off the slots you can't do that date. A red dot = you've marked slots off. This overrides your weekly availability for that date only, so reps won't be offered you then.</div>
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4, fontFamily: "'Oswald', sans-serif" }}>📅 Your availability — next 2 weeks</div>
+        <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 12 }}>This is the same day-by-day calendar the reps book from. <b>Green = you're available</b> — tap any slot to turn it <span style={{ textDecoration: "line-through" }}>off</span> so reps won't be offered you then. Changes apply once you tap <b>Save</b>.</div>
 
-        {/* Month navigation */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-          <button type="button" onClick={() => shiftMonth(-1)} style={navBtn}>‹</button>
-          <div style={{ fontWeight: 700, fontSize: 15 }}>{monthLabel}</div>
-          <button type="button" onClick={() => shiftMonth(1)} style={navBtn}>›</button>
-        </div>
-        {/* Weekday headers */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 4, marginBottom: 4 }}>
-          {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((d) => <div key={d} style={{ textAlign: "center", fontSize: 11, fontWeight: 700, color: "#94a3b8" }}>{d}</div>)}
-        </div>
-        {/* Day grid */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 4 }}>
-          {calCells.map((d, i) => {
-            if (!d) return <div key={`b${i}`} />;
-            const ds = dstr(cal.y, cal.m, d);
-            const past = ds < todayStr;
-            const sel = ds === selectedDate;
-            const off = offCountOf(ds);
+        {/* Day-by-day availability — same layout the rep books from. Tap a slot
+            to turn it OFF (green = available). Next 2 weeks = the scheduler horizon. */}
+        <div style={{ maxHeight: "55vh", overflowY: "auto", paddingRight: 4 }}>
+          {dayList.map((ds) => {
+            const hrs = PA_SLOT_HOURS[wdOf(ds)] || [];
+            const offN = offCountOf(ds);
+            const isToday = ds === todayStr;
             return (
-              <button key={ds} type="button" disabled={past} onClick={() => setSelectedDate(ds)}
-                style={{ position: "relative", padding: "9px 0", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: past ? "default" : "pointer",
-                  border: sel ? "2px solid #0e7490" : "1px solid #e5e7eb",
-                  background: past ? "#f9fafb" : sel ? "#cffafe" : "#fff", color: past ? "#cbd5e1" : "#0f172a" }}>
-                {d}
-                {off > 0 && <span style={{ position: "absolute", top: 4, right: 6, width: 7, height: 7, borderRadius: 999, background: "#dc2626" }} />}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Selected day's slots */}
-        {selectedDate && (() => {
-          const hrs = PA_SLOT_HOURS[wdOf(selectedDate)] || [];
-          const offN = offCountOf(selectedDate);
-          return (
-            <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #f1f5f9" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
-                <span style={{ fontWeight: 700 }}>{dateLabelOf(selectedDate)}</span>
-                {hrs.length > 0 && <button type="button" onClick={() => allDayOff(selectedDate)} style={{ fontSize: 11, color: "#b91c1c", background: "none", border: "none", textDecoration: "underline", cursor: "pointer" }}>Whole day off</button>}
-                {offN > 0 && <button type="button" onClick={() => clearDay(selectedDate)} style={{ fontSize: 11, color: "#15803d", background: "none", border: "none", textDecoration: "underline", cursor: "pointer" }}>All available</button>}
-              </div>
-              {hrs.length === 0 ? <div style={{ fontSize: 13, color: "#9ca3af" }}>No appointment slots offered on this day.</div> : (
-                <>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              <div key={ds} style={{ marginBottom: 14 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 800, padding: isToday ? "3px 8px" : "0", borderRadius: 8, display: "inline-block", background: isToday ? "#fef3c7" : "transparent", color: isToday ? "#92400e" : "#374151" }}>
+                    {dateLabelOf(ds)}{isToday ? " · Today" : ""}
+                  </span>
+                  {hrs.length > 0 && offN < hrs.length && <button type="button" onClick={() => allDayOff(ds)} style={{ fontSize: 11, color: "#b91c1c", background: "none", border: "none", textDecoration: "underline", cursor: "pointer" }}>Whole day off</button>}
+                  {offN > 0 && <button type="button" onClick={() => clearDay(ds)} style={{ fontSize: 11, color: "#15803d", background: "none", border: "none", textDecoration: "underline", cursor: "pointer" }}>All available</button>}
+                </div>
+                {hrs.length === 0 ? <div style={{ fontSize: 12, color: "#9ca3af" }}>No appointment slots this day.</div> : (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                     {hrs.map((h) => {
-                      const sm = h * 60; const slotOff = dateBlocked.has(`${selectedDate}:${sm}`);
+                      const sm = h * 60; const slotOff = dateBlocked.has(`${ds}:${sm}`);
                       return (
-                        <button key={sm} type="button" onClick={() => toggleDate(selectedDate, sm)}
-                          style={{ padding: "8px 10px", borderRadius: 999, fontSize: 13, fontWeight: 700, cursor: "pointer",
-                            border: slotOff ? "1px solid #e5e7eb" : "1px solid #16a34a",
-                            background: slotOff ? "#f3f4f6" : "#dcfce7", color: slotOff ? "#9ca3af" : "#166534",
-                            textDecoration: slotOff ? "line-through" : "none" }}>
-                          {slotRangeLabel(sm)}
+                        <button key={sm} type="button" onClick={() => toggleDate(ds, sm)}
+                          style={{ border: slotOff ? "1px solid #e5e7eb" : "1px solid #16a34a", color: slotOff ? "#9ca3af" : "#16a34a",
+                            background: slotOff ? "#f3f4f6" : "#fff", borderRadius: 12, padding: "9px 16px", fontSize: 14, fontWeight: 700,
+                            cursor: "pointer", textDecoration: slotOff ? "line-through" : "none" }}>
+                          {slotHourLabel(sm)}
                         </button>
                       );
                     })}
                   </div>
-                  <div style={{ fontSize: 12, color: "#6b7280", marginTop: 8 }}>Green = available · Gray = off. <b>{hrs.length - offN}</b> of {hrs.length} slots available this date.</div>
-                </>
-              )}
-            </div>
-          );
-        })()}
+                )}
+              </div>
+            );
+          })}
+        </div>
         {msg && <div style={{ marginTop: 10, fontSize: 13, color: msg.ok ? "#15803d" : "#b91c1c" }}>{msg.text}</div>}
         <button type="button" onClick={save} disabled={saving} style={{ marginTop: 14, padding: "10px 20px", borderRadius: 10, border: "none", background: "#16a34a", color: "#fff", fontWeight: 700, cursor: "pointer", opacity: saving ? 0.6 : 1 }}>
           {saving ? "Saving…" : "Save availability"}
