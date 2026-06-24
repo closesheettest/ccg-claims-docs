@@ -6284,8 +6284,8 @@ function PACompanyAdminPage({ token }) {
                 that adjuster's radius circle on the map and see their mile range. */}
             {(() => {
               const active = (data.pas || []).filter((p) => p.active);
-              const homes = active.filter((p) => p.latitude != null && p.longitude != null)
-                .map((p) => ({ id: p.id, lat: p.latitude, lng: p.longitude, radiusMi: p.max_distance_miles, name: p.name }));
+              const homes = active.filter((p) => p.lat != null && p.lng != null)
+                .map((p) => ({ id: p.id, lat: p.lat, lng: p.lng, radiusMi: p.max_distance_miles, name: p.name }));
               // Bucket each active PA under every coast they cover (none = "Any coast").
               const groups = { "West Coast": [], "East Coast": [], "Any coast": [] };
               for (const p of active) {
@@ -6312,7 +6312,7 @@ function PACompanyAdminPage({ token }) {
                             <div style={{ display: "grid", gap: 4 }}>
                               {groups[z].map((p) => {
                                 const sel = coverSel === p.id;
-                                const noHome = p.latitude == null || p.longitude == null;
+                                const noHome = p.lat == null || p.lng == null;
                                 return (
                                   <button key={p.id + z} type="button" onClick={() => setCoverSel(sel ? null : p.id)}
                                     style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", cursor: "pointer",

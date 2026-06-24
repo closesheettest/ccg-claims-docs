@@ -66,13 +66,14 @@ exports.handler = async (event) => {
     ? "your company admin assigned you"
     : "assigned to you";
 
-  let chosen = channel;
-  if (chosen === "auto") chosen = pa.phone ? "sms" : "email";
-  if (chosen === "sms" && !pa.phone) {
-    return json(400, { ok: false, error: "PA has no phone on file" });
-  }
-  if (chosen === "email" && !pa.email) {
-    return json(400, { ok: false, error: "PA has no email on file" });
+  // Channel policy: "auto" now sends BOTH SMS and email (dual-channel) so a
+  // DND / opted-out phone still gets the link by email — SMS alone silently
+  // fails on those numbers. Explicit "sms" / "email" force a single channel.
+  let chosen = channel === "auto" ? "both" : channel;
+  const wantSms = (chosen === "both" || chosen === "sms") && !!pa.phone;
+  const wantEmail = (chosen === "both" || chosen === "email") && !!pa.email;
+  if (!wantSms && !wantEmail) {
+    return json(400, { ok: false, error: "PA has no phone or email on file" });
   }
 
   // Stamp app_link_sent_at (best-effort; don't fail the send if it errors).
@@ -82,31 +83,15 @@ exports.handler = async (event) => {
     body: JSON.stringify({ app_link_sent_at: new Date().toISOString() }),
   }).catch(() => {});
 
-  // SMS path.
-  if (chosen === "sms") {
-    const messageBody =
-      `Hi ${pa.name}, you're set up as a U.S. Shingle and Metal partner Public Adjuster.\n\n` +
-      `📱 Open your portal: ${link}\n\n` +
-      `Inside you'll see the damage deals ${assignedClause}. Fill in each ` +
-      `milestone (PA filed, INS approved, etc.) as it happens — it updates the ` +
-      `U.S. Shingle main system.\n\n` +
-      `Save it to your home screen:\n` +
-      `• iPhone (Safari): Share → "Add to Home Screen"\n` +
-      `• Android (Chrome): ⋮ menu → "Add to Home screen"`;
-    const smsRes = await fetch(`${base}/.netlify/functions/ghl-sms`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ to: pa.phone, name: pa.name, message: messageBody }),
-    });
-    const smsBody = await smsRes.json().catch(() => ({}));
-    if (!smsRes.ok) {
-      return json(500, { ok: false, channel_used: "sms", error: smsBody.error || `SMS failed (${smsRes.status})` });
-    }
-    await stamp();
-    return json(200, { ok: true, channel_used: "sms", phone: pa.phone, link });
-  }
-
-  // Email path.
+  const messageBody =
+    `Hi ${pa.name}, you're set up as a U.S. Shingle and Metal partner Public Adjuster.\n\n` +
+    `📱 Open your portal: ${link}\n\n` +
+    `Inside you'll see the damage deals ${assignedClause}. Fill in each ` +
+    `milestone (PA filed, INS approved, etc.) as it happens — it updates the ` +
+    `U.S. Shingle main system.\n\n` +
+    `Save it to your home screen:\n` +
+    `• iPhone (Safari): Share → "Add to Home Screen"\n` +
+    `• Android (Chrome): ⋮ menu → "Add to Home screen"`;
   const subject = "Your U.S. Shingle & Metal adjuster portal";
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#0f172a;">
@@ -140,21 +125,37 @@ exports.handler = async (event) => {
       </p>
     </div>
   `;
-  const sendRes = await fetch(`${base}/.netlify/functions/send-email`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ to: pa.email, subject, html }),
-  });
-  const sendBody = await sendRes.json().catch(() => ({}));
-  if (!sendRes.ok || !sendBody.success) {
-    return json(500, {
-      ok: false,
-      channel_used: "email",
-      error: sendBody.error || `send-email returned ${sendRes.status}`,
-    });
+
+  // Send by every requested channel; succeed if EITHER lands.
+  const used = [];
+  const errors = [];
+  if (wantSms) {
+    try {
+      const smsRes = await fetch(`${base}/.netlify/functions/ghl-sms`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: pa.phone, name: pa.name, message: messageBody }),
+      });
+      if (smsRes.ok) used.push("sms");
+      else { const b = await smsRes.json().catch(() => ({})); errors.push(`SMS: ${b.error || smsRes.status}`); }
+    } catch (e) { errors.push(`SMS: ${e.message || e}`); }
+  }
+  if (wantEmail) {
+    try {
+      const sendRes = await fetch(`${base}/.netlify/functions/send-email`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: pa.email, subject, html }),
+      });
+      const sendBody = await sendRes.json().catch(() => ({}));
+      if (sendRes.ok && sendBody.success) used.push("email");
+      else errors.push(`Email: ${sendBody.error || sendRes.status}`);
+    } catch (e) { errors.push(`Email: ${e.message || e}`); }
+  }
+
+  if (!used.length) {
+    return json(502, { ok: false, error: errors.join(" · ") || "Couldn't send the link." });
   }
   await stamp();
-  return json(200, { ok: true, channel_used: "email", email: pa.email, link });
+  return json(200, { ok: true, channel_used: used.join("+"), errors: errors.length ? errors : undefined, phone: pa.phone, email: pa.email, link });
 };
 
 function escapeHtml(s) {
