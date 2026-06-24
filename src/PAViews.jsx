@@ -883,6 +883,33 @@ export function PAAdminPanel() {
       <PACompaniesPanel companies={companies} pas={pas} busy={companyBusy}
         onUpdate={updateCompany} onCreate={createCompany} />
 
+      {/* ── Active PAs per Florida zone (coverage map) ──────────────── */}
+      {(() => {
+        const counts = {}; let unset = 0;
+        for (const p of pas) {
+          if (p.active === false) continue;
+          const zs = Array.isArray(p.zones) ? p.zones : [];
+          if (!zs.length) { unset++; continue; }
+          for (const z of zs) counts[z] = (counts[z] || 0) + 1;
+        }
+        return (
+          <section style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, background: "#fff" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>🗺 Active PAs per zone</div>
+            <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 12 }}>How many active adjusters cover each Florida zone.{unset > 0 ? ` ${unset} PA${unset === 1 ? "" : "s"} with no zone set (covers everywhere).` : ""}</div>
+            <FloridaZoneMap counts={counts} />
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 8, marginTop: 12 }}>
+              {FL_ZONES.map((z) => (
+                <div key={z.zone} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: 8, border: "1px solid #e5e7eb" }}>
+                  <span style={{ width: 12, height: 12, borderRadius: 3, background: z.color, flex: "0 0 auto" }} />
+                  <span style={{ fontSize: 12, fontWeight: 700 }}>{z.zone}</span>
+                  <span style={{ marginLeft: "auto", fontSize: 15, fontWeight: 800 }}>{counts[z.zone] || 0}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        );
+      })()}
+
       {/* ── Auto-assign & oversight ─────────────────────────────────── */}
       <section style={{ border: "1px solid #c7d2fe", borderRadius: 12, padding: 16, background: "#eef2ff" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
@@ -1674,6 +1701,81 @@ const PA_WEEKDAYS = [[1, "Monday"], [2, "Tuesday"], [3, "Wednesday"], [4, "Thurs
 const PA_SLOT_HOURS = { 1: [9, 11, 13, 15, 17, 19], 2: [9, 11, 13, 15, 17, 19], 3: [9, 11, 13, 15, 17, 19], 4: [9, 11, 13, 15, 17, 19], 5: [9, 11, 13, 15, 17, 19], 6: [9, 11, 13, 15] };
 function slotHourLabel(min) { const h = Math.floor(min / 60); const ap = h >= 12 ? "PM" : "AM"; const h12 = h % 12 || 12; return `${h12} ${ap}`; }
 function slotRangeLabel(min) { return `${slotHourLabel(min)}–${slotHourLabel(min + 120)}`; }
+// ── Florida zones (stylized map: panhandle + tapering peninsula, split SW/SE) ──
+const FL_ZONES = [
+  { zone: "Zone 1", label: "North", desc: "Jacksonville · Gainesville · Ocala · Daytona · Lake", color: "#2563eb", points: "18,40 188,40 188,118 118,118 118,70 18,70", lx: 86, ly: 56 },
+  { zone: "Zone 2", label: "Central", desc: "Tampa · Pasco · Polk · Osceola · Hernando · Highlands", color: "#16a34a", points: "118,118 188,118 184,188 122,188", lx: 153, ly: 156 },
+  { zone: "Zone 3", label: "Southwest + Treasure Coast", desc: "Pinellas · Sarasota · Ft. Myers · Naples · Keys · Pt. St. Lucie", color: "#d97706", points: "122,188 153,188 146,300 120,272", lx: 130, ly: 232 },
+  { zone: "Zone 4", label: "Southeast", desc: "Palm Beach · Broward · Miami-Dade · Martin", color: "#db2777", points: "153,188 184,188 176,278 146,300", lx: 169, ly: 232 },
+];
+function FloridaZoneMap({ selected, counts, onToggle }) {
+  const pick = !!onToggle;
+  return (
+    <svg viewBox="0 0 206 320" style={{ width: "100%", maxWidth: 340, height: "auto", display: "block", margin: "0 auto" }}>
+      {FL_ZONES.map((z) => {
+        const on = pick ? !!(selected && selected.has(z.zone)) : true;
+        const dim = pick && !on;
+        return (
+          <g key={z.zone} onClick={pick ? () => onToggle(z.zone) : undefined} style={{ cursor: pick ? "pointer" : "default" }}>
+            <polygon points={z.points} fill={dim ? "#e5e7eb" : z.color} fillOpacity={dim ? 0.6 : 0.9} stroke="#fff" strokeWidth="2" />
+            <text x={z.lx} y={z.ly} textAnchor="middle" fontSize="10" fontWeight="800" fill={dim ? "#6b7280" : "#fff"}>{z.zone.replace("Zone ", "Z")}</text>
+            <text x={z.lx} y={z.ly + 11} textAnchor="middle" fontSize="6.5" fill={dim ? "#9ca3af" : "#fff"}>{z.label.split(" + ")[0]}</text>
+            {counts && <text x={z.lx} y={z.ly + 24} textAnchor="middle" fontSize="12" fontWeight="800" fill="#fff">{counts[z.zone] || 0}</text>}
+            {pick && on && <text x={z.lx} y={z.ly - 9} textAnchor="middle" fontSize="11" fill="#fff">✓</text>}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+// PA self-service: pick the Florida zones you cover. Saved to pas.zones; the
+// scheduler only offers you appointments in these zones (empty = everywhere).
+function PAZonesCard({ me }) {
+  const [zones, setZones] = useState(() => new Set(Array.isArray(me.zones) ? me.zones : []));
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState(null);
+  useEffect(() => {
+    (async () => {
+      try { const { data, error } = await supabase.from("pas").select("zones").eq("id", me.id).single(); if (!error && data && Array.isArray(data.zones)) setZones(new Set(data.zones)); } catch { /* zones column not added yet */ }
+    })(); // eslint-disable-next-line
+  }, [me.id]);
+  const toggle = (z) => setZones((prev) => { const n = new Set(prev); n.has(z) ? n.delete(z) : n.add(z); return n; });
+  const save = async () => {
+    setSaving(true); setMsg(null);
+    const { error } = await supabase.from("pas").update({ zones: [...zones] }).eq("id", me.id);
+    setSaving(false);
+    setMsg(error ? { ok: false, text: "Couldn't save zones (ask admin to run the zones setup): " + error.message } : { ok: true, text: "✓ Zones saved." });
+  };
+  const card = { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, marginBottom: 16 };
+  return (
+    <div style={card}>
+      <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4, fontFamily: "'Oswald', sans-serif" }}>📍 My zones</div>
+      <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 12 }}>Tap the Florida zones you cover. You'll only be offered appointments in these zones (plus your distance limit). Leave all unselected to cover everywhere.</div>
+      <FloridaZoneMap selected={zones} onToggle={toggle} />
+      <div style={{ display: "grid", gap: 6, marginTop: 12 }}>
+        {FL_ZONES.map((z) => {
+          const on = zones.has(z.zone);
+          return (
+            <button key={z.zone} type="button" onClick={() => toggle(z.zone)}
+              style={{ display: "flex", alignItems: "center", gap: 8, textAlign: "left", padding: "8px 10px", borderRadius: 8, cursor: "pointer",
+                border: on ? `2px solid ${z.color}` : "1px solid #e5e7eb", background: on ? "#fff" : "#f9fafb" }}>
+              <span style={{ width: 12, height: 12, borderRadius: 3, background: z.color, flex: "0 0 auto" }} />
+              <span style={{ flex: 1 }}>
+                <span style={{ fontWeight: 700, fontSize: 13 }}>{z.zone} · {z.label}</span>
+                <span style={{ display: "block", fontSize: 11, color: "#6b7280" }}>{z.desc}</span>
+              </span>
+              <span style={{ fontSize: 16, color: on ? z.color : "#cbd5e1" }}>{on ? "✓" : "○"}</span>
+            </button>
+          );
+        })}
+      </div>
+      {msg && <div style={{ marginTop: 10, fontSize: 13, color: msg.ok ? "#15803d" : "#b91c1c" }}>{msg.text}</div>}
+      <button type="button" onClick={save} disabled={saving} style={{ marginTop: 12, padding: "10px 20px", borderRadius: 10, border: "none", background: "#16a34a", color: "#fff", fontWeight: 700, cursor: "pointer", opacity: saving ? 0.6 : 1 }}>
+        {saving ? "Saving…" : "Save zones"}
+      </button>
+    </div>
+  );
+}
 function PAAvailability({ me, onBack }) {
   const [blocked, setBlocked] = useState(() => new Set()); // keys "weekday:startMin" the PA can't do
   const [dateBlocked, setDateBlocked] = useState(() => new Set()); // keys "YYYY-MM-DD:startMin" — off on a SPECIFIC date
@@ -1767,6 +1869,8 @@ function PAAvailability({ me, onBack }) {
 
   return (
     <div>
+      {/* Zones the PA covers — drives which appointments they're offered */}
+      <PAZonesCard me={me} />
       {/* Upcoming appointments */}
       <div style={card}>
         <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 10, fontFamily: "'Oswald', sans-serif" }}>📅 Your upcoming appointments</div>
