@@ -23,6 +23,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "./lib/supabase";
 import { fmtSigned } from "./lib/dates";
+import { FL_VB, FL_LABELXY, FL_COUNTIES } from "./flCounties";
 
 // Haversine distance in miles between two lat/lng pairs. Mirrors the
 // inspector portal's milesBetween so PA distances match inspector ones.
@@ -1701,27 +1702,37 @@ const PA_WEEKDAYS = [[1, "Monday"], [2, "Tuesday"], [3, "Wednesday"], [4, "Thurs
 const PA_SLOT_HOURS = { 1: [9, 11, 13, 15, 17, 19], 2: [9, 11, 13, 15, 17, 19], 3: [9, 11, 13, 15, 17, 19], 4: [9, 11, 13, 15, 17, 19], 5: [9, 11, 13, 15, 17, 19], 6: [9, 11, 13, 15] };
 function slotHourLabel(min) { const h = Math.floor(min / 60); const ap = h >= 12 ? "PM" : "AM"; const h12 = h % 12 || 12; return `${h12} ${ap}`; }
 function slotRangeLabel(min) { return `${slotHourLabel(min)}–${slotHourLabel(min + 120)}`; }
-// ── Florida zones (stylized map: panhandle + tapering peninsula, split SW/SE) ──
+// ── Florida zones — real county map (geometry baked in flCounties.js) ──
 const FL_ZONES = [
-  { zone: "Zone 1", label: "North", desc: "Jacksonville · Gainesville · Ocala · Daytona · Lake", color: "#2563eb", points: "18,40 188,40 188,118 118,118 118,70 18,70", lx: 86, ly: 56 },
-  { zone: "Zone 2", label: "Central", desc: "Tampa · Pasco · Polk · Osceola · Hernando · Highlands", color: "#16a34a", points: "118,118 188,118 184,188 122,188", lx: 153, ly: 156 },
-  { zone: "Zone 3", label: "Southwest + Treasure Coast", desc: "Pinellas · Sarasota · Ft. Myers · Naples · Keys · Pt. St. Lucie", color: "#d97706", points: "122,188 153,188 146,300 120,272", lx: 130, ly: 232 },
-  { zone: "Zone 4", label: "Southeast", desc: "Palm Beach · Broward · Miami-Dade · Martin", color: "#db2777", points: "153,188 184,188 176,278 146,300", lx: 169, ly: 232 },
+  { zone: "Zone 1", label: "North", desc: "Jacksonville · Gainesville · Ocala · Daytona · Lake", color: "#2563eb" },
+  { zone: "Zone 2", label: "Central", desc: "Tampa · Pasco · Polk · Osceola · Hernando · Highlands", color: "#16a34a" },
+  { zone: "Zone 3", label: "Southwest + Treasure Coast", desc: "Pinellas · Sarasota · Ft. Myers · Naples · Keys · Pt. St. Lucie", color: "#d97706" },
+  { zone: "Zone 4", label: "Southeast", desc: "Palm Beach · Broward · Miami-Dade · Martin", color: "#db2777" },
 ];
+const FL_ZONE_COLOR = Object.fromEntries(FL_ZONES.map((z) => [z.zone, z.color]));
 function FloridaZoneMap({ selected, counts, onToggle }) {
   const pick = !!onToggle;
   return (
-    <svg viewBox="0 0 206 320" style={{ width: "100%", maxWidth: 340, height: "auto", display: "block", margin: "0 auto" }}>
+    <svg viewBox={FL_VB} style={{ width: "100%", maxWidth: 430, height: "auto", display: "block", margin: "0 auto" }}>
+      {/* Counties, filled by their zone (gray = outside the 4 zones / panhandle) */}
+      {FL_COUNTIES.map((c, i) => {
+        const col = FL_ZONE_COLOR[c.z];
+        const on = !pick || !!(selected && selected.has(c.z));
+        const fill = col ? (pick && !on ? "#cbd5e1" : col) : "#e5e7eb";
+        return <path key={i} d={c.d} fill={fill} fillOpacity={col ? (pick && !on ? 0.55 : 0.85) : 0.55}
+          stroke="#fff" strokeWidth="0.6" onClick={pick && col ? () => onToggle(c.z) : undefined}
+          style={{ cursor: pick && col ? "pointer" : "default" }}><title>{c.n} County{col ? ` — ${c.z}` : ""}</title></path>;
+      })}
+      {/* Zone labels + (counts / ✓) at each zone's centroid */}
       {FL_ZONES.map((z) => {
-        const on = pick ? !!(selected && selected.has(z.zone)) : true;
+        const xy = FL_LABELXY[z.zone]; if (!xy) return null;
+        const on = !pick || !!(selected && selected.has(z.zone));
         const dim = pick && !on;
         return (
-          <g key={z.zone} onClick={pick ? () => onToggle(z.zone) : undefined} style={{ cursor: pick ? "pointer" : "default" }}>
-            <polygon points={z.points} fill={dim ? "#e5e7eb" : z.color} fillOpacity={dim ? 0.6 : 0.9} stroke="#fff" strokeWidth="2" />
-            <text x={z.lx} y={z.ly} textAnchor="middle" fontSize="10" fontWeight="800" fill={dim ? "#6b7280" : "#fff"}>{z.zone.replace("Zone ", "Z")}</text>
-            <text x={z.lx} y={z.ly + 11} textAnchor="middle" fontSize="6.5" fill={dim ? "#9ca3af" : "#fff"}>{z.label.split(" + ")[0]}</text>
-            {counts && <text x={z.lx} y={z.ly + 24} textAnchor="middle" fontSize="12" fontWeight="800" fill="#fff">{counts[z.zone] || 0}</text>}
-            {pick && on && <text x={z.lx} y={z.ly - 9} textAnchor="middle" fontSize="11" fill="#fff">✓</text>}
+          <g key={z.zone} pointerEvents="none">
+            <text x={xy[0]} y={xy[1]} textAnchor="middle" fontSize="13" fontWeight="800" fill={dim ? "#475569" : "#fff"} stroke={dim ? "none" : "rgba(0,0,0,.28)"} strokeWidth="0.5" paintOrder="stroke">{z.zone.replace("Zone ", "Z")}</text>
+            {counts && <text x={xy[0]} y={xy[1] + 15} textAnchor="middle" fontSize="14" fontWeight="800" fill="#fff" stroke="rgba(0,0,0,.28)" strokeWidth="0.5" paintOrder="stroke">{counts[z.zone] || 0}</text>}
+            {pick && on && <text x={xy[0]} y={xy[1] - 12} textAnchor="middle" fontSize="13" fill="#fff" stroke="rgba(0,0,0,.28)" strokeWidth="0.5" paintOrder="stroke">✓</text>}
           </g>
         );
       })}
