@@ -10,7 +10,7 @@ import {
 import { supabase } from "./lib/supabase";
 import { fmtSigned } from "./lib/dates";
 import { InspectorMobileApp, InspectorsAdminPanel, InspectorSetupPage, ManagerInspectorReports, InspectionAssignmentsPanel, ManagerRoutePlanner, PAHandoffPanel, PAReportPanel, SitSoldPaReportPanel, ConfirmResultsPanel } from "./InspectorViews";
-import { PAMobileApp, PAAdminPanel } from "./PAViews";
+import { PAMobileApp, PAAdminPanel, FloridaZoneMap } from "./PAViews";
 import { TeamRolesPanel } from "./TeamRolesPanel";
 import InspectionPhotosModal from "./InspectionPhotosModal";
 import RepVisitHub from "./RepVisitHub";
@@ -6278,6 +6278,36 @@ function PACompanyAdminPage({ token }) {
               <div style={{ fontSize: 14, fontWeight: 800, color: "#111827" }}>👥 Your adjusters</div>
               <Button variant="outline" onClick={() => { setAddOpen((v) => !v); setErr(""); }}>{addOpen ? "Cancel" : "➕ Add adjuster"}</Button>
             </div>
+            {/* Team coverage map — combined area the company's active PAs cover */}
+            {(() => {
+              const homes = (data.pas || []).filter((p) => p.active && p.latitude != null && p.longitude != null)
+                .map((p) => ({ lat: p.latitude, lng: p.longitude, radiusMi: p.max_distance_miles, name: p.name }));
+              const active = (data.pas || []).filter((p) => p.active);
+              return (
+                <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: 10, marginBottom: 12, background: "#fafafa" }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: "#111827", marginBottom: 6 }}>🗺 Team coverage</div>
+                  {homes.length === 0 ? (
+                    <div style={{ fontSize: 12, color: "#9ca3af" }}>Add home addresses to your adjusters to see your team's coverage area on the map.</div>
+                  ) : (
+                    <>
+                      <FloridaZoneMap homes={homes} />
+                      <div style={{ display: "grid", gap: 4, marginTop: 10 }}>
+                        {active.map((p) => (
+                          <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                            <span style={{ width: 8, height: 8, borderRadius: 999, background: "#0e7490", flex: "0 0 auto" }} />
+                            <span style={{ fontWeight: 700 }}>{p.name}</span>
+                            <span style={{ color: "#6b7280" }}>
+                              {Array.isArray(p.zones) && p.zones.length ? p.zones.join(" + ") : "any coast"} · {p.max_distance_miles > 0 ? `${p.max_distance_miles} mi` : "60 mi"}
+                              {(p.latitude == null || p.longitude == null) ? " · ⚠ no home address" : ""}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            })()}
             <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 10 }}>Edit contact info, home address, and the max distance each PA will travel. Set a max distance, then tap that PA under “📏 Distance from” below to see only the deals within range.</div>
             {addOpen && (
               <div style={{ border: "1px solid #c4b5fd", borderRadius: 10, padding: 12, background: "#f5f3ff", marginBottom: 10 }}>

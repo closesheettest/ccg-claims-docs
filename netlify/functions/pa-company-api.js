@@ -47,7 +47,7 @@ exports.handler = async (event) => {
   // Active PAs in this company (+ home coords for distance sorting + takeaways).
   // Full select includes max_distance_miles (added by pa_max_distance.sql).
   // If that column isn't there yet, fall back so the page still loads.
-  let pas = await get(`${SB_URL}/rest/v1/pas?pa_company_id=eq.${company.id}&select=id,name,active,home_address,latitude,longitude,pa_takeaways,phone,email,max_distance_miles,jn_user_id&order=name.asc`, sb);
+  let pas = await get(`${SB_URL}/rest/v1/pas?pa_company_id=eq.${company.id}&select=id,name,active,home_address,latitude,longitude,pa_takeaways,phone,email,max_distance_miles,zones,jn_user_id&order=name.asc`, sb);
   if (!pas.length) {
     pas = await get(`${SB_URL}/rest/v1/pas?pa_company_id=eq.${company.id}&select=id,name,active,home_address,latitude,longitude,pa_takeaways,phone,email,jn_user_id&order=name.asc`, sb);
   }

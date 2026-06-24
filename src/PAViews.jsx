@@ -1708,13 +1708,14 @@ const FL_ZONES = [
   { zone: "East Coast", label: "East", desc: "Atlantic side — Daytona · Orlando · Palm Beach · Broward · Miami", color: "#ea580c" },
 ];
 const FL_ZONE_COLOR = Object.fromEntries(FL_ZONES.map((z) => [z.zone, z.color]));
-function FloridaZoneMap({ selected, counts, onToggle, home, radiusMi }) {
+export function FloridaZoneMap({ selected, counts, onToggle, home, radiusMi, homes }) {
   const pick = !!onToggle;
+  const projX = (lng) => (lng - FL_PROJ.minLng) * FL_PROJ.k * FL_PROJ.scale;
+  const projY = (lat) => (FL_PROJ.maxLat - lat) * FL_PROJ.scale;
+  const milesToR = (mi) => (mi / 69) * FL_PROJ.scale;   // ~69 miles per degree latitude
   let circle = null;
   if (pick && home && home.lat != null && home.lng != null && radiusMi > 0) {
-    const cx = (home.lng - FL_PROJ.minLng) * FL_PROJ.k * FL_PROJ.scale;
-    const cy = (FL_PROJ.maxLat - home.lat) * FL_PROJ.scale;
-    const r = (radiusMi / 69) * FL_PROJ.scale;   // ~69 miles per degree of latitude
+    const cx = projX(home.lng), cy = projY(home.lat), r = milesToR(radiusMi);
     circle = (
       <g pointerEvents="none">
         <circle cx={cx} cy={cy} r={r} fill="#0e7490" fillOpacity="0.12" stroke="#0e7490" strokeWidth="1.6" strokeDasharray="4 3" />
@@ -1722,6 +1723,16 @@ function FloridaZoneMap({ selected, counts, onToggle, home, radiusMi }) {
       </g>
     );
   }
+  // Team view: one radius circle per PA home — their combined coverage footprint.
+  const teamCircles = (homes || []).filter((h) => h && h.lat != null && h.lng != null).map((h, i) => {
+    const cx = projX(+h.lng), cy = projY(+h.lat), r = milesToR(h.radiusMi > 0 ? +h.radiusMi : 60);
+    return (
+      <g key={"h" + i} pointerEvents="none">
+        <circle cx={cx} cy={cy} r={r} fill="#0e7490" fillOpacity="0.09" stroke="#0e7490" strokeWidth="1.1" strokeDasharray="3 2" />
+        <circle cx={cx} cy={cy} r="2.6" fill="#0e7490" stroke="#fff" strokeWidth="0.7" />
+      </g>
+    );
+  });
   return (
     <svg viewBox={FL_VB} style={{ width: "100%", maxWidth: 430, height: "auto", display: "block", margin: "0 auto" }}>
       {/* Counties, filled by their zone (gray = outside the 4 zones / panhandle) */}
@@ -1735,6 +1746,8 @@ function FloridaZoneMap({ selected, counts, onToggle, home, radiusMi }) {
       })}
       {/* Mile-radius circle around the PA's home (picker only) */}
       {circle}
+      {/* Team view: a circle per PA (company coverage map) */}
+      {teamCircles}
       {/* Zone labels + (counts / ✓) at each zone's centroid */}
       {FL_ZONES.map((z) => {
         const xy = FL_LABELXY[z.zone]; if (!xy) return null;
