@@ -343,7 +343,7 @@ export default function ManagerRecordsView({ token }) {
                       🤝 Pass Out Company Leads ({filteredCompanyLeads.length})
                     </span>
                     <span style={{ display: 'block', fontSize: 12.5, color: '#92400e', marginTop: 2 }}>
-                      Retail inspections from reps who aren't active — get a rep over there to set an appointment and sell it.
+                      Retail &amp; damage inspections from people who aren't active sales reps (e.g. trainer signings) — get one of your reps over to set the appointment and work it.
                     </span>
                   </span>
                   <span style={{ fontSize: 18, color: '#92400e', marginLeft: 8 }}>{companyLeadsOpen ? '▾' : '▸'}</span>

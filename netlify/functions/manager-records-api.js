@@ -32,6 +32,25 @@ const JN_KEY = process.env.JOBNIMBUS_API_KEY
 const TMS_REP_ZONES_URL =
   'https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones'
 
+// Florida territory model — a deal's zone is decided by WHERE THE PROPERTY IS
+// (geocoded county → zone), used to route non-rep damage leads to the right
+// zone manager. ⚠️ MIRRORS all-no-sits.js — keep the two maps in sync.
+const ZONE_COUNTIES = {
+  'Zone 1': ['Nassau', 'Duval', 'Baker', 'Union', 'Bradford', 'Clay', 'St. Johns', 'Putnam', 'Flagler', 'Alachua', 'Levy', 'Marion', 'Sumter', 'Lake', 'Seminole', 'Volusia'],
+  'Zone 2': ['Pasco', 'Hillsborough', 'Polk', 'Osceola', 'Indian River', 'Highlands', 'Citrus', 'Hernando'],
+  'Zone 3': ['Pinellas', 'Manatee', 'Sarasota', 'Charlotte', 'Lee', 'Collier', 'Monroe', 'Hardee', 'DeSoto', 'Glades', 'Hendry', 'St. Lucie', 'Okeechobee'],
+  'Zone 4': ['Martin', 'Palm Beach', 'Broward', 'Miami-Dade'],
+}
+const ZONE_SPLIT_LAT = 28.55 // Brevard & Orange: north→Zone 1, south→Zone 2
+const normCounty = (s) => String(s || '').toLowerCase().replace(/\bcounty\b/g, '').replace(/[^a-z0-9]+/g, ' ').trim()
+const COUNTY_ZONE = (() => { const m = {}; for (const [z, cs] of Object.entries(ZONE_COUNTIES)) for (const c of cs) m[normCounty(c)] = z; return m })()
+function countyToZone(county, lat) {
+  const n = normCounty(county)
+  if (!n) return 'Unassigned'
+  if (n === 'brevard' || n === 'orange') return (lat != null && lat >= ZONE_SPLIT_LAT) ? 'Zone 1' : 'Zone 2'
+  return COUNTY_ZONE[n] || 'Unassigned'
+}
+
 export const handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return json(405, { ok: false, error: 'Method Not Allowed' })
@@ -335,15 +354,26 @@ async function buildRecords(manager) {
 
   const inactiveNames = new Set()
   const inactiveJnIds = new Set()
+  const activeNames = new Set()
+  const activeJnIds = new Set()
   for (const r of salesRepRows || []) {
     if (r.active === false) {
       if (r.name) inactiveNames.add(normalizeName(r.name))
       if (r.jobnimbus_id) inactiveJnIds.add(r.jobnimbus_id)
+    } else if (r.active === true) {
+      if (r.name) activeNames.add(normalizeName(r.name))
+      if (r.jobnimbus_id) activeJnIds.add(r.jobnimbus_id)
     }
   }
   const isInactiveSigner = (d) =>
     (d.sales_rep_id && inactiveJnIds.has(d.sales_rep_id)) ||
     inactiveNames.has(normalizeName(d.sales_rep_name || ''))
+  // "Not an active sales rep" — the trigger for routing a damage deal to the
+  // zone manager's pool. Covers inactive reps (William) AND signers absent from
+  // the roster entirely (inspectors/trainers). Active = an active sales_reps row.
+  const isActiveSigner = (d) =>
+    (d.sales_rep_id && activeJnIds.has(d.sales_rep_id)) ||
+    activeNames.has(normalizeName(d.sales_rep_name || ''))
   const isRetail = (d) => /retail/i.test(String(d.inspection_result || d.result || ''))
   const isLost = (d) => /lost/i.test(String(d.inspection_result || d.result || ''))
   // Damage = the word "damage" but NOT "no damage" (which contains it).
@@ -351,17 +381,6 @@ async function buildRecords(manager) {
     const r = String(d.inspection_result || d.result || '')
     return /damage/i.test(r) && !/no\s*damage/i.test(r)
   }
-  // "Insurance approved" — a Damage claim the carrier/PA brought back
-  // approved. A non-rep's Damage deal stays HIDDEN until this is true;
-  // then it becomes a company lead (get a rep over to do paperwork +
-  // upsell). TODO(neal-trigger): Neal is confirming the exact signal.
-  // Until then we match an explicit "approved" in pa_status or jn_status
-  // (conservative — nothing surfaces early). Swap this one helper when
-  // he gives the trigger.
-  const isInsuranceApproved = (d) =>
-    /approv/i.test(String(d.pa_status || '')) ||
-    /approv/i.test(String(d.jn_status || ''))
-
   // 3. Merge claims + inspections into a normalized "deal" shape so
   //    the UI doesn't have to special-case both. Inspection-only deals
   //    (didn't progress to PA forms) and claim-track deals both fit
@@ -388,19 +407,19 @@ async function buildRecords(manager) {
     }
   }
 
-  // 4b. Company leads to pass out: Retail inspections signed by an
-  //     inactive/departed rep. These aren't anyone's deal to work yet —
-  //     they get pinned to the top of the manager page for reassignment
-  //     to an active rep, and are pulled OUT of the per-rep grouping so
-  //     an inactive person never shows up as a working sales rep.
-  //     A non-rep never appears as a working rep: ALL of their deals are
-  //     pulled out of the per-rep grouping (hiddenInactiveKeys). Of those,
-  //     only the ones that are actionable surface as company leads —
-  //       • Retail            → hand to a rep to sell  (company_lead_kind 'retail')
-  //       • Damage + APPROVED → hand to a rep for paperwork + upsell
-  //                             (company_lead_kind 'insurance_approved')
-  //     Everything else from a non-rep (No Damage, still-pending Damage,
-  //     unsigned) just disappears until it qualifies.
+  // 4b. Company leads to pass out: inspections signed by an inactive/departed
+  //     rep. These aren't anyone's deal to work yet — they get pinned to the top
+  //     of the manager page for reassignment to an active rep, and are pulled OUT
+  //     of the per-rep grouping so an inactive person never shows as a working
+  //     sales rep. A non-rep never appears as a working rep: ALL of their deals
+  //     are hidden from per-rep grouping (hiddenInactiveKeys). Of those, the
+  //     actionable ones surface as company leads —
+  //       • Retail → hand to a rep to sell      (company_lead_kind 'retail')
+  //       • Damage → hand to a rep to book the   (company_lead_kind 'damage')
+  //                  adjuster appointment
+  //     No Damage / still-unsigned from a non-rep stays hidden.
+  //     (This loop only covers signers already in this zone's rep list; never-
+  //      zoned signers like trainers are routed by county in 4b-2 below.)
   const companyLeads = []
   const companyLeadKeys = new Set()
   const hiddenInactiveKeys = new Set()
@@ -414,12 +433,64 @@ async function buildRecords(manager) {
       d.company_lead_kind = 'retail'
       companyLeads.push(d)
       companyLeadKeys.add(`${d.source}:${d.id}`)
-    } else if (isDamage(d) && isInsuranceApproved(d)) {
-      d.company_lead_kind = 'insurance_approved'
+    } else if (isDamage(d)) {
+      // Damage from a non-active rep now routes straight to the manager pool to
+      // assign — no longer gated on insurance approval. A rep takes it over and
+      // books the adjuster appointment, off the PAs' plates.
+      d.company_lead_kind = 'damage'
       companyLeads.push(d)
       companyLeadKeys.add(`${d.source}:${d.id}`)
     }
-    // else: hidden until it becomes Retail or an approved Damage claim.
+    // else: No Damage / still-unsigned from a non-rep stays hidden.
+  }
+
+  // 4b-2. Non-rep DAMAGE deals routed by the HOMEOWNER'S COUNTY (not the
+  //   signer's zone). The loop above only sees deals signed by reps already in
+  //   THIS zone; a never-zoned signer like William (trainer) would otherwise land
+  //   in no manager's pool. So pull every signed damage inspection whose signer
+  //   isn't an active rep and whose property county maps to this manager's zone,
+  //   and surface it as a 'damage' company lead. PAs are left alone: any deal that
+  //   already has an upcoming PA appointment is skipped (they keep working it).
+  if (manager.zone && manager.zone !== 'Unassigned') {
+    const since = new Date(Date.now() - 180 * 864e5).toISOString()
+    const nonRepDamage = await fetchTable('inspections', {
+      select:
+        'id,client_name,address,city,state,zip,county,latitude,mobile,sales_rep_name,sales_rep_id,sales_rep_email,' +
+        'inspection_result,result,result_at,signed_at,jn_status,jn_job_id,docs_signed,signed_pdfs,cancelled_at,' +
+        'pa_status,pa_decision_at,pa_decision_reason,jn_pushed_at,jn_cert_uploaded_at',
+      filter: `result=eq.damage&signed_at=not.is.null&cancelled_at=is.null&signed_at=gte.${since}`,
+      order: 'id.desc',
+      limit: 1000,
+    })
+    // Candidates for THIS zone whose signer isn't an active rep.
+    const zoneCands = (nonRepDamage || []).filter(
+      (r) => !r.cancelled_at && countyToZone(r.county, r.latitude) === manager.zone &&
+        !isActiveSigner({ sales_rep_id: r.sales_rep_id, sales_rep_name: r.sales_rep_name }),
+    )
+    // Drop any that already have an upcoming PA appointment — leave those with the PA.
+    const paBusy = new Set()
+    const candIds = zoneCands.map((r) => r.id)
+    if (candIds.length) {
+      const appts = await fetchTable('pa_appointments', {
+        select: 'inspection_id',
+        filter: `status=eq.scheduled&start_at=gte.${new Date().toISOString()}&inspection_id=in.(${candIds.join(',')})`,
+        limit: 5000,
+      })
+      for (const a of appts || []) if (a.inspection_id) paBusy.add(a.inspection_id)
+    }
+    const existingJobIds = new Set(deals.map((d) => d.jn_job_id).filter(Boolean))
+    for (const r of zoneCands) {
+      const d = normalizeDeal(r, 'inspection')
+      const key = `${d.source}:${d.id}`
+      if (paBusy.has(d.id)) continue                              // PA has an appointment → leave it
+      if (companyLeadKeys.has(key)) continue                      // already surfaced via the zone-rep path
+      if (d.jn_job_id && existingJobIds.has(d.jn_job_id)) continue // dup of a loaded deal
+      d.company_lead_kind = 'damage'
+      d.zone_routed = true
+      companyLeads.push(d)
+      companyLeadKeys.add(key)
+      hiddenInactiveKeys.add(key)
+    }
   }
 
   // 4c. Cancelled deals get their own bucket — pulled out of every rep
