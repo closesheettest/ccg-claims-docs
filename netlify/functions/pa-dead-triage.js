@@ -1,8 +1,11 @@
 // netlify/functions/pa-dead-triage.js
 //
-// U.S. Shingle admin triages a DEAD PA deal (pa_stage='dead') one of three ways:
+// U.S. Shingle admin triages a DEAD PA deal (pa_stage='dead') one of four ways:
 //   release_to_rep — clear the PA off it (KEEP pa_notes_log) so it reappears in
 //                    the sales rep's Damage visit list, with the PA's notes intact.
+//   retail         — no insurance but a live RETAIL opportunity: reclassify
+//                    result=retail + JN "Sit Sold Insp" + clear PA + any stale
+//                    "BTR - NI", so it lands in the rep's Retail list to sell a roof.
 //   lost           — cancel the deal (out of every flow).
 //   btr_ni         — set JN status "BTR - NI" + clear the PA (back to retail,
 //                    not interested).
