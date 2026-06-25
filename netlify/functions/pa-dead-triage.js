@@ -50,10 +50,19 @@ exports.handler = async (event) => {
     }
     if (action === "retail") {
       // Not an insurance deal (e.g. no homeowner's insurance) but a live RETAIL
-      // opportunity — reclassify to retail + clear the PA so it lands in the rep's
+      // opportunity — reclassify to retail, move it to the retail pool ("Sit Sold
+      // Insp"), and clear the PA + any stale "BTR - NI" so it lands in the rep's
       // Retail visit list to schedule and sell a roof. Notes ride along.
-      await patch(id, { result: "retail", pa_id: null, pa_company_id: null, pa_claimed_at: null, pa_stage: null, pa_stage_at: now, pa_decision_needed: false });
-      return cors(200, JSON.stringify({ ok: true, action }));
+      let jnSet = false;
+      if (insp.jn_job_id && JN_KEY) {
+        const r = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(insp.jn_job_id)}`, {
+          method: "PUT", headers: { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ status_name: "Sit Sold Insp" }),
+        });
+        jnSet = r.ok;
+      }
+      await patch(id, { result: "retail", jn_status: "Sit Sold Insp", pa_id: null, pa_company_id: null, pa_claimed_at: null, pa_stage: null, pa_stage_at: now, pa_decision_needed: false });
+      return cors(200, JSON.stringify({ ok: true, action, jn_set: jnSet }));
     }
     if (action === "btr_ni") {
       let jnSet = false;
