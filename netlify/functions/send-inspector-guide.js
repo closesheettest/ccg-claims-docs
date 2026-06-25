@@ -11,7 +11,8 @@
 //   • New manager joining who didn't get the original activation SMS.
 //   • Inspector lost the link / deleted the text.
 //
-// Channel auto-pick: SMS if phone on file, else email. Same pattern as
+// Channel "auto" (default) sends BOTH SMS and email when both are on file,
+// succeeding if either lands; "sms"/"email" force one. Same pattern as
 // send-inspector-app-invite. Refuses to send to inactive inspectors —
 // they're meant to be off the team.
 //
@@ -72,38 +73,43 @@ exports.handler = async (event) => {
   if (!base) return json(500, { ok: false, error: "No site URL configured" });
   const guideLink = `${base}/inspector-guide/`;
 
-  let chosen = channel;
-  if (chosen === "auto") chosen = insp.phone ? "sms" : "email";
-  if (chosen === "sms" && !insp.phone) {
+  // "auto" (default) sends BOTH SMS and email; "sms"/"email" force one.
+  if (channel === "sms" && !insp.phone) {
     return json(400, { ok: false, error: "Inspector has no phone on file" });
   }
-  if (chosen === "email" && !insp.email) {
+  if (channel === "email" && !insp.email) {
     return json(400, { ok: false, error: "Inspector has no email on file" });
   }
+  const wantSms = (channel === "sms" || channel === "auto") && !!insp.phone;
+  const wantEmail = (channel === "email" || channel === "auto") && !!insp.email;
+  if (!wantSms && !wantEmail) {
+    return json(400, { ok: false, error: "Inspector has no phone or email on file" });
+  }
+
+  const sent = [];
+  const errors = [];
 
   // SMS path — keep short. The guide itself is the long-form content.
-  if (chosen === "sms") {
+  if (wantSms) {
     const messageBody =
       `Hi ${insp.name}, here's the U.S. Shingle field guide for inspecting roofs — ` +
       `quick reference for the app flow, photo tips, and what each result type means. ` +
       `Pull it up on your phone while you're on a roof: ${guideLink}`;
-    const smsRes = await fetch(`${base}/.netlify/functions/ghl-sms`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ to: insp.phone, name: insp.name, message: messageBody }),
-    });
-    const smsBody = await smsRes.json().catch(() => ({}));
-    if (!smsRes.ok) {
-      return json(500, {
-        ok: false, channel_used: "sms",
-        error: smsBody.error || `SMS failed (${smsRes.status})`,
+    try {
+      const smsRes = await fetch(`${base}/.netlify/functions/ghl-sms`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: insp.phone, name: insp.name, message: messageBody }),
       });
-    }
-    return json(200, { ok: true, channel_used: "sms", phone: insp.phone, link: guideLink });
+      const smsBody = await smsRes.json().catch(() => ({}));
+      if (smsRes.ok) sent.push("sms");
+      else errors.push(`SMS: ${smsBody.error || smsRes.status}`);
+    } catch (e) { errors.push(`SMS: ${e.message}`); }
   }
 
   // Email path.
-  const subject = "Inspector Field Guide — quick reference for the app";
+  if (wantEmail) {
+    const subject = "Inspector Field Guide — quick reference for the app";
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#0f172a;">
       <h2 style="margin-top:0;color:#0e7490;">Field Guide — Inspecting a Roof</h2>
@@ -130,19 +136,22 @@ exports.handler = async (event) => {
       </p>
     </div>
   `;
-  const sendRes = await fetch(`${base}/.netlify/functions/send-email`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ to: insp.email, subject, html }),
-  });
-  const sendBody = await sendRes.json().catch(() => ({}));
-  if (!sendRes.ok || !sendBody.success) {
-    return json(500, {
-      ok: false, channel_used: "email",
-      error: sendBody.error || `send-email returned ${sendRes.status}`,
-    });
+    try {
+      const sendRes = await fetch(`${base}/.netlify/functions/send-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: insp.email, subject, html }),
+      });
+      const sendBody = await sendRes.json().catch(() => ({}));
+      if (sendRes.ok && sendBody.success) sent.push("email");
+      else errors.push(`Email: ${sendBody.error || sendRes.status}`);
+    } catch (e) { errors.push(`Email: ${e.message}`); }
   }
-  return json(200, { ok: true, channel_used: "email", email: insp.email, link: guideLink });
+
+  if (!sent.length) {
+    return json(500, { ok: false, error: errors.join(" | ") || "Could not send on any channel", attempted: { sms: wantSms, email: wantEmail } });
+  }
+  return json(200, { ok: true, channel_used: sent.join("+"), sent, errors: errors.length ? errors : undefined, phone: wantSms ? insp.phone : null, email: wantEmail ? insp.email : null, link: guideLink });
 };
 
 function escapeHtml(s) {
