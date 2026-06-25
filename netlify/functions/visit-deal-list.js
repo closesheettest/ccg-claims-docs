@@ -43,16 +43,23 @@ exports.handler = async (event) => {
     // SELECT 400s and we'd get zero deals. Try with it, fall back without it.
     const SEL_BASE = "id,client_name,address,city,state,zip,mobile,email,jn_job_id,latitude,longitude,result,result_at,pa_id,pa_signed_at,pa_stage,docs_signed,jn_status";
     const tail = `&result=eq.${result}&cancelled_at=is.null&or=(${conds.join(",")})&order=result_at.desc&limit=500`;
-    let rows = await sbGet(`inspections?select=${SEL_BASE},review_availability${tail}`);
+    let rows = await sbGet(`inspections?select=${SEL_BASE},review_availability,referral_outcome${tail}`);
     if (!rows.length) rows = await sbGet(`inspections?select=${SEL_BASE}${tail}`);
 
     // Damage list: a rep is going out to PUSH the homeowner to start their claim.
     // Once a PA has already signed them OR is actively working them, the rep
-    // shouldn't be sent there — drop those. (PA isn't involved in retail/no-damage.)
+    // shouldn't be sent there — drop those. Also drop ones the rep marked Not
+    // Interested ("BTR - NI"). (PA isn't involved in retail/no-damage.)
     if (result === "damage") {
       rows = rows.filter((r) =>
-        !(r.pa_signed_at || r.pa_stage === "active" || r.pa_stage === "waiting_docs" || /\b(lor|pac)\b/i.test(r.docs_signed || "")),
+        !(r.pa_signed_at || r.pa_stage === "active" || r.pa_stage === "waiting_docs" || /\b(lor|pac)\b/i.test(r.docs_signed || ""))
+        && String(r.jn_status || "").trim().toLowerCase() !== "btr - ni",
       );
+    }
+    // No-Damage list: once handled — certificate sent or referral declined
+    // (inspections.referral_outcome set) — it drops off the rep's list.
+    if (result === "no_damage") {
+      rows = rows.filter((r) => !r.referral_outcome);
     }
     // Retail list: a deal leaves the rep's list once it's HANDLED — marked Not
     // Interested ("BTR - NI") or already scheduled (a retail_appointments row).

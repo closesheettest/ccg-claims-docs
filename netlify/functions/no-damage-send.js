@@ -35,12 +35,21 @@ exports.handler = async (event) => {
     const reviewUrl = (await getSetting("google_review_url")) || REVIEW_FALLBACK;
 
     // Save referrals first (cheap, independent of sends).
+    let savedReferrals = 0;
     if (referrals.length) {
       const rows = referrals
         .filter((x) => x && (x.name || x.phone || x.address))
         .map((x) => ({ inspection_id: inspectionId, referred_by_name: insp.client_name || null, referral_name: x.name || null, referral_phone: x.phone || null, referral_address: x.address || null, captured_by_rep: repName || null }));
+      savedReferrals = rows.length;
       if (rows.length) await fetch(`${SB_URL}/rest/v1/referrals`, { method: "POST", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify(rows) }).catch(() => {});
     }
+    // Catalog the visit outcome ('given' if any referrals, else 'sent') so it
+    // drops off the rep's No-Damage list. Best-effort; no-op until the
+    // referral_outcome column exists (sql/referral_outcome.sql).
+    await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}`, {
+      method: "PATCH", headers: { ...sb, Prefer: "return=minimal" },
+      body: JSON.stringify({ referral_outcome: savedReferrals > 0 ? "given" : "sent" }),
+    }).catch(() => {});
 
     // Generate / fetch the No-Damage certificate PDF (with photos).
     let pdfUrl = null, pdfBase64 = null, filename = "no-damage-certificate.pdf";

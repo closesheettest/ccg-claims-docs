@@ -273,6 +273,7 @@ function DamagePanel({ deal, rep, api }) {
   const [err, setErr] = useState("");
   const [booking, setBooking] = useState("");
   const [done, setDone] = useState(null);
+  const [ni, setNi] = useState(false);
   useEffect(() => {
     api("pa-schedule-api", { action: "slots", inspection_id: deal.inspection_id, lat: deal.latitude, lng: deal.longitude })
       .then((o) => setSlots(o.slots || [])).catch((e) => { setErr(e.message); setSlots([]); });
@@ -284,6 +285,15 @@ function DamagePanel({ deal, rep, api }) {
       setDone(`Booked with ${s.pa_name} — ${s.label}. The PA was notified.`);
     } catch (e) { setErr(e.message); }
     setBooking("");
+  };
+  // Homeowner doesn't want to move forward → "BTR - NI" in JN, drops off the list.
+  const markNotInterested = async () => {
+    if (!window.confirm(`Mark ${deal.client_name || "this homeowner"} Not Interested?\n\nThey'll move to "BTR - NI" in JobNimbus and drop off your damage list.`)) return;
+    setNi(true); setErr("");
+    try {
+      await api("retail-not-interested", { inspection_id: deal.inspection_id });
+      setDone(`Marked Not Interested (BTR - NI). Removed from your list.`);
+    } catch (e) { setErr(e.message); setNi(false); }
   };
   if (done) return <div style={S.done}>✓ {done}</div>;
   if (slots === null) return <p style={{ textAlign: "center", color: "#9ca3af", padding: "16px 0", fontSize: 14 }}>Loading availability…</p>;
@@ -300,7 +310,11 @@ function DamagePanel({ deal, rep, api }) {
   const dayKeys = [...new Set([todayKey, ...Object.keys(byDay)])].sort();
   return (
     <div>
-      <p style={{ fontSize: 14, fontWeight: 700, color: "#374151", margin: "0 0 8px" }}>Pick a day & time for the PA to come out:</p>
+      <button type="button" disabled={ni || !!booking} onClick={markNotInterested}
+        style={{ width: "100%", marginBottom: 12, border: "1px solid #dc2626", color: "#dc2626", background: "#fff", borderRadius: 12, padding: "11px 14px", fontSize: 14, fontWeight: 800, cursor: "pointer", opacity: ni ? 0.6 : 1 }}>
+        {ni ? "Saving…" : "🚫 Not Interested"}
+      </button>
+      <p style={{ fontSize: 14, fontWeight: 700, color: "#374151", margin: "0 0 8px" }}>…or pick a day & time for the PA to come out:</p>
       {err && <div style={{ color: "#b91c1c", fontSize: 14, marginBottom: 8 }}>{err}</div>}
       <div style={{ maxHeight: "55vh", overflowY: "auto" }}>
         {dayKeys.map((k) => {
@@ -335,7 +349,17 @@ function NoDamagePanel({ deal, rep, api }) {
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState("");
   const [done, setDone] = useState(null);
+  const [decl, setDecl] = useState(false);
   const set = (i, k, v) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, [k]: v } : r)));
+  // Homeowner won't give a referral — cataloged in our DB only (NOT JobNimbus),
+  // for the referral funnel report. Drops the deal off the rep's no-damage list.
+  const declineReferral = async () => {
+    setDecl(true); setErr("");
+    try {
+      await api("referral-decline", { inspection_id: deal.inspection_id, rep_name: rep.name });
+      setDone(`Logged — ${deal.client_name || "homeowner"} doesn't want to give a referral. (Not sent to JobNimbus.)`);
+    } catch (e) { setErr(e.message); setDecl(false); }
+  };
   const send = async () => {
     setSending(true); setErr("");
     try {
@@ -363,6 +387,9 @@ function NoDamagePanel({ deal, rep, api }) {
       {err && <div style={{ color: "#b91c1c", fontSize: 14, marginBottom: 8 }}>{err}</div>}
       <button onClick={send} disabled={sending} style={{ width: "100%", background: "#16a34a", color: "#fff", border: "none", borderRadius: 12, padding: "14px 0", fontSize: 15, fontWeight: 800, cursor: "pointer", opacity: sending ? 0.6 : 1 }}>
         {sending ? "Sending…" : "Send certificate + review link"}
+      </button>
+      <button onClick={declineReferral} disabled={sending || decl} style={{ width: "100%", marginTop: 10, border: "1px solid #b45309", color: "#b45309", background: "#fff", borderRadius: 12, padding: "11px 0", fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: decl ? 0.6 : 1 }}>
+        {decl ? "Saving…" : "🙅 Doesn't want to give a referral"}
       </button>
     </div>
   );
