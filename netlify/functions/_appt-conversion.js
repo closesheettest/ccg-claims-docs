@@ -202,13 +202,20 @@ async function fetchSoldJobs(jnKey, startSec, endSec) {
 }
 
 // Mutually-exclusive appointment category (so harv + comp + btr = total):
-//   btr  = source "Inspection"  → came from a free inspection, now retail
+//   btr  = back to retail: inspection RESULT = retail (taken back out to sell a
+//          retail roof). Also a free-inspection source deal whose result is NOT
+//          damage/no-damage (legacy/unknown). Overrides harv/comp. A Damage /
+//          No-Damage deal is NOT auto-BTR — it stays Co/Harv (and gets the
+//          "move to Retail location" flag if it sells).
 //   harv = the SALES REP self-generated it: the rep created the JOB
 //          (created_by === the rep) OR created the appointment TASK. If anyone
 //          else created both (office/intake/etc.), it's not harvested.
 //   comp = everything else      → company-provided lead (created by the office).
+// job.__result is the inspections.result (damage|no_damage|retail), stamped on
+// each job before tallying.
 function categoryOf(job) {
-  if (String(job.source_name || "") === "Inspection") return "btr";
+  const result = String(job.__result || "");
+  if (result === "retail" || (result !== "damage" && result !== "no_damage" && String(job.source_name || "") === "Inspection")) return "btr";
   const repId = job.__repId || job.sales_rep;
   if (repId) {
     const rid = String(repId);
@@ -252,6 +259,7 @@ function dealInfo(job) {
     ins: isYes(F["Insulation"]),             // Insulation on the deal?
     fromAssigned: !!job.__repFromAssigned,   // rep came from Assigned field, not Sales Rep
     isReset: !!job.__isReset,                 // counted appt was a Reset Appointment (a re-sit/follow-up)
+    result: job.__result || null,             // inspections.result (damage|no_damage|retail), for the retail-loc flag
   };
 }
 

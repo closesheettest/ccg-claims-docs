@@ -14,7 +14,7 @@
 //
 // Env: JOBNIMBUS_API_KEY.
 
-import { fetchApptTaskMeta, fetchApptJobs, fetchSoldJobs, newRep, tallyAppt, tallySold, shapeRep, sumTotals, levelLabel, fetchPitchMap, attachPitch, fetchResultMap, attachResult } from "./_appt-conversion.js";
+import { fetchApptTaskMeta, fetchApptJobs, fetchSoldJobs, newRep, tallyAppt, tallySold, shapeRep, sumTotals, levelLabel, fetchPitchMap, attachPitch, fetchResultMap } from "./_appt-conversion.js";
 
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1";
@@ -44,6 +44,10 @@ export const handler = async (event) => {
       fetchSoldJobs(JN_KEY, startSec, endSec),
     ]);
     for (const j of soldJobs) { const m = taskMeta.get(j.jnid || j.id); j.__apptTaskCreators = m ? [...m.creators] : []; }
+    // Stamp inspections.result on each job BEFORE tallying so categoryOf can put a
+    // retail-result deal in BTR (overrides harv/comp).
+    const resultMap = await fetchResultMap([...apptJobs, ...soldJobs].map((j) => j.jnid || j.id));
+    for (const j of [...apptJobs, ...soldJobs]) j.__result = resultMap[j.jnid || j.id] || null;
     const zoneOf = await fetchZoneResolver();
 
     const byRep = {}; // rep -> accumulator
@@ -75,10 +79,8 @@ export const handler = async (event) => {
 
     const reps = Object.values(byRep).map(shapeRep)
       .sort((a, b) => b.sales - a.sales || b.appts - a.appts || a.rep.localeCompare(b.rep));
-    const jnids = reps.flatMap((r) => (r.details || []).map((d) => d.jnid));
-    const pitchMap = await fetchPitchMap(jnids);
+    const pitchMap = await fetchPitchMap(reps.flatMap((r) => (r.details || []).map((d) => d.jnid)));
     attachPitch(reps, pitchMap);
-    attachResult(reps, await fetchResultMap(jnids));
     const totals = sumTotals(Object.values(byRep));
 
     const body = JSON.stringify({ ok: true, zone, period, range: { start: start.toISOString(), end: end.toISOString() }, totals, reps });
