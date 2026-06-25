@@ -7042,7 +7042,20 @@ export default function App() {
     email: "",
     roof_type: "Shingle",   // "Shingle" | "Tile" — picked at intake (no metal)
   };
-  const [inspData, setInspData] = useState(initialInspData);
+  const [inspData, setInspData] = useState(() => {
+    // Referrals "Sign them up" lands here as /?intake=1&name=&phone=&address= —
+    // prefill the homeowner so the rep just confirms + signs (then the normal
+    // free-inspection signing flow runs unchanged).
+    if (typeof window !== "undefined") {
+      try {
+        const p = new URLSearchParams(window.location.search);
+        if (p.get("intake") && (p.get("name") || p.get("phone") || p.get("address"))) {
+          return { ...initialInspData, clientName: p.get("name") || "", mobile: p.get("phone") || "", address: p.get("address") || "" };
+        }
+      } catch { /* ignore */ }
+    }
+    return initialInspData;
+  });
   const [inspSig, setInspSig] = useState("");
   const [inspSigMethod, setInspSigMethod] = useState("draw");
   const [inspTypedSig, setInspTypedSig] = useState("");

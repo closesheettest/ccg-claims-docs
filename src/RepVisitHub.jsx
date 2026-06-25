@@ -128,7 +128,7 @@ export default function RepVisitHub() {
         {stage === "choose" && <Choose rep={rep} onNew={() => {
           window.location.href = `/?intake=1&rep=${encodeURIComponent(rep.jobnimbus_id || "")}&repName=${encodeURIComponent(rep.name || "")}&repEmail=${encodeURIComponent(rep.email || "")}`;
         }} onType={startType} onReferrals={startReferrals} onApptsBooked={startApptsBooked} />}
-        {stage === "referrals" && <ReferralsView referrals={referrals} onBack={() => setStage("choose")} />}
+        {stage === "referrals" && <ReferralsView referrals={referrals} rep={rep} onBack={() => setStage("choose")} />}
         {stage === "appts" && <ApptsBookedView appts={appts} rep={rep} onBack={() => setStage("choose")} />}
         {stage === "list" && <DealList type={visitType} deals={deals} onBack={() => setStage("choose")} onPick={(d) => { setDeal(d); setStage("panel"); }} />}
         {stage === "panel" && deal && (
@@ -203,10 +203,21 @@ function Choose({ rep, onNew, onType, onReferrals, onApptsBooked }) {
   );
 }
 
-function ReferralsView({ referrals, onBack }) {
-  // View-only. Each referral: who to sign up (name/phone/address), who referred
-  // them, and a free anywhere-in-FL "look up roof permit" web search.
+function ReferralsView({ referrals, rep, onBack }) {
+  // Each referral: who to sign up (name/phone/address), who referred them, a free
+  // "look up roof permit" web search, and "Sign them up" → the New Inspection
+  // intake prefilled with their info (then the normal signing flow runs).
   const permitUrl = (addr) => `https://www.google.com/search?q=${encodeURIComponent(`roof permit ${addr}`)}`;
+  const signUp = (r, addr) => {
+    const u = new URLSearchParams({ intake: "1" });
+    if (rep?.jobnimbus_id) u.set("rep", rep.jobnimbus_id);
+    if (rep?.name) u.set("repName", rep.name);
+    if (rep?.email) u.set("repEmail", rep.email);
+    if (r.referral_name) u.set("name", r.referral_name);
+    if (r.referral_phone) u.set("phone", r.referral_phone);
+    if (addr) u.set("address", addr);
+    window.location.href = `/?${u.toString()}`;
+  };
   return (
     <div>
       <BackBar onBack={onBack} title="Your referrals" />
@@ -220,12 +231,18 @@ function ReferralsView({ referrals, onBack }) {
                 {r.referral_phone && <a href={`tel:${r.referral_phone}`} style={{ display: "block", fontSize: 14, color: "#2563eb", fontWeight: 700, textDecoration: "none", marginTop: 2 }}>📞 {r.referral_phone}</a>}
                 {addr && <div style={{ fontSize: 13, color: "#6b7280", marginTop: 2 }}>📍 {addr}</div>}
                 {r.referred_by_name && <div style={{ fontSize: 12.5, color: "#9ca3af", marginTop: 6 }}>Referred by <b style={{ color: "#6b7280" }}>{r.referred_by_name}</b></div>}
-                {addr && (
-                  <a href={permitUrl(addr)} target="_blank" rel="noopener noreferrer"
-                    style={{ display: "inline-block", marginTop: 10, border: "1px solid #6d28d9", color: "#6d28d9", background: "#fff", borderRadius: 10, padding: "8px 12px", fontSize: 13, fontWeight: 700, textDecoration: "none" }}>
-                    🔍 Look up roof permit
-                  </a>
-                )}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+                  <button type="button" onClick={() => signUp(r, addr)}
+                    style={{ border: "none", color: "#fff", background: "#16a34a", borderRadius: 10, padding: "9px 14px", fontSize: 13.5, fontWeight: 800, cursor: "pointer" }}>
+                    ✍️ Sign them up
+                  </button>
+                  {addr && (
+                    <a href={permitUrl(addr)} target="_blank" rel="noopener noreferrer"
+                      style={{ border: "1px solid #6d28d9", color: "#6d28d9", background: "#fff", borderRadius: 10, padding: "8px 12px", fontSize: 13, fontWeight: 700, textDecoration: "none" }}>
+                      🔍 Look up roof permit
+                    </a>
+                  )}
+                </div>
               </div>
             );
           })}</div>}
