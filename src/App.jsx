@@ -7579,8 +7579,10 @@ export default function App() {
     else console.error("loadReps error:", error);
   };
 
-  // Keep Supabase in sync with JN data (runs silently in background)
+  // Keep Supabase in sync with JN data. Returns counts so the "Sync from JN
+  // Now" button can report what happened (otherwise it looks like nothing did).
   const syncJnRepsToSupabase = async (jnReps) => {
+    const out = { added: 0, updated: 0, errors: [] };
     try {
       const { data: existing } = await supabase.from("sales_reps").select("name, jobnimbus_id, email");
       const existingMap = {};
@@ -7590,20 +7592,52 @@ export default function App() {
         if (rep.name.toLowerCase().includes("test")) continue;
         if (!existingMap[rep.jobnimbus_id]) {
           // New rep — insert
-          await supabase.from("sales_reps").insert([{
+          const { error } = await supabase.from("sales_reps").insert([{
             name: rep.name,
             jobnimbus_id: rep.jobnimbus_id,
             email: rep.email,
             active: true,
           }]);
+          if (error) out.errors.push(error.message); else out.added++;
         } else if (rep.email && existingMap[rep.jobnimbus_id].email !== rep.email) {
           // Email changed in JN — update Supabase
-          await supabase.from("sales_reps").update({ email: rep.email })
+          const { error } = await supabase.from("sales_reps").update({ email: rep.email })
             .eq("jobnimbus_id", rep.jobnimbus_id);
+          if (error) out.errors.push(error.message); else out.updated++;
         }
       }
     } catch (e) {
       console.warn("syncJnRepsToSupabase error:", e.message);
+      out.errors.push(e.message);
+    }
+    return out;
+  };
+
+  // Button handler: re-pull JN live + sync to Supabase WITH visible feedback
+  // (spinner via jnImporting + a result alert). loadReps alone is silent.
+  const syncRepsNow = async () => {
+    setJnImporting(true);
+    try {
+      const res = await fetch("/.netlify/functions/jobnimbus-users");
+      const json = res.ok ? await res.json().catch(() => null) : null;
+      if (!json || !json.members || !json.members.length) {
+        alert("⚠️ Couldn't reach JobNimbus (no users came back). Try again in a moment, or use the fallback import below if JN is down.");
+        return;
+      }
+      const jnReps = json.members.map((m) => ({ id: m.jobnimbus_id, name: m.name, email: m.email || "", jobnimbus_id: m.jobnimbus_id, active: true, _fromJN: true }));
+      setReps(jnReps);
+      setRepsLoaded(true);
+      const { added, updated, errors } = await syncJnRepsToSupabase(jnReps);
+      const active = jnReps.filter((r) => !r.name.toLowerCase().includes("test")).length;
+      if (errors.length) {
+        alert(`Synced ${active} reps from JobNimbus, but ${errors.length} write(s) to Supabase were blocked:\n\n${errors[0]}\n\nThe live list above is correct, but the Supabase backup didn't update. This is usually Row-Level Security on sales_reps — fix in Supabase SQL Editor:\nALTER TABLE sales_reps DISABLE ROW LEVEL SECURITY;`);
+      } else {
+        alert(`✅ Synced from JobNimbus.\n\n${active} active reps loaded.\n${added} new rep(s) added, ${updated} updated in Supabase.`);
+      }
+    } catch (e) {
+      alert("⚠️ Sync failed: " + (e?.message || "unknown error"));
+    } finally {
+      setJnImporting(false);
     }
   };
 
@@ -14803,8 +14837,8 @@ if (!hasDamage) {
                           ? `${reps.length} active reps loaded from JN. New reps added to JN will appear automatically on the next page load.`
                           : "Could not reach JN API. Using manually managed reps from Supabase. Check your API key."}
                       </div>
-                      <button type="button" onClick={loadReps} disabled={jnImporting}
-                        style={{ padding: "8px 18px", borderRadius: 10, border: "none", background: "#0a0a0a", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                      <button type="button" onClick={syncRepsNow} disabled={jnImporting}
+                        style={{ padding: "8px 18px", borderRadius: 10, border: "none", background: "#0a0a0a", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", opacity: jnImporting ? 0.6 : 1 }}>
                         {jnImporting ? "Syncing…" : "🔄 Sync from JN Now"}
                       </button>
                       {jnImportError ? <div style={{ marginTop: 8, fontSize: 12, color: "#dc2626", fontFamily: "'Nunito', sans-serif" }}>{jnImportError}</div> : null}
