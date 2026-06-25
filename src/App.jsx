@@ -3293,6 +3293,195 @@ function PublicAdjusterContract({
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// ── Post-sign scheduler (obvious-damage path) ─────────────────────────────
+// Retail appointment slot grid — same fixed business hours + ET math the rep
+// hub's RetailPanel uses, so the JN appointment time matches.
+const PSS_RETAIL_HOURS = { 1: [11, 14, 17, 19], 2: [11, 14, 17, 19], 3: [11, 14, 17, 19], 4: [11, 14, 17, 19], 5: [9, 12, 15], 6: [9, 12] };
+function pssEtParts(ms) {
+  const f = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "numeric", day: "numeric", weekday: "short" });
+  const p = {}; for (const x of f.formatToParts(new Date(ms))) p[x.type] = x.value;
+  const wmap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  return { y: +p.year, mo: +p.month, day: +p.day, weekday: wmap[p.weekday], wname: p.weekday };
+}
+function pssEtToISO(y, mo, day, hour) {
+  const guess = Date.UTC(y, mo - 1, day, hour, 0);
+  const asEt = new Date(new Date(guess).toLocaleString("en-US", { timeZone: "America/New_York" }));
+  return new Date(guess + (guess - asEt.getTime())).toISOString();
+}
+function pssRetailDays(n) {
+  const now = Date.now(), out = [];
+  for (let d = 0; d < n; d++) {
+    const { y, mo, day, weekday, wname } = pssEtParts(now + d * 864e5);
+    const hours = PSS_RETAIL_HOURS[weekday] || [];
+    if (!hours.length) continue;
+    const slots = hours.map((h) => ({ iso: pssEtToISO(y, mo, day, h), time: `${((h + 11) % 12) + 1}${h < 12 ? "am" : "pm"}`, label: `${wname} ${mo}/${day} ${((h + 11) % 12) + 1}${h < 12 ? "am" : "pm"}` }))
+      .filter((s) => Date.parse(s.iso) > now);
+    if (slots.length) out.push({ key: `${y}-${mo}-${day}`, label: `${wname}, ${mo}/${day}`, slots });
+  }
+  return out;
+}
+
+// Shown on the thank-you screen after an "obvious damage" signing. DAMAGE (has
+// insurance) → book a PA appointment via pa-schedule-api; RETAIL (no insurance)
+// → book a retail appointment via retail-task-create. Same endpoints the rep
+// visit hub uses.
+function PostSignScheduler({ type, inspectionId, clientName, mobile, address, repName, repJnId, onDone }) {
+  const isPa = type === "pa";
+  const [token, setToken] = useState(null);
+  const [slots, setSlots] = useState(null);                    // PA slots
+  const [jnReady, setJnReady] = useState(type !== "retail");   // retail needs jn_job_id
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState("");
+  const [done, setDone] = useState(null);
+
+  const dayKey = (iso) => new Date(iso).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const dayLabel = (k) => new Date(k + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  const timeLabel = (iso) => new Date(iso).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric" });
+
+  useEffect(() => {
+    let on = true;
+    supabase.from("app_settings").select("value").eq("key", "visit_token").maybeSingle()
+      .then(({ data }) => { if (on) setToken(data?.value || ""); });
+    return () => { on = false; };
+  }, []);
+
+  // PA: load this inspection's open slots across all PAs once we have a token.
+  useEffect(() => {
+    if (!isPa || token == null) return;
+    let on = true;
+    (async () => {
+      try {
+        const r = await fetch("/.netlify/functions/pa-schedule-api", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "slots", token, inspection_id: inspectionId }),
+        });
+        const o = await r.json().catch(() => ({}));
+        if (!r.ok || !o.ok) throw new Error(o.error || "Couldn't load PA availability");
+        if (on) setSlots(o.slots || []);
+      } catch (e) { if (on) { setErr(e.message); setSlots([]); } }
+    })();
+    return () => { on = false; };
+  }, [isPa, token, inspectionId]);
+
+  // Retail: the JN job is created asynchronously after signing and
+  // retail-task-create needs it — poll until jn_job_id lands.
+  useEffect(() => {
+    if (type !== "retail" || jnReady) return;
+    let on = true, tries = 0;
+    const tick = async () => {
+      tries++;
+      const { data } = await supabase.from("inspections").select("jn_job_id").eq("id", inspectionId).maybeSingle();
+      if (!on) return;
+      if (data?.jn_job_id) { setJnReady(true); return; }
+      if (tries < 30) setTimeout(tick, 2000); // up to ~60s
+    };
+    tick();
+    return () => { on = false; };
+  }, [type, jnReady, inspectionId]);
+
+  const bookPa = async (s) => {
+    setBusy(s.start_at); setErr("");
+    try {
+      const r = await fetch("/.netlify/functions/pa-schedule-api", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "book", token, pa_id: s.pa_id, start_at: s.start_at, inspection_id: inspectionId, homeowner_name: clientName, homeowner_phone: mobile, address, booked_by: repName }),
+      });
+      const o = await r.json().catch(() => ({}));
+      if (!r.ok || !o.ok) throw new Error(o.error || "Couldn't book that slot");
+      setDone(`PA appointment booked — ${s.label || `${dayLabel(dayKey(s.start_at))} ${timeLabel(s.start_at)}`}.`);
+    } catch (e) { setErr(e.message); }
+    setBusy("");
+  };
+  const bookRetail = async (slot) => {
+    setBusy(slot.iso); setErr("");
+    try {
+      const r = await fetch("/.netlify/functions/retail-task-create", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, inspection_id: inspectionId, start_at_iso: slot.iso, rep_jobnimbus_id: repJnId, booked_by: repName }),
+      });
+      const o = await r.json().catch(() => ({}));
+      if (!r.ok || !o.ok) throw new Error(o.error || "Couldn't book that slot");
+      setDone(`Retail appointment booked — ${slot.label}.`);
+    } catch (e) { setErr(e.message); }
+    setBusy("");
+  };
+
+  const accent = isPa ? "#0e7490" : "#b45309";
+  const title = isPa ? "📅 Schedule the PA appointment" : "🏠 Schedule the retail appointment";
+  const sub = isPa
+    ? `Damage + insurance — pick a time for the Public Adjuster to meet ${clientName || "the homeowner"} (the PA photographs the roof).`
+    : `Damage, no insurance — pick a time to go back and sell ${clientName || "the homeowner"} a roof.`;
+
+  if (done) {
+    return (
+      <div style={{ background: "#ecfdf5", border: "2px solid #a7f3d0", borderRadius: 20, padding: "22px 24px", marginBottom: 20, textAlign: "center" }}>
+        <div style={{ fontSize: 34, marginBottom: 8 }}>✅</div>
+        <div style={{ fontSize: 17, fontWeight: 700, color: "#065f46", fontFamily: "'Oswald', sans-serif", marginBottom: 12 }}>{done}</div>
+        <button type="button" onClick={onDone} style={{ border: "1px solid #10b981", color: "#065f46", background: "#fff", borderRadius: 12, padding: "10px 18px", fontWeight: 700, cursor: "pointer" }}>Done</button>
+      </div>
+    );
+  }
+
+  const slotBtn = (key, label, disabled, onClick) => (
+    <button key={key} type="button" disabled={disabled} onClick={onClick}
+      style={{ padding: "8px 12px", borderRadius: 10, border: `1.5px solid ${accent}`, background: busy === key ? accent : "#fff", color: busy === key ? "#fff" : accent, fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: disabled && busy !== key ? 0.5 : 1 }}>
+      {label}
+    </button>
+  );
+
+  return (
+    <div style={{ background: "#fff", border: `2px solid ${accent}`, borderRadius: 20, padding: "22px 24px", marginBottom: 20 }}>
+      <div style={{ fontSize: 19, fontWeight: 700, color: accent, fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>{title}</div>
+      <div style={{ fontSize: 13.5, color: "#6b7280", marginBottom: 14, fontFamily: "'Nunito', sans-serif" }}>{sub}</div>
+      {err && <div style={{ color: "#b91c1c", fontSize: 13.5, marginBottom: 10 }}>{err}</div>}
+
+      {isPa ? (
+        slots === null ? <div style={{ color: "#9ca3af", fontSize: 14 }}>Loading PA availability…</div>
+        : !slots.length ? <div style={{ color: "#6b7280", fontSize: 14 }}>No open PA slots in range. You can book later from the rep hub → Damage.</div>
+        : (() => {
+            const byDay = {};
+            for (const s of slots) (byDay[dayKey(s.start_at)] = byDay[dayKey(s.start_at)] || []).push(s);
+            return (
+              <div style={{ maxHeight: "48vh", overflowY: "auto" }}>
+                {Object.keys(byDay).sort().map((k) => {
+                  const seen = new Set(); const uniq = [];
+                  for (const s of byDay[k]) { const t = timeLabel(s.start_at); if (seen.has(t)) continue; seen.add(t); uniq.push(s); }
+                  return (
+                    <div key={k} style={{ marginBottom: 12 }}>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: "#374151", marginBottom: 6 }}>{dayLabel(k)}</div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                        {uniq.map((s) => slotBtn(s.start_at, timeLabel(s.start_at), !!busy, () => bookPa(s)))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()
+      ) : (
+        !jnReady ? <div style={{ color: "#9ca3af", fontSize: 14 }}>Finishing setup in JobNimbus… (a few seconds, then times appear)</div>
+        : (() => {
+            const days = pssRetailDays(14);
+            if (!days.length) return <div style={{ color: "#6b7280", fontSize: 14 }}>No retail slots in range.</div>;
+            return (
+              <div style={{ maxHeight: "48vh", overflowY: "auto" }}>
+                {days.map((day) => (
+                  <div key={day.key} style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: "#374151", marginBottom: 6 }}>{day.label}</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {day.slots.map((slot) => slotBtn(slot.iso, slot.time, !!busy, () => bookRetail(slot)))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()
+      )}
+      <button type="button" onClick={onDone} style={{ marginTop: 14, border: "1px solid #d1d5db", color: "#6b7280", background: "#fff", borderRadius: 12, padding: "9px 16px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>Skip — I'll book later</button>
+    </div>
+  );
+}
+
 // GuidedIntakeFlow — interview-style wrapper around the intake form.
 // New reps clicked through one question at a time; veteran reps stick
 // with the Quick form. This component reads/writes the same `data`
@@ -7041,6 +7230,8 @@ export default function App() {
     zip: "",
     email: "",
     roof_type: "Shingle",   // "Shingle" | "Tile" — picked at intake (no metal)
+    obviousDamage: false,   // rep saw clear damage/tarp at the door (default No)
+    hasInsurance: "",       // "" | "yes" | "no" — only asked when obviousDamage
   };
   const [inspData, setInspData] = useState(() => {
     // Referrals "Sign them up" lands here as /?intake=1&name=&phone=&address= —
@@ -7073,6 +7264,9 @@ export default function App() {
   // (4 inspection rows + 2 JN contacts/jobs in 4ms).
   const docSubmittingRef = useRef(false);
   const [inspectionOnly, setInspectionOnly] = useState(false);
+  // After an "obvious damage" signing, the thank-you screen shows a scheduler:
+  // { type:"pa"|"retail", inspectionId, clientName, mobile, address, repName, repJnId }
+  const [postSignSchedule, setPostSignSchedule] = useState(null);
   const [duplicateRecord, setDuplicateRecord] = useState(null);
   const [inspSubmitAttempted, setInspSubmitAttempted] = useState(false);
 
@@ -9177,6 +9371,17 @@ const renderSmsTemplate = (key, vars) => {
       inspSubmittingRef.current = false;
       return;
     }
+    // Obvious-damage path: the rep classifies at the door (no separate inspector).
+    // If they flipped it on, the insurance answer is required — it picks Damage
+    // (has insurance → PA appt) vs Retail (no insurance → retail appt).
+    const obviousDamage = !!inspData.obviousDamage;
+    const hasInsurance = inspData.hasInsurance;
+    if (obviousDamage && hasInsurance !== "yes" && hasInsurance !== "no") {
+      alert("You marked obvious damage — tap Yes or No for homeowner's insurance so we route the deal (insurance → Damage + PA appt · no insurance → Retail appt).");
+      inspSubmittingRef.current = false;
+      return;
+    }
+    const classifyResult = obviousDamage ? (hasInsurance === "yes" ? "damage" : "retail") : null;
     // Block submit if a non-empty email is malformed. JN's API rejects the
     // create-contact call with a 400 if the email field doesn't pass its own
     // validator (e.g. "ppumphrey" with no @domain), which silently orphans
@@ -9241,6 +9446,9 @@ const renderSmsTemplate = (key, vars) => {
         roof_type: inspData.roof_type || "Shingle",
         lead_source: data.leadSource || "Inspection",
         spanish_only: !!data.spanish_only,
+        // Obvious damage at the door → classify now (no separate inspector visit).
+        // The JN-side fan-out fires below once the JN job id is saved.
+        ...(classifyResult ? { result: classifyResult, result_at: new Date().toISOString() } : {}),
       }]).select("id").single();
       if (inspSaveError) {
         console.error("Inspection save error:", inspSaveError);
@@ -9421,13 +9629,41 @@ const renderSmsTemplate = (key, vars) => {
           if (updateErr) console.warn("Fallback jn_job_id save failed:", updateErr.message);
           else console.log("Saved jn_job_id via fallback:", d.jobId);
         }
+        // Obvious-damage classification fan-out — only now that the JN job
+        // exists: cf_string_34 + cert + PA Ops Hub (damage), or the retail
+        // location swap (retail). Non-fatal; the result is already in our DB.
+        if (classifyResult && d.jobId && newInspId) {
+          try {
+            const tok = (await supabase.from("app_settings").select("value").eq("key", "visit_token").maybeSingle()).data?.value;
+            fetch("/.netlify/functions/rep-classify-result", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ token: tok, inspectionId: newInspId, result: classifyResult, inspectorName: data.salesRepName || "" }),
+            }).catch((e) => console.warn("rep-classify-result failed (non-fatal):", e?.message));
+          } catch (e) { console.warn("classify token fetch failed:", e?.message); }
+        }
       }).catch(e => console.warn("JN sync handler failed:", e));
+
+      // Obvious-damage path → show the right scheduler on the thank-you screen.
+      if (classifyResult && newInspId) {
+        setPostSignSchedule({
+          type: classifyResult === "damage" ? "pa" : "retail",
+          inspectionId: newInspId,
+          clientName: inspData.clientName || "",
+          mobile: inspData.mobile || "",
+          address: [inspData.address, inspData.city, inspData.state, inspData.zip].filter(Boolean).join(", "),
+          repName: data.salesRepName || "",
+          repJnId: data.salesRepId || "",
+        });
+      } else {
+        setPostSignSchedule(null);
+      }
 
       // Reset inspection sig fields
       setReviewAvail("");
       setInspSig("");
       setInspTypedSig("");
       setInspSubmitAttempted(false);
+      setInspData(prev => ({ ...prev, obviousDamage: false, hasInsurance: "" }));
 
       // ── Activity notification email ──
       if (activityEmail) {
@@ -13274,6 +13510,19 @@ if (!hasDamage) {
           <>
           <div style={{ maxWidth: 640, margin: "0 auto", padding: "32px 16px" }}>
 
+            {postSignSchedule && (
+              <PostSignScheduler
+                type={postSignSchedule.type}
+                inspectionId={postSignSchedule.inspectionId}
+                clientName={postSignSchedule.clientName}
+                mobile={postSignSchedule.mobile}
+                address={postSignSchedule.address}
+                repName={postSignSchedule.repName}
+                repJnId={postSignSchedule.repJnId}
+                onDone={() => setPostSignSchedule(null)}
+              />
+            )}
+
             {/* ── SIGN NOW: Rep confirmation screen ── */}
             {!isSigningFromLink && !inspectionOnly ? (
               <>
@@ -13698,6 +13947,48 @@ if (!hasDamage) {
                     </div>
                   ) : null}
 
+                  {/* Obvious damage at the door — default NO so the normal flow
+                      is untouched. YES → ask insurance, which sets the result
+                      and routes to the right appointment scheduler after signing. */}
+                  {(() => {
+                    const od = !!inspData.obviousDamage;
+                    const ins = inspData.hasInsurance;
+                    const pill = (active, color) => ({
+                      flex: 1, padding: "10px 12px", borderRadius: 12, cursor: "pointer",
+                      fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13.5,
+                      letterSpacing: "0.03em", textTransform: "uppercase", textAlign: "center",
+                      border: `2px solid ${active ? color : "#d1d5db"}`,
+                      background: active ? color : "#fff", color: active ? "#fff" : "#6b7280",
+                    });
+                    return (
+                      <div style={{ background: "#fafafa", border: "1px solid #e5e7eb", borderRadius: 16, padding: "16px 18px", marginBottom: 14 }}>
+                        <div style={{ fontSize: 14.5, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827", marginBottom: 4, letterSpacing: "0.02em" }}>
+                          🛑 Obvious damage at this visit?
+                        </div>
+                        <div style={{ fontSize: 12.5, color: "#6b7280", marginBottom: 10, fontFamily: "'Nunito', sans-serif" }}>
+                          Only flip to <b>Yes</b> if you can see clear damage / a tarp. Leave on <b>No</b> for a normal inspection.
+                        </div>
+                        <div style={{ display: "flex", gap: 10 }}>
+                          <div onClick={() => { updateInsp("obviousDamage", false); updateInsp("hasInsurance", ""); }} style={pill(!od, "#64748b")}>No</div>
+                          <div onClick={() => updateInsp("obviousDamage", true)} style={pill(od, "#dc2626")}>⚠️ Yes — damage</div>
+                        </div>
+                        {od && (
+                          <div style={{ marginTop: 14 }}>
+                            <div style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827", marginBottom: 8, letterSpacing: "0.02em" }}>
+                              Does the homeowner have homeowner's insurance?
+                            </div>
+                            <div style={{ display: "flex", gap: 10 }}>
+                              <div onClick={() => updateInsp("hasInsurance", "yes")} style={pill(ins === "yes", "#15803d")}>Yes</div>
+                              <div onClick={() => updateInsp("hasInsurance", "no")} style={pill(ins === "no", "#b45309")}>No</div>
+                            </div>
+                            {ins === "yes" && <div style={{ marginTop: 8, fontSize: 12.5, color: "#15803d", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>→ Result = <b>Damage</b>. After signing, schedule a <b>PA appointment</b> (the PA shoots photos).</div>}
+                            {ins === "no" && <div style={{ marginTop: 8, fontSize: 12.5, color: "#b45309", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>→ Result = <b>Retail</b>. After signing, schedule a <b>retail appointment</b> to sell a roof.</div>}
+                            {inspSubmitAttempted && !ins && <div style={{ marginTop: 8, fontSize: 12.5, color: "#dc2626", fontWeight: 700 }}>Pick Yes or No so we know how to route this deal.</div>}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12 }}>
                     <button
                       type="button"
