@@ -24,8 +24,9 @@
 //   • isStaleAppt() also drops a task on a deal that already sold in a PRIOR
 //     period (e.g. an Install-Complete job getting a new task) unless it's
 //     genuinely re-appointed (status "Appointment Scheduled" / "Reset Appointment").
-//   Type buckets (mutually exclusive): btr = source "Inspection" · harv =
-//   "Sales Rep Harvested" = Yes · comp = everything else.
+//   Type buckets (mutually exclusive): btr = came through the inspection funnel
+//   (has an inspection result, or JN source "Inspection") · harv = "Sales Rep
+//   Harvested" = Yes · comp = everything else.
 //   Sales % = sales ÷ appointments (always ≤ 100% now — every sale is also an
 //   appointment). RB / Insulation = how many of those SALES included each.
 
@@ -204,20 +205,20 @@ async function fetchSoldJobs(jnKey, startSec, endSec) {
 }
 
 // Mutually-exclusive appointment category (so harv + comp + btr = total):
-//   btr  = back to retail: inspection RESULT = retail (taken back out to sell a
-//          retail roof). Also a free-inspection source deal whose result is NOT
-//          damage/no-damage (legacy/unknown). Overrides harv/comp. A Damage /
-//          No-Damage deal is NOT auto-BTR — it stays Co/Harv (and gets the
-//          "move to Retail location" flag if it sells).
+//   btr  = back to retail: the deal came through the INSPECTION funnel. Every
+//          other lead source (Facebook, paid marketing, office leads, etc.) has
+//          NO inspection in its process, so ANY stamped inspection result
+//          (damage|no_damage|retail) — or a JN "Inspection" source — means
+//          back-to-retail, sold or not. Overrides harv/comp.
 //   harv = the SALES REP self-generated it: the rep created the JOB
 //          (created_by === the rep) OR created the appointment TASK. If anyone
 //          else created both (office/intake/etc.), it's not harvested.
 //   comp = everything else      → company-provided lead (created by the office).
 // job.__result is the inspections.result (damage|no_damage|retail), stamped on
-// each job before tallying.
+// each job before tallying — present ONLY when an inspection row exists.
 function categoryOf(job) {
   const result = String(job.__result || "");
-  if (result === "retail" || (result !== "damage" && result !== "no_damage" && String(job.source_name || "") === "Inspection")) return "btr";
+  if (result || String(job.source_name || "") === "Inspection") return "btr";
   const repId = job.__repId || job.sales_rep;
   if (repId) {
     const rid = String(repId);
