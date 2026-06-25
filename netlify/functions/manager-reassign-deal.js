@@ -137,6 +137,7 @@ function buildAssignMsg(kind, mgr, customer, address) {
   const who = customer || "a homeowner";
   const at = address ? `, ${address}` : "";
   if (kind === "back_to_retail") return `${mgr} just assigned you a back-to-retail — ${who}${at}. Go get that appointment!`;
+  if (kind === "damage") return `${mgr} just assigned you a damage inspection — ${who}${at}. Get out there and help them start their claim!`;
   if (kind === "no_damage") return `${mgr} just assigned you a no-damage — ${who}${at}. Go give them the great news and get referrals — who else can we help?`;
   if (kind === "no_sit") return `${mgr} just assigned you a no-sit to re-book — ${who}${at}. Get it back on the calendar!`;
   return `${mgr} just assigned you a deal — ${who}${at}. Go get it!`;
