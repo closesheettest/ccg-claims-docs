@@ -28,6 +28,25 @@ import { AddressAutocomplete } from "./lib/AddressAutocomplete";
 const SIGNED_BUCKET = "signed-documents";
 const PHOTO_PATH_PREFIX = "inspection-photos";
 
+// Build a clear per-channel send-result banner from a send-inspector-* response
+// ({ ok, sent:["sms","email"], errors?, phone, email }). Shows WHERE each
+// message went + ✅/❌ per channel, so a wrong number/address is obvious. Note:
+// "✅ sent" means accepted for delivery, not proof the inspector received it.
+function sendResultMessage(name, label, body) {
+  const sent = Array.isArray(body.sent)
+    ? body.sent
+    : String(body.channel_used || "").split("+").filter(Boolean);
+  const bits = [];
+  if (body.phone) bits.push(`📱 ${body.phone} — ${sent.includes("sms") ? "✅ sent" : "❌ not sent"}`);
+  if (body.email) bits.push(`📧 ${body.email} — ${sent.includes("email") ? "✅ sent" : "❌ not sent"}`);
+  if (!bits.length) bits.push(sent.length ? "✅ sent" : "❌ nothing on file to send to");
+  const errs = (Array.isArray(body.errors) && body.errors.length) ? `\n⚠️ ${body.errors.join("; ")}` : "";
+  return {
+    kind: sent.length ? "success" : "error",
+    text: `${name} — ${label}:\n${bits.join("\n")}${errs}\n("✅ sent" = accepted for delivery; if they don't receive it, the number/email above is wrong — fix it and resend.)`,
+  };
+}
+
 // Public setup page for new inspectors. The manager clicks "Sync from
 // JN" + "Send setup email", which emails the inspector a link to
 // ?inspector_setup=<token>. App.jsx detects the URL param and mounts
@@ -327,8 +346,11 @@ export async function setInspectorActive(insp, makeActive) {
     if (!body.ok) {
       return { ok: false, text: `Activated, but invite send failed: ${body.error || `status ${res.status}`}` };
     }
-    const dest = body.channel_used === "sms" ? `📱 SMS to ${body.phone}` : `📧 email to ${body.email}`;
-    return { ok: true, text: `Activated ${insp.name} — app link sent (${dest}).` };
+    const sent = Array.isArray(body.sent) ? body.sent : String(body.channel_used || "").split("+").filter(Boolean);
+    const bits = [];
+    if (body.phone) bits.push(`📱 ${body.phone} ${sent.includes("sms") ? "✅" : "❌"}`);
+    if (body.email) bits.push(`📧 ${body.email} ${sent.includes("email") ? "✅" : "❌"}`);
+    return { ok: sent.length > 0, text: `Activated ${insp.name} — app link → ${bits.join("  ")}.` };
   } catch (e) {
     return { ok: false, text: `Activated, but invite send failed: ${e.message || "Network error"}` };
   }
@@ -430,10 +452,9 @@ export function InspectorsAdminPanel() {
       });
       const body = await res.json().catch(() => ({}));
       if (!body.ok) {
-        setMessage({ kind: "error", text: body.error || `Send failed (status ${res.status})` });
+        setMessage({ kind: "error", text: `❌ ${insp.name}: ${body.error || `send failed (status ${res.status})`}` });
       } else {
-        const dest = body.channel_used === "sms" ? `📱 SMS to ${body.phone}` : `📧 email to ${body.email}`;
-        setMessage({ kind: "success", text: `Link sent (${dest}).` });
+        setMessage(sendResultMessage(insp.name, "Setup link", body));
       }
     } catch (e) {
       setMessage({ kind: "error", text: e.message || "Network error" });
@@ -469,8 +490,7 @@ export function InspectorsAdminPanel() {
       if (!body.ok) {
         setMessage({ kind: "error", text: body.error || `Send failed (status ${res.status})` });
       } else {
-        const destSent = body.channel_used === "sms" ? `📱 SMS to ${body.phone}` : `📧 email to ${body.email}`;
-        setMessage({ kind: "success", text: `Portal link sent to ${insp.name} (${destSent}).` });
+        setMessage(sendResultMessage(insp.name, "Portal link", body));
       }
     } catch (e) {
       setMessage({ kind: "error", text: e.message || "Network error" });
@@ -500,8 +520,7 @@ export function InspectorsAdminPanel() {
       if (!body.ok) {
         setMessage({ kind: "error", text: body.error || `Send failed (status ${res.status})` });
       } else {
-        const destSent = body.channel_used === "sms" ? `📱 SMS to ${body.phone}` : `📧 email to ${body.email}`;
-        setMessage({ kind: "success", text: `Field guide sent to ${insp.name} (${destSent}).` });
+        setMessage(sendResultMessage(insp.name, "Field guide", body));
       }
     } catch (e) {
       setMessage({ kind: "error", text: e.message || "Network error" });
@@ -655,6 +674,7 @@ export function InspectorsAdminPanel() {
             background: message.kind === "success" ? "#ecfdf5" : "#fef2f2",
             border: `1px solid ${message.kind === "success" ? "#86efac" : "#fca5a5"}`,
             color: message.kind === "success" ? "#065f46" : "#991b1b",
+            whiteSpace: "pre-line",
           }}
         >
           {message.text}
@@ -1154,6 +1174,7 @@ export function InspectionAssignmentsPanel() {
             background: message.kind === "success" ? "#ecfdf5" : "#fef2f2",
             border: `1px solid ${message.kind === "success" ? "#86efac" : "#fca5a5"}`,
             color: message.kind === "success" ? "#065f46" : "#991b1b",
+            whiteSpace: "pre-line",
           }}
         >
           {message.text}
@@ -1663,6 +1684,7 @@ export function PAHandoffPanel() {
             background: message.kind === "success" ? "#ecfdf5" : "#fef2f2",
             border: `1px solid ${message.kind === "success" ? "#86efac" : "#fca5a5"}`,
             color: message.kind === "success" ? "#065f46" : "#991b1b",
+            whiteSpace: "pre-line",
           }}
         >
           {message.text}
@@ -5360,6 +5382,7 @@ export function ConfirmResultsPanel() {
             background: message.kind === "success" ? "#ecfdf5" : "#fef2f2",
             border: `1px solid ${message.kind === "success" ? "#86efac" : "#fca5a5"}`,
             color: message.kind === "success" ? "#065f46" : "#991b1b",
+            whiteSpace: "pre-line",
           }}
         >
           {message.text}
