@@ -215,6 +215,7 @@ export function PAAdminPanel() {
   const [allDeals, setAllDeals] = useState([]);
   const [selected, setSelected] = useState(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [triageBusy, setTriageBusy] = useState(null);   // dead-deal triage in flight (inspection id)
   const [report, setReport] = useState(null);   // { rows, totals } | null (hidden)
   const [reportBusy, setReportBusy] = useState(false);
   const [companies, setCompanies] = useState([]);
@@ -319,10 +320,29 @@ export function PAAdminPanel() {
         .is("cancelled_at", null).eq("pa_decision_needed", false).not("signed_at", "is", null)
         .order("signed_at", { ascending: false }).limit(200);
       const { data: dead } = await supabase.from("inspections")
-        .select("id, client_name, pa_id, pa_stage_at, pa_notes_log")
+        .select("id, client_name, address, city, sales_rep_name, jn_job_id, pa_id, pa_stage_at, pa_notes_log")
         .eq("pa_stage", "dead").order("pa_stage_at", { ascending: false }).limit(100);
       setOverview({ byPa, unassignedList: unassignedList || [], dead: dead || [] });
     } catch { /* non-fatal */ }
+  }
+
+  // Triage a dead PA deal: hand it back to the rep (PA notes ride along), mark it
+  // Lost, or send it to retail as Not Interested (BTR - NI).
+  async function triageDead(deal, action) {
+    const labels = { release_to_rep: "release to the sales rep", lost: "mark Lost", btr_ni: "send to retail as Not Interested" };
+    if (!window.confirm(`${deal.client_name || "This homeowner"} — ${labels[action]}?`)) return;
+    setTriageBusy(deal.id);
+    try {
+      const tok = (await supabase.from("app_settings").select("value").eq("key", "visit_token").maybeSingle()).data?.value;
+      const res = await fetch("/.netlify/functions/pa-dead-triage", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: tok, inspection_id: deal.id, action }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.ok) setMessage({ kind: "error", text: body.error || `status ${res.status}` });
+      else { setMessage({ kind: "success", text: `${deal.client_name || "Deal"} — ${labels[action]} ✓` }); await loadOverview(); }
+    } catch (e) { setMessage({ kind: "error", text: e.message || "Network error" }); }
+    setTriageBusy(null);
   }
 
   // Per-PA scorecard. One pull of EVERY damage deal that bears a pa_id
@@ -1052,14 +1072,27 @@ export function PAAdminPanel() {
             <div style={{ display: "grid", gap: 6, maxHeight: 240, overflowY: "auto" }}>
               {overview.dead.map((d) => {
                 const log = Array.isArray(d.pa_notes_log) ? d.pa_notes_log : [];
-                const last = log.length ? log[log.length - 1] : null;
+                const busy = triageBusy === d.id;
+                const addr = [d.address, d.city].filter(Boolean).join(", ");
                 return (
                   <div key={d.id} style={{ background: "#fff", border: "1px solid #fca5a5", borderRadius: 8, padding: "8px 10px" }}>
                     <div style={{ fontSize: 13, fontWeight: 700 }}>
                       {d.client_name || "(no name)"}
-                      <span style={{ fontWeight: 400, color: "#6b7280", fontSize: 12 }}> · {pas.find((p) => p.id === d.pa_id)?.name || "—"}</span>
+                      <span style={{ fontWeight: 400, color: "#6b7280", fontSize: 12 }}> · PA: {pas.find((p) => p.id === d.pa_id)?.name || "—"}{d.sales_rep_name ? ` · Rep: ${d.sales_rep_name}` : ""}</span>
                     </div>
-                    {last && <div style={{ fontSize: 12, color: "#374151", marginTop: 2 }}>{last.text}</div>}
+                    {addr && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 1 }}>📍 {addr}</div>}
+                    {log.length > 0 && (
+                      <div style={{ marginTop: 4, background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 6, padding: "5px 7px", maxHeight: 96, overflowY: "auto" }}>
+                        <div style={{ fontSize: 10, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 2 }}>PA notes</div>
+                        {log.map((n, i) => <div key={i} style={{ fontSize: 12, color: "#374151", marginBottom: 2 }}>• {n.text}</div>)}
+                      </div>
+                    )}
+                    <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap", alignItems: "center" }}>
+                      <button type="button" disabled={busy} onClick={() => triageDead(d, "release_to_rep")} style={{ ...secondaryBtn, fontSize: 11, borderColor: "#86efac", color: "#15803d" }}>↩ Release to rep</button>
+                      <button type="button" disabled={busy} onClick={() => triageDead(d, "lost")} style={{ ...secondaryBtn, fontSize: 11, borderColor: "#cbd5e1", color: "#64748b" }}>✖ Lost</button>
+                      <button type="button" disabled={busy} onClick={() => triageDead(d, "btr_ni")} style={{ ...secondaryBtn, fontSize: 11, borderColor: "#fdba74", color: "#9a3412" }}>🏠 BTR-NI</button>
+                      {busy && <span style={{ fontSize: 11, color: "#6b7280" }}>…</span>}
+                    </div>
                   </div>
                 );
               })}

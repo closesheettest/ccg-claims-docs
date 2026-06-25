@@ -327,6 +327,14 @@ function DamagePanel({ deal, rep, api }) {
   const dayKeys = [...new Set([todayKey, ...Object.keys(byDay)])].sort();
   return (
     <div>
+      {Array.isArray(deal.pa_notes_log) && deal.pa_notes_log.length > 0 && (
+        <div style={{ marginBottom: 12, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 10, padding: "8px 10px" }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: "#92400e", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 3 }}>📝 PA notes — what the adjuster found</div>
+          <div style={{ maxHeight: 120, overflowY: "auto" }}>
+            {deal.pa_notes_log.map((n, i) => <div key={i} style={{ fontSize: 13, color: "#374151", marginBottom: 3 }}>• {n.text}</div>)}
+          </div>
+        </div>
+      )}
       <button type="button" disabled={ni || !!booking} onClick={markNotInterested}
         style={{ width: "100%", marginBottom: 12, border: "1px solid #dc2626", color: "#dc2626", background: "#fff", borderRadius: 12, padding: "11px 14px", fontSize: 14, fontWeight: 800, cursor: "pointer", opacity: ni ? 0.6 : 1 }}>
         {ni ? "Saving…" : "🚫 Not Interested"}
