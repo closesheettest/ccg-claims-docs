@@ -6233,7 +6233,7 @@ function RescheduleAppt({ appt, onDone }) {
 // (from JN via post-job-installs), grouped by each install's day-2 visit date,
 // with shingle/metal + squares + estimated completion, and optimized
 // Apple/Google Maps routes from his home base.
-function PostJob() {
+function PostJob({ token: propToken } = {}) {
   const HOME = "3217 Taragrove Dr, Tampa, FL";
   const MAX_MI = 250;   // top of the slider = "all of FL" ≈ no limit
   const [data, setData] = useState(null);
@@ -6245,7 +6245,7 @@ function PostJob() {
   const load = async () => {
     setLoading(true); setErr("");
     try {
-      const tok = (await supabase.from("app_settings").select("value").eq("key", "visit_token").maybeSingle()).data?.value;
+      const tok = propToken || (await supabase.from("app_settings").select("value").eq("key", "visit_token").maybeSingle()).data?.value;
       const r = await fetch(`/.netlify/functions/post-job-installs?token=${encodeURIComponent(tok || "")}`);
       const o = await r.json().catch(() => ({}));
       if (!r.ok || !o.ok) throw new Error(o.error || "Couldn't load installs");
@@ -7279,6 +7279,20 @@ export default function App() {
     const managerToken = params.get("manager");
     if (managerToken && managerToken.trim()) {
       return <ManagerRecordsView token={managerToken.trim()} />;
+    }
+    // ?post_job=<token> — standalone pressure-wash route page (sent to Mark).
+    const postJobToken = params.get("post_job");
+    if (postJobToken && postJobToken.trim()) {
+      return (
+        <div style={{ minHeight: "100vh", background: "#f1f5f9", padding: "16px 12px", fontFamily: "'Nunito', sans-serif" }}>
+          <div style={{ maxWidth: 760, margin: "0 auto" }}>
+            <div style={{ fontSize: 22, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#0a0a0a", marginBottom: 12 }}>U.S. Shingle — Pressure Wash Route</div>
+            <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14, padding: 16 }}>
+              <PostJob token={postJobToken.trim()} />
+            </div>
+          </div>
+        </div>
+      );
     }
     const inspectorSetupToken = params.get("inspector_setup");
     if (inspectorSetupToken) {

@@ -122,6 +122,6 @@ function num(v) { const n = parseFloat(String(v == null ? "" : v).replace(/[^0-9
 function numOrNull(v) { const n = Number(v); return Number.isFinite(n) && n !== 0 ? n : null; }
 function isYes(v) { const s = String(v == null ? "" : v).trim().toLowerCase(); return s === "true" || s === "yes" || s === "1"; }
 async function getSetting(key) { const rows = await sbGet(`app_settings?key=eq.${encodeURIComponent(key)}&select=value&limit=1`); return rows[0] ? rows[0].value : null; }
-async function okToken(token) { token = String(token || "").trim(); if (!token) return false; const [d, v] = await Promise.all([getSetting("dialer_token"), getSetting("visit_token")]); return token === d || token === v; }
+async function okToken(token) { token = String(token || "").trim(); if (!token) return false; const [d, v, p] = await Promise.all([getSetting("dialer_token"), getSetting("visit_token"), getSetting("post_job_token")]); return token === d || token === v || (!!p && token === p); }
 async function sbGet(path) { const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: sb }); if (!r.ok) return []; return r.json().catch(() => []); }
 function cors(status, body) { return { statusCode: status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" }, body }; }
