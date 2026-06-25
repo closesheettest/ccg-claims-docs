@@ -68,19 +68,32 @@ export default function RepVisitHub() {
     setAppts(null); setErr(""); setStage("appts");
     try {
       const nowIso = new Date().toISOString();
-      // 1) This rep's deals (their homeowners). Prefer JobNimbus id; name as fallback.
-      const repInspIds = new Set();
+      // 1) This rep's deals (their homeowners). A reassigned deal belongs to the
+      //    CURRENT sales rep, not the original signer — otherwise the original rep
+      //    keeps seeing appointments on deals handed to someone else (e.g. Oswaldo
+      //    cabrera was reassigned William → Stefano and showed under BOTH). So a
+      //    deal counts if you're the current rep, OR you're the original AND no
+      //    current rep is set yet. Prefer JobNimbus id; name as fallback.
+      const SEL = "id,sales_rep_id,sales_rep_name,original_sales_rep_id,original_sales_rep_name";
+      const rowsById = new Map();
       if (rep.jobnimbus_id) {
-        const { data } = await supabase.from("inspections").select("id")
+        const { data } = await supabase.from("inspections").select(SEL)
           .or(`sales_rep_id.eq.${rep.jobnimbus_id},original_sales_rep_id.eq.${rep.jobnimbus_id}`);
-        for (const r of (data || [])) repInspIds.add(r.id);
+        for (const r of (data || [])) rowsById.set(r.id, r);
       }
       if (rep.name) {
         try {
-          const { data } = await supabase.from("inspections").select("id")
+          const { data } = await supabase.from("inspections").select(SEL)
             .or(`sales_rep_name.eq.${rep.name},original_sales_rep_name.eq.${rep.name}`);
-          for (const r of (data || [])) repInspIds.add(r.id);
+          for (const r of (data || [])) rowsById.set(r.id, r);
         } catch { /* odd name → skip name match, id match still applies */ }
+      }
+      const repInspIds = new Set();
+      for (const r of rowsById.values()) {
+        const isCurrent = (!!rep.jobnimbus_id && r.sales_rep_id === rep.jobnimbus_id) || (!!rep.name && r.sales_rep_name === rep.name);
+        const isOriginal = (!!rep.jobnimbus_id && r.original_sales_rep_id === rep.jobnimbus_id) || (!!rep.name && r.original_sales_rep_name === rep.name);
+        const hasCurrent = !!(r.sales_rep_id || r.sales_rep_name);
+        if (isCurrent || (!hasCurrent && isOriginal)) repInspIds.add(r.id);
       }
       // 2) All upcoming scheduled PA appointments, then keep the ones for this
       //    rep's homeowners OR that this rep booked.
