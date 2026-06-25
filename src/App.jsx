@@ -4365,6 +4365,7 @@ const MANAGER_TILES = [
   // ── Settings ──
   { group: "settings", key: "security", emoji: "⚙️", label: "Security & Notifications", desc: "PIN, activity email" },
   { group: "settings", key: "autosms", emoji: "📣", label: "Auto SMS", desc: "Every automated text — when it fires, who gets it, add/remove copies" },
+  { group: "settings", key: "post_job", emoji: "🚿", label: "Post Job", desc: "Pressure-washer route — installs to wash, sorted by install start + estimated completion (shingle/metal × squares), each flagged for day 2, with optimized Apple/Google Maps." },
 ];
 
 // Standalone apps (separate sites) launched from the hub. These open in a
@@ -6224,6 +6225,118 @@ function RescheduleAppt({ appt, onDone }) {
               </div>
             ))}
           </div>}
+    </div>
+  );
+}
+
+// Post Job — Mark the pressure washer's route. Lists current roofing installs
+// (from JN via post-job-installs), grouped by each install's day-2 visit date,
+// with shingle/metal + squares + estimated completion, and optimized
+// Apple/Google Maps routes from his home base.
+function PostJob() {
+  const HOME = "3217 Taragrove Dr, Tampa, FL";
+  const [data, setData] = useState(null);
+  const [homeLL, setHomeLL] = useState(null);
+  const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const load = async () => {
+    setLoading(true); setErr("");
+    try {
+      const tok = (await supabase.from("app_settings").select("value").eq("key", "visit_token").maybeSingle()).data?.value;
+      const r = await fetch(`/.netlify/functions/post-job-installs?token=${encodeURIComponent(tok || "")}`);
+      const o = await r.json().catch(() => ({}));
+      if (!r.ok || !o.ok) throw new Error(o.error || "Couldn't load installs");
+      setData(o);
+    } catch (e) { setErr(e.message); setData(null); }
+    setLoading(false);
+  };
+  useEffect(() => {
+    load();
+    // Geocode the home base once so we can order each day's stops nearest-first.
+    fetch("/.netlify/functions/geocode-place", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: HOME }) })
+      .then((r) => r.json()).then((g) => { if (g && g.ok) setHomeLL({ lat: g.lat, lng: g.lng }); }).catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const dayKey = (iso) => new Date(iso).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const dayLabel = (k) => new Date(k + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+  const fmtD = (iso) => new Date(iso).toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" });
+  const todayKey = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+
+  // Greedy nearest-neighbor from home so the route doesn't zig-zag.
+  const orderStops = (stops) => {
+    if (!homeLL || stops.length < 3 || stops.some((s) => s.lat == null || s.lng == null)) return stops;
+    const rest = [...stops]; const out = []; let cur = homeLL;
+    while (rest.length) {
+      let bi = 0, bd = Infinity;
+      for (let i = 0; i < rest.length; i++) {
+        const d = (rest[i].lat - cur.lat) ** 2 + (rest[i].lng - cur.lng) ** 2;
+        if (d < bd) { bd = d; bi = i; }
+      }
+      const pick = rest.splice(bi, 1)[0]; out.push(pick); cur = { lat: pick.lat, lng: pick.lng };
+    }
+    return out;
+  };
+  const mapsUrls = (stops) => {
+    const pts = orderStops(stops).slice(0, 9).map((s) => s.address || `${s.lat},${s.lng}`).filter(Boolean);
+    return {
+      g: "https://www.google.com/maps/dir/" + [HOME, ...pts].map(encodeURIComponent).join("/"),
+      a: "https://maps.apple.com/?saddr=" + encodeURIComponent(HOME) + "&daddr=" + pts.map(encodeURIComponent).join("+to:+"),
+    };
+  };
+
+  if (loading) return <div style={{ color: "#6b7280" }}>Loading installs…</div>;
+  if (err) return <div style={{ color: "#b91c1c" }}>{err} <button type="button" onClick={load} style={{ marginLeft: 8, textDecoration: "underline", background: "none", border: "none", cursor: "pointer", color: "#0369a1" }}>Retry</button></div>;
+  const installs = data?.installs || [];
+  const byDay = {};
+  for (const i of installs) (byDay[dayKey(i.day2)] = byDay[dayKey(i.day2)] || []).push(i);
+  const days = Object.keys(byDay).sort();
+  const refreshBtn = <button type="button" onClick={load} style={{ marginLeft: 6, textDecoration: "underline", background: "none", border: "none", cursor: "pointer", color: "#0369a1", fontSize: 12 }}>↻ Refresh</button>;
+
+  return (
+    <div>
+      <div style={{ fontSize: 20, fontWeight: 800, fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>🚿 Post Job — Pressure Wash Route</div>
+      <div style={{ fontSize: 13, color: "#374151", marginBottom: 4 }}>Home base: <b>{HOME}</b> · {installs.length} install{installs.length === 1 ? "" : "s"} · visit each on its <b>2nd day</b>.{refreshBtn}</div>
+      {data?.rates && (
+        <div style={{ fontSize: 11.5, color: "#9ca3af", marginBottom: 14 }}>
+          Est. duration from history — Shingle {(data.rates.Shingle?.rate || 0).toFixed(2)} days/sq ({data.rates.Shingle?.samples || 0} jobs) · Metal {(data.rates.Metal?.rate || 0).toFixed(2)} days/sq ({data.rates.Metal?.samples || 0} jobs)
+        </div>
+      )}
+      {!days.length && <div style={{ color: "#6b7280" }}>No current installs in the window.</div>}
+      {days.map((dk) => {
+        const stops = byDay[dk];
+        const { g, a } = mapsUrls(stops);
+        const isToday = dk === todayKey;
+        const isPast = dk < todayKey;
+        return (
+          <div key={dk} style={{ marginBottom: 18, border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", opacity: isPast ? 0.6 : 1 }}>
+            <div style={{ padding: "10px 14px", background: isToday ? "#0e7490" : "#f1f5f9", color: isToday ? "#fff" : "#0f172a", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+              <div style={{ fontWeight: 800, fontFamily: "'Oswald', sans-serif" }}>📅 Day 2 — {dayLabel(dk)}{isToday ? " · TODAY" : ""} <span style={{ fontWeight: 600, opacity: 0.85 }}>· {stops.length} stop{stops.length === 1 ? "" : "s"}</span></div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <a href={g} target="_blank" rel="noreferrer" style={{ background: "#fff", color: "#15803d", border: "1px solid #15803d", borderRadius: 8, padding: "5px 10px", fontSize: 12, fontWeight: 800, textDecoration: "none" }}>🗺 Google route</a>
+                <a href={a} target="_blank" rel="noreferrer" style={{ background: "#fff", color: "#0369a1", border: "1px solid #0369a1", borderRadius: 8, padding: "5px 10px", fontSize: 12, fontWeight: 800, textDecoration: "none" }}>🍎 Apple route</a>
+              </div>
+            </div>
+            <div style={{ padding: 10, display: "grid", gap: 8 }}>
+              {orderStops(stops).map((s) => (
+                <div key={s.jnid} style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: 10 }}>
+                  <div style={{ fontWeight: 700 }}>{s.homeowner}
+                    <span style={{ fontSize: 12, fontWeight: 700, color: s.type === "Metal" ? "#b45309" : "#15803d", marginLeft: 6 }}>{s.type === "Metal" ? "⬛ Metal" : (s.type === "Shingle" ? "🟫 Shingle" : "▫ " + s.type)} · {s.squares} sq</span>
+                  </div>
+                  <div style={{ fontSize: 12.5, color: "#475569" }}>📍 {s.address || "(no address)"}</div>
+                  <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>Install started {fmtD(s.install_start)} · est. complete {fmtD(s.est_complete)} ({s.est_days}d)</div>
+                  {s.address && (
+                    <div style={{ marginTop: 6, display: "flex", gap: 12 }}>
+                      <a href={`https://maps.apple.com/?daddr=${encodeURIComponent(s.address)}`} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, color: "#0369a1" }}>Apple Maps</a>
+                      <a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(s.address)}`} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, color: "#15803d" }}>Google Maps</a>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -14380,6 +14493,7 @@ if (!hasDamage) {
                         style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 24, padding: "8px 16px", borderRadius: 12, border: "1.5px solid #d1d5db", background: "#fff", color: "#374151", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", textTransform: "uppercase" }}>
                         ← Back to Manager Home
                       </button>
+                  {managerSection === "post_job" && <Card style={{ padding: 20, background: "#f8fafc" }}><PostJob /></Card>}
                   {managerSection === "security" && <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <SectionTitle>Security & Notifications</SectionTitle>
                     <div style={{ display: "grid", gap: 16 }}>
