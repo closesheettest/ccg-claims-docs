@@ -74,7 +74,7 @@ exports.handler = async (event) => {
     // 3. Existing snapshot rows for these jobs.
     const existing = await loadTracking([...byJob.keys()]);
 
-    const newRows = [], conversions = [], reopened = [];
+    const newRows = [], conversions = [], reopened = [], movedOut = [];
     for (const [jnid, r] of byJob) {
       const atSit = sitSet.has(jnid);
       const ex = existing.get(jnid);
@@ -94,18 +94,28 @@ exports.handler = async (event) => {
       }
 
       if (ex.at_sit_sold && !atSit && !ex.converted_at) {
-        // Left Sit Sold Insp after we saw it there → conversion. Fetch the
-        // status it moved to so we can tell appointment vs lost.
-        const newStatus = (await getJobStatus(jnid)) || "(changed)";
-        conversions.push({
-          jn_job_id: jnid, at_sit_sold: false, current_status: newStatus,
-          converted_at: new Date().toISOString(), converted_to: newStatus,
-          appointment: newStatus === APPT_STATUS,
-          // carry rep/zone forward in case it was backfilled since
-          sales_rep_name: (r.sales_rep_name || "").trim() || ex.sales_rep_name || null,
-          sales_rep_id: r.sales_rep_id || ex.sales_rep_id || null,
-          zone,
-        });
+        // Left Sit Sold Insp after we saw it there. Fetch the status it moved to
+        // (+ whether the job is archived) so we can tell a real win from noise.
+        const info = await getJobInfo(jnid);
+        const newStatus = (info && info.status) || "(changed)";
+        // A real back-to-retail conversion = a meaningful move. An ARCHIVED job
+        // (a merged/dead duplicate, e.g. the "4110 Acline ave" dup) or a vague
+        // "Other"/"(changed)" status is NOT a win — record the move so we stop
+        // re-checking, but give it NO conversion credit.
+        const real = info && !info.archived && !NON_CONVERSION.has(normStatus(newStatus));
+        if (real) {
+          conversions.push({
+            jn_job_id: jnid, at_sit_sold: false, current_status: newStatus,
+            converted_at: new Date().toISOString(), converted_to: newStatus,
+            appointment: newStatus === APPT_STATUS,
+            // carry rep/zone forward in case it was backfilled since
+            sales_rep_name: (r.sales_rep_name || "").trim() || ex.sales_rep_name || null,
+            sales_rep_id: r.sales_rep_id || ex.sales_rep_id || null,
+            zone,
+          });
+        } else {
+          movedOut.push({ jn_job_id: jnid, at_sit_sold: false, current_status: newStatus, converted_at: null, converted_to: null, appointment: false });
+        }
       } else if (!ex.at_sit_sold && atSit) {
         // Came back to the pool (rare) — reopen so a later appt re-counts.
         reopened.push({ jn_job_id: jnid, at_sit_sold: true, current_status: SIT_SOLD, converted_at: null, converted_to: null, appointment: false });
@@ -116,6 +126,7 @@ exports.handler = async (event) => {
       if (newRows.length) await sbUpsert(newRows);
       for (const c of conversions) await sbPatch(c.jn_job_id, c);
       for (const r of reopened) await sbPatch(r.jn_job_id, r);
+      for (const m of movedOut) await sbPatch(m.jn_job_id, m);   // left pool, but not a real conversion
     }
 
     return cors(200, JSON.stringify({
@@ -148,12 +159,18 @@ async function fetchStatusSet(statusName) {
   } catch { return null; }
 }
 
-async function getJobStatus(jnid) {
+// Statuses that aren't a real back-to-retail win (normalized). A move to one of
+// these — or an archived job — records the exit from the pool without crediting
+// a conversion.
+const NON_CONVERSION = new Set(["other", "changed"]);
+function normStatus(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); }
+
+async function getJobInfo(jnid) {
   try {
     const r = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(jnid)}`, { headers: jnHeaders });
     if (!r.ok) return null;
     const j = await r.json().catch(() => null);
-    return j ? (j.status_name || null) : null;
+    return j ? { status: j.status_name || null, archived: !!j.is_archived } : null;
   } catch { return null; }
 }
 
