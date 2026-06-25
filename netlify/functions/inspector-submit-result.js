@@ -395,6 +395,14 @@ exports.handler = async (event) => {
       }).catch((e) => console.warn("Retail processing trigger failed:", e.message));
       retailJnFired = true;
     }
+    // Go-back TASK on the JN job at the homeowner's preferred time
+    // (review_availability from intake) — "Inspection Result Insurance PA"
+    // (damage) / "…Back to Retail" (retail) / "…No Damage". Fire-and-forget.
+    if (result === "damage" || result === "no_damage" || result === "retail") {
+      fetch(`${base}/.netlify/functions/create-result-task`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ inspectionId }),
+      }).catch((e) => console.warn("create-result-task trigger failed:", e.message));
+    }
   }
 
   return json(200, {

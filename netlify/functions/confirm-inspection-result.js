@@ -272,6 +272,19 @@ exports.handler = async (event) => {
     }
   }
 
+  // 4b. Go-back result TASK on the JN job at the homeowner's preferred time
+  //     (review_availability) — same as inspector-submit-result.
+  if (insp.result === "damage" || insp.result === "no_damage" || insp.result === "retail") {
+    try {
+      await fetch(`${base}/.netlify/functions/create-result-task`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ inspectionId }),
+      });
+      steps.result_task_fired = true;
+    } catch (e) {
+      errors.push(`result task: ${e.message}`);
+    }
+  }
+
   // 5. Clear the hold + stamp jn_pushed_at so the cron skips this row.
   await stampConfirmed(SB_URL, sbHeaders, inspectionId, steps.jn_pushed);
 
