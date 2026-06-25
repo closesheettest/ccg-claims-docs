@@ -54,6 +54,13 @@ function normStatus(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]
 // genuinely re-appointed (status "Appointment Scheduled" / "Reset Appointment").
 const ACTIVE_APPT_STATUSES = new Set(["appointment scheduled", "reset appointment"]);
 function isStaleAppt(job, apptDateSec) {
+  // A "post-sale leftover" appt only applies to a deal that's CURRENTLY in a sold
+  // status. A back-to-retail re-sit carries an OLD inspection Sold Date (cf_date_5
+  // = the original free-inspection sit) but is NOT sold now (e.g. "Sit - No Sale"),
+  // so its new appointment is REAL — the old date must not make it look stale.
+  // (This was silently dropping every re-worked inspection deal whose new appt fell
+  // after its original inspection sit — the reason back-to-retail BTR counts were 0.)
+  if (!SOLD_STATUSES.has(normStatus(job.status_name))) return false;
   const sold = soldDateSec(job);
   if (sold == null) return false;                       // never sold → a real appointment
   const ad = Number(apptDateSec);
