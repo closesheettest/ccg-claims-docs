@@ -41,7 +41,7 @@ exports.handler = async (event) => {
   try {
     // review_availability is a newer column; if it hasn't been added yet the
     // SELECT 400s and we'd get zero deals. Try with it, fall back without it.
-    const SEL_BASE = "id,client_name,address,city,state,zip,mobile,email,jn_job_id,latitude,longitude,result,result_at,pa_id,pa_signed_at,pa_stage,docs_signed";
+    const SEL_BASE = "id,client_name,address,city,state,zip,mobile,email,jn_job_id,latitude,longitude,result,result_at,pa_id,pa_signed_at,pa_stage,docs_signed,jn_status";
     const tail = `&result=eq.${result}&cancelled_at=is.null&or=(${conds.join(",")})&order=result_at.desc&limit=500`;
     let rows = await sbGet(`inspections?select=${SEL_BASE},review_availability${tail}`);
     if (!rows.length) rows = await sbGet(`inspections?select=${SEL_BASE}${tail}`);
@@ -53,6 +53,18 @@ exports.handler = async (event) => {
       rows = rows.filter((r) =>
         !(r.pa_signed_at || r.pa_stage === "active" || r.pa_stage === "waiting_docs" || /\b(lor|pac)\b/i.test(r.docs_signed || "")),
       );
+    }
+    // Retail list: a deal leaves the rep's list once it's HANDLED — marked Not
+    // Interested ("BTR - NI") or already scheduled (a retail_appointments row).
+    if (result === "retail") {
+      const ids = rows.map((r) => r.id);
+      const scheduled = new Set();
+      if (ids.length) {
+        const inList = ids.map((id) => `"${id}"`).join(",");
+        const appts = await sbGet(`retail_appointments?inspection_id=in.(${encodeURIComponent(inList)})&select=inspection_id`);
+        for (const a of appts) if (a.inspection_id) scheduled.add(a.inspection_id);
+      }
+      rows = rows.filter((r) => String(r.jn_status || "").trim().toLowerCase() !== "btr - ni" && !scheduled.has(r.id));
     }
     const deals = rows.map((r) => {
       const dist = (lat != null && lng != null && r.latitude != null && r.longitude != null)

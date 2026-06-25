@@ -372,6 +372,7 @@ function RetailPanel({ deal, rep, api }) {
   const [picking, setPicking] = useState("");
   const [err, setErr] = useState("");
   const [done, setDone] = useState(null);
+  const [ni, setNi] = useState(false);
   const days = useMemo(() => buildRetailDays(14), []);
   const pick = async (slot) => {
     setPicking(slot.iso); setErr("");
@@ -381,11 +382,24 @@ function RetailPanel({ deal, rep, api }) {
     } catch (e) { setErr(e.message); }
     setPicking("");
   };
+  // Homeowner doesn't want a retail appointment → "BTR - NI" in JN, drops off the list.
+  const markNotInterested = async () => {
+    if (!window.confirm(`Mark ${deal.client_name || "this homeowner"} Not Interested?\n\nThey'll move to "BTR - NI" in JobNimbus and drop off your retail list.`)) return;
+    setNi(true); setErr("");
+    try {
+      await api("retail-not-interested", { inspection_id: deal.inspection_id });
+      setDone(`Marked Not Interested (BTR - NI). Removed from your retail list.`);
+    } catch (e) { setErr(e.message); setNi(false); }
+  };
   if (done) return <div style={S.done}>✓ {done}</div>;
   return (
     <div>
-      <p style={{ fontSize: 14, fontWeight: 700, color: "#374151", margin: "0 0 8px" }}>Pick a retail appointment time:</p>
       {err && <div style={{ color: "#b91c1c", fontSize: 14, marginBottom: 8 }}>{err}</div>}
+      <button type="button" disabled={ni || !!picking} onClick={markNotInterested}
+        style={{ width: "100%", marginBottom: 12, border: "1px solid #dc2626", color: "#dc2626", background: "#fff", borderRadius: 12, padding: "11px 14px", fontSize: 14, fontWeight: 800, cursor: "pointer", opacity: ni ? 0.6 : 1 }}>
+        {ni ? "Saving…" : "🚫 Not Interested"}
+      </button>
+      <p style={{ fontSize: 14, fontWeight: 700, color: "#374151", margin: "0 0 8px" }}>…or pick a retail appointment time:</p>
       <div style={{ maxHeight: "55vh", overflowY: "auto" }}>
         {days.map((day) => (
           <div key={day.key} style={{ marginBottom: 14 }}>
