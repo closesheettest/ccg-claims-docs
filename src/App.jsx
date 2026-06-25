@@ -7154,7 +7154,9 @@ export default function App() {
         <InspectorSetupPage
           token={inspectorSetupToken}
           onDone={() => {
-            window.location.href = window.location.origin + "/";
+            // Land them IN the inspector app, not the bare URL (which defaults
+            // to the rep field-visit hub — the Sean Hernandez mix-up).
+            window.location.href = window.location.origin + "/?mode=inspector";
           }}
         />
       );
@@ -7164,6 +7166,17 @@ export default function App() {
     // contained component — short-circuit before the heavy rep-intake
     // state, same pattern as the manager + inspector-setup pages.
     const portalMode = params.get("mode");
+    // Remember a REAL inspector's device (not an admin previewing with admin=1)
+    // so a later bare-URL visit — bookmark, typed domain, link that lost its
+    // ?mode=inspector — lands them back in the inspector app, not the rep hub.
+    if (portalMode === "inspector" && !params.get("admin")) {
+      try { localStorage.setItem("uss_inspector", "1"); } catch { /* private mode */ }
+    }
+    // Escape valve: /?mode=rep clears the inspector flag so a wrongly-flagged
+    // (e.g. shared) device returns to the normal rep field-visit hub.
+    if (portalMode === "rep") {
+      try { localStorage.removeItem("uss_inspector"); } catch { /* private mode */ }
+    }
     if (portalMode === "pa") {
       return <PAMobileApp />;
     }
@@ -7222,7 +7235,12 @@ export default function App() {
     // returned above; fall through to the existing signing intake only for
     // ?intake=1 (the hub's "New inspection"), ?sign=… (email sign links), and
     // ?mode=inspector (the inspector app, handled below via view state).
-    if (!params.get("intake") && !params.get("sign") && portalMode !== "inspector" && portalMode !== "manager") {
+    // A device we've flagged as an inspector's skips the rep hub on a bare URL
+    // and falls through to the inspector view below.
+    const stickyInspector = (() => {
+      try { return localStorage.getItem("uss_inspector") === "1"; } catch { return false; }
+    })();
+    if (!params.get("intake") && !params.get("sign") && portalMode !== "inspector" && portalMode !== "manager" && !stickyInspector) {
       return <RepVisitHub />;
     }
   }
@@ -7237,6 +7255,8 @@ export default function App() {
     // Deep-link from the Admin hub: /?mode=manager opens the manager view.
     // The PIN gate still guards it unless the hub set the unlock flag (below).
     if (mode === "manager") return "manager";
+    // Flagged inspector device on a bare URL → inspector app (see stickyInspector).
+    if (!mode) { try { if (localStorage.getItem("uss_inspector") === "1") return "inspector"; } catch { /* private mode */ } }
     return "input";
   });
   // ── Guided intake mode ──────────────────────────────────────────
