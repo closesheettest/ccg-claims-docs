@@ -2,9 +2,10 @@
 //
 // Unified "send the setup/update link" function for inspectors:
 //
-//   • If the inspector has a phone on file → SMS via the existing
-//     /.netlify/functions/ghl-sms route.
-//   • Otherwise → email via /.netlify/functions/send-inspector-setup-email.
+//   • channel "auto" (default) → sends BOTH SMS (ghl-sms) AND email
+//     (send-inspector-setup-email) when both are on file, and succeeds if
+//     EITHER lands. So an inspector whose texts bounce still gets the link.
+//   • channel "sms" / "email" → force that single channel.
 //
 // Same magic link in either case — points at ?inspector_setup=<token>
 // which routes to the InspectorSetupPage where they confirm or update
@@ -68,47 +69,61 @@ exports.handler = async (event) => {
   const link = `${base}/?inspector_setup=${insp.registration_token}`;
   const isUpdate = !!insp.info_updated_at;
 
-  // Decide channel.
-  let chosen = channel;
-  if (chosen === "auto") {
-    chosen = insp.phone ? "sms" : "email";
-  }
-  if (chosen === "sms" && !insp.phone) {
+  // Decide channels. "auto" (the default used at setup) now sends BOTH SMS and
+  // email so an inspector whose texts bounce (landline / GHL opt-out, the Sean
+  // Hernandez case) still gets the link by email. "sms"/"email" force one.
+  if (channel === "sms" && !insp.phone) {
     return json(400, { ok: false, error: "Inspector has no phone on file (set channel=email or add phone)" });
   }
-  if (chosen === "email" && !insp.email) {
+  if (channel === "email" && !insp.email) {
     return json(400, { ok: false, error: "Inspector has no email on file" });
   }
+  const wantSms = (channel === "sms" || channel === "auto") && !!insp.phone;
+  const wantEmail = (channel === "email" || channel === "auto") && !!insp.email;
+  if (!wantSms && !wantEmail) {
+    return json(400, { ok: false, error: "Inspector has no phone or email on file" });
+  }
+
+  const sent = [];
+  const errors = [];
 
   // SMS path.
-  if (chosen === "sms") {
+  if (wantSms) {
     const messageBody = isUpdate
       ? `Hi ${insp.name}, you can update your inspector home address here: ${link}`
       : `Hi ${insp.name}, you've been added as a U.S. Shingle & Metal inspector. Confirm your home address here so we can route jobs to you: ${link}`;
-    const smsRes = await fetch(`${base}/.netlify/functions/ghl-sms`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ to: insp.phone, name: insp.name, message: messageBody }),
-    });
-    const smsBody = await smsRes.json().catch(() => ({}));
-    if (!smsRes.ok) {
-      return json(500, { ok: false, channel_used: "sms", error: smsBody.error || `SMS failed (${smsRes.status})` });
-    }
-    return json(200, { ok: true, channel_used: "sms", phone: insp.phone, link });
+    try {
+      const smsRes = await fetch(`${base}/.netlify/functions/ghl-sms`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: insp.phone, name: insp.name, message: messageBody }),
+      });
+      const smsBody = await smsRes.json().catch(() => ({}));
+      if (smsRes.ok) sent.push("sms");
+      else errors.push(`SMS: ${smsBody.error || smsRes.status}`);
+    } catch (e) { errors.push(`SMS: ${e.message}`); }
   }
 
-  // Email path — delegate to the existing setup-email function which
-  // already composes the HTML body + send-email call.
-  const emailRes = await fetch(`${base}/.netlify/functions/send-inspector-setup-email`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ inspectorId }),
-  });
-  const emailBody = await emailRes.json().catch(() => ({}));
-  if (!emailBody.ok) {
-    return json(500, { ok: false, channel_used: "email", error: emailBody.error || `Email failed (${emailRes.status})` });
+  // Email path — delegate to the existing setup-email function which already
+  // composes the HTML body + send-email call.
+  if (wantEmail) {
+    try {
+      const emailRes = await fetch(`${base}/.netlify/functions/send-inspector-setup-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inspectorId }),
+      });
+      const emailBody = await emailRes.json().catch(() => ({}));
+      if (emailBody.ok) sent.push("email");
+      else errors.push(`Email: ${emailBody.error || emailRes.status}`);
+    } catch (e) { errors.push(`Email: ${e.message}`); }
   }
-  return json(200, { ok: true, channel_used: "email", email: insp.email, link });
+
+  // Succeed if EITHER channel landed.
+  if (!sent.length) {
+    return json(500, { ok: false, error: errors.join(" | ") || "Could not send on any channel", attempted: { sms: wantSms, email: wantEmail } });
+  }
+  return json(200, { ok: true, channel_used: sent.join("+"), sent, errors: errors.length ? errors : undefined, phone: wantSms ? insp.phone : null, email: wantEmail ? insp.email : null, link });
 };
 
 function json(status, body) {

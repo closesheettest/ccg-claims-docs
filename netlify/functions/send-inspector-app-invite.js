@@ -9,9 +9,10 @@
 // active=false to active=true in the admin panel (and is also exposed
 // as a "Resend app link" button in case the inspector loses it).
 //
-// Channel auto-pick (same pattern as send-inspector-update-link):
-//   • SMS via ghl-sms if phone on file
-//   • Otherwise email via send-email
+// Channel (same pattern as send-inspector-update-link):
+//   • "auto" (default) → BOTH SMS (ghl-sms) AND email (send-email) when both
+//     are on file; succeeds if EITHER lands.
+//   • "sms" / "email" → force one channel.
 //
 // POST body: { inspectorId, channel?: "auto" | "sms" | "email" }
 // Response:  { ok, channel_used, link }
@@ -68,17 +69,25 @@ exports.handler = async (event) => {
   // Same page is also sendable on its own via send-inspector-guide.js.
   const guideLink = `${base}/inspector-guide/`;
 
-  let chosen = channel;
-  if (chosen === "auto") chosen = insp.phone ? "sms" : "email";
-  if (chosen === "sms" && !insp.phone) {
+  // "auto" (default — fired on activation) sends BOTH SMS and email when both
+  // are on file, and succeeds if EITHER lands. "sms"/"email" force one channel.
+  if (channel === "sms" && !insp.phone) {
     return json(400, { ok: false, error: "Inspector has no phone on file" });
   }
-  if (chosen === "email" && !insp.email) {
+  if (channel === "email" && !insp.email) {
     return json(400, { ok: false, error: "Inspector has no email on file" });
   }
+  const wantSms = (channel === "sms" || channel === "auto") && !!insp.phone;
+  const wantEmail = (channel === "email" || channel === "auto") && !!insp.email;
+  if (!wantSms && !wantEmail) {
+    return json(400, { ok: false, error: "Inspector has no phone or email on file" });
+  }
+
+  const sent = [];
+  const errors = [];
 
   // SMS path.
-  if (chosen === "sms") {
+  if (wantSms) {
     const messageBody =
       `Hi ${insp.name}, you're activated as a U.S. Shingle & Metal inspector!\n\n` +
       `📱 Open the app: ${link}\n` +
@@ -86,19 +95,20 @@ exports.handler = async (event) => {
       `Save the app to your home screen:\n` +
       `• iPhone (Safari): Share → "Add to Home Screen"\n` +
       `• Android (Chrome): ⋮ menu → "Add to Home screen"`;
-    const smsRes = await fetch(`${base}/.netlify/functions/ghl-sms`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ to: insp.phone, name: insp.name, message: messageBody }),
-    });
-    const smsBody = await smsRes.json().catch(() => ({}));
-    if (!smsRes.ok) {
-      return json(500, { ok: false, channel_used: "sms", error: smsBody.error || `SMS failed (${smsRes.status})` });
-    }
-    return json(200, { ok: true, channel_used: "sms", phone: insp.phone, link });
+    try {
+      const smsRes = await fetch(`${base}/.netlify/functions/ghl-sms`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: insp.phone, name: insp.name, message: messageBody }),
+      });
+      const smsBody = await smsRes.json().catch(() => ({}));
+      if (smsRes.ok) sent.push("sms");
+      else errors.push(`SMS: ${smsBody.error || smsRes.status}`);
+    } catch (e) { errors.push(`SMS: ${e.message}`); }
   }
 
   // Email path.
+  if (wantEmail) {
   const subject = "You're activated — here's the Inspector app";
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#0f172a;">
@@ -137,20 +147,23 @@ exports.handler = async (event) => {
       </p>
     </div>
   `;
-  const sendRes = await fetch(`${base}/.netlify/functions/send-email`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ to: insp.email, subject, html }),
-  });
-  const sendBody = await sendRes.json().catch(() => ({}));
-  if (!sendRes.ok || !sendBody.success) {
-    return json(500, {
-      ok: false,
-      channel_used: "email",
-      error: sendBody.error || `send-email returned ${sendRes.status}`,
-    });
+    try {
+      const sendRes = await fetch(`${base}/.netlify/functions/send-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: insp.email, subject, html }),
+      });
+      const sendBody = await sendRes.json().catch(() => ({}));
+      if (sendRes.ok && sendBody.success) sent.push("email");
+      else errors.push(`Email: ${sendBody.error || sendRes.status}`);
+    } catch (e) { errors.push(`Email: ${e.message}`); }
   }
-  return json(200, { ok: true, channel_used: "email", email: insp.email, link });
+
+  // Succeed if EITHER channel landed.
+  if (!sent.length) {
+    return json(500, { ok: false, error: errors.join(" | ") || "Could not send on any channel", attempted: { sms: wantSms, email: wantEmail } });
+  }
+  return json(200, { ok: true, channel_used: sent.join("+"), sent, errors: errors.length ? errors : undefined, phone: wantSms ? insp.phone : null, email: wantEmail ? insp.email : null, link });
 };
 
 function escapeHtml(s) {
