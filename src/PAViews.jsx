@@ -1876,6 +1876,7 @@ function PAAvailability({ me, onBack }) {
   const [blocked, setBlocked] = useState(() => new Set()); // keys "weekday:startMin" the PA can't do
   const [dateBlocked, setDateBlocked] = useState(() => new Set()); // keys "YYYY-MM-DD:startMin" — off on a SPECIFIC date
   const [appts, setAppts] = useState([]);
+  const [repPhone, setRepPhone] = useState({});   // booked_by name → rep cell
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -1891,7 +1892,24 @@ function PAAvailability({ me, onBack }) {
     } catch { /* table not set up yet */ }
     const ap = await supabase.from("pa_appointments").select("*").eq("pa_id", me.id).eq("status", "scheduled")
       .gte("start_at", new Date().toISOString()).order("start_at", { ascending: true });
-    setAppts(ap.data || []);
+    const rows = ap.data || [];
+    setAppts(rows);
+    // Booking rep's cell — CCG sales_reps first, then the TMS roster (where most live).
+    const names = [...new Set(rows.map((r) => (r.booked_by || "").trim()).filter(Boolean))];
+    if (names.length) {
+      const m = {};
+      const { data: reps } = await supabase.from("sales_reps").select("name, phone").in("name", names);
+      for (const r of (reps || [])) if (r.phone) m[r.name] = r.phone;
+      const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      if (names.some((n) => !m[n])) {
+        try {
+          const rd = await (await fetch("https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1")).json();
+          const byNorm = {}; for (const x of (rd.reps || [])) if (x.phone) byNorm[norm(x.name)] = x.phone;
+          for (const nm of names) if (!m[nm] && byNorm[norm(nm)]) m[nm] = byNorm[norm(nm)];
+        } catch { /* roster unavailable */ }
+      }
+      setRepPhone(m);
+    }
     setLoading(false);
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [me.id]);
@@ -1970,7 +1988,13 @@ function PAAvailability({ me, onBack }) {
               <div key={a.id} style={{ border: "1px solid #d1fae5", background: "#f0fdf4", borderRadius: 10, padding: 10 }}>
                 <div style={{ fontWeight: 700 }}>{a.homeowner_name || "Homeowner"} <span style={{ color: "#15803d" }}>· {fmt(a.start_at)}</span></div>
                 {a.address && <div style={{ fontSize: 13, color: "#475569" }}>📍 {a.address}</div>}
-                {a.homeowner_phone && <div style={{ fontSize: 13 }}><a href={`tel:${a.homeowner_phone}`} style={{ color: "#0369a1" }}>📞 {a.homeowner_phone}</a></div>}
+                {a.homeowner_phone && <div style={{ fontSize: 13 }}>🏠 <a href={`tel:${a.homeowner_phone}`} style={{ color: "#0369a1" }}>{a.homeowner_phone}</a></div>}
+                {a.booked_by && (
+                  <div style={{ fontSize: 12.5, color: "#374151", marginTop: 2 }}>
+                    🧑‍💼 Scheduled by <b>{a.booked_by}</b>
+                    {repPhone[a.booked_by] && <> · <a href={`tel:${repPhone[a.booked_by]}`} style={{ color: "#0369a1" }}>📞 {repPhone[a.booked_by]}</a></>}
+                  </div>
+                )}
                 <button type="button" onClick={() => cancelAppt(a.id)} style={{ marginTop: 6, fontSize: 11, color: "#b91c1c", background: "none", border: "none", textDecoration: "underline", cursor: "pointer" }}>Cancel</button>
               </div>
             ))}
