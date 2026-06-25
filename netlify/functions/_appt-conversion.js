@@ -262,6 +262,7 @@ function dealInfo(job) {
     fromAssigned: !!job.__repFromAssigned,   // rep came from Assigned field, not Sales Rep
     isReset: !!job.__isReset,                 // counted appt was a Reset Appointment (a re-sit/follow-up)
     result: job.__result || null,             // inspections.result (damage|no_damage|retail), for the retail-loc flag
+    location: (job.location && job.location.id != null) ? job.location.id : null, // JN location/branch (1=Retail, 3=Insurance) — so the retail-loc flag can skip deals already in Retail
   };
 }
 
