@@ -38,11 +38,13 @@ const SOLD_STATUSES = new Set([
   "sit sold", "signed contract", "production review", "job prep",
   "in funding", "waiting on pace", "upcoming installs", "install set",
   "roof started", "new roof", "paid closed", "upcoming commissions",
+  "holds", "extras",   // special sold statuses — deal on Hold / add-on Extras
 ]);
 const SOLD_STATUS_NAMES = [
   "Sit - Sold", "Signed Contract", "Production Review", "Job Prep",
   "In Funding", "Waiting on PACE", "Upcoming Installs", "Install Set",
   "Roof Started", "New Roof", "Paid & Closed", "Upcoming Commissions",
+  "Holds", "Extras",
 ];
 
 function isYes(v) { return v === true || v === "true" || v === "Yes" || v === "yes" || v === 1; }

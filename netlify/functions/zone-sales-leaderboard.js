@@ -59,6 +59,8 @@ const SOLD_STATUSES = new Set([
   'new roof',
   'paid closed',          // "Paid & Closed"
   'upcoming commissions',
+  'holds',                // "Holds" — special status, still a sale (sold date set)
+  'extras',               // "Extras" — add-on/extra work, still a sale
 ])
 
 // Exact JobNimbus status_name spellings for the sold stages — used to pull
@@ -80,6 +82,8 @@ const SOLD_STATUS_NAMES = [
   'New Roof',
   'Paid & Closed',
   'Upcoming Commissions',
+  'Holds',
+  'Extras',
 ]
 
 const jnHeaders = {
