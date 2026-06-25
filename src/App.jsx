@@ -6097,8 +6097,20 @@ function CompanyAppointments({ pas }) {
         setAppts(rows);
         const names = [...new Set(rows.map((r) => (r.booked_by || "").trim()).filter(Boolean))];
         if (names.length) {
+          const m = {};
+          // Prefer a cell saved on the CCG sales_reps row…
           const { data: reps } = await supabase.from("sales_reps").select("name, phone").in("name", names);
-          const m = {}; for (const r of (reps || [])) if (r.phone) m[r.name] = r.phone;
+          for (const r of (reps || [])) if (r.phone) m[r.name] = r.phone;
+          // …then fall back to the TMS roster (rep-zones), where most rep cells live.
+          const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+          if (names.some((n) => !m[n])) {
+            try {
+              const rr = await fetch("https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1");
+              const rd = await rr.json();
+              const byNorm = {}; for (const x of (rd.reps || [])) if (x.phone) byNorm[norm(x.name)] = x.phone;
+              for (const nm of names) if (!m[nm] && byNorm[norm(nm)]) m[nm] = byNorm[norm(nm)];
+            } catch { /* TMS roster unavailable — show name without phone */ }
+          }
           setRepPhone(m);
         }
       });
