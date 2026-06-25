@@ -321,7 +321,7 @@ export function PAAdminPanel() {
         .order("signed_at", { ascending: false }).limit(200);
       const { data: dead } = await supabase.from("inspections")
         .select("id, client_name, address, city, sales_rep_name, jn_job_id, pa_id, pa_stage_at, pa_notes_log")
-        .eq("pa_stage", "dead").order("pa_stage_at", { ascending: false }).limit(100);
+        .eq("pa_stage", "dead").is("cancelled_at", null).order("pa_stage_at", { ascending: false }).limit(100);
       setOverview({ byPa, unassignedList: unassignedList || [], dead: dead || [] });
     } catch { /* non-fatal */ }
   }
@@ -329,7 +329,7 @@ export function PAAdminPanel() {
   // Triage a dead PA deal: hand it back to the rep (PA notes ride along), mark it
   // Lost, or send it to retail as Not Interested (BTR - NI).
   async function triageDead(deal, action) {
-    const labels = { release_to_rep: "release to the sales rep", lost: "mark Lost", btr_ni: "send to retail as Not Interested" };
+    const labels = { release_to_rep: "release to the sales rep (insurance)", retail: "move to retail to sell a roof", lost: "mark Lost", btr_ni: "back to retail — Not Interested" };
     if (!window.confirm(`${deal.client_name || "This homeowner"} — ${labels[action]}?`)) return;
     setTriageBusy(deal.id);
     try {
@@ -1089,8 +1089,9 @@ export function PAAdminPanel() {
                     )}
                     <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap", alignItems: "center" }}>
                       <button type="button" disabled={busy} onClick={() => triageDead(d, "release_to_rep")} style={{ ...secondaryBtn, fontSize: 11, borderColor: "#86efac", color: "#15803d" }}>↩ Release to rep</button>
+                      <button type="button" disabled={busy} onClick={() => triageDead(d, "retail")} style={{ ...secondaryBtn, fontSize: 11, borderColor: "#fcd34d", color: "#b45309" }}>🏷 Sell retail</button>
+                      <button type="button" disabled={busy} onClick={() => triageDead(d, "btr_ni")} style={{ ...secondaryBtn, fontSize: 11, borderColor: "#fdba74", color: "#9a3412" }}>🚫 BTR-NI</button>
                       <button type="button" disabled={busy} onClick={() => triageDead(d, "lost")} style={{ ...secondaryBtn, fontSize: 11, borderColor: "#cbd5e1", color: "#64748b" }}>✖ Lost</button>
-                      <button type="button" disabled={busy} onClick={() => triageDead(d, "btr_ni")} style={{ ...secondaryBtn, fontSize: 11, borderColor: "#fdba74", color: "#9a3412" }}>🏠 BTR-NI</button>
                       {busy && <span style={{ fontSize: 11, color: "#6b7280" }}>…</span>}
                     </div>
                   </div>

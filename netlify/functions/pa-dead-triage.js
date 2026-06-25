@@ -48,6 +48,13 @@ exports.handler = async (event) => {
       await patch(id, { cancelled_at: now, cancel_reason: "Lost — dead PA deal (admin)" });
       return cors(200, JSON.stringify({ ok: true, action }));
     }
+    if (action === "retail") {
+      // Not an insurance deal (e.g. no homeowner's insurance) but a live RETAIL
+      // opportunity — reclassify to retail + clear the PA so it lands in the rep's
+      // Retail visit list to schedule and sell a roof. Notes ride along.
+      await patch(id, { result: "retail", pa_id: null, pa_company_id: null, pa_claimed_at: null, pa_stage: null, pa_stage_at: now, pa_decision_needed: false });
+      return cors(200, JSON.stringify({ ok: true, action }));
+    }
     if (action === "btr_ni") {
       let jnSet = false;
       if (insp.jn_job_id && JN_KEY) {
