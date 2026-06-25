@@ -12,7 +12,7 @@
 //
 // Env: JOBNIMBUS_API_KEY.
 
-import { fetchApptTaskMeta, fetchApptJobs, fetchSoldJobs, newRep, tallyAppt, tallySold, shapeRep, sumTotals, levelLabel, fetchPitchMap, attachPitch } from "./_appt-conversion.js";
+import { fetchApptTaskMeta, fetchApptJobs, fetchSoldJobs, newRep, tallyAppt, tallySold, shapeRep, sumTotals, levelLabel, fetchPitchMap, attachPitch, fetchResultMap, attachResult } from "./_appt-conversion.js";
 
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1";
@@ -83,8 +83,10 @@ export const handler = async (event) => {
 
     // Roof pitch (from the roof_pitch cache) onto each sold deal's detail.
     const shapedReps = zones.flatMap((z) => z.reps);
-    const pitchMap = await fetchPitchMap(shapedReps.flatMap((r) => (r.details || []).map((d) => d.jnid)));
+    const jnids = shapedReps.flatMap((r) => (r.details || []).map((d) => d.jnid));
+    const pitchMap = await fetchPitchMap(jnids);
     attachPitch(shapedReps, pitchMap);
+    attachResult(shapedReps, await fetchResultMap(jnids));
 
     const allReps = zones.flatMap((z) => Object.values(byZone[z.zone]));
     const body = JSON.stringify({ ok: true, period, range: { start: start.toISOString(), end: end.toISOString() }, totals: sumTotals(allReps), zones });

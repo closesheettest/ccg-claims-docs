@@ -338,4 +338,29 @@ function attachPitch(reps, map) {
   }
 }
 
-export { fetchApptTaskMeta, fetchApptJobs, fetchSoldJobs, newRep, tallyAppt, tallySold, shapeRep, sumTotals, pct, levelLabel, fetchPitchMap, attachPitch };
+// Inspection RESULT (damage | no_damage | retail) from our own inspections
+// table, keyed by the JN job id. The reliable source of truth (vs guessing a JN
+// custom-field label) — used to flag a sold Damage/No-Damage deal that's still
+// sitting in the Insurance location (it should be moved to Retail in JN).
+async function fetchResultMap(jnids) {
+  const SB_URL = process.env.VITE_SUPABASE_URL, SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
+  const ids = [...new Set((jnids || []).filter(Boolean))];
+  if (!SB_URL || !SB_KEY || !ids.length) return {};
+  const headers = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` };
+  const map = {};
+  for (let i = 0; i < ids.length; i += 150) {
+    const chunk = ids.slice(i, i + 150).map((x) => `"${x}"`).join(",");
+    const url = `${SB_URL}/rest/v1/inspections?select=jn_job_id,result&jn_job_id=in.(${encodeURIComponent(chunk)})`;
+    try { const r = await fetch(url, { headers }); if (r.ok) for (const row of await r.json()) if (row.jn_job_id) map[row.jn_job_id] = row.result || null; }
+    catch { /* report still works without the result */ }
+  }
+  return map;
+}
+// Attach the inspection result to every detail row, keyed by jnid (= JN job id).
+function attachResult(reps, map) {
+  for (const r of reps) for (const d of (r.details || [])) {
+    if (d.jnid && map[d.jnid]) d.result = map[d.jnid];
+  }
+}
+
+export { fetchApptTaskMeta, fetchApptJobs, fetchSoldJobs, newRep, tallyAppt, tallySold, shapeRep, sumTotals, pct, levelLabel, fetchPitchMap, attachPitch, fetchResultMap, attachResult };
