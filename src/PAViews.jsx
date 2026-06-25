@@ -2669,9 +2669,10 @@ function PASelfSchedule({ me, job }) {
   const load = async () => {
     setSlots(null); setErr("");
     try {
+      const tok = (await supabase.from("app_settings").select("value").eq("key", "visit_token").maybeSingle()).data?.value;
       const res = await fetch("/.netlify/functions/pa-schedule-api", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "slots", inspection_id: job.id, pa_id: me.id }),
+        body: JSON.stringify({ action: "slots", token: tok, inspection_id: job.id, pa_id: me.id }),
       });
       const o = await res.json().catch(() => ({}));
       if (!res.ok || !o.ok) throw new Error(o.error || "Couldn't load your availability");
@@ -2682,10 +2683,11 @@ function PASelfSchedule({ me, job }) {
   const book = async (s) => {
     setBooking(s.start_at); setErr("");
     try {
+      const tok = (await supabase.from("app_settings").select("value").eq("key", "visit_token").maybeSingle()).data?.value;
       const res = await fetch("/.netlify/functions/pa-schedule-api", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: "book", pa_id: me.id, start_at: s.start_at, inspection_id: job.id,
+          action: "book", token: tok, pa_id: me.id, start_at: s.start_at, inspection_id: job.id,
           homeowner_name: job.client_name, homeowner_phone: job.mobile,
           address: [job.address, job.city, job.state, job.zip].filter(Boolean).join(", "),
           booked_by: me.name,
