@@ -7287,6 +7287,11 @@ export default function App() {
         <div style={{ minHeight: "100vh", background: "#f1f5f9", padding: "16px 12px", fontFamily: "'Nunito', sans-serif" }}>
           <div style={{ maxWidth: 760, margin: "0 auto" }}>
             <div style={{ fontSize: 22, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#0a0a0a", marginBottom: 12 }}>U.S. Shingle — Pressure Wash Route</div>
+            <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 12, padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "#1e3a8a", lineHeight: 1.5 }}>
+              📲 <b>Save this to your home screen</b> so it opens like an app:<br />
+              <b>iPhone (Safari):</b> tap the Share button <span style={{ fontWeight: 700 }}>⬆️</span> → <b>Add to Home Screen</b>.<br />
+              <b>Android (Chrome):</b> tap the <b>⋮</b> menu → <b>Add to Home screen</b>.
+            </div>
             <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14, padding: 16 }}>
               <PostJob token={postJobToken.trim()} />
             </div>
