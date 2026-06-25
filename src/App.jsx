@@ -6235,8 +6235,10 @@ function RescheduleAppt({ appt, onDone }) {
 // Apple/Google Maps routes from his home base.
 function PostJob() {
   const HOME = "3217 Taragrove Dr, Tampa, FL";
+  const MAX_MI = 250;   // top of the slider = "all of FL" ≈ no limit
   const [data, setData] = useState(null);
   const [homeLL, setHomeLL] = useState(null);
+  const [maxMiles, setMaxMiles] = useState(MAX_MI);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -6287,7 +6289,17 @@ function PostJob() {
 
   if (loading) return <div style={{ color: "#6b7280" }}>Loading installs…</div>;
   if (err) return <div style={{ color: "#b91c1c" }}>{err} <button type="button" onClick={load} style={{ marginLeft: 8, textDecoration: "underline", background: "none", border: "none", cursor: "pointer", color: "#0369a1" }}>Retry</button></div>;
-  const installs = data?.installs || [];
+  const haversine = (a, b) => {
+    if (!a || b.lat == null || b.lng == null) return null;
+    const R = 3958.8, toRad = (d) => (d * Math.PI) / 180;
+    const dLat = toRad(b.lat - a.lat), dLng = toRad(b.lng - a.lng);
+    const x = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+    return Math.round(2 * R * Math.asin(Math.sqrt(x)));
+  };
+  const allInstalls = (data?.installs || []).map((i) => ({ ...i, _dist: haversine(homeLL, i) }));
+  const atMax = maxMiles >= MAX_MI;
+  // Only filter once we know the home coords; until then show everything.
+  const installs = (!homeLL || atMax) ? allInstalls : allInstalls.filter((i) => i._dist == null || i._dist <= maxMiles);
   const byDay = {};
   for (const i of installs) (byDay[dayKey(i.day2)] = byDay[dayKey(i.day2)] || []).push(i);
   const days = Object.keys(byDay).sort();
@@ -6296,7 +6308,14 @@ function PostJob() {
   return (
     <div>
       <div style={{ fontSize: 20, fontWeight: 800, fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>🚿 Post Job — Pressure Wash Route</div>
-      <div style={{ fontSize: 13, color: "#374151", marginBottom: 4 }}>Home base: <b>{HOME}</b> · {installs.length} install{installs.length === 1 ? "" : "s"} · visit each on its <b>2nd day</b>.{refreshBtn}</div>
+      <div style={{ fontSize: 13, color: "#374151", marginBottom: 8 }}>Home base: <b>{HOME}</b> · {installs.length}{installs.length !== allInstalls.length ? ` of ${allInstalls.length}` : ""} install{allInstalls.length === 1 ? "" : "s"} · visit each on its <b>2nd day</b>.{refreshBtn}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, padding: "10px 14px", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10 }}>
+        <span style={{ fontSize: 13, fontWeight: 800, color: "#0e7490", whiteSpace: "nowrap" }}>📏 Within {atMax ? "any distance" : `${maxMiles} mi`}</span>
+        <input type="range" min={10} max={MAX_MI} step={5} value={maxMiles} onChange={(e) => setMaxMiles(+e.target.value)}
+          disabled={!homeLL} style={{ flex: 1, accentColor: "#0e7490" }} />
+        <span style={{ fontSize: 12, color: "#6b7280", whiteSpace: "nowrap" }}>{installs.length} shown</span>
+      </div>
+      {!homeLL && <div style={{ fontSize: 11.5, color: "#9ca3af", marginBottom: 8 }}>Locating home base… distance filter enables once it's geocoded.</div>}
       {data?.rates && (
         <div style={{ fontSize: 11.5, color: "#9ca3af", marginBottom: 14 }}>
           Est. duration from history — Shingle {(data.rates.Shingle?.rate || 0).toFixed(2)} days/sq ({data.rates.Shingle?.samples || 0} jobs) · Metal {(data.rates.Metal?.rate || 0).toFixed(2)} days/sq ({data.rates.Metal?.samples || 0} jobs)
@@ -6323,7 +6342,7 @@ function PostJob() {
                   <div style={{ fontWeight: 700 }}>{s.homeowner}
                     <span style={{ fontSize: 12, fontWeight: 700, color: s.type === "Metal" ? "#b45309" : "#15803d", marginLeft: 6 }}>{s.type === "Metal" ? "⬛ Metal" : (s.type === "Shingle" ? "🟫 Shingle" : "▫ " + s.type)} · {s.squares} sq</span>
                   </div>
-                  <div style={{ fontSize: 12.5, color: "#475569" }}>📍 {s.address || "(no address)"}</div>
+                  <div style={{ fontSize: 12.5, color: "#475569" }}>📍 {s.address || "(no address)"}{s._dist != null ? <span style={{ color: "#0e7490", fontWeight: 700 }}> · {s._dist} mi</span> : null}</div>
                   <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>Install started {fmtD(s.install_start)} · est. complete {fmtD(s.est_complete)} ({s.est_days}d)</div>
                   {s.address && (
                     <div style={{ marginTop: 6, display: "flex", gap: 12 }}>
