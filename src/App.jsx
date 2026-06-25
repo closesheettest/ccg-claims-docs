@@ -6077,18 +6077,34 @@ function JnAddQueuePage({ token }) {
 }
 
 // Upcoming PA appointments for a company (shown on the PA-company portal).
-// Reads pa_appointments for the company's PAs directly via supabase.
+// Reads pa_appointments for the company's PAs directly via supabase. Each card
+// shows the homeowner, the PA, the sales rep who scheduled it (+ their phone),
+// and a Reschedule action that opens a PA-availability picker.
 function CompanyAppointments({ pas }) {
   const [appts, setAppts] = useState(null);
+  const [repPhone, setRepPhone] = useState({});   // booked_by name → rep cell
+  const [rescheduleId, setRescheduleId] = useState(null);
   const paName = {};
   for (const p of (pas || [])) paName[p.id] = p.name;
-  useEffect(() => {
+
+  const load = () => {
     const ids = (pas || []).map((p) => p.id);
     if (!ids.length) { setAppts([]); return; }
     supabase.from("pa_appointments").select("*").in("pa_id", ids).eq("status", "scheduled")
       .gte("start_at", new Date().toISOString()).order("start_at", { ascending: true })
-      .then(({ data }) => setAppts(data || []));
-  }, [pas]);
+      .then(async ({ data }) => {
+        const rows = data || [];
+        setAppts(rows);
+        const names = [...new Set(rows.map((r) => (r.booked_by || "").trim()).filter(Boolean))];
+        if (names.length) {
+          const { data: reps } = await supabase.from("sales_reps").select("name, phone").in("name", names);
+          const m = {}; for (const r of (reps || [])) if (r.phone) m[r.name] = r.phone;
+          setRepPhone(m);
+        }
+      });
+  };
+  useEffect(() => { load(); }, [pas]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (appts === null) return null;
   const fmt = (iso) => { try { return new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch { return iso; } };
   return (
@@ -6102,11 +6118,100 @@ function CompanyAppointments({ pas }) {
             <div key={a.id} style={{ background: "#fff", border: "1px solid #d1fae5", borderRadius: 10, padding: 10 }}>
               <div style={{ fontWeight: 700 }}>{a.homeowner_name || "Homeowner"} <span style={{ color: "#15803d", fontWeight: 600 }}>· {fmt(a.start_at)}</span></div>
               <div style={{ fontSize: 12, color: "#6b7280" }}>PA: {paName[a.pa_id] || "—"}{a.address ? ` · 📍 ${a.address}` : ""}</div>
-              {a.homeowner_phone && <div style={{ fontSize: 12 }}><a href={`tel:${a.homeowner_phone}`} style={{ color: "#0369a1" }}>📞 {a.homeowner_phone}</a></div>}
+              {a.homeowner_phone && <div style={{ fontSize: 12 }}>🏠 <a href={`tel:${a.homeowner_phone}`} style={{ color: "#0369a1" }}>{a.homeowner_phone}</a></div>}
+              {a.booked_by && (
+                <div style={{ fontSize: 12, color: "#374151", marginTop: 2 }}>
+                  🧑‍💼 Scheduled by <b>{a.booked_by}</b>
+                  {repPhone[a.booked_by] && <> · <a href={`tel:${repPhone[a.booked_by]}`} style={{ color: "#0369a1" }}>📞 {repPhone[a.booked_by]}</a></>}
+                </div>
+              )}
+              <button type="button" onClick={() => setRescheduleId(rescheduleId === a.id ? null : a.id)}
+                style={{ marginTop: 8, border: "1px solid #0e7490", color: "#0e7490", background: "#fff", borderRadius: 9, padding: "6px 12px", fontSize: 12.5, fontWeight: 800, cursor: "pointer" }}>
+                {rescheduleId === a.id ? "✕ Close" : "🔄 Reschedule"}
+              </button>
+              {rescheduleId === a.id && (
+                <RescheduleAppt appt={a} onDone={() => { setRescheduleId(null); load(); }} />
+              )}
             </div>
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// Reschedule a PA appointment from the company portal: shows open availability
+// across the company's PAs (pa-schedule-api), the office picks a PA + time, and
+// we book the new slot then cancel the old one.
+function RescheduleAppt({ appt, onDone }) {
+  const [token, setToken] = useState(null);
+  const [slots, setSlots] = useState(null);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState("");
+  useEffect(() => {
+    supabase.from("app_settings").select("value").eq("key", "visit_token").maybeSingle()
+      .then(({ data }) => setToken(data?.value || ""));
+  }, []);
+  useEffect(() => {
+    if (token == null) return;
+    let on = true;
+    (async () => {
+      try {
+        const r = await fetch("/.netlify/functions/pa-schedule-api", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "slots", token, inspection_id: appt.inspection_id }),
+        });
+        const o = await r.json().catch(() => ({}));
+        if (!r.ok || !o.ok) throw new Error(o.error || "Couldn't load availability");
+        if (on) setSlots(o.slots || []);
+      } catch (e) { if (on) { setErr(e.message); setSlots([]); } }
+    })();
+    return () => { on = false; };
+  }, [token, appt.inspection_id]);
+
+  const pick = async (s) => {
+    setBusy(s.start_at); setErr("");
+    try {
+      const r = await fetch("/.netlify/functions/pa-schedule-api", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "book", token, pa_id: s.pa_id, start_at: s.start_at, inspection_id: appt.inspection_id, homeowner_name: appt.homeowner_name, homeowner_phone: appt.homeowner_phone, address: appt.address, booked_by: appt.booked_by || "Office (reschedule)" }),
+      });
+      const o = await r.json().catch(() => ({}));
+      if (!r.ok || !o.ok) throw new Error(o.error || "Couldn't book that slot");
+      await supabase.from("pa_appointments").update({ status: "cancelled" }).eq("id", appt.id);
+      onDone();
+    } catch (e) { setErr(e.message); setBusy(""); }
+  };
+
+  const dayKey = (iso) => new Date(iso).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const dayLabel = (k) => new Date(k + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  const timeLabel = (iso) => new Date(iso).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric" });
+
+  const byDay = {};
+  for (const s of (slots || [])) (byDay[dayKey(s.start_at)] = byDay[dayKey(s.start_at)] || []).push(s);
+  const dayKeys = Object.keys(byDay).sort();
+
+  return (
+    <div style={{ marginTop: 10, padding: 10, background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10 }}>
+      <div style={{ fontSize: 12.5, fontWeight: 700, color: "#0e7490", marginBottom: 8 }}>Pick a new PA + time:</div>
+      {err && <div style={{ color: "#b91c1c", fontSize: 12.5, marginBottom: 8 }}>{err}</div>}
+      {slots === null ? <div style={{ color: "#9ca3af", fontSize: 13 }}>Loading availability…</div>
+        : !dayKeys.length ? <div style={{ color: "#6b7280", fontSize: 13 }}>No open PA availability right now.</div>
+        : <div style={{ maxHeight: "46vh", overflowY: "auto" }}>
+            {dayKeys.map((k) => (
+              <div key={k} style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: "#374151", marginBottom: 5 }}>{dayLabel(k)}</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {byDay[k].map((s) => (
+                    <button key={`${s.pa_id}:${s.start_at}`} type="button" disabled={!!busy} onClick={() => pick(s)}
+                      style={{ padding: "6px 10px", borderRadius: 9, border: "1.5px solid #0e7490", background: busy === s.start_at ? "#0e7490" : "#fff", color: busy === s.start_at ? "#fff" : "#0e7490", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+                      {s.pa_name || "PA"} · {timeLabel(s.start_at)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>}
     </div>
   );
 }
