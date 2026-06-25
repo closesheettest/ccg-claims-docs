@@ -4198,6 +4198,16 @@ function InspectorJobDetail({ me, jobId, onBack }) {
           📍 {job.address}<br />
           {job.city}, {job.state} {job.zip}
         </a>
+        {/* Anti-duplicate: this homeowner is ALREADY in JobNimbus — give the
+            inspector a one-tap link to the exact job so they never create a new
+            contact/job (which is how the "4110 Acline ave" duplicate happened). */}
+        {job.jn_job_id ? (
+          <a href={`https://app.jobnimbus.com/job/${job.jn_job_id}`} target="_blank" rel="noopener noreferrer"
+            style={{ display: "block", marginTop: 8, fontSize: 12.5, color: "#0e7490", fontWeight: 700, textDecoration: "none", background: "#ecfeff", border: "1px solid #a5f3fc", borderRadius: 8, padding: "8px 10px" }}>
+            📋 Already in JobNimbus — tap to open this exact job. <b>Don't create a new contact or job</b> (that makes duplicates).
+            <span style={{ display: "block", fontWeight: 600, color: "#155e75", marginTop: 3, fontSize: 11 }}>JN id: {job.jn_job_id}</span>
+          </a>
+        ) : null}
         <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
           <a
             href={mapsDirectionsUrl(job)}
