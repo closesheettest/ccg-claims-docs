@@ -11,6 +11,12 @@
 [functions."cron-extract-pitch"]
   schedule = "30 8 * * *"
 
+# Scheduled function: sync JobNimbus installs into the Install Finder's Supabase
+# (separate project) so the map stays current. Nightly ~3:30 AM ET; add-only,
+# dedups by jnid + address, never touches hand-imported rows.
+[functions."cron-sync-installs"]
+  schedule = "30 7 * * *"
+
 # Scheduled function: pushes any inspector-classified results that
 # haven't reached JN yet. Runs hourly at :05. The function file also
 # declares this via exports.config.schedule; this toml entry keeps
