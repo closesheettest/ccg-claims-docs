@@ -43,8 +43,9 @@ const MATERIALS = [
   { flag: "Modified Bitman", type: "Modified Bitumen", color: "Mod Bit Color" },
 ];
 
-exports.handler = async () => {
+exports.handler = async (event) => {
   if (!JN_KEY) return json(500, { ok: false, error: "JN key missing" });
+  const dryRun = !!(event && event.queryStringParameters && /^(1|true|yes)$/i.test(event.queryStringParameters.dry_run || ""));
   try {
     // 1. Pull install-stage jobs from JN.
     const headers = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
@@ -104,6 +105,9 @@ exports.handler = async () => {
       if (haveJnid.has(String(c.jnid)) || haveAddr.has(a) || seen.has(c.jnid) || seen.has(a)) { skipped++; continue; }
       seen.add(c.jnid); seen.add(a);
       toAdd.push(c);
+    }
+    if (dryRun) {
+      return json(200, { ok: true, dry_run: true, scanned: jobs.length, candidates: candidates.length, would_add: toAdd.length, skipped_existing: skipped, skipped_no_geo: noGeo, existing_rows: existing.length, product_types_in_table: ptypes, sample_to_add: toAdd.slice(0, 5) });
     }
     let added = 0;
     for (let i = 0; i < toAdd.length; i += 200) {
