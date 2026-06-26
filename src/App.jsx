@@ -8251,7 +8251,7 @@ export default function App() {
 
       const { data: insps, error } = await supabase
         .from("inspections")
-        .select("id, sales_rep_name, signed_at, result, result_at, client_name, address, zip, jn_status")
+        .select("id, sales_rep_name, original_sales_rep_name, signed_at, result, result_at, client_name, address, zip, jn_status")
         .gte("signed_at", start)
         .lte("signed_at", end)
         .is("cancelled_at", null)
@@ -8333,7 +8333,9 @@ export default function App() {
       // Per-rep breakdown
       const byRepMap = new Map();
       for (const r of rows) {
-        const rep = r.sales_rep_name || "Unassigned";
+        // Attribute to the original signer (reassignment-proof), matching the
+        // weekly report + leaderboard. Fall back to current rep for old rows.
+        const rep = r.original_sales_rep_name || r.sales_rep_name || "Unassigned";
         if (!byRepMap.has(rep)) {
           byRepMap.set(rep, { rep, total: 0, damage: 0, no_damage: 0, retail: 0, pending: 0, days: [] });
         }
@@ -8410,7 +8412,7 @@ export default function App() {
           .lte("signed_at", end)
           .order("signed_at", { ascending: false }),
         supabase.from("inspections")
-          .select("id, client_name, address, city, state, zip, signed_at, sales_rep_name, sales_rep_id, sales_rep_email, docs_signed")
+          .select("id, client_name, address, city, state, zip, signed_at, sales_rep_name, sales_rep_id, original_sales_rep_name, original_sales_rep_id, sales_rep_email, docs_signed")
           .gte("signed_at", start)
           .lte("signed_at", end)
           .is("cancelled_at", null)
@@ -8600,8 +8602,13 @@ export default function App() {
         merged.set(key, {
           name: i.client_name || "—",
           address: [i.address, i.city, i.state].filter(Boolean).join(", "),
-          rep: i.sales_rep_name || "Unassigned",
-          repId: i.sales_rep_id || null,
+          // Credit the SIGN-UP to whoever originally signed it, not whoever the
+          // deal was later reassigned to — same rule as zone-leaderboard.js /
+          // My Stats. Without this, reassigning William's inspection to another
+          // rep strips his $150 from the weekly pay report. Fall back to current
+          // sales_rep for rows signed before the original_* backfill.
+          rep: i.original_sales_rep_name || i.sales_rep_name || "Unassigned",
+          repId: i.original_sales_rep_id || i.sales_rep_id || null,
           signedAt: i.signed_at,
           inspStatus: "current",
           inspSignedAt: i.signed_at,
