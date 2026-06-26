@@ -17,6 +17,14 @@
 [functions."cron-sync-installs"]
   schedule = "30 7 * * *"
 
+# Scheduled function: WEEKLY push of NEW installs into RepCard as "Installed" map
+# pins (so canvassing reps see "we installed your neighbor"). Dedups on our side
+# via installs.repcard_pushed_at (RepCard's API can't dedup/delete). Monday ~4 AM
+# ET. One-time setup: ALTER TABLE installs ADD COLUMN repcard_pushed_at + GET
+# ?seed=1. exports.config mirrors this.
+[functions."cron-sync-repcard-pins"]
+  schedule = "0 8 * * 1"
+
 # Scheduled function: pushes any inspector-classified results that
 # haven't reached JN yet. Runs hourly at :05. The function file also
 # declares this via exports.config.schedule; this toml entry keeps
