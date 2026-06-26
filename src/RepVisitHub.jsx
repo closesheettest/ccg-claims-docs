@@ -35,6 +35,7 @@ export default function RepVisitHub() {
   const [referrals, setReferrals] = useState(null);
   const [photosFor, setPhotosFor] = useState(null);
   const [appts, setAppts] = useState(null);   // upcoming PA appointments this rep booked
+  const [issues, setIssues] = useState(null); // this rep's cancelled / correction-needed deals
   const [err, setErr] = useState("");
 
   useEffect(() => {
@@ -113,6 +114,32 @@ export default function RepVisitHub() {
       setAppts(rows.map((r) => ({ ...r, pa_name: nameById[r.pa_id] || "Adjuster" })));
     } catch (e) { setErr(e.message); setAppts([]); }
   };
+  // This rep's deals that were CANCELLED (Marked Lost) or flagged "correction
+  // needed", with the reason/note — so the rep can see what went Lost and why,
+  // or what needs fixing. Same rep-matching as appts (current or original signer,
+  // JobNimbus id with name fallback) so reassigned/handed-off deals still show.
+  const startIssues = async () => {
+    setIssues(null); setErr(""); setStage("issues");
+    try {
+      const SEL = "id,client_name,address,city,state,signed_at,sales_rep_id,sales_rep_name,original_sales_rep_id,original_sales_rep_name,cancelled_at,cancel_reason,lost_reason,correction_needed,correction_note";
+      const rowsById = new Map();
+      if (rep.jobnimbus_id) {
+        const { data } = await supabase.from("inspections").select(SEL)
+          .or(`sales_rep_id.eq.${rep.jobnimbus_id},original_sales_rep_id.eq.${rep.jobnimbus_id}`);
+        for (const r of (data || [])) rowsById.set(r.id, r);
+      }
+      if (rep.name) {
+        try {
+          const { data } = await supabase.from("inspections").select(SEL)
+            .or(`sales_rep_name.eq.${rep.name},original_sales_rep_name.eq.${rep.name}`);
+          for (const r of (data || [])) rowsById.set(r.id, r);
+        } catch { /* odd name → id match still applies */ }
+      }
+      const list = [...rowsById.values()].filter((r) => r.cancelled_at || r.correction_needed);
+      list.sort((a, b) => new Date(b.cancelled_at || b.signed_at || 0) - new Date(a.cancelled_at || a.signed_at || 0));
+      setIssues(list);
+    } catch (e) { setErr(e.message); setIssues([]); }
+  };
   // Open photos — first pull any JN-only photos into Supabase (idempotent;
   // no-op if they're already app-side), so deals whose photos live only in
   // JobNimbus still show.
@@ -140,9 +167,10 @@ export default function RepVisitHub() {
         {stage === "pick-rep" && <PickRep reps={reps} onPick={pickRep} />}
         {stage === "choose" && <Choose rep={rep} onNew={() => {
           window.location.href = `/?intake=1&rep=${encodeURIComponent(rep.jobnimbus_id || "")}&repName=${encodeURIComponent(rep.name || "")}&repEmail=${encodeURIComponent(rep.email || "")}`;
-        }} onType={startType} onReferrals={startReferrals} onApptsBooked={startApptsBooked} />}
+        }} onType={startType} onReferrals={startReferrals} onApptsBooked={startApptsBooked} onIssues={startIssues} />}
         {stage === "referrals" && <ReferralsView referrals={referrals} rep={rep} onBack={() => setStage("choose")} />}
         {stage === "appts" && <ApptsBookedView appts={appts} rep={rep} onBack={() => setStage("choose")} />}
+        {stage === "issues" && <IssuesView issues={issues} onBack={() => setStage("choose")} />}
         {stage === "list" && <DealList type={visitType} deals={deals} onBack={() => setStage("choose")} onPick={(d) => { setDeal(d); setStage("panel"); }} />}
         {stage === "panel" && deal && (
           <Panel type={visitType} deal={deal} rep={rep} api={api} onBack={() => setStage("list")} onPhotos={() => openPhotos(deal)} />
@@ -196,7 +224,7 @@ function PickRep({ reps, onPick }) {
   );
 }
 
-function Choose({ rep, onNew, onType, onReferrals, onApptsBooked }) {
+function Choose({ rep, onNew, onType, onReferrals, onApptsBooked, onIssues }) {
   const Btn = ({ color, emoji, label, sub, onClick }) => (
     <button onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", textAlign: "left", color: "#fff", background: color, border: "none", borderRadius: 14, padding: "16px 16px", marginBottom: 12, cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,.12)" }}>
       <span style={{ fontSize: 26 }}>{emoji}</span>
@@ -212,6 +240,7 @@ function Choose({ rep, onNew, onType, onReferrals, onApptsBooked }) {
       <Btn color="#d97706" emoji="🏠" label="Retail visit" sub="Schedule a retail options appointment" onClick={() => onType("retail")} />
       <Btn color="#6d28d9" emoji="🤝" label="Referrals" sub="People you were referred to — who to sign up" onClick={onReferrals} />
       <Btn color="#0e7490" emoji="📅" label="Adjuster appts booked" sub="Upcoming PA appointments you've set" onClick={onApptsBooked} />
+      <Btn color="#6b7280" emoji="⚠️" label="Cancelled / Needs correction" sub="Deals marked Lost or flagged to fix — see why" onClick={onIssues} />
     </div>
   );
 }
@@ -256,6 +285,36 @@ function ReferralsView({ referrals, rep, onBack }) {
                     </a>
                   )}
                 </div>
+              </div>
+            );
+          })}</div>}
+    </div>
+  );
+}
+
+// Read-only list of this rep's CANCELLED / correction-needed deals + the note,
+// so they understand what happened (e.g. a signing that later went Lost, or a
+// record an admin flagged to fix).
+function IssuesView({ issues, onBack }) {
+  return (
+    <div>
+      <BackBar onBack={onBack} title="Cancelled / Needs correction" />
+      {issues === null ? <p style={{ textAlign: "center", color: "#9ca3af", fontSize: 14, padding: "24px 0" }}>Loading…</p>
+        : !issues.length ? <p style={{ textAlign: "center", color: "#6b7280", fontSize: 14, padding: "24px 0" }}>Nothing cancelled or needing correction right now. 🎉</p>
+        : <div>{issues.map((r) => {
+            const cancelled = !!r.cancelled_at;
+            const correction = !!r.correction_needed;
+            const note = correction ? r.correction_note : (r.lost_reason || r.cancel_reason);
+            return (
+              <div key={r.id} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "12px 14px", marginBottom: 10 }}>
+                <div style={{ fontSize: 16, fontWeight: 800, color: "#111827" }}>{r.client_name || "(no name)"}</div>
+                <div style={{ fontSize: 13, color: "#6b7280", marginTop: 2 }}>📍 {[r.address, r.city, r.state].filter(Boolean).join(", ") || "—"}</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                  {cancelled && <span style={{ fontSize: 11, fontWeight: 800, color: "#fff", background: "#dc2626", borderRadius: 999, padding: "2px 9px", letterSpacing: "0.03em" }}>CANCELLED</span>}
+                  {correction && <span style={{ fontSize: 11, fontWeight: 800, color: "#92400e", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 999, padding: "2px 9px" }}>⏳ CORRECTION NEEDED</span>}
+                </div>
+                {note ? <div style={{ fontSize: 13.5, color: "#374151", marginTop: 8, background: "#f9fafb", border: "1px solid #f0f0f0", borderRadius: 8, padding: "8px 10px", fontStyle: "italic" }}>“{note}”</div>
+                      : <div style={{ fontSize: 12.5, color: "#9ca3af", marginTop: 8 }}>No note provided.</div>}
               </div>
             );
           })}</div>}
