@@ -38,13 +38,15 @@ const APPT_TASK_TYPES = new Set(["Initial Appointment", "Reset Appointment", "Ap
 const SOLD_STATUSES = new Set([
   "sit sold", "signed contract", "production review", "job prep",
   "in funding", "waiting on pace", "upcoming installs", "install set",
-  "roof started", "new roof", "paid closed", "upcoming commissions",
+  "roof started", "new roof", "install complete collect payment",
+  "paid closed", "upcoming commissions", "commission",
   "holds", "extras",   // special sold statuses — deal on Hold / add-on Extras
 ]);
 const SOLD_STATUS_NAMES = [
   "Sit - Sold", "Signed Contract", "Production Review", "Job Prep",
   "In Funding", "Waiting on PACE", "Upcoming Installs", "Install Set",
-  "Roof Started", "New Roof", "Paid & Closed", "Upcoming Commissions",
+  "Roof Started", "New Roof", "Install Complete - Collect Payment",
+  "Paid & Closed", "Upcoming Commissions", "Commission",
   "Holds", "Extras",
 ];
 

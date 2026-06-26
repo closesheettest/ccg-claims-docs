@@ -57,8 +57,10 @@ const SOLD_STATUSES = new Set([
   // dropping off the monthly count.
   'roof started',
   'new roof',
+  'install complete collect payment', // "Install Complete - Collect Payment"
   'paid closed',          // "Paid & Closed"
   'upcoming commissions',
+  'commission',           // "Commission" — post-sale commission stage
   'holds',                // "Holds" — special status, still a sale (sold date set)
   'extras',               // "Extras" — add-on/extra work, still a sale
 ])
