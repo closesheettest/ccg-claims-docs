@@ -8429,13 +8429,12 @@ export default function App() {
           .is("cancelled_at", null)
           .order("signed_at", { ascending: false })
           .limit(2000),
-        // Cancelled inspections — used purely for matching claims rows to
-        // a cancelled state. We don't show inspections-table cancellations
-        // directly here (they're already filtered by date+cancelled_at above);
-        // this is so a claim signed this period can detect that its sibling
-        // inspection got Marked Lost.
+        // Cancelled inspections. Two uses: (1) matching claims rows to a
+        // cancelled state, and (2) surfacing LOST signings on the report at $0
+        // (so a rep sees what they signed that later went Lost, instead of it
+        // silently vanishing). Carries rep/date/docs so we can attribute + show.
         supabase.from("inspections")
-          .select("id, client_name, address, zip, cancelled_at")
+          .select("id, client_name, address, city, state, zip, signed_at, sales_rep_name, sales_rep_id, original_sales_rep_name, original_sales_rep_id, docs_signed, cancelled_at")
           .not("cancelled_at", "is", null)
           .order("cancelled_at", { ascending: false })
           .limit(2000),
@@ -8618,6 +8617,31 @@ export default function App() {
           pacStatus: pacOnInsp ? "current" : "none",
           cancelled: false,
           cancelledAt: null,
+        });
+      }
+
+      // Surface LOST / cancelled signings too — at $0, flagged cancelled — so a
+      // rep (e.g. William) SEES them on the report instead of them silently
+      // vanishing when a deal is later Marked Lost. Only add if no live claim /
+      // inspection row already covers that homeowner (a valid signing always
+      // wins over a Lost sibling). cancelled=true makes the earnings step force $0.
+      for (const i of cancelledInsps) {
+        if (!inRange(i.signed_at)) continue; // signed THIS period
+        const key = normKey(i.client_name, i.zip, [i.address, i.city, i.state].filter(Boolean).join(", "));
+        if (merged.has(key)) continue;
+        const inspDocs = (i.docs_signed || "").split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+        merged.set(key, {
+          name: i.client_name || "—",
+          address: [i.address, i.city, i.state].filter(Boolean).join(", "),
+          rep: i.original_sales_rep_name || i.sales_rep_name || "Unassigned",
+          repId: i.original_sales_rep_id || i.sales_rep_id || null,
+          signedAt: i.signed_at,
+          inspStatus: "current",
+          inspSignedAt: i.signed_at,
+          lorStatus: inspDocs.includes("lor") ? "current" : "none",
+          pacStatus: inspDocs.includes("pac") ? "current" : "none",
+          cancelled: true,
+          cancelledAt: i.cancelled_at || null,
         });
       }
 
