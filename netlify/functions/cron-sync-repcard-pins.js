@@ -28,9 +28,11 @@ const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": 
 const RK = process.env.REPCARD_API_KEY;
 
 // RepCard pin config — locked in 2026-06-26 (see project_repcard_install_pins memory).
-const RC_TYPE = 2;                       // Customer
-const RC_STATUS_ID = 4599233;            // "Installed" status (green, global pin)
-const RC_OWNER_EMAIL = "neals@shingleusa.com";
+// Pins are LEAD type so they show on the canvassing map; owned by Dewayne to match
+// the rest of the field leads.
+const RC_TYPE = 1;                       // Lead
+const RC_STATUS_ID = 4599233;            // "Installed" status (a Lead status, green)
+const RC_OWNER_EMAIL = "dewayne@shingleusa.com";
 const MAX_PER_RUN = 400;                 // safety cap; real weekly volume is far lower
 const SAFETY_GUARD = 600;                // if more than this look "new", assume not seeded → abort
 
