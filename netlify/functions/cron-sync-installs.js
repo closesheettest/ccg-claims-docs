@@ -24,17 +24,26 @@ const STATUS_NAMES = [
   "Install Complete - Collect Payment", "Upcoming Commissions", "Commission",
   "Paid & Closed", "Holds", "Extras",
 ];
-// Material flag → product_type label + the matching JN color field.
+// Material flag → product_type label + the JN color fields to try (first
+// non-blank wins). JN uses inconsistent names — mostly plural "Colors", plus
+// vendor variants (Premier / In House) — so we check several per material.
 const MATERIALS = [
-  { flag: "Shingle", type: "Shingle", color: "Shingle Color" },
-  { flag: "Exposed Fastener", type: "Exposed Fastener Metal", color: "Exposed Fastener Color" },
-  { flag: "Standing Seam", type: "Standing Seam Metal", color: "Standing Seam Color" },
-  { flag: "Stone Coated Metal", type: "Stone Coated Metal", color: "Stone Coated Metal Color" },
-  { flag: "Permalock", type: "Permalock Metal", color: "Permalock Colors" },
-  { flag: "Tile", type: "Tile", color: "Tile Color" },
-  { flag: "TPO", type: "TPO", color: null },
-  { flag: "Modified Bitman", type: "Modified Bitumen", color: "Mod Bit Color" },
+  { flag: "Shingle", type: "Shingle", colors: ["Shingle Color", "Shingle Colors"] },
+  { flag: "Exposed Fastener", type: "Exposed Fastener Metal", colors: ["Exposed Fastener Colors", "Exposed Fastener Color", "Premier - Ex. Fastener Colors", "In House - E.F. Color"] },
+  { flag: "Standing Seam", type: "Standing Seam Metal", colors: ["Standing Seam Colors", "Standing Seam Color"] },
+  { flag: "Stone Coated Metal", type: "Stone Coated Metal", colors: ["Stone Coated Metal Colors", "Stone Coated Metal Color"] },
+  { flag: "Permalock", type: "Permalock Metal", colors: ["Permalock Colors", "Permalock Color"] },
+  { flag: "Tile", type: "Tile", colors: ["Tile Color", "Tile Colors"] },
+  { flag: "TPO", type: "TPO", colors: ["TPO Color", "TPO Colors"] },
+  { flag: "Modified Bitman", type: "Modified Bitumen", colors: ["Mod Bit Color", "Mod Bit Colors"] },
 ];
+function pickColor(j, fields) {
+  for (const f of (fields || [])) {
+    const v = String(j[f] == null ? "" : j[f]).trim();
+    if (v && !/^(na|n\/a)$/i.test(v)) return v;
+  }
+  return "";
+}
 
 exports.handler = async (event) => {
   if (!JN_KEY || !SB_URL || !SB_KEY) return json(500, { ok: false, error: "env missing" });
@@ -75,7 +84,7 @@ exports.handler = async (event) => {
         address_line: (j.address_line1 || "").trim(),
         city: (j.city || "").trim(),
         product_type: mat ? mat.type : "Other",
-        color: (mat && mat.color ? (j[mat.color] || "") : "").trim(),
+        color: mat ? pickColor(j, mat.colors) : "",
         latitude: lat,
         longitude: lng,
       });
