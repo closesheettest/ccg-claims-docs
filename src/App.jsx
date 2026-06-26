@@ -7615,6 +7615,8 @@ export default function App() {
   // Date used for the "Load by Date" lookup. Defaults to today.
   // Format: YYYY-MM-DD (matches the HTML date input value).
   const [lookupDate, setLookupDate] = useState(() => new Date().toISOString().split("T")[0]);
+  // Selected rep (jobnimbus_id) for the "Load by Rep" lookup. "" = none picked.
+  const [lookupRepId, setLookupRepId] = useState("");
   const [resultFilter, setResultFilter] = useState("all"); // "all" | "damage" | "no_damage" | "retail" | "pending"
 
   const effectiveInspSig = inspSigMethod === "type"
@@ -9005,10 +9007,11 @@ const renderSmsTemplate = (key, vars) => {
 
   // Also ensure templates are available for submitInspectionResult (Record Lookup)
   useEffect(() => {
-    if (view === "manager" && managerSection === "lookup" && !smsTemplatesLoaded) {
-      loadSmsTemplates();
+    if (view === "manager" && managerSection === "lookup") {
+      if (!smsTemplatesLoaded) loadSmsTemplates();
+      if (!repsLoaded) loadReps();   // populate the "Load by Rep" dropdown
     }
-  }, [view, managerSection, smsTemplatesLoaded]);
+  }, [view, managerSection, smsTemplatesLoaded, repsLoaded]);
 
   // Auto-run damage check silently when view changes to manager
   useEffect(() => {
@@ -15668,17 +15671,146 @@ if (!hasDamage) {
       📅 Load by Date
     </button>
   </div>
+
+  {/* ── Load by Rep — every inspection a rep signed OR was reassigned, with the
+       same per-row functionality as the date/30-day lists ── */}
+  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+    <select
+      value={lookupRepId}
+      onChange={(e) => setLookupRepId(e.target.value)}
+      style={{ height: 40, borderRadius: 10, border: "1.5px solid #0a0a0a", padding: "0 10px", fontSize: 13, fontFamily: "'Nunito', sans-serif", color: "#0a0a0a", boxSizing: "border-box", maxWidth: 240 }}
+    >
+      <option value="">{repsLoaded ? "Select a rep…" : "Loading reps…"}</option>
+      {[...reps].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map((r) => (
+        <option key={r.id} value={r.id}>{r.name}</option>
+      ))}
+    </select>
+    <button
+      type="button"
+      disabled={!lookupRepId}
+      onClick={async () => {
+        if (!lookupRepId) return;
+        setListMode("byRep");
+        setResultFilter("all");
+        setCheckNowSummary(null);
+        setRecordSearchLoading(true);
+        setRecordSearch("");
+        try {
+          // Match on EITHER the current rep or the original signer, by jobnimbus_id
+          // (ids are stable; names are not). So a rep keeps the inspections they
+          // signed even after a deal was reassigned, and also sees ones handed to them.
+          const { data: results, error } = await supabase
+            .from("inspections")
+            .select("id, client_name, address, city, state, zip, mobile, email, sales_rep_name, sales_rep_id, original_sales_rep_name, original_sales_rep_id, signed_at, result, result_at, last_notified_rep_at, last_notified_homeowner_at, last_notified_pa_at, docs_signed, jn_job_id, cancelled_at, signed_pdfs, pa_status, pa_status_updated_at, jn_status, jn_pushed_at, jn_cert_uploaded_at, jn_photos_in_jn_count")
+            .or(`sales_rep_id.eq.${lookupRepId},original_sales_rep_id.eq.${lookupRepId}`)
+            .order("signed_at", { ascending: false });
+          if (error) throw error;
+
+          // Dedupe by name+zip (same rule as the other lists)
+          const normName = (n) => (n || "").trim().toLowerCase().replace(/\s+/g, " ");
+          const normKey = (n, zip, addr) => {
+            const z = (zip || "").trim();
+            if (z) return `${normName(n)}|zip:${z}`;
+            const street = (addr || "").split(",")[0].trim().toLowerCase().replace(/\s+/g, " ");
+            return `${normName(n)}|st:${street}`;
+          };
+          const bestByKey = new Map();
+          for (const r of results || []) {
+            const k = normKey(r.client_name, r.zip, r.address);
+            const existing = bestByKey.get(k);
+            if (!existing) { bestByKey.set(k, r); continue; }
+            const existingHasResult = !!existing.result;
+            const currentHasResult = !!r.result;
+            if (currentHasResult && !existingHasResult) { bestByKey.set(k, r); continue; }
+            if (existingHasResult && !currentHasResult) continue;
+            const tNew = r.result_at ? new Date(r.result_at).getTime() : (r.signed_at ? new Date(r.signed_at).getTime() : 0);
+            const tOld = existing.result_at ? new Date(existing.result_at).getTime() : (existing.signed_at ? new Date(existing.signed_at).getTime() : 0);
+            if (tNew > tOld) bestByKey.set(k, r);
+          }
+
+          // Enrich with claim docs (same multi-key match as Last 30 Days) for doc badges
+          const inspZips = [...new Set([...bestByKey.values()].map(r => (r.zip || "").trim()).filter(Boolean))];
+          let claimsRows = [];
+          if (inspZips.length > 0) {
+            const { data: cr } = await supabase
+              .from("claims")
+              .select("homeowner1, homeowner2, address, zip, docs_signed")
+              .in("zip", inspZips);
+            claimsRows = cr || [];
+          }
+          const claimsByZipStreet = new Map();
+          for (const c of claimsRows) {
+            const z = (c.zip || "").trim();
+            if (!z) continue;
+            const fullAddrLower = (c.address || "").toLowerCase().trim();
+            const streetCanonical = fullAddrLower.split(",")[0].replace(/\s+/g, " ").trim();
+            const streetNumber = (streetCanonical.match(/^\d+/) || [""])[0];
+            const docs = c.docs_signed || "";
+            claimsByZipStreet.set(`${z}|${streetCanonical}`, docs);
+            if (streetNumber) {
+              const numKey = `${z}|num:${streetNumber}`;
+              if (!claimsByZipStreet.has(numKey)) claimsByZipStreet.set(numKey, docs);
+            }
+            const lastName = ((c.homeowner1 || "").trim().split(/\s+/).pop() || "").toLowerCase();
+            if (lastName) {
+              const nameKey = `${z}|name:${lastName}`;
+              if (!claimsByZipStreet.has(nameKey)) claimsByZipStreet.set(nameKey, docs);
+            }
+          }
+          const enriched = [...bestByKey.values()].map(r => {
+            const z = (r.zip || "").trim();
+            const fullAddrLower = (r.address || "").toLowerCase().trim();
+            const streetCanonical = fullAddrLower.split(",")[0].replace(/\s+/g, " ").trim();
+            const streetNumber = (streetCanonical.match(/^\d+/) || [""])[0];
+            const lastName = ((r.client_name || "").trim().split(/\s+/).pop() || "").toLowerCase();
+            let claimDocs = claimsByZipStreet.get(`${z}|${streetCanonical}`);
+            if (!claimDocs && streetNumber) claimDocs = claimsByZipStreet.get(`${z}|num:${streetNumber}`);
+            if (!claimDocs && lastName)     claimDocs = claimsByZipStreet.get(`${z}|name:${lastName}`);
+            claimDocs = claimDocs || "";
+            const combined = [r.docs_signed || "", claimDocs].join(",").toLowerCase();
+            const has = (d) => combined.includes(d);
+            return { ...r, _docs: { insp: has("insp"), lor: has("lor"), pac: has("pac") } };
+          });
+
+          // Results first (newest result_at), then pending by signed_at desc
+          const sorted = enriched.sort((a, b) => {
+            const aHas = !!a.result; const bHas = !!b.result;
+            if (aHas && !bHas) return -1;
+            if (bHas && !aHas) return 1;
+            if (aHas && bHas) {
+              const ta = a.result_at ? new Date(a.result_at).getTime() : 0;
+              const tb = b.result_at ? new Date(b.result_at).getTime() : 0;
+              return tb - ta;
+            }
+            const sa = a.signed_at ? new Date(a.signed_at).getTime() : 0;
+            const sb = b.signed_at ? new Date(b.signed_at).getTime() : 0;
+            return sb - sa;
+          });
+          if (typeof window !== "undefined") window.__lastInspections = sorted;
+          setRecordSearchResults(sorted);
+        } catch (e) {
+          console.error("Load by rep error:", e);
+          alert("Could not load this rep's records: " + (e.message || e));
+        }
+        finally { setRecordSearchLoading(false); }
+      }}
+      style={{ padding: "10px 20px", borderRadius: 12, border: "1.5px solid #0a0a0a", background: listMode === "byRep" ? "#0a0a0a" : "#fff", color: listMode === "byRep" ? "#fff" : "#0a0a0a", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: lookupRepId ? "pointer" : "not-allowed", opacity: lookupRepId ? 1 : 0.5, letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}
+    >
+      👤 Load by Rep
+    </button>
+  </div>
   {recordSearchResults.length > 0 && !recordSearch ? (
     <span style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
       {listMode === "pending" ? `${recordSearchResults.length} pending — sorted A→Z by last name`
        : listMode === "dateLookup" ? `${recordSearchResults.length} records on ${new Date(`${lookupDate}T12:00:00`).toLocaleDateString()}`
+       : listMode === "byRep" ? `${recordSearchResults.length} records for ${(reps.find(r => String(r.id) === String(lookupRepId)) || {}).name || "this rep"}`
        : `${recordSearchResults.length} records (last 30 days)`}
     </span>
   ) : null}
 </div>
 
-{/* ── Filter chips — shown in Last-30 and Date-Lookup modes to narrow by result ── */}
-{(listMode === "last30" || listMode === "dateLookup") && recordSearchResults.length > 0 ? (
+{/* ── Filter chips — shown in Last-30, Date-Lookup and By-Rep modes to narrow by result ── */}
+{(listMode === "last30" || listMode === "dateLookup" || listMode === "byRep") && recordSearchResults.length > 0 ? (
   <div style={{ marginBottom: 14, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
     <span style={{ fontSize: 11, fontFamily: "'Oswald', sans-serif", color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>Filter:</span>
     {[
@@ -15835,8 +15967,8 @@ if (!hasDamage) {
                               const haystack = [rec.client_name, rec.address, rec.city, rec.zip, rec.sales_rep_name].filter(Boolean).join(" ").toLowerCase();
                               if (!haystack.includes(q)) return false;
                             }
-                            // Apply result filter for Last-30 and Date-Lookup modes
-                            if (listMode !== "last30" && listMode !== "dateLookup") return true;
+                            // Apply result filter for Last-30, Date-Lookup and By-Rep modes
+                            if (listMode !== "last30" && listMode !== "dateLookup" && listMode !== "byRep") return true;
                             if (resultFilter === "all") return !rec.cancelled_at; // hide cancelled from "all" by default
                             if (resultFilter === "cancelled") return !!rec.cancelled_at;
                             if (resultFilter === "pending") return !rec.result && !rec.cancelled_at;
