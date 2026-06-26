@@ -52,7 +52,9 @@ exports.handler = async (event) => {
     const filter = encodeURIComponent(JSON.stringify({ must: [{ terms: { status_name: STATUS_NAMES } }] }));
     const jobs = [];
     for (let page = 0; page < 15; page++) {
-      const r = await fetch(`${JN_BASE}/jobs?size=200&from=${page * 200}&filter=${filter}`, { headers });
+      let r;
+      try { r = await fetch(`${JN_BASE}/jobs?size=200&from=${page * 200}&filter=${filter}`, { headers }); }
+      catch (e) { throw new Error(`JobNimbus fetch failed: ${e.message}`); }
       if (!r.ok) break;
       const d = await r.json().catch(() => ({}));
       const rows = d.results || d.jobs || d.data || [];
@@ -130,5 +132,11 @@ function tsec(v) { const n = Number(v); return Number.isFinite(n) && n > 0 ? n :
 function numOrNull(v) { const n = Number(v); return Number.isFinite(n) && n !== 0 ? n : null; }
 function isYes(v) { const s = String(v == null ? "" : v).trim().toLowerCase(); return s === "true" || s === "yes" || s === "1"; }
 function normAddr(a, c) { return `${String(a || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()}|${String(c || "").toLowerCase().trim()}`; }
-async function fGet(path) { const r = await fetch(`${FINDER_URL}/rest/v1/${path}`, { headers: fsb }); if (!r.ok) return []; return r.json().catch(() => []); }
+async function fGet(path) {
+  let r;
+  try { r = await fetch(`${FINDER_URL}/rest/v1/${path}`, { headers: fsb }); }
+  catch (e) { throw new Error(`Install Finder Supabase unreachable (is the project paused?): ${e.message}`); }
+  if (!r.ok) { if (r.status === 401 || r.status === 404) throw new Error(`Install Finder Supabase ${r.status}: ${(await r.text()).slice(0, 120)}`); return []; }
+  return r.json().catch(() => []);
+}
 function json(status, body) { return { statusCode: status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*" }, body: JSON.stringify(body) }; }
