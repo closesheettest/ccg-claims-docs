@@ -6241,6 +6241,22 @@ function PostJob({ token: propToken } = {}) {
   const [maxMiles, setMaxMiles] = useState(MAX_MI);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(true);
+  const [curLL, setCurLL] = useState(null);
+  const [originMode, setOriginMode] = useState("home");   // "home" | "current"
+  const [geoErr, setGeoErr] = useState("");
+  const [geoBusy, setGeoBusy] = useState(false);
+  // Active route origin: home base, or the device's live location.
+  const originLL = originMode === "current" ? curLL : homeLL;
+  const originStr = (originMode === "current" && curLL) ? `${curLL.lat.toFixed(5)},${curLL.lng.toFixed(5)}` : HOME;
+  const useCurrentLoc = () => {
+    if (!navigator.geolocation) { setGeoErr("This device can't share its location."); return; }
+    setGeoBusy(true); setGeoErr("");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { setCurLL({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setOriginMode("current"); setGeoBusy(false); },
+      (e) => { setGeoErr(e.message || "Couldn't get your location — allow location access and try again."); setGeoBusy(false); },
+      { enableHighAccuracy: true, timeout: 10000 },
+    );
+  };
 
   const load = async () => {
     setLoading(true); setErr("");
@@ -6267,8 +6283,8 @@ function PostJob({ token: propToken } = {}) {
 
   // Greedy nearest-neighbor from home so the route doesn't zig-zag.
   const orderStops = (stops) => {
-    if (!homeLL || stops.length < 3 || stops.some((s) => s.lat == null || s.lng == null)) return stops;
-    const rest = [...stops]; const out = []; let cur = homeLL;
+    if (!originLL || stops.length < 3 || stops.some((s) => s.lat == null || s.lng == null)) return stops;
+    const rest = [...stops]; const out = []; let cur = originLL;
     while (rest.length) {
       let bi = 0, bd = Infinity;
       for (let i = 0; i < rest.length; i++) {
@@ -6282,8 +6298,8 @@ function PostJob({ token: propToken } = {}) {
   const mapsUrls = (stops) => {
     const pts = orderStops(stops).slice(0, 9).map((s) => s.address || `${s.lat},${s.lng}`).filter(Boolean);
     return {
-      g: "https://www.google.com/maps/dir/" + [HOME, ...pts].map(encodeURIComponent).join("/"),
-      a: "https://maps.apple.com/?saddr=" + encodeURIComponent(HOME) + "&daddr=" + pts.map(encodeURIComponent).join("+to:+"),
+      g: "https://www.google.com/maps/dir/" + [originStr, ...pts].map(encodeURIComponent).join("/"),
+      a: "https://maps.apple.com/?saddr=" + encodeURIComponent(originStr) + "&daddr=" + pts.map(encodeURIComponent).join("+to:+"),
     };
   };
 
@@ -6296,10 +6312,10 @@ function PostJob({ token: propToken } = {}) {
     const x = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
     return Math.round(2 * R * Math.asin(Math.sqrt(x)));
   };
-  const allInstalls = (data?.installs || []).map((i) => ({ ...i, _dist: haversine(homeLL, i) }));
+  const allInstalls = (data?.installs || []).map((i) => ({ ...i, _dist: haversine(originLL, i) }));
   const atMax = maxMiles >= MAX_MI;
-  // Only filter once we know the home coords; until then show everything.
-  const installs = (!homeLL || atMax) ? allInstalls : allInstalls.filter((i) => i._dist == null || i._dist <= maxMiles);
+  // Only filter once we know the origin coords; until then show everything.
+  const installs = (!originLL || atMax) ? allInstalls : allInstalls.filter((i) => i._dist == null || i._dist <= maxMiles);
   const byDay = {};
   for (const i of installs) (byDay[dayKey(i.day2)] = byDay[dayKey(i.day2)] || []).push(i);
   const days = Object.keys(byDay).sort();
@@ -6308,14 +6324,23 @@ function PostJob({ token: propToken } = {}) {
   return (
     <div>
       <div style={{ fontSize: 20, fontWeight: 800, fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>🚿 Post Job — Pressure Wash Route</div>
-      <div style={{ fontSize: 13, color: "#374151", marginBottom: 8 }}>Home base: <b>{HOME}</b> · {installs.length}{installs.length !== allInstalls.length ? ` of ${allInstalls.length}` : ""} install{allInstalls.length === 1 ? "" : "s"} · visit each on its <b>2nd day</b>.{refreshBtn}</div>
+      <div style={{ fontSize: 13, color: "#374151", marginBottom: 8 }}>Routes from: <b>{originMode === "current" ? "📍 your current location" : HOME}</b> · {installs.length}{installs.length !== allInstalls.length ? ` of ${allInstalls.length}` : ""} install{allInstalls.length === 1 ? "" : "s"} · visit each on its <b>2nd day</b>.{refreshBtn}</div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+        {[["home", "🏠 From home"], ["current", geoBusy ? "📍 Locating…" : "📍 Current location"]].map(([m, label]) => (
+          <button key={m} type="button" disabled={geoBusy} onClick={() => (m === "current" ? useCurrentLoc() : setOriginMode("home"))}
+            style={{ padding: "7px 14px", borderRadius: 999, fontSize: 13, fontWeight: 800, cursor: "pointer", border: `1.5px solid ${originMode === m ? "#0e7490" : "#cbd5e1"}`, background: originMode === m ? "#0e7490" : "#fff", color: originMode === m ? "#fff" : "#475569" }}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {geoErr && <div style={{ color: "#b91c1c", fontSize: 12, marginBottom: 8 }}>{geoErr}</div>}
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, padding: "10px 14px", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10 }}>
         <span style={{ fontSize: 13, fontWeight: 800, color: "#0e7490", whiteSpace: "nowrap" }}>📏 Within {atMax ? "any distance" : `${maxMiles} mi`}</span>
         <input type="range" min={10} max={MAX_MI} step={5} value={maxMiles} onChange={(e) => setMaxMiles(+e.target.value)}
-          disabled={!homeLL} style={{ flex: 1, accentColor: "#0e7490" }} />
+          disabled={!originLL} style={{ flex: 1, accentColor: "#0e7490" }} />
         <span style={{ fontSize: 12, color: "#6b7280", whiteSpace: "nowrap" }}>{installs.length} shown</span>
       </div>
-      {!homeLL && <div style={{ fontSize: 11.5, color: "#9ca3af", marginBottom: 8 }}>Locating home base… distance filter enables once it's geocoded.</div>}
+      {!originLL && <div style={{ fontSize: 11.5, color: "#9ca3af", marginBottom: 8 }}>{originMode === "current" ? "Getting your location…" : "Locating home base…"} distance filter enables once we have coordinates.</div>}
       {data?.rates && (
         <div style={{ fontSize: 11.5, color: "#9ca3af", marginBottom: 14 }}>
           Est. duration from history — Shingle {(data.rates.Shingle?.rate || 0).toFixed(2)} days/sq ({data.rates.Shingle?.samples || 0} jobs) · Metal {(data.rates.Metal?.rate || 0).toFixed(2)} days/sq ({data.rates.Metal?.samples || 0} jobs)
