@@ -7079,13 +7079,15 @@ function AppUpdateAnnouncer() {
 // global visit_token (read from app_settings) so pa-broadcast sends company-wide.
 function PaNotifyCard() {
   const [open, setOpen] = useState(false);
-  const [subject, setSubject] = useState("Your region, radius & a new appointment alert");
+  const [subject, setSubject] = useState("How you get roof appointments — please set up your coverage");
   const [msg, setMsg] = useState(
-    "Hi {name}, two quick updates from U.S. Shingle:\n\n" +
-    "• Your service region: {region}\n" +
-    "• Your travel radius: {radius}\n\n" +
-    "We route damage appointments to you based on these, so please keep your weekly availability up to date in your PA portal (📅 My Availability).\n\n" +
-    "New: every time a sales rep books you an appointment, you'll now get an automatic text AND email with the homeowner, address, and time.\n\n" +
+    "Hi {name}, here's how appointments get sent to you — and what we need you to set up. Our system matches each homeowner to a PA automatically based on THREE things, so please make sure all three are correct in your PA portal:\n\n" +
+    "1) YOUR COAST. Florida is split into West Coast and East Coast. You're only offered appointments on the coast(s) you cover. Yours is currently set to: {region}.\n\n" +
+    "2) YOUR TRAVEL RADIUS. We only send you homeowners within about {radius} of your HOME address. If your home address or radius is wrong, you'll get appointments too far away — or none at all.\n\n" +
+    "3) YOUR AVAILABILITY. You're available for every standard time slot by default. In your portal under \"My Availability,\" block off any days/times you CAN'T do (weekly or one-off) and keep it up to date.\n\n" +
+    "Put simply: a rep can only book you when a homeowner is on your coast, within your radius, AND in an open time slot on your calendar.\n\n" +
+    "Please log in to your PA portal now and double-check your coast, home address, travel radius, and weekly availability are all correct.\n\n" +
+    "NEW: from now on, every time a rep books you an appointment, you'll automatically get a TEXT and an EMAIL with the homeowner, address, and time.\n\n" +
     "Thank you!",
   );
   const [busy, setBusy] = useState(false);
