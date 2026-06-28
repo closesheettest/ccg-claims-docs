@@ -4,9 +4,10 @@
 // week's SOLD deals from JobNimbus, groups Region → Sales rep → Deal, and pays
 // the regional manager an override on each deal:
 //
-//   base override  = total contract $ × base_rate            (default 2%)
-//   +own-sale      = total contract $ × own_sale_rate        (default +1%, only
-//                    on deals the regional manager personally closed)
+//   override       = total contract $ × base_rate            (default 2%)
+//                    EXCEPT a manager's own sale, which uses own_sale_rate
+//                    (default 1%) INSTEAD of base_rate (not additive — on his
+//                    own deal he already earns the sales commission).
 //   IRBAD override = (Insulation Total Cost + Radiant Barrier Total Cost)
 //                    × (irbad_rate + irbad_bonus)            (default 20% + 10%)
 //   + a flat monthly_bonus $ per manager (default 0)
@@ -33,15 +34,22 @@ const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/fu
 const ZONE_ORDER = ["Zone 1", "Zone 2", "Zone 3", "Zone 4", "Internal Reps"];
 const TZ = "America/New_York";
 
-export const DEFAULT_CONFIG = { base_rate: 0.02, own_sale_rate: 0.01, irbad_rate: 0.20, irbad_bonus: 0.10, monthly_bonus: 0 };
+// Rate keys are per-region overridable. ins_min_ppsf / rad_min_ppsf are GLOBAL
+// $/sqft thresholds: IRBAD override only pays when a product's price-per-sqft
+// meets its floor (insulation ≥ $1.50, radiant ≥ $2.50). Below it → no override.
+export const DEFAULT_CONFIG = { base_rate: 0.02, own_sale_rate: 0.01, irbad_rate: 0.20, irbad_bonus: 0.10, monthly_bonus: 0, ins_min_ppsf: 1.5, rad_min_ppsf: 2.5 };
 const RATE_KEYS = ["base_rate", "own_sale_rate", "irbad_rate", "irbad_bonus", "monthly_bonus"];
 function pickRates(c) { const o = {}; if (c) for (const k of RATE_KEYS) if (typeof c[k] === "number") o[k] = c[k]; return o; }
+function numOr(v, dflt) { const n = Number(v); return Number.isFinite(n) ? n : dflt; }
 // Effective rates for a region: defaults (top-level) overlaid by any
-// config.regions[zone] overrides. So a per-region monthly bonus (or any rate)
-// wins, and anything unset falls back to the global default.
+// config.regions[zone] overrides. Thresholds stay global (top-level only).
 export function effectiveConfig(config, zone) {
   const stored = config || {};
-  return { ...DEFAULT_CONFIG, ...pickRates(stored), ...pickRates((stored.regions && stored.regions[zone]) || {}) };
+  return {
+    ...DEFAULT_CONFIG, ...pickRates(stored), ...pickRates((stored.regions && stored.regions[zone]) || {}),
+    ins_min_ppsf: numOr(stored.ins_min_ppsf, DEFAULT_CONFIG.ins_min_ppsf),
+    rad_min_ppsf: numOr(stored.rad_min_ppsf, DEFAULT_CONFIG.rad_min_ppsf),
+  };
 }
 
 export const handler = async (event) => {
@@ -94,20 +102,33 @@ export function computeReport(soldJobs, zoneOf, zoneManager, config) {
     const contract = saleAmount(job);
     const ins = numOf(F, "Insulation Total Cost");
     const rad = numOf(F, "Radiant Barrier Total Cost");
+    const insSqft = numOf(F, "Insulation SqFt");
+    const radSqft = numOf(F, "Radiant Barrier SqFt");
     const irbad = ins + rad;
     const roof = Math.max(0, contract - irbad);
     const cfg = effFor(zone);
-    const base_or = contract * cfg.base_rate;
-    const own_or = isManager ? contract * cfg.own_sale_rate : 0;
-    const irbad_or = irbad * (cfg.irbad_rate + cfg.irbad_bonus);
-    const deal_or = base_or + own_or + irbad_or;
+    // IRBAD override only pays when price-per-sqft meets the floor (insulation
+    // ≥ ins_min_ppsf, radiant ≥ rad_min_ppsf), judged per product. Missing sqft
+    // → can't justify → no override.
+    const insPpsf = insSqft > 0 ? ins / insSqft : 0;
+    const radPpsf = radSqft > 0 ? rad / radSqft : 0;
+    const insQual = ins > 0 && insSqft > 0 && insPpsf >= cfg.ins_min_ppsf;
+    const radQual = rad > 0 && radSqft > 0 && radPpsf >= cfg.rad_min_ppsf;
+    const irbadRate = cfg.irbad_rate + cfg.irbad_bonus;
+    // A manager's OWN sale earns only the own rate (1%); every other rep's deal
+    // earns the base override (2%). No additive "+own" anymore.
+    const base_or = contract * (isManager ? cfg.own_sale_rate : cfg.base_rate);
+    const irbad_or = (insQual ? ins * irbadRate : 0) + (radQual ? rad * irbadRate : 0);
+    const deal_or = base_or + irbad_or;
 
     rec.deals.push({
       customer: (job.primary && job.primary.name) || job.name || "—",
       address: [job.address_line1, job.city].filter(Boolean).join(", "),
       sold: fmtDate(soldDateSec(job)),
-      contract: round(contract), roof: round(roof), irbad: round(irbad), ins: round(ins), rad: round(rad),
-      base_or: round(base_or), own_or: round(own_or), irbad_or: round(irbad_or), deal_or: round(deal_or),
+      contract: round(contract), roof: round(roof), irbad: round(irbad),
+      ins: round(ins), ins_sqft: round(insSqft), ins_ppsf: round(insPpsf), ins_qual: insQual,
+      rad: round(rad), rad_sqft: round(radSqft), rad_ppsf: round(radPpsf), rad_qual: radQual,
+      base_or: round(base_or), irbad_or: round(irbad_or), deal_or: round(deal_or),
     });
   }
 
@@ -134,8 +155,8 @@ export function computeReport(soldJobs, zoneOf, zoneManager, config) {
 function sumDeals(deals) {
   const t = deals.reduce((s, d) => ({
     contract: s.contract + d.contract, roof: s.roof + d.roof, irbad: s.irbad + d.irbad,
-    base_or: s.base_or + d.base_or, own_or: s.own_or + d.own_or, irbad_or: s.irbad_or + d.irbad_or, deal_or: s.deal_or + d.deal_or,
-  }), { contract: 0, roof: 0, irbad: 0, base_or: 0, own_or: 0, irbad_or: 0, deal_or: 0 });
+    base_or: s.base_or + d.base_or, irbad_or: s.irbad_or + d.irbad_or, deal_or: s.deal_or + d.deal_or,
+  }), { contract: 0, roof: 0, irbad: 0, base_or: 0, irbad_or: 0, deal_or: 0 });
   for (const k of Object.keys(t)) t[k] = round(t[k]);
   t.deals = deals.length;
   return t;

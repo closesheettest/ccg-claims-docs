@@ -17,8 +17,9 @@ const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
 const KEY = "manager_pay_config";
 const PIN_KEY = "manager_pay_pin";
-const DEFAULT_CONFIG = { base_rate: 0.02, own_sale_rate: 0.01, irbad_rate: 0.20, irbad_bonus: 0.10, monthly_bonus: 0 };
+const DEFAULT_CONFIG = { base_rate: 0.02, own_sale_rate: 0.01, irbad_rate: 0.20, irbad_bonus: 0.10, monthly_bonus: 0, ins_min_ppsf: 1.5, rad_min_ppsf: 2.5 };
 const RATE_KEYS = ["base_rate", "own_sale_rate", "irbad_rate", "irbad_bonus"];
+const THRESH_KEYS = ["ins_min_ppsf", "rad_min_ppsf"]; // global $/sqft floors
 const ZONES = ["Zone 1", "Zone 2", "Zone 3", "Zone 4"];
 
 exports.handler = async (event) => {
@@ -44,9 +45,9 @@ exports.handler = async (event) => {
   return cors(200, JSON.stringify({ ok: true, ...shape(stored) }));
 };
 
-// Stored shape → { config: defaults, regions: { zone: effective rates } }.
+// Stored shape → { config: defaults (rates + global thresholds), regions:{ zone: effective rates } }.
 function shape(stored) {
-  const config = { ...DEFAULT_CONFIG, ...rates(stored) };
+  const config = { ...DEFAULT_CONFIG, ...rates(stored), ...thresholds(stored) };
   const regions = {};
   for (const z of ZONES) regions[z] = { ...DEFAULT_CONFIG, ...rates(stored), ...rates((stored.regions || {})[z] || {}) };
   return { config, regions };
@@ -57,8 +58,13 @@ function rates(input) {
   const mb = Number(input.monthly_bonus); if (Number.isFinite(mb)) out.monthly_bonus = Math.max(0, mb);
   return out;
 }
+function thresholds(input) {
+  const out = {};
+  for (const k of THRESH_KEYS) { const n = Number(input[k]); if (Number.isFinite(n)) out[k] = Math.max(0, n); }
+  return out;
+}
 function sanitize(input) {
-  const out = { ...DEFAULT_CONFIG, ...rates(input), regions: {} };
+  const out = { ...DEFAULT_CONFIG, ...rates(input), ...thresholds(input), regions: {} };
   if (input.regions && typeof input.regions === "object") {
     for (const z of ZONES) { const r = rates(input.regions[z] || {}); if (Object.keys(r).length) out.regions[z] = r; }
   }
