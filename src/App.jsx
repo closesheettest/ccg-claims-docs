@@ -6409,19 +6409,6 @@ function PACompanyAdminPage({ token }) {
   const [viewPaId, setViewPaId] = useState("");     // which of MY PAs to view as
   const [viewStage, setViewStage] = useState(null); // null=job list · "availability"=their calendar
   const [viewJobId, setViewJobId] = useState(null); // open a specific deal in the embedded portal
-  // PA notification composer — personalized email+SMS to all active PAs.
-  const [showNotify, setShowNotify] = useState(false);
-  const [notifySubject, setNotifySubject] = useState("Your region, radius & a new appointment alert");
-  const [notifyMsg, setNotifyMsg] = useState(
-    "Hi {name}, two quick updates from U.S. Shingle:\n\n" +
-    "• Your service region: {region}\n" +
-    "• Your travel radius: {radius}\n\n" +
-    "We route damage appointments to you based on these, so please keep your weekly availability up to date in your PA portal (📅 My Availability).\n\n" +
-    "New: every time a sales rep books you an appointment, you'll now get an automatic text AND email with the homeowner, address, and time.\n\n" +
-    "Thank you!",
-  );
-  const [notifyBusy, setNotifyBusy] = useState(false);
-  const [notifyResult, setNotifyResult] = useState("");
   const scrollToView = () => setTimeout(() => { try { document.getElementById("pa-portal-view")?.scrollIntoView({ behavior: "smooth", block: "start" }); } catch { /* ignore */ } }, 60);
   // Open a PA's embedded portal (optionally straight to their availability) and
   // scroll the panel into view. Lets the company manage a PA's calendar + book.
@@ -6687,22 +6674,6 @@ function PACompanyAdminPage({ token }) {
     </div>
   );
 
-  const sendNotify = async () => {
-    if (!notifyMsg.trim()) { setNotifyResult("Add a message first."); return; }
-    if (!window.confirm(`Send this to all ${activePas.length} active adjuster${activePas.length === 1 ? "" : "s"} by email + text?`)) return;
-    setNotifyBusy(true); setNotifyResult("");
-    try {
-      const res = await fetch("/.netlify/functions/pa-broadcast", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, subject: notifySubject, message: notifyMsg }),
-      });
-      const out = await res.json().catch(() => ({}));
-      if (!res.ok || !out.ok) setNotifyResult("⚠ " + (out.error || "Send failed."));
-      else setNotifyResult(`✓ Sent to ${out.total} PA${out.total === 1 ? "" : "s"} — ${out.emailed} email, ${out.texted} text.`);
-    } catch { setNotifyResult("⚠ Network error."); }
-    setNotifyBusy(false);
-  };
-
   return (
     <div style={wrap}>
       <div style={{ maxWidth: 760, margin: "0 auto" }}>
@@ -6721,28 +6692,8 @@ function PACompanyAdminPage({ token }) {
             <Button variant="outline" onClick={() => setShowView((v) => !v)}>
               {showView ? "🙈 Close PA view" : "👁 View a PA's portal"}
             </Button>
-            <Button variant="outline" onClick={() => { setShowNotify((v) => !v); setNotifyResult(""); }}>
-              {showNotify ? "📣 Hide notify" : "📣 Notify PAs"}
-            </Button>
           </div>
         </div>
-
-        {showNotify && (
-          <div style={{ marginBottom: 16, border: "1px solid #fcd34d", borderRadius: 12, background: "#fffbeb", padding: 14 }}>
-            <div style={{ fontSize: 14, fontWeight: 800, color: "#92400e", marginBottom: 4 }}>📣 Notify your adjusters</div>
-            <div style={{ fontSize: 12, color: "#92400e", marginBottom: 10 }}>
-              Sends a personalized <b>email + text</b> to all {activePas.length} active adjuster{activePas.length === 1 ? "" : "s"}. Use <code>{"{name}"}</code>, <code>{"{region}"}</code>, <code>{"{radius}"}</code> — each person's own values are filled in.
-            </div>
-            <input value={notifySubject} onChange={(e) => setNotifySubject(e.target.value)} placeholder="Email subject"
-              style={{ ...fld, marginBottom: 8 }} />
-            <textarea value={notifyMsg} onChange={(e) => setNotifyMsg(e.target.value)} rows={10}
-              style={{ ...fld, fontFamily: "inherit", lineHeight: 1.45, resize: "vertical" }} />
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 10, flexWrap: "wrap" }}>
-              <Button onClick={sendNotify} disabled={notifyBusy}>{notifyBusy ? "Sending…" : "Send to all active PAs"}</Button>
-              {notifyResult && <span style={{ fontSize: 13, fontWeight: 700, color: notifyResult.startsWith("✓") ? "#047857" : "#b91c1c" }}>{notifyResult}</span>}
-            </div>
-          </div>
-        )}
 
         <CompanyAppointments pas={data.pas} />
 
@@ -7124,6 +7075,64 @@ function AppUpdateAnnouncer() {
   );
 }
 
+// Admin "Notify PAs" — personalized email + SMS to ALL active PAs. Uses the
+// global visit_token (read from app_settings) so pa-broadcast sends company-wide.
+function PaNotifyCard() {
+  const [open, setOpen] = useState(false);
+  const [subject, setSubject] = useState("Your region, radius & a new appointment alert");
+  const [msg, setMsg] = useState(
+    "Hi {name}, two quick updates from U.S. Shingle:\n\n" +
+    "• Your service region: {region}\n" +
+    "• Your travel radius: {radius}\n\n" +
+    "We route damage appointments to you based on these, so please keep your weekly availability up to date in your PA portal (📅 My Availability).\n\n" +
+    "New: every time a sales rep books you an appointment, you'll now get an automatic text AND email with the homeowner, address, and time.\n\n" +
+    "Thank you!",
+  );
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState("");
+  const fld = { width: "100%", boxSizing: "border-box", borderRadius: 12, border: "1px solid #d1d5db", padding: "10px 12px", fontSize: 14 };
+  const send = async () => {
+    if (!msg.trim()) { setResult("Add a message first."); return; }
+    if (!window.confirm("Send this to ALL active PAs by email + text?")) return;
+    setBusy(true); setResult("");
+    try {
+      const { data } = await supabase.from("app_settings").select("value").eq("key", "visit_token").maybeSingle();
+      const token = data?.value || "";
+      const res = await fetch("/.netlify/functions/pa-broadcast", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, subject, message: msg }),
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok || !out.ok) setResult("⚠ " + (out.error || "Send failed."));
+      else setResult(`✓ Sent to ${out.total} PA${out.total === 1 ? "" : "s"} — ${out.emailed} email, ${out.texted} text.`);
+    } catch { setResult("⚠ Network error."); }
+    setBusy(false);
+  };
+  return (
+    <Card>
+      <CardContent>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 18 }}>📣 Notify PAs</div>
+          <Button variant="outline" onClick={() => { setOpen((v) => !v); setResult(""); }}>{open ? "Hide" : "Compose"}</Button>
+        </div>
+        {open && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 12.5, color: "#6b7280", marginBottom: 10 }}>
+              Personalized <b>email + text</b> to <b>all active PAs</b>. Use <code>{"{name}"}</code> <code>{"{region}"}</code> <code>{"{radius}"}</code> — each PA's own values fill in.
+            </div>
+            <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Email subject" style={{ ...fld, height: 44, marginBottom: 8 }} />
+            <textarea value={msg} onChange={(e) => setMsg(e.target.value)} rows={10} style={{ ...fld, fontFamily: "inherit", lineHeight: 1.45, resize: "vertical" }} />
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 10, flexWrap: "wrap" }}>
+              <Button onClick={send} disabled={busy}>{busy ? "Sending…" : "Send to all active PAs"}</Button>
+              {result && <span style={{ fontSize: 13, fontWeight: 700, color: result.startsWith("✓") ? "#047857" : "#b91c1c" }}>{result}</span>}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function AdminDashboard() {
   const [unlocked, setUnlocked] = useState(() => {
     try { return sessionStorage.getItem("adminHubUnlocked") === "1"; } catch { return false; }
@@ -7306,6 +7315,9 @@ function AdminDashboard() {
 
       {/* Announce an app update to PAs / inspectors */}
       <AppUpdateAnnouncer />
+
+      {/* Notify PAs — region/radius/schedule announcement + any future notice */}
+      <PaNotifyCard />
 
       {/* Most-used reports */}
       <Card>
