@@ -195,6 +195,8 @@ function currentWeek(now = new Date()) { const p = tzParts(now); const dowMon = 
 function monthRange(now = new Date()) { const p = tzParts(now); const start = etMidnightUTC(+p.year, +p.month, 1); const n = +p.month === 12 ? { y: +p.year + 1, m: 1 } : { y: +p.year, m: +p.month + 1 }; return { start, end: etMidnightUTC(n.y, n.m, 1) }; }
 function pickWindow(qp) {
   if (qp.start && qp.end) { const s = new Date(qp.start), e = new Date(qp.end); if (!Number.isNaN(s.getTime()) && !Number.isNaN(e.getTime())) return { start: s, end: e, period: "custom" }; }
+  const wb = Number(qp.weeks_back); // 0 = week just ended, 1 = one before, … (UI ◀ ▶)
+  if (Number.isFinite(wb) && wb >= 0) return { ...weekJustEnded(new Date(), Math.floor(wb)), period: wb === 0 ? "lastweek" : `-${Math.floor(wb)}w` };
   if (qp.period === "month") return { ...monthRange(), period: "month" };
   if (qp.period === "current") return { ...currentWeek(), period: "current" };
   if (qp.period === "prev") return { ...weekJustEnded(new Date(), 1), period: "prev" };
