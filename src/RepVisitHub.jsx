@@ -146,7 +146,7 @@ export default function RepVisitHub() {
   const startPay = async () => {
     setPay(null); setErr(""); setStage("pay");
     try {
-      const SEL = "id,client_name,address,city,state,signed_at,cancelled_at,cancel_reason,lost_reason,correction_note,pa_notes_log,result";
+      const SEL = "id,client_name,address,city,state,signed_at,cancelled_at,cancel_reason,lost_reason,correction_note,pa_notes_log,result,inspector_name";
       const rowsById = new Map();
       if (rep.jobnimbus_id) {
         const { data } = await supabase.from("inspections").select(SEL)
@@ -418,6 +418,7 @@ function PayReport({ pay, rep, api, onBack, onReload }) {
                 </button>
                 {open && (
                   <div style={{ marginTop: 10 }}>
+                    {r.inspector_name && <div style={{ fontSize: 12.5, fontWeight: 700, color: "#b45309", marginBottom: 6 }}>🛠 Marked lost by: {r.inspector_name}</div>}
                     {notes.length ? notes.map((n, i) => <div key={i} style={{ fontSize: 13, color: "#374151", background: "#f9fafb", border: "1px solid #f0f0f0", borderRadius: 8, padding: "8px 10px", marginBottom: 6 }}>{n}</div>) : <div style={{ fontSize: 12.5, color: "#9ca3af", marginBottom: 6 }}>No notes on file.</div>}
                     <div style={{ fontSize: 12.5, fontWeight: 700, color: "#374151", margin: "8px 0 4px" }}>Put back on the inspection list? A note is required:</div>
                     <textarea value={noteFor[r.id] || ""} onChange={(e) => setNoteFor((m) => ({ ...m, [r.id]: e.target.value }))} rows={2} placeholder="e.g. Homeowner confirmed they still want it — cancelled by mistake."
