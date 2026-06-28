@@ -7133,6 +7133,85 @@ function PaNotifyCard() {
   );
 }
 
+// Admin "Scheduled PA appointments" — upcoming pa_appointments (today onward),
+// grouped by day. pa_appointments + pas are anon-readable, so this fetches direct.
+function startOfTodayEtIso() {
+  const [y, m, d] = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()).split("-").map(Number);
+  const guess = Date.UTC(y, m - 1, d, 0, 0);
+  const asEt = new Date(new Date(guess).toLocaleString("en-US", { timeZone: "America/New_York" }));
+  return new Date(guess + (guess - asEt.getTime())).toISOString();
+}
+function apptDayKey(iso) { return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso)); }
+function apptDayLabel(iso) { return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "long", month: "short", day: "numeric" }).format(new Date(iso)); }
+function apptTime(iso) { return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }).format(new Date(iso)); }
+
+function PaApptsReport() {
+  const [rows, setRows] = useState(null);
+  const [pasMap, setPasMap] = useState({});
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = async () => {
+    setBusy(true); setErr("");
+    try {
+      const [apptsRes, pasRes] = await Promise.all([
+        supabase.from("pa_appointments")
+          .select("id,start_at,homeowner_name,homeowner_phone,address,booked_by,pa_id,status")
+          .gte("start_at", startOfTodayEtIso()).neq("status", "cancelled")
+          .order("start_at", { ascending: true }).limit(500),
+        supabase.from("pas").select("id,name"),
+      ]);
+      if (apptsRes.error) { setErr(apptsRes.error.message); setRows([]); }
+      else {
+        const m = {}; (pasRes.data || []).forEach((p) => { m[p.id] = p.name; });
+        setPasMap(m); setRows(apptsRes.data || []);
+      }
+    } catch { setErr("Couldn't load."); setRows([]); }
+    setBusy(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const groups = [];
+  if (rows) {
+    let cur = null;
+    for (const a of rows) {
+      const k = apptDayKey(a.start_at);
+      if (!cur || cur.key !== k) { cur = { key: k, label: apptDayLabel(a.start_at), items: [] }; groups.push(cur); }
+      cur.items.push(a);
+    }
+  }
+  return (
+    <Card>
+      <CardContent>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+          <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 18 }}>📅 Scheduled PA appointments{rows ? ` (${rows.length})` : ""}</div>
+          <Button variant="outline" onClick={load} disabled={busy}>{busy ? "Loading…" : "↻ Refresh"}</Button>
+        </div>
+        {err && <div style={{ fontSize: 13, color: "#b91c1c", marginBottom: 8 }}>{err}</div>}
+        {rows === null ? <div style={{ fontSize: 13, color: "#9ca3af" }}>Loading…</div>
+          : rows.length === 0 ? <div style={{ fontSize: 13, color: "#6b7280" }}>No upcoming PA appointments.</div>
+          : groups.map((g) => (
+            <div key={g.key} style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: ".03em", color: "#6d28d9", marginBottom: 6 }}>{g.label}</div>
+              {g.items.map((a) => (
+                <div key={a.id} style={{ display: "grid", gridTemplateColumns: "70px 1fr", gap: 10, padding: "8px 10px", border: "1px solid #ede9fe", borderRadius: 10, background: "#faf5ff", marginBottom: 6 }}>
+                  <div style={{ fontWeight: 800, fontSize: 13, color: "#5b21b6" }}>{apptTime(a.start_at)}</div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: "#111827" }}>{a.homeowner_name || "—"} <span style={{ fontWeight: 600, color: "#7c3aed" }}>· {pasMap[a.pa_id] || "Unassigned PA"}</span></div>
+                    {a.address && <div style={{ fontSize: 12.5, color: "#6b7280" }}>📍 {a.address}</div>}
+                    <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 1 }}>
+                      {a.homeowner_phone ? <a href={`tel:${String(a.homeowner_phone).replace(/[^\d+]/g, "")}`} style={{ color: "#0e7490", fontWeight: 700, textDecoration: "none" }}>📞 {a.homeowner_phone}</a> : "no phone"}
+                      {a.booked_by ? ` · booked by ${a.booked_by}` : ""}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+      </CardContent>
+    </Card>
+  );
+}
+
 function AdminDashboard() {
   const [unlocked, setUnlocked] = useState(() => {
     try { return sessionStorage.getItem("adminHubUnlocked") === "1"; } catch { return false; }
@@ -7318,6 +7397,9 @@ function AdminDashboard() {
 
       {/* Notify PAs — region/radius/schedule announcement + any future notice */}
       <PaNotifyCard />
+
+      {/* Scheduled PA appointments — upcoming, grouped by day */}
+      <PaApptsReport />
 
       {/* Most-used reports */}
       <Card>
