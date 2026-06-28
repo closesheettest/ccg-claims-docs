@@ -161,10 +161,10 @@ export default function RepVisitHub() {
         } catch { /* id match still applies */ }
       }
       const all = [...rowsById.values()];
-      const monIso = mondayEtIso();
-      const signups = all.filter((r) => !r.cancelled_at && (r.signed_at || "") >= monIso).sort((a, b) => new Date(b.signed_at || 0) - new Date(a.signed_at || 0));
+      // Keep ALL his non-cancelled signed deals so the report can page by week.
+      const signed = all.filter((r) => !r.cancelled_at && r.signed_at).sort((a, b) => new Date(b.signed_at) - new Date(a.signed_at));
       const cancels = all.filter((r) => r.cancelled_at).sort((a, b) => new Date(b.cancelled_at || 0) - new Date(a.cancelled_at || 0));
-      setPay({ signups, cancels });
+      setPay({ signed, cancels });
     } catch (e) { setErr(e.message); setPay({ signups: [], cancels: [] }); }
   };
   // Open photos — first pull any JN-only photos into Supabase (idempotent;
@@ -363,8 +363,10 @@ function PayReport({ pay, rep, api, onBack, onReload }) {
   const [busyId, setBusyId] = useState(null);
   const [err, setErr] = useState("");
   const [doneMsg, setDoneMsg] = useState("");
+  const [weekOffset, setWeekOffset] = useState(0);   // 0 = this week, -1 = last week, …
   const RATE = 150;
-  const signups = pay?.signups || [];
+  const wk = weekRange(weekOffset);
+  const signups = (pay?.signed || []).filter((r) => r.signed_at >= wk.startIso && r.signed_at < wk.endIso);
   const cancels = pay?.cancels || [];
   const total = signups.length * RATE;
   const fmtDay = (iso) => new Date(iso).toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" });
@@ -388,10 +390,19 @@ function PayReport({ pay, rep, api, onBack, onReload }) {
         <>
           {doneMsg && <div style={{ background: "#ecfdf5", border: "1px solid #a7f3d0", color: "#065f46", borderRadius: 12, padding: "10px 12px", fontSize: 14, fontWeight: 700, marginBottom: 12 }}>✓ {doneMsg}</div>}
           {err && <div style={S.err}>{err}</div>}
-          <div style={{ background: "#047857", color: "#fff", borderRadius: 14, padding: "16px 18px", marginBottom: 14 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, opacity: 0.9 }}>This week's inspection signups</div>
-            <div style={{ fontSize: 30, fontWeight: 800, fontFamily: "'Oswald',sans-serif" }}>${total.toLocaleString()}</div>
-            <div style={{ fontSize: 12.5, opacity: 0.9 }}>{signups.length} signup{signups.length === 1 ? "" : "s"} × $150</div>
+          <div style={{ background: "#047857", color: "#fff", borderRadius: 14, padding: "14px 18px", marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+              <button onClick={() => setWeekOffset((o) => o - 1)} aria-label="Previous week"
+                style={{ background: "rgba(255,255,255,.18)", border: "none", color: "#fff", borderRadius: 8, width: 34, height: 34, fontSize: 16, fontWeight: 800, cursor: "pointer" }}>◀</button>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 13.5, fontWeight: 800, letterSpacing: ".02em" }}>{weekOffset === 0 ? "This week" : weekOffset === -1 ? "Last week" : "Week of"}</div>
+                <div style={{ fontSize: 11.5, fontWeight: 500, opacity: 0.9 }}>{wk.label}</div>
+              </div>
+              <button onClick={() => setWeekOffset((o) => Math.min(0, o + 1))} disabled={weekOffset >= 0} aria-label="Next week"
+                style={{ background: "rgba(255,255,255,.18)", border: "none", color: "#fff", borderRadius: 8, width: 34, height: 34, fontSize: 16, fontWeight: 800, cursor: weekOffset >= 0 ? "default" : "pointer", opacity: weekOffset >= 0 ? 0.4 : 1 }}>▶</button>
+            </div>
+            <div style={{ fontSize: 30, fontWeight: 800, fontFamily: "'Oswald',sans-serif", textAlign: "center" }}>${total.toLocaleString()}</div>
+            <div style={{ fontSize: 12.5, opacity: 0.9, textAlign: "center" }}>{signups.length} signup{signups.length === 1 ? "" : "s"} × $150</div>
           </div>
           {signups.length ? signups.map((r) => (
             <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "11px 14px", marginBottom: 8 }}>
@@ -401,7 +412,7 @@ function PayReport({ pay, rep, api, onBack, onReload }) {
               </div>
               <div style={{ fontWeight: 800, color: "#047857", fontSize: 15 }}>$150</div>
             </div>
-          )) : <p style={{ fontSize: 13.5, color: "#6b7280", padding: "4px 2px 12px" }}>No signups yet this week.</p>}
+          )) : <p style={{ fontSize: 13.5, color: "#6b7280", padding: "4px 2px 12px" }}>No signups in this week.</p>}
 
           <div style={{ fontSize: 13, fontWeight: 800, textTransform: "uppercase", letterSpacing: ".03em", color: "#9ca3af", margin: "16px 0 8px" }}>Cancelled ({cancels.length}) — tap to see why / put back</div>
           {!cancels.length ? <p style={{ fontSize: 13.5, color: "#6b7280" }}>No cancels. 🎉</p> : cancels.map((r) => {
@@ -691,6 +702,15 @@ function mondayEtIso() {
   const guess = Date.UTC(+p.year, +p.month - 1, +p.day - back, 0, 0);
   const asEt = new Date(new Date(guess).toLocaleString("en-US", { timeZone: "America/New_York" }));
   return new Date(guess + (guess - asEt.getTime())).toISOString();
+}
+// Mon–Sun ET window for a given week offset (0 = this week, -1 = last, …).
+// Returns ISO bounds [startIso, endIso) + a "Jun 22 – Jun 28" label.
+function weekRange(offset) {
+  const monMs = Date.parse(mondayEtIso());
+  const startMs = monMs + offset * 7 * 864e5;
+  const endMs = startMs + 7 * 864e5;
+  const f = (ms) => new Date(ms).toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" });
+  return { startIso: new Date(startMs).toISOString(), endIso: new Date(endMs).toISOString(), label: `${f(startMs)} – ${f(endMs - 864e5)}` };
 }
 function ymdET(d = new Date()) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
