@@ -679,7 +679,7 @@ function RetailPanel({ deal, rep, api }) {
   const [picking, setPicking] = useState("");
   const [err, setErr] = useState("");
   const [done, setDone] = useState(null);
-  const [ni, setNi] = useState(false);
+  const [recording, setRecording] = useState("");
   const days = useMemo(() => buildRetailDays(14), []);
   const pick = async (slot) => {
     setPicking(slot.iso); setErr("");
@@ -689,24 +689,29 @@ function RetailPanel({ deal, rep, api }) {
     } catch (e) { setErr(e.message); }
     setPicking("");
   };
-  // Homeowner doesn't want a retail appointment → "BTR - NI" in JN, drops off the list.
-  const markNotInterested = async () => {
-    if (!window.confirm(`Mark ${deal.client_name || "this homeowner"} Not Interested?\n\nThey'll move to "BTR - NI" in JobNimbus and drop off your retail list.`)) return;
-    setNi(true); setErr("");
+  // Record the sit outcome → sets retail_outcome + JN status, drops off the
+  // retail list (row kept for reports).
+  const recordOutcome = async (outcome, label) => {
+    if (!window.confirm(`Record this deal as "${label}"? It drops off your retail list.`)) return;
+    setRecording(outcome); setErr("");
     try {
-      await api("retail-not-interested", { inspection_id: deal.inspection_id });
-      setDone(`Marked Not Interested (BTR - NI). Removed from your retail list.`);
-    } catch (e) { setErr(e.message); setNi(false); }
+      await api("retail-outcome-set", { inspection_id: deal.inspection_id, outcome, rep_name: rep.name });
+      setDone(`Recorded: ${label}. Removed from your retail list.`);
+    } catch (e) { setErr(e.message); setRecording(""); }
   };
   if (done) return <div style={S.done}>✓ {done}</div>;
+  const oBtn = (color, off) => ({ flex: 1, minWidth: 96, border: `1px solid ${color}`, color, background: "#fff", borderRadius: 12, padding: "11px 6px", fontSize: 13.5, fontWeight: 800, cursor: off ? "default" : "pointer", opacity: off ? 0.6 : 1 });
+  const off = !!recording || !!picking;
   return (
     <div>
       {err && <div style={{ color: "#b91c1c", fontSize: 14, marginBottom: 8 }}>{err}</div>}
-      <button type="button" disabled={ni || !!picking} onClick={markNotInterested}
-        style={{ width: "100%", marginBottom: 12, border: "1px solid #dc2626", color: "#dc2626", background: "#fff", borderRadius: 12, padding: "11px 14px", fontSize: 14, fontWeight: 800, cursor: "pointer", opacity: ni ? 0.6 : 1 }}>
-        {ni ? "Saving…" : "🚫 Not Interested"}
-      </button>
-      <p style={{ fontSize: 14, fontWeight: 700, color: "#374151", margin: "0 0 8px" }}>…or pick a retail appointment time:</p>
+      <p style={{ fontSize: 14, fontWeight: 700, color: "#374151", margin: "0 0 6px" }}>Already sat with them? Record the outcome:</p>
+      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+        <button type="button" disabled={off} onClick={() => recordOutcome("sold", "Sit Sold")} style={oBtn("#047857", off)}>{recording === "sold" ? "…" : "✅ Sit Sold"}</button>
+        <button type="button" disabled={off} onClick={() => recordOutcome("no_sale", "Sit - No Sale")} style={oBtn("#6b7280", off)}>{recording === "no_sale" ? "…" : "➖ No Sale"}</button>
+        <button type="button" disabled={off} onClick={() => recordOutcome("ni", "Not Interested")} style={oBtn("#dc2626", off)}>{recording === "ni" ? "…" : "🚫 Not Interested"}</button>
+      </div>
+      <p style={{ fontSize: 14, fontWeight: 700, color: "#374151", margin: "0 0 8px" }}>…or schedule a retail appointment for later:</p>
       <div style={{ maxHeight: "55vh", overflowY: "auto" }}>
         {days.map((day) => (
           <div key={day.key} style={{ marginBottom: 14 }}>

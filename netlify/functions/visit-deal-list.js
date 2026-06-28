@@ -43,7 +43,7 @@ exports.handler = async (event) => {
     // SELECT 400s and we'd get zero deals. Try with it, fall back without it.
     const SEL_BASE = "id,client_name,address,city,state,zip,mobile,email,jn_job_id,latitude,longitude,result,result_at,pa_id,pa_signed_at,pa_stage,docs_signed,jn_status,pa_notes_log";
     const tail = `&result=eq.${result}&cancelled_at=is.null&or=(${conds.join(",")})&order=result_at.desc&limit=500`;
-    let rows = await sbGet(`inspections?select=${SEL_BASE},review_availability,referral_outcome${tail}`);
+    let rows = await sbGet(`inspections?select=${SEL_BASE},review_availability,referral_outcome,retail_outcome${tail}`);
     if (!rows.length) rows = await sbGet(`inspections?select=${SEL_BASE}${tail}`);
 
     // Damage list: a rep is going out to PUSH the homeowner to start their claim.
@@ -60,6 +60,11 @@ exports.handler = async (event) => {
     // (inspections.referral_outcome set) — it drops off the rep's list.
     if (result === "no_damage") {
       rows = rows.filter((r) => !r.referral_outcome);
+    }
+    // Retail list: once it's been sat (rep recorded an outcome, or the JN-status
+    // sync stamped sold/no_sale/ni), it drops off — the row is kept for reports.
+    if (result === "retail") {
+      rows = rows.filter((r) => !r.retail_outcome && String(r.jn_status || "").trim().toLowerCase() !== "btr - ni");
     }
     // Retail list: a deal leaves the rep's list once it's HANDLED — marked Not
     // Interested ("BTR - NI") or already scheduled (a retail_appointments row).

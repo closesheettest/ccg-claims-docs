@@ -40,6 +40,13 @@
 [functions."cron-track-retail-status"]
   schedule = "0 * * * *"
 
+# Scheduled function: reads JN status of active retail deals and stamps
+# inspections.retail_outcome (sold / no_sale / ni) when they reach a terminal
+# status — which drops them off the rep's Retail visit list (row kept for
+# reporting). Catches outcomes set on the JobNimbus/office side. Hourly, offset.
+[functions."cron-sync-retail-status"]
+  schedule = "15 * * * *"
+
 # Scheduled function: daily reconcile of JN "Sit Sold Insp" (needs-inspection)
 # vs our app. Auto-heals jobs we've finished but whose JN result/status never
 # updated (re-pushes; lost → Lost+note), and texts ADMIN_ALERT_PHONE the ones
