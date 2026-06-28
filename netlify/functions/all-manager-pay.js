@@ -221,7 +221,11 @@ function etMidnightUTC(y, m, d) { // UTC instant of ET-local midnight on y-m-d
 }
 function addYMD(y, m, d, delta) { const b = new Date(Date.UTC(y, m - 1, d)); b.setUTCDate(b.getUTCDate() + delta); return { y: b.getUTCFullYear(), m: b.getUTCMonth() + 1, d: b.getUTCDate() }; }
 const SUN = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
-function currentWeek(now = new Date()) { const p = tzParts(now); const dowMon = ((SUN[p.weekday] ?? 0) + 6) % 7; const mon = addYMD(+p.year, +p.month, +p.day, -dowMon); const nextMon = addYMD(mon.y, mon.m, mon.d, 7); return { start: etMidnightUTC(mon.y, mon.m, mon.d), end: etMidnightUTC(nextMon.y, nextMon.m, nextMon.d) }; }
+// End boundary is EXCLUSIVE (last second of the prior day) so a deal sold at
+// exactly Monday 00:00 ET belongs only to the next week — never double-counted.
+// This matches the Appt→Sales report's window exactly (it ends at …23:59:59).
+const endExclusive = (midnightUTC) => new Date(midnightUTC.getTime() - 1000);
+function currentWeek(now = new Date()) { const p = tzParts(now); const dowMon = ((SUN[p.weekday] ?? 0) + 6) % 7; const mon = addYMD(+p.year, +p.month, +p.day, -dowMon); const nextMon = addYMD(mon.y, mon.m, mon.d, 7); return { start: etMidnightUTC(mon.y, mon.m, mon.d), end: endExclusive(etMidnightUTC(nextMon.y, nextMon.m, nextMon.d)) }; }
 // "Last week" = the Mon–Sun BEFORE the current (in-progress) Mon-anchored week
 // — the last FULLY-completed week. This matches the Appt→Sales report's
 // "lastweek" so the two reports line up. backWeeks shifts further back (◀ Older).
@@ -230,9 +234,9 @@ function lastWeek(now = new Date(), backWeeks = 0) {
   const dowMon = ((SUN[p.weekday] ?? 0) + 6) % 7;
   const mon = addYMD(+p.year, +p.month, +p.day, -dowMon - (backWeeks + 1) * 7);
   const nextMon = addYMD(mon.y, mon.m, mon.d, 7);
-  return { start: etMidnightUTC(mon.y, mon.m, mon.d), end: etMidnightUTC(nextMon.y, nextMon.m, nextMon.d) };
+  return { start: etMidnightUTC(mon.y, mon.m, mon.d), end: endExclusive(etMidnightUTC(nextMon.y, nextMon.m, nextMon.d)) };
 }
-function monthRange(now = new Date()) { const p = tzParts(now); const start = etMidnightUTC(+p.year, +p.month, 1); const n = +p.month === 12 ? { y: +p.year + 1, m: 1 } : { y: +p.year, m: +p.month + 1 }; return { start, end: etMidnightUTC(n.y, n.m, 1) }; }
+function monthRange(now = new Date()) { const p = tzParts(now); const start = etMidnightUTC(+p.year, +p.month, 1); const n = +p.month === 12 ? { y: +p.year + 1, m: 1 } : { y: +p.year, m: +p.month + 1 }; return { start, end: endExclusive(etMidnightUTC(n.y, n.m, 1)) }; }
 function pickWindow(qp) {
   if (qp.start && qp.end) { const s = new Date(qp.start), e = new Date(qp.end); if (!Number.isNaN(s.getTime()) && !Number.isNaN(e.getTime())) return { start: s, end: e, period: "custom" }; }
   const wb = Number(qp.weeks_back); // 0 = last completed week, 1 = one before, … (UI ◀ ▶)
