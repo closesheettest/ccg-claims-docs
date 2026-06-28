@@ -221,22 +221,26 @@ function etMidnightUTC(y, m, d) { // UTC instant of ET-local midnight on y-m-d
 }
 function addYMD(y, m, d, delta) { const b = new Date(Date.UTC(y, m - 1, d)); b.setUTCDate(b.getUTCDate() + delta); return { y: b.getUTCFullYear(), m: b.getUTCMonth() + 1, d: b.getUTCDate() }; }
 const SUN = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
-function weekJustEnded(now = new Date(), backWeeks = 0) {
+function currentWeek(now = new Date()) { const p = tzParts(now); const dowMon = ((SUN[p.weekday] ?? 0) + 6) % 7; const mon = addYMD(+p.year, +p.month, +p.day, -dowMon); const nextMon = addYMD(mon.y, mon.m, mon.d, 7); return { start: etMidnightUTC(mon.y, mon.m, mon.d), end: etMidnightUTC(nextMon.y, nextMon.m, nextMon.d) }; }
+// "Last week" = the Mon–Sun BEFORE the current (in-progress) Mon-anchored week
+// — the last FULLY-completed week. This matches the Appt→Sales report's
+// "lastweek" so the two reports line up. backWeeks shifts further back (◀ Older).
+function lastWeek(now = new Date(), backWeeks = 0) {
   const p = tzParts(now);
-  const sun = addYMD(+p.year, +p.month, +p.day, -(SUN[p.weekday] ?? 0) - backWeeks * 7); // most recent Sunday (− N weeks)
-  const mon = addYMD(sun.y, sun.m, sun.d, -6), nextMon = addYMD(sun.y, sun.m, sun.d, 1);
+  const dowMon = ((SUN[p.weekday] ?? 0) + 6) % 7;
+  const mon = addYMD(+p.year, +p.month, +p.day, -dowMon - (backWeeks + 1) * 7);
+  const nextMon = addYMD(mon.y, mon.m, mon.d, 7);
   return { start: etMidnightUTC(mon.y, mon.m, mon.d), end: etMidnightUTC(nextMon.y, nextMon.m, nextMon.d) };
 }
-function currentWeek(now = new Date()) { const p = tzParts(now); const dowMon = ((SUN[p.weekday] ?? 0) + 6) % 7; const mon = addYMD(+p.year, +p.month, +p.day, -dowMon); const nextMon = addYMD(mon.y, mon.m, mon.d, 7); return { start: etMidnightUTC(mon.y, mon.m, mon.d), end: etMidnightUTC(nextMon.y, nextMon.m, nextMon.d) }; }
 function monthRange(now = new Date()) { const p = tzParts(now); const start = etMidnightUTC(+p.year, +p.month, 1); const n = +p.month === 12 ? { y: +p.year + 1, m: 1 } : { y: +p.year, m: +p.month + 1 }; return { start, end: etMidnightUTC(n.y, n.m, 1) }; }
 function pickWindow(qp) {
   if (qp.start && qp.end) { const s = new Date(qp.start), e = new Date(qp.end); if (!Number.isNaN(s.getTime()) && !Number.isNaN(e.getTime())) return { start: s, end: e, period: "custom" }; }
-  const wb = Number(qp.weeks_back); // 0 = week just ended, 1 = one before, … (UI ◀ ▶)
-  if (Number.isFinite(wb) && wb >= 0) return { ...weekJustEnded(new Date(), Math.floor(wb)), period: wb === 0 ? "lastweek" : `-${Math.floor(wb)}w` };
+  const wb = Number(qp.weeks_back); // 0 = last completed week, 1 = one before, … (UI ◀ ▶)
+  if (Number.isFinite(wb) && wb >= 0) return { ...lastWeek(new Date(), Math.floor(wb)), period: wb === 0 ? "lastweek" : `-${Math.floor(wb)}w` };
   if (qp.period === "month") return { ...monthRange(), period: "month" };
   if (qp.period === "current") return { ...currentWeek(), period: "current" };
-  if (qp.period === "prev") return { ...weekJustEnded(new Date(), 1), period: "prev" };
-  return { ...weekJustEnded(), period: "lastweek" }; // default: week just ended
+  if (qp.period === "prev") return { ...lastWeek(new Date(), 1), period: "prev" };
+  return { ...lastWeek(), period: "lastweek" }; // default: last completed week (matches Appt→Sales)
 }
 
 function cors(status, body) {
