@@ -36,6 +36,7 @@ export default function RepVisitHub() {
   const [photosFor, setPhotosFor] = useState(null);
   const [appts, setAppts] = useState(null);   // upcoming PA appointments this rep booked
   const [issues, setIssues] = useState(null); // this rep's cancelled / correction-needed deals
+  const [pay, setPay] = useState(null);       // William's pay report (weekly signups + cancels)
   const [err, setErr] = useState("");
 
   useEffect(() => {
@@ -140,6 +141,32 @@ export default function RepVisitHub() {
       setIssues(list);
     } catch (e) { setErr(e.message); setIssues([]); }
   };
+  // William's pay report: this-week active signups ($150 each) + his cancels
+  // (any time, so a misunderstanding can be put back on the inspection list).
+  const startPay = async () => {
+    setPay(null); setErr(""); setStage("pay");
+    try {
+      const SEL = "id,client_name,address,city,state,signed_at,cancelled_at,cancel_reason,lost_reason,correction_note,pa_notes_log,result";
+      const rowsById = new Map();
+      if (rep.jobnimbus_id) {
+        const { data } = await supabase.from("inspections").select(SEL)
+          .or(`sales_rep_id.eq.${rep.jobnimbus_id},original_sales_rep_id.eq.${rep.jobnimbus_id}`);
+        for (const r of (data || [])) rowsById.set(r.id, r);
+      }
+      if (rep.name) {
+        try {
+          const { data } = await supabase.from("inspections").select(SEL)
+            .or(`sales_rep_name.eq.${rep.name},original_sales_rep_name.eq.${rep.name}`);
+          for (const r of (data || [])) rowsById.set(r.id, r);
+        } catch { /* id match still applies */ }
+      }
+      const all = [...rowsById.values()];
+      const monIso = mondayEtIso();
+      const signups = all.filter((r) => !r.cancelled_at && (r.signed_at || "") >= monIso).sort((a, b) => new Date(b.signed_at || 0) - new Date(a.signed_at || 0));
+      const cancels = all.filter((r) => r.cancelled_at).sort((a, b) => new Date(b.cancelled_at || 0) - new Date(a.cancelled_at || 0));
+      setPay({ signups, cancels });
+    } catch (e) { setErr(e.message); setPay({ signups: [], cancels: [] }); }
+  };
   // Open photos — first pull any JN-only photos into Supabase (idempotent;
   // no-op if they're already app-side), so deals whose photos live only in
   // JobNimbus still show.
@@ -167,10 +194,11 @@ export default function RepVisitHub() {
         {stage === "pick-rep" && <PickRep reps={reps} onPick={pickRep} />}
         {stage === "choose" && <Choose rep={rep} onNew={() => {
           window.location.href = `/?intake=1&rep=${encodeURIComponent(rep.jobnimbus_id || "")}&repName=${encodeURIComponent(rep.name || "")}&repEmail=${encodeURIComponent(rep.email || "")}`;
-        }} onType={startType} onReferrals={startReferrals} onApptsBooked={startApptsBooked} onIssues={startIssues} />}
+        }} onType={startType} onReferrals={startReferrals} onApptsBooked={startApptsBooked} onIssues={startIssues} onPay={startPay} />}
         {stage === "referrals" && <ReferralsView referrals={referrals} rep={rep} onBack={() => setStage("choose")} />}
         {stage === "appts" && <ApptsBookedView appts={appts} rep={rep} onBack={() => setStage("choose")} />}
         {stage === "issues" && <IssuesView issues={issues} onBack={() => setStage("choose")} />}
+        {stage === "pay" && <PayReport pay={pay} rep={rep} api={api} onBack={() => setStage("choose")} onReload={startPay} />}
         {stage === "list" && <DealList type={visitType} deals={deals} onBack={() => setStage("choose")} onPick={(d) => { setDeal(d); setStage("panel"); }} />}
         {stage === "panel" && deal && (
           <Panel type={visitType} deal={deal} rep={rep} api={api} onBack={() => setStage("list")} onPhotos={() => openPhotos(deal)} />
@@ -224,7 +252,7 @@ function PickRep({ reps, onPick }) {
   );
 }
 
-function Choose({ rep, onNew, onType, onReferrals, onApptsBooked, onIssues }) {
+function Choose({ rep, onNew, onType, onReferrals, onApptsBooked, onIssues, onPay }) {
   const Btn = ({ color, emoji, label, sub, onClick }) => (
     <button onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", textAlign: "left", color: "#fff", background: color, border: "none", borderRadius: 14, padding: "16px 16px", marginBottom: 12, cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,.12)" }}>
       <span style={{ fontSize: 26 }}>{emoji}</span>
@@ -241,6 +269,10 @@ function Choose({ rep, onNew, onType, onReferrals, onApptsBooked, onIssues }) {
       <Btn color="#6d28d9" emoji="🤝" label="Referrals" sub="People you were referred to — who to sign up" onClick={onReferrals} />
       <Btn color="#0e7490" emoji="📅" label="Adjuster appts booked" sub="Upcoming PA appointments you've set" onClick={onApptsBooked} />
       <Btn color="#6b7280" emoji="⚠️" label="Cancelled / Needs correction" sub="Deals marked Lost or flagged to fix — see why" onClick={onIssues} />
+      {/* William's pay report — only for him. */}
+      {(rep.name || "").trim().toLowerCase() === "william hernandez" && (
+        <Btn color="#047857" emoji="💵" label="Pay Report" sub="This week's inspection signups ($150 each) + cancels" onClick={onPay} />
+      )}
     </div>
   );
 }
@@ -318,6 +350,89 @@ function IssuesView({ issues, onBack }) {
               </div>
             );
           })}</div>}
+    </div>
+  );
+}
+
+// William's pay report: this-week signups ($150 each) + his cancels (tap one to
+// read the notes and, if it was a misunderstanding, put it back on the
+// inspection list with a required note).
+function PayReport({ pay, rep, api, onBack, onReload }) {
+  const [openId, setOpenId] = useState(null);
+  const [noteFor, setNoteFor] = useState({});
+  const [busyId, setBusyId] = useState(null);
+  const [err, setErr] = useState("");
+  const [doneMsg, setDoneMsg] = useState("");
+  const RATE = 150;
+  const signups = pay?.signups || [];
+  const cancels = pay?.cancels || [];
+  const total = signups.length * RATE;
+  const fmtDay = (iso) => new Date(iso).toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" });
+  const notesOf = (r) => [r.cancel_reason, r.lost_reason, r.correction_note, ...(Array.isArray(r.pa_notes_log) ? r.pa_notes_log.map((n) => n.text || n) : [])].filter(Boolean);
+  const reinstate = async (r) => {
+    const note = (noteFor[r.id] || "").trim();
+    if (!note) { setErr("Add a note explaining why before putting it back."); return; }
+    setBusyId(r.id); setErr("");
+    try {
+      await api("reinstate-inspection", { inspection_id: r.id, note, rep_name: rep.name });
+      setDoneMsg(`${r.client_name || "Deal"} put back on the inspection list.`);
+      setOpenId(null);
+      await onReload();
+    } catch (e) { setErr(e.message); }
+    setBusyId(null);
+  };
+  return (
+    <div>
+      <BackBar onBack={onBack} title="Pay Report" />
+      {pay === null ? <p style={{ textAlign: "center", color: "#9ca3af", fontSize: 14, padding: "24px 0" }}>Loading…</p> : (
+        <>
+          {doneMsg && <div style={{ background: "#ecfdf5", border: "1px solid #a7f3d0", color: "#065f46", borderRadius: 12, padding: "10px 12px", fontSize: 14, fontWeight: 700, marginBottom: 12 }}>✓ {doneMsg}</div>}
+          {err && <div style={S.err}>{err}</div>}
+          <div style={{ background: "#047857", color: "#fff", borderRadius: 14, padding: "16px 18px", marginBottom: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, opacity: 0.9 }}>This week's inspection signups</div>
+            <div style={{ fontSize: 30, fontWeight: 800, fontFamily: "'Oswald',sans-serif" }}>${total.toLocaleString()}</div>
+            <div style={{ fontSize: 12.5, opacity: 0.9 }}>{signups.length} signup{signups.length === 1 ? "" : "s"} × $150</div>
+          </div>
+          {signups.length ? signups.map((r) => (
+            <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "11px 14px", marginBottom: 8 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 14.5 }}>{r.client_name || "(no name)"}</div>
+                <div style={{ fontSize: 12.5, color: "#6b7280" }}>{[r.address, r.city].filter(Boolean).join(", ")}{r.signed_at ? ` · ${fmtDay(r.signed_at)}` : ""}</div>
+              </div>
+              <div style={{ fontWeight: 800, color: "#047857", fontSize: 15 }}>$150</div>
+            </div>
+          )) : <p style={{ fontSize: 13.5, color: "#6b7280", padding: "4px 2px 12px" }}>No signups yet this week.</p>}
+
+          <div style={{ fontSize: 13, fontWeight: 800, textTransform: "uppercase", letterSpacing: ".03em", color: "#9ca3af", margin: "16px 0 8px" }}>Cancelled ({cancels.length}) — tap to see why / put back</div>
+          {!cancels.length ? <p style={{ fontSize: 13.5, color: "#6b7280" }}>No cancels. 🎉</p> : cancels.map((r) => {
+            const open = openId === r.id;
+            const notes = notesOf(r);
+            return (
+              <div key={r.id} style={{ background: "#fff", border: "1px solid #fecaca", borderRadius: 12, padding: "11px 14px", marginBottom: 8 }}>
+                <button onClick={() => setOpenId(open ? null : r.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+                  <span style={{ minWidth: 0 }}>
+                    <span style={{ display: "block", fontWeight: 700, fontSize: 14.5, color: "#111827" }}>{r.client_name || "(no name)"}</span>
+                    <span style={{ display: "block", fontSize: 12.5, color: "#6b7280" }}>{[r.address, r.city].filter(Boolean).join(", ")}{r.cancelled_at ? ` · cancelled ${fmtDay(r.cancelled_at)}` : ""}</span>
+                  </span>
+                  <span style={{ color: "#9ca3af", flexShrink: 0, marginLeft: 8 }}>{open ? "▾" : "▸"}</span>
+                </button>
+                {open && (
+                  <div style={{ marginTop: 10 }}>
+                    {notes.length ? notes.map((n, i) => <div key={i} style={{ fontSize: 13, color: "#374151", background: "#f9fafb", border: "1px solid #f0f0f0", borderRadius: 8, padding: "8px 10px", marginBottom: 6 }}>{n}</div>) : <div style={{ fontSize: 12.5, color: "#9ca3af", marginBottom: 6 }}>No notes on file.</div>}
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: "#374151", margin: "8px 0 4px" }}>Put back on the inspection list? A note is required:</div>
+                    <textarea value={noteFor[r.id] || ""} onChange={(e) => setNoteFor((m) => ({ ...m, [r.id]: e.target.value }))} rows={2} placeholder="e.g. Homeowner confirmed they still want it — cancelled by mistake."
+                      style={{ width: "100%", boxSizing: "border-box", borderRadius: 10, border: "1px solid #d1d5db", padding: "8px 10px", fontSize: 14, fontFamily: "inherit", marginBottom: 8 }} />
+                    <button onClick={() => reinstate(r)} disabled={busyId === r.id}
+                      style={{ width: "100%", background: NAVY, color: "#fff", border: "none", borderRadius: 10, padding: "11px 0", fontSize: 14.5, fontWeight: 800, cursor: "pointer", opacity: busyId === r.id ? 0.6 : 1 }}>
+                      {busyId === r.id ? "Putting back…" : "↩️ Put back on inspection list"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </>
+      )}
     </div>
   );
 }
@@ -565,6 +680,16 @@ function ApptsBookedView({ appts, rep, onBack }) {
           ))}</div>}
     </div>
   );
+}
+// Monday 00:00 ET (start of the current pay week) as a UTC ISO string.
+function mondayEtIso() {
+  const f = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", weekday: "short" });
+  const p = {}; for (const x of f.formatToParts(new Date())) p[x.type] = x.value;
+  const wmap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  const back = (wmap[p.weekday] + 6) % 7;   // days since Monday
+  const guess = Date.UTC(+p.year, +p.month - 1, +p.day - back, 0, 0);
+  const asEt = new Date(new Date(guess).toLocaleString("en-US", { timeZone: "America/New_York" }));
+  return new Date(guess + (guess - asEt.getTime())).toISOString();
 }
 function ymdET(d = new Date()) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
