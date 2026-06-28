@@ -516,6 +516,19 @@ function DamagePanel({ deal, rep, api }) {
       setDone(`Marked Not Interested (BTR - NI). Removed from your list.`);
     } catch (e) { setErr(e.message); setNi(false); }
   };
+  // Going retail at the door → flip the deal to Retail in JN + book the
+  // appointment in one shot (damage-to-retail).
+  const [goRetail, setGoRetail] = useState(false);
+  const [picking, setPicking] = useState("");
+  const retailDays = useMemo(() => buildRetailDays(14), []);
+  const pickRetail = async (slot) => {
+    setPicking(slot.iso); setErr("");
+    try {
+      await api("damage-to-retail", { inspection_id: deal.inspection_id, start_at_iso: slot.iso, rep_jobnimbus_id: rep.jobnimbus_id, booked_by: rep.name });
+      setDone(`Switched to Retail — appointment set for ${slot.label}. JobNimbus updated.`);
+    } catch (e) { setErr(e.message); }
+    setPicking("");
+  };
   if (done) return <div style={S.done}>✓ {done}</div>;
   if (slots === null) return <p style={{ textAlign: "center", color: "#9ca3af", padding: "16px 0", fontSize: 14 }}>Loading availability…</p>;
 
@@ -539,12 +552,39 @@ function DamagePanel({ deal, rep, api }) {
           </div>
         </div>
       )}
-      <button type="button" disabled={ni || !!booking} onClick={markNotInterested}
-        style={{ width: "100%", marginBottom: 12, border: "1px solid #dc2626", color: "#dc2626", background: "#fff", borderRadius: 12, padding: "11px 14px", fontSize: 14, fontWeight: 800, cursor: "pointer", opacity: ni ? 0.6 : 1 }}>
-        {ni ? "Saving…" : "🚫 Not Interested"}
-      </button>
-      <p style={{ fontSize: 14, fontWeight: 700, color: "#374151", margin: "0 0 8px" }}>…or pick a day & time for the PA to come out:</p>
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <button type="button" disabled={ni || !!booking} onClick={markNotInterested}
+          style={{ flex: 1, border: "1px solid #dc2626", color: "#dc2626", background: "#fff", borderRadius: 12, padding: "11px 8px", fontSize: 13.5, fontWeight: 800, cursor: "pointer", opacity: ni ? 0.6 : 1 }}>
+          {ni ? "Saving…" : "🚫 Not Interested"}
+        </button>
+        <button type="button" disabled={!!booking || !!picking} onClick={() => { setGoRetail((v) => !v); setErr(""); }}
+          style={{ flex: 1, border: "1px solid #b45309", color: goRetail ? "#fff" : "#b45309", background: goRetail ? "#b45309" : "#fff", borderRadius: 12, padding: "11px 8px", fontSize: 13.5, fontWeight: 800, cursor: "pointer" }}>
+          🏠 Going retail
+        </button>
+      </div>
       {err && <div style={{ color: "#b91c1c", fontSize: 14, marginBottom: 8 }}>{err}</div>}
+      {goRetail ? (
+        <div>
+          <p style={{ fontSize: 14, fontWeight: 700, color: "#374151", margin: "0 0 8px" }}>🏠 Going retail — pick a retail appointment time. This switches the deal to Retail in JobNimbus and books it.</p>
+          <div style={{ maxHeight: "55vh", overflowY: "auto" }}>
+            {retailDays.map((day) => (
+              <div key={day.key} style={{ marginBottom: 14 }}>
+                <p style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", color: "#9ca3af", margin: "0 0 6px" }}>{day.label}</p>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {day.slots.map((s) => (
+                    <button key={s.iso} disabled={!!picking} onClick={() => pickRetail(s)}
+                      style={{ border: "1px solid #d97706", color: "#d97706", background: "#fff", borderRadius: 12, padding: "9px 14px", fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: picking ? 0.6 : 1 }}>
+                      {picking === s.iso ? "…" : s.time}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+      <>
+      <p style={{ fontSize: 14, fontWeight: 700, color: "#374151", margin: "0 0 8px" }}>…or pick a day & time for the PA to come out:</p>
       <div style={{ maxHeight: "55vh", overflowY: "auto" }}>
         {dayKeys.map((k) => {
           const isToday = k === todayKey;
@@ -569,6 +609,8 @@ function DamagePanel({ deal, rep, api }) {
           );
         })}
       </div>
+      </>
+      )}
     </div>
   );
 }
