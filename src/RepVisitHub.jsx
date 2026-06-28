@@ -161,9 +161,14 @@ export default function RepVisitHub() {
         } catch { /* id match still applies */ }
       }
       const all = [...rowsById.values()];
-      // Keep ALL his non-cancelled signed deals so the report can page by week.
-      const signed = all.filter((r) => !r.cancelled_at && r.signed_at).sort((a, b) => new Date(b.signed_at) - new Date(a.signed_at));
-      const cancels = all.filter((r) => r.cancelled_at).sort((a, b) => new Date(b.cancelled_at || 0) - new Date(a.cancelled_at || 0));
+      // Once a deal has been INSPECTED (result = damage/no_damage/retail), the
+      // $150 is locked — a later "No Sale / Lost" by the rep doesn't claw it
+      // back (not William's fault). So a cancelled-BUT-inspected deal still
+      // counts as a paid signup; only a cancel that was NEVER inspected reduces
+      // his pay (and shows in the cancels list for review/reinstate).
+      const inspected = (r) => ["damage", "no_damage", "retail"].includes(r.result);
+      const signed = all.filter((r) => r.signed_at && (!r.cancelled_at || inspected(r))).sort((a, b) => new Date(b.signed_at) - new Date(a.signed_at));
+      const cancels = all.filter((r) => r.cancelled_at && !inspected(r)).sort((a, b) => new Date(b.cancelled_at || 0) - new Date(a.cancelled_at || 0));
       setPay({ signed, cancels });
     } catch (e) { setErr(e.message); setPay({ signups: [], cancels: [] }); }
   };
@@ -410,7 +415,7 @@ function PayReport({ pay, rep, api, onBack, onReload }) {
           {signups.length ? signups.map((r) => (
             <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "11px 14px", marginBottom: 8 }}>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontWeight: 700, fontSize: 14.5 }}>{r.client_name || "(no name)"}</div>
+                <div style={{ fontWeight: 700, fontSize: 14.5 }}>{r.client_name || "(no name)"}{r.cancelled_at ? <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 800, color: "#047857", background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: 999, padding: "1px 7px", whiteSpace: "nowrap" }}>✓ inspected — still counts</span> : null}</div>
                 <div style={{ fontSize: 12.5, color: "#6b7280" }}>{[r.address, r.city].filter(Boolean).join(", ")}{r.signed_at ? ` · ${fmtDay(r.signed_at)}` : ""}</div>
               </div>
               <div style={{ fontWeight: 800, color: "#047857", fontSize: 15 }}>$150</div>
