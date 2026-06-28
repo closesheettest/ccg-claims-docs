@@ -7494,11 +7494,23 @@ function CancelReviewPage({ inspectionId }) {
   const [busy, setBusy] = useState("");
   const [done, setDone] = useState("");
   const [retailNote, setRetailNote] = useState(""); // required to Send to Retail
+  const [repPhone, setRepPhone] = useState(null);   // sales rep's phone (for click-to-call)
   useEffect(() => {
-    supabase.from("inspections")
-      .select("id,client_name,address,city,state,cancel_review_note,cancel_review_by,cancel_review_at,cancel_review_pending,cancelled_at,result")
-      .eq("id", inspectionId).maybeSingle()
-      .then(({ data }) => setInsp(data || null)).catch(() => setInsp(null));
+    (async () => {
+      const { data } = await supabase.from("inspections")
+        .select("id,client_name,address,city,state,cancel_review_note,cancel_review_by,cancel_review_at,cancel_review_pending,cancelled_at,result,sales_rep_name,original_sales_rep_name,sales_rep_id,original_sales_rep_id")
+        .eq("id", inspectionId).maybeSingle().catch(() => ({ data: null }));
+      setInsp(data || null);
+      // Look up the rep's phone (by JN id, then name) so the manager can call.
+      const repId = data?.sales_rep_id || data?.original_sales_rep_id;
+      const repName = data?.sales_rep_name || data?.original_sales_rep_name;
+      if (repId || repName) {
+        const conds = [repId && `jobnimbus_id.eq.${repId}`, repName && `name.eq.${repName}`].filter(Boolean).join(",");
+        const { data: reps } = await supabase.from("sales_reps").select("name,phone").or(conds).limit(1).catch(() => ({ data: null }));
+        const ph = reps?.[0]?.phone;
+        if (ph && String(ph).trim()) setRepPhone(String(ph).trim());
+      }
+    })();
   }, [inspectionId]);
   const decide = async (decision) => {
     setBusy(decision);
@@ -7525,6 +7537,12 @@ function CancelReviewPage({ inspectionId }) {
         <div style={{ fontSize: 16, fontWeight: 800, marginTop: 12 }}>{insp.client_name || "(no name)"}</div>
         <div style={{ fontSize: 13, color: "#6b7280" }}>📍 {[insp.address, insp.city, insp.state].filter(Boolean).join(", ") || "—"}</div>
         <div style={{ fontSize: 12.5, color: "#9ca3af", marginTop: 4 }}>Reported by {insp.cancel_review_by || "inspector"}</div>
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: "#374151", marginTop: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          👤 Rep: {insp.sales_rep_name || insp.original_sales_rep_name || "—"}
+          {repPhone
+            ? <a href={`tel:${repPhone.replace(/[^\d+]/g, "")}`} style={{ color: "#0e7490", fontWeight: 800, textDecoration: "none", background: "#ecfeff", border: "1px solid #a5f3fc", borderRadius: 8, padding: "4px 10px" }}>📞 {repPhone}</a>
+            : <span style={{ color: "#9ca3af", fontWeight: 600 }}>· no number on file</span>}
+        </div>
         <div style={{ fontSize: 14, color: "#374151", background: "#f9fafb", border: "1px solid #eee", borderRadius: 10, padding: "12px 14px", marginTop: 12, fontStyle: "italic" }}>“{insp.cancel_review_note || "(no note)"}”</div>
         {handled ? (
           <div style={{ marginTop: 16, fontSize: 14, fontWeight: 700, color: insp.cancelled_at ? "#991b1b" : "#047857" }}>
