@@ -14676,31 +14676,52 @@ if (!hasDamage) {
         {view === "manager" ? (
           <Card>
             <CardHeader>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <CardTitle>Manager Settings</CardTitle>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setManagerUnlocked(false);
-                    setManagerPinEntry("");
-                    setView("input");
-                  }}
-                  style={{
-                    background: "transparent",
-                    border: "1px solid #d1d5db",
-                    borderRadius: 10,
-                    padding: "6px 14px",
-                    fontSize: 12,
-                    fontFamily: "'Oswald', sans-serif",
-                    fontWeight: 600,
-                    letterSpacing: "0.04em",
-                    color: "#6b7280",
-                    cursor: "pointer",
-                    textTransform: "uppercase",
-                  }}
-                >
-                  ← Back
-                </button>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => { window.location.href = "/?mode=admin"; }}
+                    style={{
+                      background: "#1a2e5a",
+                      border: "1px solid #1a2e5a",
+                      borderRadius: 10,
+                      padding: "6px 14px",
+                      fontSize: 12,
+                      fontFamily: "'Oswald', sans-serif",
+                      fontWeight: 700,
+                      letterSpacing: "0.04em",
+                      color: "#fff",
+                      cursor: "pointer",
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    🛠 Admin Dashboard
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setManagerUnlocked(false);
+                      setManagerPinEntry("");
+                      setView("input");
+                    }}
+                    style={{
+                      background: "transparent",
+                      border: "1px solid #d1d5db",
+                      borderRadius: 10,
+                      padding: "6px 14px",
+                      fontSize: 12,
+                      fontFamily: "'Oswald', sans-serif",
+                      fontWeight: 600,
+                      letterSpacing: "0.04em",
+                      color: "#6b7280",
+                      cursor: "pointer",
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    ← Back
+                  </button>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
