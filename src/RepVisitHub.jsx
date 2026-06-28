@@ -367,7 +367,10 @@ function PayReport({ pay, rep, api, onBack, onReload }) {
   const RATE = 150;
   const wk = weekRange(weekOffset);
   const signups = (pay?.signed || []).filter((r) => r.signed_at >= wk.startIso && r.signed_at < wk.endIso);
-  const cancels = pay?.cancels || [];
+  // Cancels are scoped to the SAME pay week (by the SIGN date) — a cancel only
+  // affects the pay for the week the deal signed in. Pay lags a week, so ◀ to
+  // last week shows the cancels behind the check he just got.
+  const cancels = (pay?.cancels || []).filter((r) => (r.signed_at || "") >= wk.startIso && (r.signed_at || "") < wk.endIso);
   const total = signups.length * RATE;
   const fmtDay = (iso) => new Date(iso).toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" });
   const notesOf = (r) => [r.cancel_reason, r.lost_reason, r.correction_note, ...(Array.isArray(r.pa_notes_log) ? r.pa_notes_log.map((n) => n.text || n) : [])].filter(Boolean);
@@ -414,8 +417,9 @@ function PayReport({ pay, rep, api, onBack, onReload }) {
             </div>
           )) : <p style={{ fontSize: 13.5, color: "#6b7280", padding: "4px 2px 12px" }}>No signups in this week.</p>}
 
-          <div style={{ fontSize: 13, fontWeight: 800, textTransform: "uppercase", letterSpacing: ".03em", color: "#9ca3af", margin: "16px 0 8px" }}>Cancelled ({cancels.length}) — tap to see why / put back</div>
-          {!cancels.length ? <p style={{ fontSize: 13.5, color: "#6b7280" }}>No cancels. 🎉</p> : cancels.map((r) => {
+          <div style={{ fontSize: 13, fontWeight: 800, textTransform: "uppercase", letterSpacing: ".03em", color: "#9ca3af", margin: "16px 0 4px" }}>Cancelled this week ({cancels.length}) — these reduce this week's pay</div>
+          <div style={{ fontSize: 11.5, color: "#9ca3af", margin: "0 0 8px" }}>You're paid the Friday after each week. Use ◀ to check a week you've already been paid for. Tap a cancel to see why / put it back.</div>
+          {!cancels.length ? <p style={{ fontSize: 13.5, color: "#6b7280" }}>No cancels this week. 🎉</p> : cancels.map((r) => {
             const open = openId === r.id;
             const notes = notesOf(r);
             return (
