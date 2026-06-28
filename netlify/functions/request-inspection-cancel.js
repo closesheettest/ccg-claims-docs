@@ -48,20 +48,27 @@ exports.handler = async (event) => {
     });
     if (!up.ok) return cors(500, JSON.stringify({ ok: false, error: `Save failed: ${(await up.text()).slice(0, 160)}` }));
 
-    // Text the manager a review link.
+    // Text the manager a review link. Return the SMS outcome so failures
+    // are visible (it used to be silent fire-and-forget).
     const base = (process.env.URL || process.env.PUBLIC_SITE_URL || "https://free-roof-inspections.netlify.app").replace(/\/$/, "");
     const mgrPhone = process.env.ADMIN_ALERT_PHONE;
-    if (mgrPhone) {
+    let smsSent = false, smsError = null;
+    if (!mgrPhone) {
+      smsError = "ADMIN_ALERT_PHONE not set";
+    } else {
       const link = `${base}/?cancel_review=${insp.id}`;
       const msg = `🚫 Cancel review: ${inspectorName} says ${insp.client_name || "a homeowner"}${insp.address ? ` (${insp.address})` : ""} cancelled.\n"${note}"\nReview & decide: ${link}`;
       try {
-        await fetch(`${base}/.netlify/functions/ghl-sms`, {
+        const r = await fetch(`${base}/.netlify/functions/ghl-sms`, {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ to: mgrPhone, name: "Manager", message: msg }),
         });
-      } catch { /* best-effort */ }
+        const jr = await r.json().catch(() => ({}));
+        smsSent = !!jr.success;
+        if (!smsSent) smsError = jr.error || `ghl-sms ${r.status}`;
+      } catch (e) { smsError = e.message || "fetch failed"; }
     }
-    return cors(200, JSON.stringify({ ok: true }));
+    return cors(200, JSON.stringify({ ok: true, sms_sent: smsSent, sms_error: smsError }));
   } catch (e) {
     return cors(500, JSON.stringify({ ok: false, error: e.message || "error" }));
   }
