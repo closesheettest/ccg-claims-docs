@@ -235,9 +235,9 @@ async function book(body) {
   // 4. Notify the PA + their company.
   const base = process.env.URL || process.env.DEPLOY_URL || process.env.PUBLIC_SITE_URL || "";
   const when = etLabel(startMs, endMs);
-  if (base && pa.phone) {
-    await sms(base, pa.phone, pa.name, `📅 New appointment: ${homeowner || "a homeowner"}${address ? ` — ${address}` : ""} on ${when}.${phone ? ` Homeowner: ${phone}.` : ""} (booked by ${bookedBy})`);
-  }
+  const paApptMsg = `📅 New appointment: ${homeowner || "a homeowner"}${address ? ` — ${address}` : ""} on ${when}.${phone ? ` Homeowner: ${phone}.` : ""} (booked by ${bookedBy})`;
+  if (base && pa.phone) await sms(base, pa.phone, pa.name, paApptMsg);
+  if (base && pa.email) await email(base, pa.email, "📅 New appointment booked for you", paApptMsg);
   if (pa.pa_company_id) {
     const co = (await sbGet(`pa_companies?id=eq.${encodeURIComponent(pa.pa_company_id)}&select=name,admin_name,admin_phone,email&limit=1`))[0];
     const coMsg = `📅 Appointment booked for ${pa.name}: ${homeowner || "a homeowner"}${address ? ` — ${address}` : ""} on ${when}.`;
