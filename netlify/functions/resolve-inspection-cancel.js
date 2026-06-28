@@ -25,11 +25,14 @@ exports.handler = async (event) => {
   try { body = JSON.parse(event.body || "{}"); } catch { return cors(400, JSON.stringify({ ok: false, error: "bad JSON" })); }
   const inspectionId = String(body.inspection_id || "").trim();
   const decision = String(body.decision || "").trim();
+  const managerNote = String(body.manager_note || "").trim();
   if (!inspectionId) return cors(400, JSON.stringify({ ok: false, error: "inspection_id required" }));
   if (!["cancel", "retail"].includes(decision)) return cors(400, JSON.stringify({ ok: false, error: "decision must be cancel | retail" }));
+  // Send-to-Retail must carry a manager note so the rep knows what's going on.
+  if (decision === "retail" && !managerNote) return cors(400, JSON.stringify({ ok: false, error: "A note is required to send to Retail." }));
 
   try {
-    const insp = (await sbGet(`inspections?id=eq.${encodeURIComponent(inspectionId)}&select=id,jn_job_id,client_name,cancel_review_note&limit=1`))[0];
+    const insp = (await sbGet(`inspections?id=eq.${encodeURIComponent(inspectionId)}&select=id,jn_job_id,client_name,cancel_review_note,pa_notes_log&limit=1`))[0];
     if (!insp) return cors(404, JSON.stringify({ ok: false, error: "inspection not found" }));
     const reviewNote = insp.cancel_review_note || "";
     const nowIso = new Date().toISOString();
@@ -44,12 +47,16 @@ exports.handler = async (event) => {
       };
       jnNote = `🚫 Homeowner cancellation CONFIRMED by manager. Reason: ${reviewNote}`;
     } else {
+      // Manager note → pa_notes_log (visible to the rep in the app) + JN.
+      const log = Array.isArray(insp.pa_notes_log) ? insp.pa_notes_log : [];
+      log.push({ at: nowIso, text: `🏠 Manager sent to Retail: ${managerNote}`, stage: null });
       patch = {
         result: "retail",
         result_at: nowIso,
         cancel_review_pending: false,
+        pa_notes_log: log,
       };
-      jnNote = `🏠 Manager review: not a cancel — sending to Retail. Inspector note: ${reviewNote}`;
+      jnNote = `🏠 Manager review → Retail. Note to rep: ${managerNote}${reviewNote ? ` (inspector said: ${reviewNote})` : ""}`;
     }
 
     const up = await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}`, {

@@ -7493,6 +7493,7 @@ function CancelReviewPage({ inspectionId }) {
   const [insp, setInsp] = useState(undefined); // undefined=loading · null=not found
   const [busy, setBusy] = useState("");
   const [done, setDone] = useState("");
+  const [retailNote, setRetailNote] = useState(""); // required to Send to Retail
   useEffect(() => {
     supabase.from("inspections")
       .select("id,client_name,address,city,state,cancel_review_note,cancel_review_by,cancel_review_at,cancel_review_pending,cancelled_at,result")
@@ -7504,11 +7505,11 @@ function CancelReviewPage({ inspectionId }) {
     try {
       const r = await fetch("/.netlify/functions/resolve-inspection-cancel", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inspection_id: inspectionId, decision }),
+        body: JSON.stringify({ inspection_id: inspectionId, decision, manager_note: retailNote.trim() }),
       });
       const o = await r.json().catch(() => ({}));
       if (!r.ok || !o.ok) { alert(o.error || "Failed."); setBusy(""); return; }
-      setDone(decision === "cancel" ? "✓ Cancellation confirmed — the deal is cancelled." : "✓ Sent to Retail.");
+      setDone(decision === "cancel" ? "✓ Cancellation confirmed — the deal is cancelled." : "✓ Sent to Retail — your note was sent to the rep + JobNimbus.");
     } catch { alert("Network error."); setBusy(""); }
   };
   const wrap = { minHeight: "100vh", background: "#f3f4f6", padding: "24px 16px", fontFamily: "system-ui,-apple-system,sans-serif", color: "#111827" };
@@ -7531,8 +7532,11 @@ function CancelReviewPage({ inspectionId }) {
           </div>
         ) : (
           <div style={{ display: "grid", gap: 10, marginTop: 18 }}>
-            <button onClick={() => decide("retail")} disabled={!!busy}
-              style={{ background: "#b45309", color: "#fff", border: "none", borderRadius: 12, padding: "14px 0", fontSize: 15.5, fontWeight: 800, cursor: "pointer", opacity: busy ? 0.6 : 1 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: "#374151" }}>Note to the rep — required to Send to Retail (shows in the app <b>and</b> JobNimbus):</div>
+            <textarea value={retailNote} onChange={(e) => setRetailNote(e.target.value)} rows={3} placeholder="e.g. Homeowner wants a retail quote — reach out to schedule a time."
+              style={{ width: "100%", boxSizing: "border-box", borderRadius: 10, border: "1px solid #d1d5db", padding: "10px 12px", fontSize: 14, fontFamily: "inherit", resize: "vertical" }} />
+            <button onClick={() => decide("retail")} disabled={!!busy || !retailNote.trim()}
+              style={{ background: "#b45309", color: "#fff", border: "none", borderRadius: 12, padding: "14px 0", fontSize: 15.5, fontWeight: 800, cursor: (busy || !retailNote.trim()) ? "default" : "pointer", opacity: (busy || !retailNote.trim()) ? 0.6 : 1 }}>
               {busy === "retail" ? "Saving…" : "🏠 Send to Retail (keep the deal)"}
             </button>
             <button onClick={() => { if (window.confirm("Confirm the homeowner cancelled? This cancels the deal.")) decide("cancel"); }} disabled={!!busy}

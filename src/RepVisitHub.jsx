@@ -475,6 +475,11 @@ function Panel({ type, deal, rep, api, onBack, onPhotos }) {
       <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "10px 12px", fontSize: 12.5, color: "#6b7280", marginBottom: 12 }}>
         {[deal.address, deal.city, deal.state].filter(Boolean).join(", ")}
         {deal.review_availability && <span style={{ display: "block", marginTop: 4, color: "#166534", fontWeight: 700 }}>🏠 Best time to come by: {deal.review_availability}</span>}
+        {(() => {
+          const log = Array.isArray(deal.pa_notes_log) ? deal.pa_notes_log : [];
+          const last = log.length ? (log[log.length - 1].text || log[log.length - 1]) : null;
+          return last ? <span style={{ display: "block", marginTop: 6, color: "#b45309", fontWeight: 700, fontStyle: "normal" }}>📝 {last}</span> : null;
+        })()}
       </div>
       <button onClick={viewPhotos} disabled={loadingPhotos} style={{ width: "100%", border: `1px solid ${NAVY}`, color: NAVY, background: "#fff", borderRadius: 12, padding: "11px 0", fontSize: 15, fontWeight: 700, marginBottom: 16, cursor: "pointer", opacity: loadingPhotos ? 0.6 : 1 }}>{loadingPhotos ? "Loading photos…" : "📷 View inspection photos"}</button>
       {type === "damage" && <DamagePanel deal={deal} rep={rep} api={api} />}
