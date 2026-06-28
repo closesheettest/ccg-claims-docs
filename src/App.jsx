@@ -7193,7 +7193,8 @@ function PaApptsReport() {
                 <div key={a.id} style={{ display: "grid", gridTemplateColumns: "70px 1fr", gap: 10, padding: "8px 10px", border: "1px solid #ede9fe", borderRadius: 10, background: "#faf5ff", marginBottom: 6 }}>
                   <div style={{ fontWeight: 800, fontSize: 13, color: "#5b21b6" }}>{apptTime(a.start_at)}</div>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 14, color: "#111827" }}>{a.homeowner_name || "—"} <span style={{ fontWeight: 600, color: "#7c3aed" }}>· {pasMap[a.pa_id] || "Unassigned PA"}</span></div>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: "#111827" }}>{a.homeowner_name || "—"}</div>
+                    <div style={{ fontSize: 12.5, fontWeight: 800, color: "#6d28d9", marginTop: 1 }}>👤 PA: {pasMap[a.pa_id] || "Unassigned"}</div>
                     {a.address && <div style={{ fontSize: 12.5, color: "#6b7280" }}>📍 {a.address}</div>}
                     <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 1 }}>
                       {a.homeowner_phone ? <a href={`tel:${String(a.homeowner_phone).replace(/[^\d+]/g, "")}`} style={{ color: "#0e7490", fontWeight: 700, textDecoration: "none" }}>📞 {a.homeowner_phone}</a> : "no phone"}
@@ -16991,11 +16992,13 @@ if (!hasDamage) {
                       </div>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         {[
-                          { label: "Last 7 Days", fn: () => { const t=new Date(); const s=new Date(t); s.setDate(t.getDate()-7); setAnalyticsStart(s.toISOString().split("T")[0]); setAnalyticsEnd(t.toISOString().split("T")[0]); } },
-                          { label: "Last 30 Days", fn: () => { const t=new Date(); const s=new Date(t); s.setDate(t.getDate()-30); setAnalyticsStart(s.toISOString().split("T")[0]); setAnalyticsEnd(t.toISOString().split("T")[0]); } },
-                          { label: "This Month", fn: () => { const t=new Date(); setAnalyticsStart(new Date(t.getFullYear(),t.getMonth(),1).toISOString().split("T")[0]); setAnalyticsEnd(t.toISOString().split("T")[0]); } },
-                          { label: "Last Month", fn: () => { const t=new Date(); const s=new Date(t.getFullYear(),t.getMonth()-1,1); const e=new Date(t.getFullYear(),t.getMonth(),0); setAnalyticsStart(s.toISOString().split("T")[0]); setAnalyticsEnd(e.toISOString().split("T")[0]); } },
-                          { label: "All Time", fn: () => { setAnalyticsStart("2024-01-01"); setAnalyticsEnd(new Date().toISOString().split("T")[0]); } },
+                          // Each quick range sets the inputs AND immediately runs the
+                          // report (pass the computed dates directly — setState is async).
+                          { label: "Last 7 Days", fn: () => { const t=new Date(); const s=new Date(t); s.setDate(t.getDate()-7); const a=s.toISOString().split("T")[0], b=t.toISOString().split("T")[0]; setAnalyticsStart(a); setAnalyticsEnd(b); fetchAnalytics(a,b); } },
+                          { label: "Last 30 Days", fn: () => { const t=new Date(); const s=new Date(t); s.setDate(t.getDate()-30); const a=s.toISOString().split("T")[0], b=t.toISOString().split("T")[0]; setAnalyticsStart(a); setAnalyticsEnd(b); fetchAnalytics(a,b); } },
+                          { label: "This Month", fn: () => { const t=new Date(); const a=new Date(t.getFullYear(),t.getMonth(),1).toISOString().split("T")[0], b=t.toISOString().split("T")[0]; setAnalyticsStart(a); setAnalyticsEnd(b); fetchAnalytics(a,b); } },
+                          { label: "Last Month", fn: () => { const t=new Date(); const a=new Date(t.getFullYear(),t.getMonth()-1,1).toISOString().split("T")[0]; const b=new Date(t.getFullYear(),t.getMonth(),0).toISOString().split("T")[0]; setAnalyticsStart(a); setAnalyticsEnd(b); fetchAnalytics(a,b); } },
+                          { label: "All Time", fn: () => { const a="2024-01-01", b=new Date().toISOString().split("T")[0]; setAnalyticsStart(a); setAnalyticsEnd(b); fetchAnalytics(a,b); } },
                         ].map(({ label, fn }) => (
                           <button key={label} type="button" onClick={fn}
                             style={{ padding: "6px 14px", borderRadius: 20, border: "1px solid #d1d5db", background: "#fff", color: "#374151", fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
