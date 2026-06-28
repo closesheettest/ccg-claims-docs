@@ -7501,14 +7501,17 @@ function CancelReviewPage({ inspectionId }) {
         .select("id,client_name,address,city,state,cancel_review_note,cancel_review_by,cancel_review_at,cancel_review_pending,cancelled_at,result,sales_rep_name,original_sales_rep_name,sales_rep_id,original_sales_rep_id")
         .eq("id", inspectionId).maybeSingle().catch(() => ({ data: null }));
       setInsp(data || null);
-      // Look up the rep's phone (by JN id, then name) so the manager can call.
+      // Rep phone lives in TMS (trainees) — surfaced by the rep-zones feed.
+      // Match by jobnimbus_id, then by name, so the manager can click-to-call.
       const repId = data?.sales_rep_id || data?.original_sales_rep_id;
-      const repName = data?.sales_rep_name || data?.original_sales_rep_name;
+      const repName = (data?.sales_rep_name || data?.original_sales_rep_name || "").trim().toLowerCase();
       if (repId || repName) {
-        const conds = [repId && `jobnimbus_id.eq.${repId}`, repName && `name.eq.${repName}`].filter(Boolean).join(",");
-        const { data: reps } = await supabase.from("sales_reps").select("name,phone").or(conds).limit(1).catch(() => ({ data: null }));
-        const ph = reps?.[0]?.phone;
-        if (ph && String(ph).trim()) setRepPhone(String(ph).trim());
+        try {
+          const res = await fetch("https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1");
+          const reps = (await res.json()).reps || [];
+          const match = (repId && reps.find((r) => r.jobnimbus_id === repId)) || reps.find((r) => (r.name || "").trim().toLowerCase() === repName);
+          if (match?.phone) setRepPhone(String(match.phone).trim());
+        } catch { /* no phone available */ }
       }
     })();
   }, [inspectionId]);
