@@ -34,6 +34,15 @@ const ZONE_ORDER = ["Zone 1", "Zone 2", "Zone 3", "Zone 4", "Internal Reps"];
 const TZ = "America/New_York";
 
 export const DEFAULT_CONFIG = { base_rate: 0.02, own_sale_rate: 0.01, irbad_rate: 0.20, irbad_bonus: 0.10, monthly_bonus: 0 };
+const RATE_KEYS = ["base_rate", "own_sale_rate", "irbad_rate", "irbad_bonus", "monthly_bonus"];
+function pickRates(c) { const o = {}; if (c) for (const k of RATE_KEYS) if (typeof c[k] === "number") o[k] = c[k]; return o; }
+// Effective rates for a region: defaults (top-level) overlaid by any
+// config.regions[zone] overrides. So a per-region monthly bonus (or any rate)
+// wins, and anything unset falls back to the global default.
+export function effectiveConfig(config, zone) {
+  const stored = config || {};
+  return { ...DEFAULT_CONFIG, ...pickRates(stored), ...pickRates((stored.regions && stored.regions[zone]) || {}) };
+}
 
 export const handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return cors(200, "");
@@ -50,7 +59,9 @@ export const handler = async (event) => {
     ]);
 
     const report = computeReport(soldJobs, zoneOf, zoneManager, config);
-    return cors(200, JSON.stringify({ ok: true, period, range: { start: start.toISOString(), end: end.toISOString() }, config, ...report }));
+    // Top-level config = the DEFAULT rates (per-region effective rates ride on
+    // each region object as region.config).
+    return cors(200, JSON.stringify({ ok: true, period, range: { start: start.toISOString(), end: end.toISOString() }, config: effectiveConfig(config, null), ...report }));
   } catch (e) {
     return cors(500, JSON.stringify({ ok: false, error: e.message || "error" }));
   }
@@ -58,7 +69,9 @@ export const handler = async (event) => {
 
 // ── Pay calc (pure — also imported by the local verifier) ──────────────────
 export function computeReport(soldJobs, zoneOf, zoneManager, config) {
-  const cfg = { ...DEFAULT_CONFIG, ...(config || {}) };
+  // Rates can be set per region: top-level keys are the default for every
+  // region; config.regions[zone] overrides any subset for that one region.
+  const effFor = (zone) => effectiveConfig(config, zone);
   const byZone = {}; // zone -> { repName -> { rep, jnId, is_manager, deals:[] } }
 
   for (const job of soldJobs) {
@@ -83,6 +96,7 @@ export function computeReport(soldJobs, zoneOf, zoneManager, config) {
     const rad = numOf(F, "Radiant Barrier Total Cost");
     const irbad = ins + rad;
     const roof = Math.max(0, contract - irbad);
+    const cfg = effFor(zone);
     const base_or = contract * cfg.base_rate;
     const own_or = isManager ? contract * cfg.own_sale_rate : 0;
     const irbad_or = irbad * (cfg.irbad_rate + cfg.irbad_bonus);
@@ -102,8 +116,9 @@ export function computeReport(soldJobs, zoneOf, zoneManager, config) {
       .sort((a, b) => b.totals.deal_or - a.totals.deal_or || a.rep.localeCompare(b.rep));
     const totals = sumDeals(reps.flatMap((r) => r.deals));
     const hasMgr = !!zoneManager[zone];
+    const cfg = effFor(zone);
     const monthly_bonus = round(hasMgr ? cfg.monthly_bonus : 0);
-    return { zone, manager: hasMgr ? zoneManager[zone].name : null, unassigned: !hasMgr, reps, totals, monthly_bonus, grand_or: round(totals.deal_or + monthly_bonus) };
+    return { zone, manager: hasMgr ? zoneManager[zone].name : null, unassigned: !hasMgr, reps, totals, monthly_bonus, grand_or: round(totals.deal_or + monthly_bonus), config: cfg };
   }).sort((a, b) => zoneRank(a.zone) - zoneRank(b.zone) || a.zone.localeCompare(b.zone));
 
   // Grand totals = MANAGER PAY only (managed regions). Unassigned/no-manager
