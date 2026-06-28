@@ -7496,24 +7496,31 @@ function CancelReviewPage({ inspectionId }) {
   const [retailNote, setRetailNote] = useState(""); // required to Send to Retail
   const [repPhone, setRepPhone] = useState(null);   // sales rep's phone (for click-to-call)
   useEffect(() => {
+    let cancelled = false;
     (async () => {
-      const { data } = await supabase.from("inspections")
-        .select("id,client_name,address,city,state,cancel_review_note,cancel_review_by,cancel_review_at,cancel_review_pending,cancelled_at,result,sales_rep_name,original_sales_rep_name,sales_rep_id,original_sales_rep_id")
-        .eq("id", inspectionId).maybeSingle().catch(() => ({ data: null }));
-      setInsp(data || null);
+      let data = null;
+      try {
+        const res = await supabase.from("inspections")
+          .select("id,client_name,address,city,state,cancel_review_note,cancel_review_by,cancel_review_at,cancel_review_pending,cancelled_at,result,sales_rep_name,original_sales_rep_name,sales_rep_id,original_sales_rep_id")
+          .eq("id", inspectionId).maybeSingle();
+        data = res?.data || null;
+      } catch { data = null; }
+      if (cancelled) return;
+      setInsp(data);
       // Rep phone lives in TMS (trainees) — surfaced by the rep-zones feed.
       // Match by jobnimbus_id, then by name, so the manager can click-to-call.
       const repId = data?.sales_rep_id || data?.original_sales_rep_id;
       const repName = (data?.sales_rep_name || data?.original_sales_rep_name || "").trim().toLowerCase();
       if (repId || repName) {
         try {
-          const res = await fetch("https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1");
-          const reps = (await res.json()).reps || [];
-          const match = (repId && reps.find((r) => r.jobnimbus_id === repId)) || reps.find((r) => (r.name || "").trim().toLowerCase() === repName);
-          if (match?.phone) setRepPhone(String(match.phone).trim());
+          const r = await fetch("https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1");
+          const reps = (await r.json()).reps || [];
+          const match = (repId && reps.find((x) => x.jobnimbus_id === repId)) || reps.find((x) => (x.name || "").trim().toLowerCase() === repName);
+          if (match?.phone && !cancelled) setRepPhone(String(match.phone).trim());
         } catch { /* no phone available */ }
       }
     })();
+    return () => { cancelled = true; };
   }, [inspectionId]);
   const decide = async (decision) => {
     setBusy(decision);
