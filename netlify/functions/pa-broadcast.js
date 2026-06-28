@@ -3,12 +3,16 @@
 // Admin "Notify PAs" — send a personalized email + SMS to every ACTIVE public
 // adjuster. Used from the admin section's PA-notification composer.
 //
-// Personalization tokens in the message: {name} {region} {radius}
+// Personalization tokens in the message AND the optional html template:
 //   {name}   → PA's first name
 //   {region} → their zones joined (or "your assigned region" if none set)
 //   {radius} → "<max_distance_miles> miles" (or "your set radius")
+//   {portal} → their working portal link (…/?mode=pa&pa=<id>)
+//   {link}   → their welcome/onboarding link (…/?pa_welcome=<id>)
 //
-// POST { token, subject, message, test_to? }
+// POST { token, subject, message, html?, test_to?, test_name? }
+//   message: plain-text body — used for SMS, and (when no html) auto-wrapped for email.
+//   html:    optional full HTML email template (tokens substituted per PA).
 //   test_to: an email/phone to send a single preview to instead of all PAs.
 //   → { ok, total, emailed, texted, errors? }
 //
@@ -43,7 +47,7 @@ exports.handler = async (event) => {
     let pas;
     if (body.test_to) {
       const t = String(body.test_to).trim();
-      pas = [{ name: "Test", email: t.includes("@") ? t : null, phone: t.includes("@") ? null : t, zones: [], max_distance_miles: null }];
+      pas = [{ id: body.test_id || "DEMO", name: body.test_name || "Test", email: t.includes("@") ? t : null, phone: t.includes("@") ? null : t, zones: [], max_distance_miles: null }];
     } else {
       let path = "pas?active=eq.true&select=id,name,email,phone,zones,max_distance_miles";
       if (companyId) path += `&pa_company_id=eq.${encodeURIComponent(companyId)}`;
@@ -52,11 +56,15 @@ exports.handler = async (event) => {
 
     let emailed = 0, texted = 0;
     const errors = [];
+    const htmlTpl = body.html ? String(body.html) : null; // optional full email template (tokens allowed)
     for (const pa of pas) {
       const link = base && pa.id ? `${base}/?pa_welcome=${pa.id}` : "";
-      const personal = fill(message, pa).replace(/\{link\}/gi, link);
+      const portal = base && pa.id ? `${base}/?mode=pa&pa=${pa.id}` : (base ? `${base}/?mode=pa` : "");
+      const repl = (s) => fill(s, pa).replace(/\{link\}/gi, link).replace(/\{portal\}/gi, portal);
+      const personal = repl(message);
       if (pa.email) {
-        const ok = await postOk(`${base}/.netlify/functions/send-email`, { to: pa.email, subject, html: toHtml(personal) });
+        const html = htmlTpl ? repl(htmlTpl) : toHtml(personal);
+        const ok = await postOk(`${base}/.netlify/functions/send-email`, { to: pa.email, subject, html });
         if (ok) emailed++; else errors.push(`email ${pa.name}`);
       }
       if (pa.phone) {
