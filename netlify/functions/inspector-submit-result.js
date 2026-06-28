@@ -52,6 +52,12 @@ exports.handler = async (event) => {
   const inspectorName = (body.inspector_name || "").trim();
   // Free-text reason, required only when result === "lost".
   const lostReason = (body.lost_reason || "").trim();
+  // No-inspection path: a "why we didn't physically inspect" note (tarp/obvious
+  // damage → Damage, or back-to-retail) that gets pushed to JN. And skipPaHandoff
+  // logs a Damage WITHOUT auto-firing the PA Ops Hub (reps work damage via the
+  // visit hub now). The hand-off code stays put for a future hybrid.
+  const note = (body.note || "").trim();
+  const skipPaHandoff = body.skip_pa_handoff === true;
   const photoPaths = Array.isArray(body.photo_paths) ? body.photo_paths : [];
   // Optional per-photo labels — when present, used as the JN file
   // description so attachments are named like "Left slope 1 damage"
@@ -379,8 +385,16 @@ exports.handler = async (event) => {
     }
   }
 
+  // Inspector's no-inspection note (tarp/obvious-damage or back-to-retail) → JN.
+  if (note && insp.jn_job_id) {
+    fetch(`${JN_BASE}/activities`, {
+      method: "POST", headers: jnHeaders,
+      body: JSON.stringify({ record_type_name: "Note", note: `🛠 Inspector (${inspectorName || "?"}): ${note}`, primary: { id: insp.jn_job_id, type: "job" }, related: [{ id: insp.jn_job_id, type: "job" }], is_status_change: false }),
+    }).catch((e) => console.warn("note push failed:", e.message));
+  }
+
   if (base) {
-    if (result === "damage") {
+    if (result === "damage" && !skipPaHandoff) {
       fetch(`${base}/.netlify/functions/send-to-pa-ops-hub`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

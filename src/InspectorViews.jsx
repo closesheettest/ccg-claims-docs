@@ -3724,6 +3724,8 @@ function InspectorJobDetail({ me, jobId, onBack }) {
   const [lostPanelOpen, setLostPanelOpen] = useState(false);
   const [lostReason, setLostReason] = useState("");
   const [lostSubmitting, setLostSubmitting] = useState(false);
+  // "No — can't inspect" note (tarp/retail/cancel paths). Required, pushed to JN.
+  const [noNote, setNoNote] = useState("");
 
   const slopeCountKey = (story, side) => `${story}_${side}`;
   const getSlopeCount = (story, side) => slopeCounts[slopeCountKey(story, side)] || 0;
@@ -3759,7 +3761,7 @@ function InspectorJobDetail({ me, jobId, onBack }) {
       return;
     }
     if (stage.kind === "front_house") {
-      setStage({ kind: "story_pick" });
+      setStage({ kind: "continue_gate" });
       return;
     }
     if (stage.kind === "story_pick") {
@@ -3924,8 +3926,13 @@ function InspectorJobDetail({ me, jobId, onBack }) {
     return [];
   }
 
-  async function submit() {
-    if (!resultChoice) {
+  async function submit(opts = {}) {
+    // opts (No-inspection paths): resultOverride ("damage"/"retail"), noteOverride
+    // (the "why we didn't inspect" note), skipPaHandoff (damage, don't auto-send
+    // to PA), cancelRequest (homeowner cancelled → manager review, no result set).
+    const { resultOverride, noteOverride, skipPaHandoff, cancelRequest } = opts;
+    const resultToSend = resultOverride || resultChoice;
+    if (!cancelRequest && !resultToSend) {
       setSubmitMsg({ kind: "error", text: "Pick a result first." });
       return;
     }
@@ -4039,17 +4046,14 @@ function InspectorJobDetail({ me, jobId, onBack }) {
 
       setSubmitProgress({ stage: "saving", uploaded: completed, total: photos.length });
 
-      // 2. Hand off to the server function for JN photo upload + PA PDN.
-      const res = await fetch("/.netlify/functions/inspector-submit-result", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          inspectionId: jobId,
-          result: resultChoice,
-          inspector_name: me.name,
-          photo_paths: uploadedPhotos.map((p) => p.path),
-          photo_labels: uploadedPhotos.map((p) => p.label),
-        }),
+      // 2. Hand off. Homeowner-cancel → review flow (manager decides); every
+      //    other result → record it (with optional no-inspection note / skip).
+      const fn = cancelRequest ? "request-inspection-cancel" : "inspector-submit-result";
+      const payload = cancelRequest
+        ? { inspectionId: jobId, note: noteOverride, inspector_name: me.name, photo_paths: uploadedPhotos.map((p) => p.path) }
+        : { inspectionId: jobId, result: resultToSend, inspector_name: me.name, photo_paths: uploadedPhotos.map((p) => p.path), photo_labels: uploadedPhotos.map((p) => p.label), ...(noteOverride ? { note: noteOverride } : {}), ...(skipPaHandoff ? { skip_pa_handoff: true } : {}) };
+      const res = await fetch(`/.netlify/functions/${fn}`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || !body.ok) {
@@ -4061,9 +4065,10 @@ function InspectorJobDetail({ me, jobId, onBack }) {
       setSubmitProgress(null);
       setSubmitMsg({
         kind: "success",
-        text:
-          `Done — inspection saved. ${body.jn_photos_uploaded || 0} of ${uploadedPhotos.length} photos pushed to JN.` +
-          (body.pa_pdn_fired ? " PA Ops Hub notified." : ""),
+        text: cancelRequest
+          ? "Sent to the manager — they'll confirm the cancel or send it to Retail."
+          : `Done — inspection saved. ${body.jn_photos_uploaded || 0} of ${uploadedPhotos.length} photos pushed to JN.` +
+            (body.pa_pdn_fired ? " PA Ops Hub notified." : ""),
       });
       setTimeout(() => {
         onBack();
@@ -4278,27 +4283,11 @@ function InspectorJobDetail({ me, jobId, onBack }) {
           opens so an inspector who arrives to a changed-mind homeowner
           can bail out without walking the photo wizard. Requires a reason,
           which we save and also push to JobNimbus (job → Lost + a Note). */}
-      {!lostPanelOpen ? (
-        <button
-          type="button"
-          onClick={() => { setSubmitMsg(null); setLostPanelOpen(true); }}
-          disabled={submitting}
-          style={{
-            alignSelf: "flex-start",
-            padding: "10px 14px",
-            background: "#fff",
-            color: "#991b1b",
-            border: "1px solid #fca5a5",
-            borderRadius: 10,
-            fontSize: 14,
-            fontWeight: 700,
-            cursor: submitting ? "default" : "pointer",
-            opacity: submitting ? 0.55 : 1,
-          }}
-        >
-          🚫 Homeowner backed out — mark Lost
-        </button>
-      ) : (
+      {/* The old "mark Lost" button is removed — inspectors now use the
+          "Continue inspection? No" gate (Tarp→Damage / Back to Retail /
+          Homeowner cancelled→manager review). The panel below is dead code
+          kept only so its state refs don't error; lostPanelOpen never opens. */}
+      {!lostPanelOpen ? null : (
         <section style={{ padding: 16, background: "#fef2f2", border: "2px solid #fca5a5", borderRadius: 12, display: "grid", gap: 12 }}>
           <div style={{ fontSize: 18, fontWeight: 700, color: "#991b1b" }}>
             🚫 Mark this inspection Lost
@@ -4403,7 +4392,7 @@ function InspectorJobDetail({ me, jobId, onBack }) {
         <WizardPhotoStep
           title="📷 Step 2 — Photo of the front of the house"
           subtitle="Back up far enough to see the WHOLE front of the house in the frame — roof + walls + driveway. Take ONE photo, straight-on if you can."
-          ctaLabel={reviewing ? REVISIT_CTA : "Got it — next: how many stories? →"}
+          ctaLabel={reviewing ? REVISIT_CTA : "Got it — next →"}
           ctaEnabled={stagePhotos.length >= 1}
           stagePhotos={stagePhotos}
           submitting={submitting}
@@ -4418,6 +4407,37 @@ function InspectorJobDetail({ me, jobId, onBack }) {
           onContinue={advance}
         />
       )}
+
+      {stage.kind === "continue_gate" && (
+        <section style={{ padding: 16, background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", display: "grid", gap: 12 }}>
+          <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Oswald', sans-serif", lineHeight: 1.2 }}>Continue with the inspection?</div>
+          <div style={{ fontSize: 14, color: "#6b7280", lineHeight: 1.5 }}>If you can get on the roof and inspect, tap Yes. If you can't — tarp on roof, obvious damage, it's a retail situation, or the homeowner cancelled — tap No.</div>
+          <button type="button" onClick={() => setStage({ kind: "story_pick" })}
+            style={{ background: "#16a34a", color: "#fff", border: "none", borderRadius: 12, padding: "16px 0", fontSize: 17, fontWeight: 800, cursor: "pointer" }}>✅ Yes — inspect the roof</button>
+          <button type="button" onClick={() => { setSubmitMsg(null); setStage({ kind: "no_inspection" }); }}
+            style={{ background: "#fff", color: "#991b1b", border: "1px solid #fca5a5", borderRadius: 12, padding: "16px 0", fontSize: 17, fontWeight: 800, cursor: "pointer" }}>🚫 No — can't inspect</button>
+        </section>
+      )}
+
+      {stage.kind === "no_inspection" && (() => {
+        const noBtn = (color, off) => ({ background: off ? "#cbd5e1" : color, color: "#fff", border: "none", borderRadius: 12, padding: "14px 16px", fontSize: 15.5, fontWeight: 800, cursor: off ? "default" : "pointer", textAlign: "left" });
+        const off = submitting || !noNote.trim();
+        return (
+          <section style={{ padding: 16, background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", display: "grid", gap: 12 }}>
+            <div style={{ fontSize: 20, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>Why didn't the inspection happen?</div>
+            <div style={{ fontSize: 13.5, color: "#6b7280" }}>A note is required — it's pushed to JobNimbus so the office knows what happened.</div>
+            <textarea value={noNote} onChange={(e) => setNoNote(e.target.value)} rows={4} placeholder="e.g. House is tarped, estimate already in progress." disabled={submitting}
+              style={{ width: "100%", padding: 12, fontSize: 15, border: "1px solid #d1d5db", borderRadius: 8, resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }} />
+            <button type="button" disabled={off} onClick={() => submit({ resultOverride: "damage", noteOverride: noNote.trim(), skipPaHandoff: true })} style={noBtn("#dc2626", off)}>⚠️ Tarp on roof / obvious damage → log as Damage</button>
+            <button type="button" disabled={off} onClick={() => submit({ resultOverride: "retail", noteOverride: noNote.trim() })} style={noBtn("#b45309", off)}>🏠 Back to Retail</button>
+            <button type="button" disabled={off} onClick={() => submit({ cancelRequest: true, noteOverride: noNote.trim() })} style={noBtn("#6b7280", off)}>🚫 Homeowner cancelled — send to manager to review</button>
+            <button type="button" disabled={submitting} onClick={() => setStage({ kind: "continue_gate" })} style={{ ...secondaryBtn, opacity: submitting ? 0.55 : 1 }}>← Back</button>
+            {submitMsg && (
+              <div style={{ padding: "10px 12px", borderRadius: 8, fontSize: 14, background: submitMsg.kind === "success" ? "#ecfdf5" : "#fff", border: `1px solid ${submitMsg.kind === "success" ? "#86efac" : "#fca5a5"}`, color: submitMsg.kind === "success" ? "#065f46" : "#991b1b" }}>{submitMsg.text}</div>
+            )}
+          </section>
+        );
+      })()}
 
       {stage.kind === "story_pick" && (
         <section style={{ padding: 16, background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", display: "grid", gap: 12 }}>

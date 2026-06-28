@@ -7486,6 +7486,66 @@ function PaWelcomePage({ paId }) {
   );
 }
 
+// Manager cancel-review page — /?cancel_review=<inspectionId>. Reached from the
+// text fired when an inspector hits "Homeowner cancelled." Manager reads the
+// note and chooses Confirm cancel or Send to Retail.
+function CancelReviewPage({ inspectionId }) {
+  const [insp, setInsp] = useState(undefined); // undefined=loading · null=not found
+  const [busy, setBusy] = useState("");
+  const [done, setDone] = useState("");
+  useEffect(() => {
+    supabase.from("inspections")
+      .select("id,client_name,address,city,state,cancel_review_note,cancel_review_by,cancel_review_at,cancel_review_pending,cancelled_at,result")
+      .eq("id", inspectionId).maybeSingle()
+      .then(({ data }) => setInsp(data || null)).catch(() => setInsp(null));
+  }, [inspectionId]);
+  const decide = async (decision) => {
+    setBusy(decision);
+    try {
+      const r = await fetch("/.netlify/functions/resolve-inspection-cancel", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inspection_id: inspectionId, decision }),
+      });
+      const o = await r.json().catch(() => ({}));
+      if (!r.ok || !o.ok) { alert(o.error || "Failed."); setBusy(""); return; }
+      setDone(decision === "cancel" ? "✓ Cancellation confirmed — the deal is cancelled." : "✓ Sent to Retail.");
+    } catch { alert("Network error."); setBusy(""); }
+  };
+  const wrap = { minHeight: "100vh", background: "#f3f4f6", padding: "24px 16px", fontFamily: "system-ui,-apple-system,sans-serif", color: "#111827" };
+  const card = { maxWidth: 480, margin: "0 auto", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: 22, boxShadow: "0 1px 3px rgba(0,0,0,.06)" };
+  if (insp === undefined) return <div style={wrap}><div style={card}>Loading…</div></div>;
+  if (insp === null) return <div style={wrap}><div style={card}>This review link isn't valid.</div></div>;
+  if (done) return <div style={wrap}><div style={{ ...card, textAlign: "center" }}><div style={{ fontSize: 18, fontWeight: 800, color: "#047857" }}>{done}</div></div></div>;
+  const handled = !insp.cancel_review_pending;
+  return (
+    <div style={wrap}>
+      <div style={card}>
+        <div style={{ fontFamily: "'Oswald',sans-serif", fontSize: 20, fontWeight: 800, color: "#991b1b" }}>🚫 Homeowner-cancel review</div>
+        <div style={{ fontSize: 16, fontWeight: 800, marginTop: 12 }}>{insp.client_name || "(no name)"}</div>
+        <div style={{ fontSize: 13, color: "#6b7280" }}>📍 {[insp.address, insp.city, insp.state].filter(Boolean).join(", ") || "—"}</div>
+        <div style={{ fontSize: 12.5, color: "#9ca3af", marginTop: 4 }}>Reported by {insp.cancel_review_by || "inspector"}</div>
+        <div style={{ fontSize: 14, color: "#374151", background: "#f9fafb", border: "1px solid #eee", borderRadius: 10, padding: "12px 14px", marginTop: 12, fontStyle: "italic" }}>“{insp.cancel_review_note || "(no note)"}”</div>
+        {handled ? (
+          <div style={{ marginTop: 16, fontSize: 14, fontWeight: 700, color: insp.cancelled_at ? "#991b1b" : "#047857" }}>
+            Already handled — {insp.cancelled_at ? "cancelled." : `result: ${insp.result || "updated"}.`}
+          </div>
+        ) : (
+          <div style={{ display: "grid", gap: 10, marginTop: 18 }}>
+            <button onClick={() => decide("retail")} disabled={!!busy}
+              style={{ background: "#b45309", color: "#fff", border: "none", borderRadius: 12, padding: "14px 0", fontSize: 15.5, fontWeight: 800, cursor: "pointer", opacity: busy ? 0.6 : 1 }}>
+              {busy === "retail" ? "Saving…" : "🏠 Send to Retail (keep the deal)"}
+            </button>
+            <button onClick={() => { if (window.confirm("Confirm the homeowner cancelled? This cancels the deal.")) decide("cancel"); }} disabled={!!busy}
+              style={{ background: "#dc2626", color: "#fff", border: "none", borderRadius: 12, padding: "14px 0", fontSize: 15.5, fontWeight: 800, cursor: "pointer", opacity: busy ? 0.6 : 1 }}>
+              {busy === "cancel" ? "Saving…" : "🚫 Confirm cancel"}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   // Early-return URL param routing for one-off public pages — these
   // don't share state with the rest of the App, so we short-circuit
@@ -7592,6 +7652,12 @@ export default function App() {
     const paWelcome = params.get("pa_welcome");
     if (paWelcome && paWelcome.trim()) {
       return <PaWelcomePage paId={paWelcome.trim()} />;
+    }
+
+    // /?cancel_review=<id> — manager reviews an inspector's homeowner-cancel.
+    const cancelReview = params.get("cancel_review");
+    if (cancelReview && cancelReview.trim()) {
+      return <CancelReviewPage inspectionId={cancelReview.trim()} />;
     }
 
     // /?jn_queue=<token> — U.S. Shingle "Add to JobNimbus" queue: copy-paste
