@@ -45,7 +45,7 @@ exports.handler = async (event) => {
       const t = String(body.test_to).trim();
       pas = [{ name: "Test", email: t.includes("@") ? t : null, phone: t.includes("@") ? null : t, zones: [], max_distance_miles: null }];
     } else {
-      let path = "pas?active=eq.true&select=name,email,phone,zones,max_distance_miles";
+      let path = "pas?active=eq.true&select=id,name,email,phone,zones,max_distance_miles";
       if (companyId) path += `&pa_company_id=eq.${encodeURIComponent(companyId)}`;
       pas = await sbGet(path);
     }
@@ -53,7 +53,8 @@ exports.handler = async (event) => {
     let emailed = 0, texted = 0;
     const errors = [];
     for (const pa of pas) {
-      const personal = fill(message, pa);
+      const link = base && pa.id ? `${base}/?pa_welcome=${pa.id}` : "";
+      const personal = fill(message, pa).replace(/\{link\}/gi, link);
       if (pa.email) {
         const ok = await postOk(`${base}/.netlify/functions/send-email`, { to: pa.email, subject, html: toHtml(personal) });
         if (ok) emailed++; else errors.push(`email ${pa.name}`);

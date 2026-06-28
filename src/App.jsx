@@ -7079,16 +7079,11 @@ function AppUpdateAnnouncer() {
 // global visit_token (read from app_settings) so pa-broadcast sends company-wide.
 function PaNotifyCard() {
   const [open, setOpen] = useState(false);
-  const [subject, setSubject] = useState("How you get roof appointments — please set up your coverage");
+  const [subject, setSubject] = useState("Important: how you get appointments + your quick setup");
   const [msg, setMsg] = useState(
-    "Hi {name}, here's how appointments get sent to you — and what we need you to set up. Our system matches each homeowner to a PA automatically based on THREE things, so please make sure all three are correct in your PA portal:\n\n" +
-    "1) YOUR COAST. Florida is split into West Coast and East Coast. You're only offered appointments on the coast(s) you cover. Yours is currently set to: {region}.\n\n" +
-    "2) YOUR TRAVEL RADIUS. We only send you homeowners within about {radius} of your HOME address. If your home address or radius is wrong, you'll get appointments too far away — or none at all.\n\n" +
-    "3) YOUR AVAILABILITY. You're available for every standard time slot by default. In your portal under \"My Availability,\" block off any days/times you CAN'T do (weekly or one-off) and keep it up to date.\n\n" +
-    "Put simply: a rep can only book you when a homeowner is on your coast, within your radius, AND in an open time slot on your calendar.\n\n" +
-    "Please log in to your PA portal now and double-check your coast, home address, travel radius, and weekly availability are all correct.\n\n" +
-    "NEW: from now on, every time a rep books you an appointment, you'll automatically get a TEXT and an EMAIL with the homeowner, address, and time.\n\n" +
-    "Thank you!",
+    "Hi {name}! Quick but important — here's how roof appointments reach you and the short setup we need from you. Please open this and follow the steps:\n\n" +
+    "{link}\n\n" +
+    "Your portal link is inside. Questions? Just reply. Thank you!",
   );
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState("");
@@ -7120,7 +7115,7 @@ function PaNotifyCard() {
         {open && (
           <div style={{ marginTop: 12 }}>
             <div style={{ fontSize: 12.5, color: "#6b7280", marginBottom: 10 }}>
-              Personalized <b>email + text</b> to <b>all active PAs</b>. Use <code>{"{name}"}</code> <code>{"{region}"}</code> <code>{"{radius}"}</code> — each PA's own values fill in.
+              Personalized <b>email + text</b> to <b>all active PAs</b>. Use <code>{"{link}"}</code> (their welcome page), <code>{"{name}"}</code>, <code>{"{region}"}</code>, <code>{"{radius}"}</code> — each PA's own values fill in.
             </div>
             <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Email subject" style={{ ...fld, height: 44, marginBottom: 8 }} />
             <textarea value={msg} onChange={(e) => setMsg(e.target.value)} rows={10} style={{ ...fld, fontFamily: "inherit", lineHeight: 1.45, resize: "vertical" }} />
@@ -7435,6 +7430,61 @@ function AdminDashboard() {
   );
 }
 
+// PA welcome / onboarding page — /?pa_welcome=<paId>. Personalized: explains
+// how appointments are matched (coast + radius + availability), how to log
+// milestone dates as they happen, and links into their own portal. This is the
+// page the welcome text / Notify-PAs link points at.
+function PaWelcomePage({ paId }) {
+  const [pa, setPa] = useState(undefined); // undefined=loading · null=not found
+  useEffect(() => {
+    supabase.from("pas").select("id,name,zones,max_distance_miles").eq("id", paId).maybeSingle()
+      .then(({ data }) => setPa(data || null)).catch(() => setPa(null));
+  }, [paId]);
+  const NAVY = "#1a2e5a", TEAL = "#0e7490";
+  const wrap = { minHeight: "100vh", background: "#f3f4f6", padding: "24px 16px 64px", fontFamily: "system-ui,-apple-system,sans-serif", color: "#111827" };
+  const card = { maxWidth: 560, margin: "0 auto", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: 24, boxShadow: "0 1px 3px rgba(0,0,0,.06)" };
+  if (pa === undefined) return <div style={wrap}><div style={card}>Loading…</div></div>;
+  if (pa === null) return <div style={wrap}><div style={card}>This link isn't valid. Please ask your U.S. Shingle contact for a new one.</div></div>;
+  const first = (pa.name || "there").split(" ")[0];
+  const region = Array.isArray(pa.zones) && pa.zones.length ? pa.zones.join(", ") : "(not set yet — please set this)";
+  const radius = pa.max_distance_miles ? `${pa.max_distance_miles} miles` : "(not set yet — please set this)";
+  const portal = `/?mode=pa&pa=${pa.id}`;
+  const step = (n, title, body) => (
+    <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
+      <div style={{ flexShrink: 0, width: 28, height: 28, borderRadius: 999, background: NAVY, color: "#fff", fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>{n}</div>
+      <div><div style={{ fontWeight: 800, fontSize: 15, marginBottom: 2 }}>{title}</div><div style={{ fontSize: 14, color: "#374151", lineHeight: 1.5 }}>{body}</div></div>
+    </div>
+  );
+  const h = (t) => <div style={{ fontFamily: "'Oswald',sans-serif", fontSize: 16, fontWeight: 700, color: NAVY, margin: "20px 0 10px" }}>{t}</div>;
+  return (
+    <div style={wrap}>
+      <div style={card}>
+        <div style={{ fontFamily: "'Oswald',sans-serif", fontSize: 24, fontWeight: 800, color: NAVY }}>Welcome, {first}! 🎉</div>
+        <p style={{ fontSize: 15, color: "#374151", lineHeight: 1.5 }}>You're set up as a U.S. Shingle &amp; Metal partner public adjuster. Here's exactly how roof appointments reach you — and the few things to set up so you get the right ones.</p>
+
+        {h("How appointments reach you")}
+        {step(1, "Your coast", <>Florida is split into <b>West Coast</b> and <b>East Coast</b>. You're only offered appointments on the coast(s) you cover. Yours: <b>{region}</b>.</>)}
+        {step(2, "Your travel radius", <>We only send you homeowners within about <b>{radius}</b> of your <b>home address</b>. If your address or radius is wrong, you'll get appointments too far away — or none.</>)}
+        {step(3, "Your availability", <>You're open for every standard time slot by default. In the portal under <b>"My Availability,"</b> block off any days/times you can't do — and keep it current.</>)}
+
+        <div style={{ background: "#f0fdfa", border: "1px solid #99f6e4", borderRadius: 12, padding: "12px 14px", fontSize: 14, color: "#0f766e", margin: "6px 0 4px" }}>
+          A rep can only book you when a homeowner is <b>on your coast</b>, <b>within your radius</b>, and in an <b>open slot</b> on your calendar. Keep all three current and you'll get the most appointments.
+        </div>
+
+        {h("As your deals come in")}
+        <p style={{ fontSize: 14, color: "#374151", lineHeight: 1.5, marginTop: 0 }}>Inside the portal you'll see your damage deals. <b>Fill in each milestone date as it happens</b> — PA filed, INS approved, ISS uploaded, advances, etc. Don't wait or do them in batches; enter each date the day it happens. Every entry updates the U.S. Shingle main system automatically (no double entry).</p>
+
+        <div style={{ fontSize: 13.5, color: "#6b7280", background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 10, padding: "10px 12px", marginTop: 4 }}>
+          📲 <b>New:</b> every time a rep books you an appointment, you'll automatically get a text and an email with the homeowner, address, and time.
+        </div>
+
+        <a href={portal} style={{ display: "block", textAlign: "center", background: TEAL, color: "#fff", borderRadius: 12, padding: "15px 0", fontSize: 16, fontWeight: 800, textDecoration: "none", marginTop: 20 }}>Open my PA portal →</a>
+        <p style={{ fontSize: 12.5, color: "#94a3b8", textAlign: "center", marginTop: 12 }}>Tip: once it opens, add it to your home screen — iPhone: Share → "Add to Home Screen"; Android: ⋮ → "Add to Home screen".</p>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   // Early-return URL param routing for one-off public pages — these
   // don't share state with the rest of the App, so we short-circuit
@@ -7534,6 +7584,13 @@ export default function App() {
     const paCompanyToken = params.get("pa_company");
     if (paCompanyToken && paCompanyToken.trim()) {
       return <PACompanyAdminPage token={paCompanyToken.trim()} />;
+    }
+
+    // /?pa_welcome=<paId> — the PA onboarding/welcome page (linked from the
+    // welcome text + Notify-PAs broadcast).
+    const paWelcome = params.get("pa_welcome");
+    if (paWelcome && paWelcome.trim()) {
+      return <PaWelcomePage paId={paWelcome.trim()} />;
     }
 
     // /?jn_queue=<token> — U.S. Shingle "Add to JobNimbus" queue: copy-paste

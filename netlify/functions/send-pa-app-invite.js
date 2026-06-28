@@ -59,7 +59,9 @@ exports.handler = async (event) => {
   // Personal link — carries this PA's id so the portal logs THEM in (and
   // overrides any other PA's session left on the device). Each PA gets their
   // own link; it should never land on someone else's portal.
-  const link = `${base}/?mode=pa&pa=${pa.id}`;
+  // Link to the personalized WELCOME page (explains how appointments are matched
+  // + how to log dates), which itself has the button into their portal.
+  const link = `${base}/?pa_welcome=${pa.id}`;
   // Wording differs for company PAs (their admin assigns) vs independents
   // (the system auto-assigns directly).
   const assignedClause = pa.pa_company_id
@@ -84,14 +86,9 @@ exports.handler = async (event) => {
   }).catch(() => {});
 
   const messageBody =
-    `Hi ${pa.name}, you're set up as a U.S. Shingle and Metal partner Public Adjuster.\n\n` +
-    `📱 Open your portal: ${link}\n\n` +
-    `Inside you'll see the damage deals ${assignedClause}. Fill in each ` +
-    `milestone (PA filed, INS approved, etc.) as it happens — it updates the ` +
-    `U.S. Shingle main system.\n\n` +
-    `Save it to your home screen:\n` +
-    `• iPhone (Safari): Share → "Add to Home Screen"\n` +
-    `• Android (Chrome): ⋮ menu → "Add to Home screen"`;
+    `Welcome to U.S. Shingle & Metal, ${pa.name}! 🎉\n\n` +
+    `Here's how appointments reach you and the quick setup we need — please open this and follow the steps:\n${link}\n\n` +
+    `Your portal link is inside. Questions? Just reply.`;
   const subject = "Your U.S. Shingle & Metal adjuster portal";
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#0f172a;">
@@ -103,7 +100,7 @@ exports.handler = async (event) => {
            style="display:inline-block;padding:14px 24px;background:#0e7490;color:#fff;
                   text-decoration:none;border-radius:10px;font-weight:700;
                   letter-spacing:0.04em;">
-          Open Adjuster portal →
+          Get started →
         </a>
       </p>
       <p style="font-size:13px;color:#64748b;">
