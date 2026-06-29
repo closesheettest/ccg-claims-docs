@@ -301,7 +301,7 @@ function Choose({ rep, onNew, onType, onReferrals, onApptsBooked, onIssues, onPa
   return (
     <div>
       <p style={{ fontSize: 14, color: "#6b7280", margin: "0 0 14px" }}>Hi {rep.name.split(" ")[0]} — what are you here to do?</p>
-      <Btn color="#0e7490" emoji="📅" label="My calendar" sub="Your appointments + set when you're available" onClick={onCalendar} />
+      {!isWilliam && <Btn color="#0e7490" emoji="📅" label="My calendar" sub="Your appointments + set when you're available" onClick={onCalendar} />}
       <Btn color={NAVY} emoji="📝" label="New inspection" sub="Sign a new free roof inspection" onClick={onNew} />
       {!isWilliam && <Btn color="#b8324f" emoji="🏚️" label="Damage visit" sub="Set the PA appointment to start their claim" onClick={() => onType("damage")} />}
       {!isWilliam && <Btn color="#16a34a" emoji="✅" label="No-Damage visit" sub="Get referrals + send their certificate" onClick={() => onType("no_damage")} />}
