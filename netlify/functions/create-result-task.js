@@ -94,6 +94,11 @@ exports.handler = async (event) => {
         method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify({ result_task_jnid: taskId }),
       }).catch(() => {});
     }
+    // Also record the SCHEDULED time (separate, tolerant patch) so lists show the
+    // actual go-back time instead of re-resolving the homeowner's availability.
+    fetch(`${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(id)}`, {
+      method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify({ result_task_at: new Date(when).toISOString() }),
+    }).catch(() => {});
 
     return cors(200, JSON.stringify({ ok: true, created: true, task_id: taskId, type: TYPE_NAME[result], when: new Date(when).toISOString() }));
   } catch (e) {

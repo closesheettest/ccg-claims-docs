@@ -43,7 +43,7 @@ exports.handler = async (event) => {
     // SELECT 400s and we'd get zero deals. Try with it, fall back without it.
     const SEL_BASE = "id,client_name,address,city,state,zip,mobile,email,jn_job_id,latitude,longitude,result,result_at,pa_id,pa_signed_at,pa_stage,docs_signed,jn_status,pa_notes_log";
     const tail = `&result=eq.${result}&cancelled_at=is.null&or=(${conds.join(",")})&order=result_at.desc&limit=500`;
-    let rows = await sbGet(`inspections?select=${SEL_BASE},review_availability,referral_outcome,retail_outcome${tail}`);
+    let rows = await sbGet(`inspections?select=${SEL_BASE},review_availability,referral_outcome,retail_outcome,result_task_at${tail}`);
     if (!rows.length) rows = await sbGet(`inspections?select=${SEL_BASE}${tail}`);
 
     // Damage list: a rep is going out to PUSH the homeowner to start their claim.
@@ -84,7 +84,7 @@ exports.handler = async (event) => {
       return {
         inspection_id: r.id, client_name: r.client_name, address: r.address, city: r.city, state: r.state, zip: r.zip,
         mobile: r.mobile, email: r.email, jn_job_id: r.jn_job_id, latitude: r.latitude, longitude: r.longitude,
-        distance_mi: dist, result: r.result, result_at: r.result_at, pa_id: r.pa_id, review_availability: r.review_availability,
+        distance_mi: dist, result: r.result, result_at: r.result_at, pa_id: r.pa_id, review_availability: r.review_availability, result_task_at: r.result_task_at,
         pa_notes_log: Array.isArray(r.pa_notes_log) ? r.pa_notes_log : null,
       };
     });

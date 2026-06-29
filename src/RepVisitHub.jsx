@@ -16,6 +16,20 @@ const TYPE_LABEL = { damage: "Damage", no_damage: "No Damage", retail: "Retail" 
 // Fri · 5 PM", "Any day · 2 PM"). When the homeowner is open to MULTIPLE days,
 // collapse to the FIRST AVAILABLE upcoming day at that hour (ET) — same rule the
 // JN go-back task uses. A single preferred day is left exactly as entered.
+// What to show for "when": the actual SCHEDULED go-back time if one's booked
+// (result_task_at — distinct per deal), else the homeowner's first-available
+// preference. Fixes two deals showing the same resolved availability day.
+function goBackDisplay(d) {
+  if (d && d.result_task_at) {
+    try {
+      const dt = new Date(d.result_task_at);
+      const day = dt.toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "short", month: "numeric", day: "numeric" });
+      const time = dt.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: true });
+      return `${day} · ${time}`;
+    } catch { /* fall through */ }
+  }
+  return firstAvailableGoBack(d && d.review_availability);
+}
 function firstAvailableGoBack(s) {
   if (!s) return s;
   const [daysPart, timePart] = String(s).split(" · ").map((x) => (x || "").trim());
@@ -508,7 +522,7 @@ function DealList({ type, deals, onBack, onPick }) {
             <button key={d.inspection_id} onClick={() => onPick(d)} style={{ ...S.repBtn, paddingTop: 11, paddingBottom: 11 }}>
               <span style={{ display: "block", fontWeight: 700 }}>{d.client_name}</span>
               <span style={{ display: "block", fontSize: 12.5, color: "#6b7280", fontWeight: 400 }}>{[d.address, d.city].filter(Boolean).join(", ")}</span>
-              <span style={{ display: "block", fontSize: 11.5, color: "#9ca3af", fontWeight: 700 }}>{d.distance_mi != null ? `${d.distance_mi} mi away` : "distance unknown"}{d.review_availability ? ` · 🏠 ${firstAvailableGoBack(d.review_availability)}` : ""}</span>
+              <span style={{ display: "block", fontSize: 11.5, color: "#9ca3af", fontWeight: 700 }}>{d.distance_mi != null ? `${d.distance_mi} mi away` : "distance unknown"}{(d.result_task_at || d.review_availability) ? ` · 🏠 ${goBackDisplay(d)}` : ""}</span>
             </button>
           ))}</div>}
     </div>
@@ -523,7 +537,7 @@ function Panel({ type, deal, rep, api, onBack, onPhotos }) {
       <BackBar onBack={onBack} title={deal.client_name} />
       <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "10px 12px", fontSize: 12.5, color: "#6b7280", marginBottom: 12 }}>
         {[deal.address, deal.city, deal.state].filter(Boolean).join(", ")}
-        {deal.review_availability && <span style={{ display: "block", marginTop: 4, color: "#166534", fontWeight: 700 }}>🏠 Best time to come by: {firstAvailableGoBack(deal.review_availability)}</span>}
+        {(deal.result_task_at || deal.review_availability) && <span style={{ display: "block", marginTop: 4, color: "#166534", fontWeight: 700 }}>🏠 {deal.result_task_at ? "Scheduled" : "Best time to come by"}: {goBackDisplay(deal)}</span>}
         {(() => {
           const log = Array.isArray(deal.pa_notes_log) ? deal.pa_notes_log : [];
           const last = log.length ? (log[log.length - 1].text || log[log.length - 1]) : null;
