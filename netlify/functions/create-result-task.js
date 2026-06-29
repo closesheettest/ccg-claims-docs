@@ -55,10 +55,13 @@ exports.handler = async (event) => {
     if (!insp.jn_job_id) return cors(200, JSON.stringify({ ok: true, skipped: "no JobNimbus job yet" }));
     if (!JN_KEY) return cors(200, JSON.stringify({ ok: true, skipped: "no JN key" }));
 
-    // Don't put the rep in two places at once: collect the day+hour slots they
-    // already have go-back appointments on, then pick the soonest FREE allowed day.
-    const busy = await repBusySlots(insp.sales_rep_id || insp.original_sales_rep_id, id);
-    const when = nextGoBackMs(insp.review_availability, busy);
+    // Don't put the rep in two places at once, and respect the times they've
+    // marked off on their calendar: gather already-booked slots + blocked slots,
+    // then pick the soonest FREE, available, allowed day.
+    const repForSched = insp.sales_rep_id || insp.original_sales_rep_id;
+    const busy = await repBusySlots(repForSched, id);
+    const blocked = await repBlockedSlots(repForSched);
+    const when = nextGoBackMs(insp.review_availability, busy, blocked);
     if (!when) return cors(200, JSON.stringify({ ok: true, skipped: `no usable go-back time in "${insp.review_availability || ""}"` }));
 
     // Idempotency (best-effort): skip if we already recorded a result task.
@@ -103,7 +106,7 @@ exports.handler = async (event) => {
 // already booked on (busy = Set of "Y-M-D@hour"). Multi-day availabilities spread
 // across days instead of stacking. If every free day is taken (rare), we fall
 // back to the soonest match so the deal still gets a go-back. null if unparseable.
-function nextGoBackMs(reviewAvail, busy = new Set()) {
+function nextGoBackMs(reviewAvail, busy = new Set(), blocked = new Set()) {
   const s = String(reviewAvail || "");
   if (!s.includes(" · ")) return null;
   const [daysPart, timePart] = s.split(" · ").map((x) => x.trim());
@@ -124,7 +127,7 @@ function nextGoBackMs(reviewAvail, busy = new Set()) {
     for (let d = 0; d < 28; d++) {
       const { y, mo, day, weekday } = etParts(now + d * 864e5);
       if (!days.includes(weekday)) continue;
-      if (avoid && busy.has(`${y}-${mo}-${day}@${hour}`)) continue;
+      if (avoid && (blocked.has(`${weekday}:${hour * 60}`) || busy.has(`${y}-${mo}-${day}@${hour}`))) continue;
       const ms = Date.parse(etToISO(y, mo, day, hour));
       if (ms > now + 60 * 60 * 1000) return ms;
     }
@@ -151,6 +154,17 @@ async function repBusySlots(repId, excludeId) {
     } catch { /* ignore */ }
   }
   return busy;
+}
+// Slots the rep marked OFF on their calendar (rep_slot_blocks). Keyed
+// "weekday:startMin". Empty if the table/rep/blocks don't exist (tolerant).
+async function repBlockedSlots(repJnid) {
+  const blocked = new Set();
+  if (!repJnid) return blocked;
+  const rep = (await sbGet(`sales_reps?jobnimbus_id=eq.${encodeURIComponent(repJnid)}&select=id&limit=1`))[0];
+  if (!rep) return blocked;
+  const rows = await sbGet(`rep_slot_blocks?rep_id=eq.${encodeURIComponent(rep.id)}&select=weekday,start_min&limit=2000`);
+  for (const r of rows) blocked.add(`${r.weekday}:${r.start_min}`);
+  return blocked;
 }
 // "Y-M-D@hour" (ET) for an existing appointment's ms — must match the key built
 // from etParts + target hour in nextGoBackMs.
