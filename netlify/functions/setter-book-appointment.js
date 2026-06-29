@@ -64,7 +64,15 @@ exports.handler = async (event) => {
   try {
     // 1. Contact — use the matched one, or create.
     let contactId = String(body.contact_id || "").trim();
-    const c = body.contact || {};
+    let c = body.contact || {};
+    // Existing contact: pull its name + address so the job is named/addressed
+    // (and findable). Without this the job lands as a nameless "Homeowner".
+    if (contactId) {
+      try {
+        const got = await jnGet(`contacts/${contactId}`);
+        if (got && (got.jnid || got.id)) c = { first_name: got.first_name || "", last_name: got.last_name || "", address: got.address_line1 || "", city: got.city || "", state: got.state_text || got.state || "", zip: got.zip || "" };
+      } catch { /* fall back to whatever was passed */ }
+    }
     const fullName = `${c.first_name || ""} ${c.last_name || ""}`.trim() || "Homeowner";
     if (!contactId) {
       const payload = {
@@ -143,6 +151,11 @@ async function pickRep(token, lat, lng, county, iso) {
   return { id: null, name: "" };
 }
 
+async function jnGet(path) {
+  const r = await fetch(`${JN_BASE}/${path}`, { headers: jnH });
+  if (!r.ok) throw new Error(`JN GET ${path} ${r.status}`);
+  return r.json();
+}
 async function jnPost(path, payload) {
   const r = await fetch(`${JN_BASE}/${path}`, { method: "POST", headers: jnH, body: JSON.stringify(payload) });
   const txt = await r.text();
