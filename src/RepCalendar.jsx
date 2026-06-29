@@ -29,6 +29,7 @@ export default function RepCalendar({ rep, token, onClose }) {
   const [date, setDate] = useState(new Date());
   const [events, setEvents] = useState([]);
   const [dateBlocks, setDateBlocks] = useState(new Set()); // "YYYY-MM-DD:startMin" — date-specific
+  const [availOpen, setAvailOpen] = useState(false); // availability editor collapsed by default
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
@@ -113,8 +114,14 @@ export default function RepCalendar({ rep, token, onClose }) {
 
       {/* Date-specific availability editor — block a slot (or a whole day) for a
           SPECIFIC date only, e.g. "this Saturday's 9am" or "this whole Saturday". */}
-      <div style={{ border: "1px solid #e2e8f0", borderRadius: 12, padding: 12, marginBottom: 12 }}>
-        <div style={{ fontWeight: 800, fontSize: 14, color: "#1a2e5a" }}>Set your availability{busy ? " · saving…" : ""}</div>
+      <div style={{ border: "1px solid #e2e8f0", borderRadius: 12, marginBottom: 12, overflow: "hidden" }}>
+        <button type="button" onClick={() => setAvailOpen((v) => !v)}
+          style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", background: "#f8fafc", border: "none", padding: 12, cursor: "pointer" }}>
+          <span style={{ fontWeight: 800, fontSize: 14, color: "#1a2e5a" }}>📅 Set your availability{busy ? " · saving…" : ""}</span>
+          <span style={{ fontSize: 13, fontWeight: 800, color: "#64748b" }}>{availOpen ? "▾ hide" : "▸ set"}</span>
+        </button>
+        {availOpen && (
+        <div style={{ padding: "0 12px 12px" }}>
         <div style={{ fontSize: 12, color: "#64748b", margin: "2px 0 10px" }}>You're available by default. Tap a time to block it <b>for that day only</b>, or block a whole day. <span style={{ color: "#16a34a", fontWeight: 700 }}>green = open</span> · <span style={{ color: "#dc2626", fontWeight: 700 }}>red = blocked</span></div>
         <div style={{ maxHeight: "42vh", overflowY: "auto" }}>
           {upcomingDays.map((day) => {
@@ -143,6 +150,8 @@ export default function RepCalendar({ rep, token, onClose }) {
             );
           })}
         </div>
+        </div>
+        )}
       </div>
 
       <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>Below is your live JobNimbus schedule (colored blocks = appointments).</div>
