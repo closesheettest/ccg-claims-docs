@@ -179,6 +179,7 @@ export default function SetterPortal({ Address }) {
         <div style={{ fontSize: 40 }}>✅</div>
         <div style={{ fontWeight: 900, fontSize: 18, color: "#166534", margin: "8px 0" }}>Appointment booked!</div>
         <div style={{ fontSize: 14, color: "#334155" }}>{client?.name} — {chosen?.when}</div>
+        {result.reset && <div style={{ fontSize: 13, color: "#1d4ed8", marginTop: 6, fontWeight: 700 }}>↻ Reschedule — booked as a Reset Appointment (this was a No-Sit lead).</div>}
         {result.out_of_range && <div style={{ fontSize: 13, color: "#92400e", marginTop: 6 }}>⚠️ Outside rep range — a manager will assign a rep.</div>}
         {result.jn_ok === false && <div style={{ fontSize: 13, color: "#b91c1c", marginTop: 6, fontWeight: 700 }}>⚠️ Saved here, but the JobNimbus sync failed — it's in your "Today" list for a manager to repair.</div>}
         <button onClick={reset} style={{ ...C.btn, background: "#1a2e5a", color: "#fff", marginTop: 16 }}>Set another appointment</button>

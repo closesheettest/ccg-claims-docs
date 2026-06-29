@@ -31,6 +31,8 @@ const RETAIL_LOCATION = 1;
 const APPT_STATUS = 531, APPT_STATUS_NAME = "Appointment Scheduled";
 const LEAD_RT = 45, LEAD_RT_NAME = "Lead";
 const APPT_TASK_RT = 4; // 4 = "Initial Appointment" (matches the rest of the JN calendar)
+const RESET_APPT_RT = 12; // 12 = "Reset Appointment" — used when rescheduling a No-Sit lead
+const NO_SIT_STATUS = 534; // "No Sit- Need to Reschedule" — booking onto this = a reset, not a new appt
 // Retail lead sources accepted from the setter (insurance sources NEED / INS /
 // Raw Insurance are intentionally not offered). Default → "Instant Quote".
 const SOURCES = new Set(["Instant Quote", "Facebook", "AI Bot", "Harvesting", "Self Generated", "IHFB", "Referral", "Yard Sign", "Web Search"]);
@@ -65,18 +67,25 @@ exports.handler = async (event) => {
 
   let c = body.contact || {};
   let contactId = String(body.contact_id || "").trim();
-  let jnOk = true, jnErr = "", jobId = null, taskId = null;
+  let jnOk = true, jnErr = "", jobId = null, taskId = null, isReset = false;
 
   // ── JobNimbus writes (best-effort) ──────────────────────────────────────
   // If any JN step fails we DON'T lose the booking — we still log it locally
   // below so the setter keeps a reference and a manager can repair JN.
   try {
     // 1. Contact — existing (pull its name/address so the job is named/findable) or create.
+    //    Also detect a "No Sit- Need to Reschedule" job on this homeowner: that
+    //    makes this a RESET (we re-set the existing deal, not open a new one).
     if (contactId) {
       try {
         const got = await jnGet(`contacts/${contactId}`);
         if (got && (got.jnid || got.id)) c = { first_name: got.first_name || "", last_name: got.last_name || "", mobile: got.mobile_phone || c.mobile, address: got.address_line1 || "", city: got.city || "", state: got.state_text || got.state || "", zip: got.zip || "" };
       } catch { /* fall back to whatever was passed */ }
+      try {
+        const jf = encodeURIComponent(JSON.stringify({ must: [{ term: { "primary.id": contactId } }] }));
+        const jr = await fetch(`${JN_BASE}/jobs?size=20&sort=-date_created&filter=${jf}`, { headers: jnH });
+        if (jr.ok) { const jd = await jr.json(); const j = (jd.results || []).find((x) => Number(x.status) === NO_SIT_STATUS); if (j) { jobId = j.jnid || j.id; isReset = true; } }
+      } catch { /* couldn't check status → treat as a normal new appointment */ }
     }
     const fullName = nameOf(c, body);
     if (!contactId) {
@@ -89,23 +98,29 @@ exports.handler = async (event) => {
       contactId = cr.jnid || cr.id;
       if (!contactId) throw new Error("contact create failed");
     }
-    // 2. Job — retail Lead, Appointment Scheduled.
-    const job = await jnPost("jobs", {
-      name: `${test ? "[TEST] " : ""}${fullName}${c.address ? ` - ${c.address}` : ""}`.trim(),
-      record_type: LEAD_RT, record_type_name: LEAD_RT_NAME,
-      status: APPT_STATUS, status_name: APPT_STATUS_NAME,
-      primary: { id: contactId }, location: { id: RETAIL_LOCATION },
-      source_name: source,
-      address_line1: c.address || "", city: (c.city || "").split(",")[0].trim(), state_text: c.state || "", zip: c.zip || "",
-      sales_rep: repId || undefined,
-      owners: [{ id: owner }],
-    });
-    jobId = job.jnid || job.id;
-    if (!jobId) throw new Error("job create failed");
-    // 3. Appointment task (start only — no end date).
+    // 2. Job — RESET the existing No-Sit deal in place, or create a new retail Lead.
+    if (isReset && jobId) {
+      await jnPut(`jobs/${jobId}`, { status: APPT_STATUS, status_name: APPT_STATUS_NAME, sales_rep: repId || undefined, owners: [{ id: owner }] });
+    } else {
+      const job = await jnPost("jobs", {
+        name: `${test ? "[TEST] " : ""}${fullName}${c.address ? ` - ${c.address}` : ""}`.trim(),
+        record_type: LEAD_RT, record_type_name: LEAD_RT_NAME,
+        status: APPT_STATUS, status_name: APPT_STATUS_NAME,
+        primary: { id: contactId }, location: { id: RETAIL_LOCATION },
+        source_name: source,
+        address_line1: c.address || "", city: (c.city || "").split(",")[0].trim(), state_text: c.state || "", zip: c.zip || "",
+        sales_rep: repId || undefined,
+        owners: [{ id: owner }],
+      });
+      jobId = job.jnid || job.id;
+      if (!jobId) throw new Error("job create failed");
+    }
+    // 3. Appointment task (start only — no end date). Reset Appointment when
+    //    rescheduling a No-Sit, otherwise Initial Appointment.
+    const apptRtName = isReset ? "Reset Appointment" : "Initial Appointment";
     const task = await jnPost("tasks", {
-      record_type: APPT_TASK_RT, record_type_name: "Initial Appointment", type: "task",
-      title: `Initial Appointment — ${fullName}`,
+      record_type: isReset ? RESET_APPT_RT : APPT_TASK_RT, record_type_name: apptRtName, type: "task",
+      title: `${apptRtName} — ${fullName}`,
       date_start: Math.floor(apptMs / 1000), date_end: 0,
       related: [{ id: jobId, type: "job" }], owners: [{ id: owner }],
     });
@@ -113,7 +128,7 @@ exports.handler = async (event) => {
     // 4. Who-set-it note.
     await jnPost("activities", {
       record_type_name: "Note",
-      note: `📞 Appointment set by ${setter} · source: ${source}${repId ? ` · rep: ${repName || repId}` : " · ⚠️ OUT OF RANGE — manager to assign a rep"}`,
+      note: `📞 ${isReset ? "Reset appointment (No-Sit reschedule)" : "Appointment"} set by ${setter} · source: ${source}${repId ? ` · rep: ${repName || repId}` : " · ⚠️ OUT OF RANGE — manager to assign a rep"}`,
       primary: { id: jobId, type: "job" }, related: [{ id: jobId, type: "job" }], is_status_change: false,
     }).catch(() => {});
   } catch (e) {
@@ -141,7 +156,7 @@ exports.handler = async (event) => {
     }).catch(() => {});
   }
 
-  return cors(200, JSON.stringify({ ok: true, jn_ok: jnOk, jn_error: jnOk ? undefined : jnErr, out_of_range: !repId, contact_id: contactId || null, job_id: jobId, task_id: taskId, assigned: repId ? (repName || "rep") : "Viviana (manager to assign)" }));
+  return cors(200, JSON.stringify({ ok: true, jn_ok: jnOk, jn_error: jnOk ? undefined : jnErr, out_of_range: !repId, reset: isReset, contact_id: contactId || null, job_id: jobId, task_id: taskId, assigned: repId ? (repName || "rep") : "Viviana (manager to assign)" }));
 };
 
 function nameOf(c, body) { return (`${c.first_name || ""} ${c.last_name || ""}`).trim() || String(body.homeowner_name || "").trim() || "Homeowner"; }
@@ -173,6 +188,12 @@ async function jnGet(path) {
   const r = await fetch(`${JN_BASE}/${path}`, { headers: jnH });
   if (!r.ok) throw new Error(`JN GET ${path} ${r.status}`);
   return r.json();
+}
+async function jnPut(path, payload) {
+  const r = await fetch(`${JN_BASE}/${path}`, { method: "PUT", headers: jnH, body: JSON.stringify(payload) });
+  const txt = await r.text();
+  if (!r.ok) throw new Error(`JN PUT ${path} ${r.status}: ${txt.slice(0, 200)}`);
+  try { return JSON.parse(txt); } catch { return {}; }
 }
 async function jnPost(path, payload) {
   const r = await fetch(`${JN_BASE}/${path}`, { method: "POST", headers: jnH, body: JSON.stringify(payload) });
