@@ -715,7 +715,15 @@ function RetailPanel({ deal, rep, api }) {
   const [err, setErr] = useState("");
   const [done, setDone] = useState(null);
   const [recording, setRecording] = useState("");
-  const days = useMemo(() => buildRetailDays(14), []);
+  // The rep's blocked slots (from their calendar) so the offered times match
+  // their availability — keyed "weekday:startMin".
+  const [blocked, setBlocked] = useState(() => new Set());
+  useEffect(() => {
+    if (!rep || !rep.id) return;
+    supabase.from("rep_slot_blocks").select("weekday,start_min").eq("rep_id", rep.id)
+      .then(({ data }) => setBlocked(new Set((data || []).map((b) => `${b.weekday}:${b.start_min}`))));
+  }, [rep && rep.id]);
+  const days = useMemo(() => buildRetailDays(14, blocked), [blocked]);
   const pick = async (slot) => {
     setPicking(slot.iso); setErr("");
     try {
@@ -829,12 +837,14 @@ function etToISO(y, mo, day, hour) {
   const asEt = new Date(new Date(guess).toLocaleString("en-US", { timeZone: "America/New_York" }));
   return new Date(guess + (guess - asEt.getTime())).toISOString();
 }
-function buildRetailDays(n) {
+function buildRetailDays(n, blocked = new Set()) {
   const now = Date.now(), out = [];
   for (let d = 0; d < n; d++) {
     const ms = now + d * 864e5;
     const { y, mo, day, weekday, wname } = etParts(ms);
-    const hours = RETAIL_HOURS[weekday] || [];
+    // Only the slots THIS rep is available for — drop the ones they blocked on
+    // their calendar (rep_slot_blocks, keyed "weekday:startMin").
+    const hours = (RETAIL_HOURS[weekday] || []).filter((h) => !blocked.has(`${weekday}:${h * 60}`));
     if (!hours.length) continue;
     const slots = hours.map((h) => ({ iso: etToISO(y, mo, day, h), time: `${((h + 11) % 12) + 1}${h < 12 ? "am" : "pm"}`, label: `${wname} ${mo}/${day} ${((h + 11) % 12) + 1}${h < 12 ? "am" : "pm"}` }))
       .filter((s) => Date.parse(s.iso) > now);
