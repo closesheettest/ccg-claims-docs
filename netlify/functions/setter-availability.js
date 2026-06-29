@@ -54,8 +54,11 @@ exports.handler = async (event) => {
       .map((r) => ({ ...r, distance_mi: Math.round(haversineMi(lat, lng, r.latitude, r.longitude) * 10) / 10 }))
       .filter((r) => r.distance_mi <= RADIUS_MI)
       .sort((a, b) => a.distance_mi - b.distance_mi);
+    const now = Date.now();
 
-    if (!near.length) return cors(200, JSON.stringify({ ok: true, reps: [], out_of_radius: true }));
+    // No qualified rep in range — the setter can still book; offer generic slots
+    // (the appt is owned by the setter for a manager to assign).
+    if (!near.length) return cors(200, JSON.stringify({ ok: true, reps: [], out_of_radius: true, generic_days: buildDays(now, days, new Set(), new Set()) }));
 
     // Map JN ids → sales_reps.id for date blocks.
     const jnids = near.map((r) => r.jobnimbus_id);
@@ -65,23 +68,11 @@ exports.handler = async (event) => {
     const dateBlockRows = repIds.length ? await sbGet(`rep_date_blocks?rep_id=in.(${repIds.map((x) => `"${x}"`).join(",")})&select=rep_id,date,start_min&limit=10000`) : [];
     const blocksByRep = {}; for (const b of dateBlockRows) (blocksByRep[b.rep_id] = blocksByRep[b.rep_id] || new Set()).add(`${b.date}:${b.start_min}`);
 
-    const now = Date.now();
     const reps = [];
     for (const r of near) {
       const blocked = blocksByRep[idByJn[r.jobnimbus_id]] || new Set();
       const booked = await repBookedSlots(r.jobnimbus_id, now, days);
-      const out = [];
-      for (let d = 0; d < days; d++) {
-        const { y, mo, day, weekday, wname } = etParts(now + d * 864e5);
-        const dateStr = `${y}-${String(mo).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-        const slots = (SLOT_HOURS[weekday] || []).filter((h) => {
-          if (blocked.has(`${dateStr}:${h * 60}`)) return false;
-          if (booked.has(`${dateStr}@${h}`)) return false;
-          return Date.parse(etToISO(y, mo, day, h)) > now + 60 * 60 * 1000;
-        }).map((h) => ({ hour: h, min: h * 60, label: hourLabel(h), iso: etToISO(y, mo, day, h) }));
-        if (slots.length) out.push({ date: dateStr, label: `${wname} ${mo}/${day}`, slots });
-      }
-      reps.push({ jobnimbus_id: r.jobnimbus_id, name: r.name, distance_mi: r.distance_mi, days: out });
+      reps.push({ jobnimbus_id: r.jobnimbus_id, name: r.name, distance_mi: r.distance_mi, days: buildDays(now, days, blocked, booked) });
     }
     return cors(200, JSON.stringify({ ok: true, reps, out_of_radius: false }));
   } catch (e) {
@@ -101,6 +92,21 @@ async function repBookedSlots(repJnid, nowMs, days) {
   return booked;
 }
 
+// Build the per-day open-slot list (default retail hours minus blocked minus booked, future only).
+function buildDays(nowMs, days, blocked, booked) {
+  const out = [];
+  for (let d = 0; d < days; d++) {
+    const { y, mo, day, weekday, wname } = etParts(nowMs + d * 864e5);
+    const dateStr = `${y}-${String(mo).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const slots = (SLOT_HOURS[weekday] || []).filter((h) => {
+      if (blocked.has(`${dateStr}:${h * 60}`)) return false;
+      if (booked.has(`${dateStr}@${h}`)) return false;
+      return Date.parse(etToISO(y, mo, day, h)) > nowMs + 60 * 60 * 1000;
+    }).map((h) => ({ hour: h, min: h * 60, label: hourLabel(h), iso: etToISO(y, mo, day, h) }));
+    if (slots.length) out.push({ date: dateStr, label: `${wname} ${mo}/${day}`, slots });
+  }
+  return out;
+}
 function fetchReps() { return fetch(REP_ZONES_URL).then((r) => r.ok ? r.json().then((j) => j.reps || []) : []).catch(() => []); }
 function haversineMi(la1, lo1, la2, lo2) { const R = 3958.8, t = (d) => d * Math.PI / 180; const dLa = t(la2 - la1), dLo = t(lo2 - lo1); const a = Math.sin(dLa / 2) ** 2 + Math.cos(t(la1)) * Math.cos(t(la2)) * Math.sin(dLo / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(a)); }
 function hourLabel(h) { return `${((h + 11) % 12) + 1} ${h < 12 ? "AM" : "PM"}`; }

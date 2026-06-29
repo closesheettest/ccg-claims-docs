@@ -14,6 +14,7 @@ import { PAMobileApp, PAAdminPanel, FloridaZoneMap } from "./PAViews";
 import { TeamRolesPanel } from "./TeamRolesPanel";
 import InspectionPhotosModal from "./InspectionPhotosModal";
 import RepVisitHub from "./RepVisitHub";
+import SetterPortal from "./SetterPortal";
 import ReviewApptPicker from "./ReviewApptPicker";
 import JnMatchPickerModal from "./JnMatchPickerModal";
 import ManagerRecordsView from "./ManagerRecordsView";
@@ -264,9 +265,9 @@ function AddressAutocomplete({ value, onChange, onPlaceSelected, placeholder, st
           try {
             const place = event.placePrediction.toPlace();
             // The new API requires us to fetch the fields we want
-            await place.fetchFields({ fields: ["addressComponents", "formattedAddress"] });
+            await place.fetchFields({ fields: ["addressComponents", "formattedAddress", "location"] });
             const comps = place.addressComponents || [];
-            let streetNum = "", route = "", city = "", state = "", zip = "";
+            let streetNum = "", route = "", city = "", state = "", zip = "", county = "";
             for (const c of comps) {
               const types = c.types || [];
               if (types.includes("street_number")) streetNum = c.longText || c.shortText || "";
@@ -274,9 +275,13 @@ function AddressAutocomplete({ value, onChange, onPlaceSelected, placeholder, st
               else if (types.includes("locality")) city = c.longText || c.shortText || "";
               else if (types.includes("sublocality") && !city) city = c.longText || c.shortText || "";
               else if (types.includes("administrative_area_level_3") && !city) city = c.longText || c.shortText || "";
+              else if (types.includes("administrative_area_level_2")) county = c.longText || c.shortText || "";
               else if (types.includes("administrative_area_level_1")) state = c.shortText || c.longText || "";
               else if (types.includes("postal_code")) zip = c.longText || c.shortText || "";
             }
+            const loc = place.location;
+            const lat = typeof loc?.lat === "function" ? loc.lat() : loc?.lat;
+            const lng = typeof loc?.lng === "function" ? loc.lng() : loc?.lng;
             const fullAddr = [streetNum, route].filter(Boolean).join(" ");
             // Guard against city/region-only picks. Google will happily return
             // a "locality" suggestion (just a city) with NO street_number and
@@ -291,7 +296,7 @@ function AddressAutocomplete({ value, onChange, onPlaceSelected, placeholder, st
             }
             setStreetMissing(false);
             setVerified(true);
-            onPlaceSelected?.({ address: fullAddr, city, state, zip, formatted: place.formattedAddress || fullAddr });
+            onPlaceSelected?.({ address: fullAddr, city, state, zip, county, lat, lng, formatted: place.formattedAddress || fullAddr });
           } catch (err) {
             console.error("Failed to parse selected address:", err);
           }
@@ -7649,6 +7654,13 @@ export default function App() {
     // Self-contained + PIN-gated, same short-circuit pattern as the others.
     if (portalMode === "admin") {
       return <AdminDashboard />;
+    }
+    // ?mode=setter — the Appointment-Setter Portal (Viviana + inbound-call
+    // setters). Search a homeowner by address → existing JN account or create
+    // new → pick a qualified rep (zone, within 50 mi) + open time → books the
+    // JN contact/job/Appointment task. Reuses the app's AddressAutocomplete.
+    if (portalMode === "setter") {
+      return <SetterPortal Address={AddressAutocomplete} />;
     }
     // /?correct=<inspectionId> — the link we text the originating sales rep
     // + their regional manager when a Public Adjuster flags "Correction
