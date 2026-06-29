@@ -98,6 +98,16 @@ exports.handler = async (event) => {
       primary: { id: jobId, type: "job" }, related: [{ id: jobId, type: "job" }], is_status_change: false,
     }).catch(() => {});
 
+    // 5. Out-of-range (no rep) — alert the admin so a manager assigns it in JN.
+    if (!repId && !test && process.env.ADMIN_ALERT_PHONE) {
+      const base = process.env.URL || "https://free-roof-inspections.netlify.app";
+      const whenEt = new Date(apptMs).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" });
+      await fetch(`${base}/.netlify/functions/ghl-sms`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: process.env.ADMIN_ALERT_PHONE, name: "Admin", message: `📞 Out-of-range retail appt set by ${setter} for ${fullName}${c.city ? ` (${c.city})` : ""} @ ${whenEt} — no rep within 50 mi. It's under Viviana in JN; assign a rep.` }),
+      }).catch(() => {});
+    }
+
     return cors(200, JSON.stringify({ ok: true, contact_id: contactId, job_id: jobId, task_id: task.jnid || task.id || null, assigned: repId ? (repName || "rep") : "Viviana (manager to assign)" }));
   } catch (e) {
     return cors(500, JSON.stringify({ ok: false, error: e.message || "error" }));
