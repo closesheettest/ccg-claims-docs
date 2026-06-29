@@ -58,6 +58,7 @@ export default function RepVisitHub() {
   const [token, setToken] = useState("");
   const [rep, setRep] = useState(() => { try { return JSON.parse(localStorage.getItem("visit_rep") || "null"); } catch { return null; } });
   const [stage, setStage] = useState(rep ? "choose" : "pick-rep");
+  const [counts, setCounts] = useState(null); // { damage, no_damage, retail } for the hub badges
   const [visitType, setVisitType] = useState(null);
   const [geo, setGeo] = useState(null);
   const [deals, setDeals] = useState(null);
@@ -215,6 +216,16 @@ export default function RepVisitHub() {
     if (!r.ok || !o.ok) throw new Error(o.error || "Request failed");
     return o;
   };
+  // Counts for the hub badges — so a rep sees how many Damage/No-Damage/Retail
+  // deals they have without opening each. Refreshed whenever they land on choose.
+  useEffect(() => {
+    if (!rep || !token || stage !== "choose") return;
+    let live = true;
+    Promise.all(["damage", "no_damage", "retail"].map((t) =>
+      api("visit-deal-list", { result: t, rep_jobnimbus_id: rep.jobnimbus_id, rep_name: rep.name }).then((o) => (o.deals || []).length).catch(() => null),
+    )).then(([damage, no_damage, retail]) => { if (live) setCounts({ damage, no_damage, retail }); });
+    return () => { live = false; };
+  }, [rep, token, stage]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div style={S.wrap}>
@@ -229,7 +240,7 @@ export default function RepVisitHub() {
         {stage === "pick-rep" && <PickRep reps={reps} onPick={pickRep} />}
         {stage === "choose" && <Choose rep={rep} onNew={() => {
           window.location.href = `/?intake=1&rep=${encodeURIComponent(rep.jobnimbus_id || "")}&repName=${encodeURIComponent(rep.name || "")}&repEmail=${encodeURIComponent(rep.email || "")}`;
-        }} onType={startType} onReferrals={startReferrals} onApptsBooked={startApptsBooked} onIssues={startIssues} onPay={startPay} onCalendar={() => setStage("calendar")} />}
+        }} onType={startType} onReferrals={startReferrals} onApptsBooked={startApptsBooked} onIssues={startIssues} onPay={startPay} onCalendar={() => setStage("calendar")} counts={counts} />}
         {stage === "calendar" && rep && <RepCalendar rep={rep} token={token} onClose={() => setStage("choose")} />}
         {stage === "referrals" && <ReferralsView referrals={referrals} rep={rep} onBack={() => setStage("choose")} />}
         {stage === "appts" && <ApptsBookedView appts={appts} rep={rep} onBack={() => setStage("choose")} />}
@@ -288,11 +299,14 @@ function PickRep({ reps, onPick }) {
   );
 }
 
-function Choose({ rep, onNew, onType, onReferrals, onApptsBooked, onIssues, onPay, onCalendar }) {
-  const Btn = ({ color, emoji, label, sub, onClick }) => (
+function Choose({ rep, onNew, onType, onReferrals, onApptsBooked, onIssues, onPay, onCalendar, counts }) {
+  const Btn = ({ color, emoji, label, sub, onClick, count }) => (
     <button onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", textAlign: "left", color: "#fff", background: color, border: "none", borderRadius: 14, padding: "16px 16px", marginBottom: 12, cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,.12)" }}>
       <span style={{ fontSize: 26 }}>{emoji}</span>
-      <span><span style={{ display: "block", fontSize: 17, fontWeight: 800 }}>{label}</span><span style={{ display: "block", fontSize: 12.5, opacity: 0.92 }}>{sub}</span></span>
+      <span style={{ flex: 1 }}><span style={{ display: "block", fontSize: 17, fontWeight: 800 }}>{label}</span><span style={{ display: "block", fontSize: 12.5, opacity: 0.92 }}>{sub}</span></span>
+      {count != null && (
+        <span style={{ flexShrink: 0, minWidth: 30, height: 30, padding: "0 8px", borderRadius: 999, background: count > 0 ? "rgba(255,255,255,.92)" : "rgba(255,255,255,.22)", color: count > 0 ? color : "#fff", fontWeight: 800, fontSize: 15, display: "flex", alignItems: "center", justifyContent: "center" }}>{count}</span>
+      )}
     </button>
   );
   // William is the inspector — he signs inspections + tracks pay, but doesn't
@@ -303,9 +317,9 @@ function Choose({ rep, onNew, onType, onReferrals, onApptsBooked, onIssues, onPa
       <p style={{ fontSize: 14, color: "#6b7280", margin: "0 0 14px" }}>Hi {rep.name.split(" ")[0]} — what are you here to do?</p>
       {!isWilliam && <Btn color="#0e7490" emoji="📅" label="My calendar" sub="Your appointments + set when you're available" onClick={onCalendar} />}
       <Btn color={NAVY} emoji="📝" label="New inspection" sub="Sign a new free roof inspection" onClick={onNew} />
-      {!isWilliam && <Btn color="#b8324f" emoji="🏚️" label="Damage visit" sub="Set the PA appointment to start their claim" onClick={() => onType("damage")} />}
-      {!isWilliam && <Btn color="#16a34a" emoji="✅" label="No-Damage visit" sub="Get referrals + send their certificate" onClick={() => onType("no_damage")} />}
-      {!isWilliam && <Btn color="#d97706" emoji="🏠" label="Retail visit" sub="Schedule a retail options appointment" onClick={() => onType("retail")} />}
+      {!isWilliam && <Btn color="#b8324f" emoji="🏚️" label="Damage visit" sub="Set the PA appointment to start their claim" onClick={() => onType("damage")} count={counts?.damage} />}
+      {!isWilliam && <Btn color="#16a34a" emoji="✅" label="No-Damage visit" sub="Get referrals + send their certificate" onClick={() => onType("no_damage")} count={counts?.no_damage} />}
+      {!isWilliam && <Btn color="#d97706" emoji="🏠" label="Retail visit" sub="Schedule a retail options appointment" onClick={() => onType("retail")} count={counts?.retail} />}
       <Btn color="#6d28d9" emoji="🤝" label="Referrals" sub="People you were referred to — who to sign up" onClick={onReferrals} />
       {!isWilliam && <Btn color="#0e7490" emoji="📅" label="Adjuster appts booked" sub="Upcoming PA appointments you've set" onClick={onApptsBooked} />}
       <Btn color="#6b7280" emoji="⚠️" label="Cancelled / Needs correction" sub="Deals marked Lost or flagged to fix — see why" onClick={onIssues} />
