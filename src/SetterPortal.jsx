@@ -11,8 +11,11 @@ import { supabase } from "./lib/supabase";
 // `Address` is the app's AddressAutocomplete component, passed in from App.jsx
 // (it returns { address, city, state, zip, county, lat, lng }).
 const FN = "/.netlify/functions";
-const SETTERS = ["Viviana De Toro"]; // add the other setters here once confirmed
-const SOURCES = ["Instant Quote", "Facebook"]; // "Instant Quote" = IQ (default)
+const SETTERS = ["Viviana De Toro", "Hannah Davis", "Dustin Hunt"];
+// Retail lead sources (the 3 insurance ones — NEED, INS, Raw Insurance — are
+// excluded; so are auto/internal values like Inspection & Foreman-*).
+// "Instant Quote" = IQ, the default.
+const SOURCES = ["Instant Quote", "Facebook", "AI Bot", "Harvesting", "Self Generated", "IHFB", "Referral", "Yard Sign", "Web Search"];
 
 const C = {
   card: { background: "#fff", borderRadius: 14, padding: 18, boxShadow: "0 1px 3px rgba(0,0,0,.08)", marginBottom: 14 },

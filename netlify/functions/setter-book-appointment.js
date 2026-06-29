@@ -31,7 +31,9 @@ const RETAIL_LOCATION = 1;
 const APPT_STATUS = 531, APPT_STATUS_NAME = "Appointment Scheduled";
 const LEAD_RT = 45, LEAD_RT_NAME = "Lead";
 const APPT_TASK_RT = 4; // 4 = "Initial Appointment" (matches the rest of the JN calendar)
-const SOURCES = new Set(["Instant Quote", "Facebook"]);
+// Retail lead sources accepted from the setter (insurance sources NEED / INS /
+// Raw Insurance are intentionally not offered). Default → "Instant Quote".
+const SOURCES = new Set(["Instant Quote", "Facebook", "AI Bot", "Harvesting", "Self Generated", "IHFB", "Referral", "Yard Sign", "Web Search"]);
 
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return cors(200, "");
