@@ -1716,7 +1716,10 @@ export function PAMobileApp({ embedded = false, paId = null, allowPaIds = null, 
         </div>
       )}
 
-      {stage === "pick" && <PAPickName pas={pas} onPick={pickMe} />}
+      {/* The name picker lists every PA — only admin / company-admin views may
+          see it. A field PA who lands here (bad/expired link, cleared session)
+          must NOT see other PAs' names; show them a "use your link" screen. */}
+      {stage === "pick" && ((adminView || embedded) ? <PAPickName pas={pas} onPick={pickMe} /> : <PANeedLink />)}
 
       {stage === "list" && me && (
         <PAJobList me={me} wide={wide} onOpenJob={(jobId) => setStage({ kind: "detail", jobId })} />
@@ -2052,6 +2055,23 @@ function PAAvailability({ me, onBack }) {
   );
 }
 
+// Shown to a FIELD PA who reached the portal without a valid personal link
+// (bad/expired link or cleared session). Deliberately lists NO PAs — every PA
+// opens their own portal only from their personal ?pa=<id> link.
+function PANeedLink() {
+  return (
+    <div style={{ maxWidth: 440, margin: "32px auto", padding: 24, textAlign: "center" }}>
+      <div style={{ fontSize: 40 }}>🔗</div>
+      <div style={{ fontSize: 18, fontWeight: 800, marginTop: 8 }}>Open your personal portal link</div>
+      <div style={{ fontSize: 14, color: "#6b7280", marginTop: 8, lineHeight: 1.6 }}>
+        Your portal opens from the personal link we texted and emailed you. Tap that link to see <strong>your</strong> assigned homeowners and appointments.
+      </div>
+      <div style={{ fontSize: 13, color: "#9ca3af", marginTop: 14 }}>
+        Can't find it? Contact the office and we'll resend your link.
+      </div>
+    </div>
+  );
+}
 function PAPickName({ pas, onPick }) {
   if (pas.length === 0) {
     return <div style={{ padding: 24, textAlign: "center", color: "#6b7280" }}>No adjusters set up yet. Ask your U.S. Shingle contact to add you.</div>;
