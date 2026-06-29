@@ -40,6 +40,18 @@ export default function SetterPortal({ Address }) {
   const [booking, setBooking] = useState(false);
   const [result, setResult] = useState(null);
   const [err, setErr] = useState("");
+  const [todayOpen, setTodayOpen] = useState(false);
+  const [today, setToday] = useState(null);
+
+  async function loadToday() {
+    setToday(null);
+    try {
+      const r = await fetch(`${FN}/setter-appointments-list`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, setter_name: setter }) });
+      const o = await r.json();
+      setToday(o.appointments || []);
+    } catch { setToday([]); }
+  }
+  function openToday() { setTodayOpen(true); loadToday(); }
 
   useEffect(() => { supabase.from("app_settings").select("value").eq("key", "visit_token").maybeSingle().then(({ data }) => setToken(data?.value || "")); }, []);
   useEffect(() => { if (setter) localStorage.setItem("setter_name", setter); }, [setter]);
@@ -82,7 +94,7 @@ export default function SetterPortal({ Address }) {
   async function book() {
     if (!chosen) { setErr("Pick a time first."); return; }
     setBooking(true); setErr("");
-    const payload = { token, setter_name: setter, appt_iso: chosen.iso, source, lat: picked.lat, lng: picked.lng, county: picked.county };
+    const payload = { token, setter_name: setter, appt_iso: chosen.iso, source, lat: picked.lat, lng: picked.lng, county: picked.county, homeowner_name: client.name, address: picked.formatted || [picked.address, picked.city, picked.state, picked.zip].filter(Boolean).join(", "), phone: client.contact?.mobile || undefined };
     if (client.contact_id) payload.contact_id = client.contact_id; else payload.contact = client.contact;
     try {
       const r = await fetch(`${FN}/setter-book-appointment`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
@@ -97,7 +109,12 @@ export default function SetterPortal({ Address }) {
   const header = (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
       <div style={{ fontWeight: 900, fontSize: 20, color: "#1a2e5a" }}>📞 Appointment Setter</div>
-      {setter && <button onClick={() => { setSetter(""); reset(); }} style={{ ...C.btn, background: "#f1f5f9", color: "#334155", padding: "6px 12px", fontSize: 13 }}>{setter} ▾</button>}
+      {setter && (
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={openToday} style={{ ...C.btn, background: "#eef2ff", color: "#1a2e5a", padding: "6px 12px", fontSize: 13 }}>📋 Today</button>
+          <button onClick={() => { setSetter(""); reset(); }} style={{ ...C.btn, background: "#f1f5f9", color: "#334155", padding: "6px 12px", fontSize: 13 }}>{setter} ▾</button>
+        </div>
+      )}
     </div>
   );
 
@@ -114,6 +131,32 @@ export default function SetterPortal({ Address }) {
     </div>
   );
 
+  // ── Today's booked appointments ───────────────────────────────────────────
+  if (todayOpen) return (
+    <div style={wrap}>
+      {header}
+      <div style={C.card}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <div style={C.h}>📋 Booked today{today ? ` (${today.length})` : ""}</div>
+          <button onClick={() => setTodayOpen(false)} style={{ ...C.btn, background: "#1a2e5a", color: "#fff", padding: "6px 12px", fontSize: 13 }}>+ New appointment</button>
+        </div>
+        {today === null && <div style={{ color: "#64748b" }}>Loading…</div>}
+        {today && today.length === 0 && <div style={{ color: "#64748b" }}>No appointments booked today yet.</div>}
+        {today && today.map((a, i) => (
+          <div key={i} style={{ border: "1px solid #e2e8f0", borderRadius: 10, padding: 10, marginBottom: 8 }}>
+            <div style={{ fontWeight: 800, fontSize: 14, color: "#1a2e5a" }}>{a.when} · {a.homeowner_name}</div>
+            {a.address && <div style={{ fontSize: 12, color: "#64748b" }}>{a.address}</div>}
+            <div style={{ fontSize: 12, color: "#475569", marginTop: 4 }}>
+              {a.source && <span style={{ marginRight: 8 }}>{a.source === "Instant Quote" ? "IQ" : a.source}</span>}
+              <span style={{ color: a.out_of_range ? "#92400e" : "#166534", fontWeight: 700 }}>{a.status}</span>
+              {!a.jn_synced && <span style={{ color: "#b91c1c", fontWeight: 800, marginLeft: 8 }}>⚠ not synced to JN</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
   // ── Done ──────────────────────────────────────────────────────────────────
   if (stage === "done" && result) return (
     <div style={wrap}>
@@ -123,7 +166,9 @@ export default function SetterPortal({ Address }) {
         <div style={{ fontWeight: 900, fontSize: 18, color: "#166534", margin: "8px 0" }}>Appointment booked!</div>
         <div style={{ fontSize: 14, color: "#334155" }}>{client?.name} — {chosen?.when}</div>
         {result.out_of_range && <div style={{ fontSize: 13, color: "#92400e", marginTop: 6 }}>⚠️ Outside rep range — a manager will assign a rep.</div>}
+        {result.jn_ok === false && <div style={{ fontSize: 13, color: "#b91c1c", marginTop: 6, fontWeight: 700 }}>⚠️ Saved here, but the JobNimbus sync failed — it's in your "Today" list for a manager to repair.</div>}
         <button onClick={reset} style={{ ...C.btn, background: "#1a2e5a", color: "#fff", marginTop: 16 }}>Set another appointment</button>
+        <button onClick={openToday} style={{ ...C.btn, background: "#eef2ff", color: "#1a2e5a", marginTop: 8 }}>📋 View today's appointments</button>
       </div>
     </div>
   );

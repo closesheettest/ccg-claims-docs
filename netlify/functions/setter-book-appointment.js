@@ -61,31 +61,32 @@ exports.handler = async (event) => {
   }
   const owner = repId || VIVIANA_ID;
 
+  let c = body.contact || {};
+  let contactId = String(body.contact_id || "").trim();
+  let jnOk = true, jnErr = "", jobId = null, taskId = null;
+
+  // ── JobNimbus writes (best-effort) ──────────────────────────────────────
+  // If any JN step fails we DON'T lose the booking — we still log it locally
+  // below so the setter keeps a reference and a manager can repair JN.
   try {
-    // 1. Contact — use the matched one, or create.
-    let contactId = String(body.contact_id || "").trim();
-    let c = body.contact || {};
-    // Existing contact: pull its name + address so the job is named/addressed
-    // (and findable). Without this the job lands as a nameless "Homeowner".
+    // 1. Contact — existing (pull its name/address so the job is named/findable) or create.
     if (contactId) {
       try {
         const got = await jnGet(`contacts/${contactId}`);
-        if (got && (got.jnid || got.id)) c = { first_name: got.first_name || "", last_name: got.last_name || "", address: got.address_line1 || "", city: got.city || "", state: got.state_text || got.state || "", zip: got.zip || "" };
+        if (got && (got.jnid || got.id)) c = { first_name: got.first_name || "", last_name: got.last_name || "", mobile: got.mobile_phone || c.mobile, address: got.address_line1 || "", city: got.city || "", state: got.state_text || got.state || "", zip: got.zip || "" };
       } catch { /* fall back to whatever was passed */ }
     }
-    const fullName = `${c.first_name || ""} ${c.last_name || ""}`.trim() || "Homeowner";
+    const fullName = nameOf(c, body);
     if (!contactId) {
-      const payload = {
+      const cr = await jnPost("contacts", {
         first_name: c.first_name || "", last_name: c.last_name || "",
         display_name: test ? `${fullName} [TEST-${apptMs}]` : fullName,
         email: c.email || "", mobile_phone: c.mobile || "",
         address_line1: c.address || "", city: (c.city || "").split(",")[0].trim(), state_text: c.state || "", zip: c.zip || "",
-      };
-      const cr = await jnPost("contacts", payload);
+      });
       contactId = cr.jnid || cr.id;
       if (!contactId) throw new Error("contact create failed");
     }
-
     // 2. Job — retail Lead, Appointment Scheduled.
     const job = await jnPost("jobs", {
       name: `${test ? "[TEST] " : ""}${fullName}${c.address ? ` - ${c.address}` : ""}`.trim(),
@@ -97,40 +98,51 @@ exports.handler = async (event) => {
       sales_rep: repId || undefined,
       owners: [{ id: owner }],
     });
-    const jobId = job.jnid || job.id;
+    jobId = job.jnid || job.id;
     if (!jobId) throw new Error("job create failed");
-
-    // 3. Appointment task at the chosen time (start only — no end date).
-    const startSec = Math.floor(apptMs / 1000);
+    // 3. Appointment task (start only — no end date).
     const task = await jnPost("tasks", {
       record_type: APPT_TASK_RT, record_type_name: "Appointment", type: "task",
       title: `Appointment — ${fullName}`,
-      date_start: startSec, date_end: 0,
+      date_start: Math.floor(apptMs / 1000), date_end: 0,
       related: [{ id: jobId, type: "job" }], owners: [{ id: owner }],
     });
-
+    taskId = task.jnid || task.id || null;
     // 4. Who-set-it note.
     await jnPost("activities", {
       record_type_name: "Note",
       note: `📞 Appointment set by ${setter} · source: ${source}${repId ? ` · rep: ${repName || repId}` : " · ⚠️ OUT OF RANGE — manager to assign a rep"}`,
       primary: { id: jobId, type: "job" }, related: [{ id: jobId, type: "job" }], is_status_change: false,
     }).catch(() => {});
-
-    // 5. Out-of-range (no rep) — alert the admin so a manager assigns it in JN.
-    if (!repId && !test && process.env.ADMIN_ALERT_PHONE) {
-      const base = process.env.URL || "https://free-roof-inspections.netlify.app";
-      const whenEt = new Date(apptMs).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" });
-      await fetch(`${base}/.netlify/functions/ghl-sms`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: process.env.ADMIN_ALERT_PHONE, name: "Admin", message: `📞 Out-of-range retail appt set by ${setter} for ${fullName}${c.city ? ` (${c.city})` : ""} @ ${whenEt} — no rep within 50 mi. It's under Viviana in JN; assign a rep.` }),
-      }).catch(() => {});
-    }
-
-    return cors(200, JSON.stringify({ ok: true, contact_id: contactId, job_id: jobId, task_id: task.jnid || task.id || null, out_of_range: !repId, assigned: repId ? (repName || "rep") : "Viviana (manager to assign)" }));
   } catch (e) {
-    return cors(500, JSON.stringify({ ok: false, error: e.message || "error" }));
+    jnOk = false; jnErr = e.message || "JobNimbus error";
   }
+
+  // ── Always log the booking locally — the setter's reference point ────────
+  const homeowner = nameOf(c, body);
+  const address = body.address || [c.address, c.city, c.state, c.zip].filter(Boolean).join(", ") || null;
+  if (!test) {
+    await sbInsert("setter_appointments", {
+      setter_name: setter, homeowner_name: homeowner, phone: c.mobile || body.phone || null, address,
+      appt_at: new Date(apptMs).toISOString(), source, rep_name: repName || null, rep_jobnimbus_id: repId || null,
+      jn_contact_id: contactId || null, jn_job_id: jobId, jn_task_id: taskId, out_of_range: !repId, jn_synced: jnOk,
+    }).catch(() => {});
+  }
+
+  // Out-of-range (no rep) — alert the admin so a manager assigns it in JN.
+  if (!repId && !test && jnOk && process.env.ADMIN_ALERT_PHONE) {
+    const base = process.env.URL || "https://free-roof-inspections.netlify.app";
+    const whenEt = new Date(apptMs).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" });
+    await fetch(`${base}/.netlify/functions/ghl-sms`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ to: process.env.ADMIN_ALERT_PHONE, name: "Admin", message: `📞 Out-of-range retail appt set by ${setter} for ${homeowner}${c.city ? ` (${c.city})` : ""} @ ${whenEt} — no rep within 50 mi. It's under Viviana in JN; assign a rep.` }),
+    }).catch(() => {});
+  }
+
+  return cors(200, JSON.stringify({ ok: true, jn_ok: jnOk, jn_error: jnOk ? undefined : jnErr, out_of_range: !repId, contact_id: contactId || null, job_id: jobId, task_id: taskId, assigned: repId ? (repName || "rep") : "Viviana (manager to assign)" }));
 };
+
+function nameOf(c, body) { return (`${c.first_name || ""} ${c.last_name || ""}`).trim() || String(body.homeowner_name || "").trim() || "Homeowner"; }
 
 // Round-robin rep pick: ask setter-availability for the slot's free reps, take
 // the least-loaded. Returns {id:null} when out of range / slot no longer free.
@@ -151,6 +163,10 @@ async function pickRep(token, lat, lng, county, iso) {
   return { id: null, name: "" };
 }
 
+async function sbInsert(table, row) {
+  const r = await fetch(`${SB_URL}/rest/v1/${table}`, { method: "POST", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify(row) });
+  if (!r.ok) throw new Error(`SB insert ${table} ${r.status}: ${(await r.text()).slice(0, 150)}`);
+}
 async function jnGet(path) {
   const r = await fetch(`${JN_BASE}/${path}`, { headers: jnH });
   if (!r.ok) throw new Error(`JN GET ${path} ${r.status}`);
