@@ -30,7 +30,7 @@ const VIVIANA_ID = "m3n90ppl4smcf6nasr1jgje"; // Viviana De Toro — owns out-of
 const RETAIL_LOCATION = 1;
 const APPT_STATUS = 531, APPT_STATUS_NAME = "Appointment Scheduled";
 const LEAD_RT = 45, LEAD_RT_NAME = "Lead";
-const APPT_TASK_RT = 17;
+const APPT_TASK_RT = 4; // 4 = "Initial Appointment" (matches the rest of the JN calendar)
 const SOURCES = new Set(["Instant Quote", "Facebook"]);
 
 exports.handler = async (event) => {
@@ -102,8 +102,8 @@ exports.handler = async (event) => {
     if (!jobId) throw new Error("job create failed");
     // 3. Appointment task (start only — no end date).
     const task = await jnPost("tasks", {
-      record_type: APPT_TASK_RT, record_type_name: "Appointment", type: "task",
-      title: `Appointment — ${fullName}`,
+      record_type: APPT_TASK_RT, record_type_name: "Initial Appointment", type: "task",
+      title: `Initial Appointment — ${fullName}`,
       date_start: Math.floor(apptMs / 1000), date_end: 0,
       related: [{ id: jobId, type: "job" }], owners: [{ id: owner }],
     });
