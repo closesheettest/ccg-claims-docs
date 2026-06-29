@@ -81,17 +81,46 @@ export default function RepCalendar({ rep, token, onClose }) {
   };
   const eventPropGetter = (ev) => ({ style: { backgroundColor: eventColor(ev.type), border: "none", fontSize: 11.5 } });
 
+  // Reliable tap-grid for setting availability (the calendar's slot-tap is
+  // finicky on phones). Available by default; tap a time to block it.
+  const toggleSlot = (wd, h) => {
+    const key = `${wd}:${h * 60}`;
+    setBlocks((prev) => { const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); saveBlocks(next); return next; });
+  };
+  const hourLabel = (h) => `${((h + 11) % 12) + 1}${h < 12 ? "am" : "pm"}`;
+  const WD = [[1, "Mon"], [2, "Tue"], [3, "Wed"], [4, "Thu"], [5, "Fri"], [6, "Sat"]];
+
   return (
     <div style={{ background: "#fff", borderRadius: 12, padding: 12 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
         <div style={{ fontWeight: 800, fontSize: 16, color: "#1a2e5a" }}>📅 {rep.name}'s calendar</div>
         {onClose && <button onClick={onClose} style={{ border: "1px solid #cbd5e1", background: "#fff", borderRadius: 8, padding: "6px 12px", fontWeight: 700, cursor: "pointer" }}>Done</button>}
       </div>
-      <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>
-        <span style={{ background: "#dcfce7", padding: "1px 6px", borderRadius: 4 }}>green = open</span>{" "}
-        <span style={{ background: "#fee2e2", padding: "1px 6px", borderRadius: 4 }}>red = blocked</span> — tap a slot to toggle. Colored blocks are your JobNimbus appointments.
+
+      {/* Availability editor — the reliable way to set when you're available */}
+      <div style={{ border: "1px solid #e2e8f0", borderRadius: 12, padding: 12, marginBottom: 12 }}>
+        <div style={{ fontWeight: 800, fontSize: 14, color: "#1a2e5a" }}>Set your availability{busy ? " · saving…" : ""}</div>
+        <div style={{ fontSize: 12, color: "#64748b", margin: "2px 0 10px" }}>You're available by default. Tap a time to block it. <span style={{ color: "#16a34a", fontWeight: 700 }}>green = open</span> · <span style={{ color: "#dc2626", fontWeight: 700 }}>red = blocked</span></div>
+        {WD.map(([wd, label]) => (
+          <div key={wd} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <div style={{ width: 38, fontWeight: 800, fontSize: 13, color: "#374151" }}>{label}</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {(SLOT_HOURS[wd] || []).map((h) => {
+                const blocked = blocks.has(`${wd}:${h * 60}`);
+                return (
+                  <button key={h} type="button" onClick={() => toggleSlot(wd, h)}
+                    style={{ border: `1.5px solid ${blocked ? "#dc2626" : "#16a34a"}`, background: blocked ? "#fee2e2" : "#dcfce7", color: blocked ? "#b91c1c" : "#166534", borderRadius: 10, padding: "7px 12px", fontSize: 13, fontWeight: 800, cursor: "pointer" }}>
+                    {hourLabel(h)}{blocked ? " ✕" : ""}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
-      {err && <div style={{ color: "#dc2626", fontSize: 13, marginBottom: 8 }}>{err}{busy ? "" : ""}</div>}
+
+      <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>Below is your live JobNimbus schedule (colored blocks = appointments).</div>
+      {err && <div style={{ color: "#dc2626", fontSize: 13, marginBottom: 8 }}>{err}</div>}
       <Calendar
         localizer={localizer}
         events={events}
