@@ -46,7 +46,7 @@ exports.handler = async (event) => {
   if (!id) return cors(400, JSON.stringify({ ok: false, error: "inspectionId required" }));
 
   try {
-    const insp = (await sbGet(`inspections?id=eq.${encodeURIComponent(id)}&select=result,review_availability,jn_job_id,client_name,sales_rep_id&limit=1`))[0];
+    const insp = (await sbGet(`inspections?id=eq.${encodeURIComponent(id)}&select=result,review_availability,jn_job_id,client_name,sales_rep_id,original_sales_rep_id&limit=1`))[0];
     if (!insp) return cors(404, JSON.stringify({ ok: false, error: "inspection not found" }));
 
     const result = String(insp.result || "").trim();
@@ -55,7 +55,10 @@ exports.handler = async (event) => {
     if (!insp.jn_job_id) return cors(200, JSON.stringify({ ok: true, skipped: "no JobNimbus job yet" }));
     if (!JN_KEY) return cors(200, JSON.stringify({ ok: true, skipped: "no JN key" }));
 
-    const when = nextGoBackMs(insp.review_availability);
+    // Don't put the rep in two places at once: collect the day+hour slots they
+    // already have go-back appointments on, then pick the soonest FREE allowed day.
+    const busy = await repBusySlots(insp.sales_rep_id || insp.original_sales_rep_id, id);
+    const when = nextGoBackMs(insp.review_availability, busy);
     if (!when) return cors(200, JSON.stringify({ ok: true, skipped: `no usable go-back time in "${insp.review_availability || ""}"` }));
 
     // Idempotency (best-effort): skip if we already recorded a result task.
@@ -96,8 +99,11 @@ exports.handler = async (event) => {
 };
 
 // "Wed · 5 PM" / "Thu, Fri, Sat · 2 PM" / "Any day · 2 PM" → ms of the soonest
-// upcoming match (ET) at that hour, at least an hour out. null if unparseable.
-function nextGoBackMs(reviewAvail) {
+// upcoming match (ET) at that hour, at least an hour out, that the rep ISN'T
+// already booked on (busy = Set of "Y-M-D@hour"). Multi-day availabilities spread
+// across days instead of stacking. If every free day is taken (rare), we fall
+// back to the soonest match so the deal still gets a go-back. null if unparseable.
+function nextGoBackMs(reviewAvail, busy = new Set()) {
   const s = String(reviewAvail || "");
   if (!s.includes(" · ")) return null;
   const [daysPart, timePart] = s.split(" · ").map((x) => x.trim());
@@ -114,13 +120,44 @@ function nextGoBackMs(reviewAvail) {
     if (!days.length) days = [0, 1, 2, 3, 4, 5, 6];
   }
   const now = Date.now();
-  for (let d = 0; d < 14; d++) {
-    const { y, mo, day, weekday } = etParts(now + d * 864e5);
-    if (!days.includes(weekday)) continue;
-    const ms = Date.parse(etToISO(y, mo, day, hour));
-    if (ms > now + 60 * 60 * 1000) return ms;
+  const pick = (avoid) => {
+    for (let d = 0; d < 28; d++) {
+      const { y, mo, day, weekday } = etParts(now + d * 864e5);
+      if (!days.includes(weekday)) continue;
+      if (avoid && busy.has(`${y}-${mo}-${day}@${hour}`)) continue;
+      const ms = Date.parse(etToISO(y, mo, day, hour));
+      if (ms > now + 60 * 60 * 1000) return ms;
+    }
+    return null;
+  };
+  return pick(true) || pick(false);
+}
+// The day+hour slots a rep already has go-back appointments on (future only),
+// read from JobNimbus so we never double-book them. Few per rep → a few GETs.
+async function repBusySlots(repId, excludeId) {
+  const busy = new Set();
+  if (!repId) return busy;
+  const enc = encodeURIComponent;
+  const rows = await sbGet(`inspections?or=(sales_rep_id.eq.${enc(repId)},original_sales_rep_id.eq.${enc(repId)})&result_task_jnid=not.is.null&cancelled_at=is.null&id=neq.${enc(excludeId)}&select=result_task_jnid`);
+  const nowSec = Date.now() / 1000;
+  for (const r of rows) {
+    if (!r.result_task_jnid) continue;
+    try {
+      const resp = await fetch(`${JN_BASE}/tasks/${r.result_task_jnid}`, { headers: jnH });
+      if (!resp.ok) continue;
+      const t = await resp.json();
+      const ds = Number(t.date_start);
+      if (ds && ds > nowSec) busy.add(etSlotKey(ds * 1000));
+    } catch { /* ignore */ }
   }
-  return null;
+  return busy;
+}
+// "Y-M-D@hour" (ET) for an existing appointment's ms — must match the key built
+// from etParts + target hour in nextGoBackMs.
+function etSlotKey(ms) {
+  const f = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", hour12: false });
+  const p = {}; for (const x of f.formatToParts(new Date(ms))) p[x.type] = x.value;
+  return `${p.year}-${p.month}-${p.day}@${parseInt(p.hour, 10)}`;
 }
 function etParts(ms) {
   const f = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "numeric", day: "numeric", weekday: "short" });
