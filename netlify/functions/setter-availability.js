@@ -6,10 +6,12 @@
 // the rep's date-specific blocks minus what they're already booked on in JN).
 //
 //   POST { token, lat, lng, county, days? }
-//     → { ok, reps:[{ jobnimbus_id, name, distance_mi, days:[{ date, label,
-//          slots:[{ hour, min, label }] }] }], out_of_radius }
-//        out_of_radius = true when NO rep in the zone is within 50 mi (the setter
-//        can still book — it gets owned by the setter for a manager to assign).
+//     → { ok, days:[{ date, label, slots:[{ iso, hour, label,
+//          reps:[{ id, name, load }] }] }], out_of_radius, generic_days }
+//        Slots are AGGREGATED across reps — the setter sees times, not rep names.
+//        Each slot carries the free reps (+ their load) so the booker can
+//        round-robin to the least-loaded one. out_of_radius = true when NO rep in
+//        the zone is within 50 mi (setter can still book → owned by the setter).
 //
 // Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, JOBNIMBUS_API_KEY.
 
@@ -68,13 +70,31 @@ exports.handler = async (event) => {
     const dateBlockRows = repIds.length ? await sbGet(`rep_date_blocks?rep_id=in.(${repIds.map((x) => `"${x}"`).join(",")})&select=rep_id,date,start_min&limit=10000`) : [];
     const blocksByRep = {}; for (const b of dateBlockRows) (blocksByRep[b.rep_id] = blocksByRep[b.rep_id] || new Set()).add(`${b.date}:${b.start_min}`);
 
-    const reps = [];
+    // Per-rep open slots + load (their upcoming-appt count → round-robin weight).
+    const perRep = [];
     for (const r of near) {
       const blocked = blocksByRep[idByJn[r.jobnimbus_id]] || new Set();
       const booked = await repBookedSlots(r.jobnimbus_id, now, days);
-      reps.push({ jobnimbus_id: r.jobnimbus_id, name: r.name, distance_mi: r.distance_mi, days: buildDays(now, days, blocked, booked) });
+      perRep.push({ id: r.jobnimbus_id, name: r.name, load: booked.size, dayList: buildDays(now, days, blocked, booked) });
     }
-    return cors(200, JSON.stringify({ ok: true, reps, out_of_radius: false }));
+    // Aggregate across reps by date+hour — the setter sees TIME SLOTS, not reps.
+    // A slot is offered while ANY qualified rep is free; booking round-robins to
+    // the least-loaded free rep, so a slot with 3 free reps survives 3 bookings.
+    const byDate = new Map();
+    for (const rep of perRep) {
+      for (const d of rep.dayList) {
+        let dd = byDate.get(d.date);
+        if (!dd) { dd = { date: d.date, label: d.label, slots: new Map() }; byDate.set(d.date, dd); }
+        for (const s of d.slots) {
+          let ss = dd.slots.get(s.hour);
+          if (!ss) { ss = { iso: s.iso, label: s.label, hour: s.hour, reps: [] }; dd.slots.set(s.hour, ss); }
+          ss.reps.push({ id: rep.id, name: rep.name, load: rep.load });
+        }
+      }
+    }
+    const daysOut = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date))
+      .map((dd) => ({ date: dd.date, label: dd.label, slots: [...dd.slots.values()].sort((a, b) => a.hour - b.hour) }));
+    return cors(200, JSON.stringify({ ok: true, days: daysOut, out_of_radius: false }));
   } catch (e) {
     return cors(500, JSON.stringify({ ok: false, error: e.message || "error" }));
   }

@@ -46,10 +46,20 @@ exports.handler = async (event) => {
   if (!Number.isFinite(apptMs)) return cors(400, JSON.stringify({ ok: false, error: "appt_iso required" }));
   const source = SOURCES.has(body.source) ? body.source : "Instant Quote";
   const setter = String(body.setter_name || "Setter").trim();
-  const repId = String(body.rep_jobnimbus_id || "").trim() || null;
-  const repName = String(body.rep_name || "").trim();
-  const owner = repId || VIVIANA_ID;
   const test = !!body.test;
+  const lat = Number(body.lat), lng = Number(body.lng);
+
+  // Pick the rep server-side — the least-loaded qualified rep free at this exact
+  // slot (round-robin). The setter never chooses one. Out of range / no free rep
+  // → owned by Viviana for a manager to assign.
+  let repId = null, repName = "";
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    const pick = await pickRep(body.token, lat, lng, body.county, body.appt_iso);
+    repId = pick.id; repName = pick.name;
+  } else if (body.rep_jobnimbus_id) { // legacy: explicit rep
+    repId = String(body.rep_jobnimbus_id).trim(); repName = String(body.rep_name || "").trim();
+  }
+  const owner = repId || VIVIANA_ID;
 
   try {
     // 1. Contact — use the matched one, or create.
@@ -108,11 +118,30 @@ exports.handler = async (event) => {
       }).catch(() => {});
     }
 
-    return cors(200, JSON.stringify({ ok: true, contact_id: contactId, job_id: jobId, task_id: task.jnid || task.id || null, assigned: repId ? (repName || "rep") : "Viviana (manager to assign)" }));
+    return cors(200, JSON.stringify({ ok: true, contact_id: contactId, job_id: jobId, task_id: task.jnid || task.id || null, out_of_range: !repId, assigned: repId ? (repName || "rep") : "Viviana (manager to assign)" }));
   } catch (e) {
     return cors(500, JSON.stringify({ ok: false, error: e.message || "error" }));
   }
 };
+
+// Round-robin rep pick: ask setter-availability for the slot's free reps, take
+// the least-loaded. Returns {id:null} when out of range / slot no longer free.
+async function pickRep(token, lat, lng, county, iso) {
+  try {
+    const base = process.env.URL || "https://free-roof-inspections.netlify.app";
+    const r = await fetch(`${base}/.netlify/functions/setter-availability`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, lat, lng, county, days: 21 }) });
+    const av = await r.json();
+    if (av && av.ok && !av.out_of_radius) {
+      for (const d of (av.days || [])) for (const s of (d.slots || [])) {
+        if (s.iso === iso && (s.reps || []).length) {
+          const free = s.reps.slice().sort((a, b) => a.load - b.load);
+          return { id: free[0].id, name: free[0].name };
+        }
+      }
+    }
+  } catch { /* fall through to setter-owned */ }
+  return { id: null, name: "" };
+}
 
 async function jnPost(path, payload) {
   const r = await fetch(`${JN_BASE}/${path}`, { method: "POST", headers: jnH, body: JSON.stringify(payload) });

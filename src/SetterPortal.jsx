@@ -35,7 +35,8 @@ export default function SetterPortal({ Address }) {
   const [avail, setAvail] = useState(null);
   const [loadingAvail, setLoadingAvail] = useState(false);
   const [source, setSource] = useState("Instant Quote");
-  const [chosen, setChosen] = useState(null);     // { rep_jobnimbus_id?, rep_name?, iso, when }
+  const [chosen, setChosen] = useState(null);     // { iso, when }
+  const [weekIdx, setWeekIdx] = useState(0);
   const [booking, setBooking] = useState(false);
   const [result, setResult] = useState(null);
   const [err, setErr] = useState("");
@@ -59,7 +60,7 @@ export default function SetterPortal({ Address }) {
   }
 
   async function loadAvail(p) {
-    setStage("schedule"); setLoadingAvail(true); setAvail(null); setChosen(null);
+    setStage("schedule"); setLoadingAvail(true); setAvail(null); setChosen(null); setWeekIdx(0);
     try {
       const r = await fetch(`${FN}/setter-availability`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, lat: p.lat, lng: p.lng, county: p.county, days: 14 }) });
       setAvail(await r.json());
@@ -81,7 +82,7 @@ export default function SetterPortal({ Address }) {
   async function book() {
     if (!chosen) { setErr("Pick a time first."); return; }
     setBooking(true); setErr("");
-    const payload = { token, setter_name: setter, appt_iso: chosen.iso, source, rep_jobnimbus_id: chosen.rep_jobnimbus_id || undefined, rep_name: chosen.rep_name || undefined };
+    const payload = { token, setter_name: setter, appt_iso: chosen.iso, source, lat: picked.lat, lng: picked.lng, county: picked.county };
     if (client.contact_id) payload.contact_id = client.contact_id; else payload.contact = client.contact;
     try {
       const r = await fetch(`${FN}/setter-book-appointment`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
@@ -121,7 +122,7 @@ export default function SetterPortal({ Address }) {
         <div style={{ fontSize: 40 }}>✅</div>
         <div style={{ fontWeight: 900, fontSize: 18, color: "#166534", margin: "8px 0" }}>Appointment booked!</div>
         <div style={{ fontSize: 14, color: "#334155" }}>{client?.name} — {chosen?.when}</div>
-        <div style={{ fontSize: 14, color: "#334155", marginTop: 4 }}>Assigned to <b>{result.assigned}</b></div>
+        {result.out_of_range && <div style={{ fontSize: 13, color: "#92400e", marginTop: 6 }}>⚠️ Outside rep range — a manager will assign a rep.</div>}
         <button onClick={reset} style={{ ...C.btn, background: "#1a2e5a", color: "#fff", marginTop: 16 }}>Set another appointment</button>
       </div>
     </div>
@@ -130,7 +131,9 @@ export default function SetterPortal({ Address }) {
   // ── Schedule ──────────────────────────────────────────────────────────────
   if (stage === "schedule") {
     const oor = avail?.out_of_radius;
-    const days = oor ? (avail?.generic_days || []) : null;
+    const allDays = oor ? (avail?.generic_days || []) : (avail?.days || []);
+    const weeks = groupWeeks(allDays);
+    const week = weeks[Math.min(weekIdx, Math.max(0, weeks.length - 1))];
     return (
       <div style={wrap}>
         {header}
@@ -149,10 +152,10 @@ export default function SetterPortal({ Address }) {
           </div>
         </div>
 
-        {/* Times */}
+        {/* Times — a week at a time, slots only (a free rep is assigned for you) */}
         <div style={C.card}>
           <div style={C.h}>Pick a time</div>
-          {loadingAvail && <div style={{ color: "#64748b" }}>Finding available reps…</div>}
+          {loadingAvail && <div style={{ color: "#64748b" }}>Finding open times…</div>}
           {!loadingAvail && avail && !avail.ok && <div style={{ color: "#dc2626" }}>{avail.error}</div>}
 
           {!loadingAvail && oor && (
@@ -161,21 +164,20 @@ export default function SetterPortal({ Address }) {
             </div>
           )}
 
-          {!loadingAvail && oor && days.map((d) => (
-            <DayRow key={d.date} d={d} chosen={chosen} onPick={(slot) => setChosen({ iso: slot.iso, when: `${d.label} · ${slot.label}` })} />
-          ))}
-
-          {!loadingAvail && !oor && avail?.reps?.map((rep) => (
-            <div key={rep.jobnimbus_id} style={{ marginBottom: 14 }}>
-              <div style={{ fontWeight: 800, fontSize: 14, color: "#1a2e5a", marginBottom: 4 }}>{rep.name} <span style={{ color: "#64748b", fontWeight: 600 }}>· {rep.distance_mi} mi</span></div>
-              {rep.days.length === 0 && <div style={{ fontSize: 12, color: "#94a3b8" }}>No open times in the next 2 weeks.</div>}
-              {rep.days.map((d) => (
-                <DayRow key={d.date} d={d} chosen={chosen}
-                  onPick={(slot) => setChosen({ rep_jobnimbus_id: rep.jobnimbus_id, rep_name: rep.name, iso: slot.iso, when: `${d.label} · ${slot.label}` })} />
-              ))}
-            </div>
-          ))}
-          {!loadingAvail && !oor && !avail?.reps?.length && <div style={{ color: "#64748b" }}>No reps found for this area.</div>}
+          {!loadingAvail && avail?.ok && (
+            <>
+              {weeks.length > 1 && (
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                  <button onClick={() => setWeekIdx((i) => Math.max(0, i - 1))} disabled={weekIdx <= 0} style={navBtn(weekIdx <= 0)}>← Earlier</button>
+                  <div style={{ fontWeight: 800, fontSize: 13, color: "#475569" }}>{week?.label}</div>
+                  <button onClick={() => setWeekIdx((i) => Math.min(weeks.length - 1, i + 1))} disabled={weekIdx >= weeks.length - 1} style={navBtn(weekIdx >= weeks.length - 1)}>Next week →</button>
+                </div>
+              )}
+              {week ? week.days.map((d) => (
+                <DayRow key={d.date} d={d} chosen={chosen} onPick={(slot) => setChosen({ iso: slot.iso, when: `${d.label} · ${slot.label}` })} />
+              )) : <div style={{ color: "#64748b" }}>No open times available.</div>}
+            </>
+          )}
         </div>
 
         {err && <div style={{ color: "#dc2626", fontSize: 14, marginBottom: 10 }}>{err}</div>}
@@ -233,6 +235,22 @@ export default function SetterPortal({ Address }) {
     </div>
   );
 }
+
+// Group day-rows into calendar weeks (Mon-started) so the setter sees one week
+// at a time — they're booking tomorrow / this week anyway.
+function mondayKey(dateStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() - ((dt.getDay() + 6) % 7));
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+}
+function groupWeeks(days) {
+  const m = new Map();
+  for (const d of days) { const k = mondayKey(d.date); if (!m.has(k)) m.set(k, []); m.get(k).push(d); }
+  return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([, ds]) => ({ days: ds, label: ds.length ? `${ds[0].label} – ${ds[ds.length - 1].label}` : "" }));
+}
+const navBtn = (disabled) => ({ border: "1px solid #cbd5e1", background: disabled ? "#f1f5f9" : "#fff", color: disabled ? "#94a3b8" : "#1a2e5a", borderRadius: 8, padding: "6px 11px", fontWeight: 800, fontSize: 12, cursor: disabled ? "default" : "pointer" });
 
 function DayRow({ d, chosen, onPick }) {
   return (
