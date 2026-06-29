@@ -715,15 +715,21 @@ function RetailPanel({ deal, rep, api }) {
   const [err, setErr] = useState("");
   const [done, setDone] = useState(null);
   const [recording, setRecording] = useState("");
-  // The rep's blocked slots (from their calendar) so the offered times match
-  // their availability — keyed "weekday:startMin".
+  // The offered times must match the rep's calendar: drop slots they blocked
+  // (rep_slot_blocks) AND slots they're already booked on (live JN appts).
   const [blocked, setBlocked] = useState(() => new Set());
+  const [booked, setBooked] = useState(() => new Set());
   useEffect(() => {
-    if (!rep || !rep.id) return;
-    supabase.from("rep_slot_blocks").select("weekday,start_min").eq("rep_id", rep.id)
-      .then(({ data }) => setBlocked(new Set((data || []).map((b) => `${b.weekday}:${b.start_min}`))));
-  }, [rep && rep.id]);
-  const days = useMemo(() => buildRetailDays(14, blocked), [blocked]);
+    if (!rep || !rep.jobnimbus_id) return;
+    const now = new Date(), end = new Date(now.getTime() + 15 * 864e5);
+    api("rep-calendar-api", { action: "load", rep_jobnimbus_id: rep.jobnimbus_id, start: now.toISOString(), end: end.toISOString() })
+      .then((o) => {
+        setBlocked(new Set((o.blocks || []).map((b) => `${b.weekday}:${b.start_min}`)));
+        setBooked(new Set((o.events || []).map((ev) => etApptKey(ev.start))));
+      })
+      .catch(() => {});
+  }, [rep && rep.jobnimbus_id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const days = useMemo(() => buildRetailDays(14, blocked, booked), [blocked, booked]);
   const pick = async (slot) => {
     setPicking(slot.iso); setErr("");
     try {
@@ -837,14 +843,22 @@ function etToISO(y, mo, day, hour) {
   const asEt = new Date(new Date(guess).toLocaleString("en-US", { timeZone: "America/New_York" }));
   return new Date(guess + (guess - asEt.getTime())).toISOString();
 }
-function buildRetailDays(n, blocked = new Set()) {
+// ET "Y-M-D@hour" for an appointment ISO — must match the slot key buildRetailDays
+// builds from etParts + the slot hour, so a 5 PM appt hides the 5 PM retail slot.
+function etApptKey(iso) {
+  const f = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", hour12: false });
+  const p = {}; for (const x of f.formatToParts(new Date(iso))) p[x.type] = x.value;
+  return `${p.year}-${p.month}-${p.day}@${parseInt(p.hour, 10)}`;
+}
+function buildRetailDays(n, blocked = new Set(), booked = new Set()) {
   const now = Date.now(), out = [];
   for (let d = 0; d < n; d++) {
     const ms = now + d * 864e5;
     const { y, mo, day, weekday, wname } = etParts(ms);
-    // Only the slots THIS rep is available for — drop the ones they blocked on
-    // their calendar (rep_slot_blocks, keyed "weekday:startMin").
-    const hours = (RETAIL_HOURS[weekday] || []).filter((h) => !blocked.has(`${weekday}:${h * 60}`));
+    // Only slots THIS rep can take: drop the ones they blocked on their calendar
+    // (rep_slot_blocks "weekday:startMin") AND the ones they're already booked on
+    // (a JN appointment that day/hour, "Y-M-D@hour").
+    const hours = (RETAIL_HOURS[weekday] || []).filter((h) => !blocked.has(`${weekday}:${h * 60}`) && !booked.has(`${y}-${mo}-${day}@${h}`));
     if (!hours.length) continue;
     const slots = hours.map((h) => ({ iso: etToISO(y, mo, day, h), time: `${((h + 11) % 12) + 1}${h < 12 ? "am" : "pm"}`, label: `${wname} ${mo}/${day} ${((h + 11) % 12) + 1}${h < 12 ? "am" : "pm"}` }))
       .filter((s) => Date.parse(s.iso) > now);
