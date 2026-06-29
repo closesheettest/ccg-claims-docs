@@ -53,6 +53,14 @@ export default function SetterPortal({ Address }) {
   }
   function openToday() { setTodayOpen(true); loadToday(); }
 
+  // Universal back — always a way out, one step at a time.
+  function goBack() {
+    if (todayOpen) { setTodayOpen(false); return; }
+    if (stage === "schedule") { setStage("search"); setChosen(null); setErr(""); return; }
+    if (stage === "done") { reset(); return; }
+    setSetter(""); reset(); // from the search screen → change who you are
+  }
+
   useEffect(() => { supabase.from("app_settings").select("value").eq("key", "visit_token").maybeSingle().then(({ data }) => setToken(data?.value || "")); }, []);
   useEffect(() => { if (setter) localStorage.setItem("setter_name", setter); }, [setter]);
 
@@ -108,7 +116,10 @@ export default function SetterPortal({ Address }) {
   const wrap = { maxWidth: 560, margin: "0 auto", padding: "18px 14px 60px" };
   const header = (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-      <div style={{ fontWeight: 900, fontSize: 20, color: "#1a2e5a" }}>📞 Appointment Setter</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        {setter && <button onClick={goBack} title="Back" style={{ ...C.btn, background: "#f1f5f9", color: "#1a2e5a", padding: "6px 12px", fontSize: 15 }}>←</button>}
+        <div style={{ fontWeight: 900, fontSize: 20, color: "#1a2e5a" }}>📞 Appointment Setter</div>
+      </div>
       {setter && (
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={openToday} style={{ ...C.btn, background: "#eef2ff", color: "#1a2e5a", padding: "6px 12px", fontSize: 13 }}>📋 Today</button>
