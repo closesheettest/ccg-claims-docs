@@ -61,7 +61,8 @@ exports.handler = async (event) => {
     const repForSched = insp.sales_rep_id || insp.original_sales_rep_id;
     const busy = await repBusySlots(repForSched, id);
     const blocked = await repBlockedSlots(repForSched);
-    const when = nextGoBackMs(insp.review_availability, busy, blocked);
+    const dateBlocked = await repDateBlockedSlots(repForSched);
+    const when = nextGoBackMs(insp.review_availability, busy, blocked, dateBlocked);
     if (!when) return cors(200, JSON.stringify({ ok: true, skipped: `no usable go-back time in "${insp.review_availability || ""}"` }));
 
     // Idempotency (best-effort): skip if we already recorded a result task.
@@ -111,7 +112,7 @@ exports.handler = async (event) => {
 // already booked on (busy = Set of "Y-M-D@hour"). Multi-day availabilities spread
 // across days instead of stacking. If every free day is taken (rare), we fall
 // back to the soonest match so the deal still gets a go-back. null if unparseable.
-function nextGoBackMs(reviewAvail, busy = new Set(), blocked = new Set()) {
+function nextGoBackMs(reviewAvail, busy = new Set(), blocked = new Set(), dateBlocked = new Set()) {
   const s = String(reviewAvail || "");
   if (!s.includes(" · ")) return null;
   const [daysPart, timePart] = s.split(" · ").map((x) => x.trim());
@@ -132,7 +133,8 @@ function nextGoBackMs(reviewAvail, busy = new Set(), blocked = new Set()) {
     for (let d = 0; d < 28; d++) {
       const { y, mo, day, weekday } = etParts(now + d * 864e5);
       if (!days.includes(weekday)) continue;
-      if (avoid && (blocked.has(`${weekday}:${hour * 60}`) || busy.has(`${y}-${mo}-${day}@${hour}`))) continue;
+      const dateStr = `${y}-${String(mo).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      if (avoid && (blocked.has(`${weekday}:${hour * 60}`) || dateBlocked.has(`${dateStr}:${hour * 60}`) || busy.has(`${y}-${mo}-${day}@${hour}`))) continue;
       const ms = Date.parse(etToISO(y, mo, day, hour));
       if (ms > now + 60 * 60 * 1000) return ms;
     }
@@ -169,6 +171,16 @@ async function repBlockedSlots(repJnid) {
   if (!rep) return blocked;
   const rows = await sbGet(`rep_slot_blocks?rep_id=eq.${encodeURIComponent(rep.id)}&select=weekday,start_min&limit=2000`);
   for (const r of rows) blocked.add(`${r.weekday}:${r.start_min}`);
+  return blocked;
+}
+// DATE-SPECIFIC blocks the rep set (rep_date_blocks). Keyed "YYYY-MM-DD:startMin".
+async function repDateBlockedSlots(repJnid) {
+  const blocked = new Set();
+  if (!repJnid) return blocked;
+  const rep = (await sbGet(`sales_reps?jobnimbus_id=eq.${encodeURIComponent(repJnid)}&select=id&limit=1`))[0];
+  if (!rep) return blocked;
+  const rows = await sbGet(`rep_date_blocks?rep_id=eq.${encodeURIComponent(rep.id)}&select=date,start_min&limit=5000`);
+  for (const r of rows) blocked.add(`${r.date}:${r.start_min}`);
   return blocked;
 }
 // "Y-M-D@hour" (ET) for an existing appointment's ms — must match the key built

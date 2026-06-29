@@ -752,6 +752,7 @@ function RetailPanel({ deal, rep, api }) {
   // (rep_slot_blocks) AND slots they're already booked on (live JN appts).
   const [blocked, setBlocked] = useState(() => new Set());
   const [booked, setBooked] = useState(() => new Set());
+  const [dateBlocked, setDateBlocked] = useState(() => new Set());
   useEffect(() => {
     if (!rep || !rep.jobnimbus_id) return;
     const now = new Date(), end = new Date(now.getTime() + 15 * 864e5);
@@ -759,10 +760,11 @@ function RetailPanel({ deal, rep, api }) {
       .then((o) => {
         setBlocked(new Set((o.blocks || []).map((b) => `${b.weekday}:${b.start_min}`)));
         setBooked(new Set((o.events || []).map((ev) => etApptKey(ev.start))));
+        setDateBlocked(new Set((o.date_blocks || []).map((b) => `${b.date}:${b.start_min}`)));
       })
       .catch(() => {});
   }, [rep && rep.jobnimbus_id]); // eslint-disable-line react-hooks/exhaustive-deps
-  const days = useMemo(() => buildRetailDays(14, blocked, booked), [blocked, booked]);
+  const days = useMemo(() => buildRetailDays(14, blocked, booked, dateBlocked), [blocked, booked, dateBlocked]);
   const pick = async (slot) => {
     setPicking(slot.iso); setErr("");
     try {
@@ -883,15 +885,15 @@ function etApptKey(iso) {
   const p = {}; for (const x of f.formatToParts(new Date(iso))) p[x.type] = x.value;
   return `${p.year}-${p.month}-${p.day}@${parseInt(p.hour, 10)}`;
 }
-function buildRetailDays(n, blocked = new Set(), booked = new Set()) {
+function buildRetailDays(n, blocked = new Set(), booked = new Set(), dateBlocked = new Set()) {
   const now = Date.now(), out = [];
   for (let d = 0; d < n; d++) {
     const ms = now + d * 864e5;
     const { y, mo, day, weekday, wname } = etParts(ms);
-    // Only slots THIS rep can take: drop the ones they blocked on their calendar
-    // (rep_slot_blocks "weekday:startMin") AND the ones they're already booked on
-    // (a JN appointment that day/hour, "Y-M-D@hour").
-    const hours = (RETAIL_HOURS[weekday] || []).filter((h) => !blocked.has(`${weekday}:${h * 60}`) && !booked.has(`${y}-${mo}-${day}@${h}`));
+    const dateStr = `${y}-${String(mo).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    // Only slots THIS rep can take: drop weekly blocks ("weekday:startMin"),
+    // date-specific blocks ("YYYY-MM-DD:startMin"), and already-booked ("Y-M-D@hour").
+    const hours = (RETAIL_HOURS[weekday] || []).filter((h) => !blocked.has(`${weekday}:${h * 60}`) && !dateBlocked.has(`${dateStr}:${h * 60}`) && !booked.has(`${y}-${mo}-${day}@${h}`));
     if (!hours.length) continue;
     const slots = hours.map((h) => ({ iso: etToISO(y, mo, day, h), time: `${((h + 11) % 12) + 1}${h < 12 ? "am" : "pm"}`, label: `${wname} ${mo}/${day} ${((h + 11) % 12) + 1}${h < 12 ? "am" : "pm"}` }))
       .filter((s) => Date.parse(s.iso) > now);

@@ -50,12 +50,30 @@ exports.handler = async (event) => {
       return cors(200, JSON.stringify({ ok: true, saved: blocks.length }));
     }
 
+    // Replace all DATE-SPECIFIC blocks for one date (e.g. block this Sat's 9 AM,
+    // or the whole day). { date:'YYYY-MM-DD', start_mins:[int] } — empty clears the day.
+    if (body.action === "save_date_blocks") {
+      if (!repId) return cors(404, JSON.stringify({ ok: false, error: "rep not found" }));
+      const date = String(body.date || "").trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return cors(400, JSON.stringify({ ok: false, error: "date YYYY-MM-DD required" }));
+      const mins = (Array.isArray(body.start_mins) ? body.start_mins : []).map(Number).filter(Number.isInteger);
+      await fetch(`${SB_URL}/rest/v1/rep_date_blocks?rep_id=eq.${encodeURIComponent(repId)}&date=eq.${date}`, { method: "DELETE", headers: { ...sb, Prefer: "return=minimal" } });
+      if (mins.length) {
+        const rows = mins.map((m) => ({ rep_id: repId, date, start_min: m }));
+        const ins = await fetch(`${SB_URL}/rest/v1/rep_date_blocks`, { method: "POST", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify(rows) });
+        if (!ins.ok) return cors(500, JSON.stringify({ ok: false, error: `save failed (${ins.status})` }));
+      }
+      return cors(200, JSON.stringify({ ok: true, saved: mins.length }));
+    }
+
     // action: load
     const startSec = Math.floor(new Date(body.start || Date.now()).getTime() / 1000);
     const endSec = Math.floor(new Date(body.end || Date.now() + 7 * 864e5).getTime() / 1000);
     const events = await fetchRepEvents(repJnid, startSec, endSec);
     const blocks = repId ? await sbGet(`rep_slot_blocks?rep_id=eq.${encodeURIComponent(repId)}&select=weekday,start_min&limit=2000`) : [];
-    return cors(200, JSON.stringify({ ok: true, rep_id: repId, events, blocks }));
+    const todayEt = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+    const dateBlocks = repId ? await sbGet(`rep_date_blocks?rep_id=eq.${encodeURIComponent(repId)}&date=gte.${todayEt}&select=date,start_min&limit=5000`) : [];
+    return cors(200, JSON.stringify({ ok: true, rep_id: repId, events, blocks, date_blocks: dateBlocks }));
   } catch (e) {
     return cors(500, JSON.stringify({ ok: false, error: e.message || "error" }));
   }
