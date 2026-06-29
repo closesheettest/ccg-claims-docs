@@ -27,14 +27,17 @@ exports.handler = async (event) => {
   const repName = String(body.rep_name || "").trim();
   try {
     const sel = "id,referral_name,referral_phone,referral_address,referred_by_name,captured_by_rep,created_at";
-    let path = `referrals?select=${sel}&order=created_at.desc&limit=500`;
-    if (repName) path += `&captured_by_rep=eq.${q(repName)}`;
-    const rows = await sbGet(path);
+    const repFilter = repName ? `&captured_by_rep=eq.${q(repName)}` : "";
+    // Hide referrals the rep already resolved (signed up / not interested).
+    // Tolerant: if the `outcome` column isn't added yet, fall back to all.
+    let rows = await sbGetOrNull(`referrals?select=${sel}&outcome=is.null${repFilter}&order=created_at.desc&limit=500`);
+    if (rows === null) rows = await sbGet(`referrals?select=${sel}${repFilter}&order=created_at.desc&limit=500`);
     return cors(200, JSON.stringify({ ok: true, referrals: rows }));
   } catch (e) {
     return cors(500, JSON.stringify({ ok: false, error: e.message || "error" }));
   }
 };
+async function sbGetOrNull(path) { const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: sb }); if (!r.ok) return null; return r.json().catch(() => []); }
 
 const q = (s) => encodeURIComponent(`"${String(s).replace(/"/g, '\\"')}"`);
 async function okToken(token) {

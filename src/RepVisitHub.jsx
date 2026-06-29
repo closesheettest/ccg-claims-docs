@@ -247,7 +247,7 @@ export default function RepVisitHub() {
           window.location.href = `/?intake=1&rep=${encodeURIComponent(rep.jobnimbus_id || "")}&repName=${encodeURIComponent(rep.name || "")}&repEmail=${encodeURIComponent(rep.email || "")}`;
         }} onType={startType} onReferrals={startReferrals} onApptsBooked={startApptsBooked} onIssues={startIssues} onPay={startPay} onCalendar={() => setStage("calendar")} counts={counts} />}
         {stage === "calendar" && rep && <RepCalendar rep={rep} token={token} onClose={() => setStage("choose")} />}
-        {stage === "referrals" && <ReferralsView referrals={referrals} rep={rep} onBack={() => setStage("choose")} />}
+        {stage === "referrals" && <ReferralsView referrals={referrals} rep={rep} onBack={() => setStage("choose")} api={api} />}
         {stage === "appts" && <ApptsBookedView appts={appts} rep={rep} onBack={() => setStage("choose")} />}
         {stage === "issues" && <IssuesView issues={issues} onBack={() => setStage("choose")} />}
         {stage === "pay" && <PayReport pay={pay} rep={rep} api={api} onBack={() => setStage("choose")} onReload={startPay} />}
@@ -336,10 +336,18 @@ function Choose({ rep, onNew, onType, onReferrals, onApptsBooked, onIssues, onPa
   );
 }
 
-function ReferralsView({ referrals, rep, onBack }) {
+function ReferralsView({ referrals, rep, onBack, api }) {
   // Each referral: who to sign up (name/phone/address), who referred them, a free
   // "look up roof permit" web search, and "Sign them up" → the New Inspection
   // intake prefilled with their info (then the normal signing flow runs).
+  // Resolve buttons drop a referral off the list once handled (signed / not interested).
+  const [resolvedIds, setResolvedIds] = useState(() => new Set());
+  const [busy, setBusy] = useState("");
+  const resolve = async (r, outcome) => {
+    setBusy(r.id + outcome);
+    try { await api("referral-resolve", { referral_id: r.id, outcome, rep_name: rep?.name }); setResolvedIds((s) => new Set(s).add(r.id)); } catch { /* leave on list */ }
+    setBusy("");
+  };
   const permitUrl = (addr) => `https://www.google.com/search?q=${encodeURIComponent(`roof permit ${addr}`)}`;
   const signUp = (r, addr) => {
     const u = new URLSearchParams({ intake: "1" });
@@ -355,9 +363,12 @@ function ReferralsView({ referrals, rep, onBack }) {
     <div>
       <BackBar onBack={onBack} title="Your referrals" />
       {referrals === null ? <p style={{ textAlign: "center", color: "#9ca3af", fontSize: 14, padding: "24px 0" }}>Loading…</p>
-        : !referrals.length ? <p style={{ textAlign: "center", color: "#6b7280", fontSize: 14, padding: "24px 0" }}>No referrals captured yet. Collect them on a No-Damage visit.</p>
-        : <div>{referrals.map((r) => {
+        : (() => {
+          const visible = referrals.filter((r) => !resolvedIds.has(r.id));
+          if (!visible.length) return <p style={{ textAlign: "center", color: "#6b7280", fontSize: 14, padding: "24px 0" }}>No referrals to work right now. Collect them on a No-Damage visit.</p>;
+          return <div>{visible.map((r) => {
             const addr = [r.referral_address].filter(Boolean).join(", ");
+            const rbtn = (color) => ({ border: `1px solid ${color}`, color, background: "#fff", borderRadius: 10, padding: "8px 12px", fontSize: 13, fontWeight: 800, cursor: "pointer" });
             return (
               <div key={r.id} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "12px 14px", marginBottom: 10 }}>
                 <div style={{ fontSize: 16, fontWeight: 800, color: "#111827" }}>{r.referral_name || "(no name)"}</div>
@@ -375,10 +386,13 @@ function ReferralsView({ referrals, rep, onBack }) {
                       🔍 Look up roof permit
                     </a>
                   )}
+                  <button type="button" disabled={!!busy} onClick={() => resolve(r, "signed")} style={rbtn("#047857")}>{busy === r.id + "signed" ? "…" : "✅ Signed — remove"}</button>
+                  <button type="button" disabled={!!busy} onClick={() => resolve(r, "not_interested")} style={rbtn("#dc2626")}>{busy === r.id + "not_interested" ? "…" : "🚫 Not interested"}</button>
                 </div>
               </div>
             );
-          })}</div>}
+          })}</div>;
+        })()}
     </div>
   );
 }
