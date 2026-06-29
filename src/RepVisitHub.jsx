@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "./lib/supabase";
 import InspectionPhotosModal from "./InspectionPhotosModal";
+import RepCalendar from "./RepCalendar";
 
 // Public rep landing: "Who are you?" → 4 choices → (per outcome) pick a
 // homeowner (their deals, nearest-first) → view photos → take the action.
@@ -228,7 +229,8 @@ export default function RepVisitHub() {
         {stage === "pick-rep" && <PickRep reps={reps} onPick={pickRep} />}
         {stage === "choose" && <Choose rep={rep} onNew={() => {
           window.location.href = `/?intake=1&rep=${encodeURIComponent(rep.jobnimbus_id || "")}&repName=${encodeURIComponent(rep.name || "")}&repEmail=${encodeURIComponent(rep.email || "")}`;
-        }} onType={startType} onReferrals={startReferrals} onApptsBooked={startApptsBooked} onIssues={startIssues} onPay={startPay} />}
+        }} onType={startType} onReferrals={startReferrals} onApptsBooked={startApptsBooked} onIssues={startIssues} onPay={startPay} onCalendar={() => setStage("calendar")} />}
+        {stage === "calendar" && rep && <RepCalendar rep={rep} token={token} onClose={() => setStage("choose")} />}
         {stage === "referrals" && <ReferralsView referrals={referrals} rep={rep} onBack={() => setStage("choose")} />}
         {stage === "appts" && <ApptsBookedView appts={appts} rep={rep} onBack={() => setStage("choose")} />}
         {stage === "issues" && <IssuesView issues={issues} onBack={() => setStage("choose")} />}
@@ -286,7 +288,7 @@ function PickRep({ reps, onPick }) {
   );
 }
 
-function Choose({ rep, onNew, onType, onReferrals, onApptsBooked, onIssues, onPay }) {
+function Choose({ rep, onNew, onType, onReferrals, onApptsBooked, onIssues, onPay, onCalendar }) {
   const Btn = ({ color, emoji, label, sub, onClick }) => (
     <button onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", textAlign: "left", color: "#fff", background: color, border: "none", borderRadius: 14, padding: "16px 16px", marginBottom: 12, cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,.12)" }}>
       <span style={{ fontSize: 26 }}>{emoji}</span>
@@ -296,6 +298,7 @@ function Choose({ rep, onNew, onType, onReferrals, onApptsBooked, onIssues, onPa
   return (
     <div>
       <p style={{ fontSize: 14, color: "#6b7280", margin: "0 0 14px" }}>Hi {rep.name.split(" ")[0]} — what are you here to do?</p>
+      <Btn color="#0e7490" emoji="📅" label="My calendar" sub="Your appointments + set when you're available" onClick={onCalendar} />
       <Btn color={NAVY} emoji="📝" label="New inspection" sub="Sign a new free roof inspection" onClick={onNew} />
       <Btn color="#b8324f" emoji="🏚️" label="Damage visit" sub="Set the PA appointment to start their claim" onClick={() => onType("damage")} />
       <Btn color="#16a34a" emoji="✅" label="No-Damage visit" sub="Get referrals + send their certificate" onClick={() => onType("no_damage")} />
