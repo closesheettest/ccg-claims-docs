@@ -11,6 +11,35 @@ const NAVY = "#1a2e5a";
 const RETAIL_HOURS = { 1: [11, 14, 17, 19], 2: [11, 14, 17, 19], 3: [11, 14, 17, 19], 4: [11, 14, 17, 19], 5: [9, 12, 15], 6: [9, 12] };
 const TYPE_LABEL = { damage: "Damage", no_damage: "No Damage", retail: "Retail" };
 
+// "Go back" label for a review_availability ("Wed · 5 PM", "Mon, Tue, Wed, Thu,
+// Fri · 5 PM", "Any day · 2 PM"). When the homeowner is open to MULTIPLE days,
+// collapse to the FIRST AVAILABLE upcoming day at that hour (ET) — same rule the
+// JN go-back task uses. A single preferred day is left exactly as entered.
+function firstAvailableGoBack(s) {
+  if (!s) return s;
+  const [daysPart, timePart] = String(s).split(" · ").map((x) => (x || "").trim());
+  if (!timePart) return s;
+  const tm = timePart.match(/(\d+)\s*(am|pm)/i);
+  if (!tm) return s;
+  let hour = parseInt(tm[1], 10) % 12; if (/pm/i.test(tm[2])) hour += 12;
+  const WMAP = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+  const days = /any/i.test(daysPart)
+    ? [0, 1, 2, 3, 4, 5, 6]
+    : daysPart.split(",").map((d) => WMAP[d.trim().slice(0, 3).toLowerCase()]).filter((x) => x != null);
+  if (days.length <= 1) return s; // single preferred day → keep as-is
+  const fmt = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", month: "numeric", day: "numeric", hour: "numeric", hour12: false });
+  const now = Date.now();
+  for (let d = 0; d < 14; d++) {
+    const p = {}; for (const x of fmt.formatToParts(new Date(now + d * 864e5))) p[x.type] = x.value;
+    const wd = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }[p.weekday];
+    if (!days.includes(wd)) continue;
+    if (d === 0 && Number(p.hour) >= hour) continue; // today's slot already passed
+    const h12 = (hour % 12) || 12, ap = hour >= 12 ? "PM" : "AM";
+    return `${p.weekday} ${p.month}/${p.day} · ${h12} ${ap}`;
+  }
+  return s;
+}
+
 const S = {
   wrap: { minHeight: "100vh", background: "#f3f4f6", padding: "18px 16px 64px", fontFamily: "system-ui, -apple-system, sans-serif", color: "#111827" },
   container: { maxWidth: 480, margin: "0 auto" },
@@ -468,7 +497,7 @@ function DealList({ type, deals, onBack, onPick }) {
             <button key={d.inspection_id} onClick={() => onPick(d)} style={{ ...S.repBtn, paddingTop: 11, paddingBottom: 11 }}>
               <span style={{ display: "block", fontWeight: 700 }}>{d.client_name}</span>
               <span style={{ display: "block", fontSize: 12.5, color: "#6b7280", fontWeight: 400 }}>{[d.address, d.city].filter(Boolean).join(", ")}</span>
-              <span style={{ display: "block", fontSize: 11.5, color: "#9ca3af", fontWeight: 700 }}>{d.distance_mi != null ? `${d.distance_mi} mi away` : "distance unknown"}{d.review_availability ? ` · 🏠 ${d.review_availability}` : ""}</span>
+              <span style={{ display: "block", fontSize: 11.5, color: "#9ca3af", fontWeight: 700 }}>{d.distance_mi != null ? `${d.distance_mi} mi away` : "distance unknown"}{d.review_availability ? ` · 🏠 ${firstAvailableGoBack(d.review_availability)}` : ""}</span>
             </button>
           ))}</div>}
     </div>
@@ -483,7 +512,7 @@ function Panel({ type, deal, rep, api, onBack, onPhotos }) {
       <BackBar onBack={onBack} title={deal.client_name} />
       <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "10px 12px", fontSize: 12.5, color: "#6b7280", marginBottom: 12 }}>
         {[deal.address, deal.city, deal.state].filter(Boolean).join(", ")}
-        {deal.review_availability && <span style={{ display: "block", marginTop: 4, color: "#166534", fontWeight: 700 }}>🏠 Best time to come by: {deal.review_availability}</span>}
+        {deal.review_availability && <span style={{ display: "block", marginTop: 4, color: "#166534", fontWeight: 700 }}>🏠 Best time to come by: {firstAvailableGoBack(deal.review_availability)}</span>}
         {(() => {
           const log = Array.isArray(deal.pa_notes_log) ? deal.pa_notes_log : [];
           const last = log.length ? (log[log.length - 1].text || log[log.length - 1]) : null;
