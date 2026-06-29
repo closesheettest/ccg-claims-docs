@@ -120,7 +120,7 @@ export default function SetterPortal({ Address }) {
   const header = (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        {setter && <button onClick={goBack} title="Back" style={{ ...C.btn, background: "#f1f5f9", color: "#1a2e5a", padding: "6px 12px", fontSize: 15 }}>←</button>}
+        {setter && <button onClick={goBack} title="Back" style={{ ...C.btn, background: "#2563eb", color: "#fff", padding: "6px 14px", fontSize: 15, boxShadow: "0 1px 3px rgba(37,99,235,.4)" }}>← Back</button>}
         <div style={{ fontWeight: 900, fontSize: 20, color: "#1a2e5a" }}>📞 Appointment Setter</div>
       </div>
       {setter && (
