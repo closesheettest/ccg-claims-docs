@@ -100,12 +100,12 @@ exports.handler = async (event) => {
     const jobId = job.jnid || job.id;
     if (!jobId) throw new Error("job create failed");
 
-    // 3. Appointment task at the chosen time (2h).
+    // 3. Appointment task at the chosen time (start only — no end date).
     const startSec = Math.floor(apptMs / 1000);
     const task = await jnPost("tasks", {
       record_type: APPT_TASK_RT, record_type_name: "Appointment", type: "task",
       title: `Appointment — ${fullName}`,
-      date_start: startSec, date_end: startSec + 7200,
+      date_start: startSec, date_end: 0,
       related: [{ id: jobId, type: "job" }], owners: [{ id: owner }],
     });
 
