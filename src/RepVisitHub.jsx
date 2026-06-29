@@ -295,19 +295,22 @@ function Choose({ rep, onNew, onType, onReferrals, onApptsBooked, onIssues, onPa
       <span><span style={{ display: "block", fontSize: 17, fontWeight: 800 }}>{label}</span><span style={{ display: "block", fontSize: 12.5, opacity: 0.92 }}>{sub}</span></span>
     </button>
   );
+  // William is the inspector — he signs inspections + tracks pay, but doesn't
+  // run the visit/adjuster flows, so those buttons are hidden for him.
+  const isWilliam = (rep.name || "").trim().toLowerCase() === "william hernandez";
   return (
     <div>
       <p style={{ fontSize: 14, color: "#6b7280", margin: "0 0 14px" }}>Hi {rep.name.split(" ")[0]} — what are you here to do?</p>
       <Btn color="#0e7490" emoji="📅" label="My calendar" sub="Your appointments + set when you're available" onClick={onCalendar} />
       <Btn color={NAVY} emoji="📝" label="New inspection" sub="Sign a new free roof inspection" onClick={onNew} />
-      <Btn color="#b8324f" emoji="🏚️" label="Damage visit" sub="Set the PA appointment to start their claim" onClick={() => onType("damage")} />
-      <Btn color="#16a34a" emoji="✅" label="No-Damage visit" sub="Get referrals + send their certificate" onClick={() => onType("no_damage")} />
-      <Btn color="#d97706" emoji="🏠" label="Retail visit" sub="Schedule a retail options appointment" onClick={() => onType("retail")} />
+      {!isWilliam && <Btn color="#b8324f" emoji="🏚️" label="Damage visit" sub="Set the PA appointment to start their claim" onClick={() => onType("damage")} />}
+      {!isWilliam && <Btn color="#16a34a" emoji="✅" label="No-Damage visit" sub="Get referrals + send their certificate" onClick={() => onType("no_damage")} />}
+      {!isWilliam && <Btn color="#d97706" emoji="🏠" label="Retail visit" sub="Schedule a retail options appointment" onClick={() => onType("retail")} />}
       <Btn color="#6d28d9" emoji="🤝" label="Referrals" sub="People you were referred to — who to sign up" onClick={onReferrals} />
-      <Btn color="#0e7490" emoji="📅" label="Adjuster appts booked" sub="Upcoming PA appointments you've set" onClick={onApptsBooked} />
+      {!isWilliam && <Btn color="#0e7490" emoji="📅" label="Adjuster appts booked" sub="Upcoming PA appointments you've set" onClick={onApptsBooked} />}
       <Btn color="#6b7280" emoji="⚠️" label="Cancelled / Needs correction" sub="Deals marked Lost or flagged to fix — see why" onClick={onIssues} />
       {/* William's pay report — only for him. */}
-      {(rep.name || "").trim().toLowerCase() === "william hernandez" && (
+      {isWilliam && (
         <Btn color="#047857" emoji="💵" label="Pay Report" sub="This week's inspection signups ($150 each) + cancels" onClick={onPay} />
       )}
     </div>
