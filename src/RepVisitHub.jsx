@@ -97,52 +97,40 @@ export default function RepVisitHub() {
   // Matches by the deal's sales rep (JobNimbus id, name fallback), so an appt the
   // PA (or the company) booked still surfaces here — it's still the rep's homeowner.
   // Also includes anything the rep booked directly.
+  // Loads this rep's upcoming PA appointment rows (their homeowners, or ones they
+  // booked) — shared by the Adjuster-appts view and the hub count badge. A
+  // reassigned deal belongs to the CURRENT sales rep, not the original signer.
+  const loadApptRows = async () => {
+    const nowIso = new Date().toISOString();
+    const SEL = "id,sales_rep_id,sales_rep_name,original_sales_rep_id,original_sales_rep_name";
+    const rowsById = new Map();
+    if (rep.jobnimbus_id) {
+      const { data } = await supabase.from("inspections").select(SEL).or(`sales_rep_id.eq.${rep.jobnimbus_id},original_sales_rep_id.eq.${rep.jobnimbus_id}`);
+      for (const r of (data || [])) rowsById.set(r.id, r);
+    }
+    if (rep.name) {
+      try { const { data } = await supabase.from("inspections").select(SEL).or(`sales_rep_name.eq.${rep.name},original_sales_rep_name.eq.${rep.name}`); for (const r of (data || [])) rowsById.set(r.id, r); } catch { /* odd name */ }
+    }
+    const repInspIds = new Set();
+    for (const r of rowsById.values()) {
+      const isCurrent = (!!rep.jobnimbus_id && r.sales_rep_id === rep.jobnimbus_id) || (!!rep.name && r.sales_rep_name === rep.name);
+      const isOriginal = (!!rep.jobnimbus_id && r.original_sales_rep_id === rep.jobnimbus_id) || (!!rep.name && r.original_sales_rep_name === rep.name);
+      const hasCurrent = !!(r.sales_rep_id || r.sales_rep_name);
+      if (isCurrent || (!hasCurrent && isOriginal)) repInspIds.add(r.id);
+    }
+    const { data: all, error } = await supabase.from("pa_appointments")
+      .select("id,homeowner_name,homeowner_phone,address,start_at,pa_id,inspection_id,booked_by")
+      .eq("status", "scheduled").gte("start_at", nowIso).order("start_at", { ascending: true });
+    if (error) throw error;
+    return (all || []).filter((a) => (a.inspection_id && repInspIds.has(a.inspection_id)) || (a.booked_by && a.booked_by === rep.name));
+  };
   const startApptsBooked = async () => {
     setAppts(null); setErr(""); setStage("appts");
     try {
-      const nowIso = new Date().toISOString();
-      // 1) This rep's deals (their homeowners). A reassigned deal belongs to the
-      //    CURRENT sales rep, not the original signer — otherwise the original rep
-      //    keeps seeing appointments on deals handed to someone else (e.g. Oswaldo
-      //    cabrera was reassigned William → Stefano and showed under BOTH). So a
-      //    deal counts if you're the current rep, OR you're the original AND no
-      //    current rep is set yet. Prefer JobNimbus id; name as fallback.
-      const SEL = "id,sales_rep_id,sales_rep_name,original_sales_rep_id,original_sales_rep_name";
-      const rowsById = new Map();
-      if (rep.jobnimbus_id) {
-        const { data } = await supabase.from("inspections").select(SEL)
-          .or(`sales_rep_id.eq.${rep.jobnimbus_id},original_sales_rep_id.eq.${rep.jobnimbus_id}`);
-        for (const r of (data || [])) rowsById.set(r.id, r);
-      }
-      if (rep.name) {
-        try {
-          const { data } = await supabase.from("inspections").select(SEL)
-            .or(`sales_rep_name.eq.${rep.name},original_sales_rep_name.eq.${rep.name}`);
-          for (const r of (data || [])) rowsById.set(r.id, r);
-        } catch { /* odd name → skip name match, id match still applies */ }
-      }
-      const repInspIds = new Set();
-      for (const r of rowsById.values()) {
-        const isCurrent = (!!rep.jobnimbus_id && r.sales_rep_id === rep.jobnimbus_id) || (!!rep.name && r.sales_rep_name === rep.name);
-        const isOriginal = (!!rep.jobnimbus_id && r.original_sales_rep_id === rep.jobnimbus_id) || (!!rep.name && r.original_sales_rep_name === rep.name);
-        const hasCurrent = !!(r.sales_rep_id || r.sales_rep_name);
-        if (isCurrent || (!hasCurrent && isOriginal)) repInspIds.add(r.id);
-      }
-      // 2) All upcoming scheduled PA appointments, then keep the ones for this
-      //    rep's homeowners OR that this rep booked.
-      const { data: all, error } = await supabase.from("pa_appointments")
-        .select("id,homeowner_name,homeowner_phone,address,start_at,pa_id,inspection_id,booked_by")
-        .eq("status", "scheduled").gte("start_at", nowIso)
-        .order("start_at", { ascending: true });
-      if (error) throw error;
-      const rows = (all || []).filter((a) =>
-        (a.inspection_id && repInspIds.has(a.inspection_id)) || (a.booked_by && a.booked_by === rep.name));
+      const rows = await loadApptRows();
       const ids = [...new Set(rows.map((r) => r.pa_id).filter(Boolean))];
       const nameById = {};
-      if (ids.length) {
-        const { data: pas } = await supabase.from("pas").select("id,name").in("id", ids);
-        for (const p of (pas || [])) nameById[p.id] = p.name;
-      }
+      if (ids.length) { const { data: pas } = await supabase.from("pas").select("id,name").in("id", ids); for (const p of (pas || [])) nameById[p.id] = p.name; }
       setAppts(rows.map((r) => ({ ...r, pa_name: nameById[r.pa_id] || "Adjuster" })));
     } catch (e) { setErr(e.message); setAppts([]); }
   };
@@ -221,9 +209,12 @@ export default function RepVisitHub() {
   useEffect(() => {
     if (!rep || !token || stage !== "choose") return;
     let live = true;
-    Promise.all(["damage", "no_damage", "retail"].map((t) =>
-      api("visit-deal-list", { result: t, rep_jobnimbus_id: rep.jobnimbus_id, rep_name: rep.name }).then((o) => (o.deals || []).length).catch(() => null),
-    )).then(([damage, no_damage, retail]) => { if (live) setCounts({ damage, no_damage, retail }); });
+    Promise.all([
+      ...["damage", "no_damage", "retail"].map((t) =>
+        api("visit-deal-list", { result: t, rep_jobnimbus_id: rep.jobnimbus_id, rep_name: rep.name }).then((o) => (o.deals || []).length).catch(() => null)),
+      api("referral-list", { rep_name: rep.name }).then((o) => (o.referrals || []).length).catch(() => null),
+      loadApptRows().then((r) => r.length).catch(() => null),
+    ]).then(([damage, no_damage, retail, referrals, appts]) => { if (live) setCounts({ damage, no_damage, retail, referrals, appts }); });
     return () => { live = false; };
   }, [rep, token, stage]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -320,8 +311,8 @@ function Choose({ rep, onNew, onType, onReferrals, onApptsBooked, onIssues, onPa
       {!isWilliam && <Btn color="#b8324f" emoji="🏚️" label="Damage visit" sub="Set the PA appointment to start their claim" onClick={() => onType("damage")} count={counts?.damage} />}
       {!isWilliam && <Btn color="#16a34a" emoji="✅" label="No-Damage visit" sub="Get referrals + send their certificate" onClick={() => onType("no_damage")} count={counts?.no_damage} />}
       {!isWilliam && <Btn color="#d97706" emoji="🏠" label="Retail visit" sub="Schedule a retail options appointment" onClick={() => onType("retail")} count={counts?.retail} />}
-      <Btn color="#6d28d9" emoji="🤝" label="Referrals" sub="People you were referred to — who to sign up" onClick={onReferrals} />
-      {!isWilliam && <Btn color="#0e7490" emoji="📅" label="Adjuster appts booked" sub="Upcoming PA appointments you've set" onClick={onApptsBooked} />}
+      <Btn color="#6d28d9" emoji="🤝" label="Referrals" sub="People you were referred to — who to sign up" onClick={onReferrals} count={counts?.referrals} />
+      {!isWilliam && <Btn color="#0e7490" emoji="📅" label="Adjuster appts booked" sub="Upcoming PA appointments you've set" onClick={onApptsBooked} count={counts?.appts} />}
       <Btn color="#6b7280" emoji="⚠️" label="Cancelled / Needs correction" sub="Deals marked Lost or flagged to fix — see why" onClick={onIssues} />
       {/* William's pay report — only for him. */}
       {isWilliam && (
