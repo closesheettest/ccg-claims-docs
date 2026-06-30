@@ -93,7 +93,7 @@ export const handler = async (event) => {
     return await assignLead(body)
   }
   if (action === 'list-appointments') {
-    return await listAppointments(manager)
+    return await listAppointments(manager, body)
   }
   if (action === 'assign-appointment') {
     return await assignAppointment(manager, body)
@@ -284,8 +284,11 @@ async function markJnProgress(body) {
 // assignAppointment writes the chosen OWNER + SALES REP back to the JN job and
 // stamps the local row.
 
-async function listAppointments(manager) {
+async function listAppointments(manager, body) {
   const zone = manager.zone
+  const z = encodeURIComponent(zone)
+  const view = ['today', 'tomorrow', 'needs'].includes(String(body && body.view)) ? body.view : 'needs'
+
   // Active reps in this manager's zone → the Owner + Sales Rep dropdowns.
   const repsInZone = await fetchRepsInZoneBridged(zone)
   const activeRows = await fetchTable('sales_reps', { select: 'name,jobnimbus_id,active', filter: 'active=eq.true', limit: 1000 })
@@ -296,21 +299,91 @@ async function listAppointments(manager) {
     .map((r) => ({ name: r.name, jobnimbus_id: r.jobnimbus_id }))
     .sort((a, b) => a.name.localeCompare(b.name))
 
+  // ── Today / Tomorrow: the team's FULL appointment load for that day —
+  //    app-booked (assigned or not) + whatever's already in JobNimbus for the
+  //    team's reps (any source), merged + deduped by JN job. ──
+  if (view === 'today' || view === 'tomorrow') {
+    const { startIso, endIso, startSec, endSec } = etDayBounds(view === 'tomorrow' ? 1 : 0)
+    const app = await fetchTable('setter_appointments', {
+      select: 'id,homeowner_name,phone,address,appt_at,source,zone,jn_job_id,rep_jobnimbus_id,rep_name',
+      filter: `zone=eq.${z}&appt_at=gte.${encodeURIComponent(startIso)}&appt_at=lte.${encodeURIComponent(endIso)}`,
+      order: 'appt_at.asc', limit: 300,
+    })
+    const appJobIds = new Set((app || []).map((a) => a.jn_job_id).filter(Boolean))
+    const nameByJn = {}; for (const r of reps) nameByJn[r.jobnimbus_id] = r.name
+    const jn = await jnTeamAppointments(reps.map((r) => r.jobnimbus_id), startSec, endSec)
+    const items = []
+    for (const a of (app || [])) {
+      items.push({
+        key: 'app:' + a.id, source: 'app', id: a.id, jn_job_id: a.jn_job_id || null,
+        homeowner: a.homeowner_name, address: a.address, appt_at: a.appt_at,
+        rep_name: a.rep_name || null, needs_assignment: !a.rep_jobnimbus_id, src: a.source || null,
+      })
+    }
+    for (const t of jn) {
+      if (t.job_id && appJobIds.has(t.job_id)) continue // already shown via the app row
+      items.push({
+        key: 'jn:' + t.id, source: 'jn', id: null, jn_job_id: t.job_id || null,
+        homeowner: t.homeowner, address: null, appt_at: t.appt_at,
+        rep_name: nameByJn[t.owner_id] || t.owner_name || null, needs_assignment: false, src: 'JobNimbus',
+      })
+    }
+    items.sort((x, y) => new Date(x.appt_at) - new Date(y.appt_at))
+    return json(200, { ok: true, zone, view, reps, items })
+  }
+
+  // ── Default 'needs': everything awaiting a rep (any day) + assigned upcoming. ──
   const nowIso = new Date().toISOString()
-  const z = encodeURIComponent(zone)
-  // Unassigned (booked under the manager, no sales rep yet), upcoming.
   const unassigned = await fetchTable('setter_appointments', {
     select: 'id,homeowner_name,phone,address,appt_at,source,zone,jn_job_id',
     filter: `zone=eq.${z}&rep_jobnimbus_id=is.null&appt_at=gte.${encodeURIComponent(nowIso)}`,
     order: 'appt_at.asc', limit: 200,
   })
-  // Already-assigned upcoming appts in the zone — the rep schedule/calendar.
   const assigned = await fetchTable('setter_appointments', {
     select: 'id,homeowner_name,address,appt_at,rep_name,rep_jobnimbus_id,owner_name',
     filter: `zone=eq.${z}&rep_jobnimbus_id=not.is.null&appt_at=gte.${encodeURIComponent(nowIso)}`,
     order: 'appt_at.asc', limit: 300,
   })
-  return json(200, { ok: true, zone, reps, unassigned: unassigned || [], assigned: assigned || [] })
+  return json(200, { ok: true, zone, view: 'needs', reps, unassigned: unassigned || [], assigned: assigned || [] })
+}
+
+// ET day window for today (offset 0) / tomorrow (offset 1). Netlify runs in UTC.
+function etDayBounds(offsetDays) {
+  const d = new Date(Date.now() + offsetDays * 86400000)
+  const ymd = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(d) // YYYY-MM-DD
+  const off = new Date(d.toLocaleString('en-US', { timeZone: 'UTC' })).getTime() - new Date(d.toLocaleString('en-US', { timeZone: 'America/New_York' })).getTime()
+  const start = Date.parse(`${ymd}T00:00:00.000Z`) + off
+  const end = start + 86400000 - 1
+  return { startIso: new Date(start).toISOString(), endIso: new Date(end).toISOString(), startSec: Math.floor(start / 1000), endSec: Math.floor(end / 1000) }
+}
+
+// JN appointment tasks owned by any of the team's reps in [startSec, endSec].
+// Per-rep `term` query (the format JN's ES reliably accepts), run in parallel.
+async function jnTeamAppointments(repJnIds, startSec, endSec) {
+  if (!JN_KEY || !repJnIds.length) return []
+  const headers = { Authorization: `bearer ${JN_KEY}` }
+  const one = async (rid) => {
+    try {
+      const filter = encodeURIComponent(JSON.stringify({ must: [{ range: { date_start: { gte: startSec, lte: endSec } } }, { term: { 'owners.id': rid } }] }))
+      const r = await fetch(`${JN_BASE}/tasks?size=100&filter=${filter}`, { headers })
+      if (!r.ok) return []
+      const d = await r.json().catch(() => ({}))
+      return d.results || d.tasks || d.data || []
+    } catch { return [] }
+  }
+  const all = (await Promise.all(repJnIds.map(one))).flat()
+  const seen = new Set(); const out = []
+  for (const t of all) {
+    const tid = t.jnid || t.id
+    if (!tid || seen.has(tid)) continue; seen.add(tid)
+    if (!/appoint/i.test(String(t.record_type_name || t.title || ''))) continue
+    const owner = (t.owners || [])[0] || {}
+    const job = (t.related || []).find((x) => x.type === 'job') || {}
+    const title = String(t.title || '')
+    const homeowner = title.replace(/^.*?appointment\s*[—-]\s*/i, '').trim() || title || 'Appointment'
+    out.push({ id: tid, appt_at: new Date((Number(t.date_start) || 0) * 1000).toISOString(), owner_id: owner.id || null, owner_name: owner.name || null, job_id: job.id || null, homeowner })
+  }
+  return out
 }
 
 async function assignAppointment(manager, body) {
