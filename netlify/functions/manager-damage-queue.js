@@ -19,6 +19,15 @@ const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
 const REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1";
+const JN_BASE = "https://app.jobnimbus.com/api1";
+const JN_KEY = process.env.JOBNIMBUS_API_KEY;
+const jnH = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
+// A damage deal disappears from the rep's Damage-visit list the moment its JN
+// status is "BTR - NI" (Back-to-Retail Not Interested) — a RETAIL status, so on
+// a damage deal it's almost always a mis-click. Restoring = set the JN status
+// back to "Sit Sold Insp" (the normal post-inspection damage state).
+const BTR_NI_NAME = "BTR - NI";
+const SIT_SOLD_INSP = 597, SIT_SOLD_INSP_NAME = "Sit Sold Insp";
 
 // county → zone(s), from the owner's territory map (split counties live in two).
 const ZONE_COUNTIES = {
@@ -68,6 +77,35 @@ exports.handler = async (event) => {
           body: JSON.stringify({ jnid: insp.jn_job_id, assigneeId: repId, salesRepId: repId }),
         }).catch(() => {});
       }
+      return cors(200, JSON.stringify({ ok: true }));
+    }
+
+    // action: btr_load — damage deals wrongly marked "BTR - NI" in this zone,
+    // i.e. ones that fell off the rep's Damage-visit list and can be restored.
+    if (body.action === "btr_load") {
+      const z = String(body.zone || "").trim();
+      if (!z) return cors(400, JSON.stringify({ ok: false, error: "zone required" }));
+      const sel = "id,client_name,address,city,county,zip,mobile,original_sales_rep_name,sales_rep_name,result_at";
+      const rows = await sbGet(`inspections?result=eq.damage&cancelled_at=is.null&jn_status=eq.${encodeURIComponent(BTR_NI_NAME)}&select=${sel}&order=result_at.desc&limit=1000`);
+      const deals = rows
+        .filter((r) => (COUNTY_ZONES[normCounty(r.county)] || []).includes(z))
+        .map((r) => ({ inspection_id: r.id, client_name: r.client_name, address: r.address, city: r.city, county: r.county, zip: r.zip, mobile: r.mobile, rep: r.original_sales_rep_name || r.sales_rep_name || null }));
+      return cors(200, JSON.stringify({ ok: true, deals }));
+    }
+
+    // action: btr_restore — put the JN status back to "Sit Sold Insp" and clear
+    // the stale BTR-NI copy, so the deal returns to the rep's Damage-visit list now.
+    if (body.action === "btr_restore") {
+      const inspId = String(body.inspection_id || "").trim();
+      if (!inspId) return cors(400, JSON.stringify({ ok: false, error: "inspection_id required" }));
+      const insp = (await sbGet(`inspections?id=eq.${encodeURIComponent(inspId)}&select=jn_job_id&limit=1`))[0];
+      if (insp && insp.jn_job_id && JN_KEY) {
+        const r = await fetch(`${JN_BASE}/jobs/${insp.jn_job_id}`, { method: "PUT", headers: jnH, body: JSON.stringify({ status: SIT_SOLD_INSP, status_name: SIT_SOLD_INSP_NAME }) });
+        if (!r.ok) return cors(502, JSON.stringify({ ok: false, error: `JobNimbus update failed (${r.status})` }));
+      }
+      await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspId)}`, {
+        method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify({ jn_status: null }),
+      });
       return cors(200, JSON.stringify({ ok: true }));
     }
 
