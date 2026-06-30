@@ -354,7 +354,9 @@ async function listAppointments(manager, body) {
   // Viviana backlog: JobNimbus appointments still owned by the setter (not yet
   // routed to a rep), today → +90 days, sorted by date. Shown to every manager.
   const { startSec } = etDayBounds(0)
-  const vivRaw = await jnTeamAppointments([SETTER_VIVIANA_ID], startSec, startSec + 90 * 86400, {}, false)
+  // Enrich (fetch each job) so the homeowner NAME shows — the appointment task
+  // title is just "Initial Appointment"; the homeowner lives on the job.
+  const vivRaw = await jnTeamAppointments([SETTER_VIVIANA_ID], startSec, startSec + 90 * 86400, {}, true)
   const viviana = vivRaw
     .map((t) => ({ key: 'viv:' + t.id, source: 'jn', id: null, jn_job_id: t.job_id || null, homeowner: t.homeowner, address: null, appt_at: t.appt_at, src: 'Viviana', owner_id: t.owner_id || null, owner_name: t.owner_name || 'Viviana', sales_rep_id: null, sales_rep_name: null, needs_assignment: true }))
     .sort((a, b) => new Date(a.appt_at) - new Date(b.appt_at))
