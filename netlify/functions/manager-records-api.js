@@ -305,27 +305,31 @@ async function listAppointments(manager, body) {
   if (view === 'today' || view === 'tomorrow') {
     const { startIso, endIso, startSec, endSec } = etDayBounds(view === 'tomorrow' ? 1 : 0)
     const app = await fetchTable('setter_appointments', {
-      select: 'id,homeowner_name,phone,address,appt_at,source,zone,jn_job_id,rep_jobnimbus_id,rep_name',
+      select: 'id,homeowner_name,phone,address,appt_at,source,zone,jn_job_id,rep_jobnimbus_id,rep_name,owner_jobnimbus_id,owner_name',
       filter: `zone=eq.${z}&appt_at=gte.${encodeURIComponent(startIso)}&appt_at=lte.${encodeURIComponent(endIso)}`,
       order: 'appt_at.asc', limit: 300,
     })
     const appJobIds = new Set((app || []).map((a) => a.jn_job_id).filter(Boolean))
     const nameByJn = {}; for (const r of reps) nameByJn[r.jobnimbus_id] = r.name
-    const jn = await jnTeamAppointments(reps.map((r) => r.jobnimbus_id), startSec, endSec)
+    const jn = await jnTeamAppointments(reps.map((r) => r.jobnimbus_id), startSec, endSec, nameByJn)
     const items = []
     for (const a of (app || [])) {
       items.push({
         key: 'app:' + a.id, source: 'app', id: a.id, jn_job_id: a.jn_job_id || null,
-        homeowner: a.homeowner_name, address: a.address, appt_at: a.appt_at,
-        rep_name: a.rep_name || null, needs_assignment: !a.rep_jobnimbus_id, src: a.source || null,
+        homeowner: a.homeowner_name, address: a.address, appt_at: a.appt_at, src: a.source || null,
+        owner_id: a.owner_jobnimbus_id || null, owner_name: a.owner_name || null,
+        sales_rep_id: a.rep_jobnimbus_id || null, sales_rep_name: a.rep_name || null,
+        needs_assignment: !a.rep_jobnimbus_id,
       })
     }
     for (const t of jn) {
       if (t.job_id && appJobIds.has(t.job_id)) continue // already shown via the app row
       items.push({
         key: 'jn:' + t.id, source: 'jn', id: null, jn_job_id: t.job_id || null,
-        homeowner: t.homeowner, address: null, appt_at: t.appt_at,
-        rep_name: nameByJn[t.owner_id] || t.owner_name || null, needs_assignment: false, src: 'JobNimbus',
+        homeowner: t.homeowner, address: null, appt_at: t.appt_at, src: 'JobNimbus',
+        owner_id: t.owner_id || null, owner_name: t.owner_name || null,
+        sales_rep_id: t.sales_rep_id || null, sales_rep_name: t.sales_rep_name || null,
+        needs_assignment: !t.sales_rep_id,
       })
     }
     items.sort((x, y) => new Date(x.appt_at) - new Date(y.appt_at))
@@ -357,12 +361,14 @@ function etDayBounds(offsetDays) {
   return { startIso: new Date(start).toISOString(), endIso: new Date(end).toISOString(), startSec: Math.floor(start / 1000), endSec: Math.floor(end / 1000) }
 }
 
-// JN appointment tasks owned by any of the team's reps in [startSec, endSec].
-// Per-rep `term` query (the format JN's ES reliably accepts), run in parallel.
-async function jnTeamAppointments(repJnIds, startSec, endSec) {
+// JN appointment tasks owned by any of the team's reps in [startSec, endSec],
+// enriched with each task's JOB so we get the OWNER + SALES REP + homeowner
+// (sales_rep lives on the job, not the appointment task). Per-rep `term` task
+// query + a batched job fetch, all parallel.
+async function jnTeamAppointments(repJnIds, startSec, endSec, nameByJn = {}) {
   if (!JN_KEY || !repJnIds.length) return []
   const headers = { Authorization: `bearer ${JN_KEY}` }
-  const one = async (rid) => {
+  const tasksFor = async (rid) => {
     try {
       const filter = encodeURIComponent(JSON.stringify({ must: [{ range: { date_start: { gte: startSec, lte: endSec } } }, { term: { 'owners.id': rid } }] }))
       const r = await fetch(`${JN_BASE}/tasks?size=100&filter=${filter}`, { headers })
@@ -371,24 +377,35 @@ async function jnTeamAppointments(repJnIds, startSec, endSec) {
       return d.results || d.tasks || d.data || []
     } catch { return [] }
   }
-  const all = (await Promise.all(repJnIds.map(one))).flat()
-  const seen = new Set(); const out = []
-  for (const t of all) {
+  const tasks = (await Promise.all(repJnIds.map(tasksFor))).flat()
+  const seen = new Set(); const appts = []
+  for (const t of tasks) {
     const tid = t.jnid || t.id
     if (!tid || seen.has(tid)) continue; seen.add(tid)
     if (!/appoint/i.test(String(t.record_type_name || t.title || ''))) continue
-    const owner = (t.owners || [])[0] || {}
     const job = (t.related || []).find((x) => x.type === 'job') || {}
-    const title = String(t.title || '')
-    const homeowner = title.replace(/^.*?appointment\s*[—-]\s*/i, '').trim() || title || 'Appointment'
-    out.push({ id: tid, appt_at: new Date((Number(t.date_start) || 0) * 1000).toISOString(), owner_id: owner.id || null, owner_name: owner.name || null, job_id: job.id || null, homeowner })
+    appts.push({ task_id: tid, job_id: job.id || null, appt_at: new Date((Number(t.date_start) || 0) * 1000).toISOString(), title: String(t.title || '') })
   }
-  return out
+  // Batch-fetch the jobs for owner + sales_rep + name.
+  const jobIds = [...new Set(appts.map((a) => a.job_id).filter(Boolean))].slice(0, 60)
+  const jobById = {}
+  await Promise.all(jobIds.map(async (jid) => {
+    try { const r = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(jid)}`, { headers }); if (r.ok) jobById[jid] = await r.json().catch(() => null) } catch { /* skip */ }
+  }))
+  return appts.map((a) => {
+    const j = jobById[a.job_id] || {}
+    const ownerId = ((j.owners || [])[0] || {}).id || null
+    const repId = j.sales_rep || null
+    const homeowner = j.name || a.title.replace(/^.*?appointment\s*[—-]\s*/i, '').trim() || a.title || 'Appointment'
+    return {
+      id: a.task_id, job_id: a.job_id, appt_at: a.appt_at, homeowner,
+      owner_id: ownerId, owner_name: nameByJn[ownerId] || ((j.owners || [])[0] || {}).name || null,
+      sales_rep_id: repId, sales_rep_name: j.sales_rep_name || nameByJn[repId] || null,
+    }
+  })
 }
 
 async function assignAppointment(manager, body) {
-  const apptId = String(body.appt_id || '').trim()
-  if (!apptId) return json(400, { ok: false, error: 'appt_id required' })
   const ownerJnId = String(body.owner_jn_id || '').trim()
   const ownerName = String(body.owner_name || '').trim()
   const repJnId = String(body.sales_rep_jn_id || '').trim()
@@ -396,31 +413,46 @@ async function assignAppointment(manager, body) {
   if (!ownerJnId || !repJnId) return json(400, { ok: false, error: 'Pick both an owner and a sales rep.' })
   if (!JN_KEY) return json(500, { ok: false, error: 'Server misconfigured (missing JobNimbus key)' })
 
-  // Load the appointment + verify it's in THIS manager's zone (security).
-  const rows = await fetchTable('setter_appointments', {
-    select: 'id,zone,jn_job_id,rep_jobnimbus_id', filter: `id=eq.${encodeURIComponent(apptId)}`, limit: 1,
-  })
-  const appt = (rows || [])[0]
-  if (!appt) return json(404, { ok: false, error: 'Appointment not found' })
-  if (appt.zone && manager.zone && appt.zone !== manager.zone) return json(403, { ok: false, error: 'That appointment isn’t in your zone.' })
-  if (!appt.jn_job_id) return json(400, { ok: false, error: 'This appointment has no JobNimbus job to update.' })
+  const apptId = String(body.appt_id || '').trim()
+  let jobId = null, appt = null
+  if (apptId) {
+    // App appointment — load the row + verify zone, then update its job + stamp it.
+    const rows = await fetchTable('setter_appointments', { select: 'id,zone,jn_job_id', filter: `id=eq.${encodeURIComponent(apptId)}`, limit: 1 })
+    appt = (rows || [])[0]
+    if (!appt) return json(404, { ok: false, error: 'Appointment not found' })
+    if (appt.zone && manager.zone && appt.zone !== manager.zone) return json(403, { ok: false, error: 'That appointment isn’t in your zone.' })
+    if (!appt.jn_job_id) return json(400, { ok: false, error: 'This appointment has no JobNimbus job to update.' })
+    jobId = appt.jn_job_id
+  } else {
+    // JobNimbus-only row (reassign an existing JN appointment). Verify the job
+    // currently belongs to one of THIS manager's zone reps before touching it.
+    jobId = String(body.jn_job_id || '').trim()
+    if (!jobId) return json(400, { ok: false, error: 'appt_id or jn_job_id required' })
+    const reps = await fetchRepsInZoneBridged(manager.zone)
+    const zoneJn = new Set((reps || []).map((r) => r.jobnimbus_id).filter(Boolean))
+    try {
+      const jr = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(jobId)}`, { headers: { Authorization: `bearer ${JN_KEY}` } })
+      const j = jr.ok ? await jr.json().catch(() => ({})) : {}
+      const ownerIds = (j.owners || []).map((o) => o.id)
+      const inZone = ownerIds.some((id) => zoneJn.has(id)) || (j.sales_rep && zoneJn.has(j.sales_rep))
+      if (!inZone) return json(403, { ok: false, error: 'That job isn’t in your zone.' })
+    } catch { return json(502, { ok: false, error: 'Could not verify the JobNimbus job.' }) }
+  }
 
-  // 1. JobNimbus: set the owner + sales rep on the job.
-  const putBody = { jnid: appt.jn_job_id, owners: [{ id: ownerJnId }], sales_rep: repJnId }
-  const jnRes = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(appt.jn_job_id)}`, {
+  // JobNimbus: set the owner + sales rep on the job.
+  const putBody = { jnid: jobId, owners: [{ id: ownerJnId }], sales_rep: repJnId }
+  const jnRes = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(jobId)}`, {
     method: 'PUT', headers: { Authorization: `bearer ${JN_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify(putBody),
   })
   if (!jnRes.ok) { const t = await jnRes.text().catch(() => ''); return json(502, { ok: false, error: `JobNimbus update failed: ${jnRes.status} ${t}` }) }
 
-  // 2. Stamp the local row so it drops out of the unassigned list.
-  const patch = {
-    owner_jobnimbus_id: ownerJnId, owner_name: ownerName || null,
-    rep_jobnimbus_id: repJnId, rep_name: repName || null,
-    assigned_at: new Date().toISOString(),
+  // Stamp the local row (app appointments only) so it reflects the assignment.
+  if (appt) {
+    const patch = { owner_jobnimbus_id: ownerJnId, owner_name: ownerName || null, rep_jobnimbus_id: repJnId, rep_name: repName || null, assigned_at: new Date().toISOString() }
+    await fetch(`${SB_URL}/rest/v1/setter_appointments?id=eq.${encodeURIComponent(apptId)}`, {
+      method: 'PATCH', headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' }, body: JSON.stringify(patch),
+    }).catch(() => {})
   }
-  await fetch(`${SB_URL}/rest/v1/setter_appointments?id=eq.${encodeURIComponent(apptId)}`, {
-    method: 'PATCH', headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' }, body: JSON.stringify(patch),
-  }).catch(() => {})
   return json(200, { ok: true, assigned: { owner: ownerName, sales_rep: repName } })
 }
 
