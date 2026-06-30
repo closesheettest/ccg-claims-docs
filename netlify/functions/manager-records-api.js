@@ -29,6 +29,9 @@ const SB_URL = process.env.VITE_SUPABASE_URL
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY
 const JN_BASE = 'https://app.jobnimbus.com/api1'
 const JN_KEY = process.env.JOBNIMBUS_API_KEY
+// The inbound setter (Viviana). Appointments she's still the JN owner of are the
+// unrouted backlog — they surface in every manager's "needs" list to be assigned.
+const SETTER_VIVIANA_ID = 'm3n90ppl4smcf6nasr1jgje'
 const TMS_REP_ZONES_URL =
   'https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones'
 
@@ -348,7 +351,14 @@ async function listAppointments(manager, body) {
     filter: `zone=eq.${z}&rep_jobnimbus_id=not.is.null&appt_at=gte.${encodeURIComponent(nowIso)}`,
     order: 'appt_at.asc', limit: 300,
   })
-  return json(200, { ok: true, zone, view: 'needs', reps, unassigned: unassigned || [], assigned: assigned || [] })
+  // Viviana backlog: JobNimbus appointments still owned by the setter (not yet
+  // routed to a rep), today → +90 days, sorted by date. Shown to every manager.
+  const { startSec } = etDayBounds(0)
+  const vivRaw = await jnTeamAppointments([SETTER_VIVIANA_ID], startSec, startSec + 90 * 86400, {}, false)
+  const viviana = vivRaw
+    .map((t) => ({ key: 'viv:' + t.id, source: 'jn', id: null, jn_job_id: t.job_id || null, homeowner: t.homeowner, address: null, appt_at: t.appt_at, src: 'Viviana', owner_id: t.owner_id || null, owner_name: t.owner_name || 'Viviana', sales_rep_id: null, sales_rep_name: null, needs_assignment: true }))
+    .sort((a, b) => new Date(a.appt_at) - new Date(b.appt_at))
+  return json(200, { ok: true, zone, view: 'needs', reps, unassigned: unassigned || [], assigned: assigned || [], viviana })
 }
 
 // ET day window for today (offset 0) / tomorrow (offset 1). Netlify runs in UTC.
@@ -365,28 +375,38 @@ function etDayBounds(offsetDays) {
 // enriched with each task's JOB so we get the OWNER + SALES REP + homeowner
 // (sales_rep lives on the job, not the appointment task). Per-rep `term` task
 // query + a batched job fetch, all parallel.
-async function jnTeamAppointments(repJnIds, startSec, endSec, nameByJn = {}) {
-  if (!JN_KEY || !repJnIds.length) return []
+async function jnTeamAppointments(ownerIds, startSec, endSec, nameByJn = {}, enrich = true) {
+  if (!JN_KEY || !ownerIds.length) return []
   const headers = { Authorization: `bearer ${JN_KEY}` }
+  const cleanName = (title) => title.replace(/^.*?appointment\s*[—-]\s*/i, '').trim() || title || 'Appointment'
   const tasksFor = async (rid) => {
     try {
       const filter = encodeURIComponent(JSON.stringify({ must: [{ range: { date_start: { gte: startSec, lte: endSec } } }, { term: { 'owners.id': rid } }] }))
-      const r = await fetch(`${JN_BASE}/tasks?size=100&filter=${filter}`, { headers })
+      const r = await fetch(`${JN_BASE}/tasks?size=200&filter=${filter}`, { headers })
       if (!r.ok) return []
       const d = await r.json().catch(() => ({}))
       return d.results || d.tasks || d.data || []
     } catch { return [] }
   }
-  const tasks = (await Promise.all(repJnIds.map(tasksFor))).flat()
+  const tasks = (await Promise.all(ownerIds.map(tasksFor))).flat()
   const seen = new Set(); const appts = []
   for (const t of tasks) {
     const tid = t.jnid || t.id
     if (!tid || seen.has(tid)) continue; seen.add(tid)
     if (!/appoint/i.test(String(t.record_type_name || t.title || ''))) continue
     const job = (t.related || []).find((x) => x.type === 'job') || {}
-    appts.push({ task_id: tid, job_id: job.id || null, appt_at: new Date((Number(t.date_start) || 0) * 1000).toISOString(), title: String(t.title || '') })
+    const owner = (t.owners || [])[0] || {}
+    appts.push({ task_id: tid, job_id: job.id || null, appt_at: new Date((Number(t.date_start) || 0) * 1000).toISOString(), title: String(t.title || ''), t_owner_id: owner.id || null, t_owner_name: owner.name || null })
   }
-  // Batch-fetch the jobs for owner + sales_rep + name.
+  // Light path (no job fetch) — used for the Viviana backlog (all unassigned).
+  if (!enrich) {
+    return appts.map((a) => ({
+      id: a.task_id, job_id: a.job_id, appt_at: a.appt_at, homeowner: cleanName(a.title),
+      owner_id: a.t_owner_id, owner_name: nameByJn[a.t_owner_id] || a.t_owner_name || null,
+      sales_rep_id: null, sales_rep_name: null,
+    }))
+  }
+  // Enriched — fetch each job for the OWNER + SALES REP + homeowner name.
   const jobIds = [...new Set(appts.map((a) => a.job_id).filter(Boolean))].slice(0, 60)
   const jobById = {}
   await Promise.all(jobIds.map(async (jid) => {
@@ -394,12 +414,11 @@ async function jnTeamAppointments(repJnIds, startSec, endSec, nameByJn = {}) {
   }))
   return appts.map((a) => {
     const j = jobById[a.job_id] || {}
-    const ownerId = ((j.owners || [])[0] || {}).id || null
+    const ownerId = ((j.owners || [])[0] || {}).id || a.t_owner_id || null
     const repId = j.sales_rep || null
-    const homeowner = j.name || a.title.replace(/^.*?appointment\s*[—-]\s*/i, '').trim() || a.title || 'Appointment'
     return {
-      id: a.task_id, job_id: a.job_id, appt_at: a.appt_at, homeowner,
-      owner_id: ownerId, owner_name: nameByJn[ownerId] || ((j.owners || [])[0] || {}).name || null,
+      id: a.task_id, job_id: a.job_id, appt_at: a.appt_at, homeowner: j.name || cleanName(a.title),
+      owner_id: ownerId, owner_name: nameByJn[ownerId] || ((j.owners || [])[0] || {}).name || a.t_owner_name || null,
       sales_rep_id: repId, sales_rep_name: j.sales_rep_name || nameByJn[repId] || null,
     }
   })
@@ -434,7 +453,9 @@ async function assignAppointment(manager, body) {
       const jr = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(jobId)}`, { headers: { Authorization: `bearer ${JN_KEY}` } })
       const j = jr.ok ? await jr.json().catch(() => ({})) : {}
       const ownerIds = (j.owners || []).map((o) => o.id)
-      const inZone = ownerIds.some((id) => zoneJn.has(id)) || (j.sales_rep && zoneJn.has(j.sales_rep))
+      // In zone if a zone rep owns it / sells it — OR it's the Viviana backlog
+      // (still owned by the setter), which any manager may claim + assign.
+      const inZone = ownerIds.some((id) => zoneJn.has(id)) || (j.sales_rep && zoneJn.has(j.sales_rep)) || ownerIds.includes(SETTER_VIVIANA_ID)
       if (!inZone) return json(403, { ok: false, error: 'That job isn’t in your zone.' })
     } catch { return json(502, { ok: false, error: 'Could not verify the JobNimbus job.' }) }
   }
