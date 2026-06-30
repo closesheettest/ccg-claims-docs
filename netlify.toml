@@ -61,6 +61,15 @@
 [functions."daily-orphan-alert"]
   schedule = "0 12 * * *"
 
+# Scheduled function: end-of-day ET inspector accountability. Auto-releases
+# stale inspector claims (claimed >2h ago, still no result) back to the
+# "Available near me" pool, then texts MANAGER_ALERT_PHONE ONE report listing
+# who sat on claims (with addresses) + which active inspectors claimed nothing
+# today. Silent on quiet days. Runs 6 PM EDT (22:00 UTC). NOTE: do not set
+# CRON_SECRET — the scheduled invocation carries no secret and would be 401'd.
+[functions."check-stale-claims"]
+  schedule = "0 22 * * *"
+
 # Scheduled function: AUTO-HEAL JobNimbus orphans every 15 min. Finds signed,
 # not-cancelled inspections with no jn_job_id (any result) and re-runs the JN
 # sync (retry-jn-sync) so they land in JN for payroll/reporting without anyone
