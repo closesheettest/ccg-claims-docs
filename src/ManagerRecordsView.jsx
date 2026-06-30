@@ -289,6 +289,9 @@ export default function ManagerRecordsView({ token }) {
           </ul>
         </section>
 
+        {/* ─────────── Assign Appointments (setter bookings → pick a rep) ─────────── */}
+        <AssignAppointments token={token} theme={zoneTheme} />
+
         {/* ─────────── Search + filter ─────────── */}
         <section style={{
           background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12,
@@ -1369,6 +1372,127 @@ async function stampJn(token, id, fields) {
 // on it — i.e. the verdict is a red ACTION NEEDED (photos or cert still
 // missing from JobNimbus). LOR/PAC signatures are the PA's job, not the
 // manager's, so they never count here.
+// Setter bookings land on the regional manager with NO sales rep. Here he sees
+// the ones waiting, his reps' upcoming schedule, and assigns each an OWNER + a
+// SALES REP → writes both to the JN job. Self-contained: loads its own data.
+function AssignAppointments({ token }) {
+  const [d, setD] = useState(null)        // { zone, reps, unassigned, assigned }
+  const [sel, setSel] = useState({})      // apptId → { owner, rep } (JN ids)
+  const [busy, setBusy] = useState(null)  // apptId currently submitting
+  const [err, setErr] = useState(null)
+
+  const load = useCallback(() => {
+    fetch('/.netlify/functions/manager-records-api', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'list-appointments', token }),
+    })
+      .then(async (r) => {
+        const j = await r.json().catch(() => ({}))
+        if (!r.ok || !j.ok) throw new Error(j.error || `Error ${r.status}`)
+        setD(j)
+      })
+      .catch((e) => setErr(e.message || 'load failed'))
+  }, [token])
+  useEffect(() => { load() }, [load])
+
+  const pick = (id, field, value) => setSel((p) => ({ ...p, [id]: { ...(p[id] || {}), [field]: value } }))
+
+  const submit = async (appt) => {
+    const s = sel[appt.id] || {}
+    if (!s.owner || !s.rep) { alert('Pick both an Owner and a Sales Rep.'); return }
+    const reps = (d && d.reps) || []
+    const owner = reps.find((x) => x.jobnimbus_id === s.owner)
+    const rep = reps.find((x) => x.jobnimbus_id === s.rep)
+    setBusy(appt.id)
+    try {
+      const r = await fetch('/.netlify/functions/manager-records-api', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'assign-appointment', token, appt_id: appt.id,
+          owner_jn_id: s.owner, owner_name: owner ? owner.name : '',
+          sales_rep_jn_id: s.rep, sales_rep_name: rep ? rep.name : '',
+        }),
+      })
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok || !j.ok) throw new Error(j.error || 'Assign failed')
+      load() // refresh — the assigned one drops off the list
+    } catch (e) { alert(e.message || 'Assign failed') }
+    setBusy(null)
+  }
+
+  if (err || !d) return null // stay quiet until loaded
+  const reps = d.reps || []
+  const un = d.unassigned || []
+  const assigned = d.assigned || []
+  const fmt = (iso) => { try { return new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }) } catch { return iso } }
+  const dayKey = (iso) => { try { return new Date(iso).toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'long', month: 'short', day: 'numeric' }) } catch { return '' } }
+  const timeOnly = (iso) => { try { return new Date(iso).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }) } catch { return iso } }
+  const byDay = {}
+  for (const a of assigned) (byDay[dayKey(a.appt_at)] = byDay[dayKey(a.appt_at)] || []).push(a)
+  const selStyle = { display: 'block', marginTop: 3, padding: '7px 8px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13, minWidth: 150 }
+
+  return (
+    <section style={{ background: '#fff', border: '2px solid #f59e0b', borderRadius: 12, padding: 16, marginBottom: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+        <strong style={{ fontSize: 16, color: '#92400e' }}>📅 Assign Appointments{un.length ? ` (${un.length})` : ''}</strong>
+        <span style={{ fontSize: 12, color: '#64748b' }}>{d.zone} · setter booked these — pick an Owner + a Sales Rep</span>
+      </div>
+
+      {Object.keys(byDay).length > 0 && (
+        <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: 10, marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 6 }}>Your reps' upcoming appointments</div>
+          {Object.entries(byDay).map(([day, list]) => (
+            <div key={day} style={{ marginBottom: 6 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#0f172a' }}>{day}</div>
+              {list.map((a) => (
+                <div key={a.id} style={{ fontSize: 12.5, color: '#334155', paddingLeft: 8 }}>
+                  {timeOnly(a.appt_at)} — <b>{a.rep_name || '—'}</b> · {a.homeowner_name}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {un.length === 0 ? (
+        <div style={{ fontSize: 13.5, color: '#16a34a' }}>No appointments waiting to be assigned. 🎉</div>
+      ) : (
+        <div style={{ display: 'grid', gap: 10 }}>
+          {un.map((a) => {
+            const s = sel[a.id] || {}
+            const ready = s.owner && s.rep
+            return (
+              <div key={a.id} style={{ border: '1px solid #fcd34d', background: '#fffbeb', borderRadius: 10, padding: 12 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: '#111827' }}>{a.homeowner_name || 'Homeowner'}</div>
+                <div style={{ fontSize: 12.5, color: '#6b7280' }}>📍 {a.address || '—'}</div>
+                <div style={{ fontSize: 12.5, color: '#92400e', fontWeight: 700, marginTop: 2 }}>🕒 {fmt(a.appt_at)}{a.source ? ` · ${a.source}` : ''}</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10, alignItems: 'flex-end' }}>
+                  <label style={{ fontSize: 12, color: '#475569' }}>Owner (runs it)
+                    <select value={s.owner || ''} onChange={(e) => pick(a.id, 'owner', e.target.value)} style={selStyle}>
+                      <option value="">Select…</option>
+                      {reps.map((r) => <option key={r.jobnimbus_id} value={r.jobnimbus_id}>{r.name}</option>)}
+                    </select>
+                  </label>
+                  <label style={{ fontSize: 12, color: '#475569' }}>Sales Rep
+                    <select value={s.rep || ''} onChange={(e) => pick(a.id, 'rep', e.target.value)} style={selStyle}>
+                      <option value="">Select…</option>
+                      {reps.map((r) => <option key={r.jobnimbus_id} value={r.jobnimbus_id}>{r.name}</option>)}
+                    </select>
+                  </label>
+                  <button type="button" disabled={busy === a.id || !ready} onClick={() => submit(a)}
+                    style={{ marginLeft: 'auto', background: ready ? '#16a34a' : '#cbd5e1', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13.5, fontWeight: 800, cursor: ready ? 'pointer' : 'not-allowed' }}>
+                    {busy === a.id ? 'Assigning…' : 'Submit'}
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </section>
+  )
+}
+
 function isAttention(d) {
   // The chip can now be a non-red color (e.g. blue DAMAGE) while the
   // manager still owes a JN push, so gate attention on whether there's an

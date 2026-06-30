@@ -51,19 +51,15 @@ exports.handler = async (event) => {
   const source = SOURCES.has(body.source) ? body.source : "Instant Quote";
   const setter = String(body.setter_name || "Setter").trim();
   const test = !!body.test;
+  const spanishTag = body.spanish_only ? " - SPANISH ONLY" : ""; // appended to the JN job name
   const lat = Number(body.lat), lng = Number(body.lng);
 
-  // Pick the rep server-side — the least-loaded qualified rep free at this exact
-  // slot (round-robin). The setter never chooses one. Out of range / no free rep
-  // → owned by Viviana for a manager to assign.
-  let repId = null, repName = "";
-  if (Number.isFinite(lat) && Number.isFinite(lng)) {
-    const pick = await pickRep(body.token, lat, lng, body.county, body.appt_iso);
-    repId = pick.id; repName = pick.name;
-  } else if (body.rep_jobnimbus_id) { // legacy: explicit rep
-    repId = String(body.rep_jobnimbus_id).trim(); repName = String(body.rep_name || "").trim();
-  }
-  const owner = repId || VIVIANA_ID;
+  // The setter never picks a rep. Every booking is assigned to the ZONE's
+  // REGIONAL MANAGER (JN owner) with NO sales rep — the manager then assigns a
+  // rep from his dashboard. Availability still drives which slots get offered.
+  const mgr = await resolveManager(lat, lng, body.county);
+  const owner = mgr.id || VIVIANA_ID;   // Viviana only if no manager maps to the zone
+  const repId = null, repName = "";     // no sales rep at booking time
 
   let c = body.contact || {};
   let contactId = String(body.contact_id || "").trim();
@@ -103,7 +99,7 @@ exports.handler = async (event) => {
       await jnPut(`jobs/${jobId}`, { status: APPT_STATUS, status_name: APPT_STATUS_NAME, sales_rep: repId || undefined, owners: [{ id: owner }] });
     } else {
       const job = await jnPost("jobs", {
-        name: `${test ? "[TEST] " : ""}${fullName}${c.address ? ` - ${c.address}` : ""}`.trim(),
+        name: `${test ? "[TEST] " : ""}${fullName}${c.address ? ` - ${c.address}` : ""}${spanishTag}`.trim(),
         record_type: LEAD_RT, record_type_name: LEAD_RT_NAME,
         status: APPT_STATUS, status_name: APPT_STATUS_NAME,
         primary: { id: contactId }, location: { id: RETAIL_LOCATION },
@@ -128,7 +124,7 @@ exports.handler = async (event) => {
     // 4. Who-set-it note.
     await jnPost("activities", {
       record_type_name: "Note",
-      note: `📞 ${isReset ? "Reset appointment (No-Sit reschedule)" : "Appointment"} set by ${setter} · source: ${source}${repId ? ` · rep: ${repName || repId}` : " · ⚠️ OUT OF RANGE — manager to assign a rep"}`,
+      note: `📞 ${isReset ? "Reset appointment (No-Sit reschedule)" : "Appointment"} set by ${setter} · source: ${source} · 👤 assigned to ${mgr.name || "Viviana"}${mgr.zone ? ` (${mgr.zone})` : ""} — manager to assign a rep${mgr.repInRange ? "" : " · ⚠️ no rep within 50 mi"}`,
       primary: { id: jobId, type: "job" }, related: [{ id: jobId, type: "job" }], is_status_change: false,
     }).catch(() => {});
   } catch (e) {
@@ -141,43 +137,66 @@ exports.handler = async (event) => {
   if (!test) {
     await sbInsert("setter_appointments", {
       setter_name: setter, homeowner_name: homeowner, phone: c.mobile || body.phone || null, address,
-      appt_at: new Date(apptMs).toISOString(), source, rep_name: repName || null, rep_jobnimbus_id: repId || null,
-      jn_contact_id: contactId || null, jn_job_id: jobId, jn_task_id: taskId, out_of_range: !repId, jn_synced: jnOk,
+      appt_at: new Date(apptMs).toISOString(), source,
+      rep_name: null, rep_jobnimbus_id: null,                    // no sales rep yet — manager assigns
+      zone: mgr.zone || null,
+      manager_jobnimbus_id: mgr.id || owner,
+      manager_name: mgr.name || (mgr.id ? null : "Viviana"),
+      jn_contact_id: contactId || null, jn_job_id: jobId, jn_task_id: taskId,
+      out_of_range: !mgr.repInRange, jn_synced: jnOk,
     }).catch(() => {});
   }
 
-  // Out-of-range (no rep) — alert the admin so a manager assigns it in JN.
-  if (!repId && !test && jnOk && process.env.ADMIN_ALERT_PHONE) {
+  // No zone manager mapped → it fell to Viviana. Alert the admin so someone
+  // re-owns it in JN. (Normal bookings now land on the regional manager, who
+  // assigns a rep from his dashboard — no per-booking alert needed.)
+  if (!mgr.id && !test && jnOk && process.env.ADMIN_ALERT_PHONE) {
     const base = process.env.URL || "https://free-roof-inspections.netlify.app";
     const whenEt = new Date(apptMs).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" });
     await fetch(`${base}/.netlify/functions/ghl-sms`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ to: process.env.ADMIN_ALERT_PHONE, name: "Admin", message: `📞 Out-of-range retail appt set by ${setter} for ${homeowner}${c.city ? ` (${c.city})` : ""} @ ${whenEt} — no rep within 50 mi. It's under Viviana in JN; assign a rep.` }),
+      body: JSON.stringify({ to: process.env.ADMIN_ALERT_PHONE, name: "Admin", message: `📞 Retail appt set by ${setter} for ${homeowner}${c.city ? ` (${c.city})` : ""} @ ${whenEt} — no regional manager for this zone, so it's under Viviana in JN. Assign an owner.` }),
     }).catch(() => {});
   }
 
-  return cors(200, JSON.stringify({ ok: true, jn_ok: jnOk, jn_error: jnOk ? undefined : jnErr, out_of_range: !repId, reset: isReset, contact_id: contactId || null, job_id: jobId, task_id: taskId, assigned: repId ? (repName || "rep") : "Viviana (manager to assign)" }));
+  return cors(200, JSON.stringify({ ok: true, jn_ok: jnOk, jn_error: jnOk ? undefined : jnErr, out_of_range: !mgr.repInRange, reset: isReset, contact_id: contactId || null, job_id: jobId, task_id: taskId, assigned: mgr.name || "Viviana (no zone manager)", zone: mgr.zone || null }));
 };
 
 function nameOf(c, body) { return (`${c.first_name || ""} ${c.last_name || ""}`).trim() || String(body.homeowner_name || "").trim() || "Homeowner"; }
 
-// Round-robin rep pick: ask setter-availability for the slot's free reps, take
-// the least-loaded. Returns {id:null} when out of range / slot no longer free.
-async function pickRep(token, lat, lng, county, iso) {
-  try {
-    const base = process.env.URL || "https://free-roof-inspections.netlify.app";
-    const r = await fetch(`${base}/.netlify/functions/setter-availability`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, lat, lng, county, days: 21 }) });
-    const av = await r.json();
-    if (av && av.ok && !av.out_of_radius) {
-      for (const d of (av.days || [])) for (const s of (d.slots || [])) {
-        if (s.iso === iso && (s.reps || []).length) {
-          const free = s.reps.slice().sort((a, b) => a.load - b.load);
-          return { id: free[0].id, name: free[0].name };
-        }
-      }
-    }
-  } catch { /* fall through to setter-owned */ }
-  return { id: null, name: "" };
+// Resolve the ZONE's regional manager for this booking. Zone = the zone of the
+// nearest active senior rep within 50 mi (the rep who'd have been auto-assigned
+// under the old flow); if none, the county's primary zone. Returns the zone's
+// regional manager (managed_region match) as the JN owner — or {id:null} when no
+// manager maps to the zone, in which case the caller falls back to Viviana.
+// Mirrors the zone/radius logic in setter-availability.js.
+const REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1";
+const ZONE_COUNTIES = {
+  "Zone 1": ["Nassau", "Duval", "Baker", "Union", "Bradford", "Clay", "St. Johns", "Putnam", "Flagler", "Alachua", "Levy", "Marion", "Sumter", "Lake", "Seminole", "Volusia", "Brevard", "Orange"],
+  "Zone 2": ["Orange", "Brevard", "Pasco", "Hillsborough", "Polk", "Osceola", "Indian River", "Highlands", "Citrus", "Hernando"],
+  "Zone 3": ["Pinellas", "Manatee", "Sarasota", "Charlotte", "Lee", "Collier", "Monroe", "Hardee", "DeSoto", "Glades", "Hendry", "St. Lucie", "Okeechobee"],
+  "Zone 4": ["Martin", "Palm Beach", "Broward", "Miami-Dade"],
+};
+const normCounty = (c) => String(c || "").toLowerCase().replace(/county/g, "").replace(/[^a-z]+/g, " ").trim();
+const COUNTY_ZONES = (() => { const m = {}; for (const [z, l] of Object.entries(ZONE_COUNTIES)) for (const c of l) (m[normCounty(c)] = m[normCounty(c)] || []).push(z); return m; })();
+function haversineMi(la1, lo1, la2, lo2) { const R = 3958.8, t = (d) => d * Math.PI / 180; const dLa = t(la2 - la1), dLo = t(lo2 - lo1); const a = Math.sin(dLa / 2) ** 2 + Math.cos(t(la1)) * Math.cos(t(la2)) * Math.sin(dLo / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(a)); }
+function fetchReps() { return fetch(REP_ZONES_URL).then((r) => r.ok ? r.json().then((j) => j.reps || []) : []).catch(() => []); }
+
+async function resolveManager(lat, lng, county) {
+  const reps = await fetchReps();
+  const zonesForCounty = COUNTY_ZONES[normCounty(county)] || ["Zone 1", "Zone 2", "Zone 3", "Zone 4"];
+  let zone = null, repInRange = false;
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    const near = reps
+      .filter((r) => r.active && r.jobnimbus_id && String(r.rep_level || "").toLowerCase() === "senior" && zonesForCounty.includes(r.zone) && r.latitude != null && r.longitude != null)
+      .map((r) => ({ zone: r.zone, d: haversineMi(lat, lng, r.latitude, r.longitude) }))
+      .filter((r) => r.d <= 50)
+      .sort((a, b) => a.d - b.d);
+    if (near.length) { zone = near[0].zone; repInRange = true; }
+  }
+  if (!zone) zone = zonesForCounty[0];
+  const m = reps.find((r) => r.managed_region === zone && r.jobnimbus_id);
+  return { id: m ? m.jobnimbus_id : null, name: m ? m.name : "", zone, repInRange };
 }
 
 async function sbInsert(table, row) {

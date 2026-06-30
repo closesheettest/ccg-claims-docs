@@ -45,6 +45,7 @@ export default function SetterPortal({ Address }) {
   const [err, setErr] = useState("");
   const [todayOpen, setTodayOpen] = useState(false);
   const [today, setToday] = useState(null);
+  const [spanishOnly, setSpanishOnly] = useState(false);
 
   async function loadToday() {
     setToday(null);
@@ -105,7 +106,7 @@ export default function SetterPortal({ Address }) {
   async function book() {
     if (!chosen) { setErr("Pick a time first."); return; }
     setBooking(true); setErr("");
-    const payload = { token, setter_name: setter, appt_iso: chosen.iso, source, lat: picked.lat, lng: picked.lng, county: picked.county, homeowner_name: client.name, address: picked.formatted || [picked.address, picked.city, picked.state, picked.zip].filter(Boolean).join(", "), phone: client.contact?.mobile || undefined };
+    const payload = { token, setter_name: setter, appt_iso: chosen.iso, source, spanish_only: spanishOnly, lat: picked.lat, lng: picked.lng, county: picked.county, homeowner_name: client.name, address: picked.formatted || [picked.address, picked.city, picked.state, picked.zip].filter(Boolean).join(", "), phone: client.contact?.mobile || undefined };
     if (client.contact_id) payload.contact_id = client.contact_id; else payload.contact = client.contact;
     try {
       const r = await fetch(`${FN}/setter-book-appointment`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
@@ -210,6 +211,14 @@ export default function SetterPortal({ Address }) {
           <div style={{ display: "flex", gap: 8 }}>
             {SOURCES.map((s) => <button key={s} onClick={() => setSource(s)} style={C.pill(source === s)}>{s === "Instant Quote" ? "IQ (Instant Quote)" : s}</button>)}
           </div>
+        </div>
+
+        {/* Spanish only — adds "Spanish only" to the JN job name so the rep knows */}
+        <div style={C.card}>
+          <div style={C.h}>Language</div>
+          <button onClick={() => setSpanishOnly((v) => !v)} style={C.pill(spanishOnly)}>
+            {spanishOnly ? "✓ Spanish only" : "🗣️ Spanish only"}
+          </button>
         </div>
 
         {/* Times — a week at a time, slots only (a free rep is assigned for you) */}

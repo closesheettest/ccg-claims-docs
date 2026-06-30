@@ -92,6 +92,12 @@ export const handler = async (event) => {
   if (action === 'assign-lead') {
     return await assignLead(body)
   }
+  if (action === 'list-appointments') {
+    return await listAppointments(manager)
+  }
+  if (action === 'assign-appointment') {
+    return await assignAppointment(manager, body)
+  }
   return json(400, { ok: false, error: `Unknown action: ${action}` })
 }
 
@@ -267,6 +273,83 @@ async function markJnProgress(body) {
 
 // ────────────────────────────────────────────────────────────────────
 // Manager lookup
+
+// ────────────────────────────────────────────────────────────────────
+// Setter appointments → manager-assigns-a-rep flow.
+//
+// Setter bookings now land on the zone's regional manager (JN owner) with NO
+// sales rep. listAppointments returns this manager's UNASSIGNED appointments
+// (for the "Assign Appointments" section), his already-assigned upcoming ones
+// (the "who's booked when" calendar), and his active reps (the dropdowns).
+// assignAppointment writes the chosen OWNER + SALES REP back to the JN job and
+// stamps the local row.
+
+async function listAppointments(manager) {
+  const zone = manager.zone
+  // Active reps in this manager's zone → the Owner + Sales Rep dropdowns.
+  const repsInZone = await fetchRepsInZoneBridged(zone)
+  const activeRows = await fetchTable('sales_reps', { select: 'name,jobnimbus_id,active', filter: 'active=eq.true', limit: 1000 })
+  const activeJn = new Set((activeRows || []).map((r) => r.jobnimbus_id).filter(Boolean))
+  const activeNames = new Set((activeRows || []).map((r) => normalizeName(r.name)).filter(Boolean))
+  const reps = (repsInZone || [])
+    .filter((r) => r.jobnimbus_id && (activeJn.has(r.jobnimbus_id) || activeNames.has(normalizeName(r.name))))
+    .map((r) => ({ name: r.name, jobnimbus_id: r.jobnimbus_id }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+
+  const nowIso = new Date().toISOString()
+  const z = encodeURIComponent(zone)
+  // Unassigned (booked under the manager, no sales rep yet), upcoming.
+  const unassigned = await fetchTable('setter_appointments', {
+    select: 'id,homeowner_name,phone,address,appt_at,source,zone,jn_job_id',
+    filter: `zone=eq.${z}&rep_jobnimbus_id=is.null&appt_at=gte.${encodeURIComponent(nowIso)}`,
+    order: 'appt_at.asc', limit: 200,
+  })
+  // Already-assigned upcoming appts in the zone — the rep schedule/calendar.
+  const assigned = await fetchTable('setter_appointments', {
+    select: 'id,homeowner_name,address,appt_at,rep_name,rep_jobnimbus_id,owner_name',
+    filter: `zone=eq.${z}&rep_jobnimbus_id=not.is.null&appt_at=gte.${encodeURIComponent(nowIso)}`,
+    order: 'appt_at.asc', limit: 300,
+  })
+  return json(200, { ok: true, zone, reps, unassigned: unassigned || [], assigned: assigned || [] })
+}
+
+async function assignAppointment(manager, body) {
+  const apptId = String(body.appt_id || '').trim()
+  if (!apptId) return json(400, { ok: false, error: 'appt_id required' })
+  const ownerJnId = String(body.owner_jn_id || '').trim()
+  const ownerName = String(body.owner_name || '').trim()
+  const repJnId = String(body.sales_rep_jn_id || '').trim()
+  const repName = String(body.sales_rep_name || '').trim()
+  if (!ownerJnId || !repJnId) return json(400, { ok: false, error: 'Pick both an owner and a sales rep.' })
+  if (!JN_KEY) return json(500, { ok: false, error: 'Server misconfigured (missing JobNimbus key)' })
+
+  // Load the appointment + verify it's in THIS manager's zone (security).
+  const rows = await fetchTable('setter_appointments', {
+    select: 'id,zone,jn_job_id,rep_jobnimbus_id', filter: `id=eq.${encodeURIComponent(apptId)}`, limit: 1,
+  })
+  const appt = (rows || [])[0]
+  if (!appt) return json(404, { ok: false, error: 'Appointment not found' })
+  if (appt.zone && manager.zone && appt.zone !== manager.zone) return json(403, { ok: false, error: 'That appointment isn’t in your zone.' })
+  if (!appt.jn_job_id) return json(400, { ok: false, error: 'This appointment has no JobNimbus job to update.' })
+
+  // 1. JobNimbus: set the owner + sales rep on the job.
+  const putBody = { jnid: appt.jn_job_id, owners: [{ id: ownerJnId }], sales_rep: repJnId }
+  const jnRes = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(appt.jn_job_id)}`, {
+    method: 'PUT', headers: { Authorization: `bearer ${JN_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify(putBody),
+  })
+  if (!jnRes.ok) { const t = await jnRes.text().catch(() => ''); return json(502, { ok: false, error: `JobNimbus update failed: ${jnRes.status} ${t}` }) }
+
+  // 2. Stamp the local row so it drops out of the unassigned list.
+  const patch = {
+    owner_jobnimbus_id: ownerJnId, owner_name: ownerName || null,
+    rep_jobnimbus_id: repJnId, rep_name: repName || null,
+    assigned_at: new Date().toISOString(),
+  }
+  await fetch(`${SB_URL}/rest/v1/setter_appointments?id=eq.${encodeURIComponent(apptId)}`, {
+    method: 'PATCH', headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' }, body: JSON.stringify(patch),
+  }).catch(() => {})
+  return json(200, { ok: true, assigned: { owner: ownerName, sales_rep: repName } })
+}
 
 async function fetchManager(token) {
   const url =
