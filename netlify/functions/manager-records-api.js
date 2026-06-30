@@ -396,6 +396,7 @@ async function jnTeamAppointments(ownerIds, startSec, endSec, nameByJn = {}, enr
     const tid = t.jnid || t.id
     if (!tid || seen.has(tid)) continue; seen.add(tid)
     if (!/appoint/i.test(String(t.record_type_name || t.title || ''))) continue
+    if (t.is_completed === true || t.is_active === false) continue // already done / deleted — not on the calendar
     const job = (t.related || []).find((x) => x.type === 'job') || {}
     const owner = (t.owners || [])[0] || {}
     appts.push({ task_id: tid, job_id: job.id || null, appt_at: new Date((Number(t.date_start) || 0) * 1000).toISOString(), title: String(t.title || ''), t_owner_id: owner.id || null, t_owner_name: owner.name || null })
