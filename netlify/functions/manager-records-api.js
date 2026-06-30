@@ -32,6 +32,12 @@ const JN_KEY = process.env.JOBNIMBUS_API_KEY
 // The inbound setter (Viviana). Appointments she's still the JN owner of are the
 // unrouted backlog — they surface in every manager's "needs" list to be assigned.
 const SETTER_VIVIANA_ID = 'm3n90ppl4smcf6nasr1jgje'
+// David Macella — NOT an active sales rep. Appointments still owned by him are
+// stranded the same way Viviana's are; surface them in the backlog to reassign.
+const DAVID_MACELLA_ID = 'm2b4bh3emo95m7w226w2394'
+// Only PENDING appointments belong on the calendar. Once a deal sells (Sit Sold
+// Insp) or moves on, its appointment task is stale — exclude anything else.
+const PENDING_APPT_STATUS = 'Appointment Scheduled'
 const TMS_REP_ZONES_URL =
   'https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones'
 
@@ -351,16 +357,19 @@ async function listAppointments(manager, body) {
     filter: `zone=eq.${z}&rep_jobnimbus_id=not.is.null&appt_at=gte.${encodeURIComponent(nowIso)}`,
     order: 'appt_at.asc', limit: 300,
   })
-  // Viviana backlog: JobNimbus appointments still owned by the setter (not yet
-  // routed to a rep), today → +90 days, sorted by date. Shown to every manager.
+  // Backlog: pending JobNimbus appointments still owned by someone who can't sell
+  // them — the setter (Viviana) or an inactive rep (David Macella). Today → +90
+  // days, sorted by date. Shown to every manager so they can route them to a rep.
   const { startSec } = etDayBounds(0)
   // Enrich (fetch each job) so the homeowner NAME shows — the appointment task
   // title is just "Initial Appointment"; the homeowner lives on the job.
-  const vivRaw = await jnTeamAppointments([SETTER_VIVIANA_ID], startSec, startSec + 90 * 86400, {}, true)
-  const viviana = vivRaw
-    .map((t) => ({ key: 'viv:' + t.id, source: 'jn', id: null, jn_job_id: t.job_id || null, homeowner: t.homeowner, address: null, appt_at: t.appt_at, src: 'Viviana', owner_id: t.owner_id || null, owner_name: t.owner_name || 'Viviana', sales_rep_id: null, sales_rep_name: null, needs_assignment: true }))
+  const bkRaw = await jnTeamAppointments([SETTER_VIVIANA_ID, DAVID_MACELLA_ID], startSec, startSec + 90 * 86400, {}, true)
+  const ownerLabel = (t) => t.owner_name || (t.owner_id === DAVID_MACELLA_ID ? 'David Macella' : 'Viviana')
+  const backlog = bkRaw
+    .map((t) => ({ key: 'bk:' + t.id, source: 'jn', id: null, jn_job_id: t.job_id || null, homeowner: t.homeowner, address: null, appt_at: t.appt_at, src: ownerLabel(t), owner_id: t.owner_id || null, owner_name: ownerLabel(t), sales_rep_id: null, sales_rep_name: null, needs_assignment: true }))
     .sort((a, b) => new Date(a.appt_at) - new Date(b.appt_at))
-  return json(200, { ok: true, zone, view: 'needs', reps, unassigned: unassigned || [], assigned: assigned || [], viviana })
+  // `viviana` kept for backward-compat with older clients; `backlog` is canonical.
+  return json(200, { ok: true, zone, view: 'needs', reps, unassigned: unassigned || [], assigned: assigned || [], backlog, viviana: backlog })
 }
 
 // ET day window for today (offset 0) / tomorrow (offset 1). Netlify runs in UTC.
@@ -415,16 +424,21 @@ async function jnTeamAppointments(ownerIds, startSec, endSec, nameByJn = {}, enr
   await Promise.all(jobIds.map(async (jid) => {
     try { const r = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(jid)}`, { headers }); if (r.ok) jobById[jid] = await r.json().catch(() => null) } catch { /* skip */ }
   }))
-  return appts.map((a) => {
-    const j = jobById[a.job_id] || {}
-    const ownerId = ((j.owners || [])[0] || {}).id || a.t_owner_id || null
-    const repId = j.sales_rep || null
-    return {
-      id: a.task_id, job_id: a.job_id, appt_at: a.appt_at, homeowner: j.name || cleanName(a.title),
-      owner_id: ownerId, owner_name: nameByJn[ownerId] || ((j.owners || [])[0] || {}).name || a.t_owner_name || null,
-      sales_rep_id: repId, sales_rep_name: j.sales_rep_name || nameByJn[repId] || null,
-    }
-  })
+  return appts
+    .map((a) => {
+      const j = jobById[a.job_id] || {}
+      const ownerId = ((j.owners || [])[0] || {}).id || a.t_owner_id || null
+      const repId = j.sales_rep || null
+      return {
+        id: a.task_id, job_id: a.job_id, appt_at: a.appt_at, homeowner: j.name || cleanName(a.title),
+        status: j.status_name || null,
+        owner_id: ownerId, owner_name: nameByJn[ownerId] || ((j.owners || [])[0] || {}).name || a.t_owner_name || null,
+        sales_rep_id: repId, sales_rep_name: j.sales_rep_name || nameByJn[repId] || null,
+      }
+    })
+    // Only PENDING appointments — drop sold/no-sit/etc. jobs whose appointment
+    // task lingered but isn't a live calendar appointment anymore.
+    .filter((it) => it.status === PENDING_APPT_STATUS)
 }
 
 async function assignAppointment(manager, body) {
@@ -458,7 +472,7 @@ async function assignAppointment(manager, body) {
       const ownerIds = (j.owners || []).map((o) => o.id)
       // In zone if a zone rep owns it / sells it — OR it's the Viviana backlog
       // (still owned by the setter), which any manager may claim + assign.
-      const inZone = ownerIds.some((id) => zoneJn.has(id)) || (j.sales_rep && zoneJn.has(j.sales_rep)) || ownerIds.includes(SETTER_VIVIANA_ID)
+      const inZone = ownerIds.some((id) => zoneJn.has(id)) || (j.sales_rep && zoneJn.has(j.sales_rep)) || ownerIds.includes(SETTER_VIVIANA_ID) || ownerIds.includes(DAVID_MACELLA_ID)
       if (!inZone) return json(403, { ok: false, error: 'That job isn’t in your zone.' })
     } catch { return json(502, { ok: false, error: 'Could not verify the JobNimbus job.' }) }
   }
