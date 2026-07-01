@@ -125,10 +125,19 @@ function weekRange(now = new Date()) {
   return { start, end };
 }
 function lastWeekRange(now = new Date()) { const { start, end } = weekRange(now); return { start: new Date(start.getTime() - 7 * 864e5), end: new Date(end.getTime() - 7 * 864e5) }; }
+// Full PRIOR calendar month in ET: 1st of last month 00:00 → 1 second before
+// the 1st of this month. Needed the day the month rolls over — this month is
+// empty on the 1st, so the manager toggles to last month for real numbers.
+function lastMonthRange(now = new Date()) {
+  const p = tzParts(now); const y = +p.year, mo = +p.month; // mo is 1-12
+  const start = etWallToUTC(mo === 1 ? y - 1 : y, mo === 1 ? 12 : mo - 1, 1, 0, 0, 0);
+  const end = new Date(etWallToUTC(y, mo, 1, 0, 0, 0).getTime() - 1000);
+  return { start, end };
+}
 function pickWindow(qp) {
   if (qp.start && qp.end) { const s = new Date(qp.start), e = new Date(qp.end); if (!Number.isNaN(s.getTime()) && !Number.isNaN(e.getTime())) return { start: s, end: e, period: "custom" }; }
-  const period = qp.period === "month" ? "month" : qp.period === "lastweek" ? "lastweek" : "week";
-  const { start, end } = period === "month" ? monthRange() : period === "lastweek" ? lastWeekRange() : weekRange();
+  const period = qp.period === "month" ? "month" : qp.period === "lastmonth" ? "lastmonth" : qp.period === "lastweek" ? "lastweek" : "week";
+  const { start, end } = period === "month" ? monthRange() : period === "lastmonth" ? lastMonthRange() : period === "lastweek" ? lastWeekRange() : weekRange();
   return { start, end, period };
 }
 
