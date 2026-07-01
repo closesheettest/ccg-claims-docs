@@ -50,6 +50,9 @@ exports.handler = async (event) => {
   if (!Number.isFinite(apptMs)) return cors(400, JSON.stringify({ ok: false, error: "appt_iso required" }));
   const source = SOURCES.has(body.source) ? body.source : "Instant Quote";
   const setter = String(body.setter_name || "Setter").trim();
+  // "Appointment Set By" → JN custom field cf_string_8. Short "First L." form to
+  // match the existing dialer convention (e.g. "Dustin H.").
+  const setterShort = (() => { const p = setter.split(/\s+/).filter(Boolean); return p.length >= 2 ? `${p[0]} ${p[1][0]}.` : setter; })();
   const test = !!body.test;
   const spanishTag = body.spanish_only ? " - SPANISH ONLY" : ""; // appended to the JN job name
   const lat = Number(body.lat), lng = Number(body.lng);
@@ -96,7 +99,7 @@ exports.handler = async (event) => {
     }
     // 2. Job — RESET the existing No-Sit deal in place, or create a new retail Lead.
     if (isReset && jobId) {
-      await jnPut(`jobs/${jobId}`, { status: APPT_STATUS, status_name: APPT_STATUS_NAME, sales_rep: repId || undefined, owners: [{ id: owner }] });
+      await jnPut(`jobs/${jobId}`, { status: APPT_STATUS, status_name: APPT_STATUS_NAME, sales_rep: repId || undefined, owners: [{ id: owner }], cf_string_8: setterShort });
     } else {
       const job = await jnPost("jobs", {
         name: `${test ? "[TEST] " : ""}${fullName}${c.address ? ` - ${c.address}` : ""}${spanishTag}`.trim(),
@@ -107,6 +110,7 @@ exports.handler = async (event) => {
         address_line1: c.address || "", city: (c.city || "").split(",")[0].trim(), state_text: c.state || "", zip: c.zip || "",
         sales_rep: repId || undefined,
         owners: [{ id: owner }],
+        cf_string_8: setterShort,
       });
       jobId = job.jnid || job.id;
       if (!jobId) throw new Error("job create failed");
