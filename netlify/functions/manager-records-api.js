@@ -59,6 +59,26 @@ function countyToZone(county, lat) {
   if (n === 'brevard' || n === 'orange') return (lat != null && lat >= ZONE_SPLIT_LAT) ? 'Zone 1' : 'Zone 2'
   return COUNTY_ZONE[n] || 'Unassigned'
 }
+// Forward-geocode an address string → { county, lat } via Google (used to zone a
+// backlog appointment by the PROPERTY's county). Mirrors all-no-sits.js.
+const GOOGLE_KEY = process.env.GOOGLE_MAPS_API_KEY || process.env.VITE_GOOGLE_PLACES_API_KEY
+const GOOGLE_GEOCODE = 'https://maps.googleapis.com/maps/api/geocode/json'
+async function geocodeCounty(addr) {
+  if (!GOOGLE_KEY || !addr) return null
+  try {
+    const r = await fetch(`${GOOGLE_GEOCODE}?address=${encodeURIComponent(addr)}&region=us&key=${GOOGLE_KEY}`)
+    if (!r.ok) return null
+    const d = await r.json().catch(() => ({}))
+    const res = d.results && d.results[0]
+    if (!res) return null
+    let county = null
+    for (const c of res.address_components || []) {
+      if ((c.types || []).includes('administrative_area_level_2')) { county = c.long_name; break }
+    }
+    const loc = res.geometry && res.geometry.location
+    return { county: county ? county.replace(/\s+county$/i, '').trim() : null, lat: loc ? loc.lat : null }
+  } catch { return null }
+}
 
 export const handler = async (event) => {
   if (event.httpMethod !== 'POST') {
@@ -365,8 +385,22 @@ async function listAppointments(manager, body) {
   // title is just "Initial Appointment"; the homeowner lives on the job.
   const bkRaw = await jnTeamAppointments([SETTER_VIVIANA_ID, DAVID_MACELLA_ID], startSec, startSec + 90 * 86400, {}, true)
   const ownerLabel = (t) => t.owner_name || (t.owner_id === DAVID_MACELLA_ID ? 'David Macella' : 'Viviana')
-  const backlog = bkRaw
-    .map((t) => ({ key: 'bk:' + t.id, source: 'jn', id: null, jn_job_id: t.job_id || null, homeowner: t.homeowner, address: null, appt_at: t.appt_at, src: ownerLabel(t), owner_id: t.owner_id || null, owner_name: ownerLabel(t), sales_rep_id: null, sales_rep_name: null, needs_assignment: true }))
+  // A backlog appointment belongs to the manager of the zone where the PROPERTY
+  // is — geocode the job's city/zip → county → zone and keep only THIS manager's
+  // zone (undeterminable ones are kept so a geocode miss never hides real work).
+  const geocache = {}
+  const bkZoned = []
+  for (const t of bkRaw) {
+    const addr = [t.city, t.state, t.zip].filter(Boolean).join(', ')
+    let apptZone = 'Unassigned'
+    if (addr) {
+      if (!(addr in geocache)) { const g = await geocodeCounty(addr); geocache[addr] = g ? countyToZone(g.county, g.lat) : 'Unassigned' }
+      apptZone = geocache[addr]
+    }
+    if (apptZone === zone || apptZone === 'Unassigned') bkZoned.push({ ...t, _addr: addr || null })
+  }
+  const backlog = bkZoned
+    .map((t) => ({ key: 'bk:' + t.id, source: 'jn', id: null, jn_job_id: t.job_id || null, homeowner: t.homeowner, address: t._addr, appt_at: t.appt_at, src: ownerLabel(t), owner_id: t.owner_id || null, owner_name: ownerLabel(t), sales_rep_id: null, sales_rep_name: null, needs_assignment: true }))
     .sort((a, b) => new Date(a.appt_at) - new Date(b.appt_at))
   // `viviana` kept for backward-compat with older clients; `backlog` is canonical.
   return json(200, { ok: true, zone, view: 'needs', reps, unassigned: unassigned || [], assigned: assigned || [], backlog, viviana: backlog })
@@ -432,6 +466,7 @@ async function jnTeamAppointments(ownerIds, startSec, endSec, nameByJn = {}, enr
       return {
         id: a.task_id, job_id: a.job_id, appt_at: a.appt_at, homeowner: j.name || cleanName(a.title),
         status: j.status_name || null,
+        city: j.city || null, state: j.state_text || j.state || null, zip: j.zip || null,
         owner_id: ownerId, owner_name: nameByJn[ownerId] || ((j.owners || [])[0] || {}).name || a.t_owner_name || null,
         sales_rep_id: repId, sales_rep_name: j.sales_rep_name || nameByJn[repId] || null,
       }
