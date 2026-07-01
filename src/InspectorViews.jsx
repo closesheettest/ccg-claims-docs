@@ -3273,7 +3273,8 @@ export function ManagerInspectorReports() {
         .select("id, name, active")
         .order("name");
 
-      // Cancelled (a.k.a. the old "lost") in range — one bucket, by cancel date.
+      // Cancelled = the new cancel flow (cancelled_at in range) OR the old
+      // "lost" (result='lost', by result_at) — treated as ONE bucket, deduped.
       let cancelledQ = supabase
         .from("inspections")
         .select("id, inspector_id, cancelled_at")
@@ -3282,13 +3283,24 @@ export function ManagerInspectorReports() {
         .gte("cancelled_at", fromIso)
         .lte("cancelled_at", toIso)
         .limit(5000);
-      if (filterInspectorId) cancelledQ = cancelledQ.eq("inspector_id", filterInspectorId);
+      let lostQ = supabase
+        .from("inspections")
+        .select("id, inspector_id, result_at")
+        .eq("result", "lost")
+        .not("inspector_id", "is", null)
+        .gte("result_at", fromIso)
+        .lte("result_at", toIso)
+        .limit(5000);
+      if (filterInspectorId) { cancelledQ = cancelledQ.eq("inspector_id", filterInspectorId); lostQ = lostQ.eq("inspector_id", filterInspectorId); }
 
-      const [completed, pending, insList, cancelledR] = await Promise.all([completedQ, pendingQ, insQ, cancelledQ]);
+      const [completed, pending, insList, cancelledR, lostR] = await Promise.all([completedQ, pendingQ, insQ, cancelledQ, lostQ]);
       if (cancelled) return;
       setRows(completed.data || []);
       setPendingRows(pending.data || []);
-      setCancelledRows(cancelledR.data || []);
+      const cancMap = new Map();
+      for (const r of (cancelledR.data || [])) cancMap.set(r.id, r);
+      for (const r of (lostR.data || [])) if (!cancMap.has(r.id)) cancMap.set(r.id, r);
+      setCancelledRows(Array.from(cancMap.values()));
       setInspectorList(insList.data || []);
       setLoading(false);
     })();
