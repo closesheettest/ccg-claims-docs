@@ -41,18 +41,19 @@ exports.handler = async (event) => {
   try {
     // review_availability is a newer column; if it hasn't been added yet the
     // SELECT 400s and we'd get zero deals. Try with it, fall back without it.
-    const SEL_BASE = "id,client_name,address,city,state,zip,mobile,email,jn_job_id,latitude,longitude,result,result_at,pa_id,pa_signed_at,pa_stage,docs_signed,jn_status,pa_notes_log";
+    const SEL_BASE = "id,client_name,address,city,state,zip,mobile,email,jn_job_id,latitude,longitude,result,result_at,pa_id,pa_signed_at,pa_opened_at,pa_stage,docs_signed,jn_status,pa_notes_log";
     const tail = `&result=eq.${result}&cancelled_at=is.null&or=(${conds.join(",")})&order=result_at.desc&limit=500`;
     let rows = await sbGet(`inspections?select=${SEL_BASE},review_availability,referral_outcome,retail_outcome,result_task_at${tail}`);
     if (!rows.length) rows = await sbGet(`inspections?select=${SEL_BASE}${tail}`);
 
     // Damage list: a rep is going out to PUSH the homeowner to start their claim.
-    // Once a PA has already signed them OR is actively working them, the rep
-    // shouldn't be sent there — drop those. Also drop ones the rep marked Not
-    // Interested ("BTR - NI"). (PA isn't involved in retail/no-damage.)
+    // Drop a deal only once a PA has ACTUALLY ENGAGED — signed them, opened the
+    // deal, is waiting on docs, or has LOR/PAC paperwork. A stale PA *assignment*
+    // that was never opened (e.g. from the old auto-assign) must NOT hide a deal
+    // a manager just handed the rep. Also drop rep-marked Not Interested (BTR-NI).
     if (result === "damage") {
       rows = rows.filter((r) =>
-        !(r.pa_signed_at || r.pa_stage === "active" || r.pa_stage === "waiting_docs" || /\b(lor|pac)\b/i.test(r.docs_signed || ""))
+        !(r.pa_signed_at || r.pa_opened_at || r.pa_stage === "waiting_docs" || /\b(lor|pac)\b/i.test(r.docs_signed || ""))
         && String(r.jn_status || "").trim().toLowerCase() !== "btr - ni",
       );
     }
