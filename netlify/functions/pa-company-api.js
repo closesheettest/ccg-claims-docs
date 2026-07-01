@@ -37,10 +37,9 @@ exports.handler = async (event) => {
   // (migration not run), that 400s → get() returns []; fall back to the
   // base columns so the page still works. Office fields just stay null
   // until pa_company_office_and_audit_label.sql is run.
-  let company = (await get(`${SB_URL}/rest/v1/pa_companies?token=eq.${encodeURIComponent(token)}&select=id,name,active,address,email,latitude,longitude&limit=1`, sb))[0];
-  if (!company) {
-    company = (await get(`${SB_URL}/rest/v1/pa_companies?token=eq.${encodeURIComponent(token)}&select=id,name,active&limit=1`, sb))[0];
-  }
+  let company = (await get(`${SB_URL}/rest/v1/pa_companies?token=eq.${encodeURIComponent(token)}&select=id,name,active,address,email,latitude,longitude,homeowner_confirm_enabled,homeowner_confirm_sms,homeowner_confirm_email_subject,homeowner_confirm_email_body&limit=1`, sb))[0]
+    || (await get(`${SB_URL}/rest/v1/pa_companies?token=eq.${encodeURIComponent(token)}&select=id,name,active,address,email,latitude,longitude&limit=1`, sb))[0]
+    || (await get(`${SB_URL}/rest/v1/pa_companies?token=eq.${encodeURIComponent(token)}&select=id,name,active&limit=1`, sb))[0];
   if (!company) return cors(404, JSON.stringify({ ok: false, error: "Invalid link" }));
   if (company.active === false) return cors(403, JSON.stringify({ ok: false, error: "This company is inactive — contact U.S. Shingle." }));
 
@@ -233,6 +232,22 @@ exports.handler = async (event) => {
     return cors(200, JSON.stringify({ ok: true }));
   }
 
+  // action "save_homeowner_confirm": the company writes the confirmation text
+  // the homeowner gets when an appointment is booked. Scoped to this company.
+  if (action === "save_homeowner_confirm") {
+    const payload = {
+      homeowner_confirm_enabled: !!body.enabled,
+      homeowner_confirm_sms: String(body.sms || "").slice(0, 500) || null,
+      homeowner_confirm_email_subject: String(body.email_subject || "").slice(0, 200) || null,
+      homeowner_confirm_email_body: String(body.email_body || "").slice(0, 2000) || null,
+    };
+    const upd = await fetch(`${SB_URL}/rest/v1/pa_companies?id=eq.${company.id}`, {
+      method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify(payload),
+    });
+    if (!upd.ok) return cors(500, JSON.stringify({ ok: false, error: `Save failed: ${(await upd.text()).slice(0, 160)}` }));
+    return cors(200, JSON.stringify({ ok: true }));
+  }
+
   // action "load": every open homeowner the company should see — their POOL
   // (pa_company_id) PLUS every deal currently assigned to one of their PAs.
   // Booking (rep Damage visit or PA self-schedule) sets pa_company_id=null, so
@@ -304,6 +319,10 @@ exports.handler = async (event) => {
       email: company.email || null,
       lat: typeof company.latitude === "number" ? company.latitude : null,
       lng: typeof company.longitude === "number" ? company.longitude : null,
+      homeowner_confirm_enabled: !!company.homeowner_confirm_enabled,
+      homeowner_confirm_sms: company.homeowner_confirm_sms || "",
+      homeowner_confirm_email_subject: company.homeowner_confirm_email_subject || "",
+      homeowner_confirm_email_body: company.homeowner_confirm_email_body || "",
     },
     pas: pas.map((p) => ({ id: p.id, name: p.name, active: p.active, phone: p.phone || null, email: p.email || null, home_address: p.home_address || null, max_distance_miles: typeof p.max_distance_miles === "number" ? p.max_distance_miles : null, zones: Array.isArray(p.zones) ? p.zones : [], lat: typeof p.latitude === "number" ? p.latitude : null, lng: typeof p.longitude === "number" ? p.longitude : null, in_jn: !!p.jn_user_id, ready_to_activate: !!p.jn_user_id && p.active === false })),
     deals: shaped,

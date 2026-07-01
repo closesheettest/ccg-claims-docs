@@ -255,18 +255,47 @@ async function book(body) {
     });
   }
 
-  // 4. Notify the PA + their company.
+  // 4. Notify the PA + their company + (optionally) the homeowner.
   const base = process.env.URL || process.env.DEPLOY_URL || process.env.PUBLIC_SITE_URL || "";
   const when = etLabel(startMs, endMs);
+  const MONITOR_PHONE = "7275037017"; // TEMP: copy Neal so he can confirm delivery — remove when he shuts his off.
+
+  // PA — SMS + email with the details.
   const paApptMsg = `📅 New appointment: ${homeowner || "a homeowner"}${address ? ` — ${address}` : ""} on ${when}.${phone ? ` Homeowner: ${phone}.` : ""} (booked by ${bookedBy})`;
   if (base && pa.phone) await sms(base, pa.phone, pa.name, paApptMsg);
   if (base && pa.email) await email(base, pa.email, "📅 New appointment booked for you", paApptMsg);
+
+  // Company — load once (tolerant of the homeowner-confirm columns not existing
+  // yet), notify the admin, and reuse for the homeowner confirmation below.
+  let co = null;
   if (pa.pa_company_id) {
-    const co = (await sbGet(`pa_companies?id=eq.${encodeURIComponent(pa.pa_company_id)}&select=name,admin_name,admin_phone,email&limit=1`))[0];
-    const coMsg = `📅 Appointment booked for ${pa.name}: ${homeowner || "a homeowner"}${address ? ` — ${address}` : ""} on ${when}.`;
-    if (base && co?.admin_phone) await sms(base, co.admin_phone, co.admin_name || co.name || "PA Company", coMsg);
-    if (base && co?.email) await email(base, co.email, `New PA appointment — ${pa.name}`, coMsg);
+    const full = `pa_companies?id=eq.${encodeURIComponent(pa.pa_company_id)}&select=name,admin_name,admin_phone,email,homeowner_confirm_enabled,homeowner_confirm_sms,homeowner_confirm_email_subject,homeowner_confirm_email_body&limit=1`;
+    const basic = `pa_companies?id=eq.${encodeURIComponent(pa.pa_company_id)}&select=name,admin_name,admin_phone,email&limit=1`;
+    co = (await sbGet(full))[0] || (await sbGet(basic))[0] || null;
+    if (co) {
+      const coMsg = `📅 Appointment booked for ${pa.name}: ${homeowner || "a homeowner"}${address ? ` — ${address}` : ""} on ${when}.`;
+      if (base && co.admin_phone) await sms(base, co.admin_phone, co.admin_name || co.name || "PA Company", coMsg);
+      if (base && co.email) await email(base, co.email, `New PA appointment — ${pa.name}`, coMsg);
+    }
   }
+
+  // Homeowner confirmation — only when the company turned it on. Company-authored
+  // wording with {homeowner} {date} {address} {company} placeholders.
+  if (co && co.homeowner_confirm_enabled) {
+    const fill = (t) => String(t || "")
+      .split("{homeowner}").join(homeowner || "there")
+      .split("{date}").join(when).split("{time}").join(when)
+      .split("{address}").join(address || "")
+      .split("{company}").join(co.name || "");
+    const hoSms = fill(co.homeowner_confirm_sms) || `Hi ${homeowner || "there"}, your inspection appointment${address ? ` at ${address}` : ""} is confirmed for ${when}.${co.name ? ` — ${co.name}` : ""}`;
+    let hoEmail = null;
+    if (inspectionId) hoEmail = ((await sbGet(`inspections?id=eq.${encodeURIComponent(inspectionId)}&select=email&limit=1`))[0] || {}).email || null;
+    if (base && phone) await sms(base, phone, homeowner || "Homeowner", hoSms);
+    if (base && hoEmail) await email(base, hoEmail, fill(co.homeowner_confirm_email_subject) || "Your appointment is confirmed", fill(co.homeowner_confirm_email_body) || hoSms);
+  }
+
+  // Monitor copy — so Neal can confirm notifications are firing (temporary).
+  if (base && MONITOR_PHONE) await sms(base, MONITOR_PHONE, "Monitor", `🔔 PA appt set: ${homeowner || "homeowner"} — ${when} w/ ${pa.name}${co ? ` (${co.name})` : ""}. Booked by ${bookedBy}.`);
 
   return cors(200, JSON.stringify({ ok: true, appointment, reassigned_to: pa.name }));
 }

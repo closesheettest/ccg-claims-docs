@@ -6405,6 +6405,15 @@ function PACompanyAdminPage({ token }) {
   const [data, setData] = useState(null);   // { company, pas, deals }
   const [busyId, setBusyId] = useState(null);
   const [detailDeal, setDetailDeal] = useState(null); // deal open in the read-only customer view
+  // Homeowner appointment-confirmation editor (company-authored message).
+  const [hoOpen, setHoOpen] = useState(false);
+  const [hoInit, setHoInit] = useState(false);
+  const [hoEnabled, setHoEnabled] = useState(false);
+  const [hoSms, setHoSms] = useState("");
+  const [hoSubj, setHoSubj] = useState("");
+  const [hoBody, setHoBody] = useState("");
+  const [hoBusy, setHoBusy] = useState(false);
+  const [hoSaved, setHoSaved] = useState(false);
   const [distFrom, setDistFrom] = useState("");   // "" | paId | "__me__"
   const [myCoords, setMyCoords] = useState(null);
   const [geoErr, setGeoErr] = useState("");
@@ -6463,6 +6472,29 @@ function PACompanyAdminPage({ token }) {
     setLoading(false);
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [token]);
+  // Seed the homeowner-confirmation editor from the loaded company (once).
+  useEffect(() => {
+    if (data?.company && !hoInit) {
+      setHoInit(true);
+      setHoEnabled(!!data.company.homeowner_confirm_enabled);
+      setHoSms(data.company.homeowner_confirm_sms || "");
+      setHoSubj(data.company.homeowner_confirm_email_subject || "");
+      setHoBody(data.company.homeowner_confirm_email_body || "");
+    }
+  }, [data, hoInit]);
+  const saveHomeownerConfirm = async () => {
+    setHoBusy(true); setHoSaved(false); setErr("");
+    try {
+      const res = await fetch("/.netlify/functions/pa-company-api", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, action: "save_homeowner_confirm", enabled: hoEnabled, sms: hoSms, email_subject: hoSubj, email_body: hoBody }),
+      });
+      const out = await res.json().catch(() => ({}));
+      if (res.ok && out.ok) { setHoSaved(true); }
+      else setErr(out.error || "Couldn't save the confirmation.");
+    } catch { setErr("Network error."); }
+    setHoBusy(false);
+  };
 
   const assign = async (dealId, paId) => {
     setBusyId(dealId);
@@ -6953,6 +6985,40 @@ function PACompanyAdminPage({ token }) {
               <div style={{ fontSize: 12, color: "#6b7280" }}>{t}</div>
             </div>
           ))}
+        </div>
+
+        {/* Homeowner appointment-confirmation — company writes the message the
+            homeowner gets when an appointment is booked. */}
+        <div style={{ marginBottom: 14, border: "1px solid #e5e7eb", borderRadius: 12, background: "#fff", overflow: "hidden" }}>
+          <button type="button" onClick={() => setHoOpen((o) => !o)}
+            style={{ width: "100%", textAlign: "left", padding: "12px 14px", border: "none", background: "#f8fafc", fontWeight: 800, fontSize: 14, color: "#334155", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span>✉️ Homeowner appointment confirmation <span style={{ color: hoEnabled ? "#047857" : "#9ca3af" }}>· {hoEnabled ? "ON" : "off"}</span></span>
+            <span>{hoOpen ? "▲" : "▼"}</span>
+          </button>
+          {hoOpen && (
+            <div style={{ padding: 14 }}>
+              <div style={{ fontSize: 12.5, color: "#6b7280", marginBottom: 10 }}>
+                When ON, the homeowner is texted/emailed this the moment an appointment is booked. Use <b>{"{homeowner}"}</b>, <b>{"{date}"}</b>, <b>{"{address}"}</b>, <b>{"{company}"}</b> — we fill them in.
+              </div>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 700, color: "#334155", marginBottom: 12 }}>
+                <input type="checkbox" checked={hoEnabled} onChange={(e) => setHoEnabled(e.target.checked)} /> Send a confirmation to the homeowner
+              </label>
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: "#475569", marginBottom: 4 }}>Text message (SMS)</div>
+              <textarea value={hoSms} onChange={(e) => setHoSms(e.target.value)} rows={3} placeholder="Hi {homeowner}, your inspection with {company} is confirmed for {date} at {address}. See you then!"
+                style={{ width: "100%", padding: 10, borderRadius: 8, border: "1px solid #d1d5db", fontSize: 13.5, resize: "vertical", boxSizing: "border-box" }} />
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: "#475569", margin: "12px 0 4px" }}>Email subject</div>
+              <input value={hoSubj} onChange={(e) => setHoSubj(e.target.value)} placeholder="Your inspection appointment is confirmed"
+                style={{ width: "100%", padding: 10, borderRadius: 8, border: "1px solid #d1d5db", fontSize: 13.5, boxSizing: "border-box" }} />
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: "#475569", margin: "12px 0 4px" }}>Email body</div>
+              <textarea value={hoBody} onChange={(e) => setHoBody(e.target.value)} rows={4} placeholder="Hi {homeowner}, this confirms your inspection with {company} on {date} at {address}."
+                style={{ width: "100%", padding: 10, borderRadius: 8, border: "1px solid #d1d5db", fontSize: 13.5, resize: "vertical", boxSizing: "border-box" }} />
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
+                <button type="button" onClick={saveHomeownerConfirm} disabled={hoBusy}
+                  style={{ padding: "10px 18px", borderRadius: 10, border: "none", background: "#2563eb", color: "#fff", fontWeight: 800, fontSize: 14, cursor: hoBusy ? "wait" : "pointer", opacity: hoBusy ? 0.7 : 1 }}>{hoBusy ? "Saving…" : "Save"}</button>
+                {hoSaved && <span style={{ color: "#047857", fontWeight: 700, fontSize: 13 }}>✓ Saved</span>}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Distance sorter — TAP a PA to rank the homeowners nearest THAT PA's
