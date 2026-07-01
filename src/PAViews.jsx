@@ -2894,6 +2894,7 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
   const [releasing, setReleasing] = useState(false);
   const [refusing, setRefusing] = useState(false);
   const [retailOpen, setRetailOpen] = useState(false); // back-to-retail reason picker
+  const [lastOutcome, setLastOutcome] = useState(null); // "Not home"/"Cancelled" confirmation text
   const [noteBusy, setNoteBusy] = useState(false);
   const [noteText, setNoteText] = useState("");
   const [correctionBusy, setCorrectionBusy] = useState(false);
@@ -3135,6 +3136,19 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
     } catch (e) { setFieldErr(e.message || "Network error"); }
     setNoteBusy(false);
   }
+  // Appointment outcomes — recorded as a note (mirrored to JN) so the office
+  // sees exactly what happened. No stage change: the deal stays active so it
+  // can be rescheduled/rebooked from the company hub.
+  function markNotHome() {
+    if (noteBusy || refusing || savingKey) return;
+    setLastOutcome("Not home — the office will reschedule");
+    postNote({ text: "🏠 Homeowner not home — needs to reschedule" });
+  }
+  function markCancelled() {
+    if (noteBusy || refusing || savingKey) return;
+    setLastOutcome("Appointment cancelled");
+    postNote({ text: "❌ Appointment cancelled" });
+  }
   function deadDeal() {
     const t = window.prompt("Mark this DEAD DEAL? It leaves your list and is logged. Reason (required):");
     if (t == null) return; const r = t.trim();
@@ -3290,7 +3304,7 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
             marginBottom: 16,
             boxShadow: isPending ? "0 0 0 4px rgba(245,158,11,0.15)" : "none",
           }}>
-            {isPending && (
+            {isPending && !lastOutcome && (
               <div style={{
                 display: "inline-block", marginBottom: 10, padding: "4px 12px",
                 background: "#f59e0b", color: "#fff", borderRadius: 999,
@@ -3301,39 +3315,43 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
               </div>
             )}
             <div style={{ fontSize: 22, fontWeight: 800, color: "#0f172a", fontFamily: "'Oswald', sans-serif", lineHeight: 1.15, marginBottom: 4 }}>
-              Did the homeowner sign up with you?
+              How did the appointment go?
             </div>
             <div style={{ fontSize: 13, color: "#64748b", marginBottom: 16 }}>
-              Tap your answer below — this is the first thing we need from you on this deal.
+              Tap what happened — this tells the office the outcome of your visit.
             </div>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              {PA_SIGNUP_OPTIONS.map((opt) => {
-                const active = current === opt;
-                return (
-                  <button key={opt} type="button" disabled={isSaving}
-                    onClick={() => {
-                      if (isSaving) return;
-                      if (opt === "Refused to Sign") { refuseToSign(); return; }
-                      saveField("pa_signup", opt);
-                    }}
-                    style={{
-                      flex: "1 1 120px", padding: "18px 12px", borderRadius: 12, fontSize: 16, fontWeight: 800,
-                      cursor: isSaving ? "default" : "pointer",
-                      fontFamily: "'Oswald', sans-serif", letterSpacing: "0.02em",
-                      border: active ? "3px solid" : "2px solid #cbd5e1",
-                      borderColor: active ? signupColor(opt) : "#cbd5e1",
-                      background: active ? signupBg(opt) : "#fff",
-                      color: active ? signupColor(opt) : "#334155",
-                      boxShadow: active ? "0 2px 8px rgba(0,0,0,0.08)" : "none",
-                      transition: "all 0.12s ease",
-                    }}>
-                    {opt}
-                  </button>
-                );
-              })}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              {[
+                { key: "Signed", label: "✅ Signed", active: current === "Signed", color: signupColor("Signed"), bg: signupBg("Signed"), onClick: () => saveField("pa_signup", "Signed") },
+                { key: "Refused to Sign", label: "✋ Refused to sign", active: current === "Refused to Sign", color: signupColor("Refused to Sign"), bg: signupBg("Refused to Sign"), onClick: () => refuseToSign() },
+                { key: "not_home", label: "🏠 Not home — reschedule", active: false, color: "#b45309", bg: "#fff7ed", onClick: () => markNotHome() },
+                { key: "cancelled", label: "❌ Cancelled", active: false, color: "#475569", bg: "#f1f5f9", onClick: () => markCancelled() },
+              ].map((b) => (
+                <button key={b.key} type="button" disabled={isSaving || noteBusy}
+                  onClick={() => { if (!isSaving && !noteBusy) b.onClick(); }}
+                  style={{
+                    padding: "18px 10px", borderRadius: 12, fontSize: 15, fontWeight: 800,
+                    cursor: (isSaving || noteBusy) ? "default" : "pointer",
+                    fontFamily: "'Oswald', sans-serif", letterSpacing: "0.02em", lineHeight: 1.15,
+                    border: b.active ? "3px solid" : "2px solid #cbd5e1",
+                    borderColor: b.active ? b.color : "#cbd5e1",
+                    background: b.active ? b.bg : "#fff",
+                    color: b.active ? b.color : "#334155",
+                    boxShadow: b.active ? "0 2px 8px rgba(0,0,0,0.08)" : "none",
+                    transition: "all 0.12s ease",
+                  }}>
+                  {b.label}
+                </button>
+              ))}
             </div>
-            <div style={{ fontSize: 13, marginTop: 12, fontWeight: 700, color: savedKey === "pa_signup" ? "#047857" : isPending ? "#b45309" : "#64748b" }}>
-              {refusing ? "Reverting to retail & texting the team…" : savingKey === "pa_signup" ? "Saving…" : savedKey === "pa_signup" ? "✓ Saved" : `Current answer: ${current}`}
+            <div style={{ fontSize: 13, marginTop: 12, fontWeight: 700, color: savedKey === "pa_signup" ? "#047857" : (isPending && !lastOutcome) ? "#b45309" : "#64748b" }}>
+              {refusing ? "Reverting to retail & texting the team…"
+                : noteBusy ? "Recording…"
+                : savingKey === "pa_signup" ? "Saving…"
+                : savedKey === "pa_signup" ? "✓ Saved"
+                : lastOutcome ? `✓ ${lastOutcome}`
+                : isPending ? "No outcome recorded yet — tap one above."
+                : `Recorded: ${current}`}
             </div>
             {/* Send back to retail with a typed reason — reverts the deal
                 in the app + JobNimbus and texts the rep + their manager. */}
