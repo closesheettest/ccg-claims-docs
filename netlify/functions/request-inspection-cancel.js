@@ -15,6 +15,22 @@ const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
 const SIGNED_BUCKET = "signed-documents";
 const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones";
+// Property county → zone fallback (mirrors manager-records-api / all-no-sits).
+const ZONE_COUNTIES = {
+  "Zone 1": ["Nassau", "Duval", "Baker", "Union", "Bradford", "Clay", "St. Johns", "Putnam", "Flagler", "Alachua", "Levy", "Marion", "Sumter", "Lake", "Seminole", "Volusia"],
+  "Zone 2": ["Pasco", "Hillsborough", "Polk", "Osceola", "Indian River", "Highlands", "Citrus", "Hernando"],
+  "Zone 3": ["Pinellas", "Manatee", "Sarasota", "Charlotte", "Lee", "Collier", "Monroe", "Hardee", "DeSoto", "Glades", "Hendry", "St. Lucie", "Okeechobee"],
+  "Zone 4": ["Martin", "Palm Beach", "Broward", "Miami-Dade"],
+};
+const ZONE_SPLIT_LAT = 28.55;
+const normCounty = (s) => String(s || "").toLowerCase().replace(/\bcounty\b/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+const COUNTY_ZONE = (() => { const m = {}; for (const [z, cs] of Object.entries(ZONE_COUNTIES)) for (const c of cs) m[normCounty(c)] = z; return m; })();
+function countyToZone(county, lat) {
+  const n = normCounty(county);
+  if (!n) return null;
+  if (n === "brevard" || n === "orange") return (lat != null && lat >= ZONE_SPLIT_LAT) ? "Zone 1" : "Zone 2";
+  return COUNTY_ZONE[n] || null;
+}
 
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return cors(200, "");
@@ -31,7 +47,7 @@ exports.handler = async (event) => {
   if (!note) return cors(400, JSON.stringify({ ok: false, error: "A note is required." }));
 
   try {
-    const insp = (await sbGet(`inspections?id=eq.${encodeURIComponent(inspectionId)}&select=id,client_name,address,inspection_photos,sales_rep_id,sales_rep_name&limit=1`))[0];
+    const insp = (await sbGet(`inspections?id=eq.${encodeURIComponent(inspectionId)}&select=id,client_name,address,inspection_photos,sales_rep_id,sales_rep_name,county,latitude&limit=1`))[0];
     if (!insp) return cors(404, JSON.stringify({ ok: false, error: "inspection not found" }));
 
     const nowIso = new Date().toISOString();
@@ -58,7 +74,10 @@ exports.handler = async (event) => {
     const msg = `🚫 Cancel review: ${inspectorName} says ${insp.client_name || "a homeowner"}${insp.address ? ` (${insp.address})` : ""} cancelled.\n"${note}"\nReview & decide: ${link}`;
 
     const rep = await resolveRep(SB_URL, sb, insp.sales_rep_id, insp.sales_rep_name);
-    const zone = await resolveZone(rep, insp.sales_rep_name);
+    // Rep's zone first; if the rep isn't in rep-zones (e.g. William Hernandez),
+    // fall back to the PROPERTY's county → zone so it still routes correctly.
+    let zone = await resolveZone(rep, insp.sales_rep_name);
+    if (!zone && insp.county) zone = countyToZone(insp.county, insp.latitude);
     const manager = zone ? await fetchManager(SB_URL, sb, zone) : null;
 
     const recipients = [];
