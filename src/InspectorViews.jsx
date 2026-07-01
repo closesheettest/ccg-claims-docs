@@ -2321,7 +2321,7 @@ function InspectorJobList({ me, onOpenJob, onOpenReports }) {
       .from("inspections")
       .select(
         "id, client_name, address, city, state, zip, signed_at, sales_rep_name, " +
-          "latitude, longitude, inspector_id, result",
+          "latitude, longitude, inspector_id, result, cancel_review_pending",
       )
       .is("result", null)
       .order("signed_at", { ascending: false })
@@ -2348,6 +2348,9 @@ function InspectorJobList({ me, onOpenJob, onOpenReports }) {
     const mine = [];
     const available = [];
     for (const j of jobs) {
+      // A deal the inspector sent for cancel-review drops off the list until the
+      // manager decides (confirm cancel / retail / send back for re-inspection).
+      if (j.cancel_review_pending) continue;
       const dist =
         startLat != null && startLng != null &&
         typeof j.latitude === "number" && typeof j.longitude === "number"

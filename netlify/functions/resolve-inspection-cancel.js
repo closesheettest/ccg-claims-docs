@@ -27,9 +27,9 @@ exports.handler = async (event) => {
   const decision = String(body.decision || "").trim();
   const managerNote = String(body.manager_note || "").trim();
   if (!inspectionId) return cors(400, JSON.stringify({ ok: false, error: "inspection_id required" }));
-  if (!["cancel", "retail"].includes(decision)) return cors(400, JSON.stringify({ ok: false, error: "decision must be cancel | retail" }));
-  // Send-to-Retail must carry a manager note so the rep knows what's going on.
-  if (decision === "retail" && !managerNote) return cors(400, JSON.stringify({ ok: false, error: "A note is required to send to Retail." }));
+  if (!["cancel", "retail", "reinspect"].includes(decision)) return cors(400, JSON.stringify({ ok: false, error: "decision must be cancel | retail | reinspect" }));
+  // Send-to-Retail and Send-back-for-inspection must carry a manager note.
+  if ((decision === "retail" || decision === "reinspect") && !managerNote) return cors(400, JSON.stringify({ ok: false, error: "A note is required." }));
 
   try {
     const insp = (await sbGet(`inspections?id=eq.${encodeURIComponent(inspectionId)}&select=id,jn_job_id,client_name,cancel_review_note,pa_notes_log&limit=1`))[0];
@@ -46,7 +46,7 @@ exports.handler = async (event) => {
         cancel_review_pending: false,
       };
       jnNote = `🚫 Homeowner cancellation CONFIRMED by manager. Reason: ${reviewNote}`;
-    } else {
+    } else if (decision === "retail") {
       // Manager note → pa_notes_log (visible to the rep in the app) + JN.
       const log = Array.isArray(insp.pa_notes_log) ? insp.pa_notes_log : [];
       log.push({ at: nowIso, text: `🏠 Manager sent to Retail: ${managerNote}`, stage: null });
@@ -57,6 +57,19 @@ exports.handler = async (event) => {
         pa_notes_log: log,
       };
       jnNote = `🏠 Manager review → Retail. Note to rep: ${managerNote}${reviewNote ? ` (inspector said: ${reviewNote})` : ""}`;
+    } else {
+      // reinspect: NOT a cancel — send it back into the inspection pool for
+      // another look. Clears the pending flag + releases it (inspector_id null)
+      // so any inspector can claim it again; result stays null.
+      const log = Array.isArray(insp.pa_notes_log) ? insp.pa_notes_log : [];
+      log.push({ at: nowIso, text: `📷 Manager sent back for re-inspection: ${managerNote}`, stage: null });
+      patch = {
+        cancel_review_pending: false,
+        inspector_id: null,
+        claimed_at: null,
+        pa_notes_log: log,
+      };
+      jnNote = `📷 Manager review → RE-INSPECT (back in the pool). Note: ${managerNote}${reviewNote ? ` (inspector said: ${reviewNote})` : ""}`;
     }
 
     const up = await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}`, {

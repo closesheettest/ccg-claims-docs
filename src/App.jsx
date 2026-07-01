@@ -7658,7 +7658,7 @@ function CancelReviewPage({ inspectionId }) {
       });
       const o = await r.json().catch(() => ({}));
       if (!r.ok || !o.ok) { alert(o.error || "Failed."); setBusy(""); return; }
-      setDone(decision === "cancel" ? "✓ Cancellation confirmed — the deal is cancelled." : "✓ Sent to Retail — your note was sent to the rep + JobNimbus.");
+      setDone(decision === "cancel" ? "✓ Cancellation confirmed — the deal is cancelled." : decision === "reinspect" ? "✓ Sent back for inspection — it's back in the pool with your note." : "✓ Sent to Retail — your note was sent to the rep + JobNimbus.");
     } catch { alert("Network error."); setBusy(""); }
   };
   const wrap = { minHeight: "100vh", background: "#f3f4f6", padding: "24px 16px", fontFamily: "system-ui,-apple-system,sans-serif", color: "#111827" };
@@ -7687,12 +7687,16 @@ function CancelReviewPage({ inspectionId }) {
           </div>
         ) : (
           <div style={{ display: "grid", gap: 10, marginTop: 18 }}>
-            <div style={{ fontSize: 12.5, fontWeight: 700, color: "#374151" }}>Note to the rep — required to Send to Retail (shows in the app <b>and</b> JobNimbus):</div>
-            <textarea value={retailNote} onChange={(e) => setRetailNote(e.target.value)} rows={3} placeholder="e.g. Homeowner wants a retail quote — reach out to schedule a time."
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: "#374151" }}>Note — required to Send to Retail or Send back for inspection (shows in the app <b>and</b> JobNimbus):</div>
+            <textarea value={retailNote} onChange={(e) => setRetailNote(e.target.value)} rows={3} placeholder="e.g. Homeowner wants a retail quote — reach out to schedule a time. / Re-inspect: needs a second look at the back slope."
               style={{ width: "100%", boxSizing: "border-box", borderRadius: 10, border: "1px solid #d1d5db", padding: "10px 12px", fontSize: 14, fontFamily: "inherit", resize: "vertical" }} />
             <button onClick={() => decide("retail")} disabled={!!busy || !retailNote.trim()}
               style={{ background: "#b45309", color: "#fff", border: "none", borderRadius: 12, padding: "14px 0", fontSize: 15.5, fontWeight: 800, cursor: (busy || !retailNote.trim()) ? "default" : "pointer", opacity: (busy || !retailNote.trim()) ? 0.6 : 1 }}>
               {busy === "retail" ? "Saving…" : "🏠 Send to Retail (keep the deal)"}
+            </button>
+            <button onClick={() => decide("reinspect")} disabled={!!busy || !retailNote.trim()}
+              style={{ background: "#2563eb", color: "#fff", border: "none", borderRadius: 12, padding: "14px 0", fontSize: 15.5, fontWeight: 800, cursor: (busy || !retailNote.trim()) ? "default" : "pointer", opacity: (busy || !retailNote.trim()) ? 0.6 : 1 }}>
+              {busy === "reinspect" ? "Saving…" : "📷 Send back for inspection (back to pool)"}
             </button>
             <button onClick={() => { if (window.confirm("Confirm the homeowner cancelled? This cancels the deal.")) decide("cancel"); }} disabled={!!busy}
               style={{ background: "#dc2626", color: "#fff", border: "none", borderRadius: 12, padding: "14px 0", fontSize: 15.5, fontWeight: 800, cursor: "pointer", opacity: busy ? 0.6 : 1 }}>
