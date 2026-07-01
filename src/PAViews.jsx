@@ -2798,6 +2798,86 @@ function PASelfSchedule({ me, job }) {
   );
 }
 
+// Shared "why is this going back to retail?" picker — backed by the editable
+// pa_retail_reasons list (four defaults, PAs can add more). Big tap targets so
+// it's easy on a phone. onPick(reason) fires the actual revert; onClose cancels.
+function RetailReasonModal({ who, busy, onPick, onClose }) {
+  const [reasons, setReasons] = useState(null); // null = loading
+  const [adding, setAdding] = useState(false);
+  const [newLabel, setNewLabel] = useState("");
+  const [addBusy, setAddBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  async function load() {
+    try {
+      const r = await fetch("/.netlify/functions/pa-retail-reasons");
+      const b = await r.json().catch(() => ({}));
+      setReasons(Array.isArray(b.reasons) ? b.reasons : []);
+    } catch { setReasons([]); }
+  }
+  useEffect(() => { load(); }, []);
+
+  async function addReason() {
+    const label = newLabel.trim();
+    if (!label) return;
+    setAddBusy(true); setErr(null);
+    try {
+      const r = await fetch("/.netlify/functions/pa-retail-reasons", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label }),
+      });
+      const b = await r.json().catch(() => ({}));
+      if (!b.ok) { setErr(b.error || "Couldn't add that reason"); setAddBusy(false); return; }
+      setNewLabel(""); setAdding(false);
+      await load();
+    } catch (e) { setErr(e.message || "Network error"); }
+    setAddBusy(false);
+  }
+
+  return (
+    <div onClick={busy ? undefined : onClose}
+      style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div onClick={(e) => e.stopPropagation()}
+        style={{ width: "100%", maxWidth: 480, background: "#fff", borderRadius: "16px 16px 0 0", padding: "18px 16px 22px", maxHeight: "85vh", overflowY: "auto", boxShadow: "0 -8px 30px rgba(0,0,0,0.3)" }}>
+        <div style={{ fontFamily: "'Oswald',sans-serif", fontWeight: 700, fontSize: 18, color: "#111827" }}>↩️ Send back to retail</div>
+        <div style={{ fontSize: 13, color: "#6b7280", margin: "2px 0 14px" }}>Why is <strong>{who}</strong> going back to retail? Tap a reason.</div>
+        {reasons == null ? (
+          <div style={{ padding: 20, textAlign: "center", color: "#9ca3af" }}>Loading reasons…</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {reasons.map((r) => (
+              <button key={r.id} type="button" disabled={busy} onClick={() => onPick(r.label)}
+                style={{ textAlign: "left", padding: "15px 16px", borderRadius: 12, border: "2px solid #fcd34d", background: "#fffbeb", color: "#92400e", fontWeight: 700, fontSize: 15.5, cursor: busy ? "wait" : "pointer" }}>
+                {r.label}
+              </button>
+            ))}
+            {adding ? (
+              <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                <input autoFocus value={newLabel} maxLength={80} placeholder="New reason…"
+                  onChange={(e) => setNewLabel(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") addReason(); }}
+                  style={{ flex: 1, padding: "13px 12px", borderRadius: 10, border: "1px solid #d1d5db", fontSize: 15 }} />
+                <button type="button" disabled={addBusy || !newLabel.trim()} onClick={addReason}
+                  style={{ padding: "0 16px", borderRadius: 10, border: "none", background: "#2563eb", color: "#fff", fontWeight: 700, fontSize: 14, opacity: addBusy || !newLabel.trim() ? 0.6 : 1 }}>{addBusy ? "…" : "Add"}</button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => setAdding(true)}
+                style={{ textAlign: "left", padding: "13px 16px", borderRadius: 12, border: "1px dashed #cbd5e1", background: "#f8fafc", color: "#475569", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+                ➕ Add a reason
+              </button>
+            )}
+          </div>
+        )}
+        {err && <div style={{ marginTop: 10, color: "#b91c1c", fontSize: 13 }}>{err}</div>}
+        <button type="button" disabled={busy} onClick={onClose}
+          style={{ marginTop: 16, width: "100%", padding: "13px", borderRadius: 12, border: "1px solid #e5e7eb", background: "#fff", color: "#374151", fontWeight: 700, fontSize: 14.5, cursor: busy ? "wait" : "pointer" }}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
   const [job, setJob] = useState(null);
   const [fields, setFields] = useState({});      // epoch seconds | string | null
@@ -2813,6 +2893,7 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
   const [fieldErr, setFieldErr] = useState(null);
   const [releasing, setReleasing] = useState(false);
   const [refusing, setRefusing] = useState(false);
+  const [retailOpen, setRetailOpen] = useState(false); // back-to-retail reason picker
   const [noteBusy, setNoteBusy] = useState(false);
   const [noteText, setNoteText] = useState("");
   const [correctionBusy, setCorrectionBusy] = useState(false);
@@ -2997,16 +3078,12 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
   // the PA types a free-text reason first (e.g. claim denied, no real
   // damage). Reverts in the app + JobNimbus and texts the rep + manager
   // with the reason, then the deal leaves the PA portal.
-  async function sendToRetail() {
-    const who = job?.client_name || "this homeowner";
-    const reason = window.prompt(
-      `Send "${who}" back to RETAIL?\n\n` +
-      `This moves the deal out of insurance and back to retail — in the app AND in JobNimbus — ` +
-      `and texts the sales rep + their manager.\n\n` +
-      `Why is it going back to retail? (required)`,
-    );
-    if (reason == null) return; // cancelled
-    const why = reason.trim();
+  // "Send back to retail" now opens the reason PICKER (RetailReasonModal);
+  // doRetail() runs the actual revert once the PA taps a reason.
+  function sendToRetail() { setRetailOpen(true); }
+
+  async function doRetail(reason) {
+    const why = String(reason || "").trim();
     if (!why) { setFieldErr("A reason is required to send a deal back to retail."); return; }
     setRefusing(true);
     setFieldErr(null);
@@ -3026,6 +3103,7 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
       const noteBits = [];
       noteBits.push(repOk ? "✓ Sales rep texted" : "⚠ Sales rep not texted (no number on file)");
       noteBits.push(mgrOk ? "✓ Manager texted" : "⚠ Manager not texted (couldn't resolve their zone manager)");
+      setRetailOpen(false);
       window.alert(`Done — sent back to retail.\n\n${noteBits.join("\n")}`);
       onBack();
     } catch (e) {
@@ -3129,6 +3207,14 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
 
   return (
     <div>
+      {retailOpen && (
+        <RetailReasonModal
+          who={job?.client_name || "this homeowner"}
+          busy={refusing}
+          onClose={() => setRetailOpen(false)}
+          onPick={doRetail}
+        />
+      )}
       <button type="button" onClick={onBack} style={{ ...secondaryBtn, marginBottom: 12 }}>← Back to my claims</button>
 
       {/* Note from US Shingle — set when a manager assigned this deal to
