@@ -3384,14 +3384,23 @@ function PostSignScheduler({ type, inspectionId, clientName, mobile, address, re
     return () => { on = false; };
   }, [type, jnReady, inspectionId]);
 
-  const bookPa = async (s) => {
+  const bookPa = async (s, force = false) => {
     setBusy(s.start_at); setErr("");
     try {
       const r = await fetch("/.netlify/functions/pa-schedule-api", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "book", token, pa_id: s.pa_id, start_at: s.start_at, inspection_id: inspectionId, homeowner_name: clientName, homeowner_phone: mobile, address, booked_by: repName }),
+        body: JSON.stringify({ action: "book", token, pa_id: s.pa_id, start_at: s.start_at, inspection_id: inspectionId, homeowner_name: clientName, homeowner_phone: mobile, address, booked_by: repName, force }),
       });
       const o = await r.json().catch(() => ({}));
+      // Homeowner already has a PA appointment → change the time or book a second knowingly.
+      if (o.duplicate && !force) {
+        const ex = o.existing || {};
+        const when = ex.start_at ? new Date(ex.start_at).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" }) : "another time";
+        setBusy("");
+        if (window.confirm(`⚠️ ${clientName || "This homeowner"} already has a PA appointment scheduled for ${when}${ex.pa_name ? ` with ${ex.pa_name}` : ""}.\n\nBook a SECOND appointment anyway?\n\n• OK = book anyway\n• Cancel = pick a different time`)) return bookPa(s, true);
+        setErr("Didn't book — this homeowner already has a PA appointment. Pick a different time or leave the existing one.");
+        return;
+      }
       if (!r.ok || !o.ok) throw new Error(o.error || "Couldn't book that slot");
       setDone(`PA appointment booked — ${s.label || `${dayLabel(dayKey(s.start_at))} ${timeLabel(s.start_at)}`}.`);
     } catch (e) { setErr(e.message); }

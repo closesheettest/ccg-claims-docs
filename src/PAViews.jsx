@@ -2724,7 +2724,7 @@ function PASelfSchedule({ me, job }) {
     } catch (e) { setErr(e.message); setSlots([]); }
   };
   const toggle = () => { const n = !open; setOpen(n); if (n && slots === null) load(); };
-  const book = async (s) => {
+  const book = async (s, force = false) => {
     setBooking(s.start_at); setErr("");
     try {
       const tok = (await supabase.from("app_settings").select("value").eq("key", "visit_token").maybeSingle()).data?.value;
@@ -2734,10 +2734,19 @@ function PASelfSchedule({ me, job }) {
           action: "book", token: tok, pa_id: me.id, start_at: s.start_at, inspection_id: job.id,
           homeowner_name: job.client_name, homeowner_phone: job.mobile,
           address: [job.address, job.city, job.state, job.zip].filter(Boolean).join(", "),
-          booked_by: me.name,
+          booked_by: me.name, force,
         }),
       });
       const o = await res.json().catch(() => ({}));
+      // Homeowner already has a PA appointment → change the time or book a second knowingly.
+      if (o.duplicate && !force) {
+        const ex = o.existing || {};
+        const when = ex.start_at ? new Date(ex.start_at).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" }) : "another time";
+        setBooking("");
+        if (window.confirm(`⚠️ ${job.client_name || "This homeowner"} already has a PA appointment scheduled for ${when}${ex.pa_name ? ` with ${ex.pa_name}` : ""}.\n\nBook a SECOND appointment anyway?\n\n• OK = book anyway\n• Cancel = pick a different time`)) return book(s, true);
+        setErr("Didn't book — this homeowner already has a PA appointment. Pick a different time or leave the existing one.");
+        return;
+      }
       if (!res.ok || !o.ok) throw new Error(o.error || "Couldn't book that slot");
       setDone(s.label || "your appointment");
     } catch (e) { setErr(e.message); }

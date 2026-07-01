@@ -215,7 +215,7 @@ export default function RepVisitHub() {
   const api = async (fn, payload) => {
     const r = await fetch(`${FN}/${fn}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, ...payload }) });
     const o = await r.json().catch(() => ({}));
-    if (!r.ok || !o.ok) throw new Error(o.error || "Request failed");
+    if (!r.ok || !o.ok) { const err = new Error(o.error || "Request failed"); err.body = o; throw err; }
     return o;
   };
   // Counts for the hub badges — so a rep sees how many Damage/No-Damage/Retail
@@ -576,12 +576,26 @@ function DamagePanel({ deal, rep, api }) {
     api("pa-schedule-api", { action: "slots", inspection_id: deal.inspection_id, lat: deal.latitude, lng: deal.longitude })
       .then((o) => setSlots(o.slots || [])).catch((e) => { setErr(e.message); setSlots([]); });
   }, []);
+  const doBook = async (s, force) =>
+    api("pa-schedule-api", { action: "book", pa_id: s.pa_id, start_at: s.start_at, inspection_id: deal.inspection_id, homeowner_name: deal.client_name, homeowner_phone: deal.mobile, address: deal.address, booked_by: rep.name, force });
   const book = async (s) => {
     setBooking(s.start_at + s.pa_id); setErr("");
     try {
-      await api("pa-schedule-api", { action: "book", pa_id: s.pa_id, start_at: s.start_at, inspection_id: deal.inspection_id, homeowner_name: deal.client_name, homeowner_phone: deal.mobile, address: deal.address, booked_by: rep.name });
+      await doBook(s, false);
       setDone(`Booked with ${s.pa_name} — ${s.label}. The PA was notified.`);
-    } catch (e) { setErr(e.message); }
+    } catch (e) {
+      // Homeowner already has a PA appointment → let the rep change the time or knowingly book a second.
+      if (e.body?.duplicate) {
+        const ex = e.body.existing || {};
+        const when = ex.start_at ? new Date(ex.start_at).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" }) : "another time";
+        if (window.confirm(`⚠️ ${deal.client_name || "This homeowner"} already has a PA appointment scheduled for ${when}${ex.pa_name ? ` with ${ex.pa_name}` : ""}.\n\nBook a SECOND appointment anyway?\n\n• OK = book anyway\n• Cancel = go back and pick a different time`)) {
+          try { await doBook(s, true); setDone(`Booked with ${s.pa_name} — ${s.label}. The PA was notified.`); }
+          catch (e2) { setErr(e2.message); }
+        } else {
+          setErr("Didn't book — this homeowner already has a PA appointment. Pick a different time or leave the existing one.");
+        }
+      } else { setErr(e.message); }
+    }
     setBooking("");
   };
   // Homeowner doesn't want to move forward → "BTR - NI" in JN, drops off the list.

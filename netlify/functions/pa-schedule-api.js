@@ -205,6 +205,29 @@ async function book(body) {
   const bookedBy = String(body.booked_by || "").trim() || "Dialer";
   const notes = String(body.notes || "").slice(0, 1000) || null;
 
+  // Per-HOMEOWNER duplicate guard: if this homeowner already has a scheduled PA
+  // appointment (matched by inspection, or by phone when there's no inspection
+  // id), don't silently create a second one. Return the existing appt so the rep
+  // can change the time or knowingly book anyway (force:true). Skipped on force.
+  if (!body.force) {
+    const dupQ = inspectionId
+      ? `pa_appointments?inspection_id=eq.${encodeURIComponent(inspectionId)}&status=eq.scheduled&select=id,start_at,pa_id,homeowner_name&order=start_at&limit=1`
+      : phone
+        ? `pa_appointments?homeowner_phone=eq.${encodeURIComponent(phone)}&status=eq.scheduled&select=id,start_at,pa_id,homeowner_name&order=start_at&limit=1`
+        : null;
+    if (dupQ) {
+      const dup = await sbGet(dupQ);
+      if (dup.length) {
+        const ex = dup[0];
+        const exPa = (await sbGet(`pas?id=eq.${encodeURIComponent(ex.pa_id)}&select=name&limit=1`))[0];
+        return cors(200, JSON.stringify({
+          ok: false, duplicate: true,
+          existing: { id: ex.id, start_at: ex.start_at, pa_name: exPa?.name || null, homeowner_name: ex.homeowner_name || homeowner },
+        }));
+      }
+    }
+  }
+
   // 1. Create the appointment.
   const ins = await fetch(`${SB_URL}/rest/v1/pa_appointments`, {
     method: "POST", headers: { ...sb, Prefer: "return=representation" },
