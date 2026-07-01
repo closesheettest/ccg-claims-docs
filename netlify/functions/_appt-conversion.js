@@ -150,13 +150,19 @@ async function fetchApptJobs(jnKey, startSec, endSec, taskMeta) {
   const headers = { Authorization: `bearer ${jnKey}`, "Content-Type": "application/json" };
   const meta = taskMeta || await fetchApptTaskMeta(jnKey, startSec, endSec);
   const jobs = await fetchJobsByIds(headers, [...meta.keys()]);
+  // An appointment only counts once its time has actually PASSED — a deal whose
+  // latest appt is still in the future (e.g. a 5 PM sit viewed at 2 PM) isn't a
+  // real opportunity yet and would deflate the closing %. Cap the window's upper
+  // bound at "now"; past periods (last week/month) are unaffected (endSec < now).
+  const nowSec = Math.floor(Date.now() / 1000);
+  const effEnd = Math.min(endSec, nowSec);
   return jobs.filter((j) => {
     const m = meta.get(j.jnid || j.id);
     if (!m) return false;
     // Count the deal once, in the week of its LATEST appt task — never an
-    // earlier no-show/original. If the latest task is outside this window, it
-    // belongs to that (later) week's count, so skip it here.
-    if (!(m.latest >= startSec && m.latest <= endSec)) return false;
+    // earlier no-show/original. If the latest task is outside this window (or
+    // still in the future), it belongs to a later count, so skip it here.
+    if (!(m.latest >= startSec && m.latest <= effEnd)) return false;
     j.__apptDate = m.latest;
     j.__apptTaskCreators = [...m.creators];
     j.__isReset = m.resetInWindow;
