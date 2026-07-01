@@ -6671,6 +6671,12 @@ function PACompanyAdminPage({ token }) {
           ? <div style={{ fontSize: 13, marginTop: 3 }}><a href={`tel:${String(d.mobile).replace(/[^\d+]/g, "")}`} style={{ color: "#0e7490", fontWeight: 700, textDecoration: "none" }}>📞 {d.mobile}</a></div>
           : <div style={{ fontSize: 12, color: "#b45309", marginTop: 3 }}>📞 no phone on file</div>}
         {d.county && <div style={{ fontSize: 13, fontWeight: 800, color: "#0e7490", marginTop: 3 }}>📍 {d.county}</div>}
+        {d.appt_at && (() => {
+          const dt = new Date(d.appt_at);
+          const past = dt.getTime() < Date.now();
+          const when = dt.toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" });
+          return <div style={{ fontSize: 13, fontWeight: 800, marginTop: 3, color: past ? "#b91c1c" : "#047857" }}>📅 Appt: {when}{past ? " · ⏰ needs reschedule" : ""}</div>;
+        })()}
         <div style={{ fontSize: 11.5, color: "#9ca3af", marginTop: 2 }}>
           {d.signed_at ? `Signed ${fmtSigned(d.signed_at, { withYear: false })}` : ""}
           {d.last_note ? `${d.signed_at ? " · " : ""}📝 ${d.last_note.slice(0, 60)}` : ""}

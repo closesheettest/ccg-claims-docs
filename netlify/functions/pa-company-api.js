@@ -251,6 +251,15 @@ exports.handler = async (event) => {
     .sort((a, b) => String(b.signed_at || "").localeCompare(String(a.signed_at || "")));
   const paName = {};
   for (const p of pas) paName[p.id] = p.name;
+  // Scheduled PA appointment time per deal — so the company sees WHEN each visit
+  // is when assigning an adjuster. Earliest scheduled appt per inspection.
+  const apptByInsp = {};
+  const dealIds = deals.map((d) => d.id);
+  if (dealIds.length) {
+    const inIds = `(${dealIds.map((id) => `"${id}"`).join(",")})`;
+    const appts = (await get(`${SB_URL}/rest/v1/pa_appointments?inspection_id=in.${encodeURIComponent(inIds)}&status=eq.scheduled&select=inspection_id,start_at&order=start_at.asc&limit=2000`, sb)) || [];
+    for (const a of appts) { if (a.inspection_id && !apptByInsp[a.inspection_id]) apptByInsp[a.inspection_id] = a.start_at; }
+  }
   const now = Date.now();
   const shaped = (deals || []).map((d) => {
     const notes = Array.isArray(d.pa_notes_log) ? d.pa_notes_log : [];
@@ -270,6 +279,7 @@ exports.handler = async (event) => {
       lat: typeof d.latitude === "number" ? d.latitude : null,
       lng: typeof d.longitude === "number" ? d.longitude : null,
       signed_at: d.signed_at,
+      appt_at: apptByInsp[d.id] || null,
       mobile: d.mobile || null,
       pa_id: d.pa_id || null,
       pa_name: d.pa_id ? (paName[d.pa_id] || "Assigned") : null,
