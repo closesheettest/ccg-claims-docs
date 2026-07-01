@@ -3542,6 +3542,9 @@ export function ManagerInspectorReports() {
                           </td>
                           <td style={{ padding: "6px 8px", textAlign: "right", color: row.cancelled > 0 ? STATUS_META.cancelled.color : "#9ca3af", fontWeight: row.cancelled > 0 ? 700 : 400 }}>
                             {row.cancelled || 0}
+                            {(row.total + (row.cancelled || 0)) > 0 && (
+                              <span style={{ color: "#9ca3af", fontWeight: 600 }}> · {Math.round(((row.cancelled || 0) / (row.total + (row.cancelled || 0))) * 100)}%</span>
+                            )}
                           </td>
                         </tr>
                       );
