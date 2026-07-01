@@ -3197,6 +3197,7 @@ export function ManagerInspectorReports() {
   const [rows, setRows] = useState([]);
   const [pendingRows, setPendingRows] = useState([]);
   const [cancelledRows, setCancelledRows] = useState([]);
+  const [reviewRows, setReviewRows] = useState([]); // cancel-review pending (awaiting manager)
   const [inspectorList, setInspectorList] = useState([]);
   const [loading, setLoading] = useState(true);
   // Custom date range — only used when range === "custom". Defaults to the
@@ -3293,10 +3294,21 @@ export function ManagerInspectorReports() {
         .limit(5000);
       if (filterInspectorId) { cancelledQ = cancelledQ.eq("inspector_id", filterInspectorId); lostQ = lostQ.eq("inspector_id", filterInspectorId); }
 
-      const [completed, pending, insList, cancelledR, lostR] = await Promise.all([completedQ, pendingQ, insQ, cancelledQ, lostQ]);
+      // Cancel-review PENDING (inspector asked to cancel, manager hasn't decided).
+      // Current snapshot, independent of the date range — like Pending.
+      let reviewQ = supabase
+        .from("inspections")
+        .select("id, inspector_id")
+        .eq("cancel_review_pending", true)
+        .not("inspector_id", "is", null)
+        .limit(5000);
+      if (filterInspectorId) reviewQ = reviewQ.eq("inspector_id", filterInspectorId);
+
+      const [completed, pending, insList, cancelledR, lostR, reviewR] = await Promise.all([completedQ, pendingQ, insQ, cancelledQ, lostQ, reviewQ]);
       if (cancelled) return;
       setRows(completed.data || []);
       setPendingRows(pending.data || []);
+      setReviewRows(reviewR.data || []);
       const cancMap = new Map();
       for (const r of (cancelledR.data || [])) cancMap.set(r.id, r);
       for (const r of (lostR.data || [])) if (!cancMap.has(r.id)) cancMap.set(r.id, r);
@@ -3327,7 +3339,7 @@ export function ManagerInspectorReports() {
 
       const insEntry = byInspector.get(r.inspector_id) || {
         name: nameById.get(r.inspector_id) || "(removed inspector)",
-        total: 0, damage: 0, no_damage: 0, retail: 0, pending: 0, cancelled: 0,
+        total: 0, damage: 0, no_damage: 0, retail: 0, pending: 0, cancelled: 0, review: 0,
       };
       insEntry.total++;
       if (insEntry[r.result] != null) insEntry[r.result]++;
@@ -3336,7 +3348,7 @@ export function ManagerInspectorReports() {
     for (const p of pendingRows) {
       const insEntry = byInspector.get(p.inspector_id) || {
         name: nameById.get(p.inspector_id) || "(removed inspector)",
-        total: 0, damage: 0, no_damage: 0, retail: 0, pending: 0, cancelled: 0,
+        total: 0, damage: 0, no_damage: 0, retail: 0, pending: 0, cancelled: 0, review: 0,
       };
       insEntry.pending++;
       byInspector.set(p.inspector_id, insEntry);
@@ -3345,10 +3357,18 @@ export function ManagerInspectorReports() {
       byStatus.cancelled++;
       const insEntry = byInspector.get(c.inspector_id) || {
         name: nameById.get(c.inspector_id) || "(removed inspector)",
-        total: 0, damage: 0, no_damage: 0, retail: 0, pending: 0, cancelled: 0,
+        total: 0, damage: 0, no_damage: 0, retail: 0, pending: 0, cancelled: 0, review: 0,
       };
       insEntry.cancelled++;
       byInspector.set(c.inspector_id, insEntry);
+    }
+    for (const v of reviewRows) {
+      const insEntry = byInspector.get(v.inspector_id) || {
+        name: nameById.get(v.inspector_id) || "(removed inspector)",
+        total: 0, damage: 0, no_damage: 0, retail: 0, pending: 0, cancelled: 0, review: 0,
+      };
+      insEntry.review++;
+      byInspector.set(v.inspector_id, insEntry);
     }
     const dayList = Array.from(byDay.values()).sort(
       (a, b) => new Date(b.date) - new Date(a.date),
@@ -3357,7 +3377,7 @@ export function ManagerInspectorReports() {
       .map(([id, v]) => ({ id, ...v }))
       .sort((a, b) => b.total - a.total);
     return { byStatus, byDay: dayList, byInspector: inspectorList, total: rows.length };
-  }, [rows, pendingRows, cancelledRows, nameById]);
+  }, [rows, pendingRows, cancelledRows, reviewRows, nameById]);
 
   const maxDayTotal = Math.max(1, ...byDay.map((d) => d.total));
 
@@ -3520,6 +3540,7 @@ export function ManagerInspectorReports() {
                       <th style={{ padding: "6px 8px", textAlign: "right", color: STATUS_META.retail.color }}>🏠 Retail</th>
                       <th style={{ padding: "6px 8px", textAlign: "right" }}>Pending</th>
                       <th style={{ padding: "6px 8px", textAlign: "right", color: STATUS_META.cancelled.color }}>🚫 Cancelled</th>
+                      <th style={{ padding: "6px 8px", textAlign: "right" }}>⏳ Review</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -3545,6 +3566,9 @@ export function ManagerInspectorReports() {
                             {(row.total + (row.cancelled || 0)) > 0 && (
                               <span style={{ color: "#9ca3af", fontWeight: 600 }}> · {Math.round(((row.cancelled || 0) / (row.total + (row.cancelled || 0))) * 100)}%</span>
                             )}
+                          </td>
+                          <td style={{ padding: "6px 8px", textAlign: "right", color: row.review > 0 ? "#b45309" : "#9ca3af", fontWeight: row.review > 0 ? 700 : 400 }}>
+                            {row.review || 0}
                           </td>
                         </tr>
                       );
