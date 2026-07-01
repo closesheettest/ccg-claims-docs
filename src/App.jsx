@@ -8740,6 +8740,27 @@ export default function App() {
       // (e.g. all jn_status="Lost") should be excluded entirely from the report.
       const rows = [...groupByKey.values()].filter(r => r.result || isActivePending(r));
 
+      // Cancelled (cancelled_at OR old result='lost') + cancel-review pending, by
+      // SIGNER, signed in range. Separate query so it doesn't disturb the
+      // damage/no_damage/retail/pending numbers. Deduped by homeowner key.
+      const { data: cxRows } = await supabase
+        .from("inspections")
+        .select("id, sales_rep_name, original_sales_rep_name, client_name, address, zip, cancelled_at, result, cancel_review_pending")
+        .gte("signed_at", start).lte("signed_at", end)
+        .or("cancelled_at.not.is.null,result.eq.lost,cancel_review_pending.eq.true");
+      const cancelledByRep = new Map(), reviewByRep = new Map();
+      const seenCanc = new Set(), seenRev = new Set();
+      let cancelledTotal = 0, reviewTotal = 0;
+      for (const r of cxRows || []) {
+        const rp = r.original_sales_rep_name || r.sales_rep_name || "Unassigned";
+        const k = normKey(r.client_name, r.zip, r.address);
+        if (r.cancelled_at || r.result === "lost") {
+          if (!seenCanc.has(k)) { seenCanc.add(k); cancelledTotal++; cancelledByRep.set(rp, (cancelledByRep.get(rp) || 0) + 1); }
+        } else if (r.cancel_review_pending) {
+          if (!seenRev.has(k)) { seenRev.add(k); reviewTotal++; reviewByRep.set(rp, (reviewByRep.get(rp) || 0) + 1); }
+        }
+      }
+
       // Company-wide totals
       const total = rows.length;
       const counts = { damage: 0, no_damage: 0, retail: 0, pending: 0 };
@@ -8809,6 +8830,7 @@ export default function App() {
             no_damage: b.no_damage, noDamagePct: pctR(b.no_damage),
             retail: b.retail, retailPct: pctR(b.retail),
             pending: b.pending, pendingPct: Math.round((b.pending / b.total) * 100),
+            cancelled: cancelledByRep.get(b.rep) || 0, review: reviewByRep.get(b.rep) || 0,
             meanDays: m, medianDays: med,
           };
         })
@@ -8819,6 +8841,7 @@ export default function App() {
         total,
         resulted,
         counts,
+        cancelledTotal, reviewTotal,
         pct: { damage: pctOfResulted(counts.damage), no_damage: pctOfResulted(counts.no_damage), retail: pctOfResulted(counts.retail), pending: pct(counts.pending) },
         meanDays: mean,
         medianDays: median,
@@ -17266,17 +17289,19 @@ if (!hasDamage) {
                           <div style={{ fontSize: 11, color: "#9ca3af", fontFamily: "'Nunito', sans-serif", marginBottom: 10 }}>
                             Damage / No Damage / Retail percentages are of <strong>{analyticsData.resulted}</strong> resulted inspection{analyticsData.resulted !== 1 ? "s" : ""} · Pending is of <strong>{analyticsData.total}</strong> total submitted
                           </div>
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 14 }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 14 }}>
                             {[
                               { label: "Damage",     count: analyticsData.counts.damage,    pct: analyticsData.pct.damage,    denom: analyticsData.resulted, bg: "#fef2f2", color: "#dc2626" },
                               { label: "No Damage",  count: analyticsData.counts.no_damage, pct: analyticsData.pct.no_damage, denom: analyticsData.resulted, bg: "#f0fdf4", color: "#199c2e" },
                               { label: "Retail",     count: analyticsData.counts.retail,    pct: analyticsData.pct.retail,    denom: analyticsData.resulted, bg: "#fff7ed", color: "#d97706" },
                               { label: "Pending",    count: analyticsData.counts.pending,   pct: analyticsData.pct.pending,   denom: analyticsData.total,    bg: "#f3f4f6", color: "#6b7280" },
+                              { label: "Cancelled",  count: analyticsData.cancelledTotal ?? 0, raw: true, sub: "cancelled / lost", bg: "#f3f4f6", color: "#6b7280" },
+                              { label: "Review to cancel", count: analyticsData.reviewTotal ?? 0, raw: true, sub: "awaiting manager", bg: "#fffbeb", color: "#b45309" },
                             ].map(c => (
                               <div key={c.label} style={{ background: c.bg, borderRadius: 10, padding: "10px 12px", textAlign: "center" }}>
-                                <div style={{ fontSize: 22, fontWeight: 700, color: c.color, fontFamily: "'Oswald', sans-serif" }}>{c.pct}%</div>
+                                <div style={{ fontSize: 22, fontWeight: 700, color: c.color, fontFamily: "'Oswald', sans-serif" }}>{c.raw ? c.count : `${c.pct}%`}</div>
                                 <div style={{ fontSize: 11, color: c.color, fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}>{c.label}</div>
-                                <div style={{ fontSize: 10, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>{c.count} of {c.denom}</div>
+                                <div style={{ fontSize: 10, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>{c.raw ? c.sub : `${c.count} of ${c.denom}`}</div>
                               </div>
                             ))}
                           </div>
@@ -17301,18 +17326,20 @@ if (!hasDamage) {
                         ) : (
                           <div style={{ display: "grid", gap: 8 }}>
                             {/* Header row */}
-                            <div style={{ display: "grid", gridTemplateColumns: "2fr 0.7fr 0.9fr 0.9fr 0.9fr 0.9fr 0.9fr 0.9fr", gap: 8, padding: "8px 12px", background: "#f3f4f6", borderRadius: 8, fontSize: 11, fontWeight: 700, color: "#6b7280", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "2fr 0.7fr 0.9fr 0.9fr 0.9fr 0.9fr 0.9fr 0.9fr 0.9fr 0.9fr", gap: 8, padding: "8px 12px", background: "#f3f4f6", borderRadius: 8, fontSize: 11, fontWeight: 700, color: "#6b7280", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.04em", textTransform: "uppercase" }}>
                               <div>Rep</div>
                               <div style={{ textAlign: "right" }}>Total</div>
                               <div style={{ textAlign: "center" }}>Damage</div>
                               <div style={{ textAlign: "center" }}>No Dmg</div>
                               <div style={{ textAlign: "center" }}>Retail</div>
                               <div style={{ textAlign: "center" }}>Pending</div>
+                              <div style={{ textAlign: "center" }}>Cancelled</div>
+                              <div style={{ textAlign: "center" }}>Review</div>
                               <div style={{ textAlign: "right" }}>Avg Days</div>
                               <div style={{ textAlign: "right" }}>Median</div>
                             </div>
                             {analyticsData.byRep.map(b => (
-                              <div key={b.rep} style={{ display: "grid", gridTemplateColumns: "2fr 0.7fr 0.9fr 0.9fr 0.9fr 0.9fr 0.9fr 0.9fr", gap: 8, padding: "10px 12px", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, alignItems: "center", fontSize: 13, fontFamily: "'Nunito', sans-serif" }}>
+                              <div key={b.rep} style={{ display: "grid", gridTemplateColumns: "2fr 0.7fr 0.9fr 0.9fr 0.9fr 0.9fr 0.9fr 0.9fr 0.9fr 0.9fr", gap: 8, padding: "10px 12px", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, alignItems: "center", fontSize: 13, fontFamily: "'Nunito', sans-serif" }}>
                                 <div style={{ fontWeight: 700, color: "#111827" }}>{b.rep}</div>
                                 <div style={{ textAlign: "right", fontWeight: 700, color: "#111827" }}>{b.total}</div>
                                 <div style={{ textAlign: "center" }}>
@@ -17331,6 +17358,8 @@ if (!hasDamage) {
                                   <div style={{ color: "#6b7280", fontWeight: 700 }}>{b.pendingPct}%</div>
                                   <div style={{ fontSize: 10, color: "#9ca3af" }}>{b.pending}</div>
                                 </div>
+                                <div style={{ textAlign: "center", fontWeight: 700, color: (b.cancelled || 0) > 0 ? "#6b7280" : "#d1d5db" }}>{b.cancelled || 0}</div>
+                                <div style={{ textAlign: "center", fontWeight: 700, color: (b.review || 0) > 0 ? "#b45309" : "#d1d5db" }}>{b.review || 0}</div>
                                 <div style={{ textAlign: "right", color: "#0a0a0a", fontWeight: 700 }}>
                                   {b.meanDays !== null ? b.meanDays.toFixed(1) : "—"}
                                 </div>
