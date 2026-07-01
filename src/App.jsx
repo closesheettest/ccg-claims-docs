@@ -6404,6 +6404,7 @@ function PACompanyAdminPage({ token }) {
   const [err, setErr] = useState("");
   const [data, setData] = useState(null);   // { company, pas, deals }
   const [busyId, setBusyId] = useState(null);
+  const [detailDeal, setDetailDeal] = useState(null); // deal open in the read-only customer view
   const [distFrom, setDistFrom] = useState("");   // "" | paId | "__me__"
   const [myCoords, setMyCoords] = useState(null);
   const [geoErr, setGeoErr] = useState("");
@@ -6683,6 +6684,8 @@ function PACompanyAdminPage({ token }) {
         </div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+        <button type="button" onClick={() => setDetailDeal(d)}
+          style={{ fontSize: 12, fontWeight: 700, padding: "8px 10px", borderRadius: 10, border: "1px solid #c7d2fe", background: "#eef2ff", color: "#3730a3", cursor: "pointer", whiteSpace: "nowrap" }}>🔍 Open</button>
         {d.pa_id && <button type="button" onClick={() => openPaDeal(d.pa_id, d.id)}
           style={{ fontSize: 12, fontWeight: 700, padding: "8px 10px", borderRadius: 10, border: "1px solid #99f6e4", background: "#f0fdfa", color: "#0e7490", cursor: "pointer", whiteSpace: "nowrap" }}>📅 Schedule</button>}
         <select value={d.pa_id || ""} disabled={busyId === d.id} onChange={(e) => assign(d.id, e.target.value)}
@@ -6696,6 +6699,44 @@ function PACompanyAdminPage({ token }) {
 
   return (
     <div style={wrap}>
+      {detailDeal && (() => {
+        const d = detailDeal;
+        const notes = Array.isArray(d.notes_log) ? d.notes_log : [];
+        const apptDt = d.appt_at ? new Date(d.appt_at) : null;
+        const apptPast = apptDt && apptDt.getTime() < Date.now();
+        const apptStr = apptDt ? apptDt.toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" }) : null;
+        return (
+          <div onClick={() => setDetailDeal(null)} style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+            <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 520, maxHeight: "88vh", overflowY: "auto", background: "#fff", borderRadius: 16, padding: "20px 18px", boxShadow: "0 10px 40px rgba(0,0,0,0.3)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                <div style={{ fontSize: 20, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#111827" }}>{d.name}</div>
+                <button type="button" onClick={() => setDetailDeal(null)} style={{ fontSize: 20, border: "none", background: "none", cursor: "pointer", color: "#6b7280", lineHeight: 1 }}>✕</button>
+              </div>
+              {d.address && <div style={{ fontSize: 13.5, color: "#374151", marginTop: 4 }}>📍 {d.address}</div>}
+              {d.county && <div style={{ fontSize: 13, fontWeight: 700, color: "#0e7490", marginTop: 3 }}>{d.county}</div>}
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+                {d.mobile && <a href={`tel:${String(d.mobile).replace(/[^\d+]/g, "")}`} style={{ fontSize: 13, fontWeight: 700, color: "#0e7490", background: "#f0fdfa", border: "1px solid #99f6e4", borderRadius: 999, padding: "6px 12px", textDecoration: "none" }}>📞 {d.mobile}</a>}
+                {d.email && <a href={`mailto:${d.email}`} style={{ fontSize: 13, fontWeight: 700, color: "#3730a3", background: "#eef2ff", border: "1px solid #c7d2fe", borderRadius: 999, padding: "6px 12px", textDecoration: "none" }}>✉️ {d.email}</a>}
+              </div>
+              {apptStr && <div style={{ fontSize: 14, fontWeight: 800, marginTop: 12, color: apptPast ? "#b91c1c" : "#047857" }}>📅 Appointment: {apptStr}{apptPast ? " · ⏰ needs reschedule" : ""}</div>}
+              <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 8 }}>
+                {d.pa_name ? `Adjuster: ${d.pa_name}` : "Not yet assigned"}{d.signed_at ? ` · Signed ${fmtSigned(d.signed_at, { withYear: false })}` : ""}{d.spanish_only ? " · 🗣 Spanish only" : ""}
+              </div>
+              <div style={{ marginTop: 16, fontSize: 13, fontWeight: 800, color: "#374151", textTransform: "uppercase", letterSpacing: "0.05em" }}>📝 Notes ({notes.length})</div>
+              {notes.length === 0
+                ? <div style={{ fontSize: 13, color: "#9ca3af", marginTop: 6 }}>No notes yet.</div>
+                : <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+                    {notes.slice().reverse().map((n, i) => (
+                      <div key={i} style={{ background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 10, padding: "8px 11px" }}>
+                        <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 2 }}>{n.at ? new Date(n.at).toLocaleString("en-US", { timeZone: "America/New_York", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" }) : ""}{n.stage ? ` · ${n.stage}` : ""}</div>
+                        <div style={{ fontSize: 13.5, color: "#1f2937", whiteSpace: "pre-wrap" }}>{n.text}</div>
+                      </div>
+                    ))}
+                  </div>}
+            </div>
+          </div>
+        );
+      })()}
       <div style={{ maxWidth: 760, margin: "0 auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
           <div>
