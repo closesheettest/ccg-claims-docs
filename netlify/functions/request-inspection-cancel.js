@@ -14,6 +14,7 @@ const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
 const SIGNED_BUCKET = "signed-documents";
+const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones";
 
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return cors(200, "");
@@ -30,7 +31,7 @@ exports.handler = async (event) => {
   if (!note) return cors(400, JSON.stringify({ ok: false, error: "A note is required." }));
 
   try {
-    const insp = (await sbGet(`inspections?id=eq.${encodeURIComponent(inspectionId)}&select=id,client_name,address,inspection_photos&limit=1`))[0];
+    const insp = (await sbGet(`inspections?id=eq.${encodeURIComponent(inspectionId)}&select=id,client_name,address,inspection_photos,sales_rep_id,sales_rep_name&limit=1`))[0];
     if (!insp) return cors(404, JSON.stringify({ ok: false, error: "inspection not found" }));
 
     const nowIso = new Date().toISOString();
@@ -48,27 +49,37 @@ exports.handler = async (event) => {
     });
     if (!up.ok) return cors(500, JSON.stringify({ ok: false, error: `Save failed: ${(await up.text()).slice(0, 160)}` }));
 
-    // Text the manager a review link. Return the SMS outcome so failures
-    // are visible (it used to be silent fire-and-forget).
+    // Text the ZONE'S regional manager a review link (the actual point of this
+    // flow) PLUS the admin monitor number. Resolve rep → zone → manager the same
+    // way pa-refused-to-sign.js does. Previously it only texted ADMIN_ALERT_PHONE
+    // (admin), so the real regional managers never got it.
     const base = (process.env.URL || process.env.PUBLIC_SITE_URL || "https://free-roof-inspections.netlify.app").replace(/\/$/, "");
-    const mgrPhone = process.env.ADMIN_ALERT_PHONE;
-    let smsSent = false, smsError = null;
-    if (!mgrPhone) {
-      smsError = "ADMIN_ALERT_PHONE not set";
-    } else {
-      const link = `${base}/?cancel_review=${insp.id}`;
-      const msg = `🚫 Cancel review: ${inspectorName} says ${insp.client_name || "a homeowner"}${insp.address ? ` (${insp.address})` : ""} cancelled.\n"${note}"\nReview & decide: ${link}`;
+    const link = `${base}/?cancel_review=${insp.id}`;
+    const msg = `🚫 Cancel review: ${inspectorName} says ${insp.client_name || "a homeowner"}${insp.address ? ` (${insp.address})` : ""} cancelled.\n"${note}"\nReview & decide: ${link}`;
+
+    const rep = await resolveRep(SB_URL, sb, insp.sales_rep_id, insp.sales_rep_name);
+    const zone = await resolveZone(rep, insp.sales_rep_name);
+    const manager = zone ? await fetchManager(SB_URL, sb, zone) : null;
+
+    const recipients = [];
+    if (manager?.phone) recipients.push({ phone: manager.phone, name: manager.name || "Manager" });
+    if (process.env.ADMIN_ALERT_PHONE) recipients.push({ phone: process.env.ADMIN_ALERT_PHONE, name: "Admin" });
+    const seen = new Set();
+    const sms_results = [];
+    for (const rcpt of recipients) {
+      const key = String(rcpt.phone).replace(/\D/g, "");
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
       try {
         const r = await fetch(`${base}/.netlify/functions/ghl-sms`, {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ to: mgrPhone, name: "Manager", message: msg }),
+          body: JSON.stringify({ to: rcpt.phone, name: rcpt.name, message: msg }),
         });
         const jr = await r.json().catch(() => ({}));
-        smsSent = !!jr.success;
-        if (!smsSent) smsError = jr.error || `ghl-sms ${r.status}`;
-      } catch (e) { smsError = e.message || "fetch failed"; }
+        sms_results.push({ to: rcpt.name, ok: !!jr.success, error: jr.success ? undefined : (jr.error || `ghl-sms ${r.status}`) });
+      } catch (e) { sms_results.push({ to: rcpt.name, ok: false, error: e.message || "fetch failed" }); }
     }
-    return cors(200, JSON.stringify({ ok: true, sms_sent: smsSent, sms_error: smsError }));
+    return cors(200, JSON.stringify({ ok: true, zone: zone || null, manager_texted: !!manager?.phone, sms_results }));
   } catch (e) {
     return cors(500, JSON.stringify({ ok: false, error: e.message || "error" }));
   }
@@ -78,6 +89,42 @@ async function sbGet(path) {
   const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: sb });
   if (!r.ok) return [];
   return r.json().catch(() => []);
+}
+// Rep → zone → regional-manager resolution (mirrors pa-refused-to-sign.js).
+async function resolveRep(SB_URL, headers, salesRepId, salesRepName) {
+  const sel = "id,name,phone,jobnimbus_id";
+  const get = async (q) => {
+    const res = await fetch(`${SB_URL}/rest/v1/sales_reps?${q}&select=${sel}&limit=1`, { headers });
+    if (!res.ok) return null;
+    return (await res.json().catch(() => []))?.[0] || null;
+  };
+  let rep = null;
+  if (salesRepId) {
+    rep = await get(`jobnimbus_id=eq.${encodeURIComponent(salesRepId)}`);
+    if (!rep) rep = await get(`id=eq.${encodeURIComponent(salesRepId)}`);
+  }
+  if (!rep && salesRepName) rep = await get(`name=ilike.${encodeURIComponent(salesRepName)}`);
+  return rep;
+}
+async function resolveZone(rep, fallbackName) {
+  let tmsReps = [];
+  try { const res = await fetch(TMS_REP_ZONES_URL); if (res.ok) tmsReps = (await res.json()).reps || []; }
+  catch (e) { console.warn("TMS rep-zones fetch failed:", e.message || e); }
+  const byJnId = {}, byName = {};
+  for (const r of tmsReps) { if (r.jobnimbus_id) byJnId[r.jobnimbus_id] = r.zone; if (r.name) byName[normalizeName(r.name)] = r.zone; }
+  const jnId = rep?.jobnimbus_id;
+  const name = rep?.name || fallbackName;
+  return (jnId && byJnId[jnId]) || (name && byName[normalizeName(name)]) || null;
+}
+async function fetchManager(SB_URL, headers, zone) {
+  const res = await fetch(`${SB_URL}/rest/v1/regional_managers?zone=eq.${encodeURIComponent(zone)}&select=zone,name,phone&limit=1`, { headers });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => []))?.[0] || null;
+}
+function normalizeName(s) {
+  return String(s || "").toLowerCase()
+    .replace(/["“”]([^"“”]*)["“”]/g, "").replace(/'([^']*)'/g, "").replace(/\(([^)]*)\)/g, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
 }
 function cors(status, body) {
   return { statusCode: status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" }, body };
