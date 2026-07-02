@@ -7880,22 +7880,44 @@ function RemoteSignPage({ token }) {
         {stage === "sign" && (
           <div>
             {phoneVerified ? <div style={{ background: "#dcfce7", color: "#065f46", borderRadius: 8, padding: "7px 12px", fontSize: 12.5, fontWeight: 700, marginBottom: 12 }}>✓ Phone verified — {phoneVerified.number}</div> : null}
+
+            {/* Big "you're not done" banner — the #1 drop-off point is people who
+                verify their phone, read the agreement, then leave WITHOUT checking
+                the box + signing. Make the two remaining steps impossible to miss. */}
+            {!(consent && sig) && (
+              <div style={{ background: "#fef2f2", border: "2px solid #ef4444", borderRadius: 12, padding: "14px 16px", marginBottom: 16, textAlign: "center" }}>
+                <div style={{ fontSize: 18, fontWeight: 900, color: "#b91c1c", marginBottom: 5 }}>⚠️ You're not done yet</div>
+                <div style={{ fontSize: 14, color: "#7f1d1d", fontWeight: 600, lineHeight: 1.55 }}>
+                  Two quick steps to finish: <b>{consent ? "✅" : "①"} check the box</b> and <b>{sig ? "✅" : "②"} draw your signature</b>, then tap <b>Sign&nbsp;&amp;&nbsp;submit</b>.<br />
+                  <span style={{ color: "#b91c1c", fontWeight: 800 }}>Your inspection is NOT scheduled until you finish.</span>
+                </div>
+              </div>
+            )}
+
             <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: "12px 14px", maxHeight: 210, overflowY: "auto", fontSize: 12.5, color: "#374151", lineHeight: 1.6, background: "#fafafa", marginBottom: 14 }}>
               <p style={{ margin: "0 0 8px" }}>Client agrees to allow {INSPECTION_COMPANY.name} (Company) to perform a free roof inspection at the above address and to forward all pictures and findings to a Public Adjuster for review. The Company maintains all required licenses and insurance and will not perform repairs during the inspection.</p>
               <p style={{ margin: "0 0 8px" }}>Client understands that they do not need to be present during the inspection; however, Company personnel will knock on the door upon arrival.</p>
               <p style={{ margin: "0 0 8px" }}>If the Public Adjuster determines that storm damage exists, they may proceed with filing an insurance claim provided the Client has hired them. Client authorizes the Public Adjuster to notify the Company of its findings and to keep the Company updated throughout the claims process.</p>
               <p style={{ margin: 0 }}>Client acknowledges that the Company is a licensed roofing contractor and cannot discuss policy coverages, insurance requirements, or statutory guidelines. Any such questions should be directed to the Public Adjuster or the Client's homeowner's insurance carrier.</p>
             </div>
-            <label style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 14, cursor: "pointer", fontSize: 13.5, color: "#111827" }}>
-              <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} style={{ marginTop: 3, width: 18, height: 18 }} />
-              <span>I agree to use <strong>electronic records and signatures</strong> for this agreement, and I confirm I am {partyName || "the homeowner"} (or authorized to sign for them).</span>
+
+            {/* Step 1 — consent. Amber/outlined until checked, green once done. */}
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 16, cursor: "pointer", fontSize: 14, color: "#111827", background: consent ? "#f0fdf4" : "#fffbeb", border: consent ? "2px solid #22c55e" : "2px solid #f59e0b", borderRadius: 10, padding: "13px 14px" }}>
+              <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} style={{ marginTop: 2, width: 24, height: 24, flexShrink: 0 }} />
+              <span><b style={{ color: consent ? "#166534" : "#b45309" }}>{consent ? "✓ Step 1 done." : "① Tap here to agree."}</b> I agree to use <strong>electronic records and signatures</strong> for this agreement, and I confirm I am {partyName || "the homeowner"} (or authorized to sign for them).</span>
             </label>
-            <div style={{ opacity: consent ? 1 : 0.5, pointerEvents: consent ? "auto" : "none" }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 6 }}>Your signature</div>
-              <SignaturePad title="" value={sig} onChange={setSig} required missing={attempted && !sig} />
+
+            {/* Step 2 — signature. Red dashed "sign here" cue once consent is checked. */}
+            <div style={{ opacity: consent ? 1 : 0.45, pointerEvents: consent ? "auto" : "none" }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: consent && !sig ? "#b91c1c" : (sig ? "#166534" : "#374151"), marginBottom: 6 }}>{sig ? "✓ Step 2 done — signature captured" : consent ? "👇 ② Draw your signature here to finish" : "② Your signature"}</div>
+              <div style={{ border: consent && !sig ? "2px dashed #ef4444" : "1px solid #e5e7eb", borderRadius: 10, padding: 2 }}>
+                <SignaturePad title="" value={sig} onChange={setSig} required missing={attempted && !sig} />
+              </div>
             </div>
+
             {err ? <div style={{ color: "#dc2626", fontSize: 13.5, fontWeight: 700, margin: "10px 0" }}>{err}</div> : null}
-            <button type="button" onClick={submit} disabled={!consent} style={{ ...btn(consent), marginTop: 14 }}>Sign &amp; submit</button>
+            <button type="button" onClick={submit} disabled={!consent || !sig} style={{ ...btn(consent && sig), marginTop: 14, fontSize: 17, padding: "15px", fontWeight: 800 }}>{consent && sig ? "✅ Sign & submit — Finish" : "Sign & submit"}</button>
+            {(!consent || !sig) && <div style={{ fontSize: 13, color: "#b91c1c", textAlign: "center", marginTop: 8, fontWeight: 800 }}>{!consent ? "👆 Check the box above first" : "👆 Draw your signature above to finish"}</div>}
             <div style={{ fontSize: 11, color: "#9ca3af", textAlign: "center", marginTop: 10 }}>By tapping Sign &amp; submit you adopt the signature above as your legally binding signature.</div>
           </div>
         )}
