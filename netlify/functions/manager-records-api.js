@@ -38,6 +38,9 @@ const DAVID_MACELLA_ID = 'm2b4bh3emo95m7w226w2394'
 // Only PENDING appointments belong on the calendar. Once a deal sells (Sit Sold
 // Insp) or moves on, its appointment task is stale — exclude anything else.
 const PENDING_APPT_STATUS = 'Appointment Scheduled'
+// Appointment task record types (JN) — used to move the calendar appointment onto
+// the newly-assigned owner when a manager assigns a deal.
+const APPT_TASK_NAMES = new Set(['Initial Appointment', 'Reset Appointment', 'Appointment'])
 const TMS_REP_ZONES_URL =
   'https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones'
 
@@ -488,7 +491,7 @@ async function assignAppointment(manager, body) {
   let jobId = null, appt = null
   if (apptId) {
     // App appointment — load the row + verify zone, then update its job + stamp it.
-    const rows = await fetchTable('setter_appointments', { select: 'id,zone,jn_job_id', filter: `id=eq.${encodeURIComponent(apptId)}`, limit: 1 })
+    const rows = await fetchTable('setter_appointments', { select: 'id,zone,jn_job_id,jn_contact_id,jn_task_id', filter: `id=eq.${encodeURIComponent(apptId)}`, limit: 1 })
     appt = (rows || [])[0]
     if (!appt) return json(404, { ok: false, error: 'Appointment not found' })
     if (appt.zone && manager.zone && appt.zone !== manager.zone) return json(403, { ok: false, error: 'That appointment isn’t in your zone.' })
@@ -518,6 +521,37 @@ async function assignAppointment(manager, body) {
     method: 'PUT', headers: { Authorization: `bearer ${JN_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify(putBody),
   })
   if (!jnRes.ok) { const t = await jnRes.text().catch(() => ''); return json(502, { ok: false, error: `JobNimbus update failed: ${jnRes.status} ${t}` }) }
+
+  // Also move the CONTACT + the APPOINTMENT TASK onto the new owner — a job-only
+  // update left the contact + calendar appointment on the old owner (Sam had to
+  // fix those by hand). Best-effort; the job PUT already succeeded.
+  const jnHeaders = { Authorization: `bearer ${JN_KEY}`, 'Content-Type': 'application/json' }
+  try {
+    const jr = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(jobId)}`, { headers: jnHeaders })
+    const j = jr.ok ? await jr.json().catch(() => ({})) : {}
+    const contactId = (j.primary && j.primary.id) || (appt && appt.jn_contact_id) || null
+    if (contactId) {
+      await fetch(`${JN_BASE}/contacts/${encodeURIComponent(contactId)}`, {
+        method: 'PUT', headers: jnHeaders, body: JSON.stringify({ jnid: contactId, owners: [{ id: ownerJnId }], sales_rep: repJnId }),
+      }).catch(() => {})
+    }
+    const taskIds = new Set()
+    if (appt && appt.jn_task_id) taskIds.add(appt.jn_task_id)
+    try {
+      const tf = encodeURIComponent(JSON.stringify({ must: [{ term: { 'related.id': jobId } }] }))
+      const tr = await fetch(`${JN_BASE}/tasks?size=25&filter=${tf}`, { headers: jnHeaders })
+      const td = tr.ok ? await tr.json().catch(() => ({})) : {}
+      for (const t of (td.results || td.tasks || td.data || [])) {
+        if (APPT_TASK_NAMES.has(t.record_type_name)) taskIds.add(t.jnid || t.id)
+      }
+    } catch { /* task lookup best-effort */ }
+    for (const tid of taskIds) {
+      if (!tid) continue
+      await fetch(`${JN_BASE}/tasks/${encodeURIComponent(tid)}`, {
+        method: 'PUT', headers: jnHeaders, body: JSON.stringify({ jnid: tid, owners: [{ id: ownerJnId }] }),
+      }).catch(() => {})
+    }
+  } catch { /* best-effort */ }
 
   // Stamp the local row (app appointments only) so it reflects the assignment.
   if (appt) {
