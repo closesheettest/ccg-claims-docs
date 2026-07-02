@@ -344,14 +344,28 @@ async function listAppointments(manager, body) {
     const appJobIds = new Set((app || []).map((a) => a.jn_job_id).filter(Boolean))
     const nameByJn = {}; for (const r of reps) nameByJn[r.jobnimbus_id] = r.name
     const jn = await jnTeamAppointments(reps.map((r) => r.jobnimbus_id), startSec, endSec, nameByJn)
+    // Re-read each app row's JN job so the board reflects the CURRENT owner +
+    // sales rep in JobNimbus — including assignments a manager made directly in
+    // JN (e.g. assigning themselves) — not just what the app last wrote.
+    const jnH = { Authorization: `bearer ${JN_KEY}` }
+    const appJobById = {}
+    await Promise.all([...appJobIds].slice(0, 60).map(async (jid) => {
+      try { const r = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(jid)}`, { headers: jnH }); if (r.ok) appJobById[jid] = await r.json().catch(() => null) } catch { /* keep stored values */ }
+    }))
     const items = []
     for (const a of (app || [])) {
+      const j = (a.jn_job_id && appJobById[a.jn_job_id]) || null
+      const jOwner = j ? ((j.owners || [])[0] || {}) : {}
+      const ownerId = jOwner.id || a.owner_jobnimbus_id || null
+      const ownerName = nameByJn[ownerId] || jOwner.name || a.owner_name || null
+      const repId = (j && j.sales_rep) || a.rep_jobnimbus_id || null
+      const repName = (j && j.sales_rep_name) || nameByJn[repId] || a.rep_name || null
       items.push({
         key: 'app:' + a.id, source: 'app', id: a.id, jn_job_id: a.jn_job_id || null,
         homeowner: a.homeowner_name, address: a.address, appt_at: a.appt_at, src: a.source || null,
-        owner_id: a.owner_jobnimbus_id || null, owner_name: a.owner_name || null,
-        sales_rep_id: a.rep_jobnimbus_id || null, sales_rep_name: a.rep_name || null,
-        needs_assignment: !a.rep_jobnimbus_id,
+        owner_id: ownerId, owner_name: ownerName,
+        sales_rep_id: repId, sales_rep_name: repName,
+        needs_assignment: !repId,
       })
     }
     for (const t of jn) {
@@ -395,7 +409,7 @@ async function listAppointments(manager, body) {
       const jr = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(a.jn_job_id)}`, { headers: jnH })
       const j = jr.ok ? await jr.json().catch(() => ({})) : {}
       const repId = j.sales_rep || null
-      if (repId && activeJn.has(repId)) return { a, repId, repName: j.sales_rep_name || nameByJnRep[repId] || null }
+      if (repId) return { a, repId, repName: j.sales_rep_name || nameByJnRep[repId] || null }
     } catch { /* on any hiccup, leave it unassigned */ }
     return { a, repId: null }
   }))
