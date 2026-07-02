@@ -46,6 +46,66 @@ exports.handler = async (event) => {
   try { body = JSON.parse(event.body || "{}"); } catch { return cors(400, JSON.stringify({ ok: false, error: "bad JSON" })); }
   if (!(await okToken(body.token))) return cors(401, JSON.stringify({ ok: false, error: "Invalid link" }));
 
+  // ── Re-push a booking whose JobNimbus sync failed ────────────────────────
+  // The setter list shows "⚠ not synced to JN" when the original create hit a
+  // JN error. This re-runs the contact + job + task create from the stored row
+  // and stamps jn_* on success — so a setter can push it without re-booking.
+  if (body.action === "resync") {
+    const id = String(body.id || "").trim();
+    if (!id) return cors(400, JSON.stringify({ ok: false, error: "id required" }));
+    const r0 = await fetch(`${SB_URL}/rest/v1/setter_appointments?id=eq.${encodeURIComponent(id)}&select=*&limit=1`, { headers: sb });
+    const row = (r0.ok ? await r0.json().catch(() => []) : [])[0];
+    if (!row) return cors(404, JSON.stringify({ ok: false, error: "Booking not found" }));
+    if (row.jn_job_id) return cors(200, JSON.stringify({ ok: true, already: true, job_id: row.jn_job_id }));
+    const owner = row.manager_jobnimbus_id || VIVIANA_ID;
+    const nm = String(row.homeowner_name || "").trim();
+    const parts = nm.split(/\s+/).filter(Boolean);
+    const first = parts.length > 1 ? parts.slice(0, -1).join(" ") : (parts[0] || "");
+    const last = parts.length > 1 ? parts[parts.length - 1] : "";
+    const ap = String(row.address || "").split(",").map((s) => s.trim());
+    const street = ap[0] || "";
+    const rCity = ap[1] || "";
+    const m = (ap[2] || "").match(/([A-Za-z]{2})?\s*(\d{5})?/) || [];
+    const rState = m[1] || "";
+    const rZip = m[2] || "";
+    const rSetterShort = (() => { const p = String(row.setter_name || "").split(/\s+/).filter(Boolean); return p.length >= 2 ? `${p[0]} ${p[1][0]}.` : (row.setter_name || "Setter"); })();
+    const apptSec = Math.floor(new Date(row.appt_at).getTime() / 1000);
+    try {
+      const cr = await jnPost("contacts", { first_name: first, last_name: last, display_name: nm, mobile_phone: row.phone || "", address_line1: street, city: rCity, state_text: rState, zip: rZip });
+      const contactId = cr.jnid || cr.id;
+      if (!contactId) throw new Error("contact create failed");
+      const job = await jnPost("jobs", {
+        name: `${nm}${street ? ` - ${street}` : ""}`.trim(),
+        record_type: LEAD_RT, record_type_name: LEAD_RT_NAME,
+        status: APPT_STATUS, status_name: APPT_STATUS_NAME,
+        primary: { id: contactId }, location: { id: RETAIL_LOCATION },
+        source_name: SOURCES.has(row.source) ? row.source : "Instant Quote",
+        address_line1: street, city: rCity, state_text: rState, zip: rZip,
+        owners: [{ id: owner }], cf_string_8: rSetterShort,
+      });
+      const jobId = job.jnid || job.id;
+      if (!jobId) throw new Error("job create failed");
+      const task = await jnPost("tasks", {
+        record_type: APPT_TASK_RT, record_type_name: "Initial Appointment", type: "task",
+        title: `Initial Appointment — ${nm}`, date_start: apptSec, date_end: 0,
+        related: [{ id: jobId, type: "job" }], owners: [{ id: owner }],
+      });
+      const taskId = task.jnid || task.id || null;
+      await jnPost("activities", {
+        record_type_name: "Note",
+        note: `📞 Appointment set by ${row.setter_name || "setter"} · source: ${row.source || ""} · 👤 assigned to ${row.manager_name || "Viviana"}${row.zone ? ` (${row.zone})` : ""} — pushed to JN (resync)`,
+        primary: { id: jobId, type: "job" }, related: [{ id: jobId, type: "job" }], is_status_change: false,
+      }).catch(() => {});
+      await fetch(`${SB_URL}/rest/v1/setter_appointments?id=eq.${encodeURIComponent(id)}`, {
+        method: "PATCH", headers: { ...sb, Prefer: "return=minimal" },
+        body: JSON.stringify({ jn_contact_id: contactId, jn_job_id: jobId, jn_task_id: taskId, jn_synced: true }),
+      }).catch(() => {});
+      return cors(200, JSON.stringify({ ok: true, job_id: jobId, contact_id: contactId, task_id: taskId }));
+    } catch (e) {
+      return cors(502, JSON.stringify({ ok: false, error: e.message || "JobNimbus error" }));
+    }
+  }
+
   const apptMs = Date.parse(body.appt_iso || "");
   if (!Number.isFinite(apptMs)) return cors(400, JSON.stringify({ ok: false, error: "appt_iso required" }));
   const source = SOURCES.has(body.source) ? body.source : "Instant Quote";

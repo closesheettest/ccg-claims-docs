@@ -29,6 +29,7 @@ exports.handler = async (event) => {
     if (!body.all && body.setter_name) path += `&setter_name=eq.${encodeURIComponent(body.setter_name)}`;
     const rows = await sbGet(path);
     const appointments = rows.map((r) => ({
+      id: r.id,
       homeowner_name: r.homeowner_name || "Homeowner",
       address: r.address || "",
       appt_at: r.appt_at,

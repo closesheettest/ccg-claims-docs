@@ -45,6 +45,7 @@ export default function SetterPortal({ Address }) {
   const [err, setErr] = useState("");
   const [todayOpen, setTodayOpen] = useState(false);
   const [today, setToday] = useState(null);
+  const [pushing, setPushing] = useState(null);   // setter_appointment id being re-pushed to JN
   const [spanishOnly, setSpanishOnly] = useState(false);
 
   async function loadToday() {
@@ -56,6 +57,19 @@ export default function SetterPortal({ Address }) {
     } catch { setToday([]); }
   }
   function openToday() { setTodayOpen(true); loadToday(); }
+
+  // Re-push a booking whose JobNimbus sync failed (⚠ not synced to JN).
+  async function pushToJn(id) {
+    if (!id) return;
+    setPushing(id);
+    try {
+      const r = await fetch(`${FN}/setter-book-appointment`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, action: "resync", id }) });
+      const o = await r.json().catch(() => ({}));
+      if (!r.ok || !o.ok) alert(o.error || "Couldn't push to JobNimbus — try again in a moment.");
+      await loadToday();
+    } catch { alert("Network error — please try again."); }
+    setPushing(null);
+  }
 
   // Universal back — always a way out, one step at a time.
   function goBack() {
@@ -164,7 +178,15 @@ export default function SetterPortal({ Address }) {
             <div style={{ fontSize: 12, color: "#475569", marginTop: 4 }}>
               {a.source && <span style={{ marginRight: 8 }}>{a.source === "Instant Quote" ? "IQ" : a.source}</span>}
               <span style={{ color: a.out_of_range ? "#92400e" : "#166534", fontWeight: 700 }}>{a.status}</span>
-              {!a.jn_synced && <span style={{ color: "#b91c1c", fontWeight: 800, marginLeft: 8 }}>⚠ not synced to JN</span>}
+              {!a.jn_synced && (
+                <span style={{ marginLeft: 8, display: "inline-flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ color: "#b91c1c", fontWeight: 800 }}>⚠ not synced to JN</span>
+                  {a.id && <button type="button" disabled={pushing === a.id} onClick={() => pushToJn(a.id)}
+                    style={{ ...C.btn, background: "#b91c1c", color: "#fff", padding: "3px 10px", fontSize: 12, fontWeight: 800 }}>
+                    {pushing === a.id ? "Pushing…" : "🔄 Push to JN"}
+                  </button>}
+                </span>
+              )}
             </div>
           </div>
         ))}
