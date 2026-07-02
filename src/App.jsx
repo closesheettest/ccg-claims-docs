@@ -7720,6 +7720,20 @@ function CancelReviewPage({ inspectionId }) {
 // inspections row + JobNimbus deal get created, with a full audit trail baked
 // into the PDF. Self-contained — does not touch the rep intake flow.
 // ─────────────────────────────────────────────────────────────────────
+// Module-level so it keeps a STABLE identity across RemoteSignPage re-renders.
+// (Defining it inside the component remounted the whole subtree on every
+// keystroke — which kicked the cursor out of the OTP box after each digit.)
+function RemoteSignFrame({ children }) {
+  return (
+    <div style={{ minHeight: "100vh", background: "#f1f5f9", fontFamily: "'Nunito', system-ui, sans-serif", padding: "18px 14px" }}>
+      <div style={{ maxWidth: 540, margin: "0 auto 12px", textAlign: "center" }}>
+        <img src="/uss-header.png" alt="U.S. Shingle & Metal" style={{ height: 46, objectFit: "contain" }} />
+      </div>
+      {children}
+    </div>
+  );
+}
+
 function RemoteSignPage({ token }) {
   const [rec, setRec] = useState(undefined);       // undefined=loading, null=invalid
   const [reason, setReason] = useState("");
@@ -7829,30 +7843,25 @@ function RemoteSignPage({ token }) {
     } catch (e) { setErr(e?.message || "Something went wrong — please try again."); submittingRef.current = false; setStage("sign"); }
   }
 
-  const wrap = { minHeight: "100vh", background: "#f1f5f9", fontFamily: "'Nunito', system-ui, sans-serif", padding: "18px 14px" };
   const card = { maxWidth: 540, margin: "0 auto", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "20px 18px", boxShadow: "0 1px 4px rgba(0,0,0,.06)" };
   const btn = (on) => ({ width: "100%", padding: "14px 16px", borderRadius: 10, border: "none", background: on ? "#199c2e" : "#cbd5e1", color: "#fff", fontWeight: 800, fontSize: 16, fontFamily: "'Oswald', sans-serif", cursor: on ? "pointer" : "not-allowed" });
   const addr = rec ? [rec.address, rec.city, rec.state, rec.zip].filter(Boolean).join(", ") : "";
   const partyName = rec?.client_name || "";
   const docDate = rec?.date || new Date().toLocaleDateString();
 
-  function Frame({ children }) {
-    return (<div style={wrap}><div style={{ maxWidth: 540, margin: "0 auto 12px", textAlign: "center" }}><img src="/uss-header.png" alt="U.S. Shingle & Metal" style={{ height: 46, objectFit: "contain" }} /></div>{children}</div>);
-  }
-
-  if (stage === "loading") return <Frame><div style={card}><div style={{ textAlign: "center", color: "#6b7280", padding: 24 }}>Loading your agreement…</div></div></Frame>;
+  if (stage === "loading") return <RemoteSignFrame><div style={card}><div style={{ textAlign: "center", color: "#6b7280", padding: 24 }}>Loading your agreement…</div></div></RemoteSignFrame>;
 
   if (stage === "error") {
     const msg = { expired: "This signing link has expired. Please ask your rep to send a new one.", signed: "This agreement has already been signed. Thank you!", canceled: "This signing request was canceled. Please contact your rep.", not_found: "We couldn't find this signing request. Please check the link or ask your rep to resend.", network: "We couldn't load the page. Please check your connection and try again." }[reason] || "This link isn't valid. Please ask your rep to resend it.";
-    return <Frame><div style={card}><div style={{ fontSize: 18, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#0f172a", marginBottom: 8 }}>{reason === "signed" ? "✅ Already signed" : "Link unavailable"}</div><div style={{ color: "#374151", fontSize: 15, lineHeight: 1.5 }}>{msg}</div></div></Frame>;
+    return <RemoteSignFrame><div style={card}><div style={{ fontSize: 18, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#0f172a", marginBottom: 8 }}>{reason === "signed" ? "✅ Already signed" : "Link unavailable"}</div><div style={{ color: "#374151", fontSize: 15, lineHeight: 1.5 }}>{msg}</div></div></RemoteSignFrame>;
   }
 
   if (stage === "done") {
-    return <Frame><div style={card}><div style={{ textAlign: "center" }}><div style={{ fontSize: 44 }}>✅</div><div style={{ fontSize: 22, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#0f172a", margin: "6px 0 8px" }}>You're all set!</div><div style={{ color: "#374151", fontSize: 15, lineHeight: 1.6 }}>Thank you, {partyName}. Your Free Roof Inspection Agreement is signed{rec?.email ? " — a copy has been emailed to you" : ""}. We'll be in touch to schedule your inspection.</div></div></div>{printable(true)}</Frame>;
+    return <RemoteSignFrame><div style={card}><div style={{ textAlign: "center" }}><div style={{ fontSize: 44 }}>✅</div><div style={{ fontSize: 22, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#0f172a", margin: "6px 0 8px" }}>You're all set!</div><div style={{ color: "#374151", fontSize: 15, lineHeight: 1.6 }}>Thank you, {partyName}. Your Free Roof Inspection Agreement is signed{rec?.email ? " — a copy has been emailed to you" : ""}. We'll be in touch to schedule your inspection.</div></div></div>{printable(true)}</RemoteSignFrame>;
   }
 
   return (
-    <Frame>
+    <RemoteSignFrame>
       <div style={card}>
         <div style={{ fontSize: 20, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#0f172a", marginBottom: 4 }}>Free Roof Inspection Agreement</div>
         <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 16 }}>{partyName}{addr ? ` · ${addr}` : ""}</div>
@@ -7894,7 +7903,7 @@ function RemoteSignPage({ token }) {
         {stage === "submitting" && <div style={{ textAlign: "center", color: "#6b7280", padding: 20 }}>Submitting your signed agreement…</div>}
       </div>
       {printable(false)}
-    </Frame>
+    </RemoteSignFrame>
   );
 
   // Hidden printable — the exact agreement + a full audit-trail page. Rendered
