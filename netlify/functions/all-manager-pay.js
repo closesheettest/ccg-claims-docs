@@ -60,23 +60,36 @@ export const handler = async (event) => {
     const { start, end, period } = pickWindow(qp);
     const startSec = Math.floor(start.getTime() / 1000), endSec = Math.floor(end.getTime() / 1000);
 
-    const [soldJobs, { zoneOf, zoneManager }, config] = await Promise.all([
+    const [soldJobs, { zoneOf, zoneManager }, config, invoicedJobIds] = await Promise.all([
       fetchSoldJobs(JN_KEY, startSec, endSec),
       fetchZoneResolver(),
       loadConfig(),
+      fetchInvoicedJobIds(),
     ]);
 
-    const report = computeReport(soldJobs, zoneOf, zoneManager, config);
+    const report = computeReport(soldJobs, zoneOf, zoneManager, config, invoicedJobIds);
+
+    // Reconciliation: manager override pays on the TOTAL INVOICED amount (the
+    // record of truth). If any sold deal on the report has no invoice in JN, pay
+    // can't be finalized → the report is "not reconciled". Walk every deal shown.
+    const missing = [];
+    let totalDeals = 0;
+    for (const z of report.regions) for (const r of z.reps) for (const d of r.deals) {
+      totalDeals++;
+      if (!d.has_invoice) missing.push({ zone: z.zone, manager: z.manager || null, rep: r.rep, customer: d.customer, sold: d.sold, contract: d.contract });
+    }
+    const reconciliation = { reconciled: missing.length === 0, missing_count: missing.length, total_deals: totalDeals, missing };
+
     // Top-level config = the DEFAULT rates (per-region effective rates ride on
     // each region object as region.config).
-    return cors(200, JSON.stringify({ ok: true, period, range: { start: start.toISOString(), end: end.toISOString() }, config: effectiveConfig(config, null), ...report }));
+    return cors(200, JSON.stringify({ ok: true, period, range: { start: start.toISOString(), end: end.toISOString() }, config: effectiveConfig(config, null), reconciliation, ...report }));
   } catch (e) {
     return cors(500, JSON.stringify({ ok: false, error: e.message || "error" }));
   }
 };
 
 // ── Pay calc (pure — also imported by the local verifier) ──────────────────
-export function computeReport(soldJobs, zoneOf, zoneManager, config) {
+export function computeReport(soldJobs, zoneOf, zoneManager, config, invoicedJobIds = new Set()) {
   // Rates can be set per region: top-level keys are the default for every
   // region; config.regions[zone] overrides any subset for that one region.
   const effFor = (zone) => effectiveConfig(config, zone);
@@ -124,6 +137,7 @@ export function computeReport(soldJobs, zoneOf, zoneManager, config) {
     rec.deals.push({
       customer: (job.primary && job.primary.name) || job.name || "—",
       address: [job.address_line1, job.city].filter(Boolean).join(", "),
+      has_invoice: invoicedJobIds.has(job.jnid || job.id),
       sold: fmtDate(soldDateSec(job)),
       contract: round(contract), roof: round(roof), irbad: round(irbad),
       ins: round(ins), ins_sqft: round(insSqft), ins_ppsf: round(insPpsf), ins_qual: insQual,
@@ -177,6 +191,27 @@ function fmtDate(sec) {
   const n = Number(sec);
   if (!Number.isFinite(n) || n <= 0) return "";
   try { return new Intl.DateTimeFormat("en-US", { timeZone: TZ, month: "numeric", day: "numeric", year: "numeric" }).format(new Date(n * 1000)); } catch { return ""; }
+}
+
+// ── Invoices: set of JN job ids that have ≥1 active (non-archived) invoice ──
+// Presence is all we need for reconciliation — the deal's pay dollars still
+// come from saleAmount(); this only answers "does an invoice exist yet?".
+async function fetchInvoicedJobIds() {
+  const headers = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
+  const ids = new Set();
+  for (let from = 0; from < 50000; from += 100) {
+    const r = await fetch(`${JN_BASE}/invoices?size=100&from=${from}`, { headers });
+    if (!r.ok) break;
+    const d = await r.json().catch(() => ({}));
+    const rows = d.results || [];
+    for (const iv of rows) {
+      if (iv.is_active === false || iv.is_archived === true) continue;
+      const rel = (iv.related || []).find((x) => x.type === "job");
+      if (rel) ids.add(rel.id);
+    }
+    if (rows.length < 100) break;
+  }
+  return ids;
 }
 
 // ── Zone + manager resolver (TMS rep-zones feed) ───────────────────────────
