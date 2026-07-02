@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 import { fmtSigned } from "./lib/dates";
-import { InspectorMobileApp, InspectorsAdminPanel, InspectorSetupPage, ManagerInspectorReports, InspectionAssignmentsPanel, ManagerRoutePlanner, PAHandoffPanel, PAReportPanel, SitSoldPaReportPanel, ConfirmResultsPanel } from "./InspectorViews";
+import { InspectorMobileApp, InspectorsAdminPanel, InspectorSetupPage, ManagerInspectorReports, InspectionAssignmentsPanel, ManagerRoutePlanner, PAHandoffPanel, PAReportPanel, PaApptResultsPanel, SitSoldPaReportPanel, ConfirmResultsPanel } from "./InspectorViews";
 import { PAMobileApp, PAAdminPanel, FloridaZoneMap } from "./PAViews";
 import { TeamRolesPanel } from "./TeamRolesPanel";
 import InspectionPhotosModal from "./InspectionPhotosModal";
@@ -4375,6 +4375,7 @@ const MANAGER_TILES = [
   { group: "pa", key: "public_adjusters", emoji: "🧑‍⚖️", label: "Public Adjusters", desc: "View the portal as a PA sees it, decide which records go into the portal, and assign a PA." },
   { group: "pa", key: "pa_handoff", emoji: "📤", label: "PA Handoff", desc: "Send a customer's info to a PA." },
   { group: "pa", key: "pa_report", emoji: "🤝", label: "PA Report", desc: "What was sent to the PA, when, and the signed/refused/pending outcome. Filter by date." },
+  { group: "pa", key: "pa_appt_results", emoji: "📅", label: "PA Appointments & Results", desc: "Every PA appointment grouped by adjuster — kept/cancelled, signed/refused, insurance progress + each PA's sign rate." },
   { group: "pa", key: "sit_sold_pa_report", emoji: "📋", label: "Sit Sold PA (Old)", desc: "Records currently at jn_status \"Sit Sold PA\" — what the old PA still has on her plate." },
   // ── Settings ──
   { group: "settings", key: "security", emoji: "⚙️", label: "Security & Notifications", desc: "PIN, activity email" },
@@ -18486,6 +18487,10 @@ if (!hasDamage) {
 
                   {managerSection === "pa_report" && <Card style={{ padding: 20, background: "#f8fafc" }}>
                     <PAReportPanel />
+                  </Card>}
+
+                  {managerSection === "pa_appt_results" && <Card style={{ padding: 20, background: "#f8fafc" }}>
+                    <PaApptResultsPanel />
                   </Card>}
 
                   {managerSection === "sit_sold_pa_report" && <Card style={{ padding: 20, background: "#f8fafc" }}>

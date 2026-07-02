@@ -5929,6 +5929,254 @@ export function PAReportPanel() {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// PA Appointments & Results — every PA appointment in a date range, grouped
+// by adjuster, with attendance (kept / upcoming / cancelled / no result),
+// the sign outcome (signed / refused / pending) pulled from the linked
+// inspection, and how far the insurance claim has moved. Per-PA totals +
+// a sign rate so managers can judge each adjuster at a glance.
+// ─────────────────────────────────────────────────────────────────────
+export function PaApptResultsPanel() {
+  const today = new Date();
+  const thirtyAgo = new Date();
+  thirtyAgo.setDate(today.getDate() - 29);
+  const toISODate = (d) => d.toISOString().slice(0, 10);
+  const [fromDate, setFromDate] = useState(toISODate(thirtyAgo));
+  const [toDate, setToDate] = useState(toISODate(today));
+  const [appts, setAppts] = useState([]);
+  const [paById, setPaById] = useState({});
+  const [coById, setCoById] = useState({});
+  const [inspById, setInspById] = useState({});
+  const [loading, setLoading] = useState(true);
+
+  async function load() {
+    setLoading(true);
+    const fromIso = `${fromDate}T00:00:00Z`;
+    const toEnd = new Date(`${toDate}T00:00:00Z`);
+    toEnd.setDate(toEnd.getDate() + 1);
+    const toIso = toEnd.toISOString();
+    // 1. Every PA appointment whose start falls in the range (cancelled included).
+    const { data: aData } = await supabase
+      .from("pa_appointments")
+      .select("id, pa_id, pa_company_id, inspection_id, homeowner_name, homeowner_phone, address, start_at, end_at, booked_by, status, notes")
+      .gte("start_at", fromIso)
+      .lt("start_at", toIso)
+      .order("start_at", { ascending: false });
+    const rows = Array.isArray(aData) ? aData : [];
+    setAppts(rows);
+    // 2. PAs + companies for the name / company lookup.
+    const { data: pData } = await supabase.from("pas").select("id, name, pa_company_id");
+    const pMap = {}; for (const p of (pData || [])) pMap[p.id] = p; setPaById(pMap);
+    const { data: cData } = await supabase.from("pa_companies").select("id, name");
+    const cMap = {}; for (const c of (cData || [])) cMap[c.id] = c; setCoById(cMap);
+    // 3. The linked inspections carry the OUTCOME (sign status + insurance dates).
+    const inspIds = [...new Set(rows.map((r) => r.inspection_id).filter(Boolean))];
+    const iMap = {};
+    for (let i = 0; i < inspIds.length; i += 100) {
+      const chunk = inspIds.slice(i, i + 100);
+      const { data: iData } = await supabase
+        .from("inspections")
+        .select("id, client_name, pa_status, pa_status_updated_at, pa_signed_at, pa_stage, result, pa_fields")
+        .in("id", chunk);
+      for (const r of (iData || [])) iMap[r.id] = r;
+    }
+    setInspById(iMap);
+    setLoading(false);
+  }
+  useEffect(() => { load(); }, []);
+
+  const now = Date.now();
+  function signOutcome(insp) {
+    if (!insp) return "pending";
+    const s = (insp.pa_status || "").toLowerCase();
+    const su = (insp.pa_fields?.pa_signup || "").toLowerCase();
+    if (insp.pa_signed_at || s === "signed" || su === "signed") return "signed";
+    if (s === "refused" || su.includes("refus") || su.includes("retail")) return "refused";
+    return "pending";
+  }
+  // PA "engaged" the deal = they clearly worked it (signed, refused, or moved the
+  // stage). We use that to infer a past appointment was KEPT vs. left with no result.
+  function engaged(insp) {
+    if (!insp) return false;
+    if (insp.pa_signed_at) return true;
+    const s = (insp.pa_status || "").toLowerCase();
+    if (s === "signed" || s === "refused") return true;
+    return ["active", "waiting_docs", "dead"].includes(insp.pa_stage);
+  }
+  function attendance(a, insp) {
+    if (a.status === "cancelled") return "cancelled";
+    if (new Date(a.start_at).getTime() > now) return "upcoming";
+    return engaged(insp) ? "kept" : "noresult";
+  }
+  // Insurance milestones (epoch seconds in pa_fields) — furthest reached wins.
+  const MILE = [
+    ["advanced", "Advance"],
+    ["install_paperwork", "Install pack"],
+    ["iss_uploaded", "ISS uploaded"],
+    ["ins_approved", "Ins approved"],
+    ["pa_filed", "Filed"],
+  ];
+  function insuranceStage(insp) {
+    const f = insp?.pa_fields || {};
+    for (const [k, label] of MILE) { if (f[k]) return label; }
+    return null;
+  }
+
+  const groups = useMemo(() => {
+    const byPa = new Map();
+    for (const a of appts) {
+      const key = a.pa_id || "__none__";
+      if (!byPa.has(key)) byPa.set(key, []);
+      byPa.get(key).push(a);
+    }
+    const out = [];
+    for (const [paId, items] of byPa) {
+      const pa = paById[paId];
+      const t = { total: items.length, kept: 0, upcoming: 0, cancelled: 0, noresult: 0, signed: 0, refused: 0, pending: 0 };
+      const rowsX = items.map((a) => {
+        const insp = a.inspection_id ? inspById[a.inspection_id] : null;
+        const att = attendance(a, insp);
+        const sign = signOutcome(insp);
+        t[att]++; t[sign]++;
+        return { a, insp, att, sign, stage: insuranceStage(insp) };
+      }).sort((x, y) => new Date(y.a.start_at) - new Date(x.a.start_at));
+      const decided = t.signed + t.refused;
+      const signRate = decided ? Math.round((t.signed / decided) * 100) : null;
+      out.push({ paId, name: pa?.name || "Unassigned PA", company: (pa && coById[pa.pa_company_id]?.name) || "", items: rowsX, t, signRate });
+    }
+    out.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    return out;
+  }, [appts, paById, coById, inspById]);
+
+  const overall = useMemo(() => {
+    const o = { appts: appts.length, pas: groups.length, kept: 0, upcoming: 0, cancelled: 0, noresult: 0, signed: 0, refused: 0, pending: 0 };
+    for (const g of groups) for (const k of ["kept", "upcoming", "cancelled", "noresult", "signed", "refused", "pending"]) o[k] += g.t[k];
+    const decided = o.signed + o.refused;
+    o.signRate = decided ? Math.round((o.signed / decided) * 100) : null;
+    return o;
+  }, [groups, appts]);
+
+  const fmtAppt = (iso) => iso ? new Date(iso).toLocaleString([], { weekday: "short", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—";
+
+  function pill(text, bg, color, border) {
+    return <span style={{ background: bg, color, border: border ? `1px solid ${border}` : "none", borderRadius: 20, padding: "2px 9px", fontSize: 10, fontWeight: 700, fontFamily: "'Oswald', sans-serif", whiteSpace: "nowrap" }}>{text}</span>;
+  }
+  const attPill = (att) => att === "kept" ? pill("✓ KEPT", "#dcfce7", "#065f46")
+    : att === "upcoming" ? pill("📅 UPCOMING", "#dbeafe", "#1e40af")
+    : att === "cancelled" ? pill("✕ CANCELLED", "#f3f4f6", "#6b7280")
+    : pill("• NO RESULT", "#fef3c7", "#92400e", "#fbbf24");
+  const signPill = (sign) => sign === "signed" ? pill("🤝 SIGNED", "#199c2e", "#fff")
+    : sign === "refused" ? pill("🚫 REFUSED", "#6b7280", "#fff")
+    : pill("⏳ PENDING", "#fff7ed", "#9a3412", "#fdba74");
+
+  function csvExport() {
+    const header = ["PA", "Company", "Appt", "Homeowner", "Address", "Booked By", "Attendance", "Sign Outcome", "Insurance Stage"];
+    const escape = (v) => { const s = String(v ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const lines = [header.join(",")];
+    for (const g of groups) for (const r of g.items) {
+      lines.push([g.name, g.company, r.a.start_at ? new Date(r.a.start_at).toISOString() : "", r.a.homeowner_name || r.insp?.client_name || "", r.a.address || "", r.a.booked_by || "", r.att, r.sign, r.stage || ""].map(escape).join(","));
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `pa-appointments-${fromDate}-to-${toDate}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div>
+      <h2 style={{ marginTop: 0, fontFamily: "'Oswald', sans-serif", fontSize: 22 }}>📅 PA Appointments & Results</h2>
+      <p style={{ color: "#6b7280", fontSize: 13, marginTop: 0, lineHeight: 1.5 }}>
+        Every PA appointment in this date range, grouped by adjuster — did they keep it, did the homeowner sign, and how far the insurance claim has moved. "No result" = the appointment's time has passed but nothing was logged.
+      </p>
+
+      {/* Date pickers + refresh + CSV */}
+      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 16 }}>
+        <label style={{ fontSize: 12, fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "#374151" }}>From:
+          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={{ marginLeft: 6, padding: "6px 10px", borderRadius: 8, border: "1.5px solid #d1d5db", fontSize: 13, fontFamily: "'Nunito', sans-serif" }} />
+        </label>
+        <label style={{ fontSize: 12, fontFamily: "'Oswald', sans-serif", fontWeight: 700, color: "#374151" }}>To:
+          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={{ marginLeft: 6, padding: "6px 10px", borderRadius: 8, border: "1.5px solid #d1d5db", fontSize: 13, fontFamily: "'Nunito', sans-serif" }} />
+        </label>
+        <button type="button" onClick={load} disabled={loading} style={{ padding: "8px 16px", borderRadius: 8, border: "1.5px solid #0a0a0a", background: "#0a0a0a", color: "#fff", fontSize: 12, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: loading ? "wait" : "pointer" }}>
+          {loading ? "Loading…" : "🔄 Refresh"}
+        </button>
+        <button type="button" onClick={csvExport} disabled={loading || appts.length === 0} style={{ padding: "8px 16px", borderRadius: 8, border: "1.5px solid #0e7490", background: "#ecfeff", color: "#0e7490", fontSize: 12, fontFamily: "'Oswald', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", cursor: (loading || appts.length === 0) ? "not-allowed" : "pointer" }}>
+          ⬇ Export CSV
+        </button>
+      </div>
+
+      {/* Overall summary */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 10, marginBottom: 18 }}>
+        {[
+          { label: "Appointments", v: overall.appts, bg: "#eef1f8", color: "#1a2e5a" },
+          { label: "PAs", v: overall.pas, bg: "#eef1f8", color: "#1a2e5a" },
+          { label: "Kept", v: overall.kept, bg: "#dcfce7", color: "#065f46" },
+          { label: "Upcoming", v: overall.upcoming, bg: "#dbeafe", color: "#1e40af" },
+          { label: "Signed", v: overall.signed, bg: "#dcfce7", color: "#065f46" },
+          { label: "Refused", v: overall.refused, bg: "#f3f4f6", color: "#374151" },
+          { label: "Sign rate", v: overall.signRate === null ? "—" : `${overall.signRate}%`, bg: "#fef9c3", color: "#854d0e" },
+        ].map((t) => (
+          <div key={t.label} style={{ padding: "12px 14px", borderRadius: 12, border: "1.5px solid #e5e7eb", background: t.bg, color: t.color, fontFamily: "'Oswald', sans-serif" }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", opacity: 0.85 }}>{t.label}</div>
+            <div style={{ fontSize: 24, fontWeight: 700, marginTop: 2 }}>{t.v}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Per-PA groups */}
+      {loading ? (
+        <div style={{ padding: 20, color: "#6b7280", fontSize: 13 }}>Loading…</div>
+      ) : groups.length === 0 ? (
+        <div style={{ padding: 20, color: "#6b7280", fontSize: 13, background: "#fff", border: "1px dashed #e5e7eb", borderRadius: 12 }}>No PA appointments in this date range.</div>
+      ) : (
+        <div style={{ display: "grid", gap: 16 }}>
+          {groups.map((g) => (
+            <div key={g.paId} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14, overflow: "hidden" }}>
+              {/* PA header + totals */}
+              <div style={{ padding: "12px 16px", background: "#f8fafc", borderBottom: "1px solid #eef2f6", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#0f172a" }}>{g.name}</div>
+                  {g.company ? <div style={{ fontSize: 11, color: "#94a3b8", fontFamily: "'Nunito', sans-serif" }}>{g.company}</div> : null}
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                  {pill(`${g.t.total} appt${g.t.total === 1 ? "" : "s"}`, "#eef1f8", "#1a2e5a")}
+                  {g.t.kept ? pill(`${g.t.kept} kept`, "#dcfce7", "#065f46") : null}
+                  {g.t.upcoming ? pill(`${g.t.upcoming} upcoming`, "#dbeafe", "#1e40af") : null}
+                  {g.t.cancelled ? pill(`${g.t.cancelled} cancelled`, "#f3f4f6", "#6b7280") : null}
+                  {g.t.noresult ? pill(`${g.t.noresult} no result`, "#fef3c7", "#92400e", "#fbbf24") : null}
+                  {pill(`${g.t.signed} signed`, "#199c2e", "#fff")}
+                  {g.t.refused ? pill(`${g.t.refused} refused`, "#6b7280", "#fff") : null}
+                  {g.signRate !== null ? pill(`${g.signRate}% sign rate`, "#fef9c3", "#854d0e", "#fde68a") : null}
+                </div>
+              </div>
+              {/* Appointment rows */}
+              <div style={{ display: "grid", gap: 1, background: "#f1f5f9" }}>
+                {g.items.map((r) => (
+                  <div key={r.a.id} style={{ background: "#fff", padding: "10px 16px", display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "start" }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13.5, fontWeight: 700, color: "#111827", fontFamily: "'Nunito', sans-serif" }}>{r.a.homeowner_name || r.insp?.client_name || "—"}</div>
+                      <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "'Nunito', sans-serif" }}>{r.a.address || "—"}</div>
+                      <div style={{ fontSize: 11, color: "#9ca3af", fontFamily: "'Nunito', sans-serif", marginTop: 3 }}>
+                        <strong style={{ color: "#374151" }}>{fmtAppt(r.a.start_at)}</strong>{r.a.booked_by ? ` · booked by ${r.a.booked_by}` : ""}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                      {attPill(r.att)}
+                      {signPill(r.sign)}
+                      {r.stage ? pill(`📈 ${r.stage}`, "#f5f3ff", "#6d28d9", "#ddd6fe") : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Sit Sold PA report — records currently in JN at status "Sit Sold PA".
 // This is the OLD PA workflow (records the rep manually pushed to PA
 // inside JN before our automated PA Ops Hub integration). Useful for
