@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>U.S. Shingle — System Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800&family=Oswald:wght@600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.11.0/dist/tabler-icons.min.css">
+<style>
+  :root{--bg:#f1f5f9;--ink:#1f2937;--muted:#94a3b8}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:'Nunito',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1000px;margin:0 auto;padding:20px 16px 60px}
+  header{margin-bottom:6px}
+  .brand{font-family:'Oswald',sans-serif;font-weight:700;font-size:26px;letter-spacing:.01em;color:#0f172a;display:flex;align-items:center;gap:10px}
+  .brand i{color:#2563eb}
+  .sub{color:var(--muted);font-size:13.5px;font-weight:700;margin-top:2px}
+  .hint{text-align:center;font-size:12px;color:var(--muted);margin:14px 0 10px}
+  .hubs{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-bottom:16px}
+  @media(max-width:760px){.hubs{grid-template-columns:repeat(2,1fr)}}
+  .hub{cursor:pointer;border:1.5px solid #e5e7eb;background:#fff;border-radius:12px;padding:11px 12px;text-align:left;transition:.12s;border-left-width:4px;font-family:inherit;color:inherit}
+  .hub:hover{background:#f8fafc;transform:translateY(-1px)}
+  .hub.on{box-shadow:0 4px 14px rgba(15,23,42,.12);background:#f8fafc}
+  .hub b{font-size:13px;display:flex;align-items:center;gap:7px;font-weight:800}
+  .hub small{display:block;color:var(--muted);font-size:11px;font-weight:700;margin-top:3px}
+  .h1{border-left-color:#3b82f6}.h2{border-left-color:#f59e0b}.h3{border-left-color:#8b5cf6}.h4{border-left-color:#0ea5e9}
+  .h5{border-left-color:#64748b}.h6{border-left-color:#14b8a6}.h7{border-left-color:#ec4899}.h8{border-left-color:#84cc16}
+  .leg{display:flex;flex-wrap:wrap;gap:12px;margin:0 0 14px;font-size:11.5px;padding:0 2px}
+  .lg{display:inline-flex;align-items:center;gap:6px;font-weight:800;color:#64748b}
+  .lg i{width:17px;height:17px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:11px}
+  .panel{display:none;background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:16px 16px 8px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+  .panel.on{display:block;animation:fade .18s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+  .ph{font-family:'Oswald',sans-serif;font-size:19px;font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:9px;color:#0f172a}
+  .step{background:#fff;border:1px solid #eef2f6;border-radius:10px;padding:10px 12px;margin-bottom:7px;border-left:3px solid #cbd5e1}
+  .st-t{font-weight:800;font-size:13.5px}
+  .fx{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+  .tag{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;border-radius:7px;padding:4px 8px;line-height:1.3}
+  .t-sms{background:#fffbeb;color:#b45309;border:1px solid #fde68a}
+  .t-mail{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe}
+  .t-jn{background:#eef2ff;color:#4338ca;border:1px solid #c7d2fe}
+  .t-db{background:#f8fafc;color:#475569;border:1px solid #e2e8f0}
+  .t-off{background:#f9fafb;color:#9ca3af;border:1px dashed #d1d5db}
+  .grp{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:12px 0 5px}
+  .jump{cursor:pointer;background:#f5f3ff;color:#6d28d9;border:1px solid #ddd6fe;font-weight:800;border-radius:7px;padding:4px 8px;font-size:11.5px;display:inline-flex;align-items:center;gap:5px;font-family:inherit}
+  .jump:hover{background:#ede9fe}
+  .note{font-size:11.5px;color:var(--muted);margin-top:8px}
+  footer{text-align:center;color:var(--muted);font-size:11px;margin-top:22px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand"><i class="ti ti-sitemap"></i> System Map</div>
+    <div class="sub">Two front doors — Free Roof Inspection &amp; Appointment Setter — and everything that fires downstream.</div>
+  </header>
+
+  <div class="hint"><i class="ti ti-hand-finger"></i> Click any flow to open its detail. Purple chips jump you to a connected flow.</div>
+
+  <div class="hubs" id="hubs">
+    <button class="hub h1 on" data-p="inspection"><b><i class="ti ti-home"></i> Free Roof Inspection</b><small>Entry · homeowner signs</small></button>
+    <button class="hub h2" data-p="setter"><b><i class="ti ti-phone"></i> Appointment Setter</b><small>Entry · setter books</small></button>
+    <button class="hub h3" data-p="pa"><b><i class="ti ti-shield"></i> PA / Insurance</b><small>from a Damage result</small></button>
+    <button class="hub h4" data-p="manager"><b><i class="ti ti-layout-dashboard"></i> Regional Manager</b><small>the command center</small></button>
+    <button class="hub h5" data-p="cancel"><b><i class="ti ti-alert-triangle"></i> Cancel-review</b><small>inspector flags a cancel</small></button>
+    <button class="hub h6" data-p="admin"><b><i class="ti ti-tools"></i> Admin / Office</b><small>40+ tools</small></button>
+    <button class="hub h7" data-p="reporting"><b><i class="ti ti-chart-bar"></i> Reporting</b><small>analytics + leaderboards</small></button>
+    <button class="hub h8" data-p="auto"><b><i class="ti ti-clock-bolt"></i> Automation</b><small>20 scheduled jobs</small></button>
+  </div>
+
+  <div class="leg">
+    <span class="lg"><i style="background:#f59e0b"><i class="ti ti-message-2"></i></i> SMS</span>
+    <span class="lg"><i style="background:#3b82f6"><i class="ti ti-mail"></i></i> Email</span>
+    <span class="lg"><i style="background:#6366f1"><i class="ti ti-cloud-upload"></i></i> JobNimbus write</span>
+    <span class="lg"><i style="background:#64748b"><i class="ti ti-database"></i></i> Status / field</span>
+    <span class="lg"><i style="background:#d1d5db"><i class="ti ti-message-off"></i></i> built but off</span>
+  </div>
+
+  <!-- FREE ROOF INSPECTION -->
+  <div class="panel on" data-p="inspection">
+    <div class="ph"><i class="ti ti-home"></i> Free Roof Inspection</div>
+    <div class="step" style="border-left-color:#3b82f6"><div class="st-t">1 · Homeowner signs the agreement</div>
+      <div class="fx"><span class="tag t-db"><i class="ti ti-database"></i> inspection row · rep = signer · signed_at</span><span class="tag t-mail"><i class="ti ti-mail"></i> Homeowner: agreement PDF + welcome pack</span><span class="tag t-mail"><i class="ti ti-mail"></i> Manager inbox: "New Inspection"</span><span class="tag t-jn"><i class="ti ti-cloud-upload"></i> Contact + Job (PA · Sit Sold Insp · loc Insurance · source = Inspection · cf_string_34 = Needs Inspection) + signed PDF</span><span class="tag t-db"><i class="ti ti-database"></i> jn_job_id · docs_signed · lat/lng</span><span class="tag t-off"><i class="ti ti-message-off"></i> no signing SMS</span></div></div>
+    <div class="step" style="border-left-color:#3b82f6"><div class="st-t">2 · Inspector assigned (nearest) → inspects → records a result</div>
+      <div class="fx"><span class="tag t-db"><i class="ti ti-database"></i> result + result_at + photos</span><span class="tag t-jn"><i class="ti ti-cloud-upload"></i> cf_string_34 = Damage / No Damage / Retail · cert PDF · go-back task (25 / 23 / 24)</span><span class="tag t-mail"><i class="ti ti-mail"></i> No-Damage: cert + review link (rep taps Send)</span><span class="tag t-jn"><i class="ti ti-cloud-upload"></i> Retail → status Sit Sold Insp + loc Retail + record_type Lead</span><span class="tag t-off"><i class="ti ti-message-off"></i> result rep/homeowner texts OFF</span></div>
+      <div class="fx"><button class="jump" data-go="pa"><i class="ti ti-arrow-right"></i> Damage result → PA / Insurance flow</button><button class="jump" data-go="cancel"><i class="ti ti-arrow-right"></i> Homeowner cancels → Cancel-review</button></div></div>
+  </div>
+
+  <!-- SETTER -->
+  <div class="panel" data-p="setter">
+    <div class="ph"><i class="ti ti-phone"></i> Appointment Setter</div>
+    <div class="step" style="border-left-color:#f59e0b"><div class="st-t">1 · Setter books a retail appointment</div>
+      <div class="fx"><span class="tag t-jn"><i class="ti ti-cloud-upload"></i> Contact + Job (Lead · Appointment Scheduled · loc Retail · cf_string_8 = "Appointment Set By")</span><span class="tag t-jn"><i class="ti ti-cloud-upload"></i> Appointment task · owner = Zone Manager · + note</span><span class="tag t-db"><i class="ti ti-database"></i> setter_appointments row</span><span class="tag t-sms"><i class="ti ti-message-2"></i> Admin — only if no zone manager</span></div></div>
+    <div class="step" style="border-left-color:#f59e0b"><div class="st-t">2 · Manager assigns (Owner + Sales Rep)</div>
+      <div class="fx"><span class="tag t-jn"><i class="ti ti-cloud-upload"></i> Job: owners + sales_rep</span><span class="tag t-jn"><i class="ti ti-cloud-upload"></i> Contact: owner + Appointment task: owner → their calendar</span><span class="tag t-db"><i class="ti ti-database"></i> setter_appointments: assigned_at</span></div>
+      <div class="fx"><button class="jump" data-go="manager"><i class="ti ti-arrow-right"></i> Assignment happens on the Regional Manager board</button></div></div>
+    <div class="step" style="border-left-color:#f59e0b"><div class="st-t">3 · Rep runs the retail appointment → sells the roof</div></div>
+  </div>
+
+  <!-- PA -->
+  <div class="panel" data-p="pa">
+    <div class="ph"><i class="ti ti-shield"></i> PA / Insurance sub-flow</div>
+    <div class="note" style="margin-top:0"><i class="ti ti-arrow-back-up"></i> Starts from a <b>Damage</b> result in the Free Roof Inspection flow.</div>
+    <div class="step" style="border-left-color:#8b5cf6"><div class="st-t">1 · Rep schedules the PA appointment (round-robin by availability + location)</div>
+      <div class="fx"><span class="tag t-db"><i class="ti ti-database"></i> pa_appointments · inspections pa_id / pa_stage = active · call_queue done</span><span class="tag t-sms"><i class="ti ti-message-2"></i> PA</span><span class="tag t-mail"><i class="ti ti-mail"></i> PA</span><span class="tag t-sms"><i class="ti ti-message-2"></i> Company</span><span class="tag t-mail"><i class="ti ti-mail"></i> Company</span><span class="tag t-sms"><i class="ti ti-message-2"></i> Homeowner (opt-in)</span><span class="tag t-sms"><i class="ti ti-message-2"></i> 727 monitor</span></div>
+      <div class="note">Duplicate guard blocks a second appointment for the same homeowner unless forced.</div></div>
+    <div class="step" style="border-left-color:#8b5cf6"><div class="st-t">2 · Company assigns an adjuster → PA statuses the appointment</div>
+      <div class="fx"><span class="tag t-db"><i class="ti ti-database"></i> Signed → pa_signup + pa_signed_at</span><span class="tag t-jn"><i class="ti ti-cloud-upload"></i> insurance milestones → cf_date_* fields</span><span class="tag t-db"><i class="ti ti-database"></i> Refused / Back-to-retail → result = retail · reason</span><span class="tag t-sms"><i class="ti ti-message-2"></i> Rep + Zone Manager (hand-back)</span><span class="tag t-jn"><i class="ti ti-cloud-upload"></i> notes → JN activity</span></div></div>
+  </div>
+
+  <!-- MANAGER -->
+  <div class="panel" data-p="manager">
+    <div class="ph"><i class="ti ti-layout-dashboard"></i> Regional Manager command center</div>
+    <div class="grp">Their dashboard (personal token link, per zone)</div>
+    <div class="fx"><span class="tag t-db"><i class="ti ti-trophy"></i> Live leaderboard (sales + inspections)</span><span class="tag t-db"><i class="ti ti-trending-up"></i> Appt-to-Sales per rep + ⚠ fix flags</span><span class="tag t-jn"><i class="ti ti-calendar"></i> Assign Appointments (needs / today / tomorrow + map: red reps · blue appts)</span><span class="tag t-db"><i class="ti ti-tool"></i> Deals need to be fixed</span><span class="tag t-db"><i class="ti ti-report"></i> Weekly report</span><span class="tag t-db"><i class="ti ti-users"></i> Reps roster</span><span class="tag t-db"><i class="ti ti-map"></i> Zone map</span><span class="tag t-db"><i class="ti ti-brand-whatsapp"></i> WhatsApp groups</span></div>
+    <div class="grp">Gets texted automatically</div>
+    <div class="fx"><span class="tag t-sms"><i class="ti ti-message-2"></i> Inspector cancel-review</span><span class="tag t-sms"><i class="ti ti-message-2"></i> PA sent it back to retail</span><span class="tag t-sms"><i class="ti ti-message-2"></i> Setter appointment with no rep</span></div>
+    <div class="grp">Assignment writes to JobNimbus</div>
+    <div class="fx"><span class="tag t-jn"><i class="ti ti-cloud-upload"></i> Job + Contact + Appointment task → the chosen owner / rep</span><span class="tag t-db"><i class="ti ti-map-pin"></i> Every deal zoned by PROPERTY county → Zone 1–4</span></div>
+  </div>
+
+  <!-- CANCEL -->
+  <div class="panel" data-p="cancel">
+    <div class="ph"><i class="ti ti-alert-triangle"></i> Cancel-review</div>
+    <div class="step" style="border-left-color:#64748b"><div class="st-t">1 · Inspector: "Homeowner cancelled"</div>
+      <div class="fx"><span class="tag t-db"><i class="ti ti-database"></i> cancel_review_pending = true · drops off the inspector list</span><span class="tag t-sms"><i class="ti ti-message-2"></i> Zone Manager (rep → zone · county fallback)</span><span class="tag t-sms"><i class="ti ti-message-2"></i> Admin</span></div></div>
+    <div class="step" style="border-left-color:#64748b"><div class="st-t">2 · Zone Manager decides (review link)</div>
+      <div class="fx"><span class="tag t-db"><i class="ti ti-database"></i> Confirm cancel → cancelled_at</span><span class="tag t-db"><i class="ti ti-database"></i> Retail → result = retail</span><span class="tag t-db"><i class="ti ti-database"></i> Re-inspect → back to the pool</span><span class="tag t-jn"><i class="ti ti-cloud-upload"></i> JN note per decision</span></div>
+      <div class="fx"><button class="jump" data-go="manager"><i class="ti ti-arrow-right"></i> The decision link lives on the Regional Manager side</button></div></div>
+  </div>
+
+  <!-- ADMIN -->
+  <div class="panel" data-p="admin">
+    <div class="ph"><i class="ti ti-tools"></i> Admin / Office console</div>
+    <div class="grp">Inspection ops</div>
+    <div class="fx"><span class="tag t-db">Record Lookup &amp; Results</span><span class="tag t-db">Assign Inspections</span><span class="tag t-db">Confirm Results</span><span class="tag t-db">Inspectors roster</span><span class="tag t-db">Inspector Reports / Routes</span><span class="tag t-db">No-photo re-inspects</span><span class="tag t-db">Inspections Map</span><span class="tag t-db">JN / Bulk reports</span></div>
+    <div class="grp">PA ops</div>
+    <div class="fx"><span class="tag t-db">PA Management</span><span class="tag t-db">PA Report</span><span class="tag t-db">PA Handoff</span><span class="tag t-db">Public Adjuster Portal</span></div>
+    <div class="grp">Sales ops</div>
+    <div class="fx"><span class="tag t-db">Power Dialer</span><span class="tag t-db">Setter Portal</span><span class="tag t-db">Submission Analytics</span><span class="tag t-db">Install Finder</span><span class="tag t-db">Post Job</span></div>
+    <div class="grp">Comms &amp; setup</div>
+    <div class="fx"><span class="tag t-db">SMS Templates</span><span class="tag t-db">Auto SMS</span><span class="tag t-db">Review / Thank-you text</span><span class="tag t-db">Security</span><span class="tag t-db">Find Duplicates</span><span class="tag t-db">Browse All</span><span class="tag t-db">AI Smart Q&amp;A</span></div>
+  </div>
+
+  <!-- REPORTING -->
+  <div class="panel" data-p="reporting">
+    <div class="ph"><i class="ti ti-chart-bar"></i> Reporting &amp; leaderboards</div>
+    <div class="fx"><span class="tag t-db"><i class="ti ti-user"></i> Submission Analytics — by rep · damage / no-dmg / retail / pending + cancelled + review + avg days</span><span class="tag t-db"><i class="ti ti-clipboard-check"></i> Inspector Reports — by inspector + by day · cancelled + review</span><span class="tag t-db"><i class="ti ti-trending-up"></i> Appt-to-Sales conversion — zone + company · fix flags</span><span class="tag t-db"><i class="ti ti-trophy"></i> Sales + Inspection leaderboards · weekly recap</span></div>
+  </div>
+
+  <!-- AUTOMATION -->
+  <div class="panel" data-p="auto">
+    <div class="ph"><i class="ti ti-clock-bolt"></i> Automation — runs on a schedule</div>
+    <div class="grp">Sync &amp; self-heal JobNimbus</div>
+    <div class="fx"><span class="tag t-jn">sync-installs</span><span class="tag t-jn">track / sync-retail-status</span><span class="tag t-jn">sitsold-reconcile</span><span class="tag t-jn">sync-orphans</span><span class="tag t-jn">reconcile-jn-photos</span></div>
+    <div class="grp">Alerts to admin</div>
+    <div class="fx"><span class="tag t-sms">orphan-alert (signings that missed JN)</span><span class="tag t-sms">retry-missing-certs</span><span class="tag t-sms">push-pending-results</span><span class="tag t-sms">pa-company-stale</span><span class="tag t-sms">sales-audit</span><span class="tag t-sms">check-stale-claims (PA no-shows → auto-release + report)</span></div>
+    <div class="grp">Team hype</div>
+    <div class="fx"><span class="tag t-sms">daily-leaderboard</span><span class="tag t-sms">lead-change hype</span><span class="tag t-sms">weekly-recap</span></div>
+    <div class="grp">Other</div>
+    <div class="fx"><span class="tag t-off">assign-pas (OFF)</span><span class="tag t-jn">sync-repcard-pins</span><span class="tag t-db">extract-pitch</span><span class="tag t-jn">inspection-checker</span><span class="tag t-db">training-confirm</span></div>
+  </div>
+
+  <footer>U.S. Shingle · living reference — reflects the code as built. Ask the office if something looks off.</footer>
+</div>
+
+<script>
+(function(){
+  var hubs=document.getElementById('hubs');
+  function show(p){
+    document.querySelectorAll('.hub').forEach(function(x){x.classList.toggle('on',x.getAttribute('data-p')===p)});
+    document.querySelectorAll('.panel').forEach(function(x){x.classList.toggle('on',x.getAttribute('data-p')===p)});
+    window.scrollTo({top:0,behavior:'smooth'});
+  }
+  hubs.addEventListener('click',function(e){
+    var b=e.target.closest('.hub'); if(!b)return;
+    show(b.getAttribute('data-p'));
+  });
+  document.addEventListener('click',function(e){
+    var j=e.target.closest('.jump'); if(!j)return;
+    show(j.getAttribute('data-go'));
+  });
+})();
+</script>
+</body>
+</html>

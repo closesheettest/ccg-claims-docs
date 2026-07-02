@@ -4390,6 +4390,7 @@ const ADMIN_APPS = [
   { key: "closesheet_sales", emoji: "🧮", label: "Close Sheet", desc: "Enter measurements & pricing to generate the close pages.", href: "https://usshinglesalessheet.netlify.app" },
   { key: "forms", emoji: "📄", label: "U.S. Shingle Forms", desc: "Field forms — deposits, upgrades, and more.", href: "https://us-shingle-forms.netlify.app" },
   { key: "install_finder", emoji: "🗺", label: "Install Finder", desc: "Find past installs by city, location radius, or statewide.", href: "https://golden-banoffee-56e9ef.netlify.app" },
+  { key: "system_map", emoji: "🧭", label: "System Map", desc: "Interactive flow of the whole system — click any part to see every text, email, JobNimbus push, and status change.", href: "/system-map.html" },
 ];
 
 // The Free Roof Inspections portals (routes inside THIS app). `href` cards
