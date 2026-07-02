@@ -10940,9 +10940,22 @@ const renderSmsTemplate = (key, vars) => {
         // full audit trail. (create-pending-signing → RemoteSignPage → finalize.)
         const clientName = [data.homeowner1, data.homeowner2].filter(Boolean).join(" & ") || "";
         const phoneDigits = (data.phone || "").replace(/\D/g, "");
-        if (!clientName || phoneDigits.length < 10) {
+        // Required fields — same set the intake requires. Block the send and
+        // bounce the rep back to the form (with errors) if anything's missing.
+        const missing = [];
+        if (!clientName) missing.push("Homeowner name");
+        if (phoneDigits.length < 10) missing.push("Mobile number (10+ digits)");
+        if (!(data.address || "").trim()) missing.push("Property address");
+        if (!data.salesRepName) missing.push("Sales rep");
+        if (!data.leadSource) missing.push("Lead source");
+        if ((data.signerEmail || "").trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(data.signerEmail)) missing.push("A valid email (or clear it)");
+        if (missing.length) {
           setIsSubmitting(false);
-          alert("Please enter the homeowner's name and a mobile number (10+ digits) so we can text them the signing link.");
+          setPendingSend(false);
+          setSubmitAttempted(true);
+          setView("input");
+          window.scrollTo({ top: 0 });
+          alert("Please complete these before sending for signing:\n\n•  " + missing.join("\n•  "));
           return;
         }
         try {
