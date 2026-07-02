@@ -6721,7 +6721,7 @@ function PACompanyAdminPage({ token }) {
         <button type="button" onClick={() => setDetailDeal(d)}
           style={{ fontSize: 12, fontWeight: 700, padding: "8px 10px", borderRadius: 10, border: "1px solid #c7d2fe", background: "#eef2ff", color: "#3730a3", cursor: "pointer", whiteSpace: "nowrap" }}>🔍 Open</button>
         {d.pa_id && <button type="button" onClick={() => openPaDeal(d.pa_id, d.id)}
-          style={{ fontSize: 12, fontWeight: 700, padding: "8px 10px", borderRadius: 10, border: "1px solid #99f6e4", background: "#f0fdfa", color: "#0e7490", cursor: "pointer", whiteSpace: "nowrap" }}>📅 Schedule</button>}
+          style={{ fontSize: 12, fontWeight: 700, padding: "8px 10px", borderRadius: 10, border: "1px solid #99f6e4", background: "#f0fdfa", color: "#0e7490", cursor: "pointer", whiteSpace: "nowrap" }}>{d.appt_at ? "📅 Reschedule" : "📅 Schedule"}</button>}
         <select value={d.pa_id || ""} disabled={busyId === d.id} onChange={(e) => assign(d.id, e.target.value)}
           style={{ fontSize: 13, padding: "8px 10px", borderRadius: 10, border: `1px solid ${d.pa_id ? "#cbd5e1" : "#f59e0b"}`, background: d.pa_id ? "#fff" : "#fffbeb", maxWidth: 180 }}>
           <option value="">— Assign to —</option>
