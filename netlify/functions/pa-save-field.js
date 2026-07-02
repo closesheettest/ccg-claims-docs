@@ -24,7 +24,7 @@
 // Required env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, JOBNIMBUS_API_KEY.
 
 const JN_BASE = "https://app.jobnimbus.com/api1";
-const { jnFetch } = require("./_jn.js");
+import { jnFetch } from "./_jn.js";
 
 // PA sign-up status ("Intro to Customer" dropdown in JobNimbus). The
 // company is adding this dropdown to JN; once it exists, set this to the
@@ -54,7 +54,7 @@ const FIELD_MAP = {
   second_advance:      { cf: "cf_date_38",   type: "date" },
 };
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return json(405, { ok: false, error: "Method not allowed" });
   }

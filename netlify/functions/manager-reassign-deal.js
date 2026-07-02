@@ -18,7 +18,7 @@
 // Env: JOBNIMBUS_API_KEY.
 
 const JN_BASE = "https://app.jobnimbus.com/api1";
-const { jnFetch } = require("./_jn.js");
+import { jnFetch } from "./_jn.js";
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;

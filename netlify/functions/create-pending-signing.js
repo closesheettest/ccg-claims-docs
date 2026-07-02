@@ -13,12 +13,12 @@
 //
 // Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY (+ ghl-sms / send-email funcs)
 
-const crypto = require("crypto");
-const { SB_URL, sb, siteBase, loadByToken, patchByToken, json, sendSms, sendEmail, escapeHtml } = require("./_pending.js");
+import crypto from "crypto";
+import { SB_URL, sb, siteBase, loadByToken, patchByToken, json, sendSms, sendEmail, escapeHtml } from "./_pending.js";
 
 const EXPIRY_MS = 72 * 60 * 60 * 1000;
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   if (event.httpMethod !== "POST") return json(405, { ok: false, error: "Method not allowed" });
   for (const k of ["VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY"]) {
     if (!process.env[k]) return json(500, { ok: false, error: `Missing env: ${k}` });

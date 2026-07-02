@@ -43,4 +43,4 @@ async function jnFetch(key, path, opts = {}, tries = 3) {
   throw last;
 }
 
-module.exports = { JN_BASE, JN_RETRY_STATUS, jnFetch };
+export { JN_BASE, JN_RETRY_STATUS, jnFetch };

@@ -9,11 +9,11 @@
 //
 // Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
 
-const { loadByToken, patchByToken, otpHash, maskPhone, json } = require("./_pending.js");
+import { loadByToken, patchByToken, otpHash, maskPhone, json } from "./_pending.js";
 
 const MAX_ATTEMPTS = 5;
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   if (event.httpMethod !== "POST") return json(405, { ok: false, error: "Method not allowed" });
   let body = {};
   try { body = JSON.parse(event.body || "{}"); } catch { return json(400, { ok: false, error: "Invalid JSON body" }); }

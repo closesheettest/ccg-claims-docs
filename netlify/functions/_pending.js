@@ -5,7 +5,7 @@
 // Everything talks to Supabase with the anon key, same pattern as
 // submit-correction.js — reads/writes are mediated here, RLS stays closed.
 
-const crypto = require("crypto");
+import crypto from "crypto";
 
 const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
@@ -79,4 +79,4 @@ function escapeHtml(s) {
   return String(s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
 
-module.exports = { SB_URL, sb, siteBase, loadByToken, patchByToken, maskPhone, otpHash, clientIp, json, sendSms, sendEmail, escapeHtml };
+export { SB_URL, sb, siteBase, loadByToken, patchByToken, maskPhone, otpHash, clientIp, json, sendSms, sendEmail, escapeHtml };

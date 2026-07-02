@@ -23,9 +23,9 @@
 const TMS_REP_ZONES_URL =
   "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones";
 const JN_BASE = "https://app.jobnimbus.com/api1";
-const { jnFetch } = require("./_jn.js");
+import { jnFetch } from "./_jn.js";
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return json(405, { ok: false, error: "Method not allowed" });
   }

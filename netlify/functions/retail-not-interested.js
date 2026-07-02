@@ -15,12 +15,12 @@ const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
 const JN_BASE = "https://app.jobnimbus.com/api1";
-const { jnFetch } = require("./_jn.js");
+import { jnFetch } from "./_jn.js";
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const jnH = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
 const NI_STATUS = "BTR - NI";
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return cors(200, "");
   if (event.httpMethod !== "POST") return cors(405, JSON.stringify({ ok: false, error: "POST only" }));
   if (!SB_URL || !SB_KEY || !JN_KEY) return cors(500, JSON.stringify({ ok: false, error: "env missing" }));

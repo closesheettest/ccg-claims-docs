@@ -18,7 +18,7 @@
 // Required env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, JOBNIMBUS_API_KEY.
 
 const JN_BASE = "https://app.jobnimbus.com/api1";
-const { jnFetch } = require("./_jn.js");
+import { jnFetch } from "./_jn.js";
 // waiting_docs = PA is blocked until the homeowner sends their insurance
 // declaration page (can't have them sign anything without it). Same model
 // as no_contact: deal stays assigned, just moves to its own bucket.
