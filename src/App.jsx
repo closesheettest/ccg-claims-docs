@@ -10303,36 +10303,12 @@ const renderSmsTemplate = (key, vars) => {
       }));
     }
 
-    // Send for signing — text + email the homeowner our secure link. They open
-    // it on their own phone, confirm their number with a 6-digit code, consent,
-    // and sign; only then is the inspection + JobNimbus deal created, with a
-    // full audit trail (create-pending-signing → RemoteSignPage → finalize).
+    // Send for signing — route to the sending screen. pendingSend was set above,
+    // so submitDoc's pendingSend path runs create-pending-signing (texts + emails
+    // our secure 6-digit-code link; homeowner signs remotely with a full audit
+    // trail). Single send implementation lives there.
     if (signMode === "send") {
-      const clientName = [data.homeowner1, data.homeowner2].filter(Boolean).join(" & ") || (inspData.clientName || "");
-      const phoneDigits = (data.phone || "").replace(/\D/g, "");
-      if (!clientName || phoneDigits.length < 10) {
-        alert("Please enter the homeowner's name and a mobile number (10+ digits) so we can text them the signing link.");
-        return;
-      }
-      try {
-        const r = await fetch("/.netlify/functions/create-pending-signing", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ data: {
-            client_name: clientName, mobile: data.phone || "", email: data.signerEmail || "",
-            address: data.address || "", city: data.city || "", state: data.state || "", zip: data.zip || "",
-            date: data.date || "", roof_type: data.roof_type || "Shingle", lead_source: data.leadSource || "Inspection",
-            spanish_only: !!data.spanish_only, sales_rep_name: data.salesRepName || "", sales_rep_id: data.salesRepId || "", sales_rep_email: data.salesRepEmail || "",
-            review_availability: reviewAvail || "", document_version: "insp-v1",
-          } }),
-        });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok || !j.ok) { alert(j.error || "Could not send the signing link — check the phone/email and try again."); return; }
-        const channels = (j.sent || []).map((c) => (c === "sms" ? "text" : c)).join(" & ") || "link";
-        alert(`✅ Signing link sent by ${channels} to ${clientName}.\n\nThey'll get a message to review the agreement, confirm their phone with a 6-digit code, and sign on their own device. It lands in JobNimbus once they finish.`);
-        setView("thankyou");
-      } catch (e) {
-        alert(e?.message || "Could not send the signing link. Please try again.");
-      }
+      setView("sending");
       return;
     }
 
@@ -10957,54 +10933,40 @@ const renderSmsTemplate = (key, vars) => {
       setIsSubmitting(true);
 
       if (pendingSend) {
-        const { record, error } = await saveClaimToSupabase(null);
-        if (error) {
-          alert("Error saving: " + error.message);
+        // Remote e-signature: text + email the homeowner our secure link. They
+        // verify their phone with a 6-digit code, consent, and sign on their OWN
+        // device — only then is the inspection + JobNimbus deal created, with a
+        // full audit trail. (create-pending-signing → RemoteSignPage → finalize.)
+        const clientName = [data.homeowner1, data.homeowner2].filter(Boolean).join(" & ") || "";
+        const phoneDigits = (data.phone || "").replace(/\D/g, "");
+        if (!clientName || phoneDigits.length < 10) {
+          setIsSubmitting(false);
+          alert("Please enter the homeowner's name and a mobile number (10+ digits) so we can text them the signing link.");
           return;
         }
-
-        const params = new URLSearchParams({
-          sign: "1",
-          docs: selectedDocs.join(","),
-          claim: String(record?.id || ""),
-        });
-
-        const signingLink = `${window.location.origin}/?${params.toString()}`;
-
-        const emailResponse = await fetch("/.netlify/functions/send-email", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            to: [testEmail(data.signerEmail)].filter(Boolean),
-            subject: isTestMode
-              ? `🧪 [TEST] Please Sign: ${selectedDocs.length > 1 ? "Claim Documents" : documentLabel(selectedDocs[0])}`
-              : selectedDocs.length > 1
-                ? "Please Sign: Claim Documents"
-                : `Please Sign: ${documentLabel(selectedDocs[0])}`,
-            html: `
-              <h2>Signature Requested</h2>
-              <p>Please click the link below to review and sign your document${
-                selectedDocs.length > 1 ? "s" : ""
-              }.</p>
-              <p><a href="${signingLink}">${signingLink}</a></p>
-              <p><strong>Forms included:</strong></p>
-              <ul>${selectedDocs
-                .map((doc) => `<li>${documentLabel(doc)}</li>`)
-                .join("")}</ul>
-              <p><strong>Important:</strong> Draw your signature below using your finger or mouse.</p>
-            `,
-          }),
-        });
-
-        await parseJsonResponse(emailResponse, "Signing email failed.");
-        setIsSubmitting(false);
-        setPendingSend(false);
-
-        // Show clear confirmation before resetting
-        const sentTo = data.signerEmail || "the homeowner";
-        alert(`✅ Signing link sent successfully!\n\nAn email with the signing link has been sent to:\n${sentTo}\n\nThey can sign from any phone, tablet, or computer.`);
-
-        setView("input");
+        try {
+          const r = await fetch("/.netlify/functions/create-pending-signing", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ data: {
+              client_name: clientName, mobile: data.phone || "", email: data.signerEmail || "",
+              address: data.address || "", city: data.city || "", state: data.state || "", zip: data.zip || "",
+              date: data.date || "", roof_type: data.roof_type || "Shingle", lead_source: data.leadSource || "Inspection",
+              spanish_only: !!data.spanish_only, sales_rep_name: data.salesRepName || "", sales_rep_id: data.salesRepId || "", sales_rep_email: data.salesRepEmail || "",
+              review_availability: reviewAvail || "", document_version: "insp-v1",
+            } }),
+          });
+          const j = await r.json().catch(() => ({}));
+          setIsSubmitting(false);
+          setPendingSend(false);
+          if (!r.ok || !j.ok) { alert(j.error || "Could not send the signing link — check the phone/email and try again."); return; }
+          const channels = (j.sent || []).map((c) => (c === "sms" ? "text" : c)).join(" & ") || "link";
+          alert(`✅ Signing link sent by ${channels} to ${clientName}.\n\nThey'll confirm their phone with a 6-digit code, review, and sign on their own device. It lands in JobNimbus once they finish.`);
+          setView("thankyou");
+        } catch (e) {
+          setIsSubmitting(false);
+          setPendingSend(false);
+          alert(e?.message || "Could not send the signing link. Please try again.");
+        }
         return;
       }
 
@@ -19951,7 +19913,9 @@ if (!hasDamage) {
               lineHeight: 1.7,
               marginBottom: 24,
             }}>
-              Saving your signature, generating your documents, and sending email copies. This takes about 15–30 seconds.
+              {pendingSend
+                ? "Texting & emailing the homeowner their secure signing link…"
+                : "Saving your signature, generating your documents, and sending email copies. This takes about 15–30 seconds."}
             </div>
             <div style={{
               background: "#fef9c3",
