@@ -6057,7 +6057,7 @@ function JnAddQueuePage({ token }) {
     <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
       <span style={{ fontSize: 11, fontWeight: 700, color: "#6b7280", width: 56 }}>{label}</span>
       <code style={{ flex: 1, fontSize: 13, background: "#f1f5f9", padding: "6px 10px", borderRadius: 8, color: "#0f172a", wordBreak: "break-all" }}>{val || <span style={{ color: "#cbd5e1" }}>—</span>}</code>
-      {val && <button type="button" onClick={() => copy(p.id, field, val)} style={{ ...secondaryBtn, fontSize: 11, padding: "6px 12px", whiteSpace: "nowrap" }}>{copied === `${p.id}:${field}` ? "✓ Copied" : "📋 Copy"}</button>}
+      {val && <button type="button" onClick={() => copy(p.id, field, val)} style={{ background: "#fff", color: "#374151", border: "1px solid #d1d5db", borderRadius: 8, cursor: "pointer", fontSize: 11, padding: "6px 12px", whiteSpace: "nowrap" }}>{copied === `${p.id}:${field}` ? "✓ Copied" : "📋 Copy"}</button>}
     </div>
   );
 
