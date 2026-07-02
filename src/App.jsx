@@ -8280,6 +8280,7 @@ export default function App() {
   const [inspTypedSig, setInspTypedSig] = useState("");
   const [inspSigFont, setInspSigFont] = useState(SIGNATURE_FONTS[0]);
   const [inspSubmitting, setInspSubmitting] = useState(false);
+  const [inspSending, setInspSending] = useState(false);   // "Send to homeowner" (remote e-sign) in flight
   // Synchronous re-entrancy guard. State updates from setInspSubmitting
   // don't apply until the next render, so a fast double-tap can fire
   // submitInspection twice before the button visually disables. The
@@ -10474,6 +10475,62 @@ const renderSmsTemplate = (key, vars) => {
 
     if (inserted?.id) setCurrentClaimId(inserted.id);
     return { record: inserted, error };
+  };
+
+  // Rep taps "Send to Homeowner": we DON'T sign or create anything here — we
+  // stash the rep-entered data in pending_signings and text + email the
+  // homeowner a secure /?sign_insp=<token> link. The homeowner verifies their
+  // phone with a code, consents, signs, and only THEN (server-side) does the
+  // inspection + JobNimbus deal get created with a full audit trail. Same
+  // required fields as before, minus the signature.
+  const sendInspectionLink = async () => {
+    if (inspSubmittingRef.current) return;
+    setInspSubmitAttempted(true);
+    const inspPhoneDigits = (inspData.mobile || "").replace(/\D/g, "");
+    if (!inspData.clientName || !(inspData.address || "").trim() || inspPhoneDigits.length < 10 || !inspData.roof_type || !reviewComplete) {
+      return;
+    }
+    const obviousDamage = !!inspData.obviousDamage;
+    const hasInsurance = inspData.hasInsurance;
+    if (obviousDamage && hasInsurance !== "yes" && hasInsurance !== "no") {
+      alert("You marked obvious damage — tap Yes or No for the homeowner's insurance so we route the deal (insurance → Damage + PA appt · no insurance → Retail appt).");
+      return;
+    }
+    if (!isValidEmail(inspData.email)) {
+      alert("The email address is not valid. Please correct it (e.g. name@example.com) or clear the field.");
+      return;
+    }
+    inspSubmittingRef.current = true;
+    setInspSending(true);
+    try {
+      const r = await fetch("/.netlify/functions/create-pending-signing", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: {
+          client_name: inspData.clientName, mobile: inspData.mobile, email: inspData.email,
+          address: inspData.address, city: inspData.city, state: inspData.state, zip: inspData.zip, date: inspData.date,
+          roof_type: inspData.roof_type || "Shingle", lead_source: data.leadSource || "Inspection", spanish_only: !!data.spanish_only,
+          sales_rep_name: data.salesRepName || "", sales_rep_id: data.salesRepId || "", sales_rep_email: data.salesRepEmail || "",
+          obvious_damage: obviousDamage, has_insurance: obviousDamage ? hasInsurance : "",
+          review_availability: reviewAvail || "", document_version: "insp-v1",
+        } }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) {
+        alert(j.error || "Could not send the signing link. Please check the phone/email and try again.");
+        return;
+      }
+      const channels = (j.sent || []).map((c) => (c === "sms" ? "text" : c)).join(" & ") || "link";
+      alert(`✅ Signing link sent by ${channels} to ${inspData.clientName}.\n\nThey'll get a message to review the agreement, confirm their phone with a code, and sign on their own device. It lands in JobNimbus once they finish.`);
+      // Reset for the next homeowner.
+      setReviewAvail(""); setInspSig(""); setInspSubmitAttempted(false);
+      setInspData((prev) => ({ ...prev, clientName: "", mobile: "", email: "", address: "", city: "", state: "", zip: "", obviousDamage: false, hasInsurance: "" }));
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (e) {
+      alert(e?.message || "Could not send the signing link. Please try again.");
+    } finally {
+      setInspSending(false);
+      inspSubmittingRef.current = false;
+    }
   };
 
   const submitInspection = async () => {
@@ -14927,18 +14984,21 @@ if (!hasDamage) {
                 }}>
                   <div style={{ fontSize: 28, marginBottom: 6 }}>✍️</div>
                   <div style={{ fontSize: 26, fontWeight: 700, fontFamily: "'Oswald', sans-serif", marginBottom: 6 }}>
-                    Client Signature
+                    Homeowner Signs by Link
                   </div>
                   <div style={{ fontSize: 15, fontFamily: "'Nunito', sans-serif", fontWeight: 600, opacity: 0.92 }}>
-                    Use your finger or mouse to sign below.
+                    Tap Send below — we'll text &amp; email a secure link. The homeowner confirms their phone with a code and signs on their own device.
                   </div>
                 </div>
               ) : null}
 
               <Card style={{ borderRadius: effectiveInspSig ? 24 : "0 0 24px 24px", borderTop: effectiveInspSig ? undefined : "none" }}>
                 <CardContent>
-                  {/* Signature is draw-only — the typed-signature option was removed. */}
-                  <SignaturePad title="" value={inspSig} onChange={setInspSig} required missing={inspSubmitAttempted && !effectiveInspSig} />
+                  {/* Homeowner signs remotely on their own phone via a texted/emailed
+                      link (RemoteSignPage) — the rep no longer signs on the spot. */}
+                  <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 12, padding: "14px 16px", marginBottom: 12, fontSize: 13.5, color: "#1e3a8a", lineHeight: 1.6 }}>
+                    📲 <strong>The homeowner signs on their own phone.</strong> When you tap <strong>Send to Homeowner</strong>, we text <em>and</em> email them a secure link. They confirm their phone with a 6-digit code, review the agreement, and sign — then it lands in JobNimbus with a full audit trail.
+                  </div>
 
                   {inspSubmitAttempted && !inspData.clientName ? (
                     <div style={{ color: "#ef4444", fontSize: 14, fontFamily: "'Nunito', sans-serif", fontWeight: 700, marginBottom: 12 }}>
@@ -15021,9 +15081,9 @@ if (!hasDamage) {
                     >
                       👁 Preview Document
                     </button>
-                    <Button onClick={submitInspection} disabled={inspSubmitting}
-                      style={{ background: "#0a0a0a", border: "1px solid #0a0a0a" }}>
-                      <Mail size={16} /> {inspSubmitting ? "Submitting..." : "Submit & Email to Client"}
+                    <Button onClick={sendInspectionLink} disabled={inspSending}
+                      style={{ background: "#199c2e", border: "1px solid #199c2e" }}>
+                      <Mail size={16} /> {inspSending ? "Sending link..." : "Send to Homeowner"}
                     </Button>
                   </div>
                 </CardContent>
