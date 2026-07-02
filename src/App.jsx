@@ -8228,7 +8228,7 @@ export default function App() {
   // Drilldown — when a stat tile is clicked, show the homeowners contributing to that stat
   // null | "damage" | "no_damage" | "retail" | "pending"
   const [myStatsDrilldown, setMyStatsDrilldown] = useState(null);
-  const [signMode, setSignMode] = useState("now");
+  const [signMode, setSignMode] = useState("send");   // default: send the homeowner a link (not on-device signing)
   const [data, setData] = useState(() => {
     // RepVisitHub "New inspection" lands here as /?intake=1&rep=&repName=&repEmail=
     // — prefill the rep so the signing flow doesn't ask again.
@@ -10303,9 +10303,36 @@ const renderSmsTemplate = (key, vars) => {
       }));
     }
 
-    // Send for signing — skip review page entirely, go straight to send
+    // Send for signing — text + email the homeowner our secure link. They open
+    // it on their own phone, confirm their number with a 6-digit code, consent,
+    // and sign; only then is the inspection + JobNimbus deal created, with a
+    // full audit trail (create-pending-signing → RemoteSignPage → finalize).
     if (signMode === "send") {
-      setView("sending");
+      const clientName = [data.homeowner1, data.homeowner2].filter(Boolean).join(" & ") || (inspData.clientName || "");
+      const phoneDigits = (data.phone || "").replace(/\D/g, "");
+      if (!clientName || phoneDigits.length < 10) {
+        alert("Please enter the homeowner's name and a mobile number (10+ digits) so we can text them the signing link.");
+        return;
+      }
+      try {
+        const r = await fetch("/.netlify/functions/create-pending-signing", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data: {
+            client_name: clientName, mobile: data.phone || "", email: data.signerEmail || "",
+            address: data.address || "", city: data.city || "", state: data.state || "", zip: data.zip || "",
+            date: data.date || "", roof_type: data.roof_type || "Shingle", lead_source: data.leadSource || "Inspection",
+            spanish_only: !!data.spanish_only, sales_rep_name: data.salesRepName || "", sales_rep_id: data.salesRepId || "", sales_rep_email: data.salesRepEmail || "",
+            review_availability: reviewAvail || "", document_version: "insp-v1",
+          } }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.ok) { alert(j.error || "Could not send the signing link — check the phone/email and try again."); return; }
+        const channels = (j.sent || []).map((c) => (c === "sms" ? "text" : c)).join(" & ") || "link";
+        alert(`✅ Signing link sent by ${channels} to ${clientName}.\n\nThey'll get a message to review the agreement, confirm their phone with a 6-digit code, and sign on their own device. It lands in JobNimbus once they finish.`);
+        setView("thankyou");
+      } catch (e) {
+        alert(e?.message || "Could not send the signing link. Please try again.");
+      }
       return;
     }
 
