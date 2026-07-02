@@ -32,6 +32,7 @@
 //     generate-and-upload-insp-report.
 
 const JN_BASE = "https://app.jobnimbus.com/api1";
+const { jnFetch } = require("./_jn.js");
 
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -104,16 +105,12 @@ exports.handler = async (event) => {
     // JN doesn't have a clean "/account/locations" endpoint (returns
     // 404). Try the most common variants in order — first one to
     // return a JSON list with our target name wins.
-    const endpointCandidates = [
-      "https://app.jobnimbus.com/api1/locations",
-      "https://app.jobnimbus.com/api1/account/locations",
-      "https://app.jobnimbus.com/api1/account",
-    ];
+    const endpointCandidates = ["locations", "account/locations", "account"];
     let resolved = false;
     let endpointNotes = [];
     for (const url of endpointCandidates) {
       try {
-        const locRes = await fetch(url, { headers: jnHeaders });
+        const locRes = await jnFetch(JN_KEY, url);
         if (!locRes.ok) {
           endpointNotes.push(`${url} → ${locRes.status}`);
           continue;
@@ -155,7 +152,7 @@ exports.handler = async (event) => {
     // the numeric id even when no name field exists.
     if (!resolved) {
       try {
-        const jobsRes = await fetch("https://app.jobnimbus.com/api1/jobs?size=100", { headers: jnHeaders });
+        const jobsRes = await jnFetch(JN_KEY, "jobs?size=100");
         if (jobsRes.ok) {
           const jobsData = await jobsRes.json().catch(() => ({}));
           const jobs = jobsData.results || jobsData.jobs || jobsData.items || [];
@@ -203,7 +200,7 @@ exports.handler = async (event) => {
             // FINAL fallback: GET the inspection's own JN job — its
             // detail response often has more fields than the list view.
             try {
-              const detailRes = await fetch(`https://app.jobnimbus.com/api1/jobs/${encodeURIComponent(insp.jn_job_id)}`, { headers: jnHeaders });
+              const detailRes = await jnFetch(JN_KEY, `jobs/${encodeURIComponent(insp.jn_job_id)}`);
               if (detailRes.ok) {
                 const detailJob = await detailRes.json().catch(() => ({}));
                 const detName = nameOf(detailJob);
@@ -264,9 +261,8 @@ exports.handler = async (event) => {
   let jnUpdated = false;
   let jnUpdateError = null;
   try {
-    const putRes = await fetch(`${JN_BASE}/jobs/${insp.jn_job_id}`, {
+    const putRes = await jnFetch(JN_KEY, `jobs/${insp.jn_job_id}`, {
       method: "PUT",
-      headers: jnHeaders,
       body: JSON.stringify(putBody),
     });
     if (!putRes.ok) {

@@ -18,6 +18,7 @@
 // Env: JOBNIMBUS_API_KEY.
 
 const JN_BASE = "https://app.jobnimbus.com/api1";
+const { jnFetch } = require("./_jn.js");
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
@@ -51,7 +52,7 @@ export const handler = async (event) => {
 
   try {
     // 1. Read the job's current owners so we APPEND (not clobber) the assignee.
-    const jr = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(jnid)}`, { headers: jnHeaders });
+    const jr = await jnFetch(JN_KEY, `jobs/${encodeURIComponent(jnid)}`);
     if (!jr.ok) return cors(502, JSON.stringify({ ok: false, error: `JN job fetch ${jr.status}` }));
     const job = await jr.json();
     const existing = Array.isArray(job.owners) ? job.owners.filter((o) => o && o.id).map((o) => ({ id: o.id })) : [];
@@ -67,8 +68,8 @@ export const handler = async (event) => {
       patch.sales_rep_name = byId[salesRepId].name;
     }
 
-    const pr = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(jnid)}`, {
-      method: "PUT", headers: jnHeaders, body: JSON.stringify(patch),
+    const pr = await jnFetch(JN_KEY, `jobs/${encodeURIComponent(jnid)}`, {
+      method: "PUT", body: JSON.stringify(patch),
     });
     const text = await pr.text();
     if (!pr.ok) return cors(502, JSON.stringify({ ok: false, error: `JN update ${pr.status}: ${text.slice(0, 200)}` }));

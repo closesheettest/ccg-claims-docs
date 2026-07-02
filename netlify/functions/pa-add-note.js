@@ -18,6 +18,7 @@
 // Required env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, JOBNIMBUS_API_KEY.
 
 const JN_BASE = "https://app.jobnimbus.com/api1";
+const { jnFetch } = require("./_jn.js");
 // waiting_docs = PA is blocked until the homeowner sends their insurance
 // declaration page (can't have them sign anything without it). Same model
 // as no_contact: deal stays assigned, just moves to its own bucket.
@@ -78,9 +79,8 @@ export const handler = async (event) => {
     const prefix = stage === "dead" ? "💀 Dead deal (PA)" : stage === "no_contact" ? "📵 Can't reach (PA)" : stage === "waiting_docs" ? "📄 Waiting on docs (PA)" : "📝 PA note";
     const noteText = `${prefix}${text ? `: ${text}` : ""}`;
     try {
-      const r = await fetch(`${JN_BASE}/activities`, {
+      const r = await jnFetch(JN_KEY, `activities`, {
         method: "POST",
-        headers: { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           record_type_name: "Note",
           note: noteText,

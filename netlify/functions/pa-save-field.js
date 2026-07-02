@@ -24,6 +24,7 @@
 // Required env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, JOBNIMBUS_API_KEY.
 
 const JN_BASE = "https://app.jobnimbus.com/api1";
+const { jnFetch } = require("./_jn.js");
 
 // PA sign-up status ("Intro to Customer" dropdown in JobNimbus). The
 // company is adding this dropdown to JN; once it exists, set this to the
@@ -139,9 +140,8 @@ exports.handler = async (event) => {
     jnSkipped = true;
   } else {
     try {
-      const putRes = await fetch(`${JN_BASE}/jobs/${insp.jn_job_id}`, {
+      const putRes = await jnFetch(JN_KEY, `jobs/${insp.jn_job_id}`, {
         method: "PUT",
-        headers: { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify({ jnid: insp.jn_job_id, [spec.cf]: jnValue }),
       });
       if (putRes.ok) {

@@ -14,6 +14,7 @@ const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
 const JN_BASE = "https://app.jobnimbus.com/api1";
+const { jnFetch } = require("./_jn.js");
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const jnH = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
 
@@ -53,9 +54,9 @@ exports.handler = async (event) => {
 
     // Push the matching status to JobNimbus + a note (best-effort).
     if (insp.jn_job_id && JN_KEY) {
-      fetch(`${JN_BASE}/jobs/${insp.jn_job_id}`, { method: "PUT", headers: jnH, body: JSON.stringify({ status_name: OUT[outcome].status }) }).catch(() => {});
-      fetch(`${JN_BASE}/activities`, {
-        method: "POST", headers: jnH,
+      jnFetch(JN_KEY, `jobs/${insp.jn_job_id}`, { method: "PUT", body: JSON.stringify({ status_name: OUT[outcome].status }) }).catch(() => {});
+      jnFetch(JN_KEY, `activities`, {
+        method: "POST",
         body: JSON.stringify({ record_type_name: "Note", note: `🏠 Retail outcome (${repName}): ${OUT[outcome].label}`, primary: { id: insp.jn_job_id, type: "job" }, related: [{ id: insp.jn_job_id, type: "job" }], is_status_change: false }),
       }).catch(() => {});
     }

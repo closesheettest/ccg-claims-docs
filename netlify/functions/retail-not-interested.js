@@ -15,6 +15,7 @@ const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
 const JN_BASE = "https://app.jobnimbus.com/api1";
+const { jnFetch } = require("./_jn.js");
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const jnH = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
 const NI_STATUS = "BTR - NI";
@@ -38,8 +39,8 @@ exports.handler = async (event) => {
     // 1. Set the JN job status to "BTR - NI" (the source of truth the reports read).
     let jnSet = false;
     if (insp.jn_job_id) {
-      const r = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(insp.jn_job_id)}`, {
-        method: "PUT", headers: jnH, body: JSON.stringify({ status_name: NI_STATUS }),
+      const r = await jnFetch(JN_KEY, `jobs/${encodeURIComponent(insp.jn_job_id)}`, {
+        method: "PUT", body: JSON.stringify({ status_name: NI_STATUS }),
       });
       if (!r.ok) return cors(502, JSON.stringify({ ok: false, error: `JN status ${r.status}: ${(await r.text()).slice(0, 180)}` }));
       jnSet = true;

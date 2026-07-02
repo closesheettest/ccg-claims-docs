@@ -23,6 +23,7 @@
 const TMS_REP_ZONES_URL =
   "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones";
 const JN_BASE = "https://app.jobnimbus.com/api1";
+const { jnFetch } = require("./_jn.js");
 
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -107,9 +108,8 @@ exports.handler = async (event) => {
   let jnNoteAdded = false, jnError = null;
   if (insp.jn_job_id && JN_KEY) {
     try {
-      const r = await fetch(`${JN_BASE}/activities`, {
+      const r = await jnFetch(JN_KEY, `activities`, {
         method: "POST",
-        headers: { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           record_type_name: "Note",
           note: `${kind === "question" ? "❓ Question from PA" : "✏️ Correction requested by PA"}${paName ? ` (${paName})` : ""}: ${note}`,

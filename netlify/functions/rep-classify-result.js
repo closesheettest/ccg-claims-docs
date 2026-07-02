@@ -25,6 +25,7 @@ const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
 const JN_BASE = "https://app.jobnimbus.com/api1";
+const { jnFetch } = require("./_jn.js");
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 
 exports.handler = async (event) => {
@@ -63,8 +64,8 @@ exports.handler = async (event) => {
         const cfBody = { jnid: insp.jn_job_id, cf_string_34: "Damage", cf_date_22: Math.floor(Date.now() / 1000) };
         if (inspectorName) cfBody.cf_string_43 = inspectorName;
         try {
-          const r = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(insp.jn_job_id)}`, {
-            method: "PUT", headers: { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" },
+          const r = await jnFetch(JN_KEY, `jobs/${encodeURIComponent(insp.jn_job_id)}`, {
+            method: "PUT",
             body: JSON.stringify(cfBody),
           });
           jn.cf = r.ok;
