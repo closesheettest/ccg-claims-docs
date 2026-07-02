@@ -7760,7 +7760,7 @@ function RemoteSignPage({ token }) {
         if (!j.ok) { setReason(j.reason || "invalid"); setRec(null); setStage("error"); return; }
         setRec(j.record);
         if (j.record.phone_verified_at) { setPhoneVerified({ number: j.record.phone_verified_number, at: j.record.phone_verified_at }); setStage("sign"); }
-        else if (j.record.has_phone) { setStage("otp"); requestCode(); }
+        else if (j.record.has_contact ?? (j.record.has_phone || j.record.has_email)) { setStage("otp"); requestCode(); }
         else { setStage("sign"); }
       } catch { if (live) { setReason("network"); setRec(null); setStage("error"); } }
     })();
@@ -7773,14 +7773,14 @@ function RemoteSignPage({ token }) {
       const r = await fetch("/.netlify/functions/send-signing-otp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) });
       const j = await r.json().catch(() => ({}));
       if (j.ok) { setOtpTo(j.sent_to || ""); setOtpMsg(""); }
-      else if (j.no_phone) { setStage("sign"); }
+      else if (j.no_phone || j.no_contact) { setStage("sign"); }
       else setOtpMsg(j.error || "Couldn't send the code. Tap Resend.");
     } catch { setOtpMsg("Couldn't send the code. Tap Resend."); }
     setOtpBusy(false);
   }
 
   async function verifyCode() {
-    if (code.replace(/\D/g, "").length !== 6) { setOtpMsg("Enter the 6-digit code we texted you."); return; }
+    if (code.replace(/\D/g, "").length !== 6) { setOtpMsg("Enter the 6-digit code we sent you."); return; }
     setOtpBusy(true); setOtpMsg("");
     try {
       const r = await fetch("/.netlify/functions/verify-signing-otp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, code }) });
@@ -7868,7 +7868,7 @@ function RemoteSignPage({ token }) {
 
         {stage === "otp" && (
           <div>
-            <div style={{ fontSize: 15, color: "#111827", lineHeight: 1.5, marginBottom: 12 }}>To confirm it's you, enter the 6-digit code we texted{otpTo ? ` to ${otpTo}` : " to your phone"}.</div>
+            <div style={{ fontSize: 15, color: "#111827", lineHeight: 1.5, marginBottom: 12 }}>To confirm it's you, enter the 6-digit code we sent{otpTo ? ` to ${otpTo}` : " to you"}. We send it by text and email.</div>
             <input inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000"
               style={{ width: "100%", boxSizing: "border-box", textAlign: "center", letterSpacing: 8, fontSize: 30, fontWeight: 800, padding: "12px 0", borderRadius: 10, border: "2px solid #cbd5e1", marginBottom: 10, fontFamily: "'Oswald', sans-serif" }} />
             {otpMsg ? <div style={{ color: otpMsg.includes("Sending") ? "#6b7280" : "#dc2626", fontSize: 13, marginBottom: 10 }}>{otpMsg}</div> : null}

@@ -37,7 +37,11 @@ export const handler = async (event) => {
   }
 
   const nowIso = new Date().toISOString();
-  const masked = maskPhone(row.mobile);
+  // The code goes to phone AND email; record what we actually verified. If a
+  // valid phone was on file we mask it; otherwise the code proved control of
+  // the email, so record that instead (keeps the audit trail honest).
+  const hasPhone = String(row.mobile || "").replace(/\D/g, "").length >= 10;
+  const masked = hasPhone ? maskPhone(row.mobile) : String(row.email || "").trim();
   await patchByToken(token, {
     phone_verified_at: nowIso,
     phone_verified_number: masked,

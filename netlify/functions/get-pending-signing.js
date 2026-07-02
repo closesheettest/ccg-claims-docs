@@ -38,6 +38,7 @@ export const handler = async (event) => {
   }
 
   const hasPhone = String(row.mobile || "").replace(/\D/g, "").length >= 10;
+  const hasEmail = /.+@.+\..+/.test(String(row.email || "").trim());
   return json(200, {
     ok: true,
     record: {
@@ -51,7 +52,7 @@ export const handler = async (event) => {
       prepared_by_rep_name: row.prepared_by_rep_name, prepared_at: row.prepared_at,
       sent_channels: row.sent_channels, sent_at: row.sent_at, opened_at: row.opened_at,
       phone_verified_at: row.phone_verified_at, phone_verified_number: row.phone_verified_number,
-      status: row.status, has_phone: hasPhone,
+      status: row.status, has_phone: hasPhone, has_email: hasEmail, has_contact: hasPhone || hasEmail,
     },
   });
 };
