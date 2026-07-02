@@ -29,6 +29,7 @@
     padding:3px 9px;border-radius:999px;margin-bottom:8px;}
   .tag.pa{background:#eef2ff;color:var(--indigo);}
   .tag.inspector{background:#ecfdf5;color:var(--green);}
+  .tag.rep{background:#dcfce7;color:#166534;}
   .tag.company_admin{background:#f5f3ff;color:#5b21b6;}
   .tag.both{background:#fff7ed;color:#b45309;}
   .tag.all{background:#fff7ed;color:#b45309;}
@@ -61,6 +62,20 @@
 <script>
   // ── Add new updates at the TOP. Keep the words simple. ──
   const UPDATES = [
+    {
+      for: "rep",
+      title: "🖊️ Inspections are now signed by the homeowner on their own phone",
+      what: "You don’t sign the Free Roof Inspection on your device anymore. You fill in the homeowner’s info and send them a secure link. They open it, get a texted 6-digit code to prove it’s them, and sign. This protects you — nobody can say “I never signed that.”",
+      steps: [
+        "Fill in the homeowner’s info like always — name, <b>mobile number</b>, email, address, roof type. Double-check the mobile number.",
+        "There’s no <b>Sign Now</b> anymore. You’ll see a green note that the homeowner signs on their own phone. Continue to send.",
+        "We <b>text AND email</b> them a link. Your screen says <b>“Signing Link Sent — waiting for them to sign.”</b> You’re done — nothing to upload.",
+        "They open the link, type the <b>6-digit code</b> we text them, check the box to agree, and sign with their finger.",
+        "It’s created in <b>JobNimbus automatically</b> with the signed PDF the moment they finish. You and the office get a text/email that it’s signed."
+      ],
+      pdf: "/rep-remote-signing-guide.pdf",
+      date: "July 2026"
+    },
     {
       for: "inspector",
       title: "📷 Photos required — even on a No Damage roof",
@@ -120,6 +135,7 @@
   const sub = document.getElementById("sub");
   if (who === "pa") sub.textContent = "New things for Public Adjusters — and how to use them.";
   else if (who === "inspector") sub.textContent = "New things for inspectors — and how to use them.";
+  else if (who === "rep") sub.textContent = "New things for sales reps — and how to use them.";
   else if (who === "company_admin") sub.textContent = "New things for PA company owners — and how to use them.";
 
   const shown = UPDATES.filter((u) => !who || u.for === who || u.for === "both" || u.for === "all");
@@ -127,7 +143,7 @@
   if (shown.length === 0) {
     list.innerHTML = '<div class="empty">Nothing new right now. We’ll text you when there is. 👍</div>';
   } else {
-    const tagText = { pa: "For Public Adjusters", inspector: "For Inspectors", company_admin: "For Company Owners", both: "For Everyone", all: "For Everyone" };
+    const tagText = { pa: "For Public Adjusters", inspector: "For Inspectors", rep: "For Sales Reps", company_admin: "For Company Owners", both: "For Everyone", all: "For Everyone" };
     list.innerHTML = shown.map((u) => `
       <div class="card">
         <span class="tag ${u.for}">${tagText[u.for] || ""}</span>
@@ -135,6 +151,7 @@
         <p class="what">${u.what}</p>
         <div class="how-label">How to use it</div>
         <ol class="steps">${u.steps.map((s) => `<li>${s}</li>`).join("")}</ol>
+        ${u.pdf ? `<a class="pill-link" href="${u.pdf}" target="_blank" rel="noreferrer">📄 Download the printable PDF guide</a>` : ""}
         <div class="date">Added ${u.date}</div>
       </div>
     `).join("");
