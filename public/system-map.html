@@ -25,7 +25,7 @@
   .hub b{font-size:13px;display:flex;align-items:center;gap:7px;font-weight:800}
   .hub small{display:block;color:var(--muted);font-size:11px;font-weight:700;margin-top:3px}
   .h1{border-left-color:#3b82f6}.h2{border-left-color:#f59e0b}.h3{border-left-color:#8b5cf6}.h4{border-left-color:#0ea5e9}
-  .h5{border-left-color:#64748b}.h6{border-left-color:#14b8a6}.h7{border-left-color:#ec4899}.h8{border-left-color:#84cc16}
+  .h5{border-left-color:#64748b}.h6{border-left-color:#14b8a6}.h7{border-left-color:#ec4899}.h8{border-left-color:#84cc16}.h9{border-left-color:#6366f1}
   .leg{display:flex;flex-wrap:wrap;gap:12px;margin:0 0 14px;font-size:11.5px;padding:0 2px}
   .lg{display:inline-flex;align-items:center;gap:6px;font-weight:800;color:#64748b}
   .lg i{width:17px;height:17px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:11px}
@@ -61,6 +61,7 @@
   <div class="hubs" id="hubs">
     <button class="hub h1 on" data-p="inspection"><b><i class="ti ti-home"></i> Free Roof Inspection</b><small>Entry · homeowner signs</small></button>
     <button class="hub h2" data-p="setter"><b><i class="ti ti-phone"></i> Appointment Setter</b><small>Entry · setter books</small></button>
+    <button class="hub h9" data-p="inspector"><b><i class="ti ti-camera"></i> Inspector</b><small>claim · photos · result</small></button>
     <button class="hub h3" data-p="pa"><b><i class="ti ti-shield"></i> PA / Insurance</b><small>from a Damage result</small></button>
     <button class="hub h4" data-p="manager"><b><i class="ti ti-layout-dashboard"></i> Regional Manager</b><small>the command center</small></button>
     <button class="hub h5" data-p="cancel"><b><i class="ti ti-alert-triangle"></i> Cancel-review</b><small>inspector flags a cancel</small></button>
@@ -84,7 +85,7 @@
       <div class="fx"><span class="tag t-db"><i class="ti ti-database"></i> inspection row · rep = signer · signed_at</span><span class="tag t-mail"><i class="ti ti-mail"></i> Homeowner: agreement PDF + welcome pack</span><span class="tag t-mail"><i class="ti ti-mail"></i> Manager inbox: "New Inspection"</span><span class="tag t-jn"><i class="ti ti-cloud-upload"></i> Contact + Job (PA · Sit Sold Insp · loc Insurance · source = Inspection · cf_string_34 = Needs Inspection) + signed PDF</span><span class="tag t-db"><i class="ti ti-database"></i> jn_job_id · docs_signed · lat/lng</span><span class="tag t-off"><i class="ti ti-message-off"></i> no signing SMS</span></div></div>
     <div class="step" style="border-left-color:#3b82f6"><div class="st-t">2 · Inspector assigned (nearest) → inspects → records a result</div>
       <div class="fx"><span class="tag t-db"><i class="ti ti-database"></i> result + result_at + photos</span><span class="tag t-jn"><i class="ti ti-cloud-upload"></i> cf_string_34 = Damage / No Damage / Retail · cert PDF · go-back task (25 / 23 / 24)</span><span class="tag t-mail"><i class="ti ti-mail"></i> No-Damage: cert + review link (rep taps Send)</span><span class="tag t-jn"><i class="ti ti-cloud-upload"></i> Retail → status Sit Sold Insp + loc Retail + record_type Lead</span><span class="tag t-off"><i class="ti ti-message-off"></i> result rep/homeowner texts OFF</span></div>
-      <div class="fx"><button class="jump" data-go="pa"><i class="ti ti-arrow-right"></i> Damage result → PA / Insurance flow</button><button class="jump" data-go="cancel"><i class="ti ti-arrow-right"></i> Homeowner cancels → Cancel-review</button></div></div>
+      <div class="fx"><button class="jump" data-go="inspector"><i class="ti ti-arrow-right"></i> Full inspector lifecycle (claim · photos · gated hold · re-inspect)</button><button class="jump" data-go="pa"><i class="ti ti-arrow-right"></i> Damage result → PA / Insurance flow</button><button class="jump" data-go="cancel"><i class="ti ti-arrow-right"></i> Homeowner cancels → Cancel-review</button></div></div>
   </div>
 
   <!-- SETTER -->
@@ -96,6 +97,36 @@
       <div class="fx"><span class="tag t-jn"><i class="ti ti-cloud-upload"></i> Job: owners + sales_rep</span><span class="tag t-jn"><i class="ti ti-cloud-upload"></i> Contact: owner + Appointment task: owner → their calendar</span><span class="tag t-db"><i class="ti ti-database"></i> setter_appointments: assigned_at</span></div>
       <div class="fx"><button class="jump" data-go="manager"><i class="ti ti-arrow-right"></i> Assignment happens on the Regional Manager board</button></div></div>
     <div class="step" style="border-left-color:#f59e0b"><div class="st-t">3 · Rep runs the retail appointment → sells the roof</div></div>
+  </div>
+
+  <!-- INSPECTOR -->
+  <div class="panel" data-p="inspector">
+    <div class="ph"><i class="ti ti-camera"></i> Inspector lifecycle</div>
+    <div class="step" style="border-left-color:#6366f1"><div class="st-t">1 · Job reaches the inspector — 3 ways</div>
+      <div class="fx"><span class="tag t-db"><i class="ti ti-database"></i> Admin assigns (Assign Inspections) → inspector_id + claimed_at</span><span class="tag t-db"><i class="ti ti-database"></i> Inspector self-claims from "Available near you" pool</span><span class="tag t-db"><i class="ti ti-map-pin"></i> Pool sorted by distance from home/GPS · capped at max_distance_miles</span><span class="tag t-off"><i class="ti ti-message-off"></i> no SMS on assign — shows in their app list</span></div></div>
+    <div class="step" style="border-left-color:#6366f1"><div class="st-t">2 · Route &amp; photograph</div>
+      <div class="fx"><span class="tag t-db"><i class="ti ti-route"></i> Route optimizer (nearest-neighbor) from home or current GPS · Apple/Google Maps deep links</span><span class="tag t-db"><i class="ti ti-photo"></i> Photo wizard (house # → each story/slope) · resized 1600px · uploaded live to Storage inspection-photos/</span></div></div>
+    <div class="step" style="border-left-color:#6366f1"><div class="st-t">3 · Submit a result — 4 outcomes</div>
+      <div class="grp" style="margin-top:2px">Damage</div>
+      <div class="fx"><span class="tag t-db"><i class="ti ti-database"></i> result=damage + photos</span><span class="tag t-jn"><i class="ti ti-cloud-upload"></i> cf_string_34=Damage + photos→Files + Note</span><span class="tag t-jn"><i class="ti ti-cloud-upload"></i> cert PDF→Documents · go-back task type 25</span><span class="tag t-jn"><i class="ti ti-cloud-upload"></i> → PA Ops Hub (photos + signed PDF)</span></div>
+      <div class="grp">No Damage</div>
+      <div class="fx"><span class="tag t-db"><i class="ti ti-database"></i> result=no_damage</span><span class="tag t-jn"><i class="ti ti-cloud-upload"></i> cf_string_34=No Damage · cert · task type 23 · no PA</span></div>
+      <div class="grp">Retail</div>
+      <div class="fx"><span class="tag t-db"><i class="ti ti-database"></i> result=retail</span><span class="tag t-jn"><i class="ti ti-cloud-upload"></i> cf_string_34=Retail · record_type→Lead · loc→Retail · task type 24 · no PA</span></div>
+      <div class="grp">Lost (cancelled at the door)</div>
+      <div class="fx"><span class="tag t-db"><i class="ti ti-database"></i> result=lost + lost_reason</span><span class="tag t-jn"><i class="ti ti-cloud-upload"></i> cf_string_34=Lost + Note · no photos/cert/PA</span></div>
+      <div class="fx" style="margin-top:8px"><span class="tag t-off"><i class="ti ti-message-off"></i> rep + homeowner result texts/emails built but OFF (AUTO_NOTIFY=false)</span><button class="jump" data-go="pa"><i class="ti ti-arrow-right"></i> Damage → PA / Insurance</button></div></div>
+    <div class="step" style="border-left-color:#6366f1"><div class="st-t">4 · Gated inspector? (requires_confirmation)</div>
+      <div class="fx"><span class="tag t-db"><i class="ti ti-lock"></i> Result HELD · pending_confirmation=true · nothing fires to JN / cert / PA</span><span class="tag t-db"><i class="ti ti-check"></i> Manager confirms → full fan-out replays (can change the result)</span><span class="tag t-db"><i class="ti ti-x"></i> Reject → clears result, job reopens</span></div>
+      <div class="note">The hourly push-to-JN cron skips held rows, so a gated result can't slip out.</div></div>
+    <div class="step" style="border-left-color:#6366f1"><div class="st-t">5 · Re-inspect / retake (wrong house)</div>
+      <div class="fx"><span class="tag t-db"><i class="ti ti-refresh"></i> Inspector "♻ Re-inspect" on a finished job → wipes photos + result + cert stamp</span><span class="tag t-jn"><i class="ti ti-cloud-upload"></i> JN Note: "photos cleared, cert will be replaced" · job reopens</span></div></div>
+    <div class="step" style="border-left-color:#6366f1"><div class="st-t">6 · Homeowner cancels mid-inspection</div>
+      <div class="fx"><button class="jump" data-go="cancel"><i class="ti ti-arrow-right"></i> Goes to Cancel-review (manager decides)</button></div></div>
+    <div class="grp">Automation aimed at inspectors</div>
+    <div class="fx"><span class="tag t-sms"><i class="ti ti-message-2"></i> check-stale-claims (nightly): auto-releases claims &gt;2h with no result + ONE daily SMS to manager (sat-on + idle inspectors)</span><span class="tag t-jn"><i class="ti ti-cloud-upload"></i> push-pending-results (hourly): pushes result→JN · auto-archives on JN 404</span><span class="tag t-jn"><i class="ti ti-cloud-upload"></i> inspection-checker (hourly): syncs JN result changes back</span></div>
+    <div class="grp">Also</div>
+    <div class="fx"><span class="tag t-db"><i class="ti ti-switch-horizontal"></i> Dual role Inspector + PA → one-tap switch</span><span class="tag t-db"><i class="ti ti-user-off"></i> Deactivate → auto-releases pending claims (keeps completed)</span><span class="tag t-db"><i class="ti ti-user-plus"></i> Setup: address+phone → geocode → app-link invite → manager activates</span></div>
   </div>
 
   <!-- PA -->
