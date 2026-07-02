@@ -61,6 +61,15 @@
 [functions."daily-orphan-alert"]
   schedule = "0 12 * * *"
 
+# Scheduled function: weekly manager-pay invoice check. Wednesday morning
+# emails payroll (Sam) the prior week's SOLD deals that still have no invoice
+# in JobNimbus — manager override pays on the total invoiced amount, so those
+# can't be calculated until an invoice is built. Fires 13:00 & 14:00 UTC; the
+# in-function ET-hour gate keeps only 9 AM ET (one email/Wed year-round).
+# exports.config mirrors this cadence.
+[functions."cron-missing-invoice-alert"]
+  schedule = "0 13,14 * * 3"
+
 # Scheduled function: end-of-day ET inspector accountability. Auto-releases
 # stale inspector claims (claimed >2h ago, still no result) back to the
 # "Available near me" pool, then texts MANAGER_ALERT_PHONE ONE report listing
