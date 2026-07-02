@@ -2724,7 +2724,8 @@ function PASelfSchedule({ me, job }) {
     } catch (e) { setErr(e.message); setSlots([]); }
   };
   const toggle = () => { const n = !open; setOpen(n); if (n && slots === null) load(); };
-  const book = async (s, force = false) => {
+  const book = async (s, opts = {}) => {
+    const { force = false, reschedule = false } = opts;
     setBooking(s.start_at); setErr("");
     try {
       const tok = (await supabase.from("app_settings").select("value").eq("key", "visit_token").maybeSingle()).data?.value;
@@ -2734,21 +2735,21 @@ function PASelfSchedule({ me, job }) {
           action: "book", token: tok, pa_id: me.id, start_at: s.start_at, inspection_id: job.id,
           homeowner_name: job.client_name, homeowner_phone: job.mobile,
           address: [job.address, job.city, job.state, job.zip].filter(Boolean).join(", "),
-          booked_by: me.name, force,
+          booked_by: me.name, force, reschedule,
         }),
       });
       const o = await res.json().catch(() => ({}));
-      // Homeowner already has a PA appointment → change the time or book a second knowingly.
-      if (o.duplicate && !force) {
+      // Homeowner already has a PA appointment → offer to RESCHEDULE (replace it).
+      if (o.duplicate && !force && !reschedule) {
         const ex = o.existing || {};
         const when = ex.start_at ? new Date(ex.start_at).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" }) : "another time";
         setBooking("");
-        if (window.confirm(`⚠️ ${job.client_name || "This homeowner"} already has a PA appointment scheduled for ${when}${ex.pa_name ? ` with ${ex.pa_name}` : ""}.\n\nBook a SECOND appointment anyway?\n\n• OK = book anyway\n• Cancel = pick a different time`)) return book(s, true);
-        setErr("Didn't book — this homeowner already has a PA appointment. Pick a different time or leave the existing one.");
+        if (window.confirm(`⚠️ ${job.client_name || "This homeowner"} already has a PA appointment for ${when}${ex.pa_name ? ` with ${ex.pa_name}` : ""}.\n\nReschedule to the new time? This CANCELS the old appointment and books this one instead.\n\n• OK = reschedule (replace the old)\n• Cancel = keep the existing time`)) return book(s, { reschedule: true });
+        setErr("Kept the existing appointment. Pick a different time to reschedule it.");
         return;
       }
       if (!res.ok || !o.ok) throw new Error(o.error || "Couldn't book that slot");
-      setDone(s.label || "your appointment");
+      setDone((s.label || "your appointment") + (reschedule ? " (rescheduled)" : ""));
     } catch (e) { setErr(e.message); }
     setBooking("");
   };
@@ -2773,12 +2774,12 @@ function PASelfSchedule({ me, job }) {
     <div style={{ padding: 14, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, marginBottom: 12 }}>
       <button type="button" onClick={toggle}
         style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-        <span style={{ fontSize: 15, fontWeight: 800, color: "#0e7490", fontFamily: "'Oswald', sans-serif" }}>📅 Schedule your appointment</span>
+        <span style={{ fontSize: 15, fontWeight: 800, color: "#0e7490", fontFamily: "'Oswald', sans-serif" }}>📅 Schedule / reschedule appointment</span>
         <span style={{ fontSize: 18, color: "#0e7490" }}>{open ? "▴" : "▾"}</span>
       </button>
       {open && (
         <div style={{ marginTop: 10 }}>
-          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 10 }}>These are <b>your</b> open times only — the rep's booker shows every adjuster; this is just you. Tap a time to set it with {job.client_name || "the homeowner"}.</div>
+          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 10 }}>These are <b>your</b> open times. Tap a time to set it with {job.client_name || "the homeowner"}. <b>Nobody home?</b> Just tap a new time here — it'll offer to reschedule (cancels the old appointment and books the new one).</div>
           {err && <div style={{ color: "#b91c1c", fontSize: 13, marginBottom: 8 }}>{err}</div>}
           {slots === null ? <div style={{ color: "#9ca3af", fontSize: 13 }}>Loading your availability…</div>
             : !dayKeys.length ? <div style={{ color: "#6b7280", fontSize: 13 }}>No open slots in your availability for the next 2 weeks. Open more under your Availability tab.</div>

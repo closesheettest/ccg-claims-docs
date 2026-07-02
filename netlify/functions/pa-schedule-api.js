@@ -205,11 +205,26 @@ async function book(body) {
   const bookedBy = String(body.booked_by || "").trim() || "Dialer";
   const notes = String(body.notes || "").slice(0, 1000) || null;
 
+  // Reschedule (e.g. nobody home): cancel this homeowner's existing scheduled
+  // appointment(s) FIRST, so booking the new time is a MOVE, not a second appt.
+  if (body.reschedule) {
+    const cancelQ = inspectionId
+      ? `pa_appointments?inspection_id=eq.${encodeURIComponent(inspectionId)}&status=eq.scheduled`
+      : phone ? `pa_appointments?homeowner_phone=eq.${encodeURIComponent(phone)}&status=eq.scheduled` : null;
+    if (cancelQ) {
+      await fetch(`${SB_URL}/rest/v1/${cancelQ}`, {
+        method: "PATCH", headers: { ...sb, Prefer: "return=minimal" },
+        body: JSON.stringify({ status: "cancelled", notes: "Rescheduled — nobody home" }),
+      }).catch(() => {});
+    }
+  }
+
   // Per-HOMEOWNER duplicate guard: if this homeowner already has a scheduled PA
   // appointment (matched by inspection, or by phone when there's no inspection
   // id), don't silently create a second one. Return the existing appt so the rep
-  // can change the time or knowingly book anyway (force:true). Skipped on force.
-  if (!body.force) {
+  // can change the time or knowingly book anyway (force:true). Skipped on force
+  // or reschedule (a reschedule already cancelled the old one above).
+  if (!body.force && !body.reschedule) {
     const dupQ = inspectionId
       ? `pa_appointments?inspection_id=eq.${encodeURIComponent(inspectionId)}&status=eq.scheduled&select=id,start_at,pa_id,homeowner_name&order=start_at&limit=1`
       : phone
