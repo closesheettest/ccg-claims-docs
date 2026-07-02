@@ -3,7 +3,7 @@
 // Rep taps "Send to homeowner" on the Free Roof Inspection form. We DON'T write
 // to inspections or JobNimbus yet — we stash the rep-entered data in
 // pending_signings, mint a random token, and text + email the homeowner a
-// /?sign=<token> link (expires in 72h). Also handles action:"resend".
+// /?sign_insp=<token> link (expires in 72h). Also handles action:"resend".
 //
 // POST { action?:"create"|"resend", token?, data:{ client_name, mobile, email,
 //        address, city, state, zip, date, roof_type, lead_source, spanish_only,
@@ -73,7 +73,7 @@ exports.handler = async (event) => {
   await patchByToken(token, { sent_channels: sent.join("+") || null, sent_at: sent.length ? new Date().toISOString() : null });
 
   if (!sent.length) return json(200, { ok: true, token, sent, warning: "Saved, but the link wasn't delivered (no valid phone/email or send failed)." });
-  return json(200, { ok: true, token, sent, link: `${siteBase()}/?sign=${token}` });
+  return json(200, { ok: true, token, sent, link: `${siteBase()}/?sign_insp=${token}` });
 };
 
 async function resend(body) {
@@ -91,11 +91,11 @@ async function resend(body) {
     expires_at: new Date(Date.now() + EXPIRY_MS).toISOString(),
   });
   if (!sent.length) return json(200, { ok: true, token, sent, warning: "Couldn't resend (no valid phone/email or send failed)." });
-  return json(200, { ok: true, token, sent, link: `${siteBase()}/?sign=${token}` });
+  return json(200, { ok: true, token, sent, link: `${siteBase()}/?sign_insp=${token}` });
 }
 
 async function sendLink(row) {
-  const link = `${siteBase()}/?sign=${row.token}`;
+  const link = `${siteBase()}/?sign_insp=${row.token}`;
   const name = row.client_name || "there";
   const sent = [];
   if (String(row.mobile || "").replace(/\D/g, "").length >= 10) {

@@ -7711,6 +7711,272 @@ function CancelReviewPage({ inspectionId }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// RemoteSignPage — the homeowner's /?sign_insp=<token> page. The rep filled
+// the Free Roof Inspection form and tapped "Send to homeowner"; this is where
+// the homeowner reviews it on their OWN phone, proves the phone is theirs with
+// a texted one-time code, agrees to sign electronically, draws their signature,
+// and submits. Only then (server-side, in finalize-remote-signing) does the
+// inspections row + JobNimbus deal get created, with a full audit trail baked
+// into the PDF. Self-contained — does not touch the rep intake flow.
+// ─────────────────────────────────────────────────────────────────────
+function RemoteSignPage({ token }) {
+  const [rec, setRec] = useState(undefined);       // undefined=loading, null=invalid
+  const [reason, setReason] = useState("");
+  const [stage, setStage] = useState("loading");   // loading|otp|sign|submitting|done|error
+  const [otpTo, setOtpTo] = useState("");
+  const [code, setCode] = useState("");
+  const [otpMsg, setOtpMsg] = useState("");
+  const [otpBusy, setOtpBusy] = useState(false);
+  const [phoneVerified, setPhoneVerified] = useState(null);
+  const [consent, setConsent] = useState(false);
+  const [sig, setSig] = useState("");
+  const [attempted, setAttempted] = useState(false);
+  const [audit, setAudit] = useState(null);
+  const [err, setErr] = useState("");
+  const submittingRef = useRef(false);
+
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const r = await fetch("/.netlify/functions/get-pending-signing", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) });
+        const j = await r.json().catch(() => ({}));
+        if (!live) return;
+        if (!j.ok) { setReason(j.reason || "invalid"); setRec(null); setStage("error"); return; }
+        setRec(j.record);
+        if (j.record.phone_verified_at) { setPhoneVerified({ number: j.record.phone_verified_number, at: j.record.phone_verified_at }); setStage("sign"); }
+        else if (j.record.has_phone) { setStage("otp"); requestCode(); }
+        else { setStage("sign"); }
+      } catch { if (live) { setReason("network"); setRec(null); setStage("error"); } }
+    })();
+    return () => { live = false; };
+  }, [token]);
+
+  async function requestCode() {
+    setOtpBusy(true); setOtpMsg("Sending code…");
+    try {
+      const r = await fetch("/.netlify/functions/send-signing-otp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) });
+      const j = await r.json().catch(() => ({}));
+      if (j.ok) { setOtpTo(j.sent_to || ""); setOtpMsg(""); }
+      else if (j.no_phone) { setStage("sign"); }
+      else setOtpMsg(j.error || "Couldn't send the code. Tap Resend.");
+    } catch { setOtpMsg("Couldn't send the code. Tap Resend."); }
+    setOtpBusy(false);
+  }
+
+  async function verifyCode() {
+    if (code.replace(/\D/g, "").length !== 6) { setOtpMsg("Enter the 6-digit code we texted you."); return; }
+    setOtpBusy(true); setOtpMsg("");
+    try {
+      const r = await fetch("/.netlify/functions/verify-signing-otp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, code }) });
+      const j = await r.json().catch(() => ({}));
+      if (j.ok) { setPhoneVerified({ number: j.phone_verified_number, at: j.phone_verified_at }); setStage("sign"); }
+      else { setOtpMsg((j.error || "Incorrect code") + (j.attempts_left != null ? ` — ${j.attempts_left} tries left` : "")); if (j.need_code) setCode(""); }
+    } catch { setOtpMsg("Something went wrong — try again."); }
+    setOtpBusy(false);
+  }
+
+  // Self-contained PDF generation (mirrors the rep-side generatePDF: scale
+  // fallback for weak phones + the empty-render guard downstream).
+  async function remotePdf(selector) {
+    const el = document.querySelector(selector);
+    if (!el) throw new Error("Document not found.");
+    const opt = (scale) => ({
+      margin: 0, filename: "Free-Roof-Inspection-Agreement.pdf", image: { type: "jpeg", quality: 0.95 },
+      html2canvas: { scale, useCORS: true, allowTaint: true, logging: false, backgroundColor: "#ffffff", ignoreElements: (x) => x.tagName === "IMG" && x.naturalWidth === 0, scrollX: 0, scrollY: 0 },
+      jsPDF: { unit: "in", format: "letter", orientation: "portrait" }, pagebreak: { mode: ["css"] },
+    });
+    let last = null;
+    for (const s of [1.5, 1, 0.75]) {
+      try { const b = await html2pdf().set(opt(s)).from(el).outputPdf("blob"); if (b && b.size >= 20000) return b; if (b && (!last || b.size > last.size)) last = b; }
+      catch (e) { console.warn("remote PDF scale", s, "failed:", e?.message); }
+    }
+    return last;
+  }
+  const toB64 = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onloadend = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); });
+
+  async function submit() {
+    setAttempted(true); setErr("");
+    if (!consent) { setErr("Please check the box to agree to sign electronically."); return; }
+    if (!sig) { setErr("Please draw your signature in the box."); return; }
+    if (submittingRef.current) return;
+    submittingRef.current = true; setStage("submitting");
+    try {
+      const ar = await fetch("/.netlify/functions/sign-audit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ signMethod: "remote_esign", signedByEmail: rec.email || "", signedByName: rec.client_name || "" }) });
+      const a = await ar.json().catch(() => ({}));
+      const consentText = "I agree to use electronic records and signatures for this Free Roof Inspection Agreement.";
+      const auditObj = {
+        signedAt: a.signedAt || new Date().toISOString(), signedIp: a.signedIp || "", signedUserAgent: a.signedUserAgent || navigator.userAgent, signMethod: "remote_esign",
+        phoneVerifiedNumber: phoneVerified?.number || "", phoneVerifiedAt: phoneVerified?.at || "",
+        consentText, consentAt: new Date().toISOString(),
+        preparedBy: rec.prepared_by_rep_name || rec.sales_rep_name || "", preparedAt: rec.prepared_at || "",
+        sentChannels: rec.sent_channels || "", sentAt: rec.sent_at || "", openedAt: rec.opened_at || "", documentVersion: rec.document_version || "",
+      };
+      setAudit(auditObj);
+      await new Promise((r) => setTimeout(r, 300)); // let the printable paint the signature + audit
+      const blob = await remotePdf("#remote-inspection-printable");
+      if (!blob || blob.size < 20000) { setErr("The document didn't generate on your device — please tap Submit again."); submittingRef.current = false; setStage("sign"); return; }
+      const b64 = String(await toB64(blob)).split(",")[1];
+      if (!b64) { setErr("The document didn't encode — please tap Submit again."); submittingRef.current = false; setStage("sign"); return; }
+      const fr = await fetch("/.netlify/functions/finalize-remote-signing", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, pdfBase64: b64, audit: { signedAt: auditObj.signedAt, signedIp: auditObj.signedIp, signedUserAgent: auditObj.signedUserAgent, consentText, consentAt: auditObj.consentAt } }),
+      });
+      const fj = await fr.json().catch(() => ({}));
+      if (!fj.ok) { setErr(fj.error || "Could not finalize — please try again."); submittingRef.current = false; setStage("sign"); return; }
+      setStage("done");
+    } catch (e) { setErr(e?.message || "Something went wrong — please try again."); submittingRef.current = false; setStage("sign"); }
+  }
+
+  const wrap = { minHeight: "100vh", background: "#f1f5f9", fontFamily: "'Nunito', system-ui, sans-serif", padding: "18px 14px" };
+  const card = { maxWidth: 540, margin: "0 auto", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "20px 18px", boxShadow: "0 1px 4px rgba(0,0,0,.06)" };
+  const btn = (on) => ({ width: "100%", padding: "14px 16px", borderRadius: 10, border: "none", background: on ? "#199c2e" : "#cbd5e1", color: "#fff", fontWeight: 800, fontSize: 16, fontFamily: "'Oswald', sans-serif", cursor: on ? "pointer" : "not-allowed" });
+  const addr = rec ? [rec.address, rec.city, rec.state, rec.zip].filter(Boolean).join(", ") : "";
+  const partyName = rec?.client_name || "";
+  const docDate = rec?.date || new Date().toLocaleDateString();
+
+  function Frame({ children }) {
+    return (<div style={wrap}><div style={{ maxWidth: 540, margin: "0 auto 12px", textAlign: "center" }}><img src="/uss-header.png" alt="U.S. Shingle & Metal" style={{ height: 46, objectFit: "contain" }} /></div>{children}</div>);
+  }
+
+  if (stage === "loading") return <Frame><div style={card}><div style={{ textAlign: "center", color: "#6b7280", padding: 24 }}>Loading your agreement…</div></div></Frame>;
+
+  if (stage === "error") {
+    const msg = { expired: "This signing link has expired. Please ask your rep to send a new one.", signed: "This agreement has already been signed. Thank you!", canceled: "This signing request was canceled. Please contact your rep.", not_found: "We couldn't find this signing request. Please check the link or ask your rep to resend.", network: "We couldn't load the page. Please check your connection and try again." }[reason] || "This link isn't valid. Please ask your rep to resend it.";
+    return <Frame><div style={card}><div style={{ fontSize: 18, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#0f172a", marginBottom: 8 }}>{reason === "signed" ? "✅ Already signed" : "Link unavailable"}</div><div style={{ color: "#374151", fontSize: 15, lineHeight: 1.5 }}>{msg}</div></div></Frame>;
+  }
+
+  if (stage === "done") {
+    return <Frame><div style={card}><div style={{ textAlign: "center" }}><div style={{ fontSize: 44 }}>✅</div><div style={{ fontSize: 22, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#0f172a", margin: "6px 0 8px" }}>You're all set!</div><div style={{ color: "#374151", fontSize: 15, lineHeight: 1.6 }}>Thank you, {partyName}. Your Free Roof Inspection Agreement is signed{rec?.email ? " — a copy has been emailed to you" : ""}. We'll be in touch to schedule your inspection.</div></div></div>{printable(true)}</Frame>;
+  }
+
+  return (
+    <Frame>
+      <div style={card}>
+        <div style={{ fontSize: 20, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#0f172a", marginBottom: 4 }}>Free Roof Inspection Agreement</div>
+        <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 16 }}>{partyName}{addr ? ` · ${addr}` : ""}</div>
+
+        {stage === "otp" && (
+          <div>
+            <div style={{ fontSize: 15, color: "#111827", lineHeight: 1.5, marginBottom: 12 }}>To confirm it's you, enter the 6-digit code we texted{otpTo ? ` to ${otpTo}` : " to your phone"}.</div>
+            <input inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000"
+              style={{ width: "100%", boxSizing: "border-box", textAlign: "center", letterSpacing: 8, fontSize: 30, fontWeight: 800, padding: "12px 0", borderRadius: 10, border: "2px solid #cbd5e1", marginBottom: 10, fontFamily: "'Oswald', sans-serif" }} />
+            {otpMsg ? <div style={{ color: otpMsg.includes("Sending") ? "#6b7280" : "#dc2626", fontSize: 13, marginBottom: 10 }}>{otpMsg}</div> : null}
+            <button type="button" onClick={verifyCode} disabled={otpBusy} style={btn(!otpBusy)}>{otpBusy ? "Checking…" : "Verify & continue"}</button>
+            <button type="button" onClick={requestCode} disabled={otpBusy} style={{ width: "100%", marginTop: 10, padding: "10px", background: "none", border: "none", color: "#0e7490", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Resend code</button>
+          </div>
+        )}
+
+        {stage === "sign" && (
+          <div>
+            {phoneVerified ? <div style={{ background: "#dcfce7", color: "#065f46", borderRadius: 8, padding: "7px 12px", fontSize: 12.5, fontWeight: 700, marginBottom: 12 }}>✓ Phone verified — {phoneVerified.number}</div> : null}
+            <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: "12px 14px", maxHeight: 210, overflowY: "auto", fontSize: 12.5, color: "#374151", lineHeight: 1.6, background: "#fafafa", marginBottom: 14 }}>
+              <p style={{ margin: "0 0 8px" }}>Client agrees to allow {INSPECTION_COMPANY.name} (Company) to perform a free roof inspection at the above address and to forward all pictures and findings to a Public Adjuster for review. The Company maintains all required licenses and insurance and will not perform repairs during the inspection.</p>
+              <p style={{ margin: "0 0 8px" }}>Client understands that they do not need to be present during the inspection; however, Company personnel will knock on the door upon arrival.</p>
+              <p style={{ margin: "0 0 8px" }}>If the Public Adjuster determines that storm damage exists, they may proceed with filing an insurance claim provided the Client has hired them. Client authorizes the Public Adjuster to notify the Company of its findings and to keep the Company updated throughout the claims process.</p>
+              <p style={{ margin: 0 }}>Client acknowledges that the Company is a licensed roofing contractor and cannot discuss policy coverages, insurance requirements, or statutory guidelines. Any such questions should be directed to the Public Adjuster or the Client's homeowner's insurance carrier.</p>
+            </div>
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 14, cursor: "pointer", fontSize: 13.5, color: "#111827" }}>
+              <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} style={{ marginTop: 3, width: 18, height: 18 }} />
+              <span>I agree to use <strong>electronic records and signatures</strong> for this agreement, and I confirm I am {partyName || "the homeowner"} (or authorized to sign for them).</span>
+            </label>
+            <div style={{ opacity: consent ? 1 : 0.5, pointerEvents: consent ? "auto" : "none" }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 6 }}>Your signature</div>
+              <SignaturePad title="" value={sig} onChange={setSig} required missing={attempted && !sig} />
+            </div>
+            {err ? <div style={{ color: "#dc2626", fontSize: 13.5, fontWeight: 700, margin: "10px 0" }}>{err}</div> : null}
+            <button type="button" onClick={submit} disabled={!consent} style={{ ...btn(consent), marginTop: 14 }}>Sign &amp; submit</button>
+            <div style={{ fontSize: 11, color: "#9ca3af", textAlign: "center", marginTop: 10 }}>By tapping Sign &amp; submit you adopt the signature above as your legally binding signature.</div>
+          </div>
+        )}
+
+        {stage === "submitting" && <div style={{ textAlign: "center", color: "#6b7280", padding: 20 }}>Submitting your signed agreement…</div>}
+      </div>
+      {printable(false)}
+    </Frame>
+  );
+
+  // Hidden printable — the exact agreement + a full audit-trail page. Rendered
+  // off-screen so remotePdf() can capture it at submit time.
+  function printable() {
+    return (
+      <div style={{ position: "fixed", left: "-9999px", top: 0, pointerEvents: "none", zIndex: -1 }}>
+        <div id="remote-inspection-printable" style={{ fontFamily: "Arial, Helvetica, sans-serif", background: "#fff", width: "8.5in", padding: "0.6in 0.7in", boxSizing: "border-box" }}>
+          <div style={{ textAlign: "center", marginBottom: 24 }}>
+            <img src="/uss-header.png" alt="U.S. Shingle & Metal" style={{ height: 70, objectFit: "contain", marginBottom: 10 }} />
+            <div style={{ fontSize: 20, fontWeight: 700, color: "#0a0a0a", marginBottom: 4, textTransform: "uppercase", letterSpacing: 1.5 }}>Free Roof Inspection Agreement</div>
+            <div style={{ width: 60, height: 3, background: "#c9a35c", margin: "0 auto 10px", borderRadius: 2 }} />
+            <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.7 }}>
+              {INSPECTION_COMPANY.name} &nbsp;|&nbsp; {INSPECTION_COMPANY.address}<br />
+              Phone: {INSPECTION_COMPANY.phone} &nbsp;|&nbsp; Email: {INSPECTION_COMPANY.email} &nbsp;|&nbsp; License #: {INSPECTION_COMPANY.license}
+            </div>
+            <div style={{ borderBottom: "2px solid #0a0a0a", marginTop: 14 }} />
+          </div>
+          <div style={{ display: "grid", gap: 6, fontSize: 14, marginBottom: 20 }}>
+            <div><strong>Date:</strong> {docDate}</div>
+            <div><strong>Client:</strong> {partyName}</div>
+            <div><strong>Mobile:</strong> {rec?.mobile || ""}</div>
+            <div><strong>Address:</strong> {rec?.address || ""} &nbsp; <strong>City:</strong> {rec?.city || ""} &nbsp; <strong>St:</strong> {rec?.state || ""} &nbsp; <strong>Zip:</strong> {rec?.zip || ""}</div>
+            <div><strong>Email:</strong> {rec?.email || ""}</div>
+          </div>
+          <div style={{ fontSize: 13, lineHeight: 1.7, marginBottom: 28, color: "#111827" }}>
+            <p style={{ margin: "0 0 10px" }}>Client agrees to allow {INSPECTION_COMPANY.name} (Company) to perform a free roof inspection at the above address and to forward all pictures and findings to a Public Adjuster for review. The Company maintains all required licenses and insurance and will not perform repairs during the inspection.</p>
+            <p style={{ margin: "0 0 10px" }}>Client understands that they do not need to be present during the inspection; however, Company personnel will knock on the door upon arrival.</p>
+            <p style={{ margin: "0 0 10px" }}>If the Public Adjuster determines that storm damage exists, they may proceed with filing an insurance claim provided the Client has hired them. Client authorizes the Public Adjuster to notify the Company of its findings and to keep the Company updated throughout the claims process.</p>
+            <p style={{ margin: 0 }}>Client acknowledges that the Company is a licensed roofing contractor and cannot discuss policy coverages, insurance requirements, or statutory guidelines. Any such questions should be directed to the Public Adjuster or the Client's homeowner's insurance carrier.</p>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 40, marginTop: 20 }}>
+            <div>
+              <div style={{ marginBottom: 4, fontSize: 12 }}>Client:</div>
+              <div style={{ borderBottom: "1px solid #000", minHeight: 50, display: "flex", alignItems: "flex-end", paddingBottom: 4, marginBottom: 4 }}>
+                {sig ? <img src={sig} alt="Client signature" style={{ maxHeight: 44, objectFit: "contain" }} /> : null}
+              </div>
+              <div style={{ fontSize: 11, color: "#374151" }}>{partyName}</div>
+              <div style={{ fontSize: 12, marginTop: 8 }}>Date: {docDate}</div>
+            </div>
+            <div>
+              <div style={{ marginBottom: 4, fontSize: 12 }}>Representative:</div>
+              <div style={{ borderBottom: "1px solid #000", minHeight: 50, display: "flex", alignItems: "flex-end", paddingBottom: 4, marginBottom: 4 }}>
+                <img src={REP_FIXED.signatureImage} alt="Rep signature" style={{ maxHeight: 44, objectFit: "contain" }} />
+              </div>
+              <div style={{ fontSize: 11, color: "#374151" }}>{rec?.sales_rep_name || REP_FIXED.name}</div>
+              <div style={{ fontSize: 12, marginTop: 8 }}>Date: {docDate}</div>
+            </div>
+          </div>
+          {/* Audit trail page */}
+          <div style={{ marginTop: 40, paddingTop: 24, borderTop: "2px solid #0a0a0a", pageBreakBefore: "always" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#0a0a0a", marginBottom: 14, textTransform: "uppercase", letterSpacing: 1 }}>Signing Audit Trail</div>
+            <div style={{ display: "grid", gap: 6, fontSize: 12 }}>
+              {[
+                ["Document", `Free Roof Inspection Agreement${rec?.document_version ? ` (${rec.document_version})` : ""}`],
+                ["Signed by", partyName],
+                ["Signer email", rec?.email || "—"],
+                ["Prepared by", audit?.preparedBy || rec?.sales_rep_name || "—"],
+                ["Prepared at", audit?.preparedAt || rec?.prepared_at || "—"],
+                ["Link sent", `${rec?.sent_channels || "—"}${audit?.sentAt || rec?.sent_at ? ` at ${audit?.sentAt || rec?.sent_at}` : ""}`],
+                ["Link opened at", audit?.openedAt || rec?.opened_at || "—"],
+                ["Phone verified", phoneVerified ? `${phoneVerified.number} at ${phoneVerified.at}` : "not verified (email link)"],
+                ["Consent accepted", audit?.consentAt ? `${audit.consentAt} — "${audit.consentText}"` : "—"],
+                ["Signed at", audit?.signedAt || new Date().toISOString()],
+                ["IP address", audit?.signedIp || "—"],
+                ["Sign method", audit?.signMethod || "remote_esign"],
+                ["Browser / device", audit?.signedUserAgent || (typeof navigator !== "undefined" ? navigator.userAgent : "—")],
+              ].map(([label, value]) => (
+                <div key={label} style={{ display: "grid", gridTemplateColumns: "150px 1fr", gap: 8, padding: "6px 10px", background: "#f8fafc", borderRadius: 6, border: "1px solid #e5e7eb" }}>
+                  <div style={{ fontWeight: 700, color: "#374151" }}>{label}</div>
+                  <div style={{ color: "#111827", wordBreak: "break-all" }}>{value}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ marginTop: 14, fontSize: 11, color: "#6b7280", textAlign: "center" }}>This audit trail is automatically generated and serves as a record of the electronic signing event.</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+}
+
 export default function App() {
   // Early-return URL param routing for one-off public pages — these
   // don't share state with the rest of the App, so we short-circuit
@@ -7798,6 +8064,14 @@ export default function App() {
     const correctId = params.get("correct");
     if (correctId && correctId.trim()) {
       return <CorrectionPage inspectionId={correctId.trim()} />;
+    }
+    // /?sign_insp=<token> — the homeowner's remote e-signature page for the
+    // Free Roof Inspection. The rep filled the form and tapped "Send to
+    // homeowner"; the homeowner opens this on their own phone, verifies with a
+    // texted one-time code, consents, signs, and submits. Self-contained.
+    const signInspToken = params.get("sign_insp");
+    if (signInspToken && signInspToken.trim()) {
+      return <RemoteSignPage token={signInspToken.trim()} />;
     }
     // /?training=<token> — William's private daily ride-along picker. He
     // checks off which active reps rode with him for field training today.
