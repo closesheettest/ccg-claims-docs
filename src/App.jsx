@@ -8290,6 +8290,7 @@ export default function App() {
   const [inspSigFont, setInspSigFont] = useState(SIGNATURE_FONTS[0]);
   const [inspSubmitting, setInspSubmitting] = useState(false);
   const [inspSending, setInspSending] = useState(false);   // "Send to homeowner" (remote e-sign) in flight
+  const [linkSentInfo, setLinkSentInfo] = useState(null);  // {name, channels} — set after a signing link is sent, so the confirmation screen shows "waiting to sign" (not "signed")
   // Synchronous re-entrancy guard. State updates from setInspSubmitting
   // don't apply until the next render, so a fast double-tap can fire
   // submitInspection twice before the button visually disables. The
@@ -10960,7 +10961,7 @@ const renderSmsTemplate = (key, vars) => {
           setPendingSend(false);
           if (!r.ok || !j.ok) { alert(j.error || "Could not send the signing link — check the phone/email and try again."); return; }
           const channels = (j.sent || []).map((c) => (c === "sms" ? "text" : c)).join(" & ") || "link";
-          alert(`✅ Signing link sent by ${channels} to ${clientName}.\n\nThey'll confirm their phone with a 6-digit code, review, and sign on their own device. It lands in JobNimbus once they finish.`);
+          setLinkSentInfo({ name: clientName, channels });
           setView("thankyou");
         } catch (e) {
           setIsSubmitting(false);
@@ -14604,26 +14605,42 @@ if (!hasDamage) {
                   borderRadius: 28, padding: "40px 36px", textAlign: "center",
                   marginBottom: 24, color: "#fff",
                 }}>
-                  <div style={{ fontSize: 72, marginBottom: 16 }}>✅</div>
+                  <div style={{ fontSize: 72, marginBottom: 16 }}>{linkSentInfo ? "📲" : "✅"}</div>
                   <div style={{ fontSize: 34, fontWeight: 700, fontFamily: "'Oswald', sans-serif", marginBottom: 12 }}>
-                    Documents Signed!
+                    {linkSentInfo ? "Signing Link Sent!" : "Documents Signed!"}
                   </div>
                   <div style={{ fontSize: 18, fontFamily: "'Nunito', sans-serif", fontWeight: 600, opacity: 0.93, lineHeight: 1.6 }}>
-                    {[data.homeowner1, data.homeowner2].filter(Boolean).join(" & ")} has signed. PDFs have been emailed to everyone.
+                    {linkSentInfo
+                      ? `We texted & emailed ${linkSentInfo.name} a secure link. They'll confirm their phone with a 6-digit code, review, and sign on their own device.`
+                      : `${[data.homeowner1, data.homeowner2].filter(Boolean).join(" & ")} has signed. PDFs have been emailed to everyone.`}
                   </div>
                 </div>
 
-                {/* JN reminder */}
-                <div style={{ background: "#fffbeb", border: "2px solid #f59e0b", borderRadius: 20, padding: "20px 24px", marginBottom: 20 }}>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: "#92400e", fontFamily: "'Oswald', sans-serif", marginBottom: 10, letterSpacing: "0.03em" }}>
-                    ⚠️ Don't Forget — Update JobNimbus
+                {linkSentInfo ? (
+                  /* Waiting-to-sign note — nothing for the rep to do; it auto-lands in JN once they sign */
+                  <div style={{ background: "#eff6ff", border: "2px solid #93c5fd", borderRadius: 20, padding: "20px 24px", marginBottom: 20 }}>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: "#1e40af", fontFamily: "'Oswald', sans-serif", marginBottom: 10, letterSpacing: "0.03em" }}>
+                      ⏳ Waiting for {linkSentInfo.name} to sign
+                    </div>
+                    <div style={{ display: "grid", gap: 8, fontSize: 14, color: "#1e3a8a", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
+                      <div>• They open the link, verify their phone with a texted code, and sign.</div>
+                      <div>• It's created in JobNimbus automatically once they finish — nothing to upload.</div>
+                      <div>• You (and the office) get a text/email when it's signed. The link is good for 72 hours.</div>
+                    </div>
                   </div>
-                  <div style={{ display: "grid", gap: 8, fontSize: 14, color: "#78350f", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
-                    <div>1. Go to JobNimbus and find or create this contact</div>
-                    <div>2. Update all fields (address, insurance, policy #, etc.)</div>
-                    <div>3. Upload the signed inspection form from your email</div>
+                ) : (
+                  /* JN reminder (sign-now completion only) */
+                  <div style={{ background: "#fffbeb", border: "2px solid #f59e0b", borderRadius: 20, padding: "20px 24px", marginBottom: 20 }}>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: "#92400e", fontFamily: "'Oswald', sans-serif", marginBottom: 10, letterSpacing: "0.03em" }}>
+                      ⚠️ Don't Forget — Update JobNimbus
+                    </div>
+                    <div style={{ display: "grid", gap: 8, fontSize: 14, color: "#78350f", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
+                      <div>1. Go to JobNimbus and find or create this contact</div>
+                      <div>2. Update all fields (address, insurance, policy #, etc.)</div>
+                      <div>3. Upload the signed inspection form from your email</div>
+                    </div>
                   </div>
-                </div>
+                )}
 
                 <div style={{ background: "#fff", borderRadius: 20, border: "1px solid #e5e7eb", padding: "24px 28px", marginBottom: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
                   <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827", marginBottom: 14, letterSpacing: "0.02em" }}>Summary</div>
@@ -14651,11 +14668,11 @@ if (!hasDamage) {
                   </div>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  <button type="button" onClick={() => { setView("input"); setData(prev => ({ ...prev, homeowner1: "", homeowner2: "", phone: "", signerEmail: "", address: "", city: "", state: "", zip: "" })); setRepSearch(""); window.scrollTo({ top: 0 }); }}
+                  <button type="button" onClick={() => { setLinkSentInfo(null); setView("input"); setData(prev => ({ ...prev, homeowner1: "", homeowner2: "", phone: "", signerEmail: "", address: "", city: "", state: "", zip: "" })); setRepSearch(""); window.scrollTo({ top: 0 }); }}
                     style={{ padding: "14px", borderRadius: 14, border: "2px solid #199c2e", background: "#fff", color: "#199c2e", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
                     ✚ New Client
                   </button>
-                  <button type="button" onClick={() => { setView("input"); window.scrollTo({ top: 0 }); }}
+                  <button type="button" onClick={() => { setLinkSentInfo(null); setView("input"); window.scrollTo({ top: 0 }); }}
                     style={{ padding: "14px", borderRadius: 14, border: "none", background: "#199c2e", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
                     ← Back to Intake
                   </button>
