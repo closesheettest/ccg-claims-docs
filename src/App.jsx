@@ -13654,27 +13654,14 @@ if (!hasDamage) {
                   Signing option
                 </div>
 
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns:
-                      "repeat(auto-fit, minmax(220px, 1fr))",
-                    gap: 12,
-                  }}
-                >
-                  <Button
-                    variant={signMode === "now" ? "default" : "outline"}
-                    onClick={() => setSignMode("now")}
-                  >
-                    <FileSignature size={16} /> Sign Now
-                  </Button>
-
-                  <Button
-                    variant={signMode === "send" ? "default" : "outline"}
-                    onClick={() => setSignMode("send")}
-                  >
-                    <Send size={16} /> Send for Signing
-                  </Button>
+                {/* On-device signing removed — every homeowner signs remotely on
+                    their own phone (with the 6-digit phone-code + audit trail) so
+                    no signature can be disputed as "I never signed it." */}
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "14px 16px", borderRadius: 12, background: "#f0fdf4", border: "1px solid #86efac" }}>
+                  <Send size={18} style={{ marginTop: 2, flexShrink: 0, color: "#166534" }} />
+                  <div style={{ fontSize: 13.5, color: "#166534", fontWeight: 600, lineHeight: 1.55 }}>
+                    The homeowner signs on their <strong>own phone</strong>. When you continue, we text &amp; email them a secure link — they confirm their phone with a 6-digit code, then review &amp; sign. It lands in JobNimbus with a full audit trail.
+                  </div>
                 </div>
               </div>
 
@@ -14617,7 +14604,7 @@ if (!hasDamage) {
               </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <button type="button" onClick={() => { setView("input"); setSignMode("now"); setRepSearch(""); }}
+              <button type="button" onClick={() => { setView("input"); setSignMode("send"); setRepSearch(""); }}
                 style={{ padding: "14px", borderRadius: 14, border: "2px solid #199c2e", background: "#fff", color: "#199c2e", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
                 ✚ New Intake
               </button>
