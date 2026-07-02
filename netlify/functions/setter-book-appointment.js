@@ -71,8 +71,19 @@ exports.handler = async (event) => {
     const rSetterShort = (() => { const p = String(row.setter_name || "").split(/\s+/).filter(Boolean); return p.length >= 2 ? `${p[0]} ${p[1][0]}.` : (row.setter_name || "Setter"); })();
     const apptSec = Math.floor(new Date(row.appt_at).getTime() / 1000);
     try {
-      const cr = await jnPost("contacts", { first_name: first, last_name: last, display_name: nm, mobile_phone: row.phone || "", address_line1: street, city: rCity, state_text: rState, zip: rZip });
-      const contactId = cr.jnid || cr.id;
+      let contactId = await findExistingContact(row.phone, nm);
+      if (!contactId) {
+        try {
+          const cr = await jnPost("contacts", { first_name: first, last_name: last, display_name: nm, mobile_phone: row.phone || "", address_line1: street, city: rCity, state_text: rState, zip: rZip });
+          contactId = cr.jnid || cr.id;
+        } catch (e) {
+          if (!/duplicate/i.test(e.message || "")) throw e;
+          // JN says duplicate but we couldn't find it — create with a unique name.
+          const suffix = String(row.phone || "").replace(/\D/g, "").slice(-4) || String(apptSec).slice(-4);
+          const cr2 = await jnPost("contacts", { first_name: first, last_name: last, display_name: `${nm} (${suffix})`, mobile_phone: row.phone || "", address_line1: street, city: rCity, state_text: rState, zip: rZip });
+          contactId = cr2.jnid || cr2.id;
+        }
+      }
       if (!contactId) throw new Error("contact create failed");
       const job = await jnPost("jobs", {
         name: `${nm}${street ? ` - ${street}` : ""}`.trim(),
@@ -147,14 +158,30 @@ exports.handler = async (event) => {
       } catch { /* couldn't check status → treat as a normal new appointment */ }
     }
     const fullName = nameOf(c, body);
+    // Reuse an existing JN contact (by phone/name) so we don't hit JN's
+    // "duplicate display name" 400 when the homeowner already exists.
+    if (!contactId && !test) contactId = await findExistingContact(c.mobile, fullName);
     if (!contactId) {
-      const cr = await jnPost("contacts", {
-        first_name: c.first_name || "", last_name: c.last_name || "",
-        display_name: test ? `${fullName} [TEST-${apptMs}]` : fullName,
-        email: c.email || "", mobile_phone: c.mobile || "",
-        address_line1: c.address || "", city: (c.city || "").split(",")[0].trim(), state_text: c.state || "", zip: c.zip || "",
-      });
-      contactId = cr.jnid || cr.id;
+      const dispName = test ? `${fullName} [TEST-${apptMs}]` : fullName;
+      try {
+        const cr = await jnPost("contacts", {
+          first_name: c.first_name || "", last_name: c.last_name || "",
+          display_name: dispName,
+          email: c.email || "", mobile_phone: c.mobile || "",
+          address_line1: c.address || "", city: (c.city || "").split(",")[0].trim(), state_text: c.state || "", zip: c.zip || "",
+        });
+        contactId = cr.jnid || cr.id;
+      } catch (e) {
+        if (!/duplicate/i.test(e.message || "")) throw e;
+        const suffix = String(c.mobile || "").replace(/\D/g, "").slice(-4) || String(apptMs).slice(-4);
+        const cr2 = await jnPost("contacts", {
+          first_name: c.first_name || "", last_name: c.last_name || "",
+          display_name: `${dispName} (${suffix})`,
+          email: c.email || "", mobile_phone: c.mobile || "",
+          address_line1: c.address || "", city: (c.city || "").split(",")[0].trim(), state_text: c.state || "", zip: c.zip || "",
+        });
+        contactId = cr2.jnid || cr2.id;
+      }
       if (!contactId) throw new Error("contact create failed");
     }
     // 2. Job — RESET the existing No-Sit deal in place, or create a new retail Lead.
@@ -315,6 +342,29 @@ async function jnPost(path, payload) {
   if (!r.ok) throw new Error(`JN ${path} ${r.status}: ${txt.slice(0, 200)}`);
   try { return JSON.parse(txt); } catch { return {}; }
 }
+// Find an existing JN contact by phone (last 10 digits) or exact display name,
+// so we REUSE the homeowner instead of hitting JN's "duplicate display name"
+// 400 when they already exist. Returns the contact id, or null.
+async function findExistingContact(phone, fullName) {
+  const digits = String(phone || "").replace(/\D/g, "");
+  const filters = [];
+  if (digits.length >= 10) filters.push({ must: [{ match: { mobile_phone: digits } }] });
+  if (fullName) filters.push({ must: [{ match_phrase: { display_name: fullName } }] });
+  for (const f of filters) {
+    try {
+      const r = await jnGet(`contacts?size=10&filter=${encodeURIComponent(JSON.stringify(f))}`);
+      const results = r.results || r.contacts || r.data || [];
+      if (digits.length >= 10) {
+        const byPhone = results.find((c) => String(c.mobile_phone || c.home_phone || c.work_phone || "").replace(/\D/g, "").slice(-10) === digits.slice(-10));
+        if (byPhone) return byPhone.jnid || byPhone.id;
+      }
+      const byName = results.find((c) => String(c.display_name || "").trim().toLowerCase() === String(fullName || "").trim().toLowerCase());
+      if (byName) return byName.jnid || byName.id;
+    } catch { /* try next filter */ }
+  }
+  return null;
+}
+
 async function okToken(token) { token = String(token || "").trim(); if (!token) return false; const [d, v] = await Promise.all([getSetting("dialer_token"), getSetting("visit_token")]); return (!!d && token === d) || (!!v && token === v); }
 async function getSetting(key) { const r = await fetch(`${SB_URL}/rest/v1/app_settings?key=eq.${encodeURIComponent(key)}&select=value&limit=1`, { headers: sb }); if (!r.ok) return null; const rows = await r.json().catch(() => []); return rows[0]?.value || null; }
 function cors(status, body) { return { statusCode: status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" }, body }; }
