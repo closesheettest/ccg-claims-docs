@@ -151,6 +151,17 @@ exports.handler = async (event) => {
     }).catch(() => {});
   }
 
+  // JobNimbus sync failed even after the per-call retries — alert ops so it
+  // never sits unsynced unnoticed. The booking is already saved locally above,
+  // so a manager can enter it in JN by hand from the alert.
+  if (!jnOk && !test && process.env.ADMIN_ALERT_PHONE) {
+    const base = process.env.URL || "https://free-roof-inspections.netlify.app";
+    await fetch(`${base}/.netlify/functions/ghl-sms`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ to: process.env.ADMIN_ALERT_PHONE, name: "Admin", message: `⚠️ Setter booking did NOT sync to JobNimbus: ${setter} → ${homeowner}${address ? ` (${address})` : ""}. It's saved locally — please add it in JN by hand. (${jnErr})` }),
+    }).catch(() => {});
+  }
+
   // No zone manager mapped → it fell to Viviana. Alert the admin so someone
   // re-owns it in JN. (Normal bookings now land on the regional manager, who
   // assigns a rep from his dashboard — no per-booking alert needed.)
@@ -207,19 +218,39 @@ async function sbInsert(table, row) {
   const r = await fetch(`${SB_URL}/rest/v1/${table}`, { method: "POST", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify(row) });
   if (!r.ok) throw new Error(`SB insert ${table} ${r.status}: ${(await r.text()).slice(0, 150)}`);
 }
+// Retry transient JobNimbus failures (network blips, gateway/timeout/rate-limit)
+// so ONE hiccup doesn't surface a scary "didn't sync" to the setter — which is
+// what makes them re-book by hand and create a duplicate. Only the classic
+// transient statuses are retried; a 500 is NOT (a POST might have partially
+// applied), so a retry can never duplicate a just-created record.
+const JN_RETRY_STATUS = new Set([429, 502, 503, 504]);
+async function jnFetch(path, opts = {}, tries = 3) {
+  let lastErr;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await fetch(`${JN_BASE}/${path}`, opts);
+      if (r.ok || !JN_RETRY_STATUS.has(r.status)) return r; // success, or a non-transient error the caller will report
+      lastErr = new Error(`JN ${path} ${r.status}`);
+    } catch (e) {
+      lastErr = e; // network error / timeout
+    }
+    if (i < tries - 1) await new Promise((res) => setTimeout(res, 350 * (i + 1)));
+  }
+  throw lastErr;
+}
 async function jnGet(path) {
-  const r = await fetch(`${JN_BASE}/${path}`, { headers: jnH });
+  const r = await jnFetch(path, { headers: jnH });
   if (!r.ok) throw new Error(`JN GET ${path} ${r.status}`);
   return r.json();
 }
 async function jnPut(path, payload) {
-  const r = await fetch(`${JN_BASE}/${path}`, { method: "PUT", headers: jnH, body: JSON.stringify(payload) });
+  const r = await jnFetch(path, { method: "PUT", headers: jnH, body: JSON.stringify(payload) });
   const txt = await r.text();
   if (!r.ok) throw new Error(`JN PUT ${path} ${r.status}: ${txt.slice(0, 200)}`);
   try { return JSON.parse(txt); } catch { return {}; }
 }
 async function jnPost(path, payload) {
-  const r = await fetch(`${JN_BASE}/${path}`, { method: "POST", headers: jnH, body: JSON.stringify(payload) });
+  const r = await jnFetch(path, { method: "POST", headers: jnH, body: JSON.stringify(payload) });
   const txt = await r.text();
   if (!r.ok) throw new Error(`JN ${path} ${r.status}: ${txt.slice(0, 200)}`);
   try { return JSON.parse(txt); } catch { return {}; }
