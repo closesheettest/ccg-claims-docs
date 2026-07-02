@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import html2pdf from "html2pdf.js/dist/html2pdf";
+import QRCode from "qrcode";
 import {
   ArrowLeft,
   FileSignature,
@@ -7712,6 +7713,40 @@ function CancelReviewPage({ inspectionId }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// SignLinkShare — shown on the rep's "Signing Link Sent" confirmation. The
+// auto text/email can fail or land in spam, but the rep is standing WITH the
+// homeowner, so this is the dependable path: the homeowner scans the QR with
+// their phone camera (opens the agreement on THEIR phone — no delivery needed),
+// or the rep copies the link and sends it however they want.
+function SignLinkShare({ link, name }) {
+  const [qr, setQr] = useState("");
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    let live = true;
+    if (link) QRCode.toDataURL(link, { width: 240, margin: 1, errorCorrectionLevel: "M" }).then((u) => { if (live) setQr(u); }).catch(() => {});
+    return () => { live = false; };
+  }, [link]);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 2000); }
+    catch { window.prompt("Copy this signing link:", link); }
+  };
+  if (!link) return null;
+  return (
+    <div style={{ background: "#fff", border: "2px solid #199c2e", borderRadius: 20, padding: "20px 24px", marginBottom: 20, textAlign: "center" }}>
+      <div style={{ fontSize: 17, fontWeight: 800, color: "#166534", fontFamily: "'Oswald', sans-serif", marginBottom: 4, letterSpacing: "0.03em" }}>📲 Fastest way — do it right here</div>
+      <div style={{ fontSize: 13.5, color: "#166534", fontWeight: 600, marginBottom: 14, lineHeight: 1.5 }}>Have {name || "the homeowner"} point their phone camera at this code — it opens the agreement on <b>their</b> phone. No waiting on a text or email.</div>
+      {qr
+        ? <img src={qr} alt="Scan to sign" style={{ width: 240, height: 240, display: "block", margin: "0 auto 14px", borderRadius: 12, border: "1px solid #e5e7eb" }} />
+        : <div style={{ height: 240, display: "flex", alignItems: "center", justifyContent: "center", color: "#9ca3af" }}>Generating code…</div>}
+      <button type="button" onClick={copy} style={{ width: "100%", padding: "13px", borderRadius: 14, border: "2px solid #199c2e", background: copied ? "#199c2e" : "#fff", color: copied ? "#fff" : "#199c2e", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.03em", cursor: "pointer" }}>
+        {copied ? "✓ Copied!" : "🔗 Copy link — text it to them yourself"}
+      </button>
+      <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 8, wordBreak: "break-all" }}>{link}</div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // RemoteSignPage — the homeowner's /?sign_insp=<token> page. The rep filled
 // the Free Roof Inspection form and tapped "Send to homeowner"; this is where
 // the homeowner reviews it on their OWN phone, proves the phone is theirs with
@@ -10996,7 +11031,11 @@ const renderSmsTemplate = (key, vars) => {
           setPendingSend(false);
           if (!r.ok || !j.ok) { alert(j.error || "Could not send the signing link — check the phone/email and try again."); return; }
           const channels = (j.sent || []).map((c) => (c === "sms" ? "text" : c)).join(" & ") || "link";
-          setLinkSentInfo({ name: clientName, channels });
+          // Always keep the direct link so the confirmation screen can show a QR
+          // code + Copy button — the dependable in-person path that doesn't rely
+          // on the text/email actually reaching the homeowner's phone.
+          const signLink = j.link || (j.token ? `${window.location.origin}/?sign_insp=${j.token}` : "");
+          setLinkSentInfo({ name: clientName, channels, link: signLink });
           setView("thankyou");
         } catch (e) {
           setIsSubmitting(false);
@@ -14676,6 +14715,8 @@ if (!hasDamage) {
                     </div>
                   </div>
                 )}
+
+                {linkSentInfo && linkSentInfo.link && <SignLinkShare link={linkSentInfo.link} name={linkSentInfo.name} />}
 
                 <div style={{ background: "#fff", borderRadius: 20, border: "1px solid #e5e7eb", padding: "24px 28px", marginBottom: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
                   <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827", marginBottom: 14, letterSpacing: "0.02em" }}>Summary</div>
