@@ -28,6 +28,23 @@ const SELF = (process.env.URL || process.env.DEPLOY_PRIME_URL || "https://free-r
 const ID_LINK = "https://support.proof.com/hc/en-us/articles/360057120014-Acceptable-Forms-of-ID-for-Online-Notarization";
 const jnHeaders = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
 
+// Retry transient JobNimbus blips (network / gateway / timeout / rate-limit) so a
+// one-off hiccup doesn't show the rep a false "no results" or lookup error. Reads
+// only here, so retrying is always safe (idempotent). A 500 is left un-retried.
+const JN_RETRY_STATUS = new Set([429, 502, 503, 504]);
+async function jnFetch(path, opts = {}, tries = 3) {
+  let last;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await fetch(`${JN_BASE}/${path}`, { headers: jnHeaders, ...opts });
+      if (r.ok || !JN_RETRY_STATUS.has(r.status)) return r;
+      last = new Error(`JN ${path} ${r.status}`);
+    } catch (e) { last = e; }
+    if (i < tries - 1) await new Promise((res) => setTimeout(res, 350 * (i + 1)));
+  }
+  throw last;
+}
+
 // County / city → Proof easy-link (from "Proof- Easylinks County NOC").
 // `key` is the value the page sends back; `match` are normalized strings the
 // geocoder's county/city may resolve to (handles spelling quirks, St. Johns, etc.).
@@ -119,14 +136,14 @@ exports.handler = async (event) => {
       const byId = new Map();
       // Search homeowner CONTACTS and JOBS (covers either record carrying the address).
       try {
-        const cr = await fetch(`${JN_BASE}/contacts?filter=${filter}&size=12`, { headers: jnHeaders });
+        const cr = await jnFetch(`contacts?filter=${filter}&size=12`);
         if (cr.ok) { const d = await cr.json().catch(() => ({})); for (const c of (d.results || d.contacts || d.data || [])) {
           const id = c.jnid || c.id; if (!id || byId.has(id)) continue;
           byId.set(id, { contact_id: id, name: `${c.first_name || ""} ${c.last_name || ""}`.trim() || c.display_name || "", address: c.address_line1 || "", city: c.city || "", state: c.state_text || c.state || "", zip: c.zip || "" });
         } }
       } catch { /* keep going */ }
       try {
-        const jr = await fetch(`${JN_BASE}/jobs?filter=${filter}&size=12`, { headers: jnHeaders });
+        const jr = await jnFetch(`jobs?filter=${filter}&size=12`);
         if (jr.ok) { const d = await jr.json().catch(() => ({})); for (const j of (d.results || d.data || [])) {
           const p = j.primary || {}; const id = p.id; if (!id || byId.has(id)) continue;
           byId.set(id, { contact_id: id, name: p.name || j.display_name || "", address: j.address_line1 || "", city: j.city || "", state: j.state_text || j.state || "", zip: j.zip || "" });
@@ -139,7 +156,9 @@ exports.handler = async (event) => {
     if (action === "select") {
       const cid = String(body.contact_id || "").trim();
       if (!cid) return json(400, { ok: false, error: "contact_id required" });
-      const cr = await fetch(`${JN_BASE}/contacts/${cid}`, { headers: jnHeaders });
+      let cr;
+      try { cr = await jnFetch(`contacts/${cid}`); }
+      catch (e) { return json(502, { ok: false, error: `JN contact ${e.message || "error"}` }); }
       if (!cr.ok) return json(502, { ok: false, error: `JN contact ${cr.status}` });
       const c = await cr.json();
       const name = `${c.first_name || ""} ${c.last_name || ""}`.trim() || c.display_name || "";
