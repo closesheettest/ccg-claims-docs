@@ -9727,7 +9727,7 @@ const renderSmsTemplate = (key, vars) => {
             <p><a href="${signingLink}">${signingLink}</a></p>
             <p><strong>Forms included:</strong></p>
             <ul>${sendDocs.map(doc => `<li>${documentLabel(doc)}</li>`).join("")}</ul>
-            <p><strong>Important:</strong> You can draw your signature or use the bold typed-signature option if you're on a computer without a touchscreen.</p>
+            <p><strong>Important:</strong> Draw your signature below using your finger or mouse.</p>
           `,
         }),
       });
@@ -10624,7 +10624,7 @@ const renderSmsTemplate = (key, vars) => {
               <ul>${selectedDocs
                 .map((doc) => `<li>${documentLabel(doc)}</li>`)
                 .join("")}</ul>
-              <p><strong>Important:</strong> You can draw your signature or use the bold typed-signature option if you are on a computer without a touchscreen.</p>
+              <p><strong>Important:</strong> Draw your signature below using your finger or mouse.</p>
             `,
           }),
         });
@@ -12151,7 +12151,7 @@ if (!hasDamage) {
             lineHeight: 1.6,
             maxWidth: 520,
           }}>
-            Use your finger, mouse, or just type your name below. It only takes 30 seconds. 🎉
+            Use your finger or mouse to sign below. It only takes 30 seconds. 🎉
           </div>
         </div>
       ) : null}
@@ -12187,95 +12187,7 @@ if (!hasDamage) {
                 </div>
               ) : null}
 
-              {/* ── HOW TO SIGN — two big friendly option cards ── */}
-              <div style={{ marginBottom: 24 }}>
-                <div style={{
-                  fontSize: 16,
-                  fontWeight: 700,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.06em",
-                  color: "#111827",
-                  fontFamily: "'Oswald', sans-serif",
-                  marginBottom: 12,
-                }}>
-                  ✏️ Choose How to Sign:
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  {/* Option A: Draw */}
-                  <button
-                    type="button"
-                    onClick={() => { setSigMethod1("draw"); setSigMethod2("draw"); }}
-                    style={{
-                      padding: "18px 14px",
-                      borderRadius: 18,
-                      border: sigMethod1 === "draw" ? "3px solid #199c2e" : "2px solid #e5e7eb",
-                      background: sigMethod1 === "draw" ? "#f0fdf4" : "#fff",
-                      cursor: "pointer",
-                      textAlign: "center",
-                      transition: "all 0.2s",
-                    }}
-                  >
-                    <div style={{ fontSize: 36, marginBottom: 8 }}>👆</div>
-                    <div style={{
-                      fontSize: 16,
-                      fontWeight: 700,
-                      color: "#111827",
-                      fontFamily: "'Nunito', sans-serif",
-                      marginBottom: 4,
-                    }}>
-                      Draw Your Signature
-                    </div>
-                    <div style={{
-                      fontSize: 13,
-                      color: "#6b7280",
-                      fontFamily: "'Nunito', sans-serif",
-                      lineHeight: 1.4,
-                    }}>
-                      Use your finger or mouse in the box
-                    </div>
-                    {sigMethod1 === "draw" ? (
-                      <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#199c2e", fontFamily: "'Nunito', sans-serif" }}>✓ Selected</div>
-                    ) : null}
-                  </button>
-
-                  {/* Option B: Type */}
-                  <button
-                    type="button"
-                    onClick={() => { setSigMethod1("type"); setSigMethod2("type"); setInitialsMethod1("type"); setInitialsMethod2("type"); }}
-                    style={{
-                      padding: "18px 14px",
-                      borderRadius: 18,
-                      border: sigMethod1 === "type" ? "3px solid #199c2e" : "2px solid #e5e7eb",
-                      background: sigMethod1 === "type" ? "#f0fdf4" : "#fff",
-                      cursor: "pointer",
-                      textAlign: "center",
-                      transition: "all 0.2s",
-                    }}
-                  >
-                    <div style={{ fontSize: 36, marginBottom: 8 }}>⌨️</div>
-                    <div style={{
-                      fontSize: 16,
-                      fontWeight: 700,
-                      color: "#111827",
-                      fontFamily: "'Nunito', sans-serif",
-                      marginBottom: 4,
-                    }}>
-                      Type Your Signature
-                    </div>
-                    <div style={{
-                      fontSize: 13,
-                      color: "#6b7280",
-                      fontFamily: "'Nunito', sans-serif",
-                      lineHeight: 1.4,
-                    }}>
-                      Type your name &amp; pick a style
-                    </div>
-                    {sigMethod1 === "type" ? (
-                      <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#199c2e", fontFamily: "'Nunito', sans-serif" }}>✓ Selected</div>
-                    ) : null}
-                  </button>
-                </div>
-              </div>
+              {/* Signature is draw-only — the typed-signature option was removed. */}
 
               {/* ── Signature field ── */}
               {sigSectionLabel("🖊️", data.homeowner1 ? `${data.homeowner1}'s Signature` : "Your Signature", null)}
@@ -12367,7 +12279,7 @@ if (!hasDamage) {
                         fontWeight: 600,
                         lineHeight: 1.55,
                       }}>
-                        One tiny step left — just pop your initials in the box below. Same as before, draw or type! 😊
+                        One tiny step left — just pop your initials in the box below. 😊
                       </div>
                     </div>
                   </div>
@@ -14744,37 +14656,15 @@ if (!hasDamage) {
                     Client Signature
                   </div>
                   <div style={{ fontSize: 15, fontFamily: "'Nunito', sans-serif", fontWeight: 600, opacity: 0.92 }}>
-                    Use your finger, mouse, or type your name below.
+                    Use your finger or mouse to sign below.
                   </div>
                 </div>
               ) : null}
 
               <Card style={{ borderRadius: effectiveInspSig ? 24 : "0 0 24px 24px", borderTop: effectiveInspSig ? undefined : "none" }}>
                 <CardContent>
-                  {/* Method selector */}
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
-                    {[["draw", "👆", "Draw It"], ["type", "⌨️", "Type It"]].map(([m, emoji, label]) => (
-                      <button key={m} type="button" onClick={() => setInspSigMethod(m)}
-                        style={{
-                          padding: "14px 12px", borderRadius: 16, textAlign: "center",
-                          border: inspSigMethod === m ? "3px solid #0a0a0a" : "2px solid #e5e7eb",
-                          background: inspSigMethod === m ? "#eef1f8" : "#fff", cursor: "pointer",
-                        }}>
-                        <div style={{ fontSize: 28, marginBottom: 6 }}>{emoji}</div>
-                        <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Nunito', sans-serif", color: "#111827" }}>{label}</div>
-                        {inspSigMethod === m ? <div style={{ fontSize: 12, color: "#0a0a0a", fontWeight: 700, fontFamily: "'Nunito', sans-serif", marginTop: 4 }}>✓ Selected</div> : null}
-                      </button>
-                    ))}
-                  </div>
-
-                  {inspSigMethod === "draw" ? (
-                    <SignaturePad title="" value={inspSig} onChange={setInspSig} required missing={inspSubmitAttempted && !effectiveInspSig} />
-                  ) : (
-                    <TypedSignatureField title="" value={inspTypedSig} onChange={setInspTypedSig}
-                      fontValue={inspSigFont} onFontChange={setInspSigFont}
-                      required missing={inspSubmitAttempted && !effectiveInspSig}
-                      placeholder="Type full legal name" />
-                  )}
+                  {/* Signature is draw-only — the typed-signature option was removed. */}
+                  <SignaturePad title="" value={inspSig} onChange={setInspSig} required missing={inspSubmitAttempted && !effectiveInspSig} />
 
                   {inspSubmitAttempted && !inspData.clientName ? (
                     <div style={{ color: "#ef4444", fontSize: 14, fontFamily: "'Nunito', sans-serif", fontWeight: 700, marginBottom: 12 }}>
