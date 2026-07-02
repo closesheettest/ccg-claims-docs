@@ -375,11 +375,46 @@ async function listAppointments(manager, body) {
     filter: `zone=eq.${z}&rep_jobnimbus_id=is.null&appt_at=gte.${encodeURIComponent(nowIso)}`,
     order: 'appt_at.asc', limit: 200,
   })
-  const assigned = await fetchTable('setter_appointments', {
+  const assignedRows = await fetchTable('setter_appointments', {
     select: 'id,homeowner_name,address,appt_at,rep_name,rep_jobnimbus_id,owner_name',
     filter: `zone=eq.${z}&rep_jobnimbus_id=not.is.null&appt_at=gte.${encodeURIComponent(nowIso)}`,
     order: 'appt_at.asc', limit: 300,
   })
+
+  // Bidirectional read: a manager may have assigned the appointment directly in
+  // JobNimbus (set the job's Sales Rep) instead of using this board. Re-read each
+  // still-"unassigned" job from JN; if it now has an ACTIVE sales rep, sync our
+  // row and move it into the assigned list so it drops off "needs assigning" on
+  // the next refresh. (Fully bidirectional — app-side assigns already write JN.)
+  const jnH = { Authorization: `bearer ${JN_KEY}`, 'Content-Type': 'application/json' }
+  const sbH = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Content-Type': 'application/json' }
+  const nameByJnRep = {}; for (const r of reps) nameByJnRep[r.jobnimbus_id] = r.name
+  const reReads = await Promise.all((unassigned || []).slice(0, 80).map(async (a) => {
+    if (!a.jn_job_id) return { a, repId: null }
+    try {
+      const jr = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(a.jn_job_id)}`, { headers: jnH })
+      const j = jr.ok ? await jr.json().catch(() => ({})) : {}
+      const repId = j.sales_rep || null
+      if (repId && activeJn.has(repId)) return { a, repId, repName: j.sales_rep_name || nameByJnRep[repId] || null }
+    } catch { /* on any hiccup, leave it unassigned */ }
+    return { a, repId: null }
+  }))
+  const reReadById = {}; for (const r of reReads) reReadById[r.a.id] = r
+  const unassignedFiltered = []
+  const jnSyncedAssigned = []
+  for (const a of (unassigned || [])) {
+    const r = reReadById[a.id]
+    if (r && r.repId) {
+      fetch(`${SB_URL}/rest/v1/setter_appointments?id=eq.${encodeURIComponent(a.id)}`, {
+        method: 'PATCH', headers: { ...sbH, Prefer: 'return=minimal' },
+        body: JSON.stringify({ rep_jobnimbus_id: r.repId, rep_name: r.repName }),
+      }).catch(() => {})
+      jnSyncedAssigned.push({ id: a.id, homeowner_name: a.homeowner_name, address: a.address, appt_at: a.appt_at, rep_name: r.repName, rep_jobnimbus_id: r.repId, owner_name: null })
+    } else {
+      unassignedFiltered.push(a)
+    }
+  }
+  const assigned = [...(assignedRows || []), ...jnSyncedAssigned].sort((x, y) => new Date(x.appt_at) - new Date(y.appt_at))
   // Backlog: pending JobNimbus appointments still owned by someone who can't sell
   // them — the setter (Viviana) or an inactive rep (David Macella). Today → +90
   // days, sorted by date. Shown to every manager so they can route them to a rep.
@@ -406,7 +441,7 @@ async function listAppointments(manager, body) {
     .map((t) => ({ key: 'bk:' + t.id, source: 'jn', id: null, jn_job_id: t.job_id || null, homeowner: t.homeowner, address: t._addr, appt_at: t.appt_at, src: ownerLabel(t), owner_id: t.owner_id || null, owner_name: ownerLabel(t), sales_rep_id: null, sales_rep_name: null, needs_assignment: true }))
     .sort((a, b) => new Date(a.appt_at) - new Date(b.appt_at))
   // `viviana` kept for backward-compat with older clients; `backlog` is canonical.
-  return json(200, { ok: true, zone, view: 'needs', reps, unassigned: unassigned || [], assigned: assigned || [], backlog, viviana: backlog })
+  return json(200, { ok: true, zone, view: 'needs', reps, unassigned: unassignedFiltered, assigned, backlog, viviana: backlog })
 }
 
 // ET day window for today (offset 0) / tomorrow (offset 1). Netlify runs in UTC.
