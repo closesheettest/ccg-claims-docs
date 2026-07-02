@@ -43,7 +43,9 @@ exports.handler = async (event) => {
     // SELECT 400s and we'd get zero deals. Try with it, fall back without it.
     const SEL_BASE = "id,client_name,address,city,state,zip,mobile,email,jn_job_id,latitude,longitude,result,result_at,pa_id,pa_signed_at,pa_opened_at,pa_stage,docs_signed,jn_status,pa_notes_log";
     const tail = `&result=eq.${result}&cancelled_at=is.null&or=(${conds.join(",")})&order=result_at.desc&limit=500`;
-    let rows = await sbGet(`inspections?select=${SEL_BASE},review_availability,referral_outcome,retail_outcome,result_task_at${tail}`);
+    // manager_assigned_to_rep_at is a newer column (added by manager_assign_rep_marker.sql);
+    // keep it in the optional select so a pre-migration DB just falls back without it.
+    let rows = await sbGet(`inspections?select=${SEL_BASE},review_availability,referral_outcome,retail_outcome,result_task_at,manager_assigned_to_rep_at${tail}`);
     if (!rows.length) rows = await sbGet(`inspections?select=${SEL_BASE}${tail}`);
 
     // Damage list: a rep is going out to PUSH the homeowner to start their claim.
@@ -52,10 +54,16 @@ exports.handler = async (event) => {
     // that was never opened (e.g. from the old auto-assign) must NOT hide a deal
     // a manager just handed the rep. Also drop rep-marked Not Interested (BTR-NI).
     if (result === "damage") {
-      rows = rows.filter((r) =>
-        !(r.pa_signed_at || r.pa_opened_at || r.pa_stage === "waiting_docs" || /\b(lor|pac)\b/i.test(r.docs_signed || ""))
-        && String(r.jn_status || "").trim().toLowerCase() !== "btr - ni",
-      );
+      rows = rows.filter((r) => {
+        // A manager who assigns the deal to this rep is an explicit override: show
+        // it even if a PA merely OPENED it (pa_opened_at). Real PA engagement —
+        // signed the homeowner, waiting on docs, or LOR/PAC paperwork — still hides
+        // it (the claim's already moving, the rep doesn't need to push).
+        const managerAssigned = !!r.manager_assigned_to_rep_at;
+        const paEngaged = r.pa_signed_at || r.pa_stage === "waiting_docs" || /\b(lor|pac)\b/i.test(r.docs_signed || "");
+        const paOpenedHide = r.pa_opened_at && !managerAssigned;
+        return !(paEngaged || paOpenedHide) && String(r.jn_status || "").trim().toLowerCase() !== "btr - ni";
+      });
     }
     // No-Damage list: once handled — certificate sent or referral declined
     // (inspections.referral_outcome set) — it drops off the rep's list.

@@ -65,10 +65,18 @@ exports.handler = async (event) => {
       if (!activeById.has(repId)) return cors(400, JSON.stringify({ ok: false, error: "not an active rep" }));
       const insp = (await sbGet(`inspections?id=eq.${encodeURIComponent(inspId)}&select=jn_job_id&limit=1`))[0];
       // Land it in the new rep's Damage visit list (visit-deal-list matches sales_rep_*).
+      // manager_assigned_to_rep_at is an explicit override so the deal shows even
+      // if a PA merely OPENED it (pa_opened_at) — and survives the nightly PA
+      // auto-assign. Sent separately so a missing column (pre-migration) can't
+      // drop the sales-rep write that actually reassigns the deal.
       await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspId)}`, {
         method: "PATCH", headers: { ...sb, Prefer: "return=minimal" },
         body: JSON.stringify({ sales_rep_id: repId, sales_rep_name: repName || activeById.get(repId).name }),
       });
+      await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspId)}`, {
+        method: "PATCH", headers: { ...sb, Prefer: "return=minimal" },
+        body: JSON.stringify({ manager_assigned_to_rep_at: new Date().toISOString() }),
+      }).catch(() => {});
       // Mirror to JobNimbus (owner + sales rep) via the existing reassign function.
       if (insp && insp.jn_job_id) {
         const base = process.env.URL || process.env.DEPLOY_URL || "https://free-roof-inspections.netlify.app";
