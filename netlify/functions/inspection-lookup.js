@@ -105,6 +105,8 @@ function shape(r, jn) {
     address: [r.address, r.city, r.state].filter(Boolean).join(", "),
     rep: r.sales_rep_name || r.original_sales_rep_name || "—",
     mobile: r.mobile || null,
+    // Raw fields so the action panel can prefill the "fix contact" form + book a PA.
+    raw: { client_name: r.client_name || "", mobile: r.mobile || "", email: r.email || "", address: r.address || "", city: r.city || "", state: r.state || "", zip: r.zip || "" },
     stage, stage_detail,
     timeline,
     notes,

@@ -7352,7 +7352,75 @@ function inspStageColor(stage) {
   if (s.includes("working the claim") || s.includes("no damage")) return "#166534";
   return "#0e7490";
 }
-function InspectionLookup({ endpoint = "/.netlify/functions/inspection-lookup" }) {
+// Per-card action panel: fix the homeowner's info (Supabase + JobNimbus) or
+// schedule a PA appointment — reusing pa-schedule-api. base="" on CCG (relative
+// functions); the TMS copy points at the CCG origin.
+function InspectionActions({ d, base = "", onChanged }) {
+  const [open, setOpen] = useState(null);        // null | 'fix' | 'pa'
+  const [form, setForm] = useState(() => ({ ...(d.raw || {}) }));
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [slots, setSlots] = useState(null);
+  const post = (fn, bodyObj) => fetch(`${base}/.netlify/functions/${fn}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(bodyObj) }).then((r) => r.json());
+  const actBtn = { padding: "8px 12px", borderRadius: 10, border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", fontWeight: 700, fontSize: 13, cursor: "pointer" };
+
+  const saveFix = async () => {
+    setBusy(true); setMsg("");
+    try {
+      const j = await post("inspection-action", { action: "update_contact", inspection_id: d.inspection_id, ...form, by: "Manager (lookup)" });
+      if (!j.ok) setMsg(j.error || "Save failed.");
+      else if (!j.changes?.length) setMsg("Nothing changed.");
+      else { setMsg(`✓ Saved${j.jn?.contact_updated ? " + JobNimbus updated" : ""}.`); setTimeout(() => onChanged && onChanged(), 900); }
+    } catch { setMsg("Network error."); }
+    setBusy(false);
+  };
+  const loadSlots = async () => {
+    setOpen("pa"); setSlots(null); setMsg("");
+    try { const j = await post("pa-schedule-api", { action: "slots", inspection_id: d.inspection_id }); setSlots(j.ok ? (j.slots || []) : []); if (!j.ok) setMsg(j.error || "Couldn't load times."); }
+    catch { setSlots([]); setMsg("Network error."); }
+  };
+  const bookSlot = async (s) => {
+    setBusy(true); setMsg("");
+    try {
+      const j = await post("pa-schedule-api", { action: "book", pa_id: s.pa_id, start_at: s.start_at, inspection_id: d.inspection_id, homeowner_name: d.raw?.client_name, homeowner_phone: d.raw?.mobile, address: d.raw?.address, booked_by: "Manager (lookup)" });
+      if (j.duplicate) setMsg("Already has a PA appointment — reschedule from the PA tool.");
+      else if (!j.ok) setMsg(j.error || "Booking failed.");
+      else { setMsg(`✓ PA appointment booked with ${s.pa_name}.`); setTimeout(() => onChanged && onChanged(), 1000); }
+    } catch { setMsg("Network error."); }
+    setBusy(false);
+  };
+  const canPa = d.result === "damage";
+
+  return (
+    <div style={{ marginTop: 12, borderTop: "1px dashed #d1d5db", paddingTop: 10 }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button type="button" onClick={() => setOpen(open === "fix" ? null : "fix")} style={actBtn}>✏️ Fix homeowner info</button>
+        {canPa && <button type="button" onClick={() => (open === "pa" ? setOpen(null) : loadSlots())} style={actBtn}>📅 Schedule a PA</button>}
+      </div>
+      {open === "fix" && (
+        <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
+          {[["client_name", "Name"], ["mobile", "Phone"], ["email", "Email"], ["address", "Address"], ["city", "City"], ["state", "State"], ["zip", "Zip"]].map(([k, lbl]) => (
+            <label key={k} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+              <span style={{ width: 62, color: "#6b7280" }}>{lbl}</span>
+              <input value={form[k] || ""} onChange={(e) => setForm((f) => ({ ...f, [k]: e.target.value }))} style={{ flex: 1, height: 34, borderRadius: 8, border: "1px solid #d1d5db", padding: "0 10px", fontSize: 13 }} />
+            </label>
+          ))}
+          <button type="button" onClick={saveFix} disabled={busy} style={{ ...actBtn, background: "#199c2e", color: "#fff", border: "none", marginTop: 4 }}>{busy ? "Saving…" : "Save + update JobNimbus"}</button>
+        </div>
+      )}
+      {open === "pa" && (
+        <div style={{ marginTop: 10 }}>
+          {slots === null ? <div style={{ fontSize: 13, color: "#6b7280" }}>Loading available times…</div>
+            : slots.length === 0 ? <div style={{ fontSize: 13, color: "#6b7280" }}>No PA times available (check PA availability / zones).</div>
+              : <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{slots.slice(0, 12).map((s, i) => <button key={i} type="button" onClick={() => bookSlot(s)} disabled={busy} style={{ ...actBtn, fontSize: 12 }}>{s.label} · {s.pa_name}</button>)}</div>}
+        </div>
+      )}
+      {msg && <div style={{ marginTop: 8, fontSize: 12.5, fontWeight: 700, color: msg.startsWith("✓") ? "#166534" : "#b45309" }}>{msg}</div>}
+    </div>
+  );
+}
+
+function InspectionLookup({ endpoint = "/.netlify/functions/inspection-lookup", base = "" }) {
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
   const [res, setRes] = useState(null);
@@ -7406,6 +7474,7 @@ function InspectionLookup({ endpoint = "/.netlify/functions/inspection-lookup" }
             {d.sold_date && <span>Sold: <b style={{ color: "#374151" }}>{d.sold_date}</b></span>}
             {d.jn_url && <a href={d.jn_url} target="_blank" rel="noreferrer" style={{ color: "#0e7490", fontWeight: 700 }}>Open in JobNimbus ↗</a>}
           </div>
+          <InspectionActions d={d} base={base} onChanged={run} />
         </div>
       ))}
     </div>
