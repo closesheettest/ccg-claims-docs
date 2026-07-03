@@ -7732,14 +7732,17 @@ function SignLinkShare({ link, name, token, pairingCode, mode }) {
   // for the rep to read to them (nothing is delivered to the homeowner).
   useEffect(() => {
     if (!repCode || !token || opened) return;
-    let live = true;
+    let live = true, n = 0;
+    // Poll every 5s, and give up after ~15 min so an abandoned confirmation
+    // screen doesn't hammer the DB forever (keeps Disk IO low on small compute).
     const id = setInterval(async () => {
+      if (++n > 180) { clearInterval(id); return; }
       try {
         const r = await fetch("/.netlify/functions/get-pending-signing", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, peek: true }) });
         const j = await r.json().catch(() => ({}));
         if (live && (j?.record?.opened_at || j?.reason === "signed")) { setOpened(true); clearInterval(id); }
       } catch { /* keep polling */ }
-    }, 3000);
+    }, 5000);
     return () => { live = false; clearInterval(id); };
   }, [repCode, token, opened]);
   const copy = async () => {
