@@ -227,8 +227,37 @@ export function PAAdminPanel() {
   const [showReassign, setShowReassign] = useState(false);
   const [showDead, setShowDead] = useState(false);
   const [needsSel, setNeedsSel] = useState(() => new Set());   // multi-select in Needs assigning
+  // PA appointment report — upcoming adjuster appointments by PA, reassignable.
+  const [showApptReport, setShowApptReport] = useState(false);
+  const [apptRows, setApptRows] = useState(null);
+  const [apptBusy, setApptBusy] = useState(null);   // appointment id being reassigned
 
-  useEffect(() => { loadPas(); loadDecisions(); loadOverview(); loadAllDeals(); loadCompanies(); }, []);
+  useEffect(() => { loadPas(); loadDecisions(); loadOverview(); loadAllDeals(); loadCompanies(); loadApptReport(); }, []);
+
+  // Upcoming scheduled PA appointments (from ~12h ago onward), earliest first.
+  async function loadApptReport() {
+    const { data } = await supabase.from("pa_appointments")
+      .select("id,pa_id,pa_company_id,homeowner_name,homeowner_phone,address,start_at,status,inspection_id")
+      .eq("status", "scheduled")
+      .gte("start_at", new Date(Date.now() - 12 * 3600 * 1000).toISOString())
+      .order("start_at", { ascending: true }).limit(1000);
+    setApptRows(data || []);
+  }
+  // Reassign an appointment to a different PA — updates the appointment + the
+  // inspection's pa_id so the deal follows the new adjuster.
+  async function reassignAppt(appt, newPaId) {
+    if (!newPaId || newPaId === appt.pa_id) return;
+    setApptBusy(appt.id);
+    const newPa = pas.find((p) => p.id === newPaId);
+    const { error } = await supabase.from("pa_appointments")
+      .update({ pa_id: newPaId, pa_company_id: newPa?.pa_company_id || null }).eq("id", appt.id);
+    if (!error && appt.inspection_id) {
+      await supabase.from("inspections").update({ pa_id: newPaId }).eq("id", appt.inspection_id);
+    }
+    setApptBusy(null);
+    if (error) setMessage({ kind: "error", text: error.message });
+    else { setMessage({ kind: "success", text: `Reassigned to ${newPa?.name || "PA"}.` }); loadApptReport(); }
+  }
 
   // ── PA Companies (multi-tenant) ───────────────────────────────────────
   async function loadCompanies() {
@@ -1100,6 +1129,51 @@ export function PAAdminPanel() {
             </div>
           ))}
         </div>
+      </section>
+
+      {/* ── PA Appointment Report ───────────────────────────────────── */}
+      <section style={{ border: "1px solid #bfdbfe", borderRadius: 12, padding: 16, background: "#eff6ff" }}>
+        <button type="button" onClick={() => setShowApptReport((v) => !v)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 15, fontWeight: 800, color: "#1e40af", fontFamily: "'Oswald', sans-serif" }}>
+          {showApptReport ? "▾" : "▸"} 📅 PA Appointment Report ({apptRows ? apptRows.length : "…"})
+        </button>
+        <div style={{ fontSize: 12, color: "#1e3a8a", marginTop: 4 }}>Upcoming adjuster appointments by PA, by date &amp; time. Reassign any to a different PA.</div>
+        {showApptReport && (
+          apptRows == null ? <div style={{ fontSize: 12, color: "#6b7280", marginTop: 8 }}>Loading…</div>
+          : apptRows.length === 0 ? <div style={{ fontSize: 12, color: "#6b7280", marginTop: 8 }}>No upcoming PA appointments.</div>
+          : (() => {
+            const byPa = {};
+            for (const a of apptRows) (byPa[a.pa_id || "unassigned"] = byPa[a.pa_id || "unassigned"] || []).push(a);
+            const activePas = pas.filter((p) => p.active);
+            const paName = (id) => pas.find((p) => p.id === id)?.name || "— Unassigned —";
+            const fmt = (iso) => { try { return new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch { return iso; } };
+            const groups = Object.entries(byPa).sort((a, b) => paName(a[0]).localeCompare(paName(b[0])));
+            return (
+              <div style={{ display: "grid", gap: 12, marginTop: 10 }}>
+                {groups.map(([paId, appts]) => (
+                  <div key={paId} style={{ background: "#fff", border: "1px solid #dbeafe", borderRadius: 10, padding: "10px 12px" }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 800, color: "#1e40af", marginBottom: 6 }}>{paName(paId)} <span style={{ fontWeight: 400, color: "#6b7280", fontSize: 12 }}>· {appts.length} appt{appts.length === 1 ? "" : "s"}</span></div>
+                    <div style={{ display: "grid", gap: 6 }}>
+                      {appts.sort((a, b) => new Date(a.start_at) - new Date(b.start_at)).map((a) => (
+                        <div key={a.id} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, borderTop: "1px solid #f1f5f9", paddingTop: 6 }}>
+                          <span style={{ fontSize: 12.5, fontWeight: 700, color: "#0f172a", minWidth: 150 }}>🕒 {fmt(a.start_at)}</span>
+                          <span style={{ fontSize: 12.5, color: "#374151", flex: 1, minWidth: 160 }}>{a.homeowner_name || "Homeowner"}{a.address ? ` · ${a.address}` : ""}</span>
+                          <label style={{ fontSize: 11.5, color: "#6b7280", display: "flex", alignItems: "center", gap: 4 }}>
+                            Reassign:
+                            <select value={a.pa_id || ""} disabled={apptBusy === a.id} onChange={(e) => reassignAppt(a, e.target.value)} style={{ fontSize: 12, padding: "4px 6px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff" }}>
+                              <option value="">— Unassigned —</option>
+                              {activePas.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                            </select>
+                          </label>
+                          {apptBusy === a.id && <span style={{ fontSize: 11, color: "#6b7280" }}>…</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()
+        )}
       </section>
 
       {/* ── PA Decision Needed ──────────────────────────────────────── */}
