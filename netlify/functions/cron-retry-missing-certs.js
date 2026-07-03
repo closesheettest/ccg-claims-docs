@@ -91,7 +91,7 @@ exports.handler = async (event) => {
   const resultInParam = VALID_RESULTS.map((r) => `"${r}"`).join(',');
   const cutoffIso = new Date(Date.now() - 15 * 60 * 1000).toISOString();
   const q =
-    `select=id,client_name,address,jn_job_id,result,result_at,inspector_id` +
+    `select=id,client_name,address,jn_job_id,result,result_at,inspector_id,jn_status` +
     `&inspector_id=not.is.null` +
     `&result=in.(${encodeURIComponent(resultInParam)})` +
     `&jn_job_id=not.is.null` +
@@ -113,8 +113,13 @@ exports.handler = async (event) => {
       error: `Could not query inspections: ${(await sbRes.text()).slice(0, 300)}`,
     });
   }
-  const candidates = await sbRes.json();
-  if (!candidates || candidates.length === 0) {
+  let candidates = await sbRes.json();
+  // Skip DEAD deals — a Lost / Dead / BTR-NI deal doesn't need a cert. Without
+  // this, Lost retail deals were retried forever and nagged the daily stuck-cert
+  // alert for days (e.g. Robert Kelly / Mario Biteranta, both Lost).
+  const isDead = (s) => /^(lost|dead)$/i.test(String(s || '').trim()) || /btr\s*-\s*ni/i.test(String(s || ''));
+  candidates = (candidates || []).filter((c) => !isDead(c.jn_status));
+  if (candidates.length === 0) {
     return json(200, { ok: true, scanned: 0, retried: 0, succeeded: 0, failed: 0 });
   }
 

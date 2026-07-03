@@ -104,7 +104,7 @@ exports.handler = async (event) => {
       const VALID_RESULTS = ['damage', 'retail', 'no_damage'];
       const resultIn = encodeURIComponent(VALID_RESULTS.map((r) => `"${r}"`).join(','));
       const q =
-        `select=client_name,address,city,sales_rep_name,result,result_at,jn_job_id` +
+        `select=client_name,address,city,sales_rep_name,result,result_at,jn_job_id,jn_status` +
         `&inspector_id=not.is.null` +
         `&result=in.(${resultIn})` +
         `&jn_job_id=not.is.null` +
@@ -121,7 +121,10 @@ exports.handler = async (event) => {
         headers: { apikey: SB_KEY_2, Authorization: `Bearer ${SB_KEY_2}` },
       });
       if (sbRes.ok) {
-        stuckCerts = await sbRes.json();
+        // Drop DEAD deals (Lost / Dead / BTR-NI) — they don't need a cert, so
+        // they're not really "stuck." Mirrors cron-retry-missing-certs.
+        const isDead = (s) => /^(lost|dead)$/i.test(String(s || "").trim()) || /btr\s*-\s*ni/i.test(String(s || ""));
+        stuckCerts = (await sbRes.json()).filter((r) => !isDead(r.jn_status));
       } else {
         console.warn("Stuck-cert query failed:", sbRes.status);
       }
