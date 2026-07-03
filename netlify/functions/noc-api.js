@@ -69,6 +69,7 @@ const NOC = [
   { key: "miamidade", label: "Miami-Dade County", match: ["miamidade", "miami dade", "dade"], url: "https://app.proof.com/easy-link?ApiKey=prf_cli_TUnQUmJNE7yCQWwLWF4mdh9s_4ef90a06" },
   { key: "nassau", label: "Nassau County", match: ["nassau"], url: "https://app.proof.com/easy-link?ApiKey=prf_cli_ZjCV5yoEYDLpUhHN7zTKttaX_3d2ae10e" },
   { key: "okaloosa", label: "Okaloosa County", match: ["okaloosa"], url: "https://app.proof.com/easy-link?ApiKey=prf_cli_fhfwPgyKzgcy1xsittn9eMzy_7cd18330" },
+  { key: "okeechobee", label: "Okeechobee County", match: ["okeechobee"], url: "https://app.proof.com/easy-link?ApiKey=prf_cli_7FZRXoaqVb7tktS2ofyMRLM2_74d9547b" },
   { key: "orange", label: "Orange County", match: ["orange"], url: "https://app.proof.com/easy-link?ApiKey=prf_cli_RsCosanVnzQKtRTkeKk3mJAS_97797104" },
   { key: "osceola", label: "Osceola County", match: ["osceola"], url: "https://app.proof.com/easy-link?ApiKey=prf_cli_FSCXD2VMjx6Ci2c65Pru9uNr_71fe5bbe" },
   { key: "palmbeach", label: "Palm Beach County", match: ["palm beach", "palmbeach"], url: "https://app.proof.com/easy-link?ApiKey=prf_cli_2jMAFdFeAYStmckYAwJQKb2G_2569c1a8" },
