@@ -79,4 +79,17 @@ function escapeHtml(s) {
   return String(s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
 
-export { SB_URL, sb, siteBase, loadByToken, patchByToken, maskPhone, otpHash, clientIp, json, sendSms, sendEmail, escapeHtml };
+// app_settings flag `remote_signing_autosend`: true → old text/email link + SMS
+// code path; absent/false → rep-screen pairing-code mode (the default). Fails
+// CLOSED to the pairing flow so a settings hiccup can't resurrect flaky delivery.
+async function autosendEnabled() {
+  try {
+    const r = await fetch(`${SB_URL}/rest/v1/app_settings?key=eq.remote_signing_autosend&select=value&limit=1`, { headers: sb });
+    if (!r.ok) return false;
+    const rows = await r.json().catch(() => []);
+    const v = rows[0]?.value;
+    return v === true || v === "true" || v === "on" || v === 1;
+  } catch { return false; }
+}
+
+export { SB_URL, sb, siteBase, loadByToken, patchByToken, maskPhone, otpHash, clientIp, json, sendSms, sendEmail, escapeHtml, autosendEnabled };

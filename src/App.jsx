@@ -7718,30 +7718,62 @@ function CancelReviewPage({ inspectionId }) {
 // homeowner, so this is the dependable path: the homeowner scans the QR with
 // their phone camera (opens the agreement on THEIR phone — no delivery needed),
 // or the rep copies the link and sends it however they want.
-function SignLinkShare({ link, name }) {
+function SignLinkShare({ link, name, token, pairingCode, mode }) {
   const [qr, setQr] = useState("");
   const [copied, setCopied] = useState(false);
+  const [opened, setOpened] = useState(false);
+  const repCode = mode !== "sms" && !!pairingCode; // default = rep-screen pairing code
   useEffect(() => {
     let live = true;
     if (link) QRCode.toDataURL(link, { width: 240, margin: 1, errorCorrectionLevel: "M" }).then((u) => { if (live) setQr(u); }).catch(() => {});
     return () => { live = false; };
   }, [link]);
+  // Rep-code mode: poll until the homeowner OPENS the link, then reveal the code
+  // for the rep to read to them (nothing is delivered to the homeowner).
+  useEffect(() => {
+    if (!repCode || !token || opened) return;
+    let live = true;
+    const id = setInterval(async () => {
+      try {
+        const r = await fetch("/.netlify/functions/get-pending-signing", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, peek: true }) });
+        const j = await r.json().catch(() => ({}));
+        if (live && (j?.record?.opened_at || j?.reason === "signed")) { setOpened(true); clearInterval(id); }
+      } catch { /* keep polling */ }
+    }, 3000);
+    return () => { live = false; clearInterval(id); };
+  }, [repCode, token, opened]);
   const copy = async () => {
     try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 2000); }
     catch { window.prompt("Copy this signing link:", link); }
   };
   if (!link) return null;
+
+  // Once they've opened it (rep-code mode), the QR is done its job — show the
+  // big code the rep reads to the homeowner to type into their own phone.
+  if (repCode && opened) {
+    return (
+      <div style={{ background: "#f0fdf4", border: "2px solid #199c2e", borderRadius: 20, padding: "22px 24px", marginBottom: 20, textAlign: "center" }}>
+        <div style={{ fontSize: 17, fontWeight: 800, color: "#166534", fontFamily: "'Oswald', sans-serif", marginBottom: 6, letterSpacing: "0.03em" }}>✅ They opened it — read them this code</div>
+        <div style={{ fontSize: 13.5, color: "#166534", fontWeight: 600, marginBottom: 14, lineHeight: 1.5 }}>Tell {name || "the homeowner"} to type this into <b>their</b> phone to confirm it's them:</div>
+        <div style={{ fontSize: 52, fontWeight: 900, letterSpacing: 12, color: "#0f172a", fontFamily: "'Oswald', sans-serif", background: "#fff", border: "2px solid #199c2e", borderRadius: 14, padding: "14px 0", marginBottom: 10 }}>{pairingCode}</div>
+        <div style={{ fontSize: 12.5, color: "#166534", fontWeight: 600 }}>Then they check the box, sign, and submit — on their own phone.</div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ background: "#fff", border: "2px solid #199c2e", borderRadius: 20, padding: "20px 24px", marginBottom: 20, textAlign: "center" }}>
-      <div style={{ fontSize: 17, fontWeight: 800, color: "#166534", fontFamily: "'Oswald', sans-serif", marginBottom: 4, letterSpacing: "0.03em" }}>📲 Fastest way — do it right here</div>
-      <div style={{ fontSize: 13.5, color: "#166534", fontWeight: 600, marginBottom: 14, lineHeight: 1.5 }}>Have {name || "the homeowner"} point their phone camera at this code — it opens the agreement on <b>their</b> phone. No waiting on a text or email.</div>
+      <div style={{ fontSize: 17, fontWeight: 800, color: "#166534", fontFamily: "'Oswald', sans-serif", marginBottom: 4, letterSpacing: "0.03em" }}>📲 Have them scan this to start</div>
+      <div style={{ fontSize: 13.5, color: "#166534", fontWeight: 600, marginBottom: 14, lineHeight: 1.5 }}>Have {name || "the homeowner"} point their phone camera at this code — it opens the agreement on <b>their</b> phone. No waiting on a text.</div>
       {qr
         ? <img src={qr} alt="Scan to sign" style={{ width: 240, height: 240, display: "block", margin: "0 auto 14px", borderRadius: 12, border: "1px solid #e5e7eb" }} />
         : <div style={{ height: 240, display: "flex", alignItems: "center", justifyContent: "center", color: "#9ca3af" }}>Generating code…</div>}
       <button type="button" onClick={copy} style={{ width: "100%", padding: "13px", borderRadius: 14, border: "2px solid #199c2e", background: copied ? "#199c2e" : "#fff", color: copied ? "#fff" : "#199c2e", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.03em", cursor: "pointer" }}>
         {copied ? "✓ Copied!" : "🔗 Copy link — text it to them yourself"}
       </button>
-      <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 8, wordBreak: "break-all" }}>{link}</div>
+      {repCode
+        ? <div style={{ fontSize: 12.5, color: "#0e7490", marginTop: 12, fontWeight: 700 }}>⏳ Waiting for them to open it… a 6-digit code will appear here to read to them.</div>
+        : <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 8, wordBreak: "break-all" }}>{link}</div>}
     </div>
   );
 }
@@ -7795,6 +7827,7 @@ function RemoteSignPage({ token }) {
         if (!j.ok) { setReason(j.reason || "invalid"); setRec(null); setStage("error"); return; }
         setRec(j.record);
         if (j.record.phone_verified_at) { setPhoneVerified({ number: j.record.phone_verified_number, at: j.record.phone_verified_at }); setStage("sign"); }
+        else if (j.record.mode === "rep_code") { setStage("otp"); }   // code shown on the rep's screen — nothing to send
         else if (j.record.has_contact ?? (j.record.has_phone || j.record.has_email)) { setStage("otp"); requestCode(); }
         else { setStage("sign"); }
       } catch { if (live) { setReason("network"); setRec(null); setStage("error"); } }
@@ -7815,7 +7848,7 @@ function RemoteSignPage({ token }) {
   }
 
   async function verifyCode() {
-    if (code.replace(/\D/g, "").length !== 6) { setOtpMsg("Enter the 6-digit code we sent you."); return; }
+    if (code.replace(/\D/g, "").length !== 6) { setOtpMsg("Enter all 6 digits of the code."); return; }
     setOtpBusy(true); setOtpMsg("");
     try {
       const r = await fetch("/.netlify/functions/verify-signing-otp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, code }) });
@@ -7903,12 +7936,16 @@ function RemoteSignPage({ token }) {
 
         {stage === "otp" && (
           <div>
-            <div style={{ fontSize: 15, color: "#111827", lineHeight: 1.5, marginBottom: 12 }}>To confirm it's you, enter the 6-digit code we sent{otpTo ? ` to ${otpTo}` : " to you"}. We send it by text and email.</div>
+            {rec?.mode === "rep_code" ? (
+              <div style={{ fontSize: 15, color: "#111827", lineHeight: 1.55, marginBottom: 12 }}><b>Ask your rep for the 6-digit code</b> showing on their phone, and type it in below to confirm it's you.</div>
+            ) : (
+              <div style={{ fontSize: 15, color: "#111827", lineHeight: 1.5, marginBottom: 12 }}>To confirm it's you, enter the 6-digit code we sent{otpTo ? ` to ${otpTo}` : " to you"}. We send it by text and email.</div>
+            )}
             <input inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000"
               style={{ width: "100%", boxSizing: "border-box", textAlign: "center", letterSpacing: 8, fontSize: 30, fontWeight: 800, padding: "12px 0", borderRadius: 10, border: "2px solid #cbd5e1", marginBottom: 10, fontFamily: "'Oswald', sans-serif" }} />
             {otpMsg ? <div style={{ color: otpMsg.includes("Sending") ? "#6b7280" : "#dc2626", fontSize: 13, marginBottom: 10 }}>{otpMsg}</div> : null}
             <button type="button" onClick={verifyCode} disabled={otpBusy} style={btn(!otpBusy)}>{otpBusy ? "Checking…" : "Verify & continue"}</button>
-            <button type="button" onClick={requestCode} disabled={otpBusy} style={{ width: "100%", marginTop: 10, padding: "10px", background: "none", border: "none", color: "#0e7490", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Resend code</button>
+            {rec?.mode !== "rep_code" && <button type="button" onClick={requestCode} disabled={otpBusy} style={{ width: "100%", marginTop: 10, padding: "10px", background: "none", border: "none", color: "#0e7490", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Resend code</button>}
           </div>
         )}
 
@@ -11035,7 +11072,7 @@ const renderSmsTemplate = (key, vars) => {
           // code + Copy button — the dependable in-person path that doesn't rely
           // on the text/email actually reaching the homeowner's phone.
           const signLink = j.link || (j.token ? `${window.location.origin}/?sign_insp=${j.token}` : "");
-          setLinkSentInfo({ name: clientName, channels, link: signLink });
+          setLinkSentInfo({ name: clientName, channels, link: signLink, token: j.token || "", pairingCode: j.pairing_code || "", mode: j.mode || "rep_code" });
           setView("thankyou");
         } catch (e) {
           setIsSubmitting(false);
@@ -14681,11 +14718,13 @@ if (!hasDamage) {
                 }}>
                   <div style={{ fontSize: 72, marginBottom: 16 }}>{linkSentInfo ? "📲" : "✅"}</div>
                   <div style={{ fontSize: 34, fontWeight: 700, fontFamily: "'Oswald', sans-serif", marginBottom: 12 }}>
-                    {linkSentInfo ? "Signing Link Sent!" : "Documents Signed!"}
+                    {linkSentInfo ? (linkSentInfo.mode === "sms" ? "Signing Link Sent!" : "Ready to Sign!") : "Documents Signed!"}
                   </div>
                   <div style={{ fontSize: 18, fontFamily: "'Nunito', sans-serif", fontWeight: 600, opacity: 0.93, lineHeight: 1.6 }}>
                     {linkSentInfo
-                      ? `We texted & emailed ${linkSentInfo.name} a secure link. They'll confirm their phone with a 6-digit code, review, and sign on their own device.`
+                      ? (linkSentInfo.mode === "sms"
+                          ? `We texted & emailed ${linkSentInfo.name} a secure link. They'll confirm their phone with a 6-digit code, review, and sign on their own device.`
+                          : `Have ${linkSentInfo.name} scan the code below on their phone. Once they open it, a 6-digit code appears here for you to read to them — then they sign on their own device.`)
                       : `${[data.homeowner1, data.homeowner2].filter(Boolean).join(" & ")} has signed. PDFs have been emailed to everyone.`}
                   </div>
                 </div>
@@ -14697,7 +14736,7 @@ if (!hasDamage) {
                       ⏳ Waiting for {linkSentInfo.name} to sign
                     </div>
                     <div style={{ display: "grid", gap: 8, fontSize: 14, color: "#1e3a8a", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
-                      <div>• They open the link, verify their phone with a texted code, and sign.</div>
+                      <div>• {linkSentInfo.mode === "sms" ? "They open the link, verify their phone with a texted code, and sign." : "They scan the code, you read them the 6-digit code that appears, and they sign on their phone."}</div>
                       <div>• It's created in JobNimbus automatically once they finish — nothing to upload.</div>
                       <div>• You (and the office) get a text/email when it's signed. The link is good for 72 hours.</div>
                     </div>
@@ -14716,7 +14755,7 @@ if (!hasDamage) {
                   </div>
                 )}
 
-                {linkSentInfo && linkSentInfo.link && <SignLinkShare link={linkSentInfo.link} name={linkSentInfo.name} />}
+                {linkSentInfo && linkSentInfo.link && <SignLinkShare link={linkSentInfo.link} name={linkSentInfo.name} token={linkSentInfo.token} pairingCode={linkSentInfo.pairingCode} mode={linkSentInfo.mode} />}
 
                 <div style={{ background: "#fff", borderRadius: 20, border: "1px solid #e5e7eb", padding: "24px 28px", marginBottom: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
                   <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Oswald', sans-serif", color: "#111827", marginBottom: 14, letterSpacing: "0.02em" }}>Summary</div>

@@ -9,7 +9,7 @@
 //
 // Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
 
-import { loadByToken, patchByToken, clientIp, json } from "./_pending.js";
+import { loadByToken, patchByToken, clientIp, json, autosendEnabled } from "./_pending.js";
 
 export const handler = async (event) => {
   if (event.httpMethod !== "POST") return json(405, { ok: false, error: "Method not allowed" });
@@ -17,6 +17,10 @@ export const handler = async (event) => {
   try { body = JSON.parse(event.body || "{}"); } catch { return json(400, { ok: false, error: "Invalid JSON body" }); }
   const token = (body.token || "").trim();
   if (!token) return json(400, { ok: false, error: "token required" });
+  // peek = a read that must NOT stamp the "opened" audit — used by the rep's
+  // confirmation screen polling for when the HOMEOWNER opens it. Without this,
+  // the rep's own poll would falsely mark the link opened.
+  const peek = body.peek === true;
 
   const row = await loadByToken(token);
   if (!row) return json(200, { ok: false, reason: "not_found" });
@@ -27,8 +31,8 @@ export const handler = async (event) => {
     return json(200, { ok: false, reason: "expired" });
   }
 
-  // Stamp the first open (audit trail).
-  if (!row.opened_at) {
+  // Stamp the first open (audit trail) — skipped on a peek (rep poll).
+  if (!row.opened_at && !peek) {
     await patchByToken(token, {
       opened_at: new Date().toISOString(),
       opened_ip: clientIp(event),
@@ -39,6 +43,9 @@ export const handler = async (event) => {
 
   const hasPhone = String(row.mobile || "").replace(/\D/g, "").length >= 10;
   const hasEmail = /.+@.+\..+/.test(String(row.email || "").trim());
+  // Verification mode: "rep_code" (default) = homeowner types the 6-digit code
+  // shown on the rep's screen; "sms" (fallback, flag on) = old texted/emailed code.
+  const mode = (await autosendEnabled()) ? "sms" : "rep_code";
   return json(200, {
     ok: true,
     record: {
@@ -52,7 +59,7 @@ export const handler = async (event) => {
       prepared_by_rep_name: row.prepared_by_rep_name, prepared_at: row.prepared_at,
       sent_channels: row.sent_channels, sent_at: row.sent_at, opened_at: row.opened_at,
       phone_verified_at: row.phone_verified_at, phone_verified_number: row.phone_verified_number,
-      status: row.status, has_phone: hasPhone, has_email: hasEmail, has_contact: hasPhone || hasEmail,
+      status: row.status, has_phone: hasPhone, has_email: hasEmail, has_contact: hasPhone || hasEmail, mode,
     },
   });
 };

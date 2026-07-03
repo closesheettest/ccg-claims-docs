@@ -14,7 +14,7 @@
 // Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY (+ ghl-sms / send-email funcs)
 
 import crypto from "crypto";
-import { SB_URL, sb, siteBase, loadByToken, patchByToken, json, sendSms, sendEmail, escapeHtml } from "./_pending.js";
+import { SB_URL, sb, siteBase, loadByToken, patchByToken, otpHash, json, sendSms, sendEmail, escapeHtml, autosendEnabled } from "./_pending.js";
 
 const EXPIRY_MS = 72 * 60 * 60 * 1000;
 
@@ -37,8 +37,17 @@ export const handler = async (event) => {
 
   const token = crypto.randomBytes(16).toString("hex");
   const nowIso = new Date().toISOString();
+  // Rep-screen PAIRING CODE: after the homeowner opens the link, the rep's phone
+  // reveals this 6-digit code; she types it into HER phone to verify. Nothing is
+  // delivered to the homeowner (kills the SMS/email delivery problem). Stored as
+  // a hash in otp_hash so verify-signing-otp compares against it unchanged; valid
+  // for the full link lifetime. In SMS-fallback mode, send-signing-otp overwrites
+  // this hash with a freshly texted code.
+  const pairingCode = String(crypto.randomInt(0, 1000000)).padStart(6, "0");
   const row = {
     token, status: "sent",
+    otp_hash: otpHash(token, pairingCode),
+    otp_expires_at: new Date(Date.now() + EXPIRY_MS).toISOString(),
     client_name,
     mobile: (d.mobile || "").trim(),
     email: email || null,
@@ -69,11 +78,20 @@ export const handler = async (event) => {
   if (!ins.ok) return json(500, { ok: false, error: `Insert failed: ${(await ins.text()).slice(0, 200)}` });
   const created = (await ins.json().catch(() => []))[0] || row;
 
-  const sent = await sendLink(created);
+  // Default mode = rep-screen pairing code → do NOT auto-send the link. The rep
+  // shares it in person (QR / copy link). The old text+email auto-send is kept
+  // but gated behind the app_settings flag `remote_signing_autosend` (off by
+  // default) so it can be re-enabled without a redeploy.
+  const autosend = await autosendEnabled();
+  const sent = autosend ? await sendLink(created) : [];
   await patchByToken(token, { sent_channels: sent.join("+") || null, sent_at: sent.length ? new Date().toISOString() : null });
 
-  if (!sent.length) return json(200, { ok: true, token, sent, warning: "Saved, but the link wasn't delivered (no valid phone/email or send failed)." });
-  return json(200, { ok: true, token, sent, link: `${siteBase()}/?sign_insp=${token}` });
+  return json(200, {
+    ok: true, token, sent,
+    link: `${siteBase()}/?sign_insp=${token}`,
+    pairing_code: pairingCode,
+    mode: autosend ? "sms" : "rep_code",
+  });
 };
 
 async function resend(body) {
