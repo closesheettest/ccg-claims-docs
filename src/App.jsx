@@ -7376,13 +7376,13 @@ function InspectionActions({ d, base = "", onChanged }) {
   };
   const loadSlots = async () => {
     setOpen("pa"); setSlots(null); setMsg("");
-    try { const j = await post("pa-schedule-api", { action: "slots", inspection_id: d.inspection_id }); setSlots(j.ok ? (j.slots || []) : []); if (!j.ok) setMsg(j.error || "Couldn't load times."); }
+    try { const j = await post("inspection-action", { action: "pa_slots", inspection_id: d.inspection_id }); setSlots(j.ok ? (j.slots || []) : []); if (!j.ok) setMsg(j.error || "Couldn't load times."); }
     catch { setSlots([]); setMsg("Network error."); }
   };
   const bookSlot = async (s) => {
     setBusy(true); setMsg("");
     try {
-      const j = await post("pa-schedule-api", { action: "book", pa_id: s.pa_id, start_at: s.start_at, inspection_id: d.inspection_id, homeowner_name: d.raw?.client_name, homeowner_phone: d.raw?.mobile, address: d.raw?.address, booked_by: "Manager (lookup)" });
+      const j = await post("inspection-action", { action: "pa_book", inspection_id: d.inspection_id, pa_id: s.pa_id, start_at: s.start_at, homeowner_name: d.raw?.client_name, homeowner_phone: d.raw?.mobile, address: d.raw?.address });
       if (j.duplicate) setMsg("Already has a PA appointment — reschedule from the PA tool.");
       else if (!j.ok) setMsg(j.error || "Booking failed.");
       else { setMsg(`✓ PA appointment booked with ${s.pa_name}.`); setTimeout(() => onChanged && onChanged(), 1000); }

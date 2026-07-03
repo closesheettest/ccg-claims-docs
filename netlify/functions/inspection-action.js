@@ -32,8 +32,25 @@ exports.handler = async (event) => {
   if (!id) return cors(400, JSON.stringify({ ok: false, error: "inspection_id required" }));
 
   if (action === "update_contact") return await updateContact(id, body);
+  if (action === "pa_slots" || action === "pa_book") return await paProxy(action, id, body);
   return cors(400, JSON.stringify({ ok: false, error: `unknown action: ${action}` }));
 };
+
+// PA scheduling is token-gated (pa-schedule-api wants the dialer/visit token).
+// The manager lookup tool has no token, so we read it server-side and proxy.
+async function paProxy(action, id, body) {
+  const token = (await getSetting("dialer_token")) || (await getSetting("visit_token"));
+  if (!token) return cors(500, JSON.stringify({ ok: false, error: "No scheduling token configured (app_settings dialer_token)." }));
+  const base = process.env.URL || process.env.DEPLOY_URL || "https://free-roof-inspections.netlify.app";
+  const payload = action === "pa_slots"
+    ? { action: "slots", token, inspection_id: id }
+    : { action: "book", token, inspection_id: id, pa_id: body.pa_id, start_at: body.start_at, homeowner_name: body.homeowner_name, homeowner_phone: body.homeowner_phone, address: body.address, booked_by: body.booked_by || "Manager (lookup)", force: !!body.force, reschedule: !!body.reschedule };
+  try {
+    const r = await fetch(`${base}/.netlify/functions/pa-schedule-api`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    return cors(r.status, await r.text());
+  } catch (e) { return cors(502, JSON.stringify({ ok: false, error: e.message || "PA scheduler unreachable" })); }
+}
+async function getSetting(key) { const rows = await sbGet(`app_settings?key=eq.${encodeURIComponent(key)}&select=value&limit=1`); return rows[0]?.value || null; }
 
 async function updateContact(id, body) {
   const next = {
