@@ -7340,6 +7340,78 @@ function PaApptsReport() {
   );
 }
 
+// Manager/admin "Look up an inspection" — search an address or homeowner name
+// and see where the deal is in the process (signed → inspected → result → PA /
+// released / cancelled), the timeline, PA notes, and live JobNimbus status.
+// Same component + backend feed the CCG admin hub and the TMS regional dashboard.
+function inspStageColor(stage) {
+  const s = String(stage || "").toLowerCase();
+  if (s.includes("cancel")) return "#6b7280";
+  if (s.includes("released") || s.includes("needs a pa") || s.includes("opened, not signed")) return "#b91c1c";
+  if (s.includes("awaiting inspection") || s.includes("waiting")) return "#b45309";
+  if (s.includes("working the claim") || s.includes("no damage")) return "#166534";
+  return "#0e7490";
+}
+function InspectionLookup({ endpoint = "/.netlify/functions/inspection-lookup" }) {
+  const [q, setQ] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [res, setRes] = useState(null);
+  const [err, setErr] = useState("");
+  const run = async (e) => {
+    if (e) e.preventDefault();
+    const term = q.trim();
+    if (term.length < 2) { setErr("Type an address or homeowner name (2+ characters)."); return; }
+    setLoading(true); setErr(""); setRes(null);
+    try {
+      const r = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ q: term }) });
+      const j = await r.json();
+      if (!j.ok) setErr(j.error || "Lookup failed.");
+      else setRes(j.results || []);
+    } catch { setErr("Network error — try again."); }
+    setLoading(false);
+  };
+  const fmt = (s) => s ? new Date(s).toLocaleString("en-US", { timeZone: "America/New_York", month: "numeric", day: "numeric", year: "2-digit", hour: "numeric", minute: "2-digit" }) : "—";
+  return (
+    <div>
+      <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 18, marginBottom: 8 }}>🔎 Look up an inspection</div>
+      <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 12 }}>Search an address or homeowner name to see exactly where it is in the process.</div>
+      <form onSubmit={run} style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="e.g. 217 Cobalt Dr  or  Shannon Stewart"
+          style={{ flex: 1, minWidth: 240, height: 44, borderRadius: 12, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14 }} />
+        <button type="submit" disabled={loading} style={{ height: 44, padding: "0 18px", borderRadius: 12, border: "none", background: "#0f2e4c", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>{loading ? "Searching…" : "Look up"}</button>
+      </form>
+      {err && <div style={{ color: "#dc2626", fontSize: 13.5, fontWeight: 600, marginBottom: 10 }}>{err}</div>}
+      {res && res.length === 0 && <div style={{ color: "#6b7280", fontSize: 14 }}>No inspection found for “{q}”.</div>}
+      {res && res.map((d) => (
+        <div key={d.inspection_id} style={{ border: "1px solid #e5e7eb", borderRadius: 14, padding: "14px 16px", marginBottom: 12, background: "#fafafa" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, alignItems: "baseline" }}>
+            <div style={{ fontWeight: 800, fontSize: 16, color: "#0f172a" }}>{d.client_name}</div>
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: "#fff", background: inspStageColor(d.stage), borderRadius: 999, padding: "3px 12px" }}>{d.stage}</span>
+          </div>
+          <div style={{ fontSize: 13, color: "#6b7280", marginTop: 2 }}>{d.address} · Rep: {d.rep}{d.mobile ? ` · ${d.mobile}` : ""}</div>
+          {d.stage_detail && <div style={{ fontSize: 13.5, color: "#374151", marginTop: 8, fontWeight: 600 }}>{d.stage_detail}</div>}
+          {d.jn_status_stale && <div style={{ fontSize: 12.5, color: "#b45309", marginTop: 6, fontWeight: 700 }}>⚠ JobNimbus still says “{d.jn_status}” — stale (the deal was released).</div>}
+          {d.timeline && d.timeline.length > 0 && (
+            <div style={{ marginTop: 10, borderTop: "1px solid #e5e7eb", paddingTop: 10 }}>
+              {d.timeline.map((t, i) => (
+                <div key={i} style={{ fontSize: 12.5, color: t.note ? "#6b7280" : "#111827", marginBottom: 3, fontStyle: t.note ? "italic" : "normal" }}>
+                  <span style={{ color: "#9ca3af" }}>{fmt(t.at)}</span>  ·  {t.label}
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ marginTop: 10, fontSize: 12.5, display: "flex", gap: 14, flexWrap: "wrap", color: "#6b7280", alignItems: "center" }}>
+            <span>JN status: <b style={{ color: "#374151" }}>{d.jn_status || "—"}</b></span>
+            {d.start_date && <span>Start: <b style={{ color: "#374151" }}>{d.start_date}</b></span>}
+            {d.sold_date && <span>Sold: <b style={{ color: "#374151" }}>{d.sold_date}</b></span>}
+            {d.jn_url && <a href={d.jn_url} target="_blank" rel="noreferrer" style={{ color: "#0e7490", fontWeight: 700 }}>Open in JobNimbus ↗</a>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function AdminDashboard() {
   const [unlocked, setUnlocked] = useState(() => {
     try { return sessionStorage.getItem("adminHubUnlocked") === "1"; } catch { return false; }
@@ -7447,6 +7519,13 @@ function AdminDashboard() {
           <CardTitle>🛠 Admin Dashboard</CardTitle>
           <CardDescription>Your front door to every app, tool, and report — and ask a question to get the answer on the spot.</CardDescription>
         </CardHeader>
+      </Card>
+
+      {/* Look up an inspection */}
+      <Card>
+        <CardContent>
+          <InspectionLookup />
+        </CardContent>
       </Card>
 
       {/* Smart Q&A */}
