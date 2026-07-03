@@ -41,10 +41,12 @@ exports.handler = async (event) => {
 
     if (action === "release_to_rep") {
       const log = Array.isArray(insp.pa_notes_log) ? insp.pa_notes_log : [];
-      log.push({ at: now, text: "Released back to the sales rep by U.S. Shingle (was a dead PA deal).", stage: "released" });
+      log.push({ at: now, text: "Released back to the sales rep by U.S. Shingle for a Damage visit.", stage: "released" });
       // Keep pa_notes_log so the rep sees the PA's history; clear the PA so the
-      // deal reappears in that rep's Damage visit list.
-      await patch(id, { pa_id: null, pa_company_id: null, pa_claimed_at: null, pa_stage: null, pa_stage_at: now, pa_decision_needed: false, pa_notes_log: log });
+      // deal reappears in that rep's Damage visit list. Also un-cancel it (a
+      // deactivated PA's deal is often cancelled) and stamp manager_assigned_to_
+      // rep_at so it shows even if a PA had merely OPENED it.
+      await patch(id, { pa_id: null, pa_company_id: null, pa_claimed_at: null, pa_stage: null, pa_stage_at: now, pa_decision_needed: false, cancelled_at: null, cancel_reason: null, manager_assigned_to_rep_at: now, pa_notes_log: log });
       return cors(200, JSON.stringify({ ok: true, action }));
     }
     if (action === "lost") {

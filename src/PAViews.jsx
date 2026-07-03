@@ -674,6 +674,26 @@ export function PAAdminPanel() {
     await loadDecisions();
   }
 
+  // Send a parked deal BACK TO THE SALES REP — it lands on their Damage visit
+  // list (the PA notes ride along). Reuses the canonical release_to_rep triage,
+  // which now also un-cancels it + sets the manager override so it definitely
+  // shows for the rep.
+  async function backToRep(deal) {
+    if (!window.confirm(`Send ${deal.client_name || "this homeowner"} back to the sales rep's Damage visit list?`)) return;
+    setBusyId(deal.id);
+    try {
+      const tok = (await supabase.from("app_settings").select("value").eq("key", "visit_token").maybeSingle()).data?.value;
+      const res = await fetch("/.netlify/functions/pa-dead-triage", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: tok, inspection_id: deal.id, action: "release_to_rep" }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.ok) setMessage({ kind: "error", text: body.error || `status ${res.status}` });
+      else { setMessage({ kind: "success", text: `Sent ${deal.client_name || "deal"} back to the sales rep — it's on their Damage visit list.` }); await loadDecisions(); }
+    } catch (e) { setMessage({ kind: "error", text: e.message || "Network error" }); }
+    setBusyId(null);
+  }
+
   // Dismiss without assigning — clears it from the queue (keeps it cancelled
   // if it was Lost). Use when a deal genuinely shouldn't go to any PA.
   async function dismissDeal(deal) {
@@ -1209,6 +1229,7 @@ export function PAAdminPanel() {
                 priorPaName={deal.pa_id ? (pas.find((p) => p.id === deal.pa_id)?.name || null) : null}
                 busy={busyId === deal.id}
                 onPool={(note) => releaseToPool(deal, note)}
+                onBackToRep={() => backToRep(deal)}
                 onDismiss={() => dismissDeal(deal)}
               />
             ))}
@@ -1503,7 +1524,7 @@ function PARow({ pa, companies = [], busy, onToggle, onResend, onUpdate, onDelet
 // One row in the PA Decision Needed queue — shows why it's here + who had
 // it, and lets the manager put it into the PA pool (with an optional note)
 // or dismiss it.
-function PADecisionRow({ deal, priorPaName, busy, onPool, onDismiss }) {
+function PADecisionRow({ deal, priorPaName, busy, onPool, onBackToRep, onDismiss }) {
   const [note, setNote] = useState("");
   // Dates that help the reassignment decision. undefined = still loading,
   // null = not recorded, number = epoch seconds (from JN).
@@ -1597,6 +1618,12 @@ function PADecisionRow({ deal, priorPaName, busy, onPool, onDismiss }) {
             style={{ ...primaryBtn, whiteSpace: "nowrap" }}>
             {busy ? "…" : "↪ Put in PA pool"}
           </button>
+          {onBackToRep && (
+            <button type="button" disabled={busy} onClick={onBackToRep}
+              style={{ ...secondaryBtn, fontSize: 12, whiteSpace: "nowrap", borderColor: "#86efac", color: "#15803d", fontWeight: 700 }}>
+              {busy ? "…" : "↩ Back to sales rep (Damage visit)"}
+            </button>
+          )}
           <button type="button" onClick={togglePhotos} style={{ ...secondaryBtn, fontSize: 12, whiteSpace: "nowrap" }}>
             {photosOpen ? "Hide photos" : `📷 Photos${photos ? ` (${photos.length})` : ""}`}
           </button>
