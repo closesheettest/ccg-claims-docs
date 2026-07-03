@@ -7352,6 +7352,13 @@ function inspStageColor(stage) {
   if (s.includes("working the claim") || s.includes("no damage")) return "#166534";
   return "#0e7490";
 }
+// Collapse the PA slots to unique day+times — a manager scheduling a PA only
+// picks a time; which PA takes it is handled on book (any one free then).
+function dedupeSlotsByTime(slots) {
+  const seen = new Set(); const out = [];
+  for (const s of slots || []) { const k = s.start_at || s.label; if (k && !seen.has(k)) { seen.add(k); out.push(s); } }
+  return out;
+}
 // Per-card action panel: fix the homeowner's info (Supabase + JobNimbus) or
 // schedule a PA appointment — reusing pa-schedule-api. base="" on CCG (relative
 // functions); the TMS copy points at the CCG origin.
@@ -7385,7 +7392,7 @@ function InspectionActions({ d, base = "", onChanged }) {
       const j = await post("inspection-action", { action: "pa_book", inspection_id: d.inspection_id, pa_id: s.pa_id, start_at: s.start_at, homeowner_name: d.raw?.client_name, homeowner_phone: d.raw?.mobile, address: d.raw?.address });
       if (j.duplicate) setMsg("Already has a PA appointment — reschedule from the PA tool.");
       else if (!j.ok) setMsg(j.error || "Booking failed.");
-      else { setMsg(`✓ PA appointment booked with ${s.pa_name}.`); setTimeout(() => onChanged && onChanged(), 1000); }
+      else { setMsg(`✓ PA appointment booked for ${s.label}.`); setTimeout(() => onChanged && onChanged(), 1000); }
     } catch { setMsg("Network error."); }
     setBusy(false);
   };
@@ -7412,7 +7419,7 @@ function InspectionActions({ d, base = "", onChanged }) {
         <div style={{ marginTop: 10 }}>
           {slots === null ? <div style={{ fontSize: 13, color: "#6b7280" }}>Loading available times…</div>
             : slots.length === 0 ? <div style={{ fontSize: 13, color: "#6b7280" }}>No PA times available (check PA availability / zones).</div>
-              : <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{slots.slice(0, 12).map((s, i) => <button key={i} type="button" onClick={() => bookSlot(s)} disabled={busy} style={{ ...actBtn, fontSize: 12 }}>{s.label} · {s.pa_name}</button>)}</div>}
+              : <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{dedupeSlotsByTime(slots).slice(0, 16).map((s, i) => <button key={i} type="button" onClick={() => bookSlot(s)} disabled={busy} style={{ ...actBtn, fontSize: 12 }}>{s.label}</button>)}</div>}
         </div>
       )}
       {msg && <div style={{ marginTop: 8, fontSize: 12.5, fontWeight: 700, color: msg.startsWith("✓") ? "#166534" : "#b45309" }}>{msg}</div>}
