@@ -83,6 +83,33 @@ async function geocodeCounty(addr) {
   } catch { return null }
 }
 
+// Forward-geocode an address → [lat, lng] via Google (keyed, reliable). Used to
+// pin the appointments on the Assign map SERVER-side — the browser's Nominatim
+// fallback was being rate-limited/blocked, so blue pins silently never showed.
+async function geocodeLatLng(addr) {
+  if (!GOOGLE_KEY || !addr) return null
+  try {
+    const r = await fetch(`${GOOGLE_GEOCODE}?address=${encodeURIComponent(addr)}&region=us&key=${GOOGLE_KEY}`)
+    if (!r.ok) return null
+    const d = await r.json().catch(() => ({}))
+    const loc = d.results && d.results[0] && d.results[0].geometry && d.results[0].geometry.location
+    return loc ? [loc.lat, loc.lng] : null
+  } catch { return null }
+}
+// Attach lat/lng to each appointment item (by its address), cached per request
+// and capped so a busy board can't fan out hundreds of geocodes.
+async function attachCoords(items, cache) {
+  cache = cache || {}
+  await Promise.all((items || []).slice(0, 40).map(async (it) => {
+    const addr = it.address || it._addr
+    if (!addr) return
+    if (!(addr in cache)) cache[addr] = await geocodeLatLng(addr)
+    const c = cache[addr]
+    if (c) { it.lat = c[0]; it.lng = c[1] }
+  }))
+  return items
+}
+
 export const handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return json(405, { ok: false, error: 'Method Not Allowed' })
@@ -379,6 +406,7 @@ async function listAppointments(manager, body) {
       })
     }
     items.sort((x, y) => new Date(x.appt_at) - new Date(y.appt_at))
+    await attachCoords(items)
     return json(200, { ok: true, zone, view, reps, items })
   }
 
@@ -454,6 +482,11 @@ async function listAppointments(manager, body) {
   const backlog = bkZoned
     .map((t) => ({ key: 'bk:' + t.id, source: 'jn', id: null, jn_job_id: t.job_id || null, homeowner: t.homeowner, address: t._addr, appt_at: t.appt_at, src: ownerLabel(t), owner_id: t.owner_id || null, owner_name: ownerLabel(t), sales_rep_id: null, sales_rep_name: null, needs_assignment: true }))
     .sort((a, b) => new Date(a.appt_at) - new Date(b.appt_at))
+  // Server-side geocode the appointments so the Assign map's blue pins show
+  // reliably (shared cache across both lists).
+  const geoCache = {}
+  await attachCoords(unassignedFiltered, geoCache)
+  await attachCoords(backlog, geoCache)
   // `viviana` kept for backward-compat with older clients; `backlog` is canonical.
   return json(200, { ok: true, zone, view: 'needs', reps, unassigned: unassignedFiltered, assigned, backlog, viviana: backlog })
 }
