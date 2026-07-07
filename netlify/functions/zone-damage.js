@@ -77,11 +77,12 @@ async function buildReport({ zone, days, since, resultValue }) {
   let total = 0;
   for (const r of deduped) {
     const rec = resolve(r.sales_rep_id, r.sales_rep_name);
-    // Zone by PROPERTY county (same territory map used to assign reps to
-    // zones); fall back to the rep's zone only when the address can't be
-    // placed. So departed reps / trainers (e.g. William) land in the right zone.
-    const byCounty = countyToZone(r.county, r.latitude);
-    const dealZone = byCounty !== "Unassigned" ? byCounty : (rec?.zone || "Unassigned");
+    // Scope by the REP's own team zone (roster) — a manager sees only their
+    // own reps' deals, whatever county the property sits in. If the rep can't
+    // be placed on a team (name unmatched / no rep on the deal), fall back to
+    // the property's county so the lead still surfaces to its territory
+    // manager instead of disappearing from every list.
+    const dealZone = (rec && rec.zone) ? rec.zone : countyToZone(r.county, r.latitude);
     if (dealZone !== zone) continue;
     total++;
     const rep = (r.sales_rep_name || "").trim() || "(no rep)";
