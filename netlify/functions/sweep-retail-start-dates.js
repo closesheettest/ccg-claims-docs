@@ -71,12 +71,15 @@ exports.handler = async (event) => {
       }));
     }
 
-    let applied = 0, applyErrors = [];
+    let applied = 0;
+    const applyErrors = [];
     if (apply) {
-      for (const f of flagged) {
-        const ok = await jnPutClearStart(f.jnid);
-        if (ok) applied++;
-        else applyErrors.push(f.name);
+      // Parallel batches so all writes finish inside the function timeout.
+      // Nulling is idempotent, so a re-run is always safe.
+      for (let i = 0; i < flagged.length; i += CONCURRENCY) {
+        const batch = flagged.slice(i, i + CONCURRENCY);
+        const results = await Promise.all(batch.map((f) => jnPutClearStart(f.jnid)));
+        results.forEach((ok, k) => { if (ok) applied++; else applyErrors.push(batch[k].name); });
       }
     }
 
