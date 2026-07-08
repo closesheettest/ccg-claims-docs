@@ -1,22 +1,24 @@
 // netlify/functions/admin-sales-metrics.js
 //
-// Weekly time-series of SALES by type, for the Regional-Managers line graph.
-// Each series is a count of sold JN deals bucketed by Sold Date (cf_date_5),
-// week = Mon–Sun (ET). Four toggleable series:
+// Weekly sales time-series for the Regional-Managers line graph. Reads sold
+// JN deals, buckets by Sold Date (cf_date_5), week = Mon–Sun (ET). Returns
+// BOTH a count and a dollar total for each series, so the chart can switch
+// between "# deals" and "$ revenue":
 //
-//   • iq         — lead source "Instant Quote" (IQ)
+//   • all        — every sold deal (overall progress)
+//   • iq         — lead source "Instant Quote"
 //   • harvested  — "Sales Rep Harvested" = Yes
-//   • btr        — back to retail: lead source "Inspection" (stamped on signing)
+//   • btr        — back to retail: lead source "Inspection"
 //   • irb        — deal includes Insulation and/or Radiant Barrier
 //
-// (A deal can appear in more than one series — e.g. an IQ sale that also has a
-// radiant barrier — because they're different questions, not a partition.)
+// $ value of a deal = max(approved estimate, approved invoice, last budget
+// revenue) — same as the Appointments→Sales report.
 //
-//   GET /.netlify/functions/admin-sales-metrics?range=year   (default) | all
-//   → { ok, range, weeks:[{key,label}], series:{ iq:[], harvested:[], btr:[], irb:[] }, truncated }
+//   GET ?range=year (default) | all      [&metric ignored — both returned]
+//   → { ok, range, weeks:[{key,label}], count:{all,iq,harvested,btr,irb},
+//        dollars:{all,iq,harvested,btr,irb}, truncated }
 //
-// Open-CORS (called cross-origin from the TMS Regional Managers page).
-// Env: JOBNIMBUS_API_KEY.
+// Open-CORS. Env: JOBNIMBUS_API_KEY.
 
 const JN_BASE = "https://app.jobnimbus.com/api1";
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
@@ -26,19 +28,21 @@ const SOLD_STATUS_NAMES = [
   "Sit - Sold", "Signed Contract", "Production Review", "Job Prep",
   "Upcoming Installs", "Install Set",
 ];
-const PAGE_CAP = 25;
+// All-time paginates far deeper (old sales sit deep in the -date_updated list).
+const PAGE_CAP_YEAR = 25;   // 2,500 / status
+const PAGE_CAP_ALL = 90;    // 9,000 / status (JN from+size cap is 10k)
+const KEYS = ["all", "iq", "harvested", "btr", "irb"];
 
 const isYes = (v) => v === true || v === "true" || v === "Yes" || v === "yes" || v === 1;
-// Read a JN custom field by its display label (JN returns them as top-level
-// keys; tolerate trailing spaces and *…* wrappers, like _sales-audit does).
 function fieldByLabel(job, label) {
   if (label in job) return job[label];
   for (const [k, v] of Object.entries(job)) {
-    const bare = k.trim().replace(/^\*|\*$/g, "").trim();
-    if (bare === label) return v;
+    if (k.trim().replace(/^\*|\*$/g, "").trim() === label) return v;
   }
   return undefined;
 }
+const saleAmount = (j) =>
+  Math.max(Number(j.approved_estimate_total) || 0, Number(j.approved_invoice_total) || 0, Number(j.last_budget_revenue) || 0);
 
 function etMonday(sec) {
   const et = new Date(new Date(sec * 1000).toLocaleString("en-US", { timeZone: "America/New_York" }));
@@ -59,15 +63,21 @@ exports.handler = async (event) => {
   const yearStart = new Date(new Date().getFullYear(), 0, 1);
   const floorKey = range === "year" ? etMonday(Math.floor(yearStart.getTime() / 1000)) : "0000";
   const updatedAfter = range === "year" ? Math.floor(yearStart.getTime() / 1000) : 0;
+  const pageCap = range === "year" ? PAGE_CAP_YEAR : PAGE_CAP_ALL;
 
-  const iq = {}, harvested = {}, btr = {}, irb = {};
+  // week -> { count:{k:n}, dollars:{k:$} }
+  const cnt = {}, dol = {};
+  const bump = (wk, key, amt) => {
+    (cnt[wk] = cnt[wk] || {})[key] = (cnt[wk][key] || 0) + 1;
+    (dol[wk] = dol[wk] || {})[key] = (dol[wk][key] || 0) + amt;
+  };
   let truncated = false;
 
   try {
     const perStatus = await Promise.all(SOLD_STATUS_NAMES.map(async (name) => {
       const filter = encodeURIComponent(JSON.stringify({ must: [{ match_phrase: { status_name: name } }] }));
       const out = [];
-      for (let page = 0; page < PAGE_CAP; page++) {
+      for (let page = 0; page < pageCap; page++) {
         const after = updatedAfter ? `&date_updated_after=${updatedAfter}` : "";
         const r = await fetch(`${JN_BASE}/jobs?size=100&from=${page * 100}&sort=-date_updated${after}&filter=${filter}`, { headers: jnH });
         if (!r.ok) break;
@@ -75,7 +85,7 @@ exports.handler = async (event) => {
         const rows = d.results || d.jobs || [];
         out.push(...rows);
         if (rows.length < 100) break;
-        if (page === PAGE_CAP - 1) truncated = true;
+        if (page === pageCap - 1) truncated = true;
       }
       return out;
     }));
@@ -90,25 +100,20 @@ exports.handler = async (event) => {
         if (!soldSec) continue;
         const wk = etMonday(soldSec);
         if (range === "year" && wk < floorKey) continue;
-
+        const amt = saleAmount(j);
         const src = String(j.source_name || "");
-        if (src === "Instant Quote") iq[wk] = (iq[wk] || 0) + 1;
-        if (src === "Inspection") btr[wk] = (btr[wk] || 0) + 1;
-        if (isYes(fieldByLabel(j, "Sales Rep Harvested"))) harvested[wk] = (harvested[wk] || 0) + 1;
-        if (isYes(fieldByLabel(j, "Insulation")) || isYes(fieldByLabel(j, "Radiant Barrier"))) irb[wk] = (irb[wk] || 0) + 1;
+        bump(wk, "all", amt);
+        if (src === "Instant Quote") bump(wk, "iq", amt);
+        if (src === "Inspection") bump(wk, "btr", amt);
+        if (isYes(fieldByLabel(j, "Sales Rep Harvested"))) bump(wk, "harvested", amt);
+        if (isYes(fieldByLabel(j, "Insulation")) || isYes(fieldByLabel(j, "Radiant Barrier"))) bump(wk, "irb", amt);
       }
     }
 
-    const keys = [...new Set([...Object.keys(iq), ...Object.keys(harvested), ...Object.keys(btr), ...Object.keys(irb)])]
-      .filter((k) => k !== "0000").sort();
+    const keys = Object.keys(cnt).filter((k) => k !== "0000").sort();
     const weeks = keys.map((k) => ({ key: k, label: weekLabel(k) }));
-    const series = {
-      iq: keys.map((k) => iq[k] || 0),
-      harvested: keys.map((k) => harvested[k] || 0),
-      btr: keys.map((k) => btr[k] || 0),
-      irb: keys.map((k) => irb[k] || 0),
-    };
-    return cors(200, JSON.stringify({ ok: true, range, weeks, series, truncated }));
+    const pick = (src) => Object.fromEntries(KEYS.map((k) => [k, keys.map((wk) => Math.round(src[wk]?.[k] || 0))]));
+    return cors(200, JSON.stringify({ ok: true, range, weeks, count: pick(cnt), dollars: pick(dol), truncated }));
   } catch (e) {
     return cors(500, JSON.stringify({ ok: false, error: e.message || "error" }));
   }
