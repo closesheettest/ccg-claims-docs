@@ -126,8 +126,11 @@ exports.handler = async (event) => {
 async function scanAllJobs() {
   const seen = new Set(), out = [];
   let done = false;
+  // Every backfill write bumped date_updated to the backfill day, so a
+  // reversible candidate is always updated on/after BF_MIN — scan only that
+  // window (far smaller than the full 10k job set, keeps each chunk fast).
   const fetchPage = async (p) => {
-    const r = await fetch(`${JN_BASE}/jobs?size=100&from=${p * 100}&sort=-date_updated`, { headers: jnH });
+    const r = await fetch(`${JN_BASE}/jobs?size=100&from=${p * 100}&sort=-date_updated&date_updated_after=${BF_MIN}`, { headers: jnH });
     if (!r.ok) return null;
     const d = await r.json().catch(() => ({}));
     return d.results || d.jobs || [];
