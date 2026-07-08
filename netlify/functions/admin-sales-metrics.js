@@ -60,6 +60,20 @@ function etMonthFirst(sec) {
   return `${et.getFullYear()}-${String(et.getMonth() + 1).padStart(2, "0")}-01`;
 }
 const bucketKey = (sec, bucket) => (bucket === "month" ? etMonthFirst(sec) : etMonday(sec));
+// Every bucket key from first..last inclusive, so zero-activity weeks/months
+// still appear (a continuous time axis) instead of collapsing out.
+function fillKeys(minKey, maxKey, bucket) {
+  const [y0, m0, d0] = minKey.split("-").map(Number);
+  const [y1, m1, d1] = maxKey.split("-").map(Number);
+  const cur = new Date(y0, m0 - 1, d0), end = new Date(y1, m1 - 1, d1);
+  const out = [];
+  while (cur <= end && out.length < 1000) {
+    out.push(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-${String(cur.getDate()).padStart(2, "0")}`);
+    if (bucket === "month") cur.setMonth(cur.getMonth() + 1);
+    else cur.setDate(cur.getDate() + 7);
+  }
+  return out;
+}
 const bucketLabel = (key, bucket) => {
   const [y, m, d] = key.split("-").map(Number);
   const dt = new Date(y, m - 1, d);
@@ -130,7 +144,8 @@ exports.handler = async (event) => {
       }
     }
 
-    const keys = Object.keys(cnt).filter((k) => k !== "0000").sort();
+    const present = Object.keys(cnt).filter((k) => k !== "0000").sort();
+    const keys = present.length ? fillKeys(present[0], present[present.length - 1], bucket) : [];
     const weeks = keys.map((k) => ({ key: k, label: bucketLabel(k, bucket) }));
     const pick = (src) => Object.fromEntries(KEYS.map((k) => [k, keys.map((wk) => Math.round(src[wk]?.[k] || 0))]));
     return cors(200, JSON.stringify({ ok: true, range, weeks, count: pick(cnt), dollars: pick(dol), truncated }));
