@@ -10373,40 +10373,60 @@ const renderSmsTemplate = (key, vars) => {
     }
   };
 
-  const checkForExistingByAddress = async (address, zip) => {
+  const checkForExistingByAddress = async (address, zip, mobile) => {
     const a = (address || "").trim();
     const z = (zip || "").trim();
-    if (!a) return true; // nothing to check — let the submit proceed
+    const digits = String(mobile || "").replace(/\D/g, "");
+    if (!a && digits.length < 7) return true; // nothing to check — let the submit proceed
 
     try {
-      // Look back 90 days for any inspection at this address+zip.
-      // Address match is case-insensitive (ilike) and tolerant of leading/trailing
-      // whitespace differences. Whitespace inside the string still matters somewhat
-      // but ilike with the exact address handles most real-world cases.
+      // Look back 90 days for a matching inspection. Two independent signals:
+      //   1) same address (+zip when present), and
+      //   2) SAME PHONE — the strongest identity signal, and the one that
+      //      catches the same homeowner even when the address or ZIP was typed/
+      //      autocompleted differently (e.g. 2565 SW 8th St entered once as zip
+      //      33311 and once as 33312 → address+zip alone MISSED the twin and
+      //      created a duplicate record + duplicate JobNimbus job).
+      const SEL = "id, client_name, address, zip, mobile, signed_at, jn_job_id, sales_rep_name, docs_signed, cancelled_at";
       const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
-      let query = supabase
-        .from("inspections")
-        .select("id, client_name, address, zip, signed_at, jn_job_id, sales_rep_name, docs_signed, cancelled_at")
-        .ilike("address", a)
-        .gte("signed_at", since)
-        .is("cancelled_at", null);
-      if (z) query = query.eq("zip", z);
-      const { data: matches } = await query;
+      const byId = new Map();
 
-      if (!matches || matches.length === 0) return true; // no duplicate, safe to proceed
+      if (a) {
+        let query = supabase.from("inspections").select(SEL)
+          .ilike("address", a).gte("signed_at", since).is("cancelled_at", null);
+        if (z) query = query.eq("zip", z);
+        const { data } = await query;
+        for (const r of data || []) byId.set(r.id, r);
+      }
 
-      // Build a friendly confirm message. Show the rep WHO it was and HOW LONG ago.
-      const recent = matches[0];
+      if (digits.length >= 7) {
+        const last7 = digits.slice(-7);
+        const dashed = `${last7.slice(0, 3)}-${last7.slice(3)}`; // "773-5268" — matches "(954) 773-5268"
+        const { data } = await supabase.from("inspections").select(SEL)
+          .or(`mobile.ilike.*${dashed}*,mobile.ilike.*${last7}*`)
+          .gte("signed_at", since).is("cancelled_at", null);
+        for (const r of data || []) byId.set(r.id, r);
+      }
+
+      const matches = [...byId.values()];
+      if (matches.length === 0) return true; // no duplicate, safe to proceed
+
+      // Most recent match drives the warning. Flag when it's a phone match so the
+      // rep understands it's the SAME person even if the address looks different.
+      const recent = matches.sort((x, y) => new Date(y.signed_at || 0) - new Date(x.signed_at || 0))[0];
       const daysAgo = recent.signed_at
         ? Math.floor((Date.now() - new Date(recent.signed_at).getTime()) / (24 * 60 * 60 * 1000))
         : null;
       const ageStr = daysAgo === 0 ? "today" : daysAgo === 1 ? "yesterday" : `${daysAgo} days ago`;
+      const samePhone = digits.length >= 7 && String(recent.mobile || "").replace(/\D/g, "").slice(-7) === digits.slice(-7);
 
       const msg =
         `⚠️ DUPLICATE WARNING\n\n` +
-        `An inspection for ${recent.address} (zip ${recent.zip || "—"}) was already created ${ageStr}` +
-        ` by ${recent.sales_rep_name || "(unknown rep)"}.\n\n` +
-        `Homeowner on file: ${recent.client_name}\n\n` +
+        (samePhone
+          ? `This phone number already signed up ${ageStr} — as "${recent.client_name}" at ${recent.address} (zip ${recent.zip || "—"})` +
+            ` by ${recent.sales_rep_name || "(unknown rep)"}.\nThis is almost certainly the SAME homeowner.\n\n`
+          : `An inspection for ${recent.address} (zip ${recent.zip || "—"}) was already created ${ageStr}` +
+            ` by ${recent.sales_rep_name || "(unknown rep)"}.\nHomeowner on file: ${recent.client_name}\n\n`) +
         `To AVOID a duplicate, cancel here and instead use:\n` +
         `📋 My Homeowners → find this property → click "Add Docs"\n\n` +
         `Click OK to create a new record anyway, or Cancel to go back.`;
@@ -10840,7 +10860,7 @@ const renderSmsTemplate = (key, vars) => {
     setInspSubmitting(true);
     // Pre-flight duplicate check by address+zip. If a recent inspection exists
     // for the same property, warn the rep and let them cancel.
-    const okToProceed = await checkForExistingByAddress(inspData.address, inspData.zip);
+    const okToProceed = await checkForExistingByAddress(inspData.address, inspData.zip, inspData.mobile);
     if (!okToProceed) {
       setInspSubmitting(false);
       inspSubmittingRef.current = false;
@@ -11184,7 +11204,7 @@ const renderSmsTemplate = (key, vars) => {
       // claim record. If we're updating an existing one (existingClaim or
       // currentClaimId is set, e.g. from My Homeowners flow), skip the check.
       if (!currentClaimId && !existingClaim) {
-        const okToProceed = await checkForExistingByAddress(data.address, data.zip);
+        const okToProceed = await checkForExistingByAddress(data.address, data.zip, data.phone);
         if (!okToProceed) return;
       }
 
