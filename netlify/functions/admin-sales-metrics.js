@@ -76,6 +76,7 @@ exports.handler = async (event) => {
   const by = qp.by === "zone" ? "zone" : "";
 
   const yearStart = new Date(new Date().getFullYear(), 0, 1);
+  const nowSec = Math.floor(Date.now() / 1000);   // ignore future-dated Sold Dates
   const etYear = etDate(Date.now() / 1000).getFullYear();
   const floorKey = range !== "year" ? "0000"
     : bucket === "month" ? `${etYear}-01-01`
@@ -130,7 +131,7 @@ exports.handler = async (event) => {
         if (id && seen.has(id)) continue;
         if (id) seen.add(id);
         const soldSec = Number(j.cf_date_5) || Number(j["Sold Date"]) || 0;
-        if (!soldSec) continue;
+        if (!soldSec || soldSec > nowSec) continue;   // skip blank + future-dated Sold Dates
         const wk = bucketKey(soldSec, bucket);
         if (range === "year" && wk < floorKey) continue;
         const amt = saleAmount(j);
