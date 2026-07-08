@@ -24,9 +24,13 @@ const JN_BASE = "https://app.jobnimbus.com/api1";
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const jnH = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
 
+// A deal is a "sale" once it's at Sit-Sold or anywhere downstream — including
+// completed/paid statuses, so all-time reaches back through finished jobs (they
+// leave the active pipeline). Deduped by job id, so no double count.
 const SOLD_STATUS_NAMES = [
   "Sit - Sold", "Signed Contract", "Production Review", "Job Prep",
   "Upcoming Installs", "Install Set",
+  "Roof Install", "Roof Complete", "Installed", "Paid & Closed", "Check complete",
 ];
 // All-time paginates far deeper (old sales sit deep in the -date_updated list).
 const PAGE_CAP_YEAR = 25;   // 2,500 / status
