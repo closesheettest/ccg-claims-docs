@@ -29,6 +29,12 @@ const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` };
 const CONC = 10;
 const DEFAULT_CANCEL_STATUSES = ["Lost"]; // exactly what the office sets on a cancellation
 
+// Runs every 5 minutes. Lightweight (only reads our active inspections + their
+// JN status), so a fast cadence is cheap — a homeowner cancellation marked
+// "Lost" in JN drops off the inspector list within 5 minutes, reliably (this
+// checks from our side, so it can't miss on inspection-checker's sweep gaps).
+exports.config = { schedule: "*/5 * * * *" };
+
 exports.handler = async (event) => {
   if (!JN_KEY || !SB_URL || !SB_KEY) return json(500, { ok: false, error: "Missing env" });
   const qp = (event && event.queryStringParameters) || {};

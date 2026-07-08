@@ -98,6 +98,15 @@
 [functions."inspection-checker"]
   schedule = "*/15 * * * *"
 
+# Scheduled function: reliable "JN Lost -> off inspector list" reconcile. Every
+# 5 min it reads OUR active inspection list and checks each one's live JN
+# status, cancelling any now marked Lost. Backs up inspection-checker (whose
+# JN-sweep + record_type filter can miss a cancellation) and shrinks the
+# detection lag to <=5 min. exports.config mirrors this. Manual dry run: GET;
+# GET ?apply=1 to cancel on demand.
+[functions."reconcile-inspection-cancels"]
+  schedule = "*/5 * * * *"
+
 # Scheduled function: hourly safety net for cert PDFs that should have
 # been uploaded to JN but weren't. The normal flow fires the cert via a
 # background function the moment the inspector hits submit; once in a
