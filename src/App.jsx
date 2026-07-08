@@ -126,7 +126,7 @@ const REP_FIXED = {
 
 const INSPECTION_COMPANY = {
   name: "U.S. Shingle & Metal LLC",
-  address: "3845 Gateway Centre Blvd Suite 300 • Pinellas Park, FL 33782",
+  address: "12910 Automobile Blvd Suite A • Clearwater, FL 33782",
   phone: "727.761.5200",
   email: "info@shingleusa.com",
   license: "CCC1331960",
@@ -13074,7 +13074,7 @@ if (!hasDamage) {
                   <div><strong>License:</strong> CCC1331960</div>
                   <div><strong>Phone:</strong> {ussContactPhone}</div>
                   <div><strong>Email:</strong> {ussContactEmail}</div>
-                  <div><strong>Address:</strong> 3845 Gateway Centre Blvd Suite 300, Pinellas Park, FL 33782</div>
+                  <div><strong>Address:</strong> 12910 Automobile Blvd Suite A, Clearwater, FL 33782</div>
                 </div>
               </div>
 
@@ -13111,7 +13111,7 @@ if (!hasDamage) {
 
               {/* Footer */}
               <div style={{ marginTop: 28, borderTop: "2px solid #0a0a0a", paddingTop: 14, fontSize: 11, color: "#6b7280", textAlign: "center" }}>
-                U.S. Shingle & Metal LLC • License No: CCC1331960 • {ussContactEmail} • {ussContactPhone} • 3845 Gateway Centre Blvd Suite 300, Pinellas Park, FL 33782
+                U.S. Shingle & Metal LLC • License No: CCC1331960 • {ussContactEmail} • {ussContactPhone} • 12910 Automobile Blvd Suite A, Clearwater, FL 33782
               </div>
             </div>
           </div>
