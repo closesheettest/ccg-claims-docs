@@ -76,7 +76,12 @@ exports.handler = async (event) => {
   const bucket = qp.bucket === "month" ? "month" : "week";
 
   const yearStart = new Date(new Date().getFullYear(), 0, 1);
-  const floorKey = range === "year" ? bucketKey(Math.floor(yearStart.getTime() / 1000), bucket) : "0000";
+  const etYear = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" })).getFullYear();
+  // Year floor in ET: months start at January; weeks keep the straddle week
+  // that contains Jan 1 (so early-January sales aren't dropped).
+  const floorKey = range !== "year" ? "0000"
+    : bucket === "month" ? `${etYear}-01-01`
+    : etMonday(Math.floor(yearStart.getTime() / 1000));
   const updatedAfter = range === "year" ? Math.floor(yearStart.getTime() / 1000) : 0;
   const pageCap = range === "year" ? PAGE_CAP_YEAR : PAGE_CAP_ALL;
 
