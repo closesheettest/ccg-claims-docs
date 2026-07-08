@@ -2324,6 +2324,7 @@ function InspectorJobList({ me, onOpenJob, onOpenReports }) {
           "latitude, longitude, inspector_id, result, cancel_review_pending",
       )
       .is("result", null)
+      .is("cancelled_at", null) // office marked it Lost → cancelled_at set → must NOT show in the pool
       .order("signed_at", { ascending: false })
       .limit(500);
     setJobs(data || []);
@@ -3739,6 +3740,10 @@ function googleMapsDirectionsUrl(job) {
 function InspectorJobDetail({ me, jobId, onBack }) {
   const [job, setJob] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Real-time cancellation gate: set when the office marked this deal Lost in
+  // JobNimbus (so the inspector doesn't walk a dead property even if it was
+  // cancelled seconds ago, before the reconcile cron ran). null = OK to work.
+  const [cancelledBlock, setCancelledBlock] = useState(null);
   // Guided wizard state.
   // stage shapes:
   //   { kind: "house_number" }
@@ -3809,6 +3814,21 @@ function InspectorJobDetail({ me, jobId, onBack }) {
       .eq("id", jobId)
       .maybeSingle();
     setJob(data);
+    // Real-time gate. If our row is already cancelled, block immediately.
+    // Otherwise ask the server for the LIVE JN status — catches a cancellation
+    // made in the last few minutes, before the reconcile cron cleared it.
+    if (data?.cancelled_at) {
+      setCancelledBlock({ reason: "cancelled" });
+    } else {
+      setCancelledBlock(null);
+      try {
+        const r = await fetch(`/.netlify/functions/inspection-live-status?id=${encodeURIComponent(jobId)}`);
+        const s = await r.json().catch(() => ({}));
+        if (s && s.ok && s.active === false && s.reason !== "not_found") {
+          setCancelledBlock({ reason: s.reason || "cancelled", status: s.status || null });
+        }
+      } catch { /* fail open — never block a legit inspection on a network blip */ }
+    }
     setLoading(false);
   }
   useEffect(() => { load(); }, [jobId]);
@@ -4191,6 +4211,22 @@ function InspectorJobDetail({ me, jobId, onBack }) {
     <div style={{ padding: 16 }}>
       <div style={{ color: "#991b1b", marginBottom: 12 }}>Job not found.</div>
       <button type="button" onClick={onBack} style={secondaryBtn}>← Back</button>
+    </div>
+  );
+  // Cancellation gate — the office marked this deal Lost in JobNimbus. Do NOT
+  // let the inspector inspect it; send them back to the list.
+  if (cancelledBlock) return (
+    <div style={{ padding: 16 }}>
+      <div style={{ background: "#fff", border: "1px solid #fca5a5", borderRadius: 12, padding: 24, textAlign: "center" }}>
+        <div style={{ fontSize: 34, marginBottom: 8 }}>🚫</div>
+        <div style={{ fontSize: 17, fontWeight: 700, color: "#991b1b", marginBottom: 6, fontFamily: "'Oswald', sans-serif" }}>
+          This inspection was cancelled
+        </div>
+        <div style={{ fontSize: 14, color: "#64748b", marginBottom: 18, lineHeight: 1.5 }}>
+          {job.client_name ? `${job.client_name}'s ` : "This "}job was marked <strong>Lost</strong> in JobNimbus by the office — please don't inspect it. It's been removed from your list.
+        </div>
+        <button type="button" onClick={onBack} style={secondaryBtn}>← Back to jobs</button>
+      </div>
     </div>
   );
 
