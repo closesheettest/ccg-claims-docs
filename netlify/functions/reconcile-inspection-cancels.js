@@ -43,7 +43,7 @@ exports.handler = async (event) => {
     // 1. Our active inspection list — what an inspector could still be sent to.
     const active = await sbGet(
       `inspections?cancelled_at=is.null&result=is.null&jn_job_id=not.is.null` +
-      `&select=id,client_name,address,city,jn_job_id,signed_at,created_at,pa_id,pa_decision_resolved_at` +
+      `&select=id,client_name,address,city,jn_job_id,signed_at,pa_id,pa_decision_resolved_at` +
       `&order=signed_at.desc.nullslast&limit=3000`
     );
 
@@ -63,7 +63,7 @@ exports.handler = async (event) => {
         const status = String(jn.status_name || "").trim();
         if (!cancelStatuses.has(status.toLowerCase())) return; // still a valid inspection
         if (r.pa_decision_resolved_at) { skippedReinstated.push(brief(r, status)); return; } // manager override
-        leaks.push({ ...brief(r, status), ageDays: ageDays(r.signed_at || r.created_at, nowMs) });
+        leaks.push({ ...brief(r, status), ageDays: ageDays(r.signed_at, nowMs) });
       }));
     }
 
@@ -102,7 +102,7 @@ function brief(r, status) {
     client: r.client_name || "—",
     address: [r.address, r.city].filter(Boolean).join(", "),
     jn_status: status,
-    signed_at: r.signed_at || r.created_at || null,
+    signed_at: r.signed_at || null,
     jn_url: `https://app.jobnimbus.com/job/${r.jn_job_id}`,
   };
 }
