@@ -12,7 +12,6 @@ import { supabase } from "./lib/supabase";
 import { fmtSigned } from "./lib/dates";
 import { InspectorMobileApp, InspectorsAdminPanel, InspectorSetupPage, ManagerInspectorReports, InspectionAssignmentsPanel, ManagerRoutePlanner, PAHandoffPanel, PAReportPanel, PaApptResultsPanel, SitSoldPaReportPanel, ConfirmResultsPanel } from "./InspectorViews";
 import { PAMobileApp, PAAdminPanel, FloridaZoneMap } from "./PAViews";
-import AdminSalesChart from "./AdminSalesChart";
 import { TeamRolesPanel } from "./TeamRolesPanel";
 import InspectionPhotosModal from "./InspectionPhotosModal";
 import RepVisitHub from "./RepVisitHub";
@@ -7640,9 +7639,6 @@ function AdminDashboard() {
           {askResult && <AdminAskResult result={askResult} />}
         </CardContent>
       </Card>
-
-      {/* Regional Manager — weekly sales metrics bar graph */}
-      <AdminSalesChart />
 
       {/* Apps — standalone sites (open in a new tab) */}
       <Card>
