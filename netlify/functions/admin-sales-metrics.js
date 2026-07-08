@@ -48,24 +48,35 @@ function fieldByLabel(job, label) {
 const saleAmount = (j) =>
   Math.max(Number(j.approved_estimate_total) || 0, Number(j.approved_invoice_total) || 0, Number(j.last_budget_revenue) || 0);
 
+function etDate(sec) { return new Date(new Date(sec * 1000).toLocaleString("en-US", { timeZone: "America/New_York" })); }
 function etMonday(sec) {
-  const et = new Date(new Date(sec * 1000).toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const et = etDate(sec);
   et.setDate(et.getDate() + (et.getDay() === 0 ? -6 : 1 - et.getDay()));
   et.setHours(0, 0, 0, 0);
   return `${et.getFullYear()}-${String(et.getMonth() + 1).padStart(2, "0")}-${String(et.getDate()).padStart(2, "0")}`;
 }
-const weekLabel = (key) => {
+function etMonthFirst(sec) {
+  const et = etDate(sec);
+  return `${et.getFullYear()}-${String(et.getMonth() + 1).padStart(2, "0")}-01`;
+}
+const bucketKey = (sec, bucket) => (bucket === "month" ? etMonthFirst(sec) : etMonday(sec));
+const bucketLabel = (key, bucket) => {
   const [y, m, d] = key.split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const dt = new Date(y, m - 1, d);
+  return bucket === "month"
+    ? dt.toLocaleDateString("en-US", { month: "short", year: "2-digit" })
+    : dt.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 };
 
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return cors(200, "");
   if (!JN_KEY) return cors(500, JSON.stringify({ ok: false, error: "Missing JOBNIMBUS_API_KEY" }));
-  const range = (event.queryStringParameters || {}).range === "all" ? "all" : "year";
+  const qp = event.queryStringParameters || {};
+  const range = qp.range === "all" ? "all" : "year";
+  const bucket = qp.bucket === "month" ? "month" : "week";
 
   const yearStart = new Date(new Date().getFullYear(), 0, 1);
-  const floorKey = range === "year" ? etMonday(Math.floor(yearStart.getTime() / 1000)) : "0000";
+  const floorKey = range === "year" ? bucketKey(Math.floor(yearStart.getTime() / 1000), bucket) : "0000";
   const updatedAfter = range === "year" ? Math.floor(yearStart.getTime() / 1000) : 0;
   const pageCap = range === "year" ? PAGE_CAP_YEAR : PAGE_CAP_ALL;
 
@@ -102,7 +113,7 @@ exports.handler = async (event) => {
         if (id) seen.add(id);
         const soldSec = Number(j.cf_date_5) || Number(j["Sold Date"]) || 0;
         if (!soldSec) continue;
-        const wk = etMonday(soldSec);
+        const wk = bucketKey(soldSec, bucket);
         if (range === "year" && wk < floorKey) continue;
         const amt = saleAmount(j);
         const src = String(j.source_name || "");
@@ -115,7 +126,7 @@ exports.handler = async (event) => {
     }
 
     const keys = Object.keys(cnt).filter((k) => k !== "0000").sort();
-    const weeks = keys.map((k) => ({ key: k, label: weekLabel(k) }));
+    const weeks = keys.map((k) => ({ key: k, label: bucketLabel(k, bucket) }));
     const pick = (src) => Object.fromEntries(KEYS.map((k) => [k, keys.map((wk) => Math.round(src[wk]?.[k] || 0))]));
     return cors(200, JSON.stringify({ ok: true, range, weeks, count: pick(cnt), dollars: pick(dol), truncated }));
   } catch (e) {
