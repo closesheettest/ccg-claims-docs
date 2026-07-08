@@ -24,8 +24,11 @@ const fmtDate = (sec) =>
 
 exports.handler = async (event) => {
   if (!JN_KEY) return cors(500, JSON.stringify({ ok: false, error: "Missing JOBNIMBUS_API_KEY" }));
-  const q = String((event.queryStringParameters || {}).city || "Jacksonville").trim().toLowerCase();
-  if (!q) return cors(400, JSON.stringify({ ok: false, error: "city required" }));
+  const qp = event.queryStringParameters || {};
+  const future = qp.future === "1" || qp.future === "true"; // list sold deals with a FUTURE Sold Date
+  const q = String(qp.city || "Jacksonville").trim().toLowerCase();
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (!future && !q) return cors(400, JSON.stringify({ ok: false, error: "city required" }));
 
   try {
     const perStatus = await Promise.all(SOLD_STATUS_NAMES.map(async (name) => {
@@ -50,9 +53,10 @@ exports.handler = async (event) => {
         if (id && seen.has(id)) continue;
         if (id) seen.add(id);
         const city = String(j.city || "");
-        if (!city.toLowerCase().includes(q)) continue;
         const soldSec = Number(j.cf_date_5) || Number(j["Sold Date"]) || 0;
         if (!soldSec) continue;
+        if (future) { if (soldSec <= nowSec) continue; }
+        else if (!city.toLowerCase().includes(q)) continue;
         matches.push({
           sold_sec: soldSec,
           date: fmtDate(soldSec),
