@@ -21,6 +21,8 @@
 
 const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
+const JN_KEY = process.env.JOBNIMBUS_API_KEY;
+const JN_BASE = "https://app.jobnimbus.com/api1";
 const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
 const SLOT_MIN = 120;       // 2-hour appointments
 const HORIZON_DAYS = 14;    // how far out to offer slots
@@ -273,6 +275,13 @@ async function book(body) {
   // 4. Notify the PA + their company + (optionally) the homeowner.
   const base = process.env.URL || process.env.DEPLOY_URL || process.env.PUBLIC_SITE_URL || "";
   const when = etLabel(startMs, endMs);
+
+  // Audit-trail note → JobNimbus. Posts the full deal history (signed →
+  // inspected → cert → PA opened → PA notes) plus this new appointment, so the
+  // timeline lives in JN's notes, not just our app. Best-effort — never blocks
+  // or fails the booking.
+  if (inspectionId) { try { await postApptTimelineNote(inspectionId, when, pa.name); } catch { /* best-effort */ } }
+
   const MONITOR_PHONE = "7275037017"; // TEMP: copy Neal so he can confirm delivery — remove when he shuts his off.
 
   // PA — SMS + email with the details.
@@ -352,6 +361,54 @@ async function sbGet(path) {
   const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: sb });
   if (!r.ok) return [];
   return r.json().catch(() => []);
+}
+
+// Post the deal's audit trail (+ this new appointment) as a JobNimbus note.
+// Mirrors the timeline built in inspection-lookup.js so JN shows the same story.
+async function postApptTimelineNote(inspectionId, when, paName) {
+  if (!JN_KEY) return;
+  const SEL = "jn_job_id,client_name,address,signed_at,result,result_at,jn_cert_uploaded_at,pa_opened_at,pa_signed_at,pa_notes_log,cancelled_at,cancel_reason";
+  const rows = await sbGet(`inspections?id=eq.${encodeURIComponent(inspectionId)}&select=${SEL}&limit=1`);
+  const r = rows[0];
+  if (!r || !r.jn_job_id) return;
+
+  const ev = [];
+  if (r.signed_at) ev.push({ at: r.signed_at, label: "Inspection agreement signed" });
+  if (r.result) ev.push({ at: r.result_at || null, label: `Inspected → ${resultLabel(r.result)}` });
+  if (r.jn_cert_uploaded_at) ev.push({ at: r.jn_cert_uploaded_at, label: "Certificate uploaded to JobNimbus" });
+  if (r.pa_opened_at) ev.push({ at: r.pa_opened_at, label: "Public adjuster opened the deal" });
+  if (r.pa_signed_at) ev.push({ at: r.pa_signed_at, label: "PA signed the homeowner" });
+  for (const n of Array.isArray(r.pa_notes_log) ? r.pa_notes_log : []) ev.push({ at: n.at || null, label: n.text || "(note)" });
+  if (r.cancelled_at) ev.push({ at: r.cancelled_at, label: `Cancelled${r.cancel_reason ? ` — ${r.cancel_reason}` : ""}` });
+  ev.sort((a, b) => new Date(a.at || 0) - new Date(b.at || 0));
+
+  const lines = ev.map((e) => `• ${e.at ? fmtWhen(e.at) : "—"} · ${e.label}`);
+  const note = [
+    `📅 PA appointment scheduled — ${when}${paName ? ` with ${paName}` : ""}`,
+    "",
+    "Deal history:",
+    ...(lines.length ? lines : ["• (no prior activity recorded)"]),
+  ].join("\n");
+
+  await fetch(`${JN_BASE}/activities`, {
+    method: "POST",
+    headers: { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      record_type_name: "Note",
+      note,
+      primary: { id: r.jn_job_id, type: "job" },
+      related: [{ id: r.jn_job_id, type: "job" }],
+      is_status_change: false,
+    }),
+  });
+}
+function resultLabel(v) {
+  return { damage: "Damage found", no_damage: "No damage", retail: "Retail", lost: "Lost" }[String(v || "").toLowerCase()] || String(v || "");
+}
+function fmtWhen(at) {
+  const d = new Date(at);
+  if (isNaN(d)) return "—";
+  return d.toLocaleString("en-US", { timeZone: "America/New_York", month: "numeric", day: "numeric", year: "2-digit", hour: "numeric", minute: "2-digit" });
 }
 function cors(status, body) {
   return { statusCode: status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" }, body };
