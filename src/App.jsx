@@ -7699,7 +7699,8 @@ function CrewOnboardingPage({ token }) {
   const inp = { width: "100%", boxSizing: "border-box", borderRadius: 10, border: "1px solid #d1d5db", padding: "11px 12px", fontSize: 15, marginTop: 4 };
   const lbl = { fontSize: 12.5, fontWeight: 700, color: "#374151" };
   const secTitle = { fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 17, marginBottom: 4, color: "#111827" };
-  const Field = ({ label, k, ph, type }) => (
+  // Render function (NOT a nested component) so inputs keep focus while typing.
+  const field = (label, k, ph, type) => (
     <div style={{ marginBottom: 10 }}>
       <div style={lbl}>{label}</div>
       <input value={f[k] ?? ""} onChange={(e) => up(k, e.target.value)} placeholder={ph || ""} inputMode={type === "num" ? "numeric" : undefined} style={inp} />
@@ -7744,25 +7745,25 @@ function CrewOnboardingPage({ token }) {
       {/* Contacts */}
       <div style={card}>
         <div style={secTitle}>📇 Contacts</div>
-        <Field label="Install-setup contact — name" k="install_contact_name" />
-        <Field label="Contact phone" k="install_contact_phone" />
-        <Field label="Contact email" k="install_contact_email" />
+        {field("Install-setup contact — name", "install_contact_name")}
+        {field("Contact phone", "install_contact_phone")}
+        {field("Contact email", "install_contact_email")}
         <div style={{ height: 6 }} />
-        <Field label="Onsite crew lead — name" k="crew_lead_name" />
-        <Field label="Crew lead phone" k="crew_lead_phone" />
-        <Field label="Crew lead email" k="crew_lead_email" />
+        {field("Onsite crew lead — name", "crew_lead_name")}
+        {field("Crew lead phone", "crew_lead_phone")}
+        {field("Crew lead email", "crew_lead_email")}
       </div>
 
       {/* Work details */}
       <div style={card}>
         <div style={secTitle}>🛠 Work details</div>
-        <Field label="Preferred area for work" k="preferred_area" />
+        {field("Preferred area for work", "preferred_area")}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <Field label="# Crew members" k="crew_size" type="num" />
-          <Field label="# Dump trailers" k="dump_trailers" type="num" />
+          {field("# Crew members", "crew_size", "", "num")}
+          {field("# Dump trailers", "dump_trailers", "", "num")}
         </div>
-        <Field label="Type of roofing work you perform" k="roofing_types" />
-        <Field label="License / certification #" k="license_number" />
+        {field("Type of roofing work you perform", "roofing_types")}
+        {field("License / certification #", "license_number")}
       </div>
 
       {/* Uploads */}
@@ -7792,22 +7793,22 @@ function CrewOnboardingPage({ token }) {
       {/* Banking */}
       <div style={card}>
         <div style={secTitle}>🏦 Banking & business (for payment)</div>
-        <Field label="Bank name" k="bank_name" />
+        {field("Bank name", "bank_name")}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <Field label="Wire routing #" k="bank_routing" />
-          <Field label="Account #" k="bank_account" />
+          {field("Wire routing #", "bank_routing")}
+          {field("Account #", "bank_account")}
         </div>
-        <Field label="Name on account" k="account_name" />
-        <Field label="Company EIN" k="company_ein" />
-        <Field label="Address on account" k="account_address" />
-        <Field label="Anything else you'd like to share" k="additional_info" />
+        {field("Name on account", "account_name")}
+        {field("Company EIN", "company_ein")}
+        {field("Address on account", "account_address")}
+        {field("Anything else you'd like to share", "additional_info")}
       </div>
 
       {/* W-9 */}
       <div style={card}>
         <div style={secTitle}>🧾 W-9</div>
-        <Field label="Name (as on your income tax return)" k="w9_name" />
-        <Field label="Business name / disregarded entity (if different)" k="w9_business_name" />
+        {field("Name (as on your income tax return)", "w9_name")}
+        {field("Business name / disregarded entity (if different)", "w9_business_name")}
         <div style={{ marginBottom: 10 }}>
           <div style={lbl}>Federal tax classification</div>
           <select value={f.w9_tax_classification ?? ""} onChange={(e) => up("w9_tax_classification", e.target.value)} style={inp}>
@@ -7829,15 +7830,15 @@ function CrewOnboardingPage({ token }) {
             </select>
           </div>
         )}
-        <Field label="Address (number, street, apt)" k="w9_address" />
-        <Field label="City, state, ZIP" k="w9_city_state_zip" />
+        {field("Address (number, street, apt)", "w9_address")}
+        {field("City, state, ZIP", "w9_city_state_zip")}
         <div style={{ marginBottom: 10 }}>
           <div style={lbl}>Taxpayer ID type</div>
           <select value={f.w9_tin_type ?? ""} onChange={(e) => up("w9_tin_type", e.target.value)} style={inp}>
             <option value="">— select —</option><option value="ssn">SSN</option><option value="ein">EIN</option>
           </select>
         </div>
-        <Field label={f.w9_tin_type === "ein" ? "EIN" : "SSN / TIN"} k="w9_tin" />
+        {field(f.w9_tin_type === "ein" ? "EIN" : "SSN / TIN", "w9_tin")}
         <div style={{ fontSize: 11.5, color: "#9ca3af" }}>🔒 Your SSN/EIN and bank info are stored securely and only visible to the US Shingle office.</div>
       </div>
 
