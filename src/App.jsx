@@ -7845,9 +7845,9 @@ function CrewOnboardingPage({ token }) {
       {/* Agreement + sign */}
       <div style={card}>
         <div style={secTitle}>✍️ Subcontractor Agreement</div>
-        <div style={{ maxHeight: 190, overflowY: "auto", border: "1px solid #e5e7eb", borderRadius: 10, padding: "10px 12px", background: "#f8fafc", fontSize: 12.5, color: "#374151", lineHeight: 1.5 }}>
-          <div style={{ fontWeight: 700, marginBottom: 6 }}>Key terms (the full agreement is in the signed PDF you'll receive):</div>
-          <ul style={{ margin: 0, paddingLeft: 18 }}>{CREW_KEY_TERMS.map((t, i) => <li key={i} style={{ marginBottom: 5 }}>{t}</li>)}</ul>
+        <div style={{ maxHeight: 220, overflowY: "auto", border: "1px solid #e5e7eb", borderRadius: 10, padding: "12px 14px", background: "#f8fafc", fontSize: 14, color: "#111827", lineHeight: 1.55 }}>
+          <div style={{ fontWeight: 800, marginBottom: 8, fontSize: 14.5 }}>Key terms (the full agreement is in the signed PDF you'll receive):</div>
+          <ul style={{ margin: 0, paddingLeft: 20 }}>{CREW_KEY_TERMS.map((t, i) => <li key={i} style={{ marginBottom: 8, fontWeight: 700, color: "#1f2937" }}>{t}</li>)}</ul>
         </div>
         <label style={{ display: "flex", gap: 8, alignItems: "flex-start", marginTop: 12, fontSize: 13.5 }}>
           <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} style={{ marginTop: 3 }} />
