@@ -328,6 +328,20 @@ async function book(body) {
   // 4. Notify the PA + their company + (optionally) the homeowner.
   const base = process.env.URL || process.env.DEPLOY_URL || process.env.PUBLIC_SITE_URL || "";
   const when = etLabel(startMs, endMs);
+  const whenStart = etStartLabel(startMs);   // exact start time for the homeowner
+
+  // Pull the FULL property address (+ homeowner email) from the inspection so
+  // every notification carries street + city + state + zip — the booker's
+  // body.address is often just the street.
+  let fullAddress = address, hoEmailAddr = null;
+  if (inspectionId) {
+    const insp = (await sbGet(`inspections?id=eq.${encodeURIComponent(inspectionId)}&select=address,city,state,zip,email&limit=1`))[0];
+    if (insp) {
+      const parts = [insp.address, insp.city, insp.state, insp.zip].filter(Boolean).join(", ");
+      if (parts) fullAddress = parts;
+      hoEmailAddr = insp.email || null;
+    }
+  }
 
   // Audit-trail note → JobNimbus. Posts the full deal history (signed →
   // inspected → cert → PA opened → PA notes) plus this new appointment, so the
@@ -338,7 +352,7 @@ async function book(body) {
   const MONITOR_PHONE = "7275037017"; // TEMP: copy Neal so he can confirm delivery — remove when he shuts his off.
 
   // PA — SMS + email with the details.
-  const paApptMsg = `📅 New appointment: ${homeowner || "a homeowner"}${address ? ` — ${address}` : ""} on ${when}.${phone ? ` Homeowner: ${phone}.` : ""} (booked by ${bookedBy})`;
+  const paApptMsg = `📅 New appointment: ${homeowner || "a homeowner"}${fullAddress ? ` — ${fullAddress}` : ""} on ${when}.${phone ? ` Homeowner: ${phone}.` : ""} (booked by ${bookedBy})`;
   if (base && pa.phone) await sms(base, pa.phone, pa.name, paApptMsg);
   if (base && pa.email) await email(base, pa.email, "📅 New appointment booked for you", paApptMsg);
 
@@ -350,25 +364,25 @@ async function book(body) {
     const basic = `pa_companies?id=eq.${encodeURIComponent(pa.pa_company_id)}&select=name,admin_name,admin_phone,email&limit=1`;
     co = (await sbGet(full))[0] || (await sbGet(basic))[0] || null;
     if (co) {
-      const coMsg = `📅 Appointment booked for ${pa.name}: ${homeowner || "a homeowner"}${address ? ` — ${address}` : ""} on ${when}.`;
+      const coMsg = `📅 Appointment booked for ${pa.name}: ${homeowner || "a homeowner"}${fullAddress ? ` — ${fullAddress}` : ""} on ${when}.`;
       if (base && co.admin_phone) await sms(base, co.admin_phone, co.admin_name || co.name || "PA Company", coMsg);
       if (base && co.email) await email(base, co.email, `New PA appointment — ${pa.name}`, coMsg);
     }
   }
 
   // Homeowner confirmation — only when the company turned it on. Company-authored
-  // wording with {homeowner} {date} {address} {company} placeholders.
+  // wording with {homeowner} {date}/{time} {address} {company} placeholders.
+  // {time}/{date} resolve to the EXACT START time (not the 2-hour slot window) so
+  // the homeowner doesn't think it's a 2-hour appointment.
   if (co && co.homeowner_confirm_enabled) {
     const fill = (t) => String(t || "")
       .split("{homeowner}").join(homeowner || "there")
-      .split("{date}").join(when).split("{time}").join(when)
-      .split("{address}").join(address || "")
+      .split("{date}").join(whenStart).split("{time}").join(whenStart).split("{when}").join(whenStart)
+      .split("{address}").join(fullAddress || "")
       .split("{company}").join(co.name || "");
-    const hoSms = fill(co.homeowner_confirm_sms) || `Hi ${homeowner || "there"}, your inspection appointment${address ? ` at ${address}` : ""} is confirmed for ${when}.${co.name ? ` — ${co.name}` : ""}`;
-    let hoEmail = null;
-    if (inspectionId) hoEmail = ((await sbGet(`inspections?id=eq.${encodeURIComponent(inspectionId)}&select=email&limit=1`))[0] || {}).email || null;
+    const hoSms = fill(co.homeowner_confirm_sms) || `Hi ${homeowner || "there"}, your roof inspection${fullAddress ? ` at ${fullAddress}` : ""} is set for ${whenStart}. The appointment usually takes about 15–45 minutes.${co.name ? ` — ${co.name}` : ""}`;
     if (base && phone) await sms(base, phone, homeowner || "Homeowner", hoSms);
-    if (base && hoEmail) await email(base, hoEmail, fill(co.homeowner_confirm_email_subject) || "Your appointment is confirmed", fill(co.homeowner_confirm_email_body) || hoSms);
+    if (base && hoEmailAddr) await email(base, hoEmailAddr, fill(co.homeowner_confirm_email_subject) || "Your appointment is confirmed", fill(co.homeowner_confirm_email_body) || hoSms);
   }
 
   // Monitor copy — so Neal can confirm notifications are firing (temporary).
@@ -398,6 +412,13 @@ function etLabel(startMs, endMs) {
   const t1 = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }).format(new Date(startMs));
   const t2 = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }).format(new Date(endMs));
   return `${d}, ${t1}–${t2}`;
+}
+// Exact START time only (for the homeowner — a 2-hour window reads as a 2-hour
+// appointment, which it never is). e.g. "Tue, Jul 14 at 3:00 PM".
+function etStartLabel(startMs) {
+  const d = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric" }).format(new Date(startMs));
+  const t = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }).format(new Date(startMs));
+  return `${d} at ${t}`;
 }
 
 async function sms(base, to, name, message) {

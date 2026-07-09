@@ -4909,6 +4909,9 @@ function TrainingPickerPage({ token }) {
                   <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
                     <span style={{ fontWeight: on ? 700 : 500 }}>{t.name}{!t.phone ? <span style={{ color: "#ffb3c0", fontSize: 12 }}> · no phone</span> : ""}</span>
                     <span style={{ fontSize: 12, color: "#8aa0c0" }}>Trainee{t.last ? ` · last rode ${fmtShortDate(t.last)}` : " · not ridden yet"}</span>
+                    {t.location && (t.location.address || t.location.name) && (
+                      <span style={{ fontSize: 12, color: "#c7c0f0" }}>📍 Training at {t.location.name ? `${t.location.name} — ` : ""}{t.location.address || ""}</span>
+                    )}
                   </span>
                 </button>
               );

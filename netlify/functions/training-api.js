@@ -390,7 +390,7 @@ async function fetchThisWeekTrainees() {
     const data = await res.json().catch(() => ({}));
     return (data.trainees || [])
       .filter((t) => (t.name || "").trim())
-      .map((t) => ({ id: `trainee:${t.id}`, name: t.name, phone: t.phone || null }));
+      .map((t) => ({ id: `trainee:${t.id}`, name: t.name, phone: t.phone || null, location: t.location || null }));
   } catch { return []; }
 }
 const normPhone = (p) => { const d = String(p || "").replace(/\D/g, ""); return d.length >= 10 ? d.slice(-10) : (d.length >= 7 ? d.slice(-7) : ""); };
