@@ -23,6 +23,8 @@ const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const JN_BASE = "https://app.jobnimbus.com/api1";
+const GCAL_ID = process.env.GOOGLE_CLIENT_ID;
+const GCAL_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
 const SLOT_MIN = 120;       // 2-hour appointments
 const HORIZON_DAYS = 14;    // how far out to offer slots
@@ -131,6 +133,26 @@ async function buildSlots(days, home, apptZone, onlyPaId) {
   const appts = await sbGet(`pa_appointments?status=eq.scheduled&start_at=gte.${encodeURIComponent(new Date(nowMs - 864e5).toISOString())}&select=pa_id,start_at,end_at&limit=5000`);
   const apptByPa = {}; for (const a of appts) (apptByPa[a.pa_id] = apptByPa[a.pa_id] || []).push([Date.parse(a.start_at), Date.parse(a.end_at)]);
 
+  // Google Calendar free/busy — for PAs who connected their calendar, pull their
+  // BUSY time ranges over the offer window and subtract them, so a rep is never
+  // offered a time the PA is busy on their own calendar. We only ever read
+  // busy start/end RANGES (the freeBusy API) — never event titles/details, so
+  // nothing about the PA's calendar is exposed to the rep. Best-effort: if
+  // Google is unreachable for a PA we just don't scrub that PA this run (fail
+  // open — better to show availability than none).
+  const busyByPa = {};
+  if (GCAL_ID && GCAL_SECRET) {
+    const tokenByPa = {};
+    try { for (const p of await sbGet(`pas?google_refresh_token=not.is.null&select=id,google_refresh_token&limit=500`)) tokenByPa[p.id] = p.google_refresh_token; } catch { /* column not added yet */ }
+    const eligible = pas.filter((pa) => tokenByPa[pa.id] && !pausedCompany.has(pa.pa_company_id));
+    const minIso = new Date(nowMs).toISOString();
+    const maxIso = new Date(nowMs + days * 864e5).toISOString();
+    await Promise.all(eligible.map(async (pa) => {
+      const busy = await googleFreeBusy(tokenByPa[pa.id], minIso, maxIso);
+      if (busy && busy.length) busyByPa[pa.id] = busy;
+    }));
+  }
+
   const slots = [];
   for (let d = 0; d < days; d++) {
     const { y, mo, day, weekday } = etDateParts(nowMs + d * 864e5);
@@ -160,6 +182,7 @@ async function buildSlots(days, home, apptZone, onlyPaId) {
         if (startMs <= nowMs) continue;                       // no past slots
         const taken = (apptByPa[pa.id] || []).some(([as, ae]) => startMs < ae && endMs > as);
         if (taken) continue;
+        if ((busyByPa[pa.id] || []).some(([bs, be]) => startMs < be && endMs > bs)) continue; // busy on their Google Calendar
         slots.push({
           start_at: new Date(startMs).toISOString(),
           end_at: new Date(endMs).toISOString(),
@@ -365,6 +388,36 @@ async function sbGet(path) {
   const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: sb });
   if (!r.ok) return [];
   return r.json().catch(() => []);
+}
+
+// Google Calendar free/busy for one PA. Returns [[startMs,endMs],…] of BUSY
+// ranges (no event details), or null on any failure (caller fails open).
+async function googleFreeBusy(refreshToken, minIso, maxIso) {
+  try {
+    const at = await googleAccessToken(refreshToken);
+    if (!at) return null;
+    const r = await fetch("https://www.googleapis.com/calendar/v3/freeBusy", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${at}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ timeMin: minIso, timeMax: maxIso, items: [{ id: "primary" }] }),
+    });
+    if (!r.ok) return null;
+    const d = await r.json().catch(() => ({}));
+    const busy = (d.calendars && d.calendars.primary && d.calendars.primary.busy) || [];
+    return busy.map((b) => [Date.parse(b.start), Date.parse(b.end)]).filter(([a, b]) => a && b);
+  } catch { return null; }
+}
+async function googleAccessToken(refreshToken) {
+  try {
+    const r = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: GCAL_ID, client_secret: GCAL_SECRET, refresh_token: refreshToken, grant_type: "refresh_token" }).toString(),
+    });
+    if (!r.ok) return null;
+    const d = await r.json().catch(() => ({}));
+    return d.access_token || null;
+  } catch { return null; }
 }
 
 // Post the deal's audit trail (+ this new appointment) as a JobNimbus note.
