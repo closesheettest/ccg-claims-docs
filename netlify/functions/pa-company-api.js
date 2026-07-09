@@ -157,7 +157,9 @@ exports.handler = async (event) => {
   // action "availability": TEAM master calendar — every active PA's 2-hour slot
   // grid for the next 7 days, each cell open / booked (with homeowner) / off.
   if (action === "availability") {
-    const activePas = pas.filter((p) => p.active);
+    // Only PAs who've LINKED their Google Calendar appear — so if a company
+    // doesn't see one of their PAs here, it means that PA still needs to connect.
+    const activePas = pas.filter((p) => p.active && p.google_connected_at);
     const ids = activePas.map((p) => p.id);
     if (!ids.length) return cors(200, JSON.stringify({ ok: true, pas: [], days: [] }));
     const inList = `(${ids.map((id) => `"${id}"`).join(",")})`;
@@ -168,6 +170,19 @@ exports.handler = async (event) => {
     const blockedByPa = {}; for (const b of blocks) (blockedByPa[b.pa_id] = blockedByPa[b.pa_id] || new Set()).add(`${b.weekday}:${b.start_min}`);
     let dateBlocks = []; try { dateBlocks = (await get(`${SB_URL}/rest/v1/pa_date_blocks?pa_id=in.${encodeURIComponent(inList)}&select=pa_id,date,start_min&limit=20000`, sb)) || []; } catch { /* table not set up */ }
     const dateBlockedByPa = {}; for (const b of dateBlocks) (dateBlockedByPa[b.pa_id] = dateBlockedByPa[b.pa_id] || new Set()).add(`${b.date}:${b.start_min}`);
+
+    // Real Google free/busy for each linked PA over the 7-day window — so "open"
+    // reflects their actual calendar (outside claims blocked out), not just ours.
+    const busyByPa = {};
+    if (CA_GCAL_ID && CA_GCAL_SECRET) {
+      const tokRows = await get(`${SB_URL}/rest/v1/pas?id=in.${encodeURIComponent(inList)}&google_refresh_token=not.is.null&select=id,google_refresh_token`, sb);
+      const minIso = new Date(nowMs).toISOString();
+      const maxIso = new Date(nowMs + 7 * 864e5).toISOString();
+      await Promise.all((tokRows || []).map(async (t) => {
+        const busy = await caGoogleFreeBusy(t.google_refresh_token, minIso, maxIso);
+        if (busy && busy.length) busyByPa[t.id] = busy;
+      }));
+    }
 
     const days = [];
     for (let d = 0; d < 7; d++) {
@@ -184,6 +199,7 @@ exports.handler = async (event) => {
           const ap = (apptByPa[p.id] || []).find(([as, ae]) => startMs < ae && endMs > as);
           if (ap) { cells[p.id] = { s: "booked", who: ap[2] || "" }; continue; }
           if ((blockedByPa[p.id] || new Set()).has(`${weekday}:${s}`) || (dateBlockedByPa[p.id] || new Set()).has(`${dateStr}:${s}`)) { cells[p.id] = { s: "off" }; continue; }
+          if ((busyByPa[p.id] || []).some(([bs, be]) => startMs < be && endMs > bs)) { cells[p.id] = { s: "off" }; continue; } // busy on their Google Calendar
           cells[p.id] = { s: "open" };
         }
         return { t: caSlotLabel(s), cells };
@@ -449,6 +465,36 @@ function caEtToUtcMs(y, mo, day, minutes) {
   return guess + (guess - asEt.getTime());
 }
 function caSlotLabel(min) { const h = Math.floor(min / 60); return `${((h + 11) % 12) + 1} ${h < 12 ? "AM" : "PM"}`; }
+
+// Google Calendar free/busy for the team-availability grid (busy RANGES only —
+// no event details). Returns [[startMs,endMs],…] or null on any failure.
+const CA_GCAL_ID = process.env.GOOGLE_CLIENT_ID;
+const CA_GCAL_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+async function caGoogleAccessToken(refreshToken) {
+  try {
+    const r = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: CA_GCAL_ID, client_secret: CA_GCAL_SECRET, refresh_token: refreshToken, grant_type: "refresh_token" }).toString(),
+    });
+    if (!r.ok) return null;
+    const d = await r.json().catch(() => ({}));
+    return d.access_token || null;
+  } catch { return null; }
+}
+async function caGoogleFreeBusy(refreshToken, minIso, maxIso) {
+  try {
+    const at = await caGoogleAccessToken(refreshToken);
+    if (!at) return null;
+    const r = await fetch("https://www.googleapis.com/calendar/v3/freeBusy", {
+      method: "POST", headers: { Authorization: `Bearer ${at}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ timeMin: minIso, timeMax: maxIso, items: [{ id: "primary" }] }),
+    });
+    if (!r.ok) return null;
+    const d = await r.json().catch(() => ({}));
+    const busy = (d.calendars && d.calendars.primary && d.calendars.primary.busy) || [];
+    return busy.map((b) => [Date.parse(b.start), Date.parse(b.end)]).filter(([a, b]) => a && b);
+  } catch { return null; }
+}
 
 // Text whoever's subscribed to the TMS "pa_needs_jn_add" notification event
 // (managed on TMS → Settings → Notifications). Reads the TMS Supabase with

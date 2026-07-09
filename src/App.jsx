@@ -6465,9 +6465,14 @@ function TeamAvailability({ token }) {
       </button>
       {open && (
         loading ? <div style={{ padding: 12, color: "#6b7280" }}>Loading…</div>
-        : !data || !data.days.length ? <div style={{ padding: 12, color: "#6b7280" }}>No availability to show.</div>
+        : !data || !data.pas.length ? (
+          <div style={{ marginTop: 8, padding: 12, borderRadius: 10, background: "#fffbeb", border: "1px solid #fde68a", fontSize: 13, color: "#92400e" }}>
+            No adjusters have connected their Google Calendar yet — this calendar only shows PAs who've linked it. Ask them to tap <b>Connect Google Calendar</b> in their portal, and they'll appear here.
+          </div>
+        )
         : (
           <div style={{ marginTop: 10 }}>
+            <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 8 }}>Only adjusters who've <b>linked their Google Calendar</b> appear here. If one's missing, they still need to connect it in their portal.</div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
               {data.days.map((dd, i) => (
                 <button key={dd.date} type="button" onClick={() => setDayIdx(i)} style={{ padding: "5px 10px", borderRadius: 999, border: "1px solid " + (i === dayIdx ? "#4f46e5" : "#e5e7eb"), background: i === dayIdx ? "#4f46e5" : "#fff", color: i === dayIdx ? "#fff" : "#374151", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{dd.label}</button>
