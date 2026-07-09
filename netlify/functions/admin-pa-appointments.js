@@ -22,6 +22,27 @@ exports.handler = async (event) => {
   if (!SB_URL || !SB_KEY) return cors(500, JSON.stringify({ ok: false, error: "Missing env" }));
 
   try {
+    const qp = event.queryStringParameters || {};
+
+    // ?inspection=<name> → the inspection(s) + current PA/company assignment.
+    if (event.httpMethod === "GET" && qp.inspection) {
+      const like = encodeURIComponent(`*${String(qp.inspection).replace(/[%*(),]/g, " ").trim()}*`);
+      const rows = await sbGet(`inspections?client_name=ilike.${like}&select=id,client_name,pa_id,pa_company_id,pa_stage,cancelled_at,result&limit=20`);
+      const paIds = [...new Set(rows.map((r) => r.pa_id).filter(Boolean))];
+      const coIds = [...new Set(rows.map((r) => r.pa_company_id).filter(Boolean))];
+      const paName = {}, coName = {};
+      if (paIds.length) for (const p of await sbGet(`pas?id=in.(${paIds.map((x) => `"${x}"`).join(",")})&select=id,name,pa_company_id`)) paName[p.id] = { name: p.name, company: p.pa_company_id };
+      if (coIds.length) for (const c of await sbGet(`pa_companies?id=in.(${coIds.map((x) => `"${x}"`).join(",")})&select=id,name`)) coName[c.id] = c.name;
+      return cors(200, JSON.stringify({ ok: true, inspections: rows.map((r) => ({ ...r, pa_name: (paName[r.pa_id] || {}).name || null, pa_company_name: coName[r.pa_company_id] || null })) }));
+    }
+
+    // ?companies=1 → companies + their PAs (to find a reassignment target).
+    if (event.httpMethod === "GET" && qp.companies) {
+      const cos = await sbGet("pa_companies?select=id,name&order=name");
+      const pas = await sbGet("pas?select=id,name,pa_company_id&order=name&limit=1000");
+      return cors(200, JSON.stringify({ ok: true, companies: cos, pas }));
+    }
+
     if (event.httpMethod === "GET") {
       const name = String((event.queryStringParameters || {}).homeowner || "").trim();
       if (!name) return cors(400, JSON.stringify({ ok: false, error: "homeowner required" }));
@@ -35,6 +56,23 @@ exports.handler = async (event) => {
 
     if (event.httpMethod === "POST") {
       let body = {}; try { body = JSON.parse(event.body || "{}"); } catch { return cors(400, JSON.stringify({ ok: false, error: "bad JSON" })); }
+
+      // Reassign an inspection to a PA and/or company, and set its pa_stage
+      // (e.g. reactivate a wrongly-dead deal). Pass pa_id/pa_company_id (or null),
+      // and optionally pa_stage.
+      if (body.reassign) {
+        const rq = body.reassign;
+        if (!rq.inspection_id) return cors(400, JSON.stringify({ ok: false, error: "reassign.inspection_id required" }));
+        const patch = {};
+        if ("pa_id" in rq) { patch.pa_id = rq.pa_id || null; patch.pa_claimed_at = rq.pa_id ? new Date().toISOString() : null; }
+        if ("pa_company_id" in rq) patch.pa_company_id = rq.pa_company_id || null;
+        if (rq.pa_stage) { patch.pa_stage = rq.pa_stage; patch.pa_stage_at = new Date().toISOString(); }
+        const r = await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(rq.inspection_id)}`, {
+          method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify(patch),
+        });
+        return cors(r.ok ? 200 : 500, JSON.stringify({ ok: r.ok, patch }));
+      }
+
       const cancelIds = Array.isArray(body.cancel_ids) ? body.cancel_ids : [];
       const reason = String(body.reason || "Duplicate appointment — removed").slice(0, 200);
       let cancelled = 0;
