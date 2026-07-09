@@ -7334,7 +7334,12 @@ function CrewAdminPage() {
   const [form, setForm] = useState({ owner_first: "", owner_last: "", owner_phone: "", owner_email: "", company_name: "" });
   const [rates, setRates] = useState(CREW_DEFAULT_RATES);
   const [created, setCreated] = useState(null);
+  const [filter, setFilter] = useState("all");        // all | submitted | approved
+  const [detail, setDetail] = useState(null);          // { crew, documents }
+  const [detailBusy, setDetailBusy] = useState(false);
+  const [approveName, setApproveName] = useState("");
 
+  const api = (action, extra) => fetch("/.netlify/functions/crew-admin-api", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, action, ...extra }) }).then((r) => r.json().catch(() => ({})));
   const fld = { width: "100%", boxSizing: "border-box", borderRadius: 10, border: "1px solid #d1d5db", padding: "10px 12px", fontSize: 14 };
 
   const loadList = async (tok) => {
@@ -7372,8 +7377,29 @@ function CrewAdminPage() {
   };
   const resend = async (id) => {
     setBusy(true);
-    try { await fetch("/.netlify/functions/crew-admin-api", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, action: "resend_link", id }) }); } catch { /* */ }
+    try { await api("resend_link", { id }); } catch { /* */ }
     setBusy(false);
+  };
+  const openDetail = async (id) => {
+    setDetailBusy(true); setErr("");
+    try { const d = await api("get", { id }); if (d.ok) { setDetail({ crew: d.crew, documents: d.documents || [] }); setApproveName(""); } else setErr(d.error || "Couldn't load."); }
+    catch { setErr("Network error."); }
+    setDetailBusy(false);
+  };
+  const openFile = async (path, name, download) => {
+    if (!path) return;
+    try {
+      const d = await api("file_url", { path });
+      if (!d.ok || !d.url) { setErr(d.error || "Couldn't open that file."); return; }
+      window.open(download ? d.url + "&download=" + encodeURIComponent(name || "file") : d.url, "_blank", "noopener");
+    } catch { setErr("Couldn't open that file."); }
+  };
+  const approveCrew = async () => {
+    if (!approveName.trim()) { setErr("Type your name to countersign."); return; }
+    setDetailBusy(true); setErr("");
+    try { const d = await api("approve", { id: detail.crew.id, sign_name: approveName.trim() }); if (d.ok) { await openDetail(detail.crew.id); loadList(); } else setErr(d.error || "Approve failed."); }
+    catch { setErr("Network error."); }
+    setDetailBusy(false);
   };
 
   if (!unlocked) {
@@ -7447,28 +7473,123 @@ function CrewAdminPage() {
           </CardContent>
         </Card>
 
-        <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 18, marginBottom: 8 }}>Crews</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+          <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 18 }}>Crews</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            {[["all", "All"], ["submitted", "Needs review"], ["approved", "Approved"]].map(([v, l]) => (
+              <button key={v} type="button" onClick={() => setFilter(v)} style={{ padding: "5px 12px", borderRadius: 999, fontSize: 12.5, fontWeight: 700, cursor: "pointer", border: `1px solid ${filter === v ? "#13294b" : "#cbd5e1"}`, background: filter === v ? "#13294b" : "#fff", color: filter === v ? "#fff" : "#374151" }}>{l}</button>
+            ))}
+          </div>
+        </div>
         {crews == null ? <div style={{ color: "#6b7280", fontSize: 14 }}>Loading…</div>
-          : crews.length === 0 ? <div style={{ color: "#6b7280", fontSize: 14 }}>No crews yet — create one above.</div>
-          : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {crews.map((c) => {
-                const s = CREW_STATUS[c.status] || CREW_STATUS.invited;
-                return (
-                  <div key={c.id} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: "12px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 800, fontSize: 15 }}>{[c.owner_first, c.owner_last].filter(Boolean).join(" ") || "(no name)"}{c.company_name ? <span style={{ color: "#6b7280", fontWeight: 600 }}> · {c.company_name}</span> : null}</div>
-                      <div style={{ fontSize: 12.5, color: "#6b7280" }}>{[c.owner_phone, c.owner_email].filter(Boolean).join(" · ") || "—"}</div>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: s.c, background: s.b, borderRadius: 999, padding: "3px 10px" }}>{s.t}</span>
-                      <button type="button" onClick={() => resend(c.id)} disabled={busy} style={{ fontSize: 12, fontWeight: 700, padding: "6px 10px", borderRadius: 8, border: "1px solid #c7d2fe", background: "#eef2ff", color: "#3730a3", cursor: "pointer" }}>Resend link</button>
-                    </div>
-                  </div>
-                );
-              })}
+          : (() => {
+              const shown = crews.filter((c) => filter === "all" ? true : filter === "submitted" ? c.status === "submitted" : c.status === "approved");
+              if (!shown.length) return <div style={{ color: "#6b7280", fontSize: 14 }}>{crews.length ? "None in this view." : "No crews yet — create one above."}</div>;
+              return (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {shown.map((c) => {
+                    const s = CREW_STATUS[c.status] || CREW_STATUS.invited;
+                    const reviewable = c.status === "submitted" || c.status === "approved";
+                    return (
+                      <div key={c.id} style={{ background: "#fff", border: `1px solid ${c.status === "submitted" ? "#c4b5fd" : "#e5e7eb"}`, borderRadius: 10, padding: "12px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 800, fontSize: 15 }}>{[c.owner_first, c.owner_last].filter(Boolean).join(" ") || "(no name)"}{c.company_name ? <span style={{ color: "#6b7280", fontWeight: 600 }}> · {c.company_name}</span> : null}</div>
+                          <div style={{ fontSize: 12.5, color: "#6b7280" }}>{[c.owner_phone, c.owner_email].filter(Boolean).join(" · ") || "—"}</div>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: s.c, background: s.b, borderRadius: 999, padding: "3px 10px" }}>{s.t}</span>
+                          {reviewable && <button type="button" onClick={() => openDetail(c.id)} disabled={detailBusy} style={{ fontSize: 12, fontWeight: 700, padding: "6px 12px", borderRadius: 8, border: "1px solid #a7f3d0", background: "#ecfdf5", color: "#047857", cursor: "pointer" }}>📂 Review</button>}
+                          <button type="button" onClick={() => resend(c.id)} disabled={busy} style={{ fontSize: 12, fontWeight: 700, padding: "6px 10px", borderRadius: 8, border: "1px solid #c7d2fe", background: "#eef2ff", color: "#3730a3", cursor: "pointer" }}>Resend link</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
+        {detail && (() => {
+          const c = detail.crew;
+          const s = CREW_STATUS[c.status] || CREW_STATUS.invited;
+          const DOC_LABELS = { general_liability: "General Liability insurance", workers_comp: "Workers' Comp insurance", roofing_license: "Roofing license", exemption_cert: "Exemption certificate", other: "Other document" };
+          const vbtn = { fontSize: 12, fontWeight: 700, padding: "6px 12px", borderRadius: 8, border: "1px solid #bfdbfe", background: "#eff6ff", color: "#1d4ed8", cursor: "pointer" };
+          const dbtn = { fontSize: 12, fontWeight: 700, padding: "6px 12px", borderRadius: 8, border: "1px solid #cbd5e1", background: "#fff", color: "#334155", cursor: "pointer" };
+          const fileRow = (label, path, name) => (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "8px 0", borderTop: "1px solid #f1f5f9", flexWrap: "wrap" }}>
+              <div style={{ fontSize: 13.5, fontWeight: 700 }}>{label}</div>
+              {path ? <div style={{ display: "flex", gap: 6 }}>
+                <button type="button" onClick={() => openFile(path, name, false)} style={vbtn}>View</button>
+                <button type="button" onClick={() => openFile(path, name, true)} style={dbtn}>Download</button>
+              </div> : <span style={{ fontSize: 12, color: "#b45309" }}>not provided</span>}
             </div>
-          )}
+          );
+          const info = (label, val) => (val === null || val === undefined || val === "") ? null : (
+            <div style={{ display: "flex", gap: 8, fontSize: 13, padding: "2px 0" }}><span style={{ color: "#6b7280", width: 150, flexShrink: 0 }}>{label}</span><span style={{ fontWeight: 600, wordBreak: "break-word" }}>{val}</span></div>
+          );
+          return (
+            <div onClick={() => setDetail(null)} style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: 16, overflowY: "auto" }}>
+              <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 600, background: "#fff", borderRadius: 16, padding: "20px 18px", margin: "20px 0", boxShadow: "0 10px 40px rgba(0,0,0,0.3)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 20, fontWeight: 800, fontFamily: "'Oswald', sans-serif" }}>{[c.owner_first, c.owner_last].filter(Boolean).join(" ")}</div>
+                    {c.company_name && <div style={{ fontSize: 13, color: "#6b7280" }}>{c.company_name}</div>}
+                    <span style={{ fontSize: 11, fontWeight: 700, color: s.c, background: s.b, borderRadius: 999, padding: "3px 10px", display: "inline-block", marginTop: 6 }}>{s.t}</span>
+                  </div>
+                  <button type="button" onClick={() => setDetail(null)} style={{ fontSize: 20, border: "none", background: "none", cursor: "pointer", color: "#6b7280", lineHeight: 1 }}>✕</button>
+                </div>
+
+                <div style={{ marginTop: 16, fontSize: 12, fontWeight: 800, color: "#374151", textTransform: "uppercase", letterSpacing: "0.05em" }}>📄 Signed documents</div>
+                {fileRow("Subcontractor Agreement", c.agreement_pdf_path, "Agreement.pdf")}
+                {fileRow("W-9", c.w9_pdf_path, "W9.pdf")}
+
+                <div style={{ marginTop: 16, fontSize: 12, fontWeight: 800, color: "#374151", textTransform: "uppercase", letterSpacing: "0.05em" }}>📎 Uploaded documents</div>
+                {detail.documents.length === 0 ? <div style={{ fontSize: 13, color: "#9ca3af", padding: "8px 0" }}>None uploaded.</div>
+                  : detail.documents.map((d) => <div key={d.id || d.doc_type}>{fileRow(DOC_LABELS[d.doc_type] || d.doc_type, d.file_path, d.file_name || "file")}</div>)}
+
+                <div style={{ marginTop: 16, fontSize: 12, fontWeight: 800, color: "#374151", textTransform: "uppercase", letterSpacing: "0.05em" }}>📋 Submitted info</div>
+                <div style={{ marginTop: 6 }}>
+                  {info("Install contact", c.install_contact_name)}
+                  {info("Contact phone", c.install_contact_phone)}
+                  {info("Contact email", c.install_contact_email)}
+                  {info("Crew lead", c.crew_lead_name)}
+                  {info("Crew lead phone", c.crew_lead_phone)}
+                  {info("Preferred area", c.preferred_area)}
+                  {info("Crew size", c.crew_size)}
+                  {info("Dump trailers", c.dump_trailers)}
+                  {info("Roofing work", c.roofing_types)}
+                  {info("License #", c.license_number)}
+                  {info("Bank", c.bank_name)}
+                  {info("Routing #", c.bank_routing)}
+                  {info("Account #", c.bank_account)}
+                  {info("Name on account", c.account_name)}
+                  {info("Company EIN", c.company_ein)}
+                  {info("Account address", c.account_address)}
+                  {info("W-9 name", c.w9_name)}
+                  {info("W-9 business", c.w9_business_name)}
+                  {info("Tax classification", c.w9_tax_classification ? c.w9_tax_classification + (c.w9_llc_class ? ` (${c.w9_llc_class})` : "") : null)}
+                  {info("W-9 address", [c.w9_address, c.w9_city_state_zip].filter(Boolean).join(", "))}
+                  {info("TIN", c.w9_tin ? `${(c.w9_tin_type || "").toUpperCase()} ${c.w9_tin}` : null)}
+                  {info("Signed by", c.subcontractor_sign_name)}
+                  {info("Signed at", c.subcontractor_signed_at ? new Date(c.subcontractor_signed_at).toLocaleString() : null)}
+                </div>
+
+                <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid #e5e7eb" }}>
+                  {c.status === "approved" ? (
+                    <div style={{ fontSize: 13, color: "#047857", fontWeight: 700 }}>✓ Approved by {c.us_shingle_sign_name || "US Shingle"}{c.approved_at ? ` · ${new Date(c.approved_at).toLocaleDateString()}` : ""}</div>
+                  ) : (
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 6 }}>Countersign &amp; approve (US Shingle)</div>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <input value={approveName} onChange={(e) => setApproveName(e.target.value)} placeholder="Your name" style={{ ...fld, width: "auto", flex: 1, minWidth: 160 }} />
+                        <Button onClick={approveCrew} disabled={detailBusy}>{detailBusy ? "…" : "✓ Approve"}</Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

@@ -30,6 +30,7 @@ const ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const KEY = SVC_KEY || ANON_KEY;
 const sb = { apikey: KEY, Authorization: `Bearer ${KEY}`, "Content-Type": "application/json" };
 
+const BUCKET = "crew-docs";
 // Fields safe to show in the office list (NO ssn/bank).
 const LIST_SEL = "id,created_at,status,token,owner_first,owner_last,owner_phone,owner_email,company_name,submitted_at,approved_at";
 
@@ -65,7 +66,7 @@ exports.handler = async (event) => {
       if (!id) return cors(400, JSON.stringify({ ok: false, error: "id required" }));
       const crew = (await sbGet(`crews?id=eq.${encodeURIComponent(id)}&select=*&limit=1`))[0];
       if (!crew) return cors(404, JSON.stringify({ ok: false, error: "crew not found" }));
-      const docs = await sbGet(`crew_documents?crew_id=eq.${encodeURIComponent(id)}&select=id,doc_type,file_name,content_type,uploaded_at&order=uploaded_at`);
+      const docs = await sbGet(`crew_documents?crew_id=eq.${encodeURIComponent(id)}&select=id,doc_type,file_name,content_type,uploaded_at,file_path&order=uploaded_at`);
       return cors(200, JSON.stringify({ ok: true, crew, documents: docs }));
     }
 
@@ -109,6 +110,32 @@ exports.handler = async (event) => {
       if (!crew) return cors(404, JSON.stringify({ ok: false, error: "crew not found" }));
       const sent = await sendLink(base, crew);
       return cors(200, JSON.stringify({ ok: true, sent }));
+    }
+
+    // Short-lived signed URL for a file in the private crew-docs bucket (the
+    // signed Agreement/W-9 PDFs + the uploaded certificates). Office-only (token
+    // already checked). Path must be a crew-folder path.
+    if (action === "file_url") {
+      const path = String(body.path || "").trim();
+      if (!/^[0-9a-fA-F-]{36}\/.+/.test(path)) return cors(400, JSON.stringify({ ok: false, error: "bad path" }));
+      const r = await fetch(`${SB_URL}/storage/v1/object/sign/${BUCKET}/${path}`, { method: "POST", headers: sb, body: JSON.stringify({ expiresIn: 600 }) });
+      if (!r.ok) return cors(502, JSON.stringify({ ok: false, error: `sign ${r.status}` }));
+      const d = await r.json().catch(() => ({}));
+      const rel = d.signedURL || d.signedUrl;
+      if (!rel) return cors(502, JSON.stringify({ ok: false, error: "no signed url" }));
+      const url = rel.startsWith("http") ? rel : `${SB_URL}/storage/v1${rel.startsWith("/") ? "" : "/"}${rel}`;
+      return cors(200, JSON.stringify({ ok: true, url }));
+    }
+
+    // Countersign / approve a submitted crew (records the US Shingle signature).
+    if (action === "approve") {
+      const id = String(body.id || "").trim();
+      const signName = String(body.sign_name || "").trim();
+      if (!id || !signName) return cors(400, JSON.stringify({ ok: false, error: "id and sign_name required" }));
+      const now = new Date().toISOString();
+      const patch = { status: "approved", approved_at: now, us_shingle_signed_at: now, us_shingle_sign_name: signName, us_shingle_sign_title: String(body.sign_title || "").trim() || "US Shingle" };
+      const r = await fetch(`${SB_URL}/rest/v1/crews?id=eq.${encodeURIComponent(id)}`, { method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify(patch) });
+      return cors(r.ok ? 200 : 500, JSON.stringify({ ok: r.ok }));
     }
 
     return cors(400, JSON.stringify({ ok: false, error: `Unknown action: ${action}` }));
