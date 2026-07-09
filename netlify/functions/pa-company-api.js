@@ -117,6 +117,82 @@ exports.handler = async (event) => {
     return cors(200, JSON.stringify({ ok: true }));
   }
 
+  // action "appts": THIS company's upcoming scheduled appointments, flagging
+  // duplicates (same homeowner booked more than once) so the admin can fix them.
+  if (action === "appts") {
+    const paIds = pas.map((p) => p.id);
+    if (!paIds.length) return cors(200, JSON.stringify({ ok: true, appts: [] }));
+    const inList = `(${paIds.map((id) => `"${id}"`).join(",")})`;
+    const rows = await get(`${SB_URL}/rest/v1/pa_appointments?status=eq.scheduled&pa_id=in.${encodeURIComponent(inList)}&select=id,pa_id,homeowner_name,homeowner_phone,address,start_at,inspection_id&order=start_at`, sb);
+    const nameOf = {}; for (const p of pas) nameOf[p.id] = p.name;
+    const dupKey = (r) => (r.homeowner_phone || "").replace(/\D/g, "").slice(-10) || (r.homeowner_name || "").trim().toLowerCase();
+    const seen = {}; for (const r of rows) { const k = dupKey(r); if (k) seen[k] = (seen[k] || 0) + 1; }
+    const appts = rows.map((r) => ({ id: r.id, pa_id: r.pa_id, pa_name: nameOf[r.pa_id] || null, homeowner_name: r.homeowner_name, homeowner_phone: r.homeowner_phone, address: r.address, start_at: r.start_at, inspection_id: r.inspection_id, duplicate: (seen[dupKey(r)] || 0) > 1 }));
+    return cors(200, JSON.stringify({ ok: true, appts, pas: pas.filter((p) => p.active).map((p) => ({ id: p.id, name: p.name })) }));
+  }
+
+  // action "reassign_appt": move an appointment (and its deal) to a different PA.
+  if (action === "reassign_appt") {
+    const apptId = (body.apptId || "").trim();
+    const paId = (body.paId || "").trim();
+    if (!apptId || !paId) return cors(400, JSON.stringify({ ok: false, error: "apptId and paId required" }));
+    if (!pas.some((p) => p.id === paId && p.active)) return cors(400, JSON.stringify({ ok: false, error: "That PA isn't an active member of this company" }));
+    const appt = (await get(`${SB_URL}/rest/v1/pa_appointments?id=eq.${encodeURIComponent(apptId)}&select=id,pa_id,inspection_id&limit=1`, sb))[0];
+    if (!appt || !pas.some((p) => p.id === appt.pa_id)) return cors(404, JSON.stringify({ ok: false, error: "That appointment isn't in your company" }));
+    await fetch(`${SB_URL}/rest/v1/pa_appointments?id=eq.${encodeURIComponent(apptId)}`, { method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify({ pa_id: paId, pa_company_id: company.id }) });
+    if (appt.inspection_id) await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(appt.inspection_id)}`, { method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify({ pa_id: paId }) });
+    return cors(200, JSON.stringify({ ok: true }));
+  }
+
+  // action "cancel_appt": remove a duplicate appointment.
+  if (action === "cancel_appt") {
+    const apptId = (body.apptId || "").trim();
+    if (!apptId) return cors(400, JSON.stringify({ ok: false, error: "apptId required" }));
+    const appt = (await get(`${SB_URL}/rest/v1/pa_appointments?id=eq.${encodeURIComponent(apptId)}&select=id,pa_id&limit=1`, sb))[0];
+    if (!appt || !pas.some((p) => p.id === appt.pa_id)) return cors(404, JSON.stringify({ ok: false, error: "That appointment isn't in your company" }));
+    await fetch(`${SB_URL}/rest/v1/pa_appointments?id=eq.${encodeURIComponent(apptId)}`, { method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify({ status: "cancelled", notes: "Duplicate — removed by company admin" }) });
+    return cors(200, JSON.stringify({ ok: true }));
+  }
+
+  // action "availability": TEAM master calendar — every active PA's 2-hour slot
+  // grid for the next 7 days, each cell open / booked (with homeowner) / off.
+  if (action === "availability") {
+    const activePas = pas.filter((p) => p.active);
+    const ids = activePas.map((p) => p.id);
+    if (!ids.length) return cors(200, JSON.stringify({ ok: true, pas: [], days: [] }));
+    const inList = `(${ids.map((id) => `"${id}"`).join(",")})`;
+    const nowMs = Date.now();
+    const appts = await get(`${SB_URL}/rest/v1/pa_appointments?status=eq.scheduled&pa_id=in.${encodeURIComponent(inList)}&start_at=gte.${encodeURIComponent(new Date(nowMs - 864e5).toISOString())}&select=pa_id,start_at,end_at,homeowner_name&limit=5000`, sb);
+    const apptByPa = {}; for (const a of appts) (apptByPa[a.pa_id] = apptByPa[a.pa_id] || []).push([Date.parse(a.start_at), Date.parse(a.end_at), a.homeowner_name]);
+    const blocks = await get(`${SB_URL}/rest/v1/pa_slot_blocks?pa_id=in.${encodeURIComponent(inList)}&select=pa_id,weekday,start_min&limit=20000`, sb);
+    const blockedByPa = {}; for (const b of blocks) (blockedByPa[b.pa_id] = blockedByPa[b.pa_id] || new Set()).add(`${b.weekday}:${b.start_min}`);
+    let dateBlocks = []; try { dateBlocks = (await get(`${SB_URL}/rest/v1/pa_date_blocks?pa_id=in.${encodeURIComponent(inList)}&select=pa_id,date,start_min&limit=20000`, sb)) || []; } catch { /* table not set up */ }
+    const dateBlockedByPa = {}; for (const b of dateBlocks) (dateBlockedByPa[b.pa_id] = dateBlockedByPa[b.pa_id] || new Set()).add(`${b.date}:${b.start_min}`);
+
+    const days = [];
+    for (let d = 0; d < 7; d++) {
+      const { y, mo, day, weekday } = caEtDateParts(nowMs + d * 864e5);
+      const times = CA_SLOT_TIMES[weekday] || [];
+      if (!times.length) continue;
+      const dateStr = `${y}-${String(mo).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      const label = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric" }).format(new Date(nowMs + d * 864e5));
+      const slots = times.map((s) => {
+        const startMs = caEtToUtcMs(y, mo, day, s), endMs = startMs + 120 * 60000;
+        const cells = {};
+        for (const p of activePas) {
+          if (startMs <= nowMs) { cells[p.id] = { s: "past" }; continue; }
+          const ap = (apptByPa[p.id] || []).find(([as, ae]) => startMs < ae && endMs > as);
+          if (ap) { cells[p.id] = { s: "booked", who: ap[2] || "" }; continue; }
+          if ((blockedByPa[p.id] || new Set()).has(`${weekday}:${s}`) || (dateBlockedByPa[p.id] || new Set()).has(`${dateStr}:${s}`)) { cells[p.id] = { s: "off" }; continue; }
+          cells[p.id] = { s: "open" };
+        }
+        return { t: caSlotLabel(s), cells };
+      });
+      days.push({ date: dateStr, label, slots });
+    }
+    return cors(200, JSON.stringify({ ok: true, pas: activePas.map((p) => ({ id: p.id, name: p.name })), days }));
+  }
+
   // action "update_pa": the company admin edits one of their own adjusters
   // (contact info, home address, max travel distance, active). Coords are
   // sent by the client, which geocodes the address via geocode-place when it
@@ -356,6 +432,23 @@ async function get(url, headers) {
   if (!r.ok) { console.warn(`query ${r.status}: ${(await r.text().catch(() => "")).slice(0, 160)}`); return []; }
   return await r.json().catch(() => []);
 }
+
+// ── Team-availability slot grid helpers (mirror pa-schedule-api) ──
+const CA_WD_HOURS = { 1: [9, 11, 13, 15, 17, 19], 2: [9, 11, 13, 15, 17, 19], 3: [9, 11, 13, 15, 17, 19], 4: [9, 11, 13, 15, 17, 19], 5: [9, 11, 13, 15, 17, 19], 6: [9, 11, 13, 15] };
+const CA_SLOT_TIMES = Object.fromEntries(Object.entries(CA_WD_HOURS).map(([wd, hrs]) => [wd, hrs.map((h) => h * 60)]));
+function caEtDateParts(ms) {
+  const f = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "numeric", day: "numeric", weekday: "short" });
+  const p = {}; for (const x of f.formatToParts(new Date(ms))) p[x.type] = x.value;
+  const wmap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  return { y: +p.year, mo: +p.month, day: +p.day, weekday: wmap[p.weekday] };
+}
+function caEtToUtcMs(y, mo, day, minutes) {
+  const hh = Math.floor(minutes / 60), mm = minutes % 60;
+  const guess = Date.UTC(y, mo - 1, day, hh, mm);
+  const asEt = new Date(new Date(guess).toLocaleString("en-US", { timeZone: "America/New_York" }));
+  return guess + (guess - asEt.getTime());
+}
+function caSlotLabel(min) { const h = Math.floor(min / 60); return `${((h + 11) % 12) + 1} ${h < 12 ? "AM" : "PM"}`; }
 
 // Text whoever's subscribed to the TMS "pa_needs_jn_add" notification event
 // (managed on TMS → Settings → Notifications). Reads the TMS Supabase with
