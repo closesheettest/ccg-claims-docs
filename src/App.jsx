@@ -7474,6 +7474,281 @@ function CrewAdminPage() {
   );
 }
 
+// ── Crew (subcontractor) onboarding — the crew owner's portal (/?crew=<token>)
+const CREW_SAVE_FIELDS = [
+  "install_contact_name", "install_contact_email", "install_contact_phone",
+  "crew_lead_name", "crew_lead_email", "crew_lead_phone",
+  "preferred_area", "crew_size", "dump_trailers", "roofing_types",
+  "bank_name", "bank_routing", "bank_account", "account_name", "company_ein",
+  "account_address", "additional_info", "license_number",
+  "w9_name", "w9_business_name", "w9_tax_classification", "w9_llc_class",
+  "w9_exempt_payee_code", "w9_fatca_code", "w9_address", "w9_city_state_zip",
+  "w9_tin_type", "w9_tin",
+];
+const CREW_UPLOADS = [
+  { key: "general_liability", label: "General Liability insurance", hint: "$1M/$2M, US Shingle as additional insured", required: true },
+  { key: "workers_comp", label: "Workers' Comp insurance", hint: "covering ALL crew members", required: true },
+  { key: "roofing_license", label: "Florida roofing license", hint: "certified or registered (or qualifier's)", required: true },
+  { key: "exemption_cert", label: "Exemption certificate", hint: "only if an officer is workers-comp exempt", required: false },
+];
+const CREW_KEY_TERMS = [
+  "Maintain a valid FL roofing license (or work under a qualifier) and keep insurance active.",
+  "Carry General Liability $1M/occurrence · $2M aggregate (US Shingle as additional insured) and Workers' Comp covering EVERY worker on site.",
+  "Paid per SQ at the rates above; invoice by Wednesday to be paid that Friday.",
+  "Wear no other company's branding on site (a $250/person fine applies after one warning).",
+  "Clean up daily with a magnet roller; you're responsible for material and property damage caused by your crew.",
+  "Follow all OSHA safety rules; you're an independent contractor responsible for your own taxes, licensing, and employees.",
+];
+function crewFileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+function CrewOnboardingPage({ token }) {
+  const [crew, setCrew] = useState(null);
+  const [docs, setDocs] = useState([]);
+  const [f, setF] = useState({});
+  const [loadErr, setLoadErr] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [savedMsg, setSavedMsg] = useState("");
+  const [uploading, setUploading] = useState("");
+  const [agreed, setAgreed] = useState(false);
+  const [signName, setSignName] = useState("");
+  const [signTitle, setSignTitle] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [done, setDone] = useState(false);
+  const [err, setErr] = useState("");
+
+  const post = (action, extra) => fetch("/.netlify/functions/crew-onboarding-api", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, action, ...extra }) }).then((r) => r.json().catch(() => ({})));
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const d = await post("load");
+        if (!d.ok) { setLoadErr(d.error || "This link isn't valid."); return; }
+        setCrew(d.crew);
+        setDocs((d.documents || []).map((x) => x.doc_type));
+        const seed = {};
+        for (const k of CREW_SAVE_FIELDS) seed[k] = d.crew[k] ?? "";
+        setF(seed);
+        if (d.crew.status === "submitted" || d.crew.status === "approved") setDone(true);
+      } catch { setLoadErr("Network error — reload the page."); }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  const up = (k, v) => setF((s) => ({ ...s, [k]: v }));
+  const save = async () => {
+    setSaving(true); setSavedMsg(""); setErr("");
+    try { const d = await post("save", { patch: f }); if (d.ok) { setSavedMsg("✓ Progress saved"); setTimeout(() => setSavedMsg(""), 2500); } else setErr(d.error || "Save failed."); }
+    catch { setErr("Network error."); }
+    setSaving(false);
+  };
+  const doUpload = async (docType, file) => {
+    if (!file) return;
+    if (file.size > 15 * 1024 * 1024) { setErr("That file is over 15MB — please upload a smaller PDF or photo."); return; }
+    setUploading(docType); setErr("");
+    try {
+      const dataUrl = await crewFileToDataUrl(file);
+      const d = await post("upload_doc", { doc_type: docType, file_name: file.name, content_type: file.type || "application/octet-stream", data_base64: dataUrl });
+      if (d.ok) setDocs((prev) => Array.from(new Set([...prev, docType]))); else setErr(d.error || "Upload failed.");
+    } catch { setErr("Upload error — try again."); }
+    setUploading("");
+  };
+  const submit = async () => {
+    setErr("");
+    if (!agreed) { setErr("Please check the box agreeing to the terms."); return; }
+    if (!signName.trim()) { setErr("Type your name to sign."); return; }
+    setSubmitting(true);
+    try {
+      await post("save", { patch: f });
+      const d = await post("submit", { sign_name: signName.trim(), sign_title: signTitle.trim(), agreed: true });
+      if (d.ok) { setDone(true); window.scrollTo(0, 0); } else setErr(d.error || "Couldn't submit.");
+    } catch { setErr("Network error."); }
+    setSubmitting(false);
+  };
+
+  const wrap = { minHeight: "100vh", background: "#eef2f7", padding: "20px 14px" };
+  const box = { maxWidth: 640, margin: "0 auto" };
+  const card = { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14, padding: 18, marginBottom: 14 };
+  const inp = { width: "100%", boxSizing: "border-box", borderRadius: 10, border: "1px solid #d1d5db", padding: "11px 12px", fontSize: 15, marginTop: 4 };
+  const lbl = { fontSize: 12.5, fontWeight: 700, color: "#374151" };
+  const secTitle = { fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 17, marginBottom: 4, color: "#111827" };
+  const Field = ({ label, k, ph, type }) => (
+    <div style={{ marginBottom: 10 }}>
+      <div style={lbl}>{label}</div>
+      <input value={f[k] ?? ""} onChange={(e) => up(k, e.target.value)} placeholder={ph || ""} inputMode={type === "num" ? "numeric" : undefined} style={inp} />
+    </div>
+  );
+
+  if (loadErr) return <div style={wrap}><div style={{ ...box, ...card, textAlign: "center", marginTop: 60 }}><div style={{ fontSize: 40 }}>🔗</div><div style={{ fontWeight: 700, marginTop: 8 }}>{loadErr}</div></div></div>;
+  if (!crew) return <div style={wrap}><div style={{ ...box, textAlign: "center", color: "#6b7280", marginTop: 80 }}>Loading…</div></div>;
+  if (done) return (
+    <div style={wrap}><div style={box}>
+      <div style={{ ...card, textAlign: "center", padding: 30 }}>
+        <div style={{ fontSize: 46 }}>✅</div>
+        <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 800, fontSize: 22, marginTop: 6 }}>You're all set!</div>
+        <div style={{ color: "#374151", marginTop: 8, fontSize: 15 }}>Thanks, {crew.owner_first}. Your onboarding, documents, W-9, and signed agreement are in. US Shingle will review and reach out with your first job details.</div>
+      </div>
+    </div></div>
+  );
+
+  const missingReq = CREW_UPLOADS.filter((u) => u.required && !docs.includes(u.key)).map((u) => u.label);
+
+  return (
+    <div style={wrap}><div style={box}>
+      <div style={{ ...card, background: "linear-gradient(135deg,#12233f,#1e3a6b)", color: "#fff", border: "none" }}>
+        <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 800, fontSize: 22 }}>👷 Crew Onboarding — US Shingle & Metal</div>
+        <div style={{ opacity: 0.9, marginTop: 4, fontSize: 14 }}>Welcome{crew.owner_first ? `, ${crew.owner_first}` : ""}! Fill this out, upload your insurance + license, complete your W-9, and sign. You can Save and come back anytime.</div>
+      </div>
+
+      {err && <div style={{ ...card, background: "#fef2f2", border: "1px solid #fca5a5", color: "#991b1b", fontWeight: 600 }}>{err}</div>}
+
+      {/* Rates — read only */}
+      <div style={card}>
+        <div style={secTitle}>💵 Your rates</div>
+        <div style={{ fontSize: 12.5, color: "#6b7280", marginBottom: 8 }}>Set by US Shingle. Paid per SQ (includes dump fees with your own trailer).</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+          {CREW_RATE_ITEMS.map((it) => {
+            const v = crew.rates ? crew.rates[it.key] : null;
+            return <div key={it.key} style={{ display: "flex", justifyContent: "space-between", background: "#f8fafc", border: "1px solid #eef2f7", borderRadius: 8, padding: "6px 10px", fontSize: 13 }}><span style={{ color: "#374151" }}>{it.label}</span><b>{v == null || v === "" ? "—" : `$${v}${it.unit}`}</b></div>;
+          })}
+        </div>
+      </div>
+
+      {/* Contacts */}
+      <div style={card}>
+        <div style={secTitle}>📇 Contacts</div>
+        <Field label="Install-setup contact — name" k="install_contact_name" />
+        <Field label="Contact phone" k="install_contact_phone" />
+        <Field label="Contact email" k="install_contact_email" />
+        <div style={{ height: 6 }} />
+        <Field label="Onsite crew lead — name" k="crew_lead_name" />
+        <Field label="Crew lead phone" k="crew_lead_phone" />
+        <Field label="Crew lead email" k="crew_lead_email" />
+      </div>
+
+      {/* Work details */}
+      <div style={card}>
+        <div style={secTitle}>🛠 Work details</div>
+        <Field label="Preferred area for work" k="preferred_area" />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <Field label="# Crew members" k="crew_size" type="num" />
+          <Field label="# Dump trailers" k="dump_trailers" type="num" />
+        </div>
+        <Field label="Type of roofing work you perform" k="roofing_types" />
+        <Field label="License / certification #" k="license_number" />
+      </div>
+
+      {/* Uploads */}
+      <div style={card}>
+        <div style={secTitle}>📎 Required documents</div>
+        <div style={{ fontSize: 12.5, color: "#6b7280", marginBottom: 10 }}>PDF or clear photo. Stored securely.</div>
+        {CREW_UPLOADS.map((u) => {
+          const have = docs.includes(u.key);
+          return (
+            <div key={u.key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderTop: "1px solid #f1f5f9" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>{u.label}{u.required && <span style={{ color: "#dc2626" }}> *</span>}</div>
+                <div style={{ fontSize: 11.5, color: "#9ca3af" }}>{u.hint}</div>
+              </div>
+              {have
+                ? <span style={{ fontSize: 12.5, fontWeight: 700, color: "#047857", background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: 999, padding: "5px 10px", whiteSpace: "nowrap" }}>✓ Uploaded</span>
+                : null}
+              <label style={{ fontSize: 12.5, fontWeight: 700, color: "#3730a3", background: "#eef2ff", border: "1px solid #c7d2fe", borderRadius: 8, padding: "8px 12px", cursor: "pointer", whiteSpace: "nowrap" }}>
+                {uploading === u.key ? "Uploading…" : have ? "Replace" : "Upload"}
+                <input type="file" accept="application/pdf,image/*" style={{ display: "none" }} disabled={uploading === u.key} onChange={(e) => doUpload(u.key, e.target.files && e.target.files[0])} />
+              </label>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Banking */}
+      <div style={card}>
+        <div style={secTitle}>🏦 Banking & business (for payment)</div>
+        <Field label="Bank name" k="bank_name" />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <Field label="Wire routing #" k="bank_routing" />
+          <Field label="Account #" k="bank_account" />
+        </div>
+        <Field label="Name on account" k="account_name" />
+        <Field label="Company EIN" k="company_ein" />
+        <Field label="Address on account" k="account_address" />
+        <Field label="Anything else you'd like to share" k="additional_info" />
+      </div>
+
+      {/* W-9 */}
+      <div style={card}>
+        <div style={secTitle}>🧾 W-9</div>
+        <Field label="Name (as on your income tax return)" k="w9_name" />
+        <Field label="Business name / disregarded entity (if different)" k="w9_business_name" />
+        <div style={{ marginBottom: 10 }}>
+          <div style={lbl}>Federal tax classification</div>
+          <select value={f.w9_tax_classification ?? ""} onChange={(e) => up("w9_tax_classification", e.target.value)} style={inp}>
+            <option value="">— select —</option>
+            <option>Individual / sole proprietor</option>
+            <option>C Corporation</option>
+            <option>S Corporation</option>
+            <option>Partnership</option>
+            <option>Trust / estate</option>
+            <option>LLC</option>
+            <option>Other</option>
+          </select>
+        </div>
+        {f.w9_tax_classification === "LLC" && (
+          <div style={{ marginBottom: 10 }}>
+            <div style={lbl}>LLC tax classification (C / S / P)</div>
+            <select value={f.w9_llc_class ?? ""} onChange={(e) => up("w9_llc_class", e.target.value)} style={inp}>
+              <option value="">— select —</option><option value="C">C</option><option value="S">S</option><option value="P">P</option>
+            </select>
+          </div>
+        )}
+        <Field label="Address (number, street, apt)" k="w9_address" />
+        <Field label="City, state, ZIP" k="w9_city_state_zip" />
+        <div style={{ marginBottom: 10 }}>
+          <div style={lbl}>Taxpayer ID type</div>
+          <select value={f.w9_tin_type ?? ""} onChange={(e) => up("w9_tin_type", e.target.value)} style={inp}>
+            <option value="">— select —</option><option value="ssn">SSN</option><option value="ein">EIN</option>
+          </select>
+        </div>
+        <Field label={f.w9_tin_type === "ein" ? "EIN" : "SSN / TIN"} k="w9_tin" />
+        <div style={{ fontSize: 11.5, color: "#9ca3af" }}>🔒 Your SSN/EIN and bank info are stored securely and only visible to the US Shingle office.</div>
+      </div>
+
+      {/* Agreement + sign */}
+      <div style={card}>
+        <div style={secTitle}>✍️ Subcontractor Agreement</div>
+        <div style={{ maxHeight: 190, overflowY: "auto", border: "1px solid #e5e7eb", borderRadius: 10, padding: "10px 12px", background: "#f8fafc", fontSize: 12.5, color: "#374151", lineHeight: 1.5 }}>
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>Key terms (the full agreement is in the signed PDF you'll receive):</div>
+          <ul style={{ margin: 0, paddingLeft: 18 }}>{CREW_KEY_TERMS.map((t, i) => <li key={i} style={{ marginBottom: 5 }}>{t}</li>)}</ul>
+        </div>
+        <label style={{ display: "flex", gap: 8, alignItems: "flex-start", marginTop: 12, fontSize: 13.5 }}>
+          <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} style={{ marginTop: 3 }} />
+          <span>I have read, understood, and agree to be bound by the US Shingle Subcontractor Agreement and all onboarding, jobsite, photo, and pay-structure terms.</span>
+        </label>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
+          <div><div style={lbl}>Type your full name to sign *</div><input value={signName} onChange={(e) => setSignName(e.target.value)} placeholder="Full name" style={inp} /></div>
+          <div><div style={lbl}>Title</div><input value={signTitle} onChange={(e) => setSignTitle(e.target.value)} placeholder="Owner" style={inp} /></div>
+        </div>
+      </div>
+
+      {missingReq.length > 0 && <div style={{ ...card, background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e", fontSize: 13 }}>Before submitting, upload: <b>{missingReq.join(", ")}</b>.</div>}
+
+      <div style={{ ...card, position: "sticky", bottom: 8, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <Button variant="outline" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save progress"}</Button>
+        <Button onClick={submit} disabled={submitting}>{submitting ? "Submitting…" : "Submit & sign"}</Button>
+        {savedMsg && <span style={{ color: "#047857", fontWeight: 700, fontSize: 13 }}>{savedMsg}</span>}
+      </div>
+      <div style={{ height: 20 }} />
+    </div></div>
+  );
+}
+
 // Admin panel: text PAs / inspectors a link to the What's-New page when a
 // change ships. Preview first (who gets it + the exact message), then send.
 function AppUpdateAnnouncer() {
@@ -8701,6 +8976,11 @@ export default function App() {
     // PIN-gated (manager PIN), self-contained.
     if (portalMode === "crews") {
       return <CrewAdminPage />;
+    }
+    // /?crew=<token> — the crew owner's onboarding portal (the link we texted).
+    const crewToken = params.get("crew");
+    if (crewToken) {
+      return <CrewOnboardingPage token={crewToken.trim()} />;
     }
     // ?mode=setter — the Appointment-Setter Portal (Viviana + inbound-call
     // setters). Search a homeowner by address → existing JN account or create
