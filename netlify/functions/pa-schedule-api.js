@@ -345,13 +345,15 @@ async function book(body) {
   // Pull the FULL property address (+ homeowner email) from the inspection so
   // every notification carries street + city + state + zip — the booker's
   // body.address is often just the street.
-  let fullAddress = address, hoEmailAddr = null;
+  let fullAddress = address, hoEmailAddr = null, hoZip = "", hoPhone = phone;
   if (inspectionId) {
-    const insp = (await sbGet(`inspections?id=eq.${encodeURIComponent(inspectionId)}&select=address,city,state,zip,email&limit=1`))[0];
+    const insp = (await sbGet(`inspections?id=eq.${encodeURIComponent(inspectionId)}&select=address,city,state,zip,email,mobile&limit=1`))[0];
     if (insp) {
       const parts = [insp.address, insp.city, insp.state, insp.zip].filter(Boolean).join(", ");
       if (parts) fullAddress = parts;
       hoEmailAddr = insp.email || null;
+      hoZip = insp.zip || "";
+      hoPhone = insp.mobile || phone || "";
     }
   }
 
@@ -378,7 +380,19 @@ async function book(body) {
     if (co) {
       const coMsg = `📅 Appointment booked for ${pa.name}: ${homeowner || "a homeowner"}${fullAddress ? ` — ${fullAddress}` : ""} on ${when}.`;
       if (base && co.admin_phone) await sms(base, co.admin_phone, co.admin_name || co.name || "PA Company", coMsg);
-      if (base && co.email) await email(base, co.email, `New PA appointment — ${pa.name}`, coMsg);
+      // Email: labeled fields (the company auto-populates their leads tracker from
+      // it), client name in the subject so each notification is distinct.
+      const coEmailBody = [
+        `Adjuster: ${pa.name}`,
+        `Client: ${homeowner || "—"}`,
+        `Property address: ${fullAddress || "—"}`,
+        `Zip code: ${hoZip || "—"}`,
+        `Client phone: ${hoPhone || "—"}`,
+        `Client email: ${hoEmailAddr || "—"}`,
+        `Appointment: ${when}`,
+      ].join("<br>");
+      const coSubject = `New PA appointment - ${pa.name} - ${homeowner || "Homeowner"}`;
+      if (base && co.email) await email(base, co.email, coSubject, coEmailBody);
     }
   }
 
