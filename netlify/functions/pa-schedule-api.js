@@ -109,6 +109,11 @@ async function buildSlots(days, home, apptZone, onlyPaId) {
     ? await sbGet(`pa_companies?id=in.(${companyIds.map((x) => `"${x}"`).join(",")})&select=id,name`)
     : [];
   const companyName = {}; for (const c of companies) companyName[c.id] = c.name;
+  // Companies that PAUSED scheduling (not set up / trained yet) → their PAs are
+  // offered NO slots until they re-enable. Separate + tolerant query so this
+  // works even before the scheduling_paused column exists (then: none paused).
+  const pausedCompany = new Set();
+  for (const c of await sbGet(`pa_companies?scheduling_paused=eq.true&select=id&limit=500`)) pausedCompany.add(c.id);
 
   // Blocked designated slots per PA (absence = available). Key: "weekday:startMin".
   const blocks = await sbGet(`pa_slot_blocks?select=pa_id,weekday,start_min&limit=20000`);
@@ -133,18 +138,17 @@ async function buildSlots(days, home, apptZone, onlyPaId) {
     if (!times.length) continue;
     const dateStr = `${y}-${String(mo).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     for (const pa of pas) {
-      // Coverage = on a COAST the PA covers AND within their mile RADIUS of home.
-      // Radius is hard-capped at MAX_MI (100) — no PA is ever offered an appt
-      // farther than that. Unknown distance (no home geocode) → don't exclude on
-      // distance. No coasts picked → distance-only (within their radius).
+      // Company paused scheduling (setup/training not done) → offer nothing.
+      if (pausedCompany.has(pa.pa_company_id)) continue;
+      // Coverage = within the PA's mile RADIUS of home (hard-capped at MAX_MI,
+      // 100). East/West coast zones were removed — it's radius-from-home only.
+      // Unknown distance (no home geocode) → don't exclude on distance.
       const dist = distByPa[pa.id];
       // A PA booking their OWN deal (onlyPaId) sees all their open slots — skip the
-      // coast/distance coverage gates the rep-facing booker applies.
+      // distance coverage gate the rep-facing booker applies.
       if (!onlyPaId) {
         const radius = Math.min(MAX_MI, (pa.max_distance_miles > 0) ? +pa.max_distance_miles : MAX_MI);
         if (dist != null && dist > radius) continue;             // beyond their radius (≤100 mi)
-        const zs = zonesByPa[pa.id];
-        if (zs && zs.length && apptZone && !zs.includes(apptZone)) continue;  // wrong coast
       }
       const blocked = blockedByPa[pa.id];
       const dblocked = dateBlockedByPa[pa.id];

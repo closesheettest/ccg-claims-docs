@@ -1910,69 +1910,32 @@ export function FloridaZoneMap({ selected, counts, onToggle, home, radiusMi, hom
     </svg>
   );
 }
-// PA self-service: pick the Florida zones you cover. Saved to pas.zones; the
-// scheduler only offers you appointments in these zones (empty = everywhere).
+// PA coverage — READ ONLY. The service radius is set by the PA's COMPANY admin,
+// not the adjuster (per Five Star: PAs shouldn't adjust their own radius). Coasts
+// (East/West zones) were removed — coverage is now purely a mile radius from home.
 function PAZonesCard({ me }) {
-  const [zones, setZones] = useState(() => new Set(Array.isArray(me.zones) ? me.zones : []));
-  const [radius, setRadius] = useState(me.max_distance_miles != null ? Math.min(100, +me.max_distance_miles) : 100);
-  const [home, setHome] = useState(me.latitude != null && me.longitude != null ? { lat: +me.latitude, lng: +me.longitude } : null);
-  const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState(null);
+  const [radius, setRadius] = useState(me.max_distance_miles != null ? Math.min(100, +me.max_distance_miles) : null);
   useEffect(() => {
     (async () => {
       try {
-        const { data, error } = await supabase.from("pas").select("zones,max_distance_miles,latitude,longitude").eq("id", me.id).single();
-        if (!error && data) {
-          if (Array.isArray(data.zones)) setZones(new Set(data.zones));
-          if (data.max_distance_miles != null) setRadius(Math.min(100, +data.max_distance_miles));
-          if (data.latitude != null && data.longitude != null) setHome({ lat: +data.latitude, lng: +data.longitude });
-        }
-      } catch { /* zones column not added yet */ }
+        const { data, error } = await supabase.from("pas").select("max_distance_miles").eq("id", me.id).single();
+        if (!error && data && data.max_distance_miles != null) setRadius(Math.min(100, +data.max_distance_miles));
+      } catch { /* column not added yet */ }
     })(); // eslint-disable-next-line
   }, [me.id]);
-  const toggle = (z) => setZones((prev) => { const n = new Set(prev); n.has(z) ? n.delete(z) : n.add(z); return n; });
-  const save = async () => {
-    setSaving(true); setMsg(null);
-    const { error } = await supabase.from("pas").update({ zones: [...zones], max_distance_miles: radius }).eq("id", me.id);
-    setSaving(false);
-    setMsg(error ? { ok: false, text: "Couldn't save (ask admin to run the zones setup): " + error.message } : { ok: true, text: "✓ Zones & radius saved." });
-  };
   const card = { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, marginBottom: 16 };
   return (
     <div style={card}>
-      <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4, fontFamily: "'Oswald', sans-serif" }}>📍 My zones</div>
-      <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 12 }}>Tap the coast(s) you cover. You'll only be offered appointments on those coasts, within your mile radius below (max 100). No coast selected = anything within your radius.</div>
-      <FloridaZoneMap selected={zones} onToggle={toggle} home={home} radiusMi={radius} />
-      <div style={{ display: "grid", gap: 6, marginTop: 12 }}>
-        {FL_ZONES.map((z) => {
-          const on = zones.has(z.zone);
-          return (
-            <button key={z.zone} type="button" onClick={() => toggle(z.zone)}
-              style={{ display: "flex", alignItems: "center", gap: 8, textAlign: "left", padding: "8px 10px", borderRadius: 8, cursor: "pointer",
-                border: on ? `2px solid ${z.color}` : "1px solid #e5e7eb", background: on ? "#fff" : "#f9fafb" }}>
-              <span style={{ width: 12, height: 12, borderRadius: 3, background: z.color, flex: "0 0 auto" }} />
-              <span style={{ flex: 1 }}>
-                <span style={{ fontWeight: 700, fontSize: 13 }}>{z.zone}</span>
-                <span style={{ display: "block", fontSize: 11, color: "#6b7280" }}>{z.desc}</span>
-              </span>
-              <span style={{ fontSize: 16, color: on ? z.color : "#cbd5e1" }}>{on ? "✓" : "○"}</span>
-            </button>
-          );
-        })}
-      </div>
-      {/* Mile radius — additive coverage beyond the selected zones */}
-      <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #f1f5f9" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-          <span style={{ fontSize: 13, fontWeight: 700 }}>📏 Also cover within radius</span>
-          <span style={{ fontSize: 14, fontWeight: 800, color: "#0e7490" }}>{radius} mi</span>
+      <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4, fontFamily: "'Oswald', sans-serif" }}>📍 My coverage</div>
+      <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 12 }}>You're offered appointments within your service radius of your home base.</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderRadius: 10, background: "#f0f9ff", border: "1px solid #bae6fd" }}>
+        <span style={{ fontSize: 22 }}>📏</span>
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: "#0e7490" }}>{radius != null ? `${radius} miles` : "Not set yet"}</div>
+          <div style={{ fontSize: 12, color: "#64748b" }}>from your home base</div>
         </div>
-        <input type="range" min="0" max="100" step="5" value={radius} onChange={(e) => setRadius(+e.target.value)} style={{ width: "100%" }} />
-        <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>How far you'll travel from home (the teal circle) — max 100 miles.{!home ? " Add your home address in setup to see the circle." : ""}</div>
       </div>
-      {msg && <div style={{ marginTop: 10, fontSize: 13, color: msg.ok ? "#15803d" : "#b91c1c" }}>{msg.text}</div>}
-      <button type="button" onClick={save} disabled={saving} style={{ marginTop: 12, padding: "10px 20px", borderRadius: 10, border: "none", background: "#16a34a", color: "#fff", fontWeight: 700, cursor: "pointer", opacity: saving ? 0.6 : 1 }}>
-        {saving ? "Saving…" : "Save zones & radius"}
-      </button>
+      <div style={{ fontSize: 12, color: "#6b7280", marginTop: 10 }}>Your service radius is set by your company. To change it, contact your company admin.</div>
     </div>
   );
 }

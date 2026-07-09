@@ -53,7 +53,13 @@ export const handler = async (event) => {
   const companies = await get(`${SB_URL}/rest/v1/pa_companies?select=id,name&active=eq.true`, sb);
   const companyName = {};
   const activeCompanyIds = new Set();
-  for (const c of companies) { companyName[c.id] = c.name; activeCompanyIds.add(c.id); }
+  // Companies that PAUSED scheduling (not set up / trained yet) are skipped for
+  // auto-assign — no damage deals route to their PAs until they re-enable.
+  // Separate + tolerant query so it works before the scheduling_paused column
+  // exists (then: none paused).
+  const pausedIds = new Set();
+  try { for (const c of (await get(`${SB_URL}/rest/v1/pa_companies?scheduling_paused=eq.true&select=id`, sb)) || []) pausedIds.add(c.id); } catch { /* column not added yet */ }
+  for (const c of companies) { companyName[c.id] = c.name; if (!pausedIds.has(c.id)) activeCompanyIds.add(c.id); }
 
   // 2. Build targets — one per active company (weight = its active-PA count)
   //    + one per independent active PA. PAs in an INACTIVE company are skipped
