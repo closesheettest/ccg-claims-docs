@@ -1467,6 +1467,11 @@ function PARow({ pa, companies = [], busy, onToggle, onResend, onUpdate, onDelet
               {pa.email && <>📧 {pa.email} · </>}
               {pa.phone ? <>📱 {pa.phone}</> : "no phone on file"}
             </div>
+            <div style={{ fontSize: 11, marginTop: 2 }}>
+              {pa.google_connected_at
+                ? <span style={{ color: "#15803d", fontWeight: 700 }}>📅 Google Calendar connected{pa.google_email ? ` (${pa.google_email})` : ""}</span>
+                : <span style={{ color: "#b45309" }}>📅 Calendar not connected</span>}
+            </div>
             <div style={{ fontSize: 11, color: pa.home_address ? "#6b7280" : "#b45309", marginTop: 2 }}>
               {pa.home_address
                 ? <>🏠 {pa.home_address} {hasCoords ? <span style={{ color: "#16a34a" }}>· 📍 geocoded</span> : <span style={{ color: "#b45309" }}>· ⚠ not geocoded</span>}</>

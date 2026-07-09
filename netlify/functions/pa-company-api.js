@@ -46,7 +46,7 @@ exports.handler = async (event) => {
   // Active PAs in this company (+ home coords for distance sorting + takeaways).
   // Full select includes max_distance_miles (added by pa_max_distance.sql).
   // If that column isn't there yet, fall back so the page still loads.
-  let pas = await get(`${SB_URL}/rest/v1/pas?pa_company_id=eq.${company.id}&select=id,name,active,home_address,latitude,longitude,pa_takeaways,phone,email,max_distance_miles,zones,jn_user_id&order=name.asc`, sb);
+  let pas = await get(`${SB_URL}/rest/v1/pas?pa_company_id=eq.${company.id}&select=id,name,active,home_address,latitude,longitude,pa_takeaways,phone,email,max_distance_miles,zones,jn_user_id,google_connected_at,google_email&order=name.asc`, sb);
   if (!pas.length) {
     pas = await get(`${SB_URL}/rest/v1/pas?pa_company_id=eq.${company.id}&select=id,name,active,home_address,latitude,longitude,pa_takeaways,phone,email,jn_user_id&order=name.asc`, sb);
   }
@@ -207,6 +207,28 @@ exports.handler = async (event) => {
       const out = await r.json().catch(() => ({}));
       if (!r.ok || !out.ok) return cors(502, JSON.stringify({ ok: false, error: out.error || "Couldn't send the link." }));
       return cors(200, JSON.stringify({ ok: true, channel_used: out.channel_used || "auto" }));
+    } catch (e) {
+      return cors(500, JSON.stringify({ ok: false, error: e.message || "Network error sending link." }));
+    }
+  }
+
+  // action "send_gcal_link": text one of THIS company's PAs their one-tap
+  // "Connect Google Calendar" link, so the admin can onboard their team's
+  // calendars from the portal.
+  if (action === "send_gcal_link") {
+    const paId = (body.paId || "").trim();
+    const target = pas.find((p) => p.id === paId);
+    if (!target) return cors(400, JSON.stringify({ ok: false, error: "That PA isn't in your company." }));
+    if (!target.phone) return cors(400, JSON.stringify({ ok: false, error: "No mobile on file — add one via Edit first." }));
+    const link = `${base}/.netlify/functions/pa-gcal-connect?pa_id=${encodeURIComponent(paId)}`;
+    const msg = `Connect your Google Calendar for U.S. Shingle scheduling so you're only booked when you're free (your events stay private): ${link}`;
+    try {
+      const r = await fetch(`${base}/.netlify/functions/ghl-sms`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: target.phone, name: target.name || "Adjuster", message: msg }),
+      });
+      if (!r.ok) return cors(502, JSON.stringify({ ok: false, error: "Couldn't send the text." }));
+      return cors(200, JSON.stringify({ ok: true, channel: "sms" }));
     } catch (e) {
       return cors(500, JSON.stringify({ ok: false, error: e.message || "Network error sending link." }));
     }
