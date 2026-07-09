@@ -176,7 +176,7 @@ async function notifyOffice(crew, signName, pdfErr) {
   const link = `${base}/?mode=crews`;
   const msg = `✅ Crew onboarding submitted: ${who}${crew.company_name ? ` (${crew.company_name})` : ""} signed the agreement + uploaded docs. Review: ${link}${pdfErr ? ` [PDF note: ${pdfErr}]` : ""}`;
   const phone = process.env.ADMIN_ALERT_PHONE;
-  const email = process.env.CREW_ONBOARDING_EMAIL || "hello@shingleusa.com";
+  const email = process.env.CREW_ONBOARDING_EMAIL || "nikki@shingleusa.com";
   try { if (phone) await fetch(`${base}/.netlify/functions/ghl-sms`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: phone, name: "Office", message: msg }) }); } catch { /* */ }
   try { await fetch(`${base}/.netlify/functions/send-email`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: email, subject: `Crew onboarding submitted — ${who}`, html: `<p>${esc(who)}${crew.company_name ? ` (${esc(crew.company_name)})` : ""} completed onboarding and signed the agreement.</p><p><a href="${link}">Open Crew Onboarding →</a></p>` }) }); } catch { /* */ }
 }
