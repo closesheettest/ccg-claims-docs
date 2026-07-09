@@ -1939,6 +1939,51 @@ function PAZonesCard({ me }) {
     </div>
   );
 }
+// PA connects their own Google Calendar. Once connected, the scheduler checks
+// their Google free/busy so reps are only offered times the PA is actually free
+// — the PA's events/details are NEVER shown to reps (only that a time is taken).
+function PACalendarCard({ me }) {
+  const [connected, setConnected] = useState(!!me.google_connected_at);
+  const [email, setEmail] = useState(me.google_email || null);
+  const [flash, setFlash] = useState(null);
+  useEffect(() => {
+    try {
+      const p = new URLSearchParams(window.location.search).get("gcal");
+      if (p === "connected") setFlash({ ok: true, text: "✓ Google Calendar connected." });
+      else if (p === "error") setFlash({ ok: false, text: "Couldn't connect — please try again." });
+    } catch { /* ignore */ }
+    (async () => {
+      try {
+        const { data } = await supabase.from("pas").select("google_connected_at,google_email").eq("id", me.id).maybeSingle();
+        if (data) { setConnected(!!data.google_connected_at); setEmail(data.google_email || null); }
+      } catch { /* columns not added yet */ }
+    })(); // eslint-disable-next-line
+  }, [me.id]);
+  const connectUrl = `/.netlify/functions/pa-gcal-connect?pa_id=${encodeURIComponent(me.id)}`;
+  const card = { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, marginBottom: 16 };
+  const btn = { display: "inline-block", marginTop: 10, padding: "10px 18px", borderRadius: 10, background: "#1a73e8", color: "#fff", fontWeight: 700, textDecoration: "none", fontSize: 14 };
+  return (
+    <div style={card}>
+      <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4, fontFamily: "'Oswald', sans-serif" }}>🗓️ My Google Calendar</div>
+      {connected ? (
+        <>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 10, background: "#f0fdf4", border: "1px solid #bbf7d0", marginTop: 8 }}>
+            <span style={{ fontSize: 18 }}>✓</span>
+            <div><div style={{ fontWeight: 700, color: "#15803d" }}>Connected{email ? ` — ${email}` : ""}</div>
+            <div style={{ fontSize: 12, color: "#64748b" }}>We only offer reps times you're free. Your events stay private.</div></div>
+          </div>
+          <a href={connectUrl} style={{ ...btn, background: "#fff", color: "#1a73e8", border: "1px solid #1a73e8" }}>Reconnect</a>
+        </>
+      ) : (
+        <>
+          <div style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>Connect your Google Calendar so you're only offered appointments when you're actually free. Reps never see your events — only that a time is taken.</div>
+          <a href={connectUrl} style={btn}>Connect Google Calendar</a>
+        </>
+      )}
+      {flash && <div style={{ marginTop: 10, fontSize: 13, color: flash.ok ? "#15803d" : "#b91c1c" }}>{flash.text}</div>}
+    </div>
+  );
+}
 function PAAvailability({ me, onBack }) {
   const [blocked, setBlocked] = useState(() => new Set()); // keys "weekday:startMin" the PA can't do
   const [dateBlocked, setDateBlocked] = useState(() => new Set()); // keys "YYYY-MM-DD:startMin" — off on a SPECIFIC date
@@ -2044,8 +2089,9 @@ function PAAvailability({ me, onBack }) {
 
   return (
     <div>
-      {/* Zones the PA covers — drives which appointments they're offered */}
+      {/* Coverage (read-only) + Google Calendar connect */}
       <PAZonesCard me={me} />
+      <PACalendarCard me={me} />
       {/* Upcoming appointments */}
       <div style={card}>
         <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 10, fontFamily: "'Oswald', sans-serif" }}>📅 Your upcoming appointments</div>
