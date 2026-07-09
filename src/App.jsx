@@ -4697,6 +4697,7 @@ function TrainingPickerPage({ token }) {
   const [err, setErr] = useState("");
   const [date, setDate] = useState("");
   const [reps, setReps] = useState([]);
+  const [trainees, setTrainees] = useState([]); // this week's field trainees (Thu/Fri pick list)
   const [picked, setPicked] = useState(() => new Set());
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
@@ -4723,8 +4724,9 @@ function TrainingPickerPage({ token }) {
       if (!res.ok || !d.ok) { setErr(d.error || "Couldn't load."); setLoading(false); return; }
       setDate(d.date);
       setReps(d.reps || []);
+      setTrainees(d.trainees || []);
       const pk = d.picks || [];
-      const repIdSet = new Set((d.reps || []).map((r) => String(r.id)));
+      const repIdSet = new Set([...(d.reps || []), ...(d.trainees || [])].map((r) => String(r.id)));
       const noneRow = pk.find((p) => String(p.rep_id) === "__none__");
       if (noneRow) { setNoneMode(true); setNoneReason(noneRow.decline_reason || ""); setPicked(new Set()); setRefusals({}); }
       else {
@@ -4869,11 +4871,16 @@ function TrainingPickerPage({ token }) {
         {isFuture ? "📅 Scheduled" : date === todayStr ? "Going today" : "✓ Who went out"}
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-        {[...picked].map((id) => { const nm = pickNames[id] || (reps.find((x) => String(x.id) === String(id)) || {}).name || id; return <span key={id} style={{ padding: "5px 11px", borderRadius: 999, background: "rgba(39,196,107,.20)", color: "#9fe7bd", fontWeight: 700, fontSize: 14 }}>{nm}</span>; })}
-        {Object.keys(refusals).map((id) => { const nm = pickNames[id] || (reps.find((x) => String(x.id) === String(id)) || {}).name || id; return <span key={id} style={{ padding: "5px 11px", borderRadius: 999, background: "rgba(184,50,79,.20)", color: "#ff9aab", fontWeight: 700, fontSize: 14 }}>✋ {nm}</span>; })}
+        {[...picked].map((id) => { const nm = pickNames[id] || ([...reps, ...trainees].find((x) => String(x.id) === String(id)) || {}).name || id; return <span key={id} style={{ padding: "5px 11px", borderRadius: 999, background: "rgba(39,196,107,.20)", color: "#9fe7bd", fontWeight: 700, fontSize: 14 }}>{nm}</span>; })}
+        {Object.keys(refusals).map((id) => { const nm = pickNames[id] || ([...reps, ...trainees].find((x) => String(x.id) === String(id)) || {}).name || id; return <span key={id} style={{ padding: "5px 11px", borderRadius: 999, background: "rgba(184,50,79,.20)", color: "#ff9aab", fontWeight: 700, fontSize: 14 }}>✋ {nm}</span>; })}
       </div>
     </div>
   ) : null;
+
+  // Trainees section shows only on the field-training days (Thu/Fri), and only
+  // when there ARE current-week trainees to take out.
+  const trDow = date ? new Date(date + "T12:00:00").getDay() : new Date().getDay();
+  const showTrainees = trainees.length > 0 && (trDow === 4 || trDow === 5);
 
   // The day editor body: the "no one rode" reason, or the searchable team-
   // grouped rep checklist.
@@ -4888,6 +4895,27 @@ function TrainingPickerPage({ token }) {
     </div>
   ) : (
     <>
+      {showTrainees && (
+        <div style={{ marginTop: 14, border: "1px solid #6d5bd0", borderRadius: 12, background: "rgba(109,91,208,.12)", padding: "12px 14px" }}>
+          <div style={{ fontSize: 15, fontWeight: 800, color: "#fff", marginBottom: 2 }}>🎓 Trainees this week</div>
+          <div style={{ fontSize: 12, color: "#c7c0f0", marginBottom: 10 }}>Take a couple out on Thu/Fri. Tap to add — they get the same next-morning confirm-your-hours text as reps.</div>
+          <div style={{ display: "grid", gap: 6 }}>
+            {trainees.map((t) => {
+              const on = picked.has(t.id);
+              return (
+                <button key={t.id} type="button" onClick={() => toggle(t.id)}
+                  style={{ display: "flex", alignItems: "center", gap: 12, textAlign: "left", padding: "11px 12px", borderRadius: 10, border: on ? "none" : "1px solid #4a5d7e", background: on ? "rgba(39,196,107,.18)" : "#0f2038", color: "#fff", cursor: "pointer", fontSize: 15 }}>
+                  <span style={{ width: 22, height: 22, borderRadius: 6, border: on ? "none" : "2px solid #4a5d7e", background: on ? colGreen : "transparent", color: "#06281a", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, flex: "0 0 auto" }}>{on ? "✓" : ""}</span>
+                  <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                    <span style={{ fontWeight: on ? 700 : 500 }}>{t.name}{!t.phone ? <span style={{ color: "#ffb3c0", fontSize: 12 }}> · no phone</span> : ""}</span>
+                    <span style={{ fontSize: 12, color: "#8aa0c0" }}>Trainee{t.last ? ` · last rode ${fmtShortDate(t.last)}` : " · not ridden yet"}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
       <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search reps…"
         style={{ width: "100%", boxSizing: "border-box", margin: "14px 0 8px", padding: "12px 14px", borderRadius: 10, border: "1px solid #2a3b57", background: "#0f2038", color: "#fff", fontSize: 16 }} />
       <div style={{ fontSize: 13, color: "#9fb3d1", marginBottom: 6 }}>{picked.size} {isFuture ? "scheduled" : "rode"}{Object.keys(refusals).length ? ` · ${Object.keys(refusals).length} wouldn't ride` : ""}</div>

@@ -61,6 +61,13 @@ async function doInit(body) {
   // goes to you, never a real rep.
   reps.push({ id: TEST_REP_ID, name: TEST_REP_NAME, phone: (await readSetting("training_test_phone")) || null });
 
+  // Auto-reconcile: a trainee who has since gone active gets their trainee-era
+  // rides re-linked to their now-active rep id (matched by phone) — so their
+  // "last rode" history carries over intact into the normal rotation.
+  await reconcileGraduatedTrainees(reps);
+  // This week's field trainees (still in training) — William takes them out Thu/Fri.
+  const trainees = await fetchThisWeekTrainees();
+
   const picks = await sbGet(`ride_alongs?ride_date=eq.${date}&select=rep_id,rep_name,confirmed,start_time,end_time,decline_reason,refused_to_ride,trainer_note,text_sent_at&limit=500`);
 
   // Each rep's most recent PRIOR ride-along date (ignore the day being edited),
@@ -73,12 +80,13 @@ async function doInit(body) {
     if (!lastByRep[id]) lastByRep[id] = h.ride_date;
   }
   for (const r of reps) r.last = lastByRep[r.id] || null;
+  for (const t of trainees) t.last = lastByRep[t.id] || null;
 
   // Flag active reps who have NEVER signed a single inspection (all-time) —
   // these reps need to go back out, so William should prioritize them.
   await markNeverSigned(reps);
 
-  return cors(200, JSON.stringify({ ok: true, date, reps, picks }));
+  return cors(200, JSON.stringify({ ok: true, date, reps, trainees, picks }));
 }
 
 const NONE_ID = "__none__"; // sentinel rep_id for a "no one rode" day
@@ -105,6 +113,8 @@ async function doSave(body) {
   const repMap = {};
   for (const r of await fetchActiveReps()) repMap[r.id] = { name: r.name, phone: r.phone, zone: r.zone };
   repMap[TEST_REP_ID] = { name: TEST_REP_NAME, phone: (await readSetting("training_test_phone")) || null, zone: null };
+  // This week's trainees are pickable too (rep_id = "trainee:<tms id>").
+  for (const t of await fetchThisWeekTrainees()) repMap[t.id] = { name: t.name, phone: t.phone, zone: null };
 
   const existingByRep = {};
   for (const e of existing) existingByRep[String(e.rep_id)] = e;
@@ -369,6 +379,38 @@ async function fetchActiveReps() {
 
 function slug(s) {
   return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, "-");
+}
+
+const TRAINEES_WEEK_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/trainees-this-week";
+// This week's field trainees (still in training), keyed as "trainee:<tms id>".
+async function fetchThisWeekTrainees() {
+  try {
+    const res = await fetch(TRAINEES_WEEK_URL);
+    if (!res.ok) return [];
+    const data = await res.json().catch(() => ({}));
+    return (data.trainees || [])
+      .filter((t) => (t.name || "").trim())
+      .map((t) => ({ id: `trainee:${t.id}`, name: t.name, phone: t.phone || null }));
+  } catch { return []; }
+}
+const normPhone = (p) => { const d = String(p || "").replace(/\D/g, ""); return d.length >= 10 ? d.slice(-10) : (d.length >= 7 ? d.slice(-7) : ""); };
+// Re-link any trainee-era rides (rep_id "trainee:…") to a rep who has since gone
+// active, matched by phone — so a graduated trainee's ride history is intact.
+async function reconcileGraduatedTrainees(activeReps) {
+  try {
+    const phoneToId = {};
+    for (const r of activeReps) { const p = normPhone(r.phone); if (p && r.id) phoneToId[p] = r.id; }
+    if (!Object.keys(phoneToId).length) return;
+    const rides = await sbGet("ride_alongs?rep_id=like.trainee:*&select=id,rep_id,rep_phone&limit=5000");
+    for (const ride of rides) {
+      const newId = phoneToId[normPhone(ride.rep_phone)];
+      if (newId && newId !== ride.rep_id) {
+        await fetch(`${SB_URL}/rest/v1/ride_alongs?id=eq.${encodeURIComponent(ride.id)}`, {
+          method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify({ rep_id: newId }),
+        });
+      }
+    }
+  } catch { /* best-effort */ }
 }
 
 // Mutates `reps`, setting r.neverSigned = true on any active rep with ZERO
