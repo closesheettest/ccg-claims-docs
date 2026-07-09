@@ -4403,6 +4403,7 @@ const ADMIN_PORTALS = [
   { key: "inspector", emoji: "🔍", label: "Inspector App", desc: "The inspector mobile app — claim jobs, take photos, log results. Opens with admin powers (e.g. switch user).", href: "/?mode=inspector&admin=1" },
   { key: "pa", emoji: "🧑‍⚖️", label: "Public Adjuster Portal", desc: "The PA portal — claim damage deals and enter milestone dates. Opens with admin powers (e.g. release a deal back to the pool).", href: "/?mode=pa&admin=1" },
   { key: "manager", emoji: "🛠", label: "Manager Console", desc: "Every admin tool in one place (or launch any single tool below).", href: "/?mode=manager" },
+  { key: "crews", emoji: "👷", label: "Crew Onboarding", desc: "Onboard a roofing crew (subcontractor) — set their rates, send the packet, and track uploads + signed agreement.", href: "/?mode=crews" },
   { key: "regional", emoji: "🗺", label: "Regional Manager Records", desc: "Each regional manager opens their zone via a personal link (…/?manager=<token>). Ask the office for yours.", tokenized: true },
 ];
 
@@ -7288,6 +7289,191 @@ function AdminAskResult({ result }) {
   );
 }
 
+// ── Roofing crew (subcontractor) onboarding — office side ──────────────────
+const CREW_DEFAULT_RATES = {
+  shingle: 110, screw_down_metal: 180, standing_seam_metal: 220,
+  permalock_aluminum_shingle: 180, decra_stone_coated: 250, tile: null,
+  tpo: 120, base_and_cap: 110, plywood_replacement: 15, "1xs": 1.5,
+  extra_story: 10, extra_layer_shingles: 10, additional_story: 10,
+  steep_7_12: 10, trip_charge: 25,
+};
+const CREW_RATE_ITEMS = [
+  { key: "shingle", label: "Shingle", unit: "/SQ" },
+  { key: "screw_down_metal", label: "Screw Down Metal", unit: "/SQ" },
+  { key: "standing_seam_metal", label: "Standing Seam Metal", unit: "/SQ" },
+  { key: "permalock_aluminum_shingle", label: "Permalock / Aluminum Shingle", unit: "/SQ" },
+  { key: "decra_stone_coated", label: "Decra / Stone Coated", unit: "/SQ" },
+  { key: "tile", label: "Tile", unit: "", placeholder: "by experience" },
+  { key: "tpo", label: "TPO", unit: "/SQ" },
+  { key: "base_and_cap", label: "Base & Cap", unit: "/SQ" },
+  { key: "plywood_replacement", label: "Plywood replacement", unit: "/sheet" },
+  { key: "1xs", label: "1x's", unit: "/LF" },
+  { key: "extra_story", label: "Extra story", unit: "/SQ" },
+  { key: "extra_layer_shingles", label: "Extra layer of shingles", unit: "/SQ" },
+  { key: "additional_story", label: "Additional story", unit: "/SQ" },
+  { key: "steep_7_12", label: "Steep 7/12", unit: "/SQ" },
+  { key: "trip_charge", label: "Trip charge (max 2/install)", unit: "/trip" },
+];
+const CREW_STATUS = {
+  invited: { t: "Invited", c: "#92400e", b: "#fffbeb" },
+  in_progress: { t: "In progress", c: "#1e40af", b: "#eff6ff" },
+  submitted: { t: "Submitted — review", c: "#6d28d9", b: "#f5f3ff" },
+  approved: { t: "Approved", c: "#047857", b: "#ecfdf5" },
+  rejected: { t: "Rejected", c: "#991b1b", b: "#fef2f2" },
+};
+
+function CrewAdminPage() {
+  const MGR_PIN = (() => { try { return localStorage.getItem("ccg_mgr_managerPin") || "1234"; } catch { return "1234"; } })();
+  const [unlocked, setUnlocked] = useState(false);
+  const [pin, setPin] = useState("");
+  const [token, setToken] = useState("");
+  const [crews, setCrews] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [showCreate, setShowCreate] = useState(true);
+  const [form, setForm] = useState({ owner_first: "", owner_last: "", owner_phone: "", owner_email: "", company_name: "" });
+  const [rates, setRates] = useState(CREW_DEFAULT_RATES);
+  const [created, setCreated] = useState(null);
+
+  const fld = { width: "100%", boxSizing: "border-box", borderRadius: 10, border: "1px solid #d1d5db", padding: "10px 12px", fontSize: 14 };
+
+  const loadList = async (tok) => {
+    const t = tok || token;
+    try {
+      const res = await fetch("/.netlify/functions/crew-admin-api", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: t, action: "list" }) });
+      const d = await res.json().catch(() => ({}));
+      if (d.ok) setCrews(d.crews || []); else setErr(d.error || "Could not load crews.");
+    } catch { setErr("Network error."); }
+  };
+  const unlock = async () => {
+    if (pin !== MGR_PIN) { setErr("Wrong PIN."); return; }
+    setErr("");
+    const { data } = await supabase.from("app_settings").select("value").eq("key", "visit_token").maybeSingle();
+    const t = data?.value || "";
+    setToken(t); setUnlocked(true); loadList(t);
+  };
+  const setRate = (k, v) => setRates((r) => ({ ...r, [k]: v === "" ? null : (Number.isFinite(+v) ? +v : r[k]) }));
+  const create = async () => {
+    if (!form.owner_first.trim() || !form.owner_last.trim()) { setErr("Owner first + last name are required."); return; }
+    if (!form.owner_phone.trim() && !form.owner_email.trim()) { setErr("A phone or email is required to send the link."); return; }
+    setBusy(true); setErr(""); setCreated(null);
+    try {
+      const res = await fetch("/.netlify/functions/crew-admin-api", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, action: "create", ...form, rates }) });
+      const d = await res.json().catch(() => ({}));
+      if (!d.ok) { setErr(d.error || "Create failed."); }
+      else {
+        setCreated({ link: `${window.location.origin}/?crew=${d.crew.token}`, sent: d.sent || {}, name: `${form.owner_first} ${form.owner_last}`.trim() });
+        setForm({ owner_first: "", owner_last: "", owner_phone: "", owner_email: "", company_name: "" });
+        setRates(CREW_DEFAULT_RATES);
+        loadList();
+      }
+    } catch { setErr("Network error."); }
+    setBusy(false);
+  };
+  const resend = async (id) => {
+    setBusy(true);
+    try { await fetch("/.netlify/functions/crew-admin-api", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, action: "resend_link", id }) }); } catch { /* */ }
+    setBusy(false);
+  };
+
+  if (!unlocked) {
+    return (
+      <div style={{ minHeight: "100vh", background: "#f1f5f9", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+        <div style={{ background: "#fff", borderRadius: 16, padding: 28, width: "100%", maxWidth: 360, boxShadow: "0 10px 40px rgba(0,0,0,0.12)" }}>
+          <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 800, fontSize: 22, marginBottom: 4 }}>👷 Crew Onboarding</div>
+          <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 16 }}>Enter the manager PIN.</div>
+          <input type="password" value={pin} onChange={(e) => setPin(e.target.value)} onKeyDown={(e) => e.key === "Enter" && unlock()} placeholder="PIN" style={{ ...fld, marginBottom: 10 }} autoFocus />
+          {err && <div style={{ color: "#b91c1c", fontSize: 13, marginBottom: 10 }}>{err}</div>}
+          <Button onClick={unlock}>Unlock</Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#f1f5f9", padding: "24px 16px" }}>
+      <div style={{ maxWidth: 780, margin: "0 auto" }}>
+        <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 800, fontSize: 26, marginBottom: 4 }}>👷 Crew Onboarding</div>
+        <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 18 }}>Create a subcontractor crew, set the rates US Shingle pays them, and send the onboarding packet. They fill in their info, upload insurance + license, complete a W-9, and sign.</div>
+        {err && <div style={{ color: "#b91c1c", fontSize: 13, marginBottom: 12, background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 10, padding: "10px 12px" }}>{err}</div>}
+
+        {created && (
+          <Card style={{ marginBottom: 16, border: "2px solid #a7f3d0" }}>
+            <CardContent>
+              <div style={{ fontWeight: 800, color: "#065f46", fontFamily: "'Oswald', sans-serif", fontSize: 17 }}>✓ {created.name} created & packet sent</div>
+              <div style={{ fontSize: 13, color: "#374151", marginTop: 6 }}>Sent by {created.sent.sms ? "text" : ""}{created.sent.sms && created.sent.email ? " + " : ""}{created.sent.email ? "email" : ""}{!created.sent.sms && !created.sent.email ? "— (couldn't send; copy the link below)" : ""}.</div>
+              <div style={{ marginTop: 8, fontSize: 12.5, wordBreak: "break-all", background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 10px" }}>
+                <a href={created.link} target="_blank" rel="noreferrer" style={{ color: "#1d4ed8", fontWeight: 700 }}>{created.link}</a>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        <Card style={{ marginBottom: 18 }}>
+          <CardContent>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+              <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 18 }}>➕ New crew</div>
+              <Button variant="outline" onClick={() => setShowCreate((v) => !v)}>{showCreate ? "Hide" : "Show"}</Button>
+            </div>
+            {showCreate && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>Owner (you fill in)</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+                  <input value={form.owner_first} onChange={(e) => setForm({ ...form, owner_first: e.target.value })} placeholder="Owner first name" style={fld} />
+                  <input value={form.owner_last} onChange={(e) => setForm({ ...form, owner_last: e.target.value })} placeholder="Owner last name" style={fld} />
+                  <input value={form.owner_phone} onChange={(e) => setForm({ ...form, owner_phone: e.target.value })} placeholder="Owner phone" style={fld} />
+                  <input value={form.owner_email} onChange={(e) => setForm({ ...form, owner_email: e.target.value })} placeholder="Owner email" style={fld} />
+                </div>
+                <input value={form.company_name} onChange={(e) => setForm({ ...form, company_name: e.target.value })} placeholder="Company name (optional)" style={{ ...fld, marginBottom: 14 }} />
+
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>Rates US Shingle pays this crew</div>
+                <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 10 }}>Pre-filled with the standard rates — adjust any of them for this crew. The crew can't change these; they just see them.</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 8 }}>
+                  {CREW_RATE_ITEMS.map((it) => (
+                    <div key={it.key} style={{ display: "flex", alignItems: "center", gap: 8, background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 8, padding: "6px 10px" }}>
+                      <span style={{ fontSize: 12.5, color: "#374151", flex: 1, lineHeight: 1.2 }}>{it.label}</span>
+                      <span style={{ color: "#9ca3af", fontSize: 13 }}>$</span>
+                      <input value={rates[it.key] ?? ""} onChange={(e) => setRate(it.key, e.target.value)} placeholder={it.placeholder || "—"} inputMode="decimal"
+                        style={{ width: 62, textAlign: "right", borderRadius: 6, border: "1px solid #d1d5db", padding: "5px 6px", fontSize: 13 }} />
+                      <span style={{ color: "#9ca3af", fontSize: 11, width: 34 }}>{it.unit}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ marginTop: 14 }}>
+                  <Button onClick={create} disabled={busy}>{busy ? "Creating…" : "Create crew & send packet"}</Button>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 18, marginBottom: 8 }}>Crews</div>
+        {crews == null ? <div style={{ color: "#6b7280", fontSize: 14 }}>Loading…</div>
+          : crews.length === 0 ? <div style={{ color: "#6b7280", fontSize: 14 }}>No crews yet — create one above.</div>
+          : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {crews.map((c) => {
+                const s = CREW_STATUS[c.status] || CREW_STATUS.invited;
+                return (
+                  <div key={c.id} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: "12px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 800, fontSize: 15 }}>{[c.owner_first, c.owner_last].filter(Boolean).join(" ") || "(no name)"}{c.company_name ? <span style={{ color: "#6b7280", fontWeight: 600 }}> · {c.company_name}</span> : null}</div>
+                      <div style={{ fontSize: 12.5, color: "#6b7280" }}>{[c.owner_phone, c.owner_email].filter(Boolean).join(" · ") || "—"}</div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: s.c, background: s.b, borderRadius: 999, padding: "3px 10px" }}>{s.t}</span>
+                      <button type="button" onClick={() => resend(c.id)} disabled={busy} style={{ fontSize: 12, fontWeight: 700, padding: "6px 10px", borderRadius: 8, border: "1px solid #c7d2fe", background: "#eef2ff", color: "#3730a3", cursor: "pointer" }}>Resend link</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+      </div>
+    </div>
+  );
+}
+
 // Admin panel: text PAs / inspectors a link to the What's-New page when a
 // change ships. Preview first (who gets it + the exact message), then send.
 function AppUpdateAnnouncer() {
@@ -8509,6 +8695,12 @@ export default function App() {
     // Self-contained + PIN-gated, same short-circuit pattern as the others.
     if (portalMode === "admin") {
       return <AdminDashboard />;
+    }
+    // ?mode=crews — office screen to onboard roofing crews (subcontractors):
+    // create a crew, set the rates US Shingle dictates, send the packet link.
+    // PIN-gated (manager PIN), self-contained.
+    if (portalMode === "crews") {
+      return <CrewAdminPage />;
     }
     // ?mode=setter — the Appointment-Setter Portal (Viviana + inbound-call
     // setters). Search a homeowner by address → existing JN account or create
