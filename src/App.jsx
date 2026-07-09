@@ -11230,6 +11230,14 @@ const renderSmsTemplate = (key, vars) => {
         alert("The PA email is not valid. Please correct it (e.g. name@example.com) or clear the field.");
         return;
       }
+      // A homeowner record must ALWAYS carry contact info — a phone OR an email —
+      // or we can't confirm, dedup, or reach them (the Jeanwilson Marseille
+      // no-contact case). Block the submit until one is present.
+      const docPhoneDigits = (data.phone || "").replace(/\D/g, "");
+      if (docPhoneDigits.length < 10 && !(data.signerEmail || "").trim()) {
+        alert("A phone number or email is required — we can't confirm or reach the homeowner without one. Add at least one, then submit.");
+        return;
+      }
 
       // Pre-flight duplicate check — only matters when this is creating a NEW
       // claim record. If we're updating an existing one (existingClaim or
