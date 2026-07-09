@@ -2934,6 +2934,37 @@ function PASelfSchedule({ me, job }) {
 // Shared "why is this going back to retail?" picker — backed by the editable
 // pa_retail_reasons list (four defaults, PAs can add more). Big tap targets so
 // it's easy on a phone. onPick(reason) fires the actual revert; onClose cancels.
+// DQ Lead — disqualified-lead reason checklist (Five Star design). Check the
+// reason(s), Submit → the deal goes back to retail (reuses doRetail).
+function DqLeadModal({ who, busy, onClose, onSubmit }) {
+  const REASONS = ["No answer (2x+)", "No interested", "No DOL / No coverage", "Policy restrictions", "Claim not advised"];
+  const [sel, setSel] = useState([]);
+  const toggle = (r) => setSel((s) => (s.includes(r) ? s.filter((x) => x !== r) : [...s, r]));
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 420, background: "#fff", borderRadius: 16, overflow: "hidden", boxShadow: "0 10px 40px rgba(0,0,0,0.3)" }}>
+        <div style={{ background: "#dc2626", color: "#fff", padding: "14px 18px", fontFamily: "'Oswald', sans-serif", fontWeight: 800, fontSize: 20 }}>DQ Lead</div>
+        <div style={{ padding: "16px 18px" }}>
+          <div style={{ fontSize: 13.5, color: "#374151", marginBottom: 12 }}>Why is {who} disqualified? Check all that apply.</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {REASONS.map((r) => (
+              <label key={r} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 10, border: `1px solid ${sel.includes(r) ? "#dc2626" : "#e5e7eb"}`, background: sel.includes(r) ? "#fef2f2" : "#fff", cursor: "pointer", fontSize: 14, fontWeight: 600 }}>
+                <input type="checkbox" checked={sel.includes(r)} onChange={() => toggle(r)} />
+                {r}
+              </label>
+            ))}
+          </div>
+          <div style={{ fontSize: 12.5, color: "#6b7280", margin: "12px 0" }}>Submitting sends this lead <b>back to retail</b> and notifies the sales rep + their manager.</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="button" onClick={onClose} disabled={busy} style={{ flex: "0 0 auto", padding: "12px 16px", borderRadius: 10, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", fontWeight: 700, cursor: "pointer" }}>Cancel</button>
+            <button type="button" onClick={() => onSubmit(sel)} disabled={busy || !sel.length} style={{ flex: 1, padding: "12px 16px", borderRadius: 10, border: "none", background: (busy || !sel.length) ? "#9ca3af" : "#16a34a", color: "#fff", fontWeight: 800, fontFamily: "'Oswald', sans-serif", fontSize: 15, cursor: (busy || !sel.length) ? "default" : "pointer" }}>{busy ? "Submitting…" : "Submit"}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RetailReasonModal({ who, busy, onPick, onClose }) {
   const [reasons, setReasons] = useState(null); // null = loading
   const [adding, setAdding] = useState(false);
@@ -3027,6 +3058,7 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
   const [releasing, setReleasing] = useState(false);
   const [refusing, setRefusing] = useState(false);
   const [retailOpen, setRetailOpen] = useState(false); // back-to-retail reason picker
+  const [dqOpen, setDqOpen] = useState(false);         // DQ Lead reason checklist
   const [lastOutcome, setLastOutcome] = useState(null); // "Not home"/"Cancelled" confirmation text
   const [noteBusy, setNoteBusy] = useState(false);
   const [noteText, setNoteText] = useState("");
@@ -3282,6 +3314,21 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
     setLastOutcome("Appointment cancelled");
     postNote({ text: "❌ Appointment cancelled" });
   }
+  // Five Star pipeline outcomes ------------------------------------------------
+  function fsReschedule() {
+    if (noteBusy || refusing || savingKey) return;
+    setLastOutcome("Rescheduling — office will rebook");
+    postNote({ text: "🔄 Rescheduling — homeowner needs to reschedule" });
+  }
+  function fsWaitingDocs() {
+    if (noteBusy || refusing || savingKey) return;
+    postNote({ text: "📄 Waiting on documents", stage: "waiting_docs" });   // → its bucket
+  }
+  function lorCanceled() {
+    if (noteBusy || refusing || savingKey) return;
+    if (!window.confirm("Mark this LOR Canceled? It closes the file.")) return;
+    postNote({ text: "🚫 LOR Canceled", stage: "dead" });                    // closes the file
+  }
   function deadDeal() {
     const t = window.prompt("Mark this DEAD DEAL? It leaves your list and is logged. Reason (required):");
     if (t == null) return; const r = t.trim();
@@ -3362,6 +3409,14 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
           onPick={doRetail}
         />
       )}
+      {dqOpen && (
+        <DqLeadModal
+          who={job?.client_name || "this homeowner"}
+          busy={refusing}
+          onClose={() => setDqOpen(false)}
+          onSubmit={(reasons) => { setDqOpen(false); doRetail("DQ Lead — " + reasons.join(", ")); }}
+        />
+      )}
       <button type="button" onClick={onBack} style={{ ...secondaryBtn, marginBottom: 12 }}>← Back to my claims</button>
 
       {/* Note from US Shingle — set when a manager assigned this deal to
@@ -3425,16 +3480,38 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
           a deal cannot miss the one thing we need from them. Once they answer
           it calms down to the chosen state's color. */}
       {(() => {
-        const current = isNeedSignature(fields.pa_signup) ? "Need Signature" : fields.pa_signup;
+        const signed = fields.pa_signup === "Signed";
         const isPending = isNeedSignature(fields.pa_signup);
-        const isSaving = savingKey === "pa_signup" || refusing;
+        const isSaving = savingKey === "pa_signup" || refusing || noteBusy;
+        // Five Star pipeline — exact statuses/colors from their portal design.
+        const PIPE = [
+          { key: "rescheduling", label: "Rescheduling", color: "#fff", bg: "#ea8a00", onClick: fsReschedule },
+          { key: "waiting_docs", label: "Waiting Docs", color: "#7a5c00", bg: "#fde047", onClick: fsWaitingDocs },
+          { key: "signed", label: "Signed", color: "#fff", bg: "#16a34a", onClick: () => saveField("pa_signup", "Signed"), active: signed },
+        ];
+        const PIPE2 = [
+          { key: "dq", label: "DQ Lead", color: "#fff", bg: "#dc2626", onClick: () => setDqOpen(true) },
+          { key: "lor", label: "LOR Canceled", color: "#fff", bg: "#6b7280", onClick: lorCanceled },
+        ];
+        const btn = (b) => (
+          <button key={b.key} type="button" disabled={isSaving}
+            onClick={() => { if (!isSaving) b.onClick(); }}
+            style={{
+              padding: "18px 8px", borderRadius: 10, fontSize: 15, fontWeight: 800,
+              cursor: isSaving ? "default" : "pointer", fontFamily: "'Oswald', sans-serif",
+              letterSpacing: "0.02em", lineHeight: 1.1, border: "none",
+              background: b.bg, color: b.color, opacity: isSaving ? 0.7 : 1,
+              boxShadow: b.active ? "0 0 0 3px rgba(22,163,74,0.4)" : "0 1px 3px rgba(0,0,0,0.14)",
+            }}>
+            {b.label}
+          </button>
+        );
         return (
           <div style={{
             padding: 20,
             background: isPending ? "#fffbeb" : "#fff",
             border: isPending ? "3px solid #f59e0b" : "2px solid #e5e7eb",
-            borderRadius: 14,
-            marginBottom: 16,
+            borderRadius: 14, marginBottom: 16,
             boxShadow: isPending ? "0 0 0 4px rgba(245,158,11,0.15)" : "none",
           }}>
             {isPending && !lastOutcome && (
@@ -3451,51 +3528,20 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
               How did the appointment go?
             </div>
             <div style={{ fontSize: 13, color: "#64748b", marginBottom: 16 }}>
-              Tap what happened — this tells the office the outcome of your visit.
+              Tap what happened — this updates the office.
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              {[
-                { key: "Signed", label: "✅ Signed", active: current === "Signed", color: signupColor("Signed"), bg: signupBg("Signed"), onClick: () => saveField("pa_signup", "Signed") },
-                { key: "Refused to Sign", label: "✋ Refused to sign", active: current === "Refused to Sign", color: signupColor("Refused to Sign"), bg: signupBg("Refused to Sign"), onClick: () => refuseToSign() },
-                { key: "not_home", label: "🏠 Not home — reschedule", active: false, color: "#b45309", bg: "#fff7ed", onClick: () => markNotHome() },
-                { key: "cancelled", label: "❌ Cancelled", active: false, color: "#475569", bg: "#f1f5f9", onClick: () => markCancelled() },
-              ].map((b) => (
-                <button key={b.key} type="button" disabled={isSaving || noteBusy}
-                  onClick={() => { if (!isSaving && !noteBusy) b.onClick(); }}
-                  style={{
-                    padding: "18px 10px", borderRadius: 12, fontSize: 15, fontWeight: 800,
-                    cursor: (isSaving || noteBusy) ? "default" : "pointer",
-                    fontFamily: "'Oswald', sans-serif", letterSpacing: "0.02em", lineHeight: 1.15,
-                    border: b.active ? "3px solid" : "2px solid #cbd5e1",
-                    borderColor: b.active ? b.color : "#cbd5e1",
-                    background: b.active ? b.bg : "#fff",
-                    color: b.active ? b.color : "#334155",
-                    boxShadow: b.active ? "0 2px 8px rgba(0,0,0,0.08)" : "none",
-                    transition: "all 0.12s ease",
-                  }}>
-                  {b.label}
-                </button>
-              ))}
-            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>{PIPE.map(btn)}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>{PIPE2.map(btn)}</div>
             <div style={{ fontSize: 13, marginTop: 12, fontWeight: 700, color: savedKey === "pa_signup" ? "#047857" : (isPending && !lastOutcome) ? "#b45309" : "#64748b" }}>
-              {refusing ? "Reverting to retail & texting the team…"
+              {refusing ? "Sending back to retail & texting the team…"
                 : noteBusy ? "Recording…"
                 : savingKey === "pa_signup" ? "Saving…"
-                : savedKey === "pa_signup" ? "✓ Saved"
+                : savedKey === "pa_signup" ? "✓ Signed — saved"
                 : lastOutcome ? `✓ ${lastOutcome}`
-                : isPending ? "No outcome recorded yet — tap one above."
-                : `Recorded: ${current}`}
+                : signed ? "Recorded: Signed"
+                : isPending ? "No status recorded yet — tap one above."
+                : ""}
             </div>
-            {/* Send back to retail with a typed reason — reverts the deal
-                in the app + JobNimbus and texts the rep + their manager. */}
-            <button type="button" disabled={isSaving}
-              onClick={() => { if (!isSaving) sendToRetail(); }}
-              style={{ width: "100%", marginTop: 14, padding: "12px", borderRadius: 10, fontSize: 14, fontWeight: 800,
-                fontFamily: "'Oswald', sans-serif", letterSpacing: "0.02em",
-                border: "2px solid #b45309", background: "#fff7ed", color: "#b45309",
-                cursor: isSaving ? "default" : "pointer" }}>
-              ↩️ Send back to retail
-            </button>
           </div>
         );
       })()}
@@ -3648,43 +3694,17 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
         </button>
       </div>
 
-      {/* Can't reach / Dead deal / (Reached → back to active) */}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-        {job.pa_stage === "no_contact" ? (
-          <button type="button" disabled={noteBusy} onClick={() => postNote({ text: "Reached — back to active", stage: "active" })}
-            style={{ flex: "1 1 45%", padding: "11px", borderRadius: 10, fontWeight: 700, fontSize: 13, border: "1px solid #a7f3d0", background: "#ecfdf5", color: "#047857", cursor: noteBusy ? "default" : "pointer" }}>
-            ✅ Reached — back to active
+      {/* Old status buttons removed per Five Star — statuses now live in the
+          pipeline card above. Kept only: bring a Waiting Docs / (legacy) no-
+          contact deal back to active so it can't get stuck. */}
+      {(job.pa_stage === "no_contact" || job.pa_stage === "waiting_docs") && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          <button type="button" disabled={noteBusy} onClick={() => postNote({ text: job.pa_stage === "waiting_docs" ? "Documents received — back to active" : "Reached — back to active", stage: "active" })}
+            style={{ flex: 1, padding: "11px", borderRadius: 10, fontWeight: 700, fontSize: 13, border: "1px solid #a7f3d0", background: "#ecfdf5", color: "#047857", cursor: noteBusy ? "default" : "pointer" }}>
+            ✅ {job.pa_stage === "waiting_docs" ? "Docs received — back to active" : "Reached — back to active"}
           </button>
-        ) : job.pa_stage === "waiting_docs" ? (
-          <button type="button" disabled={noteBusy} onClick={() => postNote({ text: "Documents received — back to active", stage: "active" })}
-            style={{ flex: "1 1 45%", padding: "11px", borderRadius: 10, fontWeight: 700, fontSize: 13, border: "1px solid #a7f3d0", background: "#ecfdf5", color: "#047857", cursor: noteBusy ? "default" : "pointer" }}>
-            ✅ Docs received — back to active
-          </button>
-        ) : (
-          <>
-            <button type="button" disabled={noteBusy} onClick={cantReach}
-              style={{ flex: "1 1 45%", padding: "11px", borderRadius: 10, fontWeight: 700, fontSize: 13, border: "1px solid #cbd5e1", background: "#f1f5f9", color: "#475569", cursor: noteBusy ? "default" : "pointer" }}>
-              📵 Can't get ahold of them
-            </button>
-            <button type="button" disabled={noteBusy} onClick={waitingDocs}
-              style={{ flex: "1 1 45%", padding: "11px", borderRadius: 10, fontWeight: 700, fontSize: 13, border: "1px solid #c7d2fe", background: "#eef2ff", color: "#3730a3", cursor: noteBusy ? "default" : "pointer" }}>
-              📄 Waiting on documents
-            </button>
-          </>
-        )}
-        <button type="button" disabled={noteBusy} onClick={deadDeal}
-          style={{ flex: "1 1 45%", padding: "11px", borderRadius: 10, fontWeight: 700, fontSize: 13, border: "1px solid #fca5a5", background: "#fef2f2", color: "#991b1b", cursor: noteBusy ? "default" : "pointer" }}>
-          💀 Dead deal
-        </button>
-        <button type="button" disabled={correctionBusy} onClick={() => requestCorrection("correction")}
-          style={{ flex: "1 1 45%", padding: "11px", borderRadius: 10, fontWeight: 700, fontSize: 13, border: "1px solid #fcd34d", background: "#fffbeb", color: "#92400e", cursor: correctionBusy ? "default" : "pointer", opacity: correctionBusy ? 0.6 : 1 }}>
-          {correctionBusy ? "Sending…" : "✏️ Correction needed"}
-        </button>
-        <button type="button" disabled={correctionBusy} onClick={() => requestCorrection("question")}
-          style={{ flex: "1 1 45%", padding: "11px", borderRadius: 10, fontWeight: 700, fontSize: 13, border: "1px solid #bfdbfe", background: "#eff6ff", color: "#1e40af", cursor: correctionBusy ? "default" : "pointer", opacity: correctionBusy ? 0.6 : 1 }}>
-          {correctionBusy ? "Sending…" : "❓ Question / request for rep"}
-        </button>
-      </div>
+        </div>
+      )}
 
       {/* Release back to the pool is an ADMIN-only action now — only shown
           when the portal was opened from the Admin hub (?admin=1). Field
