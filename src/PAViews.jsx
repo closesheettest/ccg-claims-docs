@@ -2444,6 +2444,50 @@ function PAJobList({ me, onOpenJob, wide }) {
 
   return (
     <div>
+      {/* ─── Notification dashboard (Five Star page 1): prioritized worklist.
+          Three flagged sections; UPDATE NOW opens the deal's status pipeline. ─── */}
+      {(() => {
+        const agoLabel = (ts) => {
+          if (!ts) return "";
+          const h = Math.floor((Date.now() - new Date(ts).getTime()) / 3600000);
+          if (h < 1) return "assigned just now";
+          if (h < 24) return `assigned ${h}hr${h === 1 ? "" : "s"} ago`;
+          const d = Math.floor(h / 24);
+          return `assigned ${d} day${d === 1 ? "" : "s"} ago`;
+        };
+        const SECTIONS = [
+          { key: "urgent", flag: "🚩", title: "Urgent Attention Needed", color: "#b91c1c", bg: "#fef2f2", border: "#fca5a5", items: mineNeeds },
+          { key: "inspect", flag: "🟠", title: "Inspections Update", color: "#b45309", bg: "#fff7ed", border: "#fdba74", items: mineWorking },
+          { key: "progress", flag: "🟢", title: "Claims in Progress", color: "#047857", bg: "#ecfdf5", border: "#a7f3d0", items: mineSigned },
+        ];
+        if (!(mineNeeds.length + mineWorking.length + mineSigned.length)) return null;
+        return (
+          <div style={{ marginBottom: 18 }}>
+            {SECTIONS.map((s) => s.items.length === 0 ? null : (
+              <div key={s.key} style={{ marginBottom: 14 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7, fontFamily: "'Oswald', sans-serif", fontWeight: 800, fontSize: 16, color: s.color }}>
+                  <span>{s.flag}</span>{s.title} <span style={{ fontWeight: 700, color: "#94a3b8", fontSize: 13 }}>({s.items.length})</span>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {s.items.map((j) => (
+                    <div key={j.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, background: s.bg, border: `1px solid ${s.border}`, borderRadius: 10, padding: "10px 12px", flexWrap: "wrap" }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 800, fontSize: 14.5, color: "#111827" }}>{j.client_name || "(no name)"}</div>
+                        <div style={{ fontSize: 12.5, color: "#64748b" }}>{[j.address, j.city].filter(Boolean).join(", ")}{j.pa_claimed_at ? ` · ${agoLabel(j.pa_claimed_at)}` : ""}</div>
+                      </div>
+                      <button type="button" onClick={() => onOpenJob(j.id)}
+                        style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 800, fontSize: 13, letterSpacing: "0.03em", padding: "9px 16px", borderRadius: 8, border: "none", background: s.color, color: "#fff", cursor: "pointer", whiteSpace: "nowrap" }}>
+                        UPDATE NOW
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 12 }}>
         <div style={{ fontSize: 13, color: "#374151", fontWeight: 700 }}>
           🧑‍⚖️ Your assigned customers ({mine.length}) — grouped by county, newest signed first
