@@ -13,5 +13,9 @@ alter table pas add column if not exists google_refresh_token text;
 alter table pas add column if not exists google_email text;
 alter table pas add column if not exists google_connected_at timestamptz;
 
+-- 3) Google Calendar event id stamped on each booked appointment (so a
+--    reschedule/cancel can remove the event from the PA's calendar).
+alter table pa_appointments add column if not exists google_event_id text;
+
 -- Verify:
 --   select id, name, scheduling_paused from pa_companies order by name;

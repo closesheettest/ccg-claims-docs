@@ -219,7 +219,7 @@ async function book(body) {
   if (!startMs) return cors(400, JSON.stringify({ ok: false, error: "bad start_at" }));
   const endMs = startMs + SLOT_MIN * 60000;
 
-  const paRows = await sbGet(`pas?id=eq.${encodeURIComponent(paId)}&select=id,name,phone,email,pa_company_id&limit=1`);
+  const paRows = await sbGet(`pas?id=eq.${encodeURIComponent(paId)}&select=id,name,phone,email,pa_company_id,google_refresh_token&limit=1`);
   const pa = paRows[0];
   if (!pa) return cors(400, JSON.stringify({ ok: false, error: "PA not found" }));
 
@@ -241,6 +241,14 @@ async function book(body) {
       ? `pa_appointments?inspection_id=eq.${encodeURIComponent(inspectionId)}&status=eq.scheduled`
       : phone ? `pa_appointments?homeowner_phone=eq.${encodeURIComponent(phone)}&status=eq.scheduled` : null;
     if (cancelQ) {
+      // Remove the old appointments' Google Calendar events first (best-effort).
+      try {
+        for (const o of await sbGet(`${cancelQ}&select=id,pa_id,google_event_id`)) {
+          if (!o.google_event_id) continue;
+          const rt = await paRefreshToken(o.pa_id);
+          if (rt) await googleDeleteEvent(rt, o.google_event_id);
+        }
+      } catch { /* best-effort */ }
       await fetch(`${SB_URL}/rest/v1/${cancelQ}`, {
         method: "PATCH", headers: { ...sb, Prefer: "return=minimal" },
         body: JSON.stringify({ status: "cancelled", notes: "Rescheduled — nobody home" }),
@@ -284,6 +292,24 @@ async function book(body) {
   });
   if (!ins.ok) return cors(502, JSON.stringify({ ok: false, error: `insert ${ins.status}: ${(await ins.text()).slice(0, 200)}` }));
   const appointment = (await ins.json().catch(() => []))[0] || null;
+
+  // 1b. Write the appointment onto the PA's Google Calendar (if connected) so it
+  // blocks their calendar going forward + they see it. Store the event id so a
+  // reschedule/cancel can remove it. Best-effort — never fails the booking.
+  if (appointment && pa.google_refresh_token) {
+    try {
+      const eid = await googleCreateEvent(pa.google_refresh_token, {
+        summary: `US Shingle PA appt — ${homeowner || "Homeowner"}`,
+        location: address || "",
+        description: `Public adjuster appointment.${phone ? `\nHomeowner: ${phone}` : ""}${notes ? `\nNotes: ${notes}` : ""}\nBooked via US Shingle by ${bookedBy}.`,
+        startIso: new Date(startMs).toISOString(),
+        endIso: new Date(endMs).toISOString(),
+      });
+      if (eid) await fetch(`${SB_URL}/rest/v1/pa_appointments?id=eq.${encodeURIComponent(appointment.id)}`, {
+        method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify({ google_event_id: eid }),
+      });
+    } catch { /* best-effort */ }
+  }
 
   // 2. Reassign the homeowner to the booked PA (even if assigned elsewhere).
   if (inspectionId) {
@@ -418,6 +444,40 @@ async function googleAccessToken(refreshToken) {
     const d = await r.json().catch(() => ({}));
     return d.access_token || null;
   } catch { return null; }
+}
+// Create a timed event on the PA's primary calendar → returns event id or null.
+async function googleCreateEvent(refreshToken, ev) {
+  try {
+    const at = await googleAccessToken(refreshToken);
+    if (!at) return null;
+    const r = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${at}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        summary: ev.summary,
+        location: ev.location || undefined,
+        description: ev.description || undefined,
+        start: { dateTime: ev.startIso },
+        end: { dateTime: ev.endIso },
+      }),
+    });
+    if (!r.ok) return null;
+    const d = await r.json().catch(() => ({}));
+    return d.id || null;
+  } catch { return null; }
+}
+async function googleDeleteEvent(refreshToken, eventId) {
+  try {
+    const at = await googleAccessToken(refreshToken);
+    if (!at) return;
+    await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`, {
+      method: "DELETE", headers: { Authorization: `Bearer ${at}` },
+    });
+  } catch { /* best-effort */ }
+}
+async function paRefreshToken(paId) {
+  const rows = await sbGet(`pas?id=eq.${encodeURIComponent(paId)}&select=google_refresh_token&limit=1`);
+  return (rows[0] && rows[0].google_refresh_token) || null;
 }
 
 // Post the deal's audit trail (+ this new appointment) as a JobNimbus note.
