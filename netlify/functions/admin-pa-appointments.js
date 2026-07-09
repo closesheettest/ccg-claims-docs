@@ -24,6 +24,27 @@ exports.handler = async (event) => {
   try {
     const qp = event.queryStringParameters || {};
 
+    // ?scan_dupes=1 → every homeowner with 2+ SCHEDULED appointments across
+    // DIFFERENT PAs (i.e. assigned to more than one PA). The cleanup worklist.
+    if (event.httpMethod === "GET" && qp.scan_dupes) {
+      const rows = await sbGet(`pa_appointments?status=eq.scheduled&select=id,pa_id,homeowner_name,homeowner_phone,address,start_at,inspection_id&order=start_at&limit=5000`);
+      const paIds = [...new Set(rows.map((r) => r.pa_id).filter(Boolean))];
+      const paName = {};
+      for (let i = 0; i < paIds.length; i += 80) for (const p of await sbGet(`pas?id=in.(${paIds.slice(i, i + 80).map((x) => `"${x}"`).join(",")})&select=id,name,pa_company_id`)) paName[p.id] = p.name;
+      const key = (r) => (r.homeowner_phone || "").replace(/\D/g, "").slice(-10) || (r.homeowner_name || "").trim().toLowerCase();
+      const groups = {};
+      for (const r of rows) { const k = key(r); if (k) (groups[k] = groups[k] || []).push(r); }
+      const dupes = [];
+      for (const [k, appts] of Object.entries(groups)) {
+        const pas = new Set(appts.map((a) => a.pa_id));
+        if (appts.length > 1 && pas.size > 1) {
+          dupes.push({ homeowner: appts[0].homeowner_name, phone: appts[0].homeowner_phone || null, count: appts.length,
+            appts: appts.map((a) => ({ id: a.id, pa: paName[a.pa_id] || a.pa_id, start_at: a.start_at, inspection_id: a.inspection_id })) });
+        }
+      }
+      return cors(200, JSON.stringify({ ok: true, total_scheduled: rows.length, multi_pa: dupes.length, dupes }));
+    }
+
     // ?inspection=<name> → the inspection(s) + current PA/company assignment.
     if (event.httpMethod === "GET" && qp.inspection) {
       const like = encodeURIComponent(`*${String(qp.inspection).replace(/[%*(),]/g, " ").trim()}*`);
