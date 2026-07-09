@@ -256,27 +256,39 @@ async function book(body) {
     }
   }
 
-  // Per-HOMEOWNER duplicate guard: if this homeowner already has a scheduled PA
-  // appointment (matched by inspection, or by phone when there's no inspection
-  // id), don't silently create a second one. Return the existing appt so the rep
-  // can change the time or knowingly book anyway (force:true). Skipped on force
-  // or reschedule (a reschedule already cancelled the old one above).
-  if (!body.force && !body.reschedule) {
-    const dupQ = inspectionId
-      ? `pa_appointments?inspection_id=eq.${encodeURIComponent(inspectionId)}&status=eq.scheduled&select=id,start_at,pa_id,homeowner_name&order=start_at&limit=1`
-      : phone
-        ? `pa_appointments?homeowner_phone=eq.${encodeURIComponent(phone)}&status=eq.scheduled&select=id,start_at,pa_id,homeowner_name&order=start_at&limit=1`
-        : null;
-    if (dupQ) {
-      const dup = await sbGet(dupQ);
-      if (dup.length) {
-        const ex = dup[0];
-        const exPa = (await sbGet(`pas?id=eq.${encodeURIComponent(ex.pa_id)}&select=name&limit=1`))[0];
-        return cors(200, JSON.stringify({
-          ok: false, duplicate: true,
-          existing: { id: ex.id, start_at: ex.start_at, pa_name: exPa?.name || null, homeowner_name: ex.homeowner_name || homeowner },
-        }));
-      }
+  // Per-HOMEOWNER duplicate guard: a rep can't book the same homeowner a second
+  // time. Matches an existing SCHEDULED appt by ANY reliable signal — inspection,
+  // phone, OR homeowner name + street — so it catches double-books even when the
+  // deal has NO phone on file (the Jeanwilson Marseille case). Skipped only on an
+  // explicit reschedule (which already cancelled the prior appt above).
+  if (!body.reschedule) {
+    let dup = null;
+    const ors = [];
+    if (inspectionId) ors.push(`inspection_id.eq.${encodeURIComponent(inspectionId)}`);
+    if (phone) ors.push(`homeowner_phone.eq.${encodeURIComponent(phone)}`);
+    if (ors.length) {
+      const rows = await sbGet(`pa_appointments?status=eq.scheduled&or=(${ors.join(",")})&select=id,start_at,pa_id,homeowner_name,address&order=start_at&limit=1`);
+      if (rows.length) dup = rows[0];
+    }
+    // Fallback: same homeowner NAME (and same street when we have an address) —
+    // the safety net for no-phone / no-inspection bookings.
+    if (!dup && homeowner) {
+      const nm = homeowner.trim().toLowerCase();
+      const street = (address || "").split(",")[0].trim().toLowerCase();
+      const like = encodeURIComponent(`*${homeowner.replace(/[%*(),]/g, " ").trim()}*`);
+      const rows = await sbGet(`pa_appointments?status=eq.scheduled&homeowner_name=ilike.${like}&select=id,start_at,pa_id,homeowner_name,address&limit=25`);
+      dup = rows.find((r) => {
+        const rn = (r.homeowner_name || "").trim().toLowerCase();
+        const rs = (r.address || "").split(",")[0].trim().toLowerCase();
+        return rn === nm || (street && rs && rs === street);
+      }) || null;
+    }
+    if (dup) {
+      const exPa = (await sbGet(`pas?id=eq.${encodeURIComponent(dup.pa_id)}&select=name&limit=1`))[0];
+      return cors(200, JSON.stringify({
+        ok: false, duplicate: true,
+        existing: { id: dup.id, start_at: dup.start_at, pa_name: exPa?.name || null, homeowner_name: dup.homeowner_name || homeowner },
+      }));
     }
   }
 
