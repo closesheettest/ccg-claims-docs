@@ -6504,6 +6504,49 @@ function TeamAvailability({ token }) {
   );
 }
 
+// Company portal: send each of THIS company's adjusters who haven't linked
+// Google Calendar a text + email with their personal connect link. Uses the
+// company token — pa-broadcast scopes to this company's PAs automatically.
+function CompanyGcalInvite({ token }) {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState("");
+  const send = async () => {
+    if (!window.confirm("Text + email your adjusters who haven't connected Google Calendar yet a link to connect it?")) return;
+    setBusy(true); setResult("");
+    try {
+      const res = await fetch("/.netlify/functions/pa-broadcast", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token,
+          only_unconnected: true,
+          subject: "Please connect your Google Calendar (about 2 minutes)",
+          message:
+            "Hi {name}! Quick setup so you're only offered appointments when you're actually free: please connect your Google Calendar. " +
+            "It takes about 2 minutes, and reps never see your events — only that a time is taken.\n\n" +
+            "Tap here to connect:\n{connect}\n\nThank you!",
+        }),
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok || !out.ok) setResult("⚠ " + (out.error || "Send failed."));
+      else if (out.total === 0) setResult("✓ Everyone's already connected — nobody to invite.");
+      else setResult(`✓ Sent to ${out.total} adjuster${out.total === 1 ? "" : "s"} — ${out.emailed} email, ${out.texted} text.`);
+    } catch { setResult("⚠ Network error."); }
+    setBusy(false);
+  };
+  return (
+    <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: 14, marginBottom: 16 }}>
+      <div style={{ fontSize: 16, fontWeight: 800, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>📅 Connect Google Calendar</div>
+      <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 10 }}>
+        Send your adjusters a text + email with a one-tap link to connect their Google Calendar. Only those who haven't connected yet get it. Once connected, they appear on the Team availability calendar and are only offered appointments when they're actually free.
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <Button onClick={send} disabled={busy}>{busy ? "Sending…" : "📤 Send connect invite to my team"}</Button>
+        {result && <span style={{ fontSize: 13, fontWeight: 700, color: result.startsWith("✓") ? "#047857" : "#b91c1c" }}>{result}</span>}
+      </div>
+    </div>
+  );
+}
+
 function PACompanyAdminPage({ token }) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -6894,6 +6937,8 @@ function PACompanyAdminPage({ token }) {
         </div>
 
         <CompanyAppointments pas={data.pas} />
+
+        <CompanyGcalInvite token={token} />
 
         <TeamAvailability token={token} />
 
