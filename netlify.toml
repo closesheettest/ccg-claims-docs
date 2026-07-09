@@ -79,6 +79,15 @@
 [functions."check-stale-claims"]
   schedule = "0 22 * * *"
 
+# Scheduled function: 1-hour PA appointment follow-up. Every 15 min, texts +
+# emails the adjuster a deep-link (?mode=pa&pa=…&job=…) that opens their portal
+# right on the homeowner they just visited, where the "How did the appointment
+# go?" card captures the outcome (Signed / Refused / Not home / Cancelled).
+# Fires once per appointment, 60–75 min after its start. Requires the
+# pa_appointments.followup_sent_at column. exports.config mirrors this.
+[functions."cron-pa-appt-followup"]
+  schedule = "*/15 * * * *"
+
 # Scheduled function: AUTO-HEAL JobNimbus orphans every 15 min. Finds signed,
 # not-cancelled inspections with no jn_job_id (any result) and re-runs the JN
 # sync (retry-jn-sync) so they land in JN for payroll/reporting without anyone
