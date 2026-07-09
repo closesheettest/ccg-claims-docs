@@ -52,6 +52,19 @@ function countyToZone(county, lat) {
   if (n === "brevard" || n === "orange") return (lat != null && lat >= SPLIT_LAT) ? "Zone 1" : "Zone 2";
   return COUNTY_ZONE[n] || "Unknown";
 }
+// Approximate FL zip3 → zone (covers ALL sold deals from the deal's zip, which
+// the JN list carries — vs county which we've geocoded on almost nothing).
+const ZIP3_ZONE = {
+  "320": "Zone 1", "321": "Zone 1", "322": "Zone 1", "326": "Zone 1", "327": "Zone 1",
+  "328": "Zone 1", "344": "Zone 1", "347": "Zone 1",
+  "335": "Zone 2", "336": "Zone 2", "338": "Zone 2", "346": "Zone 2", "329": "Zone 2", "334": "Zone 2",
+  "337": "Zone 3", "339": "Zone 3", "341": "Zone 3", "342": "Zone 3", "349": "Zone 3",
+  "330": "Zone 4", "331": "Zone 4", "332": "Zone 4", "333": "Zone 4",
+};
+function zipToZone(zip) {
+  const z3 = String(zip || "").replace(/[^0-9]/g, "").slice(0, 3);
+  return z3 && ZIP3_ZONE[z3] ? ZIP3_ZONE[z3] : null;
+}
 
 const isYes = (v) => v === true || v === "true" || v === "Yes" || v === "yes" || v === 1;
 function fieldByLabel(job, label) {
@@ -165,7 +178,7 @@ exports.handler = async (event) => {
         const amt = saleAmount(j);
         const src = String(j.source_name || "");
         const zone = by === "zone" ? (repZone[j.sales_rep] || "Unassigned")
-          : by === "region" ? (jnidRegion[id] || "Unknown") : null;
+          : by === "region" ? (zipToZone(j.zip) || jnidRegion[id] || "Unknown") : null;
         bump(wk, "all", amt, zone);
         if (src === "Instant Quote") bump(wk, "iq", amt, zone);
         if (src === "Inspection" || inspSet.has(id)) bump(wk, "btr", amt, zone);
