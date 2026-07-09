@@ -34,6 +34,25 @@ const SOLD_STATUS_NAMES = [
 const PAGE_CAP_YEAR = 25, PAGE_CAP_ALL = 90;
 const KEYS = ["all", "iq", "harvested", "btr", "irb"];
 
+// Geographic Florida region map — the PROPERTY's county → zone (mirrors
+// all-no-sits.js / the zone reports). Used by by=region to show WHERE in FL the
+// sales are (by property location), distinct from by=zone (the selling team).
+const ZONE_COUNTIES = {
+  "Zone 1": ["Nassau", "Duval", "Baker", "Union", "Bradford", "Clay", "St. Johns", "Putnam", "Flagler", "Alachua", "Levy", "Marion", "Sumter", "Lake", "Seminole", "Volusia"],
+  "Zone 2": ["Pasco", "Hillsborough", "Polk", "Osceola", "Indian River", "Highlands", "Citrus", "Hernando"],
+  "Zone 3": ["Pinellas", "Manatee", "Sarasota", "Charlotte", "Lee", "Collier", "Monroe", "Hardee", "DeSoto", "Glades", "Hendry", "St. Lucie", "Okeechobee"],
+  "Zone 4": ["Martin", "Palm Beach", "Broward", "Miami-Dade"],
+};
+const SPLIT_LAT = 28.55; // Brevard & Orange: north→Zone 1, south→Zone 2
+const normCounty = (s) => String(s || "").toLowerCase().replace(/\bcounty\b/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+const COUNTY_ZONE = (() => { const m = {}; for (const [z, cs] of Object.entries(ZONE_COUNTIES)) for (const c of cs) m[normCounty(c)] = z; return m; })();
+function countyToZone(county, lat) {
+  const n = normCounty(county);
+  if (!n) return "Unknown";
+  if (n === "brevard" || n === "orange") return (lat != null && lat >= SPLIT_LAT) ? "Zone 1" : "Zone 2";
+  return COUNTY_ZONE[n] || "Unknown";
+}
+
 const isYes = (v) => v === true || v === "true" || v === "Yes" || v === "yes" || v === 1;
 function fieldByLabel(job, label) {
   if (label in job) return job[label];
@@ -73,7 +92,7 @@ exports.handler = async (event) => {
   const qp = event.queryStringParameters || {};
   const range = qp.range === "all" ? "all" : "year";
   const bucket = qp.bucket === "month" ? "month" : "week";
-  const by = qp.by === "zone" ? "zone" : "";
+  const by = qp.by === "zone" ? "zone" : qp.by === "region" ? "region" : "";
 
   const yearStart = new Date(new Date().getFullYear(), 0, 1);
   const nowSec = Math.floor(Date.now() / 1000);   // ignore future-dated Sold Dates
@@ -95,6 +114,15 @@ exports.handler = async (event) => {
     const repZone = {};
     if (by === "zone") {
       try { const r = await fetch(REP_ZONES_URL); if (r.ok) for (const rep of (await r.json()).reps || []) if (rep.jobnimbus_id && rep.zone) repZone[rep.jobnimbus_id] = rep.zone; } catch { /* */ }
+    }
+    // deal jnid → geographic REGION (property's county → zone). Built from the
+    // county we geocoded on the inspection record, so it covers deals that went
+    // through an inspection; sold deals with no geocoded inspection fall into
+    // "Unknown". Answers "WHERE in FL the sales are", by property location.
+    const jnidRegion = {};
+    if (by === "region" && SB_URL && SB_KEY) {
+      const rows = await sbGet("inspections?jn_job_id=not.is.null&county=not.is.null&select=jn_job_id,county,latitude&limit=40000");
+      for (const r of rows) if (r.jn_job_id) jnidRegion[r.jn_job_id] = countyToZone(r.county, r.latitude);
     }
 
     const cnt = {}, dol = {}, zc = {}, zd = {};
@@ -136,7 +164,8 @@ exports.handler = async (event) => {
         if (range === "year" && wk < floorKey) continue;
         const amt = saleAmount(j);
         const src = String(j.source_name || "");
-        const zone = by === "zone" ? (repZone[j.sales_rep] || "Unassigned") : null;
+        const zone = by === "zone" ? (repZone[j.sales_rep] || "Unassigned")
+          : by === "region" ? (jnidRegion[id] || "Unknown") : null;
         bump(wk, "all", amt, zone);
         if (src === "Instant Quote") bump(wk, "iq", amt, zone);
         if (src === "Inspection" || inspSet.has(id)) bump(wk, "btr", amt, zone);
@@ -150,7 +179,7 @@ exports.handler = async (event) => {
     const weeks = keys.map((k) => ({ key: k, label: bucketLabel(k, bucket) }));
     const pick = (map) => Object.fromEntries(KEYS.map((k) => [k, keys.map((wk) => Math.round(map[wk]?.[k] || 0))]));
     const resp = { ok: true, range, bucket, weeks, count: pick(cnt), dollars: pick(dol), truncated };
-    if (by === "zone") {
+    if (by === "zone" || by === "region") {
       resp.zones = Object.fromEntries(Object.keys(zc).sort().map((z) => [z, { count: pick(zc[z]), dollars: pick(zd[z]) }]));
     }
     return cors(200, JSON.stringify(resp));
