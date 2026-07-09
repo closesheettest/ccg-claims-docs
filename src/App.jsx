@@ -7309,8 +7309,10 @@ function AppUpdateAnnouncer() {
   );
 }
 
-// Admin "Notify PAs" — personalized email + SMS to ALL active PAs. Uses the
-// global visit_token (read from app_settings) so pa-broadcast sends company-wide.
+// Admin "Notify PAs" — personalized email + SMS to active PAs. Uses the global
+// visit_token (read from app_settings). Can target ALL PAs or one PA company,
+// and includes a one-click Google Calendar connect nudge ({connect} link, only
+// to PAs who haven't linked yet).
 function PaNotifyCard() {
   const [open, setOpen] = useState(false);
   const [subject, setSubject] = useState("Important: how you get appointments + your quick setup");
@@ -7319,19 +7321,48 @@ function PaNotifyCard() {
     "{link}\n\n" +
     "Your portal link is inside. Questions? Just reply. Thank you!",
   );
+  const [companies, setCompanies] = useState([]);
+  const [companyId, setCompanyId] = useState("");        // "" = all active PAs
+  const [onlyUnconnected, setOnlyUnconnected] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState("");
   const fld = { width: "100%", boxSizing: "border-box", borderRadius: 12, border: "1px solid #d1d5db", padding: "10px 12px", fontSize: 14 };
+
+  // Load PA companies once the composer opens (for the target dropdown).
+  useEffect(() => {
+    if (!open || companies.length) return;
+    fetch("/.netlify/functions/admin-pa-appointments?companies=1")
+      .then((r) => r.json()).then((d) => { if (d && d.ok) setCompanies(d.companies || []); })
+      .catch(() => {});
+  }, [open, companies.length]);
+
+  // One-click "connect your Google Calendar" preset — defaults to Five Star and
+  // only the PAs who haven't linked yet.
+  const gcalPreset = () => {
+    setSubject("Please connect your Google Calendar (about 2 minutes)");
+    setMsg(
+      "Hi {name}! Quick setup so you're only offered appointments when you're actually free: please connect your Google Calendar. It takes about 2 minutes, and reps never see your events — only that a time is taken.\n\n" +
+      "Tap here to connect:\n{connect}\n\n" +
+      "Thank you!",
+    );
+    setOnlyUnconnected(true);
+    const fs = companies.find((c) => /five\s*star/i.test(c.name || ""));
+    setCompanyId(fs ? fs.id : "");
+    setResult("");
+  };
+
   const send = async () => {
     if (!msg.trim()) { setResult("Add a message first."); return; }
-    if (!window.confirm("Send this to ALL active PAs by email + text?")) return;
+    const coName = companyId ? (companies.find((c) => c.id === companyId)?.name || "that company") : null;
+    const who = coName ? `${coName}'s PAs` : "ALL active PAs";
+    if (!window.confirm(`Send this by email + text to ${who}${onlyUnconnected ? " who haven't connected Google Calendar yet" : ""}?`)) return;
     setBusy(true); setResult("");
     try {
       const { data } = await supabase.from("app_settings").select("value").eq("key", "visit_token").maybeSingle();
       const token = data?.value || "";
       const res = await fetch("/.netlify/functions/pa-broadcast", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, subject, message: msg }),
+        body: JSON.stringify({ token, subject, message: msg, company_id: companyId || undefined, only_unconnected: onlyUnconnected }),
       });
       const out = await res.json().catch(() => ({}));
       if (!res.ok || !out.ok) setResult("⚠ " + (out.error || "Send failed."));
@@ -7348,13 +7379,28 @@ function PaNotifyCard() {
         </div>
         {open && (
           <div style={{ marginTop: 12 }}>
+            <div style={{ marginBottom: 10 }}>
+              <Button variant="outline" onClick={gcalPreset}>📅 Google Calendar connect invite</Button>
+            </div>
             <div style={{ fontSize: 12.5, color: "#6b7280", marginBottom: 10 }}>
-              Personalized <b>email + text</b> to <b>all active PAs</b>. Use <code>{"{link}"}</code> (their welcome page), <code>{"{name}"}</code>, <code>{"{region}"}</code>, <code>{"{radius}"}</code> — each PA's own values fill in.
+              Personalized <b>email + text</b>. Use <code>{"{connect}"}</code> (their Google Calendar link), <code>{"{link}"}</code> (welcome page), <code>{"{name}"}</code>, <code>{"{region}"}</code>, <code>{"{radius}"}</code> — each PA's own values fill in.
+            </div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
+              <label style={{ fontSize: 13, color: "#374151", fontWeight: 700 }}>Send to:&nbsp;
+                <select value={companyId} onChange={(e) => setCompanyId(e.target.value)} style={{ ...fld, width: "auto", display: "inline-block", height: 40, padding: "6px 10px" }}>
+                  <option value="">All active PAs</option>
+                  {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </label>
+              <label style={{ fontSize: 13, color: "#374151", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <input type="checkbox" checked={onlyUnconnected} onChange={(e) => setOnlyUnconnected(e.target.checked)} />
+                Only PAs who haven't connected Google Calendar
+              </label>
             </div>
             <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Email subject" style={{ ...fld, height: 44, marginBottom: 8 }} />
             <textarea value={msg} onChange={(e) => setMsg(e.target.value)} rows={10} style={{ ...fld, fontFamily: "inherit", lineHeight: 1.45, resize: "vertical" }} />
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 10, flexWrap: "wrap" }}>
-              <Button onClick={send} disabled={busy}>{busy ? "Sending…" : "Send to all active PAs"}</Button>
+              <Button onClick={send} disabled={busy}>{busy ? "Sending…" : (companyId ? "Send to this company's PAs" : "Send to all active PAs")}</Button>
               {result && <span style={{ fontSize: 13, fontWeight: 700, color: result.startsWith("✓") ? "#047857" : "#b91c1c" }}>{result}</span>}
             </div>
           </div>

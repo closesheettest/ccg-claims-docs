@@ -4,16 +4,22 @@
 // adjuster. Used from the admin section's PA-notification composer.
 //
 // Personalization tokens in the message AND the optional html template:
-//   {name}   → PA's first name
-//   {region} → their zones joined (or "your assigned region" if none set)
-//   {radius} → "<max_distance_miles> miles" (or "your set radius")
-//   {portal} → their working portal link (…/?mode=pa&pa=<id>)
-//   {link}   → their welcome/onboarding link (…/?pa_welcome=<id>)
+//   {name}    → PA's first name
+//   {region}  → their zones joined (or "your assigned region" if none set)
+//   {radius}  → "<max_distance_miles> miles" (or "your set radius")
+//   {portal}  → their working portal link (…/?mode=pa&pa=<id>)
+//   {link}    → their welcome/onboarding link (…/?pa_welcome=<id>)
+//   {connect} → their Google Calendar connect link ({gcal} is an alias)
 //
-// POST { token, subject, message, html?, test_to?, test_name? }
-//   message: plain-text body — used for SMS, and (when no html) auto-wrapped for email.
-//   html:    optional full HTML email template (tokens substituted per PA).
-//   test_to: an email/phone to send a single preview to instead of all PAs.
+// POST { token, subject, message, html?, test_to?, test_name?,
+//        company_id?, only_unconnected? }
+//   message:          plain-text body — used for SMS, and (when no html) auto-wrapped for email.
+//   html:             optional full HTML email template (tokens substituted per PA).
+//   test_to:          an email/phone to send a single preview to instead of all PAs.
+//   company_id:       with the GLOBAL token, restrict the send to ONE PA company.
+//                     (A company token is already scoped to its own PAs.)
+//   only_unconnected: skip PAs who've already connected Google Calendar — use it
+//                     for the one-time "connect your calendar" nudge.
 //   → { ok, total, emailed, texted, errors? }
 //
 // Gate: token must equal app_settings.dialer_token OR visit_token.
@@ -50,7 +56,12 @@ exports.handler = async (event) => {
       pas = [{ id: body.test_id || "DEMO", name: body.test_name || "Test", email: t.includes("@") ? t : null, phone: t.includes("@") ? null : t, zones: [], max_distance_miles: null }];
     } else {
       let path = "pas?active=eq.true&select=id,name,email,phone,zones,max_distance_miles";
+      // A company token scopes to its own PAs; the global token may scope to one
+      // company via company_id.
       if (companyId) path += `&pa_company_id=eq.${encodeURIComponent(companyId)}`;
+      else if (body.company_id) path += `&pa_company_id=eq.${encodeURIComponent(String(body.company_id).trim())}`;
+      // Skip PAs who've already linked Google Calendar (the "connect" nudge).
+      if (body.only_unconnected) path += `&google_refresh_token=is.null`;
       pas = await sbGet(path);
     }
 
@@ -60,7 +71,10 @@ exports.handler = async (event) => {
     for (const pa of pas) {
       const link = base && pa.id ? `${base}/?pa_welcome=${pa.id}` : "";
       const portal = base && pa.id ? `${base}/?mode=pa&pa=${pa.id}` : (base ? `${base}/?mode=pa` : "");
-      const repl = (s) => fill(s, pa).replace(/\{link\}/gi, link).replace(/\{portal\}/gi, portal);
+      const connect = base && pa.id ? `${base}/.netlify/functions/pa-gcal-connect?pa_id=${pa.id}` : "";
+      const repl = (s) => fill(s, pa)
+        .replace(/\{link\}/gi, link).replace(/\{portal\}/gi, portal)
+        .replace(/\{connect\}/gi, connect).replace(/\{gcal\}/gi, connect);
       const personal = repl(message);
       if (pa.email) {
         const html = htmlTpl ? repl(htmlTpl) : toHtml(personal);
