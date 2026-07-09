@@ -6433,6 +6433,72 @@ function PostJob({ token: propToken } = {}) {
   );
 }
 
+// Team master calendar — every active PA's slot grid for the next 7 days, each
+// cell open / booked (homeowner) / off. Fetches pa-company-api "availability".
+function TeamAvailability({ token }) {
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState(null);   // { pas, days }
+  const [dayIdx, setDayIdx] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/.netlify/functions/pa-company-api", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, action: "availability" }) });
+      const d = await res.json().catch(() => ({}));
+      if (d.ok) { setData(d); setDayIdx(0); }
+    } catch { /* ignore */ }
+    setLoading(false);
+  };
+  const toggle = () => { const w = !open; setOpen(w); if (w && !data) load(); };
+  const day = data?.days?.[dayIdx];
+  const cellStyle = (c) => {
+    const s = c?.s || "open";
+    const bg = s === "booked" ? "#fee2e2" : s === "off" ? "#e5e7eb" : s === "past" ? "#f3f4f6" : "#dcfce7";
+    const color = s === "booked" ? "#991b1b" : s === "off" ? "#9ca3af" : s === "past" ? "#cbd5e1" : "#166534";
+    return { background: bg, color, padding: "5px 6px", fontSize: 11, fontWeight: 700, textAlign: "center", border: "1px solid #fff", whiteSpace: "nowrap", maxWidth: 92, overflow: "hidden", textOverflow: "ellipsis" };
+  };
+  const cellText = (c) => { const s = c?.s || "open"; return s === "booked" ? (c.who || "Booked") : s === "off" ? "—" : s === "past" ? "" : "open"; };
+  return (
+    <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: 14, marginBottom: 16 }}>
+      <button type="button" onClick={toggle} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", background: "none", border: "none", cursor: "pointer", padding: 0, fontSize: 16, fontWeight: 800, color: "#111827", fontFamily: "'Oswald', sans-serif" }}>
+        <span>📅 Team availability</span><span style={{ color: "#6b7280" }}>{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        loading ? <div style={{ padding: 12, color: "#6b7280" }}>Loading…</div>
+        : !data || !data.days.length ? <div style={{ padding: 12, color: "#6b7280" }}>No availability to show.</div>
+        : (
+          <div style={{ marginTop: 10 }}>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+              {data.days.map((dd, i) => (
+                <button key={dd.date} type="button" onClick={() => setDayIdx(i)} style={{ padding: "5px 10px", borderRadius: 999, border: "1px solid " + (i === dayIdx ? "#4f46e5" : "#e5e7eb"), background: i === dayIdx ? "#4f46e5" : "#fff", color: i === dayIdx ? "#fff" : "#374151", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{dd.label}</button>
+              ))}
+            </div>
+            <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 6 }}><span style={{ color: "#166534", fontWeight: 700 }}>■ open</span> · <span style={{ color: "#991b1b", fontWeight: 700 }}>■ booked</span> · <span style={{ color: "#9ca3af", fontWeight: 700 }}>■ off</span></div>
+            <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+              <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                <thead>
+                  <tr>
+                    <th style={{ position: "sticky", left: 0, background: "#f9fafb", padding: "5px 8px", fontSize: 11, textAlign: "left", zIndex: 1 }}>Adjuster</th>
+                    {day.slots.map((s) => <th key={s.t} style={{ padding: "5px 6px", fontSize: 11, color: "#6b7280" }}>{s.t}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.pas.map((p) => (
+                    <tr key={p.id}>
+                      <td style={{ position: "sticky", left: 0, background: "#fff", padding: "5px 8px", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap", borderRight: "1px solid #f1f5f9" }}>{p.name}</td>
+                      {day.slots.map((s) => { const c = s.cells[p.id]; return <td key={s.t} style={cellStyle(c)} title={c?.who || ""}>{cellText(c)}</td>; })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+
 function PACompanyAdminPage({ token }) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -6823,6 +6889,8 @@ function PACompanyAdminPage({ token }) {
         </div>
 
         <CompanyAppointments pas={data.pas} />
+
+        <TeamAvailability token={token} />
 
         {showView && (
           <div id="pa-portal-view" style={{ marginBottom: 16, border: "1px solid #ddd6fe", borderRadius: 12, background: "#faf5ff", padding: 12 }}>
