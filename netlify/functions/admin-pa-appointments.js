@@ -78,6 +78,26 @@ exports.handler = async (event) => {
     if (event.httpMethod === "POST") {
       let body = {}; try { body = JSON.parse(event.body || "{}"); } catch { return cors(400, JSON.stringify({ ok: false, error: "bad JSON" })); }
 
+      // Correct an inspection's location (city/zip mis-saved). Optionally clear
+      // lat/lng so it re-geocodes. Also updates the linked appointment address.
+      if (body.set_inspection) {
+        const s = body.set_inspection;
+        if (!s.inspection_id) return cors(400, JSON.stringify({ ok: false, error: "inspection_id required" }));
+        const patch = {};
+        for (const k of ["address", "city", "state", "zip", "latitude", "longitude"]) if (k in (s.patch || {})) patch[k] = s.patch[k];
+        if (!Object.keys(patch).length) return cors(400, JSON.stringify({ ok: false, error: "nothing to set" }));
+        const r = await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(s.inspection_id)}`, {
+          method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify(patch),
+        });
+        // Rewrite the scheduled appointment's address too (it's shown to the PA).
+        if (s.appt_address) {
+          await fetch(`${SB_URL}/rest/v1/pa_appointments?inspection_id=eq.${encodeURIComponent(s.inspection_id)}&status=eq.scheduled`, {
+            method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify({ address: s.appt_address }),
+          });
+        }
+        return cors(r.ok ? 200 : 500, JSON.stringify({ ok: r.ok, patch }));
+      }
+
       // Reassign an inspection to a PA and/or company, and set its pa_stage
       // (e.g. reactivate a wrongly-dead deal). Pass pa_id/pa_company_id (or null),
       // and optionally pa_stage.
