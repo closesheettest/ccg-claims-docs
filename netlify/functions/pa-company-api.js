@@ -107,19 +107,27 @@ exports.handler = async (event) => {
     if (paId && !pas.some((p) => p.id === paId && p.active)) {
       return cors(400, JSON.stringify({ ok: false, error: "That PA isn't an active member of this company" }));
     }
+    // A deal belongs to THIS company if it's still in the company pool
+    // (pa_company_id) OR it's already assigned to one of the company's PAs —
+    // pa_company_id gets NULLED once a PA claims/books it, so a scope on
+    // pa_company_id alone would miss every already-assigned deal (the bug that
+    // made re-assigning silently fail).
+    const insp = (await get(`${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}&select=id,pa_id,pa_company_id&limit=1`, sb))[0];
+    if (!insp) return cors(404, JSON.stringify({ ok: false, error: "Deal not found" }));
+    const ours = insp.pa_company_id === company.id || pas.some((p) => p.id === insp.pa_id);
+    if (!ours) return cors(403, JSON.stringify({ ok: false, error: "That deal isn't in your company" }));
     const nowIso = new Date().toISOString();
     const patch = paId
       ? { pa_id: paId, pa_claimed_at: nowIso, pa_stage: "active", pa_stage_at: nowIso }
       : { pa_id: null, pa_claimed_at: null };
-    // Scope the update to THIS company's pool — a token can't reassign
-    // another company's deal.
     const r = await fetch(
-      `${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}&pa_company_id=eq.${company.id}`,
-      { method: "PATCH", headers: { ...sb, Prefer: "return=representation" }, body: JSON.stringify(patch) },
+      `${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}`,
+      { method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify(patch) },
     );
     if (!r.ok) return cors(500, JSON.stringify({ ok: false, error: `Assign failed: ${(await r.text()).slice(0, 160)}` }));
-    const rows = await r.json().catch(() => []);
-    if (!rows.length) return cors(404, JSON.stringify({ ok: false, error: "Deal not found in your company's pool" }));
+    // Move any scheduled appointment for this deal to the new PA too, so the
+    // appointment (and its follow-ups/notifications) follows the reassignment.
+    if (paId) await fetch(`${SB_URL}/rest/v1/pa_appointments?inspection_id=eq.${encodeURIComponent(inspectionId)}&status=eq.scheduled`, { method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify({ pa_id: paId }) }).catch(() => {});
     return cors(200, JSON.stringify({ ok: true }));
   }
 
