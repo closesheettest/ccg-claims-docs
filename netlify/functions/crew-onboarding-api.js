@@ -227,16 +227,16 @@ async function fillW9Pdf(c) {
     if (c.signature_data && String(c.signature_data).startsWith("data:image")) {
       try {
         const png = await pdf.embedPng(Buffer.from(String(c.signature_data).replace(/^data:image\/\w+;base64,/, ""), "base64"));
-        const w = 150, h = Math.min((png.height / png.width) * w, 34);
-        page.drawImage(png, { x: 128, y: 205, width: w, height: h });   // sits on the signature line
+        const w = 145, h = Math.min((png.height / png.width) * w, 24);
+        page.drawImage(png, { x: 128, y: 196, width: w, height: h });   // on the "Sign Here" line
         drew = true;
       } catch { /* fall back to typed */ }
     }
     if (!drew && c.subcontractor_sign_name) {
       const sigFont = await pdf.embedFont(StandardFonts.HelveticaOblique);
-      page.drawText(String(c.subcontractor_sign_name), { x: 130, y: 214, size: 12, font: sigFont });
+      page.drawText(String(c.subcontractor_sign_name), { x: 130, y: 204, size: 12, font: sigFont });
     }
-    page.drawText(dateStr, { x: 470, y: 214, size: 11, font: helv });
+    page.drawText(dateStr, { x: 470, y: 205, size: 11, font: helv });
   } catch { /* signature stamp best-effort */ }
 
   try { form.updateFieldAppearances(helv); } catch { /* */ }
