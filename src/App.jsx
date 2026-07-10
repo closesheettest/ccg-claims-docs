@@ -7029,20 +7029,12 @@ function PACompanyAdminPage({ token }) {
               <Button variant="outline" onClick={() => { setAddOpen((v) => !v); setErr(""); }}>{addOpen ? "Cancel" : "➕ Add adjuster"}</Button>
             </div>
             {/* Team coverage map — combined area the company's active PAs cover.
-                Active PAs are listed grouped by coast; tap one to highlight just
-                that adjuster's radius circle on the map and see their mile range. */}
+                Active adjusters are listed; tap one to highlight that adjuster's
+                radius circle on the map and see their mile range. */}
             {(() => {
               const active = (data.pas || []).filter((p) => p.active);
               const homes = active.filter((p) => p.lat != null && p.lng != null)
                 .map((p) => ({ id: p.id, lat: p.lat, lng: p.lng, radiusMi: p.max_distance_miles, name: p.name }));
-              // Bucket each active PA under every coast they cover (none = "Any coast").
-              const groups = { "West Coast": [], "East Coast": [], "Any coast": [] };
-              for (const p of active) {
-                const zs = Array.isArray(p.zones) ? p.zones.filter((z) => groups[z]) : [];
-                if (zs.length) zs.forEach((z) => groups[z].push(p));
-                else groups["Any coast"].push(p);
-              }
-              const order = ["West Coast", "East Coast", "Any coast"];
               return (
                 <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: 10, marginBottom: 12, background: "#fafafa" }}>
                   <div style={{ fontSize: 13, fontWeight: 800, color: "#111827", marginBottom: 6 }}>🗺 Team coverage</div>
@@ -7051,33 +7043,24 @@ function PACompanyAdminPage({ token }) {
                   ) : (
                     <>
                       {homes.length > 0 && <FloridaZoneMap homes={homes} selectedId={coverSel} />}
-                      <div style={{ fontSize: 11, color: "#6b7280", margin: "8px 0 4px" }}>Active PAs per coast — tap one to highlight their range on the map.</div>
-                      <div style={{ display: "grid", gap: 8 }}>
-                        {order.filter((z) => groups[z].length).map((z) => (
-                          <div key={z}>
-                            <div style={{ fontSize: 11, fontWeight: 800, color: z === "West Coast" ? "#2563eb" : z === "East Coast" ? "#ea580c" : "#6b7280", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 3 }}>
-                              {z} <span style={{ color: "#9ca3af", fontWeight: 700 }}>· {groups[z].length}</span>
-                            </div>
-                            <div style={{ display: "grid", gap: 4 }}>
-                              {groups[z].map((p) => {
-                                const sel = coverSel === p.id;
-                                const noHome = p.lat == null || p.lng == null;
-                                return (
-                                  <button key={p.id + z} type="button" onClick={() => setCoverSel(sel ? null : p.id)}
-                                    style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", cursor: "pointer",
-                                      border: sel ? "1.5px solid #0e7490" : "1px solid #e5e7eb", background: sel ? "#ecfeff" : "#fff",
-                                      borderRadius: 8, padding: "7px 10px" }}>
-                                    <span style={{ width: 9, height: 9, borderRadius: 999, background: sel ? "#0e7490" : "#94a3b8", flex: "0 0 auto" }} />
-                                    <span style={{ fontWeight: 700, fontSize: 13, flex: 1, minWidth: 0 }}>{p.name}</span>
-                                    <span style={{ fontSize: 12.5, fontWeight: 800, color: noHome ? "#b45309" : "#0e7490", whiteSpace: "nowrap" }}>
-                                      {noHome ? "⚠ no home address" : `📏 ${p.max_distance_miles > 0 ? p.max_distance_miles : 100} mi`}
-                                    </span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ))}
+                      <div style={{ fontSize: 11, color: "#6b7280", margin: "8px 0 4px" }}>Your active adjusters — tap one to highlight their range on the map.</div>
+                      <div style={{ display: "grid", gap: 4 }}>
+                        {active.map((p) => {
+                          const sel = coverSel === p.id;
+                          const noHome = p.lat == null || p.lng == null;
+                          return (
+                            <button key={p.id} type="button" onClick={() => setCoverSel(sel ? null : p.id)}
+                              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", cursor: "pointer",
+                                border: sel ? "1.5px solid #0e7490" : "1px solid #e5e7eb", background: sel ? "#ecfeff" : "#fff",
+                                borderRadius: 8, padding: "7px 10px" }}>
+                              <span style={{ width: 9, height: 9, borderRadius: 999, background: sel ? "#0e7490" : "#94a3b8", flex: "0 0 auto" }} />
+                              <span style={{ fontWeight: 700, fontSize: 13, flex: 1, minWidth: 0 }}>{p.name}</span>
+                              <span style={{ fontSize: 12.5, fontWeight: 800, color: noHome ? "#b45309" : "#0e7490", whiteSpace: "nowrap" }}>
+                                {noHome ? "⚠ no home address" : `📏 ${p.max_distance_miles > 0 ? p.max_distance_miles : 100} mi`}
+                              </span>
+                            </button>
+                          );
+                        })}
                       </div>
                     </>
                   )}
@@ -8553,7 +8536,7 @@ function AdminDashboard() {
 }
 
 // PA welcome / onboarding page — /?pa_welcome=<paId>. Personalized: explains
-// how appointments are matched (coast + radius + availability), how to log
+// how appointments are matched (radius + availability), how to log
 // milestone dates as they happen, and links into their own portal. This is the
 // page the welcome text / Notify-PAs link points at.
 function PaWelcomePage({ paId }) {
@@ -8585,12 +8568,11 @@ function PaWelcomePage({ paId }) {
         <p style={{ fontSize: 15, color: "#374151", lineHeight: 1.5 }}>You're set up as a U.S. Shingle &amp; Metal partner public adjuster. Here's exactly how roof appointments reach you — and the few things to set up so you get the right ones.</p>
 
         {h("How appointments reach you")}
-        {step(1, "Your coast", <>Florida is split into <b>West Coast</b> and <b>East Coast</b>. You're only offered appointments on the coast(s) you cover. Yours: <b>{region}</b>.</>)}
-        {step(2, "Your travel radius", <>We only send you homeowners within about <b>{radius}</b> of your <b>home address</b>. If your address or radius is wrong, you'll get appointments too far away — or none.</>)}
-        {step(3, "Your availability", <>You're open for every standard time slot by default. In the portal under <b>"My Availability,"</b> block off any days/times you can't do — and keep it current.</>)}
+        {step(1, "Your travel radius", <>We only send you homeowners within about <b>{radius}</b> of your <b>home address</b>. If your address or radius is wrong, you'll get appointments too far away — or none.</>)}
+        {step(2, "Your availability", <>You're open for every standard time slot by default. In the portal under <b>"My Availability,"</b> block off any days/times you can't do — and keep it current.</>)}
 
         <div style={{ background: "#f0fdfa", border: "1px solid #99f6e4", borderRadius: 12, padding: "12px 14px", fontSize: 14, color: "#0f766e", margin: "6px 0 4px" }}>
-          A rep can only book you when a homeowner is <b>on your coast</b>, <b>within your radius</b>, and in an <b>open slot</b> on your calendar. Keep all three current and you'll get the most appointments.
+          A rep can only book you when a homeowner is <b>within your radius</b> and in an <b>open slot</b> on your calendar. Keep both current and you'll get the most appointments.
         </div>
 
         {h("As your deals come in")}
