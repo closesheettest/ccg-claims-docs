@@ -7640,6 +7640,7 @@ function CrewOnboardingPage({ token }) {
   const [agreed, setAgreed] = useState(false);
   const [signName, setSignName] = useState("");
   const [signTitle, setSignTitle] = useState("");
+  const [sigData, setSigData] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [err, setErr] = useState("");
@@ -7683,11 +7684,12 @@ function CrewOnboardingPage({ token }) {
   const submit = async () => {
     setErr("");
     if (!agreed) { setErr("Please check the box agreeing to the terms."); return; }
-    if (!signName.trim()) { setErr("Type your name to sign."); return; }
+    if (!signName.trim()) { setErr("Type your printed name."); return; }
+    if (!sigData) { setErr("Please draw your signature to finish."); return; }
     setSubmitting(true);
     try {
       await post("save", { patch: f });
-      const d = await post("submit", { sign_name: signName.trim(), sign_title: signTitle.trim(), agreed: true });
+      const d = await post("submit", { sign_name: signName.trim(), sign_title: signTitle.trim(), agreed: true, signature_data: sigData });
       if (d.ok) { setDone(true); window.scrollTo(0, 0); } else setErr(d.error || "Couldn't submit.");
     } catch { setErr("Network error."); }
     setSubmitting(false);
@@ -7854,8 +7856,13 @@ function CrewOnboardingPage({ token }) {
           <span>I have read, understood, and agree to be bound by the US Shingle Subcontractor Agreement and all onboarding, jobsite, photo, and pay-structure terms.</span>
         </label>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
-          <div><div style={lbl}>Type your full name to sign *</div><input value={signName} onChange={(e) => setSignName(e.target.value)} placeholder="Full name" style={inp} /></div>
+          <div><div style={lbl}>Your full name (printed) *</div><input value={signName} onChange={(e) => setSignName(e.target.value)} placeholder="Full name" style={inp} /></div>
           <div><div style={lbl}>Title</div><input value={signTitle} onChange={(e) => setSignTitle(e.target.value)} placeholder="Owner" style={inp} /></div>
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <div style={lbl}>Draw your signature *</div>
+          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>Sign with your finger or mouse — this goes on your agreement and W-9.</div>
+          <SignaturePad title="" value={sigData} onChange={setSigData} height={150} />
         </div>
       </div>
 

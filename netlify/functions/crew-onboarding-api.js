@@ -96,8 +96,10 @@ export const handler = async (event) => {
     if (action === "submit") {
       if (crew.status === "submitted" || crew.status === "approved") return cors(409, JSON.stringify({ ok: false, error: "Already submitted." }));
       const signName = String(body.sign_name || "").trim();
+      const signatureData = String(body.signature_data || "");
       if (!body.agreed) return cors(400, JSON.stringify({ ok: false, error: "You must check the box agreeing to the terms." }));
-      if (!signName) return cors(400, JSON.stringify({ ok: false, error: "Type your name to sign." }));
+      if (!signName) return cors(400, JSON.stringify({ ok: false, error: "Type your printed name." }));
+      if (!signatureData.startsWith("data:image")) return cors(400, JSON.stringify({ ok: false, error: "Draw your signature before submitting." }));
       if (!crew.w9_name || !crew.w9_tin) return cors(400, JSON.stringify({ ok: false, error: "Complete the W-9 (name + SSN/EIN) before submitting." }));
       const docs = await sbGet(`crew_documents?crew_id=eq.${encodeURIComponent(crew.id)}&select=doc_type`);
       const have = new Set(docs.map((d) => d.doc_type));
@@ -107,7 +109,7 @@ export const handler = async (event) => {
       const nowIso = new Date().toISOString();
       const ip = (event.headers["x-nf-client-connection-ip"] || event.headers["x-forwarded-for"] || "").split(",")[0].trim() || null;
       const signTitle = String(body.sign_title || "").trim() || "Owner";
-      const signed = { ...crew, subcontractor_sign_name: signName, subcontractor_sign_title: signTitle, subcontractor_signed_at: nowIso, subcontractor_sign_ip: ip };
+      const signed = { ...crew, subcontractor_sign_name: signName, subcontractor_sign_title: signTitle, subcontractor_signed_at: nowIso, subcontractor_sign_ip: ip, signature_data: signatureData };
 
       // Render + store the signed Agreement PDF and the W-9 PDF (best-effort:
       // never lose the submission if PDFShift hiccups — we still record it).
@@ -208,10 +210,21 @@ async function fillW9Pdf(c) {
   // Stamp the e-signature + date on the "Sign Here" line (no form field there).
   try {
     const page = pdf.getPage(0);
-    const sigFont = await pdf.embedFont(StandardFonts.HelveticaOblique);
     const dt = new Date(c.subcontractor_signed_at || Date.now());
     const dateStr = `${dt.getMonth() + 1}/${dt.getDate()}/${dt.getFullYear()}`;
-    if (c.subcontractor_sign_name) page.drawText(String(c.subcontractor_sign_name), { x: 130, y: 214, size: 12, font: sigFont });
+    let drew = false;
+    if (c.signature_data && String(c.signature_data).startsWith("data:image")) {
+      try {
+        const png = await pdf.embedPng(Buffer.from(String(c.signature_data).replace(/^data:image\/\w+;base64,/, ""), "base64"));
+        const w = 150, h = Math.min((png.height / png.width) * w, 34);
+        page.drawImage(png, { x: 128, y: 205, width: w, height: h });   // sits on the signature line
+        drew = true;
+      } catch { /* fall back to typed */ }
+    }
+    if (!drew && c.subcontractor_sign_name) {
+      const sigFont = await pdf.embedFont(StandardFonts.HelveticaOblique);
+      page.drawText(String(c.subcontractor_sign_name), { x: 130, y: 214, size: 12, font: sigFont });
+    }
     page.drawText(dateStr, { x: 470, y: 214, size: 11, font: helv });
   } catch { /* signature stamp best-effort */ }
 
@@ -325,6 +338,7 @@ function agreementHtml(c) {
     <p>By signing below, the Subcontractor acknowledges it has read, understood, and agrees to be bound by this Agreement and all Onboarding, Jobsite, Photo, and Pay Structure terms.</p>
     <div class="sig">
       <div><b>SUBCONTRACTOR</b></div>
+      ${c.signature_data && String(c.signature_data).startsWith("data:image") ? `<div style="margin:6px 0 2px;"><img src="${c.signature_data}" style="height:50px;max-width:280px;" /></div>` : ""}
       <div>Signed by: <b>${esc(c.subcontractor_sign_name)}</b> &nbsp; Title: ${esc(c.subcontractor_sign_title || "Owner")}</div>
       <div>Company: ${esc(company)}</div>
       <div>Date: ${signedDate}</div>
