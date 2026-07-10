@@ -47,6 +47,12 @@ exports.handler = async (event) => {
   // Full select includes max_distance_miles (added by pa_max_distance.sql).
   // If that column isn't there yet, fall back so the page still loads.
   let pas = await get(`${SB_URL}/rest/v1/pas?pa_company_id=eq.${company.id}&select=id,name,active,home_address,latitude,longitude,pa_takeaways,phone,email,max_distance_miles,zones,jn_user_id,google_connected_at,google_email&order=name.asc`, sb);
+  // PA languages — separate + tolerant of the pas.languages column not existing yet.
+  try {
+    const lg = await get(`${SB_URL}/rest/v1/pas?pa_company_id=eq.${company.id}&select=id,languages`, sb);
+    const m = {}; for (const x of lg) m[x.id] = x.languages;
+    for (const p of pas) if (Array.isArray(m[p.id])) p.languages = m[p.id];
+  } catch { /* column not added yet */ }
   if (!pas.length) {
     pas = await get(`${SB_URL}/rest/v1/pas?pa_company_id=eq.${company.id}&select=id,name,active,home_address,latitude,longitude,pa_takeaways,phone,email,jn_user_id&order=name.asc`, sb);
   }
@@ -240,6 +246,11 @@ exports.handler = async (event) => {
     if (!r.ok) return cors(500, JSON.stringify({ ok: false, error: `Update failed: ${(await r.text()).slice(0, 160)}` }));
     const rows = await r.json().catch(() => []);
     if (!rows.length) return cors(404, JSON.stringify({ ok: false, error: "PA not found in your company" }));
+    // Languages written separately (best-effort) so the core edit still works
+    // before the pas.languages column exists.
+    if (Array.isArray(p.languages)) {
+      await fetch(`${SB_URL}/rest/v1/pas?id=eq.${encodeURIComponent(paId)}&pa_company_id=eq.${company.id}`, { method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify({ languages: sanitizeLangs(p.languages) }) }).catch(() => {});
+    }
     return cors(200, JSON.stringify({ ok: true }));
   }
 
@@ -438,7 +449,7 @@ exports.handler = async (event) => {
       homeowner_confirm_email_subject: company.homeowner_confirm_email_subject || "",
       homeowner_confirm_email_body: company.homeowner_confirm_email_body || "",
     },
-    pas: pas.map((p) => ({ id: p.id, name: p.name, active: p.active, phone: p.phone || null, email: p.email || null, home_address: p.home_address || null, max_distance_miles: typeof p.max_distance_miles === "number" ? p.max_distance_miles : null, zones: Array.isArray(p.zones) ? p.zones : [], lat: typeof p.latitude === "number" ? p.latitude : null, lng: typeof p.longitude === "number" ? p.longitude : null, in_jn: !!p.jn_user_id, ready_to_activate: !!p.jn_user_id && p.active === false })),
+    pas: pas.map((p) => ({ id: p.id, name: p.name, active: p.active, phone: p.phone || null, email: p.email || null, home_address: p.home_address || null, max_distance_miles: typeof p.max_distance_miles === "number" ? p.max_distance_miles : null, zones: Array.isArray(p.zones) ? p.zones : [], languages: Array.isArray(p.languages) && p.languages.length ? p.languages : ["english"], lat: typeof p.latitude === "number" ? p.latitude : null, lng: typeof p.longitude === "number" ? p.longitude : null, in_jn: !!p.jn_user_id, ready_to_activate: !!p.jn_user_id && p.active === false })),
     deals: shaped,
   }));
 };
@@ -529,6 +540,12 @@ async function notifyJnAdmins(base, message) {
   } catch (e) { console.warn("notifyJnAdmins failed:", e.message || e); }
 }
 
+// Keep only known language codes; default to English so a PA is never empty.
+function sanitizeLangs(arr) {
+  const allow = ["english", "spanish", "portuguese", "other"];
+  const out = Array.isArray(arr) ? [...new Set(arr.map((x) => String(x).toLowerCase().trim()).filter((x) => allow.includes(x)))] : [];
+  return out.length ? out : ["english"];
+}
 function cors(status, body) {
   return {
     statusCode: status,

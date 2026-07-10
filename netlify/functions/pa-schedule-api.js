@@ -66,19 +66,23 @@ exports.handler = async (event) => {
       const days = Math.min(Math.max(parseInt(body.days, 10) || HORIZON_DAYS, 1), 30);
       // Homeowner location (for distance) + zone (for PA coverage) — from the
       // inspection, or passed direct.
-      let home = null, apptZone = null;
+      let home = null, apptZone = null, homeLang = null;
       const inspId = String(body.inspection_id || "").trim();
       if (inspId) {
         const r = (await sbGet(`inspections?id=eq.${encodeURIComponent(inspId)}&select=latitude,longitude&limit=1`))[0];
         if (r && r.latitude != null && r.longitude != null) home = { lat: +r.latitude, lng: +r.longitude };
+        // Homeowner language — separate + tolerant of the `language` column not existing yet.
+        const lr = (await sbGet(`inspections?id=eq.${encodeURIComponent(inspId)}&select=language&limit=1`))[0];
+        if (lr && lr.language) homeLang = String(lr.language).toLowerCase().trim();
       }
       if (!home && body.lat != null && body.lng != null) home = { lat: +body.lat, lng: +body.lng };
+      if (!homeLang && body.language) homeLang = String(body.language).toLowerCase().trim();
       if (home) apptZone = lngToZone(home.lng);                          // coast by longitude
       if (!apptZone && body.zone) apptZone = String(body.zone).trim();   // optional explicit override
       // pa_id → restrict to ONE PA's own open slots (the PA self-scheduler shows
       // only their availability; the rep booker omits pa_id to see every PA).
       const onlyPaId = String(body.pa_id || "").trim() || null;
-      return cors(200, JSON.stringify({ ok: true, slots: await buildSlots(days, home, apptZone, onlyPaId) }));
+      return cors(200, JSON.stringify({ ok: true, slots: await buildSlots(days, home, apptZone, onlyPaId, homeLang) }));
     }
     if (action === "book") return await book(body);
     return cors(400, JSON.stringify({ ok: false, error: `Unknown action: ${action}` }));
@@ -87,10 +91,13 @@ exports.handler = async (event) => {
   }
 };
 
-async function buildSlots(days, home, apptZone, onlyPaId) {
+async function buildSlots(days, home, apptZone, onlyPaId, homeLang) {
   const paFilter = onlyPaId ? `id=eq.${encodeURIComponent(onlyPaId)}` : `active=eq.true`;
   const pas = await sbGet(`pas?${paFilter}&select=id,name,pa_company_id,latitude,longitude,max_distance_miles&limit=500`);
   if (!pas.length) return [];
+  // PA languages — separate + tolerant of the pas.languages column not existing yet.
+  const langByPa = {};
+  if (homeLang) for (const p of await sbGet(`pas?${paFilter}&select=id,languages`)) if (Array.isArray(p.languages)) langByPa[p.id] = p.languages;
   // PA zone coverage — fetched separately and tolerantly so this works even
   // before the pas.zones column exists (then nobody is zone-filtered). A PA with
   // an empty zones[] covers ALL zones (backward compatible).
@@ -162,6 +169,12 @@ async function buildSlots(days, home, apptZone, onlyPaId) {
     for (const pa of pas) {
       // Company paused scheduling (setup/training not done) → offer nothing.
       if (pausedCompany.has(pa.pa_company_id)) continue;
+      // Language match — the rep booker only offers PAs who speak the
+      // homeowner's language (skipped for a PA scheduling their OWN deal).
+      if (homeLang && !onlyPaId) {
+        const langs = (langByPa[pa.id] && langByPa[pa.id].length) ? langByPa[pa.id] : ["english"];
+        if (!langs.includes(homeLang)) continue;
+      }
       // Coverage = within the PA's mile RADIUS of home (hard-capped at MAX_MI,
       // 100). East/West coast zones were removed — it's radius-from-home only.
       // Unknown distance (no home geocode) → don't exclude on distance.

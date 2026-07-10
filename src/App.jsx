@@ -196,6 +196,9 @@ const SIGNATURE_FONTS = [
 // (see https://developers.google.com/maps/documentation/javascript/places-migration-overview),
 // so we use the new element-based API.
 const GOOGLE_API_KEY = import.meta.env.VITE_GOOGLE_PLACES_API_KEY || "";
+// Homeowner + adjuster languages. English is the default; a PA appointment only
+// offers adjusters who speak the homeowner's language.
+const LANGUAGE_OPTS = [["english", "English"], ["spanish", "Spanish"], ["portuguese", "Portuguese"], ["other", "Other"]];
 let googlePlacesLoadPromise = null;
 const loadGooglePlaces = () => {
   if (typeof window === "undefined") return Promise.reject(new Error("not in browser"));
@@ -3988,11 +3991,21 @@ function GuidedIntakeFlow({
         </div>
         {/* Spanish-only flag — travels with the record so if it comes back
             damaged, the PA knows to bring Spanish before heading out. */}
-        <label style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderRadius: 12, border: "1px solid #d1d5db", background: data.spanish_only ? "#fef9c3" : "#fff", cursor: "pointer", fontFamily: "'Nunito', sans-serif" }}>
-          <input type="checkbox" style={{ width: 20, height: 20 }} checked={!!data.spanish_only}
-            onChange={(e) => update({ spanish_only: e.target.checked })} />
-          <span style={{ fontWeight: 700, fontSize: 14 }}>🇪🇸 Spanish only <span style={{ fontWeight: 400, color: "#6b7280" }}>— homeowner speaks Spanish only</span></span>
-        </label>
+        <div style={{ padding: "12px 14px", borderRadius: 12, border: "1px solid #d1d5db", background: (data.language && data.language !== "english") ? "#fef9c3" : "#fff", fontFamily: "'Nunito', sans-serif" }}>
+          <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>🗣 Language the homeowner speaks</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {LANGUAGE_OPTS.map(([v, l]) => {
+              const on = (data.language || "english") === v;
+              return (
+                <button key={v} type="button" onClick={() => update({ language: v, spanish_only: v === "spanish" })}
+                  style={{ padding: "8px 14px", borderRadius: 999, fontWeight: 700, fontSize: 13.5, cursor: "pointer",
+                    border: `1px solid ${on ? "#0e7490" : "#cbd5e1"}`, background: on ? "#0e7490" : "#fff", color: on ? "#fff" : "#374151" }}>
+                  {l}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
     );
   }
@@ -6665,6 +6678,7 @@ function PACompanyAdminPage({ token }) {
       name: p.name || "", phone: p.phone || "", email: p.email || "",
       home_address: p.home_address || "",
       max_distance_miles: p.max_distance_miles != null ? String(p.max_distance_miles) : "",
+      languages: Array.isArray(p.languages) && p.languages.length ? p.languages : ["english"],
       active: p.active !== false,
     });
   };
@@ -6677,6 +6691,7 @@ function PACompanyAdminPage({ token }) {
         name: editForm.name, phone: editForm.phone, email: editForm.email,
         home_address: editForm.home_address, active: editForm.active,
         max_distance_miles: editForm.max_distance_miles === "" ? null : Number(editForm.max_distance_miles),
+        languages: Array.isArray(editForm.languages) && editForm.languages.length ? editForm.languages : ["english"],
       };
       // Geocode when the home address changed, so distance-based assigning
       // keeps working (same pattern the master admin uses).
@@ -7096,6 +7111,23 @@ function PACompanyAdminPage({ token }) {
                       <input type="number" min="1" inputMode="numeric" value={editForm.max_distance_miles} placeholder="e.g. 100"
                         onChange={(e) => setEditForm((f) => ({ ...f, max_distance_miles: e.target.value }))} style={fld} />
                     </label>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 5 }}>🗣 Languages spoken <span style={{ fontWeight: 400, color: "#6b7280" }}>— only homeowners who speak one of these are matched to this adjuster</span></div>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        {LANGUAGE_OPTS.map(([v, l]) => {
+                          const cur = Array.isArray(editForm.languages) ? editForm.languages : ["english"];
+                          const on = cur.includes(v);
+                          return (
+                            <button key={v} type="button"
+                              onClick={() => setEditForm((f) => { const c = Array.isArray(f.languages) ? f.languages : ["english"]; const next = c.includes(v) ? c.filter((x) => x !== v) : [...c, v]; return { ...f, languages: next.length ? next : ["english"] }; })}
+                              style={{ padding: "7px 13px", borderRadius: 999, fontWeight: 700, fontSize: 12.5, cursor: "pointer",
+                                border: `1px solid ${on ? "#0e7490" : "#cbd5e1"}`, background: on ? "#0e7490" : "#fff", color: on ? "#fff" : "#475569" }}>
+                              {on ? "✓ " : ""}{l}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
                     <label style={{ fontSize: 13, fontWeight: 700, color: "#374151", display: "flex", gap: 8, alignItems: "center" }}>
                       <input type="checkbox" checked={editForm.active} onChange={(e) => setEditForm((f) => ({ ...f, active: e.target.checked }))} /> Active
                     </label>
@@ -7117,6 +7149,7 @@ function PACompanyAdminPage({ token }) {
                     <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 1 }}>{[p.phone, p.email].filter(Boolean).join(" · ") || "no contact info"}</div>
                     <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 1 }}>{p.home_address ? `🏠 ${p.home_address} ` : "no home address "}{p.lat != null ? <span style={{ color: "#16a34a" }}>· 📍 geocoded</span> : <span style={{ color: "#b45309" }}>· ⚠ not geocoded</span>}</div>
                     <div style={{ fontSize: 12.5, fontWeight: 700, color: "#3730a3", marginTop: 1 }}>{p.max_distance_miles ? `📏 Max ${p.max_distance_miles} mi` : "📏 No distance limit"}</div>
+                    <div style={{ fontSize: 12.5, color: "#0e7490", marginTop: 1 }}>🗣 {(Array.isArray(p.languages) && p.languages.length ? p.languages : ["english"]).map((v) => (LANGUAGE_OPTS.find((o) => o[0] === v) || [v, v])[1]).join(", ")}</div>
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     {p.ready_to_activate && <Button onClick={() => activatePa(p)} disabled={activateBusy === p.id}>{activateBusy === p.id ? "…" : "Activate"}</Button>}
@@ -11601,7 +11634,7 @@ const renderSmsTemplate = (key, vars) => {
         body: JSON.stringify({ data: {
           client_name: inspData.clientName, mobile: inspData.mobile, email: inspData.email,
           address: inspData.address, city: inspData.city, state: inspData.state, zip: inspData.zip, date: inspData.date,
-          roof_type: inspData.roof_type || "Shingle", lead_source: data.leadSource || "Inspection", spanish_only: !!data.spanish_only,
+          roof_type: inspData.roof_type || "Shingle", lead_source: data.leadSource || "Inspection", spanish_only: !!data.spanish_only, language: data.language || "english",
           sales_rep_name: data.salesRepName || "", sales_rep_id: data.salesRepId || "", sales_rep_email: data.salesRepEmail || "",
           obvious_damage: obviousDamage, has_insurance: obviousDamage ? hasInsurance : "",
           review_availability: reviewAvail || "", document_version: "insp-v1",
@@ -11714,7 +11747,7 @@ const renderSmsTemplate = (key, vars) => {
         original_sales_rep_name: data.salesRepName || "",
         roof_type: inspData.roof_type || "Shingle",
         lead_source: data.leadSource || "Inspection",
-        spanish_only: !!data.spanish_only,
+        spanish_only: !!data.spanish_only, language: data.language || "english",
         // Obvious damage at the door → classify now (no separate inspector visit).
         // The JN-side fan-out fires below once the JN job id is saved.
         ...(classifyResult ? { result: classifyResult, result_at: new Date().toISOString() } : {}),
@@ -12053,7 +12086,7 @@ const renderSmsTemplate = (key, vars) => {
               client_name: clientName, mobile: data.phone || "", email: data.signerEmail || "",
               address: data.address || "", city: data.city || "", state: data.state || "", zip: data.zip || "",
               date: data.date || "", roof_type: data.roof_type || "Shingle", lead_source: data.leadSource || "Inspection",
-              spanish_only: !!data.spanish_only, sales_rep_name: data.salesRepName || "", sales_rep_id: data.salesRepId || "", sales_rep_email: data.salesRepEmail || "",
+              spanish_only: !!data.spanish_only, language: data.language || "english", sales_rep_name: data.salesRepName || "", sales_rep_id: data.salesRepId || "", sales_rep_email: data.salesRepEmail || "",
               review_availability: reviewAvail || "", document_version: "insp-v1",
             } }),
           });
@@ -12158,7 +12191,7 @@ const renderSmsTemplate = (key, vars) => {
           original_sales_rep_id: data.salesRepId || "",
           original_sales_rep_name: data.salesRepName || "",
           lead_source: data.leadSource || "Inspection",
-          spanish_only: !!data.spanish_only,
+          spanish_only: !!data.spanish_only, language: data.language || "english",
         }]).select("id").single();
         if (inspInsertErr) {
           console.error("Inspection insert error:", inspInsertErr);
@@ -14189,10 +14222,21 @@ if (!hasDamage) {
                     {/* Spanish-only flag — travels with the record so a damage
                         claim shows the PA "Spanish only" before they go out. */}
                     <div style={{ gridColumn: "1 / -1" }}>
-                      <label style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderRadius: 14, border: "1px solid #d1d5db", background: data.spanish_only ? "#fef9c3" : "#fff", cursor: "pointer" }}>
-                        <input type="checkbox" style={{ width: 20, height: 20 }} checked={!!data.spanish_only} onChange={(e) => update("spanish_only", e.target.checked)} />
-                        <span style={{ fontWeight: 700, fontSize: 14 }}>🇪🇸 Spanish only <span style={{ fontWeight: 400, color: "#6b7280" }}>— homeowner speaks Spanish only</span></span>
-                      </label>
+                      <div style={{ padding: "12px 14px", borderRadius: 14, border: "1px solid #d1d5db", background: (data.language && data.language !== "english") ? "#fef9c3" : "#fff" }}>
+                        <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>🗣 Language the homeowner speaks</div>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          {LANGUAGE_OPTS.map(([v, l]) => {
+                            const on = (data.language || "english") === v;
+                            return (
+                              <button key={v} type="button" onClick={() => { update("language", v); update("spanish_only", v === "spanish"); }}
+                                style={{ padding: "8px 14px", borderRadius: 999, fontWeight: 700, fontSize: 13.5, cursor: "pointer",
+                                  border: `1px solid ${on ? "#0e7490" : "#cbd5e1"}`, background: on ? "#0e7490" : "#fff", color: on ? "#fff" : "#374151" }}>
+                                {l}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </div>
                     <div style={{ gridColumn: "1 / -1" }}>
                       <Label>Address</Label>
