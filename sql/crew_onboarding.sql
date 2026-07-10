@@ -109,6 +109,11 @@ alter table crew_documents enable row level security;
 --  cannot read or write these. Server functions use the service-role key,
 --  which bypasses RLS. This keeps SSN/EIN/bank numbers off the client.)
 
+-- Drawn signature images (data URLs) so the Agreement can be regenerated with
+-- BOTH the subcontractor's and US Shingle's signatures at countersign time.
+alter table crews add column if not exists subcontractor_signature text;
+alter table crews add column if not exists us_shingle_signature text;
+
 -- ── Private storage bucket for the uploaded certificates + generated PDFs ────
 insert into storage.buckets (id, name, public)
 values ('crew-docs', 'crew-docs', false)

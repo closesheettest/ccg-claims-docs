@@ -7338,6 +7338,7 @@ function CrewAdminPage() {
   const [detail, setDetail] = useState(null);          // { crew, documents }
   const [detailBusy, setDetailBusy] = useState(false);
   const [approveName, setApproveName] = useState("");
+  const [usSig, setUsSig] = useState("");              // US Shingle countersignature
 
   const api = (action, extra) => fetch("/.netlify/functions/crew-admin-api", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, action, ...extra }) }).then((r) => r.json().catch(() => ({})));
   const fld = { width: "100%", boxSizing: "border-box", borderRadius: 10, border: "1px solid #d1d5db", padding: "10px 12px", fontSize: 14 };
@@ -7396,9 +7397,13 @@ function CrewAdminPage() {
   };
   const approveCrew = async () => {
     if (!approveName.trim()) { setErr("Type your name to countersign."); return; }
+    if (!usSig) { setErr("Draw the US Shingle signature."); return; }
     setDetailBusy(true); setErr("");
-    try { const d = await api("approve", { id: detail.crew.id, sign_name: approveName.trim() }); if (d.ok) { await openDetail(detail.crew.id); loadList(); } else setErr(d.error || "Approve failed."); }
-    catch { setErr("Network error."); }
+    try {
+      const res = await fetch("/.netlify/functions/crew-onboarding-api", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "office_countersign", token, crew_id: detail.crew.id, sign_name: approveName.trim(), signature_data: usSig }) });
+      const d = await res.json().catch(() => ({}));
+      if (d.ok) { setUsSig(""); setApproveName(""); await openDetail(detail.crew.id); loadList(); } else setErr(d.error || "Approve failed.");
+    } catch { setErr("Network error."); }
     setDetailBusy(false);
   };
 
@@ -7575,13 +7580,15 @@ function CrewAdminPage() {
 
                 <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid #e5e7eb" }}>
                   {c.status === "approved" ? (
-                    <div style={{ fontSize: 13, color: "#047857", fontWeight: 700 }}>✓ Approved by {c.us_shingle_sign_name || "US Shingle"}{c.approved_at ? ` · ${new Date(c.approved_at).toLocaleDateString()}` : ""}</div>
+                    <div style={{ fontSize: 13, color: "#047857", fontWeight: 700 }}>✓ Approved &amp; countersigned by {c.us_shingle_sign_name || "US Shingle"}{c.approved_at ? ` · ${new Date(c.approved_at).toLocaleDateString()}` : ""}</div>
                   ) : (
                     <div>
                       <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 6 }}>Countersign &amp; approve (US Shingle)</div>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <input value={approveName} onChange={(e) => setApproveName(e.target.value)} placeholder="Your name" style={{ ...fld, width: "auto", flex: 1, minWidth: 160 }} />
-                        <Button onClick={approveCrew} disabled={detailBusy}>{detailBusy ? "…" : "✓ Approve"}</Button>
+                      <input value={approveName} onChange={(e) => setApproveName(e.target.value)} placeholder="Your name" style={{ ...fld, marginBottom: 8 }} />
+                      <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>Draw the US Shingle signature — it's added to the agreement:</div>
+                      <SignaturePad title="" value={usSig} onChange={setUsSig} height={120} />
+                      <div style={{ marginTop: 10 }}>
+                        <Button onClick={approveCrew} disabled={detailBusy}>{detailBusy ? "Approving…" : "✓ Approve & countersign"}</Button>
                       </div>
                     </div>
                   )}

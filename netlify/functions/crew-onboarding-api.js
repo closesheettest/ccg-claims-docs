@@ -51,10 +51,17 @@ export const handler = async (event) => {
   try { body = JSON.parse(event.body || "{}"); } catch { return cors(400, JSON.stringify({ ok: false, error: "bad JSON" })); }
   const token = String(body.token || "").trim();
   if (!token) return cors(400, JSON.stringify({ ok: false, error: "token required" }));
+  const action = String(body.action || "").trim();
+
+  // Office-side countersign uses the GLOBAL office token + crew_id (not the
+  // crew's private link token) — handled before the crew-token lookup.
+  if (action === "office_countersign") {
+    try { return await officeCountersign(token, body); }
+    catch (e) { return cors(500, JSON.stringify({ ok: false, error: e.message || "error" })); }
+  }
+
   const crew = (await sbGet(`crews?token=eq.${encodeURIComponent(token)}&select=*&limit=1`))[0];
   if (!crew) return cors(404, JSON.stringify({ ok: false, error: "This onboarding link isn't valid. Ask US Shingle to resend it." }));
-
-  const action = String(body.action || "").trim();
   try {
     if (action === "load") {
       const docs = await sbGet(`crew_documents?crew_id=eq.${encodeURIComponent(crew.id)}&select=doc_type,file_name,uploaded_at&order=uploaded_at`);
@@ -132,6 +139,7 @@ export const handler = async (event) => {
         status: "submitted", submitted_at: nowIso,
         subcontractor_sign_name: signName, subcontractor_sign_title: signTitle,
         subcontractor_signed_at: nowIso, subcontractor_sign_ip: ip,
+        subcontractor_signature: signatureData,
         agreement_pdf_path: agreementPath, w9_pdf_path: w9Path,
       };
       const r = await fetch(`${SB_URL}/rest/v1/crews?id=eq.${encodeURIComponent(crew.id)}`, { method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify(patch) });
@@ -346,9 +354,15 @@ function agreementHtml(c) {
     </div>
     <div class="sig" style="margin-top:8px;">
       <div><b>US SHINGLE AND METAL LLC</b></div>
-      <div>By: __________________________  Printed Name: __________________________</div>
-      <div>Title: __________________________  Date: __________________________</div>
-      <div class="muted" style="margin-top:4px;">Pending US Shingle countersignature.</div>
+      ${c.us_shingle_signature && String(c.us_shingle_signature).startsWith("data:image") ? `
+        <div style="margin:6px 0 2px;"><img src="${c.us_shingle_signature}" style="height:48px;max-width:280px;" /></div>
+        <div>By: <b>${esc(c.us_shingle_sign_name || "")}</b> &nbsp; Title: ${esc(c.us_shingle_sign_title || "US Shingle")}</div>
+        <div>Date: ${c.us_shingle_signed_at ? fmtDate(c.us_shingle_signed_at) : signedDate}</div>
+      ` : `
+        <div>By: __________________________  Printed Name: __________________________</div>
+        <div>Title: __________________________  Date: __________________________</div>
+        <div class="muted" style="margin-top:4px;">Pending US Shingle countersignature.</div>
+      `}
     </div>
   </div></body></html>`;
 }
@@ -382,6 +396,46 @@ function w9Html(c) {
 }
 
 function labelDoc(t) { return { general_liability: "General Liability insurance", workers_comp: "Workers’ Comp insurance", roofing_license: "Roofing license" }[t] || t; }
+// Office approves + countersigns: gated by the GLOBAL office token, looks up the
+// crew by id, regenerates the Agreement PDF with BOTH signatures, marks approved.
+async function officeCountersign(token, body) {
+  const [d, v] = await Promise.all([getSetting("dialer_token"), getSetting("visit_token")]);
+  if (!token || (token !== d && token !== v)) return cors(401, JSON.stringify({ ok: false, error: "Invalid token" }));
+  const crewId = String(body.crew_id || "").trim();
+  const signName = String(body.sign_name || "").trim();
+  const sigData = String(body.signature_data || "");
+  if (!crewId) return cors(400, JSON.stringify({ ok: false, error: "crew_id required" }));
+  if (!signName) return cors(400, JSON.stringify({ ok: false, error: "Type your name to countersign." }));
+  if (!sigData.startsWith("data:image")) return cors(400, JSON.stringify({ ok: false, error: "Draw the US Shingle signature." }));
+  const crew = (await sbGet(`crews?id=eq.${encodeURIComponent(crewId)}&select=*&limit=1`))[0];
+  if (!crew) return cors(404, JSON.stringify({ ok: false, error: "crew not found" }));
+
+  const nowIso = new Date().toISOString();
+  const signTitle = String(body.sign_title || "").trim() || "US Shingle";
+  const signed = { ...crew, signature_data: crew.subcontractor_signature, us_shingle_signature: sigData, us_shingle_sign_name: signName, us_shingle_sign_title: signTitle, us_shingle_signed_at: nowIso };
+
+  // Regenerate the Agreement PDF with both signatures (best-effort).
+  let agreementPath = crew.agreement_pdf_path, pdfErr = null;
+  try {
+    if (PDFSHIFT_KEY) {
+      const aPdf = await renderPdf(agreementHtml(signed));
+      agreementPath = await storefile(`${crew.id}/agreement_signed_${Date.now()}.pdf`, aPdf);
+    } else pdfErr = "PDFSHIFT_API_KEY not set";
+  } catch (e) { pdfErr = e.message || "pdf error"; }
+
+  const patch = {
+    status: "approved", approved_at: nowIso,
+    us_shingle_signed_at: nowIso, us_shingle_sign_name: signName, us_shingle_sign_title: signTitle,
+    us_shingle_signature: sigData, agreement_pdf_path: agreementPath,
+  };
+  const r = await fetch(`${SB_URL}/rest/v1/crews?id=eq.${encodeURIComponent(crew.id)}`, { method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify(patch) });
+  if (!r.ok) return cors(500, JSON.stringify({ ok: false, error: `save ${r.status}` }));
+  return cors(200, JSON.stringify({ ok: true, pdf_error: pdfErr }));
+}
+async function getSetting(key) {
+  const rows = await sbGet(`app_settings?key=eq.${encodeURIComponent(key)}&select=value&limit=1`);
+  return rows[0] ? rows[0].value : null;
+}
 async function sbGet(path) {
   const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: sb });
   if (!r.ok) return [];
