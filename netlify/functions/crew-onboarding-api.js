@@ -19,6 +19,9 @@
 // Env: VITE_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, PDFSHIFT_API_KEY, URL,
 //      ADMIN_ALERT_PHONE, CREW_ONBOARDING_EMAIL (optional).
 
+import { PDFDocument, StandardFonts } from "pdf-lib";
+import W9_B64 from "./assets/w9-template-b64.js";
+
 const SB_URL = process.env.VITE_SUPABASE_URL;
 const SVC_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const PDFSHIFT_KEY = process.env.PDFSHIFT_API_KEY;
@@ -38,7 +41,7 @@ const SAVE_FIELDS = [
   "w9_tin_type", "w9_tin",
 ];
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return cors(200, "");
   if (event.httpMethod !== "POST") return cors(405, JSON.stringify({ ok: false, error: "POST only" }));
   if (!SB_URL) return cors(500, JSON.stringify({ ok: false, error: "Supabase URL missing" }));
@@ -109,14 +112,19 @@ exports.handler = async (event) => {
       // Render + store the signed Agreement PDF and the W-9 PDF (best-effort:
       // never lose the submission if PDFShift hiccups — we still record it).
       let agreementPath = null, w9Path = null, pdfErr = null;
+      // W-9 — fill the OFFICIAL IRS form so it keeps the government look
+      // (pdf-lib, no PDFShift needed).
+      try {
+        const wPdf = await fillW9Pdf(signed);
+        w9Path = await storefile(`${crew.id}/w9_${Date.now()}.pdf`, wPdf);
+      } catch (e) { pdfErr = "w9: " + (e.message || "fill error"); }
+      // Agreement — HTML → PDF via PDFShift.
       try {
         if (PDFSHIFT_KEY) {
           const aPdf = await renderPdf(agreementHtml(signed));
           agreementPath = await storefile(`${crew.id}/agreement_${Date.now()}.pdf`, aPdf);
-          const wPdf = await renderPdf(w9Html(signed));
-          w9Path = await storefile(`${crew.id}/w9_${Date.now()}.pdf`, wPdf);
-        } else { pdfErr = "PDFSHIFT_API_KEY not set"; }
-      } catch (e) { pdfErr = e.message || "pdf error"; }
+        } else { pdfErr = (pdfErr ? pdfErr + "; " : "") + "PDFSHIFT_API_KEY not set (agreement)"; }
+      } catch (e) { pdfErr = (pdfErr ? pdfErr + "; " : "") + "agreement: " + (e.message || "pdf error"); }
 
       const patch = {
         status: "submitted", submitted_at: nowIso,
@@ -158,6 +166,61 @@ async function storefile(path, base64) {
   if (!up.ok) throw new Error(`store ${up.status}: ${(await up.text()).slice(0, 120)}`);
   return path;
 }
+// Fill the official IRS Form W-9 with the crew's data + stamp the e-signature,
+// so the saved W-9 keeps the real government layout. Returns base64.
+async function fillW9Pdf(c) {
+  const pdf = await PDFDocument.load(Buffer.from(W9_B64, "base64"));
+  const form = pdf.getForm();
+  const helv = await pdf.embedFont(StandardFonts.Helvetica);
+  const P = "topmostSubform[0].Page1[0].";
+  const B = P + "Boxes3a-b_ReadOrder[0].";
+  const set = (name, val) => { try { const f = form.getTextField(name); f.setText(String(val == null ? "" : val)); f.setFontSize(9); } catch { /* field absent */ } };
+  const check = (name) => { try { form.getCheckBox(name).check(); } catch { /* */ } };
+
+  set(P + "f1_01[0]", c.w9_name);
+  set(P + "f1_02[0]", c.w9_business_name);
+  set(P + "f1_05[0]", c.w9_exempt_payee_code);
+  set(P + "f1_06[0]", c.w9_fatca_code);
+  set(P + "Address_ReadOrder[0].f1_07[0]", c.w9_address);
+  set(P + "Address_ReadOrder[0].f1_08[0]", c.w9_city_state_zip);
+
+  // Line 3a — federal tax classification (check exactly one).
+  const cls = String(c.w9_tax_classification || "").toLowerCase();
+  if (cls.includes("individual") || cls.includes("sole")) check(B + "c1_1[0]");
+  else if (cls.includes("c corp")) check(B + "c1_1[1]");
+  else if (cls.includes("s corp")) check(B + "c1_1[2]");
+  else if (cls.includes("partnership")) check(B + "c1_1[3]");
+  else if (cls.includes("trust") || cls.includes("estate")) check(B + "c1_1[4]");
+  else if (cls === "llc" || cls.includes("limited liability")) { check(B + "c1_1[5]"); set(B + "f1_03[0]", c.w9_llc_class); }
+  else if (cls) { check(B + "c1_1[6]"); set(B + "f1_04[0]", c.w9_tax_classification); }
+
+  // Part I — SSN (3-2-4) or EIN (2-7).
+  const digits = String(c.w9_tin || "").replace(/\D/g, "");
+  if (c.w9_tin_type === "ein") {
+    set(P + "f1_14[0]", digits.slice(0, 2));
+    set(P + "f1_15[0]", digits.slice(2, 9));
+  } else {
+    set(P + "f1_11[0]", digits.slice(0, 3));
+    set(P + "f1_12[0]", digits.slice(3, 5));
+    set(P + "f1_13[0]", digits.slice(5, 9));
+  }
+
+  // Stamp the e-signature + date on the "Sign Here" line (no form field there).
+  try {
+    const page = pdf.getPage(0);
+    const sigFont = await pdf.embedFont(StandardFonts.HelveticaOblique);
+    const dt = new Date(c.subcontractor_signed_at || Date.now());
+    const dateStr = `${dt.getMonth() + 1}/${dt.getDate()}/${dt.getFullYear()}`;
+    if (c.subcontractor_sign_name) page.drawText(String(c.subcontractor_sign_name), { x: 130, y: 214, size: 12, font: sigFont });
+    page.drawText(dateStr, { x: 470, y: 214, size: 11, font: helv });
+  } catch { /* signature stamp best-effort */ }
+
+  try { form.updateFieldAppearances(helv); } catch { /* */ }
+  try { form.flatten(); } catch { /* leave fillable if flatten unsupported */ }
+  const out = await pdf.save();
+  return Buffer.from(out).toString("base64");
+}
+
 async function renderPdf(html) {
   const res = await fetch("https://api.pdfshift.io/v3/convert/pdf", {
     method: "POST", headers: { "X-API-Key": PDFSHIFT_KEY, "Content-Type": "application/json" },
