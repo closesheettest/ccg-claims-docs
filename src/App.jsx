@@ -7481,27 +7481,33 @@ function CrewAdminPage() {
             </div>
             {showCreate && (
               <div style={{ marginTop: 12 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>Owner (you fill in)</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-                  <input value={form.owner_first} onChange={(e) => setForm({ ...form, owner_first: e.target.value })} placeholder="Owner first name" style={fld} />
-                  <input value={form.owner_last} onChange={(e) => setForm({ ...form, owner_last: e.target.value })} placeholder="Owner last name" style={fld} />
-                  <input value={form.owner_phone} onChange={(e) => setForm({ ...form, owner_phone: e.target.value })} placeholder="Owner phone" style={fld} />
-                  <input value={form.owner_email} onChange={(e) => setForm({ ...form, owner_email: e.target.value })} placeholder="Owner email" style={fld} />
+                {/* Owner — navy-tinted panel */}
+                <div style={{ background: "#eef3fb", border: "1px solid #d9e4f4", borderRadius: 12, padding: 14, marginBottom: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: "#1e3a6b", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 9 }}>👤 Owner — you fill in</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+                    <input value={form.owner_first} onChange={(e) => setForm({ ...form, owner_first: e.target.value })} placeholder="Owner first name" style={{ ...fld, background: "#fff" }} />
+                    <input value={form.owner_last} onChange={(e) => setForm({ ...form, owner_last: e.target.value })} placeholder="Owner last name" style={{ ...fld, background: "#fff" }} />
+                    <input value={form.owner_phone} onChange={(e) => setForm({ ...form, owner_phone: e.target.value })} placeholder="Owner phone" style={{ ...fld, background: "#fff" }} />
+                    <input value={form.owner_email} onChange={(e) => setForm({ ...form, owner_email: e.target.value })} placeholder="Owner email" style={{ ...fld, background: "#fff" }} />
+                  </div>
+                  <input value={form.company_name} onChange={(e) => setForm({ ...form, company_name: e.target.value })} placeholder="Company name (optional)" style={{ ...fld, background: "#fff" }} />
                 </div>
-                <input value={form.company_name} onChange={(e) => setForm({ ...form, company_name: e.target.value })} placeholder="Company name (optional)" style={{ ...fld, marginBottom: 14 }} />
 
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>Rates US Shingle pays this crew</div>
-                <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 10 }}>Pre-filled with the standard rates — adjust any of them for this crew. The crew can't change these; they just see them.</div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 8 }}>
-                  {CREW_RATE_ITEMS.map((it) => (
-                    <div key={it.key} style={{ display: "flex", alignItems: "center", gap: 8, background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 8, padding: "6px 10px" }}>
-                      <span style={{ fontSize: 12.5, color: "#374151", flex: 1, lineHeight: 1.2 }}>{it.label}</span>
-                      <span style={{ color: "#9ca3af", fontSize: 13 }}>$</span>
-                      <input value={rates[it.key] ?? ""} onChange={(e) => setRate(it.key, e.target.value)} placeholder={it.placeholder || "—"} inputMode="decimal"
-                        style={{ width: 62, textAlign: "right", borderRadius: 6, border: "1px solid #d1d5db", padding: "5px 6px", fontSize: 13 }} />
-                      <span style={{ color: "#9ca3af", fontSize: 11, width: 34 }}>{it.unit}</span>
-                    </div>
-                  ))}
+                {/* Rates — green-tinted panel, white tiles */}
+                <div style={{ background: "#edf9f1", border: "1px solid #c7ecd5", borderRadius: 12, padding: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: "#15803d", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3 }}>💵 Rates US Shingle pays this crew</div>
+                  <div style={{ fontSize: 12, color: "#5c7a67", marginBottom: 10 }}>Pre-filled with the standard rates — adjust any for this crew. The crew can't change these; they just see them.</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 8 }}>
+                    {CREW_RATE_ITEMS.map((it) => (
+                      <div key={it.key} style={{ display: "flex", alignItems: "center", gap: 8, background: "#fff", border: "1px solid #d8ebe0", borderRadius: 8, padding: "6px 10px" }}>
+                        <span style={{ fontSize: 12.5, color: "#334155", flex: 1, lineHeight: 1.2 }}>{it.label}</span>
+                        <span style={{ color: "#94a3b8", fontSize: 13 }}>$</span>
+                        <input value={rates[it.key] ?? ""} onChange={(e) => setRate(it.key, e.target.value)} placeholder={it.placeholder || "—"} inputMode="decimal"
+                          style={{ width: 62, textAlign: "right", borderRadius: 6, border: "1px solid #cbd5e1", padding: "5px 6px", fontSize: 13 }} />
+                        <span style={{ color: "#94a3b8", fontSize: 11, width: 34 }}>{it.unit}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
                 <div style={{ marginTop: 14 }}>
                   <Button onClick={create} disabled={busy}>{busy ? "Creating…" : "Create crew & send packet"}</Button>
