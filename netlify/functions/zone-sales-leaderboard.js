@@ -116,8 +116,8 @@ export const handler = async (event) => {
       if (!Number.isNaN(s.getTime()) && !Number.isNaN(e.getTime())) { start = s; end = e; period = 'custom' }
     }
     if (!start) {
-      period = qp.period === 'month' ? 'month' : qp.period === 'lastweek' ? 'lastweek' : 'week'
-      ;({ start, end } = period === 'month' ? monthRange() : period === 'lastweek' ? lastWeekRange() : weekRange())
+      period = qp.period === 'month' ? 'month' : qp.period === 'lastmonth' ? 'lastmonth' : qp.period === 'lastweek' ? 'lastweek' : 'week'
+      ;({ start, end } = period === 'month' ? monthRange() : period === 'lastmonth' ? lastMonthRange() : period === 'lastweek' ? lastWeekRange() : weekRange())
     }
     const startMs = start.getTime()
     const endMs = end.getTime()
@@ -321,6 +321,18 @@ function lastWeekRange(now = new Date()) {
     start: new Date(start.getTime() - 7 * 24 * 60 * 60 * 1000),
     end: new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000),
   }
+}
+
+// The whole previous calendar month (1st → last day), ET.
+function lastMonthRange(now = new Date()) {
+  const p = tzParts(now)
+  let y = +p.year
+  let m = +p.month - 1 // previous month, 1-based
+  if (m < 1) { m = 12; y -= 1 }
+  const start = etWallToUTC(y, m, 1, 0, 0, 0)
+  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate() // last day of month m
+  const end = etWallToUTC(y, m, lastDay, 23, 59, 59)
+  return { start, end }
 }
 
 function cors(status, body) {

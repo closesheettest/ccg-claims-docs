@@ -57,8 +57,8 @@ export const handler = async (event) => {
     // ?period=lastweek → the prior Mon–Sun week (for Monday's recap blast).
     // Default = this week.
     const rawPeriod = (event.queryStringParameters || {}).period
-    const period = rawPeriod === 'month' ? 'month' : rawPeriod === 'lastweek' ? 'lastweek' : 'week'
-    const { start, end } = period === 'month' ? monthRange() : period === 'lastweek' ? lastWeekRange() : weekRange()
+    const period = rawPeriod === 'month' ? 'month' : rawPeriod === 'lastmonth' ? 'lastmonth' : rawPeriod === 'lastweek' ? 'lastweek' : 'week'
+    const { start, end } = period === 'month' ? monthRange() : period === 'lastmonth' ? lastMonthRange() : period === 'lastweek' ? lastWeekRange() : weekRange()
 
     // Pull every signed inspection in the window (cancelled excluded
     // server-side). Same column set the app's My Stats query uses.
@@ -191,6 +191,18 @@ function lastWeekRange(now = new Date()) {
     start: new Date(start.getTime() - 7 * 24 * 60 * 60 * 1000),
     end: new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000),
   }
+}
+
+// The whole previous calendar month (1st → last day), ET.
+function lastMonthRange(now = new Date()) {
+  const p = tzParts(now)
+  let y = +p.year
+  let m = +p.month - 1 // previous month, 1-based
+  if (m < 1) { m = 12; y -= 1 }
+  const start = etWallToUTC(y, m, 1, 0, 0, 0)
+  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate()
+  const end = etWallToUTC(y, m, lastDay, 23, 59, 59)
+  return { start, end }
 }
 
 // ────────────────────────────────────────────────────────────────────
