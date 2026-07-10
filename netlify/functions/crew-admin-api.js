@@ -112,6 +112,24 @@ exports.handler = async (event) => {
       return cors(200, JSON.stringify({ ok: true, sent }));
     }
 
+    // Permanently delete a crew — its row, its document rows (cascade), and its
+    // uploaded files + signed PDFs in the crew-docs bucket. For clearing tests.
+    if (action === "delete") {
+      const id = String(body.id || "").trim();
+      if (!id) return cors(400, JSON.stringify({ ok: false, error: "id required" }));
+      const crew = (await sbGet(`crews?id=eq.${encodeURIComponent(id)}&select=id,agreement_pdf_path,w9_pdf_path&limit=1`))[0];
+      if (!crew) return cors(404, JSON.stringify({ ok: false, error: "crew not found" }));
+      // Best-effort: remove the crew's files from storage first.
+      const docs = await sbGet(`crew_documents?crew_id=eq.${encodeURIComponent(id)}&select=file_path`);
+      const paths = [...docs.map((d) => d.file_path), crew.agreement_pdf_path, crew.w9_pdf_path].filter(Boolean);
+      for (const p of paths) {
+        await fetch(`${SB_URL}/storage/v1/object/${BUCKET}/${p}`, { method: "DELETE", headers: sb }).catch(() => {});
+      }
+      // Delete the crew row (crew_documents cascade via the FK).
+      const r = await fetch(`${SB_URL}/rest/v1/crews?id=eq.${encodeURIComponent(id)}`, { method: "DELETE", headers: { ...sb, Prefer: "return=minimal" } });
+      return cors(r.ok ? 200 : 500, JSON.stringify({ ok: r.ok }));
+    }
+
     // Short-lived signed URL for a file in the private crew-docs bucket (the
     // signed Agreement/W-9 PDFs + the uploaded certificates). Office-only (token
     // already checked). Path must be a crew-folder path.

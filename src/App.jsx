@@ -7397,6 +7397,14 @@ function CrewAdminPage() {
     try { await api("resend_link", { id }); } catch { /* */ }
     setBusy(false);
   };
+  const del = async (c) => {
+    const who = [c.owner_first, c.owner_last].filter(Boolean).join(" ") || "this crew";
+    if (!window.confirm(`Delete ${who}? This permanently removes the crew, their uploads, and any signed PDFs. This can't be undone.`)) return;
+    setBusy(true); setErr("");
+    try { const d = await api("delete", { id: c.id }); if (d.ok) { if (detail && detail.crew.id === c.id) setDetail(null); loadList(); } else setErr(d.error || "Delete failed."); }
+    catch { setErr("Network error."); }
+    setBusy(false);
+  };
   const openDetail = async (id) => {
     setDetailBusy(true); setErr("");
     try { const d = await api("get", { id }); if (d.ok) { setDetail({ crew: d.crew, documents: d.documents || [] }); setApproveName(""); } else setErr(d.error || "Couldn't load."); }
@@ -7527,6 +7535,7 @@ function CrewAdminPage() {
                           <span style={{ fontSize: 11, fontWeight: 700, color: s.c, background: s.b, borderRadius: 999, padding: "3px 10px" }}>{s.t}</span>
                           {reviewable && <button type="button" onClick={() => openDetail(c.id)} disabled={detailBusy} style={{ fontSize: 12, fontWeight: 700, padding: "6px 12px", borderRadius: 8, border: "1px solid #a7f3d0", background: "#ecfdf5", color: "#047857", cursor: "pointer" }}>📂 Review</button>}
                           <button type="button" onClick={() => resend(c.id)} disabled={busy} style={{ fontSize: 12, fontWeight: 700, padding: "6px 10px", borderRadius: 8, border: "1px solid #c7d2fe", background: "#eef2ff", color: "#3730a3", cursor: "pointer" }}>Resend link</button>
+                          <button type="button" onClick={() => del(c)} disabled={busy} title="Delete this crew" style={{ fontSize: 12, fontWeight: 700, padding: "6px 10px", borderRadius: 8, border: "1px solid #fca5a5", background: "#fef2f2", color: "#b91c1c", cursor: "pointer" }}>🗑 Delete</button>
                         </div>
                       </div>
                     );
