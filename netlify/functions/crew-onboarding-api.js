@@ -139,11 +139,14 @@ export const handler = async (event) => {
         status: "submitted", submitted_at: nowIso,
         subcontractor_sign_name: signName, subcontractor_sign_title: signTitle,
         subcontractor_signed_at: nowIso, subcontractor_sign_ip: ip,
-        subcontractor_signature: signatureData,
         agreement_pdf_path: agreementPath, w9_pdf_path: w9Path,
       };
       const r = await fetch(`${SB_URL}/rest/v1/crews?id=eq.${encodeURIComponent(crew.id)}`, { method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify(patch) });
       if (!r.ok) return cors(500, JSON.stringify({ ok: false, error: `save ${r.status}` }));
+      // Persist the drawn signature separately (best-effort) so the agreement can
+      // be regenerated with both signatures at countersign — tolerant of the
+      // subcontractor_signature column not existing yet.
+      await fetch(`${SB_URL}/rest/v1/crews?id=eq.${encodeURIComponent(crew.id)}`, { method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify({ subcontractor_signature: signatureData }) }).catch(() => {});
 
       await notifyOffice(crew, signName, pdfErr);
       return cors(200, JSON.stringify({ ok: true, pdf_error: pdfErr }));
