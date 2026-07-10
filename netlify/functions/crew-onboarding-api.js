@@ -320,53 +320,78 @@ const AGREEMENT_CLAUSES = [
 function agreementHtml(c) {
   const company = c.company_name || `${c.owner_first || ""} ${c.owner_last || ""}`.trim() || "Subcontractor";
   const signedDate = fmtDate(c.subcontractor_signed_at);
-  const clauses = AGREEMENT_CLAUSES.map(([h, p]) => `<p style="margin:7px 0;"><b>${h}</b> ${esc(p)}</p>`).join("");
-  const rateRows = RATE_ROWS.map(([k, label, unit]) => `<tr><td style="padding:3px 8px;border:1px solid #d1d5db;">${label}</td><td style="padding:3px 8px;border:1px solid #d1d5db;text-align:right;">${money(c.rates ? c.rates[k] : null)}${unit && c.rates && c.rates[k] != null ? ` / ${unit}` : ""}</td></tr>`).join("");
-  const row = (label, val) => `<tr><td style="padding:2px 8px;color:#6b7280;width:210px;">${label}</td><td style="padding:2px 8px;font-weight:600;">${esc(val || "—")}</td></tr>`;
+  const clauses = AGREEMENT_CLAUSES.map(([h, p]) => `<p class="cl"><b>${esc(h)}</b> ${esc(p)}</p>`).join("");
+  const rateRows = RATE_ROWS.map(([k, label, unit]) => `<tr><td>${label}</td><td class="r">${money(c.rates ? c.rates[k] : null)}${unit && c.rates && c.rates[k] != null ? ` / ${unit}` : ""}</td></tr>`).join("");
+  const info = (label, val) => (val === null || val === undefined || val === "") ? "" : `<tr><td class="lbl">${label}</td><td>${esc(val)}</td></tr>`;
+  const subSig = c.signature_data && String(c.signature_data).startsWith("data:image");
+  const usSig = c.us_shingle_signature && String(c.us_shingle_signature).startsWith("data:image");
+  const sigCol = (party, img, name, title, date, pending) => `
+    <div class="sigcol">
+      <div class="party">${party}</div>
+      ${img ? `<img class="sigimg" src="${img}" />` : `<div style="height:38px;"></div>`}
+      <div class="lb" style="margin-top:2px;"><div class="cap">Signature</div></div>
+      <div class="lb"><div class="val">${name || "&nbsp;"}</div><div class="cap">Printed Name</div></div>
+      <div class="lb"><div class="val">${title || "&nbsp;"}</div><div class="cap">Title</div></div>
+      <div class="lb"><div class="val">${date || "&nbsp;"}</div><div class="cap">Date</div></div>
+      ${pending ? `<div class="muted" style="margin-top:6px;">Pending US Shingle countersignature.</div>` : ""}
+    </div>`;
   return `<!doctype html><html><head><meta charset="utf-8"><style>
-    body{font-family:Arial,Helvetica,sans-serif;color:#1f2733;font-size:10.5px;line-height:1.45;margin:0;}
-    .wrap{padding:28px 34px;} h1{font-size:17px;margin:0 0 2px;color:#14213a;} h2{font-size:12.5px;margin:16px 0 6px;color:#14213a;border-bottom:1px solid #d1d5db;padding-bottom:3px;}
-    .muted{color:#6b7280;font-size:10px;} table{border-collapse:collapse;width:100%;} .sig{margin-top:6px;padding:10px 12px;background:#f8fafc;border:1px solid #d1d5db;border-radius:6px;}
+    body{font-family:Calibri,Arial,Helvetica,sans-serif;color:#111;font-size:11.5px;line-height:1.5;margin:0;}
+    .wrap{padding:44px 52px;}
+    .title{text-align:center;margin-bottom:14px;}
+    .title .co{font-size:18px;font-weight:800;letter-spacing:.02em;}
+    .title .addr{font-size:11px;color:#333;}
+    .title .doc{font-size:13.5px;font-weight:700;margin-top:5px;text-transform:uppercase;}
+    h2{font-size:12.5px;font-weight:700;margin:16px 0 4px;}
+    p{margin:8px 0;text-align:justify;} .cl{margin:7px 0;text-align:justify;}
+    table{border-collapse:collapse;width:100%;font-size:11px;margin:5px 0;}
+    td{padding:4px 9px;border:1px solid #999;vertical-align:top;}
+    td.r{text-align:right;white-space:nowrap;} td.lbl{color:#444;width:40%;}
+    .siggrid{display:flex;gap:30px;margin-top:16px;} .sigcol{flex:1;}
+    .sigcol .party{font-weight:700;margin-bottom:6px;}
+    .sigimg{height:38px;display:block;margin:2px 0 -2px 2px;}
+    .lb{margin-top:14px;} .lb .val{min-height:15px;font-weight:600;}
+    .lb .cap{border-top:1px solid #111;padding-top:2px;font-size:10px;color:#333;}
+    .muted{color:#666;font-size:9.5px;}
   </style></head><body><div class="wrap">
-    <h1>US SHINGLE AND METAL LLC — Subcontractor Agreement & Onboarding Packet</h1>
-    <div class="muted">12910 Automobile Blvd, Clearwater, FL 33762</div>
-    <p style="margin:10px 0;">This Subcontractor Agreement is made effective as of <b>${signedDate}</b>, by and between US Shingle and Metal LLC (“US Shingle”) and <b>${esc(company)}</b> (“Subcontractor”).</p>
+    <div class="title">
+      <div class="co">US SHINGLE AND METAL LLC</div>
+      <div class="addr">12910 Automobile Blvd, Clearwater, FL 33762</div>
+      <div class="doc">Subcontractor Agreement &amp; Onboarding Packet</div>
+    </div>
+    <p>This Subcontractor Agreement (this "Agreement") is made effective as of <b>${signedDate}</b>, by and between US Shingle and Metal LLC, a Florida limited liability company with its principal place of business at 12910 Automobile Blvd, Clearwater, FL 33762 ("US Shingle") and <b>${esc(company)}</b> ("Subcontractor"). US Shingle and the Subcontractor may be referred to as a Party or collectively as the Parties.</p>
+    <h2>Recitals</h2>
+    <p>US Shingle has entered into contracts and may continue to enter into contracts with individual homeowners (each an "Original Contract"). Under each Original Contract, US Shingle has agreed to provide roofing, insulation installation, radiant barrier installation, painting, repairs, or other home improvements. US Shingle desires to enter into this Agreement with Subcontractor for a portion of the services contemplated by each Original Contract. Subcontractor is willing to provide such services and represents that it is properly licensed, insured, and qualified to perform roofing work in the State of Florida.</p>
+    <h2>Agreement</h2>
+    <p>In consideration of the mutual promises contained in this Agreement and other valuable consideration, the Parties agree as follows:</p>
     ${clauses}
-    <h2>Pay Structure (rates US Shingle pays this Subcontractor)</h2>
-    <div class="muted" style="margin-bottom:4px;">Paid per SQ (includes dump fees when using your own trailer). Price based on actual SQs — waste not included.</div>
-    <table>${rateRows}</table>
-    <h2>Subcontractor Information</h2>
+    <h2>Pay Structure</h2>
+    <p style="margin:4px 0;">We pay per SQ, which includes dump fees when using your own trailer. Price is based on actual SQs — waste NOT included.</p>
+    <table><tr><td style="font-weight:700;">Roofing Type / Item</td><td class="r" style="font-weight:700;">Rate</td></tr>${rateRows}</table>
+    <h2>Subcontractor Onboarding Information</h2>
     <table>
-      ${row("Owner", `${c.owner_first || ""} ${c.owner_last || ""}`.trim())}
-      ${row("Company", c.company_name)}
-      ${row("Install contact", c.install_contact_name)}${row("Install contact phone/email", [c.install_contact_phone, c.install_contact_email].filter(Boolean).join(" · "))}
-      ${row("Onsite crew lead", c.crew_lead_name)}${row("Crew lead phone/email", [c.crew_lead_phone, c.crew_lead_email].filter(Boolean).join(" · "))}
-      ${row("Preferred work area", c.preferred_area)}${row("Crew members", c.crew_size)}${row("Dump trailers", c.dump_trailers)}
-      ${row("Roofing work performed", c.roofing_types)}${row("License / cert #", c.license_number)}
-      ${row("Bank", c.bank_name)}${row("Routing #", c.bank_routing)}${row("Account #", c.bank_account)}${row("Name on account", c.account_name)}${row("Company EIN", c.company_ein)}${row("Account address", c.account_address)}
+      ${info("Owner", `${c.owner_first || ""} ${c.owner_last || ""}`.trim())}
+      ${info("Company", c.company_name)}
+      ${info("Contact for setting up installs", [c.install_contact_name, c.install_contact_phone, c.install_contact_email].filter(Boolean).join(" · "))}
+      ${info("Onsite crew lead", [c.crew_lead_name, c.crew_lead_phone, c.crew_lead_email].filter(Boolean).join(" · "))}
+      ${info("Preferred area for work", c.preferred_area)}
+      ${info("Number of crew members", c.crew_size)}
+      ${info("Number of dump trailers", c.dump_trailers)}
+      ${info("Type of roofing work performed", c.roofing_types)}
+      ${info("License / certification #", c.license_number)}
+      ${info("Bank name", c.bank_name)}
+      ${info("Wire routing #", c.bank_routing)}
+      ${info("Account #", c.bank_account)}
+      ${info("Name on account", c.account_name)}
+      ${info("Company EIN", c.company_ein)}
+      ${info("Address on account", c.account_address)}
     </table>
-    <h2>Acknowledgment & Signature</h2>
-    <p>By signing below, the Subcontractor acknowledges it has read, understood, and agrees to be bound by this Agreement and all Onboarding, Jobsite, Photo, and Pay Structure terms.</p>
-    <div class="sig">
-      <div><b>SUBCONTRACTOR</b></div>
-      ${c.signature_data && String(c.signature_data).startsWith("data:image") ? `<div style="margin:6px 0 2px;"><img src="${c.signature_data}" style="height:50px;max-width:280px;" /></div>` : ""}
-      <div>Signed by: <b>${esc(c.subcontractor_sign_name)}</b> &nbsp; Title: ${esc(c.subcontractor_sign_title || "Owner")}</div>
-      <div>Company: ${esc(company)}</div>
-      <div>Date: ${signedDate}</div>
-      <div class="muted" style="margin-top:4px;">Electronically signed — IP ${esc(c.subcontractor_sign_ip || "n/a")} · ${esc(c.subcontractor_signed_at)}</div>
+    <p style="margin-top:14px;">By signing below, each Party acknowledges it has read, understood, and agrees to be bound by this Agreement, including all Onboarding, Jobsite, Photo, and Pay Structure terms.</p>
+    <div class="siggrid">
+      ${sigCol("SUBCONTRACTOR:", subSig ? c.signature_data : null, esc(c.subcontractor_sign_name || ""), esc(c.subcontractor_sign_title || "Owner"), signedDate, false)}
+      ${sigCol("US SHINGLE AND METAL LLC:", usSig ? c.us_shingle_signature : null, usSig ? esc(c.us_shingle_sign_name || "") : "", usSig ? esc(c.us_shingle_sign_title || "US Shingle") : "", usSig && c.us_shingle_signed_at ? fmtDate(c.us_shingle_signed_at) : "", !usSig)}
     </div>
-    <div class="sig" style="margin-top:8px;">
-      <div><b>US SHINGLE AND METAL LLC</b></div>
-      ${c.us_shingle_signature && String(c.us_shingle_signature).startsWith("data:image") ? `
-        <div style="margin:6px 0 2px;"><img src="${c.us_shingle_signature}" style="height:48px;max-width:280px;" /></div>
-        <div>By: <b>${esc(c.us_shingle_sign_name || "")}</b> &nbsp; Title: ${esc(c.us_shingle_sign_title || "US Shingle")}</div>
-        <div>Date: ${c.us_shingle_signed_at ? fmtDate(c.us_shingle_signed_at) : signedDate}</div>
-      ` : `
-        <div>By: __________________________  Printed Name: __________________________</div>
-        <div>Title: __________________________  Date: __________________________</div>
-        <div class="muted" style="margin-top:4px;">Pending US Shingle countersignature.</div>
-      `}
-    </div>
+    <div class="muted" style="margin-top:12px;">Electronically signed by the Subcontractor — ${esc(c.subcontractor_sign_name || "")}, IP ${esc(c.subcontractor_sign_ip || "n/a")}, ${esc(c.subcontractor_signed_at || "")}.</div>
   </div></body></html>`;
 }
 
