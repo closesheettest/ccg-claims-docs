@@ -117,6 +117,18 @@ const PA_FIELDS = [
   { key: "iss_uploaded",        label: "ISS Uploaded" },
 ];
 
+// "Signed File Details" — shown only once a deal is Signed (Five Star
+// mockup). Each step just captures a date. "Filed with Insurance" reuses
+// the JN-backed pa_filed field; Settled / Closed-Cancelled cache locally
+// until their JobNimbus fields ship (see pa-save-field.js FIELD_MAP).
+const SIGNED_DETAIL_FIELDS = [
+  { key: "pa_filed",         label: "Filed with Insurance" },
+  { key: "ins_approved",     label: "Insurance Approved" },
+  { key: "iss_uploaded",     label: "ISS Uploaded" },
+  { key: "settled",          label: "Settled" },
+  { key: "closed_cancelled", label: "Closed / Cancelled" },
+];
+
 // ── Date helpers. JN custom dates are unix epoch SECONDS. We anchor the
 //    day to NOON UTC so converting to/from a <input type=date> never
 //    shifts a day across US timezones. ───────────────────────────────
@@ -2457,8 +2469,8 @@ function PAJobList({ me, onOpenJob, wide }) {
         };
         const SECTIONS = [
           { key: "urgent", flag: "🚩", title: "Urgent Attention Needed", color: "#b91c1c", bg: "#fef2f2", border: "#fca5a5", items: mineNeeds },
-          { key: "inspect", flag: "🟠", title: "Inspections Update", color: "#b45309", bg: "#fff7ed", border: "#fdba74", items: mineWorking },
-          { key: "progress", flag: "🟢", title: "Claims in Progress", color: "#047857", bg: "#ecfdf5", border: "#a7f3d0", items: mineSigned },
+          { key: "inspect", flag: "🛠", title: "Claims in Progress (Working)", color: "#b45309", bg: "#fff7ed", border: "#fdba74", items: mineWorking },
+          { key: "progress", flag: "✅", title: "Signed (Recent)", color: "#047857", bg: "#ecfdf5", border: "#a7f3d0", items: mineSigned },
         ];
         if (!(mineNeeds.length + mineWorking.length + mineSigned.length)) return null;
         return (
@@ -3665,13 +3677,22 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
         )}
       </div>
 
-      {/* Editable milestones */}
-      <div style={{ padding: 14, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, marginBottom: 12 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-          Insurance milestones
+      {/* Editable milestones. Once the deal is Signed this becomes the
+          "Signed File Details" picker (Five Star mockup): the same date-per-
+          step pattern, but relabeled and with the Settled / Closed-Cancelled
+          steps added so the PA can move a signed file forward. */}
+      {(() => {
+      const signedNow = fields.pa_signup === "Signed";
+      const detailFields = signedNow ? SIGNED_DETAIL_FIELDS : PA_FIELDS;
+      return (
+      <div style={{ padding: 14, background: "#fff", border: `1px solid ${signedNow ? "#a7f3d0" : "#e5e7eb"}`, borderRadius: 12, marginBottom: 12 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: signedNow ? "#047857" : "#475569", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+          {signedNow ? "✅ Signed File Details" : "Insurance milestones"}
         </div>
         <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 12 }}>
-          Set the date each milestone happens. Every change saves straight to JobNimbus.
+          {signedNow
+            ? "Update where this signed file is at — each step just records the date it happened."
+            : "Set the date each milestone happens. Every change saves straight to JobNimbus."}
         </div>
         {loadErr && (
           <div style={{ padding: "8px 12px", borderRadius: 8, fontSize: 12, marginBottom: 10, background: "#fffbeb", border: "1px solid #fcd34d", color: "#92400e" }}>
@@ -3684,12 +3705,12 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
           </div>
         )}
         <div style={{ display: "grid", gap: 10 }}>
-          {PA_FIELDS.map((f) => (
+          {detailFields.map((f) => (
             <div key={f.key} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "center" }}>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 700 }}>{f.label}</div>
                 <div style={{ fontSize: 11, color: savedKey === f.key ? "#047857" : "#94a3b8" }}>
-                  {savingKey === f.key ? "Saving…" : savedKey === f.key ? "✓ Saved to JobNimbus" : fields[f.key] ? epochToDisplay(fields[f.key]) : "Not set"}
+                  {savingKey === f.key ? "Saving…" : savedKey === f.key ? "✓ Saved" : fields[f.key] ? epochToDisplay(fields[f.key]) : "Not set"}
                 </div>
               </div>
               <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
@@ -3711,7 +3732,14 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
             </div>
           ))}
         </div>
+        {signedNow && (
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #d1d5db", fontSize: 12, color: "#6b7280" }}>
+            <span style={{ fontWeight: 700, color: "#475569" }}>Other updates?</span> Add anything else in the <b>Notes</b> box below — it posts to JobNimbus too. ↓
+          </div>
+        )}
       </div>
+      );
+      })()}
 
       {/* Notes — running log; each note also posts to the JobNimbus job. */}
       <div style={{ padding: 14, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, marginBottom: 12 }}>

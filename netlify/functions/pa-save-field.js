@@ -47,6 +47,12 @@ const FIELD_MAP = {
   pa_filed:            { cf: "cf_date_20",   type: "date" },
   ins_approved:        { cf: "cf_date_21",   type: "date" },
   iss_uploaded:        { cf: "cf_date_28",   type: "date" },
+  // "Signed File Details" steps from the Five Star mockup. No JN custom
+  // field exists for these yet, so cf is null → cached locally only (same
+  // graceful path as pa_signup). Wire in the real cf_ key here once the
+  // company adds the JobNimbus dates and it syncs automatically.
+  settled:             { cf: null,           type: "date" },
+  closed_cancelled:    { cf: null,           type: "date" },
   correction_needed:   { cf: "cf_date_29",   type: "date" },
   install_paperwork:   { cf: "cf_date_30",   type: "date" },
   move_back_to_retail: { cf: "cf_date_36",   type: "date" },
