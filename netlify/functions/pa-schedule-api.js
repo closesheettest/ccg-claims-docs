@@ -26,7 +26,8 @@ const JN_BASE = "https://app.jobnimbus.com/api1";
 const GCAL_ID = process.env.GOOGLE_CLIENT_ID;
 const GCAL_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
-const SLOT_MIN = 120;       // 2-hour appointments
+const SLOT_MIN = 60;        // 1-hour appointments
+const BUFFER_MS = 30 * 60000; // 30-min drive-time buffer BEFORE and AFTER each appt
 const HORIZON_DAYS = 14;    // how far out to offer slots
 const MAX_MI = 100;         // hide PAs farther than this from an in-person appt
 
@@ -193,9 +194,13 @@ async function buildSlots(days, home, apptZone, onlyPaId, homeLang) {
         const startMs = etToUtcMs(y, mo, day, s);
         const endMs = startMs + SLOT_MIN * 60000;
         if (startMs <= nowMs) continue;                       // no past slots
-        const taken = (apptByPa[pa.id] || []).some(([as, ae]) => startMs < ae && endMs > as);
+        // Drive-time buffer: expand every busy range 30 min on BOTH sides, so an
+        // appointment (ours) or any other calendar event (a claim for a different
+        // company) also blocks the half hour before and after — the PA always has
+        // travel time between back-to-back stops.
+        const taken = (apptByPa[pa.id] || []).some(([as, ae]) => startMs < ae + BUFFER_MS && endMs > as - BUFFER_MS);
         if (taken) continue;
-        if ((busyByPa[pa.id] || []).some(([bs, be]) => startMs < be && endMs > bs)) continue; // busy on their Google Calendar
+        if ((busyByPa[pa.id] || []).some(([bs, be]) => startMs < be + BUFFER_MS && endMs > bs - BUFFER_MS)) continue; // busy (±30-min buffer) on their Google Calendar
         slots.push({
           start_at: new Date(startMs).toISOString(),
           end_at: new Date(endMs).toISOString(),
@@ -324,9 +329,9 @@ async function book(body) {
   if (appointment && pa.google_refresh_token) {
     try {
       const eid = await googleCreateEvent(pa.google_refresh_token, {
-        summary: `US Shingle PA appt — ${homeowner || "Homeowner"}`,
+        summary: `${etClock(startMs)} US Shingle Inspection - ${lastNameOf(homeowner)}${phone ? `, ${phone}` : ""}${address ? `, ${address}` : ""}`,
         location: address || "",
-        description: `Public adjuster appointment.${phone ? `\nHomeowner: ${phone}` : ""}${notes ? `\nNotes: ${notes}` : ""}\nBooked via US Shingle by ${bookedBy}.`,
+        description: `US Shingle inspection.${homeowner ? `\nHomeowner: ${homeowner}` : ""}${phone ? `\nPhone: ${phone}` : ""}${address ? `\nAddress: ${address}` : ""}${notes ? `\nNotes: ${notes}` : ""}\nBooked via US Shingle by ${bookedBy}.`,
         startIso: new Date(startMs).toISOString(),
         endIso: new Date(endMs).toISOString(),
       });
@@ -451,6 +456,18 @@ function etLabel(startMs, endMs) {
   const t1 = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }).format(new Date(startMs));
   const t2 = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }).format(new Date(endMs));
   return `${d}, ${t1}–${t2}`;
+}
+// Compact ET clock for the calendar title — "1pm", "1:30pm".
+function etClock(ms) {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit", hour12: true }).formatToParts(new Date(ms));
+  const h = parts.find((p) => p.type === "hour")?.value || "";
+  const m = parts.find((p) => p.type === "minute")?.value || "00";
+  const ap = (parts.find((p) => p.type === "dayPeriod")?.value || "").toLowerCase().replace(/[\s.]/g, "");
+  return m === "00" ? `${h}${ap}` : `${h}:${m}${ap}`;
+}
+function lastNameOf(name) {
+  const t = String(name || "").trim().split(/\s+/).filter(Boolean);
+  return t.length ? t[t.length - 1] : "Homeowner";
 }
 // Exact START time only (for the homeowner — a 2-hour window reads as a 2-hour
 // appointment, which it never is). e.g. "Tue, Jul 14 at 3:00 PM".

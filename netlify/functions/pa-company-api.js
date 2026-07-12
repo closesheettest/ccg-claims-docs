@@ -206,14 +206,16 @@ exports.handler = async (event) => {
       const dateStr = `${y}-${String(mo).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
       const label = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric" }).format(new Date(nowMs + d * 864e5));
       const slots = times.map((s) => {
-        const startMs = caEtToUtcMs(y, mo, day, s), endMs = startMs + 120 * 60000;
+        const startMs = caEtToUtcMs(y, mo, day, s), endMs = startMs + 60 * 60000;
         const cells = {};
         for (const p of activePas) {
           if (startMs <= nowMs) { cells[p.id] = { s: "past" }; continue; }
           const ap = (apptByPa[p.id] || []).find(([as, ae]) => startMs < ae && endMs > as);
           if (ap) { cells[p.id] = { s: "booked", who: ap[2] || "" }; continue; }
+          // within the 30-min drive-time buffer of another appt → off (needs travel time)
+          if ((apptByPa[p.id] || []).some(([as, ae]) => startMs < ae + CA_BUFFER_MS && endMs > as - CA_BUFFER_MS)) { cells[p.id] = { s: "off" }; continue; }
           if ((blockedByPa[p.id] || new Set()).has(`${weekday}:${s}`) || (dateBlockedByPa[p.id] || new Set()).has(`${dateStr}:${s}`)) { cells[p.id] = { s: "off" }; continue; }
-          if ((busyByPa[p.id] || []).some(([bs, be]) => startMs < be && endMs > bs)) { cells[p.id] = { s: "off" }; continue; } // busy on their Google Calendar
+          if ((busyByPa[p.id] || []).some(([bs, be]) => startMs < be + CA_BUFFER_MS && endMs > bs - CA_BUFFER_MS)) { cells[p.id] = { s: "off" }; continue; } // busy (±30-min buffer) on their Google Calendar
           cells[p.id] = { s: "open" };
         }
         return { t: caSlotLabel(s), cells };
@@ -471,6 +473,7 @@ async function get(url, headers) {
 // ── Team-availability slot grid helpers (mirror pa-schedule-api) ──
 const CA_WD_HOURS = { 1: [9, 11, 13, 15, 17, 19], 2: [9, 11, 13, 15, 17, 19], 3: [9, 11, 13, 15, 17, 19], 4: [9, 11, 13, 15, 17, 19], 5: [9, 11, 13, 15, 17, 19], 6: [9, 11, 13, 15] };
 const CA_SLOT_TIMES = Object.fromEntries(Object.entries(CA_WD_HOURS).map(([wd, hrs]) => [wd, hrs.map((h) => h * 60)]));
+const CA_BUFFER_MS = 30 * 60000; // 30-min drive-time buffer before/after each appt (mirrors pa-schedule-api)
 function caEtDateParts(ms) {
   const f = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "numeric", day: "numeric", weekday: "short" });
   const p = {}; for (const x of f.formatToParts(new Date(ms))) p[x.type] = x.value;
