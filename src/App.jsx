@@ -7650,6 +7650,17 @@ const CREW_UPLOADS = [
   { key: "roofing_license", label: "Florida roofing license", hint: "certified or registered (or qualifier's)", required: true },
   { key: "exemption_cert", label: "Exemption certificate", hint: "only if an officer is workers-comp exempt", required: false },
 ];
+// Fields the crew MUST fill before they can submit. Company EIN is captured
+// once in the W-9 (not here) and additional_info / w9_business_name stay
+// optional by nature. w9_llc_class is required only when the classification
+// is LLC (handled in submit()).
+const CREW_REQUIRED_FIELDS = [
+  "install_contact_name", "install_contact_phone", "install_contact_email",
+  "crew_lead_name", "crew_lead_phone", "crew_lead_email",
+  "preferred_area", "crew_size", "dump_trailers", "roofing_types", "license_number",
+  "bank_name", "bank_routing", "bank_account", "account_name", "account_address",
+  "w9_name", "w9_tax_classification", "w9_address", "w9_city_state_zip", "w9_tin_type", "w9_tin",
+];
 const CREW_KEY_TERMS = [
   "Maintain a valid FL roofing license (or work under a qualifier) and keep insurance active.",
   "Carry General Liability $1M/occurrence · $2M aggregate (US Shingle as additional insured) and Workers' Comp covering EVERY worker on site.",
@@ -7682,6 +7693,9 @@ function CrewOnboardingPage({ token }) {
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [err, setErr] = useState("");
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+  const reqSet = new Set(CREW_REQUIRED_FIELDS);
+  const isEmpty = (k) => !String(f[k] ?? "").trim();
 
   const post = (action, extra) => fetch("/.netlify/functions/crew-onboarding-api", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, action, ...extra }) }).then((r) => r.json().catch(() => ({})));
 
@@ -7702,9 +7716,12 @@ function CrewOnboardingPage({ token }) {
   }, [token]);
 
   const up = (k, v) => setF((s) => ({ ...s, [k]: v }));
+  // Mirror the W-9 EIN into company_ein so the office record still shows it
+  // (the EIN is now only asked once, in the W-9 section).
+  const patchWithEin = () => ({ ...f, ...(f.w9_tin_type === "ein" ? { company_ein: f.w9_tin } : {}) });
   const save = async () => {
     setSaving(true); setSavedMsg(""); setErr("");
-    try { const d = await post("save", { patch: f }); if (d.ok) { setSavedMsg("✓ Progress saved"); setTimeout(() => setSavedMsg(""), 2500); } else setErr(d.error || "Save failed."); }
+    try { const d = await post("save", { patch: patchWithEin() }); if (d.ok) { setSavedMsg("✓ Progress saved"); setTimeout(() => setSavedMsg(""), 2500); } else setErr(d.error || "Save failed."); }
     catch { setErr("Network error."); }
     setSaving(false);
   };
@@ -7721,12 +7738,18 @@ function CrewOnboardingPage({ token }) {
   };
   const submit = async () => {
     setErr("");
+    setSubmitAttempted(true);
+    const missingFields = CREW_REQUIRED_FIELDS.filter((k) => isEmpty(k));
+    if (f.w9_tax_classification === "LLC" && isEmpty("w9_llc_class")) missingFields.push("w9_llc_class");
+    if (missingFields.length) { setErr("Please fill in every field marked * — the empty ones are highlighted in red."); window.scrollTo({ top: 0, behavior: "smooth" }); return; }
+    const missingDocs = CREW_UPLOADS.filter((u) => u.required && !docs.includes(u.key)).map((u) => u.label);
+    if (missingDocs.length) { setErr("Please upload all required documents: " + missingDocs.join(", ")); window.scrollTo({ top: 0, behavior: "smooth" }); return; }
     if (!agreed) { setErr("Please check the box agreeing to the terms."); return; }
     if (!signName.trim()) { setErr("Type your printed name."); return; }
     if (!sigData) { setErr("Please draw your signature to finish."); return; }
     setSubmitting(true);
     try {
-      await post("save", { patch: f });
+      await post("save", { patch: patchWithEin() });
       const d = await post("submit", { sign_name: signName.trim(), sign_title: signTitle.trim(), agreed: true, signature_data: sigData });
       if (d.ok) { setDone(true); window.scrollTo(0, 0); } else setErr(d.error || "Couldn't submit.");
     } catch { setErr("Network error."); }
@@ -7740,12 +7763,16 @@ function CrewOnboardingPage({ token }) {
   const lbl = { fontSize: 12.5, fontWeight: 700, color: "#374151" };
   const secTitle = { fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 17, marginBottom: 4, color: "#111827" };
   // Render function (NOT a nested component) so inputs keep focus while typing.
-  const field = (label, k, ph, type) => (
-    <div style={{ marginBottom: 10 }}>
-      <div style={lbl}>{label}</div>
-      <input value={f[k] ?? ""} onChange={(e) => up(k, e.target.value)} placeholder={ph || ""} inputMode={type === "num" ? "numeric" : undefined} style={inp} />
-    </div>
-  );
+  const field = (label, k, ph, type) => {
+    const req = reqSet.has(k);
+    const bad = submitAttempted && req && isEmpty(k);
+    return (
+      <div style={{ marginBottom: 10 }}>
+        <div style={lbl}>{label}{req && <span style={{ color: "#dc2626" }}> *</span>}</div>
+        <input value={f[k] ?? ""} onChange={(e) => up(k, e.target.value)} placeholder={ph || ""} inputMode={type === "num" ? "numeric" : undefined} style={{ ...inp, ...(bad ? { borderColor: "#dc2626", background: "#fef2f2" } : {}) }} />
+      </div>
+    );
+  };
 
   if (loadErr) return <div style={wrap}><div style={{ ...box, ...card, textAlign: "center", marginTop: 60 }}><div style={{ fontSize: 40 }}>🔗</div><div style={{ fontWeight: 700, marginTop: 8 }}>{loadErr}</div></div></div>;
   if (!crew) return <div style={wrap}><div style={{ ...box, textAlign: "center", color: "#6b7280", marginTop: 80 }}>Loading…</div></div>;
@@ -7839,9 +7866,8 @@ function CrewOnboardingPage({ token }) {
           {field("Account #", "bank_account")}
         </div>
         {field("Name on account", "account_name")}
-        {field("Company EIN", "company_ein")}
         {field("Address on account", "account_address")}
-        {field("Anything else you'd like to share", "additional_info")}
+        {field("Anything else you'd like to share (optional)", "additional_info")}
       </div>
 
       {/* W-9 */}
@@ -7850,8 +7876,8 @@ function CrewOnboardingPage({ token }) {
         {field("Name (as on your income tax return)", "w9_name")}
         {field("Business name / disregarded entity (if different)", "w9_business_name")}
         <div style={{ marginBottom: 10 }}>
-          <div style={lbl}>Federal tax classification</div>
-          <select value={f.w9_tax_classification ?? ""} onChange={(e) => up("w9_tax_classification", e.target.value)} style={inp}>
+          <div style={lbl}>Federal tax classification<span style={{ color: "#dc2626" }}> *</span></div>
+          <select value={f.w9_tax_classification ?? ""} onChange={(e) => up("w9_tax_classification", e.target.value)} style={{ ...inp, ...(submitAttempted && isEmpty("w9_tax_classification") ? { borderColor: "#dc2626", background: "#fef2f2" } : {}) }}>
             <option value="">— select —</option>
             <option>Individual / sole proprietor</option>
             <option>C Corporation</option>
@@ -7864,8 +7890,8 @@ function CrewOnboardingPage({ token }) {
         </div>
         {f.w9_tax_classification === "LLC" && (
           <div style={{ marginBottom: 10 }}>
-            <div style={lbl}>LLC tax classification (C / S / P)</div>
-            <select value={f.w9_llc_class ?? ""} onChange={(e) => up("w9_llc_class", e.target.value)} style={inp}>
+            <div style={lbl}>LLC tax classification (C / S / P)<span style={{ color: "#dc2626" }}> *</span></div>
+            <select value={f.w9_llc_class ?? ""} onChange={(e) => up("w9_llc_class", e.target.value)} style={{ ...inp, ...(submitAttempted && isEmpty("w9_llc_class") ? { borderColor: "#dc2626", background: "#fef2f2" } : {}) }}>
               <option value="">— select —</option><option value="C">C</option><option value="S">S</option><option value="P">P</option>
             </select>
           </div>
@@ -7873,8 +7899,8 @@ function CrewOnboardingPage({ token }) {
         {field("Address (number, street, apt)", "w9_address")}
         {field("City, state, ZIP", "w9_city_state_zip")}
         <div style={{ marginBottom: 10 }}>
-          <div style={lbl}>Taxpayer ID type</div>
-          <select value={f.w9_tin_type ?? ""} onChange={(e) => up("w9_tin_type", e.target.value)} style={inp}>
+          <div style={lbl}>Taxpayer ID type<span style={{ color: "#dc2626" }}> *</span></div>
+          <select value={f.w9_tin_type ?? ""} onChange={(e) => up("w9_tin_type", e.target.value)} style={{ ...inp, ...(submitAttempted && isEmpty("w9_tin_type") ? { borderColor: "#dc2626", background: "#fef2f2" } : {}) }}>
             <option value="">— select —</option><option value="ssn">SSN</option><option value="ein">EIN</option>
           </select>
         </div>
