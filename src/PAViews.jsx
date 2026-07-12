@@ -112,9 +112,9 @@ function signupBg(opt) {
 // were removed from the portal at Neal's request — the JN fields still
 // exist, they're just not surfaced here.)
 const PA_FIELDS = [
-  { key: "pa_filed",            label: "PA - Filed" },
-  { key: "ins_approved",        label: "INS - Approved" },
-  { key: "iss_uploaded",        label: "ISS Uploaded" },
+  { key: "pa_filed",            label: "Claim Filed" },
+  { key: "ins_approved",        label: "Claim Settled" },
+  { key: "iss_uploaded",        label: "Disbursement and Estimate - Uploaded" },
 ];
 
 // "Signed File Details" — shown only once a deal is Signed (Five Star
@@ -122,10 +122,9 @@ const PA_FIELDS = [
 // the JN-backed pa_filed field; Settled / Closed-Cancelled cache locally
 // until their JobNimbus fields ship (see pa-save-field.js FIELD_MAP).
 const SIGNED_DETAIL_FIELDS = [
-  { key: "pa_filed",         label: "Filed with Insurance" },
-  { key: "ins_approved",     label: "Insurance Approved" },
-  { key: "iss_uploaded",     label: "ISS Uploaded" },
-  { key: "settled",          label: "Settled" },
+  { key: "pa_filed",         label: "Claim Filed" },
+  { key: "ins_approved",     label: "Claim Settled" },
+  { key: "iss_uploaded",     label: "Disbursement and Estimate - Uploaded" },
   { key: "closed_cancelled", label: "Closed / Cancelled" },
 ];
 
