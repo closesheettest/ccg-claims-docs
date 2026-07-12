@@ -2456,7 +2456,8 @@ function PAJobList({ me, onOpenJob, wide }) {
   return (
     <div>
       {/* ─── Notification dashboard (Five Star page 1): prioritized worklist.
-          Three flagged sections; UPDATE NOW opens the deal's status pipeline. ─── */}
+          Four sections; "update" sections show UPDATE NOW, "open" sections are
+          tap-anywhere rows with a chevron. All open the deal's status pipeline. ─── */}
       {(() => {
         const agoLabel = (ts) => {
           if (!ts) return "";
@@ -2466,10 +2467,17 @@ function PAJobList({ me, onOpenJob, wide }) {
           const d = Math.floor(h / 24);
           return `assigned ${d} day${d === 1 ? "" : "s"} ago`;
         };
+        // Split the untouched ("New files") bucket by age: claimed > 24h ago →
+        // "Inspections Update" (needs a status update, UPDATE NOW); newer →
+        // "Urgent Attention Needed" (fresh leads to jump on, tap to open).
+        const isAging = (j) => j.pa_claimed_at && (Date.now() - new Date(j.pa_claimed_at).getTime()) > 24 * 3600000;
+        const mineInspect = mineNeeds.filter(isAging);
+        const mineUrgent = mineNeeds.filter((j) => !isAging(j));
         const SECTIONS = [
-          { key: "urgent", flag: "🚩", title: "Urgent Attention Needed", color: "#b91c1c", bg: "#fef2f2", border: "#fca5a5", items: mineNeeds },
-          { key: "inspect", flag: "🛠", title: "Claims in Progress (Working)", color: "#b45309", bg: "#fff7ed", border: "#fdba74", items: mineWorking },
-          { key: "progress", flag: "✅", title: "Signed (Recent)", color: "#047857", bg: "#ecfdf5", border: "#a7f3d0", items: mineSigned },
+          { key: "inspect", flag: "🟠", title: "Inspections Update", color: "#b45309", bg: "#fff7ed", border: "#fdba74", items: mineInspect, action: "update" },
+          { key: "urgent", flag: "⚠️", title: "Urgent Attention Needed", color: "#b91c1c", bg: "#fef2f2", border: "#fca5a5", items: mineUrgent, action: "open" },
+          { key: "progress", flag: "🛠", title: "Claims in Progress (Working)", color: "#92400e", bg: "#fff7ed", border: "#fdba74", items: mineWorking, action: "update" },
+          { key: "signed", flag: "✅", title: "Signed (Recent)", color: "#047857", bg: "#ecfdf5", border: "#a7f3d0", items: mineSigned, action: "open" },
         ];
         if (!(mineNeeds.length + mineWorking.length + mineSigned.length)) return null;
         return (
@@ -2480,18 +2488,34 @@ function PAJobList({ me, onOpenJob, wide }) {
                   <span>{s.flag}</span>{s.title} <span style={{ fontWeight: 700, color: "#94a3b8", fontSize: 13 }}>({s.items.length})</span>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {s.items.map((j) => (
-                    <div key={j.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, background: s.bg, border: `1px solid ${s.border}`, borderRadius: 10, padding: "10px 12px", flexWrap: "wrap" }}>
+                  {s.items.map((j) => {
+                    const rowStyle = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, background: s.bg, border: `1px solid ${s.border}`, borderRadius: 10, padding: "10px 12px", flexWrap: "wrap" };
+                    const info = (
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontWeight: 800, fontSize: 14.5, color: "#111827" }}>{j.client_name || "(no name)"}</div>
                         <div style={{ fontSize: 12.5, color: "#64748b" }}>{[j.address, j.city].filter(Boolean).join(", ")}{j.pa_claimed_at ? ` · ${agoLabel(j.pa_claimed_at)}` : ""}</div>
                       </div>
-                      <button type="button" onClick={() => onOpenJob(j.id)}
-                        style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 800, fontSize: 13, letterSpacing: "0.03em", padding: "9px 16px", borderRadius: 8, border: "none", background: s.color, color: "#fff", cursor: "pointer", whiteSpace: "nowrap" }}>
-                        UPDATE NOW
-                      </button>
-                    </div>
-                  ))}
+                    );
+                    // "update" sections show an UPDATE NOW button; "open" sections
+                    // are a tap-anywhere row with a chevron (matches the mockup).
+                    if (s.action === "update") {
+                      return (
+                        <div key={j.id} style={rowStyle}>
+                          {info}
+                          <button type="button" onClick={() => onOpenJob(j.id)}
+                            style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 800, fontSize: 13, letterSpacing: "0.03em", padding: "9px 16px", borderRadius: 8, border: "none", background: s.color, color: "#fff", cursor: "pointer", whiteSpace: "nowrap" }}>
+                            UPDATE NOW
+                          </button>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div key={j.id} onClick={() => onOpenJob(j.id)} style={{ ...rowStyle, cursor: "pointer" }}>
+                        {info}
+                        <span style={{ fontSize: 22, fontWeight: 800, color: s.color, paddingRight: 4, lineHeight: 1 }}>›</span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             ))}
