@@ -329,7 +329,7 @@ async function book(body) {
   if (appointment && pa.google_refresh_token) {
     try {
       const eid = await googleCreateEvent(pa.google_refresh_token, {
-        summary: `${etClock(startMs)} US Shingle Inspection - ${lastNameOf(homeowner)}${phone ? `, ${phone}` : ""}${address ? `, ${address}` : ""}`,
+        summary: `${etClock(startMs)} apt – ${homeowner || "Homeowner"} – US Shingle${(phone || address) ? ` – ${[phone, address].filter(Boolean).join(", ")}` : ""}`,
         location: address || "",
         description: `US Shingle inspection.${homeowner ? `\nHomeowner: ${homeowner}` : ""}${phone ? `\nPhone: ${phone}` : ""}${address ? `\nAddress: ${address}` : ""}${notes ? `\nNotes: ${notes}` : ""}\nBooked via US Shingle by ${bookedBy}.`,
         startIso: new Date(startMs).toISOString(),
@@ -464,10 +464,6 @@ function etClock(ms) {
   const m = parts.find((p) => p.type === "minute")?.value || "00";
   const ap = (parts.find((p) => p.type === "dayPeriod")?.value || "").toLowerCase().replace(/[\s.]/g, "");
   return m === "00" ? `${h}${ap}` : `${h}:${m}${ap}`;
-}
-function lastNameOf(name) {
-  const t = String(name || "").trim().split(/\s+/).filter(Boolean);
-  return t.length ? t[t.length - 1] : "Homeowner";
 }
 // Exact START time only (for the homeowner — a 2-hour window reads as a 2-hour
 // appointment, which it never is). e.g. "Tue, Jul 14 at 3:00 PM".
