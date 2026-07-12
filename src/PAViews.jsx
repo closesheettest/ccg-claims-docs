@@ -3033,7 +3033,7 @@ function DqLeadModal({ who, busy, onClose, onSubmit }) {
               </label>
             ))}
           </div>
-          <div style={{ fontSize: 12.5, color: "#6b7280", margin: "12px 0" }}>Submitting sends this lead <b>back to retail</b> and notifies the sales rep + their manager.</div>
+          <div style={{ fontSize: 12.5, color: "#6b7280", margin: "12px 0" }}><b>Not interested</b> (only) marks the deal <b>Lost</b>. Any other reason sends it <b>back to retail</b> and notifies the sales rep + their manager.</div>
           <div style={{ display: "flex", gap: 8 }}>
             <button type="button" onClick={onClose} disabled={busy} style={{ flex: "0 0 auto", padding: "12px 16px", borderRadius: 10, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", fontWeight: 700, cursor: "pointer" }}>Cancel</button>
             <button type="button" onClick={() => onSubmit(sel)} disabled={busy || !sel.length} style={{ flex: 1, padding: "12px 16px", borderRadius: 10, border: "none", background: (busy || !sel.length) ? "#9ca3af" : "#16a34a", color: "#fff", fontWeight: 800, fontFamily: "'Oswald', sans-serif", fontSize: 15, cursor: (busy || !sel.length) ? "default" : "pointer" }}>{busy ? "Submitting…" : "Submit"}</button>
@@ -3493,7 +3493,16 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
           who={job?.client_name || "this homeowner"}
           busy={refusing}
           onClose={() => setDqOpen(false)}
-          onSubmit={(reasons) => { setDqOpen(false); doRetail("DQ Lead — " + reasons.join(", ")); }}
+          onSubmit={(reasons) => {
+            setDqOpen(false);
+            // Routing by reason: "No interested" (and nothing else) → Lost/dead.
+            // ANY other reason present (no coverage, policy, no answer, claim not
+            // advised) → back to retail so a rep can still work it.
+            const LOST_ONLY = ["No interested"];
+            const note = "DQ Lead — " + reasons.join(", ");
+            if (reasons.some((r) => !LOST_ONLY.includes(r))) doRetail(note);
+            else postNote({ text: note, stage: "dead" });
+          }}
         />
       )}
       <button type="button" onClick={onBack} style={{ ...secondaryBtn, marginBottom: 12 }}>← Back to my claims</button>
