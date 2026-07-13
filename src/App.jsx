@@ -673,7 +673,7 @@ function InspectionCertificatePDF({ record, result, inspectorName, certNumber, i
     </div>
   );
 }
-function DuplicateScreen({ duplicateRecord, signMode, signerEmail, onGoBack, onProceedAnyway, onResend }) {
+function DuplicateScreen({ duplicateRecord, signMode, signerEmail, onGoBack, onProceedAnyway, onResend, onVoid }) {
   const rec = duplicateRecord.record;
   const isSigned = duplicateRecord.status === "signed";
   const isInsp = duplicateRecord.type === "inspection";
@@ -736,11 +736,19 @@ function DuplicateScreen({ duplicateRecord, signMode, signerEmail, onGoBack, onP
       {/* Action buttons */}
       <div style={{ display: "grid", gap: 10 }}>
         {!isSigned ? (
-          /* Pending — offer to resend */
-          <button type="button" onClick={onResend}
-            style={{ padding: "14px", borderRadius: 14, border: "none", background: "#199c2e", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
-            📨 Resend Signing Link
-          </button>
+          /* Pending — offer to resend the SAME link, or void it and start fresh */
+          <>
+            <button type="button" onClick={onResend}
+              style={{ padding: "14px", borderRadius: 14, border: "none", background: "#199c2e", color: "#fff", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
+              📨 Resend Signing Link
+            </button>
+            {onVoid ? (
+              <button type="button" onClick={onVoid}
+                style={{ padding: "13px", borderRadius: 14, border: "1px solid #fca5a5", background: "#fff", color: "#b91c1c", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14, letterSpacing: "0.03em", textTransform: "uppercase", cursor: "pointer" }}>
+                🗑 Void old request &amp; start fresh
+              </button>
+            ) : null}
+          </>
         ) : null}
 
         {isSigned && signMode !== "send" ? (
@@ -10925,6 +10933,18 @@ const renderSmsTemplate = (key, vars) => {
       const insp  = inspRes.status  === "fulfilled" && inspRes.value.data?.[0];
       if (claim) return { type: "claim", status: "signed", record: claim };
       if (insp)  return { type: "inspection", status: "signed", record: insp };
+      // No signed record — is there an OPEN (unsigned, unexpired) remote signing
+      // request already out for this address? If so, offer to RESEND that link
+      // instead of minting a second one (which is how the duplicates happen).
+      const pendRes = await supabase
+        .from("pending_signings")
+        .select("token, client_name, address, city, state, zip, status, expires_at, created_at")
+        .ilike("address", addr).eq("zip", zip)
+        .order("created_at", { ascending: false }).limit(5);
+      const openPend = (pendRes.data || []).find(
+        (r) => r.status !== "signed" && r.status !== "canceled" && (!r.expires_at || new Date(r.expires_at) > new Date()),
+      );
+      if (openPend) return { type: "pending", status: "sent", record: { ...openPend, homeowner1: openPend.client_name } };
     } catch (e) { console.warn("Duplicate check failed:", e); }
     return null;
   };
@@ -15686,10 +15706,49 @@ if (!hasDamage) {
             }}
             onResend={async () => {
               const rec = duplicateRecord.record;
+              // Open remote-signing request → resend the SAME link (no duplicate).
+              if (duplicateRecord.type === "pending" && rec.token) {
+                setDuplicateRecord(null);
+                try {
+                  const r = await fetch("/.netlify/functions/create-pending-signing", {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ action: "resend", token: rec.token }),
+                  });
+                  const j = await r.json().catch(() => ({}));
+                  alert(j.ok
+                    ? `✅ Resent the existing signing link to ${rec.client_name || "the homeowner"} — no duplicate created.`
+                    : (j.error || "Couldn't resend that link."));
+                } catch { alert("Network error resending the link."); }
+                setView("input");
+                return;
+              }
               if (duplicateRecord.type === "claim" && rec.id) setCurrentClaimId(rec.id);
               setDuplicateRecord(null);
               setPendingSend(true);
               setView("sending");
+            }}
+            onVoid={async () => {
+              const rec = duplicateRecord.record;
+              if (!rec.token) return;
+              if (!window.confirm("Void the existing signing request? Its link will stop working, then you can send a fresh one.")) return;
+              try {
+                const r = await fetch("/.netlify/functions/create-pending-signing", {
+                  method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ action: "void", token: rec.token }),
+                });
+                const j = await r.json().catch(() => ({}));
+                if (!j.ok) { alert(j.error || "Couldn't void that request."); return; }
+              } catch { alert("Network error voiding the request."); return; }
+              // Voided — proceed as a fresh send.
+              setDuplicateRecord(null);
+              setPendingSend(signMode === "send");
+              setCurrentClaimId(null);
+              setAuditInfo(initialAuditInfo);
+              setSig1(""); setSig2(""); setTypedSig1(""); setTypedSig2("");
+              setInspSig(""); setInspTypedSig(""); setInspSubmitAttempted(false);
+              setSubmitAttempted(false);
+              window.scrollTo({ top: 0, behavior: "smooth" });
+              setView(signMode === "send" ? "sending" : "review");
             }}
           />
         ) : null}

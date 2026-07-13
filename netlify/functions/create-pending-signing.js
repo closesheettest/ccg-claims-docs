@@ -27,6 +27,7 @@ export const handler = async (event) => {
   try { body = JSON.parse(event.body || "{}"); } catch { return json(400, { ok: false, error: "Invalid JSON body" }); }
 
   if ((body.action || "create") === "resend") return await resend(body);
+  if ((body.action || "create") === "void") return await voidReq(body);
 
   const d = body.data || body;
   const client_name = (d.client_name || d.clientName || "").trim();
@@ -110,6 +111,19 @@ async function resend(body) {
   });
   if (!sent.length) return json(200, { ok: true, token, sent, warning: "Couldn't resend (no valid phone/email or send failed)." });
   return json(200, { ok: true, token, sent, link: `${siteBase()}/?sign_insp=${token}` });
+}
+
+// Void an OPEN signing request so its link can no longer be signed (and can't
+// later create a duplicate deal). Soft — sets status "canceled" + expires it,
+// never hard-deletes. Refuses if it's already signed.
+async function voidReq(body) {
+  const token = (body.token || "").trim();
+  if (!token) return json(400, { ok: false, error: "token required" });
+  const row = await loadByToken(token);
+  if (!row) return json(404, { ok: false, error: "Not found" });
+  if (row.status === "signed") return json(409, { ok: false, error: "Already signed — can't void." });
+  await patchByToken(token, { status: "canceled", expires_at: new Date().toISOString() });
+  return json(200, { ok: true, token, status: "canceled" });
 }
 
 async function sendLink(row) {
