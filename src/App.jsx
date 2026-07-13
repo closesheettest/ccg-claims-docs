@@ -8350,6 +8350,108 @@ function InspectionLookup({ endpoint = "/.netlify/functions/inspection-lookup", 
   );
 }
 
+// PendingSignaturesCard — admin hub card listing remote-signing requests that
+// are still OPEN (link sent, not yet signed). Lets a manager VOID a stray or
+// duplicate request after the fact (the send-time DuplicateScreen only catches
+// it while a rep is trying to send a 2nd one). Backs on list-pending-signings
+// (read) + create-pending-signing action void.
+function PendingSignaturesCard() {
+  const [rows, setRows] = useState(null);
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState("");
+  const [err, setErr] = useState("");
+
+  const load = async (search = "") => {
+    setErr("");
+    try {
+      const r = await fetch("/.netlify/functions/list-pending-signings" + (search ? `?q=${encodeURIComponent(search)}` : ""));
+      const d = await r.json().catch(() => ({}));
+      if (!d.ok) { setErr(d.error || "Couldn't load."); setRows([]); return; }
+      setRows(d.rows || []);
+    } catch { setErr("Network error."); setRows([]); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const voidOne = async (row) => {
+    const who = row.client_name || "this homeowner";
+    if (!window.confirm(`Void the signing link for ${who}${row.address ? " — " + row.address : ""}?\n\nThe link will stop working immediately and can't be signed. This does NOT undo an already-signed inspection.`)) return;
+    setBusy(row.token); setErr("");
+    try {
+      const r = await fetch("/.netlify/functions/create-pending-signing", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "void", token: row.token }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!d.ok) { setErr(d.error || "Void failed."); setBusy(""); return; }
+      setRows((prev) => (prev || []).filter((x) => x.token !== row.token));
+    } catch { setErr("Network error voiding."); }
+    setBusy("");
+  };
+
+  const copyLink = (row) => {
+    const link = `${window.location.origin}/?sign_insp=${row.token}`;
+    try { navigator.clipboard.writeText(link); alert("Signing link copied."); } catch { window.prompt("Copy the link:", link); }
+  };
+
+  const ageStr = (iso) => {
+    if (!iso) return "";
+    const h = Math.floor((Date.now() - new Date(iso).getTime()) / 3600000);
+    if (h < 1) return "just now";
+    if (h < 24) return `${h}h ago`;
+    return `${Math.floor(h / 24)}d ago`;
+  };
+
+  return (
+    <Card>
+      <CardContent>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 6 }}>
+          <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 18 }}>✍️ Pending signatures</div>
+          <button type="button" onClick={() => load(q)} style={{ fontSize: 12.5, fontWeight: 700, color: "#0e7490", background: "none", border: "none", cursor: "pointer" }}>↻ Refresh</button>
+        </div>
+        <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 12 }}>
+          Links that were sent but not yet signed. Void a stray or duplicate request so its link can't be used.
+        </div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") load(q); }}
+            placeholder="Search name or address…"
+            style={{ flex: 1, height: 42, borderRadius: 12, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
+          <Button variant="outline" onClick={() => load(q)}>Search</Button>
+        </div>
+        {err && <div style={{ fontSize: 13, color: "#b91c1c", marginBottom: 10 }}>{err}</div>}
+        {rows === null ? (
+          <div style={{ fontSize: 13, color: "#9ca3af" }}>Loading…</div>
+        ) : rows.length === 0 ? (
+          <div style={{ fontSize: 13, color: "#9ca3af" }}>No open signing requests.</div>
+        ) : (
+          <div style={{ display: "grid", gap: 10 }}>
+            {rows.map((row) => (
+              <div key={row.token} style={{ border: "1px solid #e5e7eb", borderRadius: 14, padding: "12px 14px", display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center", background: row.expired ? "#fef2f2" : "#fff" }}>
+                <div style={{ minWidth: 200, flex: 1 }}>
+                  <div style={{ fontWeight: 700, color: "#111827", fontSize: 14.5 }}>{row.client_name || "(no name)"}</div>
+                  <div style={{ fontSize: 12.5, color: "#6b7280" }}>{[row.address, row.city, row.state].filter(Boolean).join(", ")}{row.zip ? " " + row.zip : ""}</div>
+                  <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 2 }}>
+                    {row.sales_rep_name ? `Rep: ${row.sales_rep_name} · ` : ""}sent {ageStr(row.sent_at || row.created_at)}
+                    {row.opened_at ? " · opened ✓" : ""}
+                    {row.resend_count ? ` · resent ${row.resend_count}×` : ""}
+                    {row.expired ? " · EXPIRED" : ""}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <Button variant="outline" onClick={() => copyLink(row)}>Copy link</Button>
+                  <button type="button" onClick={() => voidOne(row)} disabled={busy === row.token}
+                    style={{ height: 38, padding: "0 14px", borderRadius: 12, border: "1px solid #fecaca", background: "#fee2e2", color: "#b91c1c", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+                    {busy === row.token ? "Voiding…" : "🗑 Void"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function AdminDashboard() {
   const [unlocked, setUnlocked] = useState(() => {
     try { return sessionStorage.getItem("adminHubUnlocked") === "1"; } catch { return false; }
@@ -8536,6 +8638,9 @@ function AdminDashboard() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Pending signatures — void a stray/duplicate remote-signing link */}
+      <PendingSignaturesCard />
 
       {/* Announce an app update to PAs / inspectors */}
       <AppUpdateAnnouncer />
