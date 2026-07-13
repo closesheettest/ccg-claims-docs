@@ -15,7 +15,16 @@ const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": 
 
 exports.handler = async (event) => {
   const base = (process.env.URL || process.env.PUBLIC_SITE_URL || "").replace(/\/$/, "");
-  const back = (status) => ({ statusCode: 302, headers: { Location: `${base}/?mode=pa&gcal=${status}`, "Cache-Control": "no-store" }, body: "" });
+  // Always send the PA back to THEIR OWN portal by threading the pa id (from
+  // OAuth state) into ?pa=<id> — which the portal treats as authoritative and
+  // pins to the device. Without it the redirect lands on ?mode=pa generically,
+  // which shows whichever PA that browser last stored (e.g. one connected
+  // earlier in the same tutorial) — not the PA who just connected.
+  const back = (status, id) => ({
+    statusCode: 302,
+    headers: { Location: `${base}/?mode=pa${id ? `&pa=${encodeURIComponent(id)}` : ""}&gcal=${status}`, "Cache-Control": "no-store" },
+    body: "",
+  });
   const CLIENT_ID = process.env.GOOGLE_CLIENT_ID, CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
   if (!CLIENT_ID || !CLIENT_SECRET || !SB_URL || !SB_KEY) return back("error");
 
@@ -34,7 +43,7 @@ exports.handler = async (event) => {
     const tok = await tokRes.json().catch(() => ({}));
     // refresh_token is only returned on the FIRST consent for this Google
     // account; prompt=consent forces it, but guard anyway.
-    if (!tokRes.ok || !tok.refresh_token) return back("error");
+    if (!tokRes.ok || !tok.refresh_token) return back("error", paId);
 
     let email = null;
     try {
@@ -47,8 +56,8 @@ exports.handler = async (event) => {
       headers: { ...sb, Prefer: "return=minimal" },
       body: JSON.stringify({ google_refresh_token: tok.refresh_token, google_email: email, google_connected_at: new Date().toISOString() }),
     });
-    if (!r.ok) return back("error");
-    return back("connected");
+    if (!r.ok) return back("error", paId);
+    return back("connected", paId);
   } catch {
     return back("error");
   }
