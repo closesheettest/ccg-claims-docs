@@ -17,6 +17,8 @@ const SELECT = [
   "token", "client_name", "address", "city", "state", "zip",
   "mobile", "email", "status", "sales_rep_name", "sales_rep_id",
   "created_at", "sent_at", "opened_at", "expires_at", "resend_count",
+  // audit fields (used when auditing a suspicious/late signing)
+  "signed_at", "phone_verified_at", "phone_verified_number", "consent_at", "opened_ip", "opened_user_agent", "sent_channels",
 ].join(",");
 
 export const handler = async (event) => {
@@ -26,9 +28,11 @@ export const handler = async (event) => {
   }
 
   const q = (event.queryStringParameters?.q || "").trim();
+  const includeAll = event.queryStringParameters?.all === "1"; // audit: include signed/canceled
   // Open = anything not already signed and not already voided/canceled.
   let url = `${SB_URL}/rest/v1/pending_signings?select=${SELECT}` +
-    `&status=not.in.(signed,canceled)&order=created_at.desc&limit=200`;
+    (includeAll ? "" : "&status=not.in.(signed,canceled)") +
+    `&order=created_at.desc&limit=200`;
   if (q) {
     const like = `*${encodeURIComponent(q)}*`;
     url += `&or=(client_name.ilike.${like},address.ilike.${like})`;
