@@ -16,6 +16,7 @@ import { TeamRolesPanel } from "./TeamRolesPanel";
 import InspectionPhotosModal from "./InspectionPhotosModal";
 import RepVisitHub from "./RepVisitHub";
 import SetterPortal from "./SetterPortal";
+import CanvassMap from "./CanvassMap";
 import ReviewApptPicker from "./ReviewApptPicker";
 import JnMatchPickerModal from "./JnMatchPickerModal";
 import ManagerRecordsView from "./ManagerRecordsView";
@@ -9294,6 +9295,12 @@ export default function App() {
     if (portalMode === "setter") {
       return <SetterPortal Address={AddressAutocomplete} />;
     }
+    // ?mode=canvass — the door-knocking / canvassing map. Uploaded prospect
+    // addresses show as pins colored by status; a rep taps a pin to update it
+    // (IQ → Appt, Not Home, etc.). Self-contained, mobile-first.
+    if (portalMode === "canvass") {
+      return <CanvassMap />;
+    }
     // /?correct=<inspectionId> — the link we text the originating sales rep
     // + their regional manager when a Public Adjuster flags "Correction
     // needed." Opens a focused screen to fix the homeowner's key info
@@ -9458,6 +9465,12 @@ export default function App() {
   // null | "damage" | "no_damage" | "retail" | "pending"
   const [myStatsDrilldown, setMyStatsDrilldown] = useState(null);
   const [signMode, setSignMode] = useState("send");   // default: send the homeowner a link (not on-device signing)
+  // Per-signup code delivery (both are remote — homeowner signs on their own phone):
+  //   "rep_code" = "Sign now" (with them) → 6-digit code shows on the rep's screen
+  //   "sms"      = "Send for signing" (remote) → code texted/emailed to the homeowner
+  // Defaults to sms: it works both in person and remotely (homeowner always gets
+  // their own code), so it's the safe default; the rep picks "Sign now" deliberately.
+  const [codeDelivery, setCodeDelivery] = useState("sms");
   const [data, setData] = useState(() => {
     // RepVisitHub "New inspection" lands here as /?intake=1&rep=&repName=&repEmail=
     // — prefill the rep so the signing flow doesn't ask again.
@@ -12235,7 +12248,7 @@ const renderSmsTemplate = (key, vars) => {
               address: data.address || "", city: data.city || "", state: data.state || "", zip: data.zip || "",
               date: data.date || "", roof_type: data.roof_type || "Shingle", lead_source: data.leadSource || "Inspection",
               spanish_only: !!data.spanish_only, language: data.language || "english", sales_rep_name: data.salesRepName || "", sales_rep_id: data.salesRepId || "", sales_rep_email: data.salesRepEmail || "",
-              review_availability: reviewAvail || "", document_version: "insp-v1",
+              review_availability: reviewAvail || "", document_version: "insp-v1", mode: codeDelivery,
             } }),
           });
           const j = await r.json().catch(() => ({}));
@@ -14914,15 +14927,32 @@ if (!hasDamage) {
                   Signing option
                 </div>
 
-                {/* On-device signing removed — every homeowner signs remotely on
-                    their own phone (with the 6-digit phone-code + audit trail) so
-                    no signature can be disputed as "I never signed it." */}
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "14px 16px", borderRadius: 12, background: "#f0fdf4", border: "1px solid #86efac" }}>
-                  <Send size={18} style={{ marginTop: 2, flexShrink: 0, color: "#166534" }} />
-                  <div style={{ fontSize: 13.5, color: "#166534", fontWeight: 600, lineHeight: 1.55 }}>
-                    The homeowner signs on their <strong>own phone</strong>. When you continue, we text &amp; email them a secure link — they confirm their phone with a 6-digit code, then review &amp; sign. It lands in JobNimbus with a full audit trail.
-                  </div>
-                </div>
+                {/* On-device signing removed — every homeowner signs on their OWN
+                    phone (6-digit code + audit trail) so no signature can be
+                    disputed. The two choices differ only in HOW the code reaches
+                    them: on the rep's screen (in person) vs texted to the
+                    homeowner (remote). Both create the same audited signing. */}
+                {[
+                  { key: "rep_code", icon: "🤝", title: "Sign now — I'm with them",
+                    desc: "The homeowner opens it on their own phone; the 6-digit code appears on YOUR screen to read to them. Best in person." },
+                  { key: "sms", icon: "📲", title: "Send for signing — remote",
+                    desc: "We text & email the homeowner a secure link and their 6-digit code, so they review & sign on their own. No rep needed." },
+                ].map((opt) => {
+                  const active = codeDelivery === opt.key;
+                  return (
+                    <button key={opt.key} type="button" onClick={() => setCodeDelivery(opt.key)}
+                      style={{ display: "flex", alignItems: "flex-start", gap: 10, width: "100%", textAlign: "left", cursor: "pointer",
+                        padding: "14px 16px", borderRadius: 12, marginBottom: 10,
+                        background: active ? "#f0fdf4" : "#fff",
+                        border: active ? "2px solid #199c2e" : "1px solid #e5e7eb" }}>
+                      <div style={{ fontSize: 20, marginTop: 1, flexShrink: 0 }}>{opt.icon}</div>
+                      <div>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: active ? "#166534" : "#111827", fontFamily: "'Oswald', sans-serif" }}>{opt.title}</div>
+                        <div style={{ fontSize: 12.5, color: active ? "#166534" : "#6b7280", fontWeight: 600, lineHeight: 1.5, marginTop: 2 }}>{opt.desc}</div>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
 
               <div style={{ marginTop: 20 }}>
@@ -15112,9 +15142,9 @@ if (!hasDamage) {
 
               <div style={{ marginTop: 20 }}>
                 <Button onClick={beginDocumentFlow} disabled={!selectedDocs.length}>
-                  {signMode === "send"
+                  {codeDelivery === "sms"
                     ? "Continue to Send for Signing"
-                    : "Continue to Sign"}
+                    : "Continue to Sign Now"}
                 </Button>
               </div>
             </CardContent>

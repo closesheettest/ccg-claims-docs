@@ -43,9 +43,11 @@ export const handler = async (event) => {
 
   const hasPhone = String(row.mobile || "").replace(/\D/g, "").length >= 10;
   const hasEmail = /.+@.+\..+/.test(String(row.email || "").trim());
-  // Verification mode: "rep_code" (default) = homeowner types the 6-digit code
-  // shown on the rep's screen; "sms" (fallback, flag on) = old texted/emailed code.
-  const mode = (await autosendEnabled()) ? "sms" : "rep_code";
+  // Verification mode is chosen PER-SIGNUP by the rep (stored on the row):
+  //   "rep_code" = 6-digit code shown on the rep's screen (in-person "Sign now")
+  //   "sms"      = code texted/emailed to the homeowner ("Send for signing")
+  // Old rows with no stored choice fall back to the global autosend flag.
+  const mode = row.delivery_mode || ((await autosendEnabled()) ? "sms" : "rep_code");
   return json(200, {
     ok: true,
     record: {

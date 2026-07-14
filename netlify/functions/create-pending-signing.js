@@ -36,6 +36,14 @@ export const handler = async (event) => {
   if (!client_name) return json(400, { ok: false, error: "client_name required" });
   if (mobileDigits.length < 10 && !email) return json(400, { ok: false, error: "a mobile (10+ digits) or email is required to send the link" });
 
+  // Per-signup code-delivery choice (from which button the rep tapped):
+  //   'rep_code' = "Sign now" → code shown on the rep's screen (no auto-send).
+  //   'sms'      = "Send for signing" → link + code texted/emailed to homeowner.
+  // If the caller doesn't specify, fall back to the global autosend flag.
+  const explicitMode = d.mode === "sms" ? "sms" : d.mode === "rep_code" ? "rep_code" : null;
+  const autosend = explicitMode ? explicitMode === "sms" : await autosendEnabled();
+  const deliveryMode = explicitMode || (autosend ? "sms" : "rep_code");
+
   const token = crypto.randomBytes(16).toString("hex");
   const nowIso = new Date().toISOString();
   // Rep-screen PAIRING CODE: after the homeowner opens the link, the rep's phone
@@ -67,6 +75,7 @@ export const handler = async (event) => {
     has_insurance: (d.has_insurance || "").trim() || null,
     review_availability: (d.review_availability || "").trim() || null,
     document_version: (d.document_version || "insp-v1").trim(),
+    delivery_mode: deliveryMode,
     prepared_by_rep_name: (d.sales_rep_name || "").trim() || null,
     prepared_at: nowIso,
     expires_at: new Date(Date.now() + EXPIRY_MS).toISOString(),
@@ -79,19 +88,18 @@ export const handler = async (event) => {
   if (!ins.ok) return json(500, { ok: false, error: `Insert failed: ${(await ins.text()).slice(0, 200)}` });
   const created = (await ins.json().catch(() => []))[0] || row;
 
-  // Default mode = rep-screen pairing code → do NOT auto-send the link. The rep
-  // shares it in person (QR / copy link). The old text+email auto-send is kept
-  // but gated behind the app_settings flag `remote_signing_autosend` (off by
-  // default) so it can be re-enabled without a redeploy.
-  const autosend = await autosendEnabled();
-  const sent = autosend ? await sendLink(created) : [];
+  // "Send for signing" (sms) → auto-text/email the link now. "Sign now"
+  // (rep_code) → do NOT auto-send; the rep shares it in person (QR / copy link)
+  // and reads the pairing code off their screen. Mode was chosen per-signup
+  // above (falling back to the remote_signing_autosend flag when unspecified).
+  const sent = deliveryMode === "sms" ? await sendLink(created) : [];
   await patchByToken(token, { sent_channels: sent.join("+") || null, sent_at: sent.length ? new Date().toISOString() : null });
 
   return json(200, {
     ok: true, token, sent,
     link: `${siteBase()}/?sign_insp=${token}`,
     pairing_code: pairingCode,
-    mode: autosend ? "sms" : "rep_code",
+    mode: deliveryMode,
   });
 };
 
