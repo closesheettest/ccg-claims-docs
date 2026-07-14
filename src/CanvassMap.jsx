@@ -115,7 +115,7 @@ export default function CanvassMap() {
     <div style={{ position: "fixed", inset: 0, display: "flex", flexDirection: "column", fontFamily: FONT, background: "#f1f5f9" }}>
       {/* Header */}
       <div style={{ padding: "10px 14px", background: "#0f172a", color: "#fff", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <div style={{ fontWeight: 800, fontSize: 16, fontFamily: "'Oswald', sans-serif", letterSpacing: "0.02em" }}>🗺️ Canvassing Map</div>
+        <div style={{ fontWeight: 800, fontSize: 16, fontFamily: "'Oswald', sans-serif", letterSpacing: "0.02em" }}>🌾 Harvesting Map</div>
         <div style={{ fontSize: 12, opacity: 0.8 }}>{mapped.length} mapped{notMapped ? ` · ${notMapped} un-geocoded` : ""}</div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
           <input value={repName} onChange={(e) => saveRep(e.target.value)} placeholder="Your name"

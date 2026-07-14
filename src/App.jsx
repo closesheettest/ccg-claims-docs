@@ -9295,10 +9295,10 @@ export default function App() {
     if (portalMode === "setter") {
       return <SetterPortal Address={AddressAutocomplete} />;
     }
-    // ?mode=canvass — the door-knocking / canvassing map. Uploaded prospect
+    // ?mode=harvest (alias: canvass) — the "Harvesting Map": uploaded prospect
     // addresses show as pins colored by status; a rep taps a pin to update it
     // (IQ → Appt, Not Home, etc.). Self-contained, mobile-first.
-    if (portalMode === "canvass") {
+    if (portalMode === "harvest" || portalMode === "canvass") {
       return <CanvassMap />;
     }
     // /?correct=<inspectionId> — the link we text the originating sales rep
