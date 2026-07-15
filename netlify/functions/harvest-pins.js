@@ -65,7 +65,14 @@ export const handler = async (event) => {
     pins = await sbGet(`canvass_prospects?status=in.(${inList})&latitude=not.is.null&select=${PIN_SELECT}&limit=10000`).catch(() => []);
   }
 
-  return json(200, { ok: true, rep: { name: repName, level }, pins, pin_types: types });
+  // Installs — a read-only reference layer shown to EVERY rep (junior + senior)
+  // as gold stars, so a rep can see where we've already put roofs on. Comes from
+  // the installs table (nightly JN sync), not canvass_prospects.
+  const installs = await sbGet(
+    `installs?latitude=not.is.null&longitude=not.is.null&select=id,jnid,address_line,city,product_type,color,latitude,longitude&limit=10000`,
+  ).catch(() => []);
+
+  return json(200, { ok: true, rep: { name: repName, level }, pins, pin_types: types, installs });
 };
 
 function json(statusCode, obj) {

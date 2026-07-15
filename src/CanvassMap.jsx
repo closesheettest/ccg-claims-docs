@@ -14,13 +14,25 @@ import { supabase } from "./lib/supabase";
 // from that table so the office can edit them on the admin page.
 const FALLBACK_TYPES = [
   { key: "iq", label: "IQ", color: "#2563eb", outcomes: ["iq_ni", "appt"] },
-  { key: "appt", label: "Appointment", color: "#16a34a", outcomes: [], is_terminal: true },
+  { key: "appt", label: "Appointment", color: "#16a34a", outcomes: ["no_sit_reschedule"] },
+  { key: "no_sit_reschedule", label: "No sit – reschedule", color: "#dc2626", outcomes: ["appt", "dead"] },
   { key: "iq_ni", label: "IQ – Not Interested", color: "#f59e0b", outcomes: ["insp_sold", "dead"] },
   { key: "insp", label: "Inspection Lead", color: "#0ea5e9", outcomes: ["insp_sold", "dead"] },
   { key: "insp_sold", label: "Inspection Sold", color: "#7c3aed", outcomes: [], is_terminal: true },
   { key: "dead", label: "Dead / DNK", color: "#111827", outcomes: [], is_terminal: true },
 ];
 const UNKNOWN_TYPE = { color: "#64748b", label: "—", outcomes: [] };
+
+// Gold star for installs (roofs we've already put on) — a read-only reference
+// layer every rep (junior + senior) sees. Distinct shape so it never reads as a
+// canvassing pin.
+const INSTALL_COLOR = "#ca8a04";
+const STAR_ICON = L.divIcon({
+  className: "harvest-install-star",
+  html: `<svg width="24" height="24" viewBox="0 0 24 24" style="filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.45))"><path d="M12 1.8l3 6.1 6.7 1-4.8 4.7 1.1 6.7L12 17.9 6 21l1.1-6.7L2.3 8.9l6.7-1z" fill="${INSTALL_COLOR}" stroke="#fff" stroke-width="1.3" stroke-linejoin="round"/></svg>`,
+  iconSize: [24, 24],
+  iconAnchor: [12, 12],
+});
 const FONT = "'Nunito', system-ui, sans-serif";
 
 export default function CanvassMap() {
@@ -36,6 +48,9 @@ export default function CanvassMap() {
   const [me, setMe] = useState(null);          // { name, level } once signed in
   const [authError, setAuthError] = useState("");
   const [apptPin, setApptPin] = useState(null); // pin being scheduled → appointment
+  const [installs, setInstalls] = useState([]);        // read-only star layer (jr + sr)
+  const [showInstalls, setShowInstalls] = useState(true);
+  const [selectedInstall, setSelectedInstall] = useState(null);
   const S = useMemo(() => Object.fromEntries(pinTypes.map((t) => [t.key, t])), [pinTypes]);
   const repName = me?.name || "";
 
@@ -59,6 +74,7 @@ export default function CanvassMap() {
       setMe(j.rep || null);
       if (Array.isArray(j.pin_types) && j.pin_types.length) setPinTypes(j.pin_types);
       setProspects(j.pins || []);
+      setInstalls(Array.isArray(j.installs) ? j.installs : []);
     } catch (e) { setAuthError(e.message || "Network error."); }
     setLoading(false);
   }
@@ -100,15 +116,24 @@ export default function CanvassMap() {
       const marker = L.circleMarker([p.latitude, p.longitude], {
         radius: 9, color: "#fff", weight: 2, fillColor: color, fillOpacity: 0.95,
       });
-      marker.on("click", () => setSelected(p));
+      marker.on("click", () => { setSelectedInstall(null); setSelected(p); });
       marker.addTo(lyr);
       pts.push([p.latitude, p.longitude]);
+    }
+    // Installs — gold stars, shown to every rep as a reference layer.
+    if (showInstalls) {
+      for (const it of installs) {
+        if (typeof it.latitude !== "number" || typeof it.longitude !== "number") continue;
+        const marker = L.marker([it.latitude, it.longitude], { icon: STAR_ICON });
+        marker.on("click", () => { setSelected(null); setSelectedInstall(it); });
+        marker.addTo(lyr);
+      }
     }
     if (pts.length && !fitted.current) {
       m.fitBounds(pts, { padding: [40, 40], maxZoom: 15 });
       fitted.current = true;
     }
-  }, [mapped, filter]);
+  }, [mapped, filter, installs, showInstalls]);
 
   async function setStatus(p, newStatus) {
     const nowIso = new Date().toISOString();
@@ -170,6 +195,9 @@ export default function CanvassMap() {
         {pinTypes.map((s) => (
           <Chip key={s.key} active={filter === s.key} onClick={() => setFilter(s.key)} color={s.color} label={`${s.label} (${counts[s.key] || 0})`} />
         ))}
+        {installs.length > 0 && (
+          <Chip active={showInstalls} onClick={() => setShowInstalls((v) => !v)} color={INSTALL_COLOR} label={`⭐ Installs (${installs.length})`} />
+        )}
       </div>
 
       {/* Map */}
@@ -273,6 +301,30 @@ export default function CanvassMap() {
             setApptPin(null);
           }}
         />
+      )}
+
+      {/* Selected install sheet — read-only (installs aren't canvassing pins). */}
+      {selectedInstall && (
+        <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: "#fff", borderTopLeftRadius: 18, borderTopRightRadius: 18, boxShadow: "0 -4px 20px rgba(0,0,0,.18)", padding: "16px 18px 22px", zIndex: 1000, maxHeight: "50vh", overflowY: "auto" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.04em", color: INSTALL_COLOR }}>⭐ Install</div>
+              <div style={{ fontSize: 15, color: "#334155", fontWeight: 700, marginTop: 3 }}>{selectedInstall.address_line}</div>
+              <div style={{ fontSize: 13, color: "#64748b" }}>{selectedInstall.city}</div>
+              {(selectedInstall.product_type || selectedInstall.color) && (
+                <div style={{ fontSize: 13, color: "#475569", marginTop: 6 }}>
+                  {[selectedInstall.product_type, selectedInstall.color].filter(Boolean).join(" · ")}
+                </div>
+              )}
+            </div>
+            <button type="button" onClick={() => setSelectedInstall(null)} style={{ background: "none", border: "none", fontSize: 22, color: "#94a3b8", cursor: "pointer", lineHeight: 1 }}>×</button>
+          </div>
+          <a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent([selectedInstall.address_line, selectedInstall.city].filter(Boolean).join(", "))}`}
+            target="_blank" rel="noreferrer"
+            style={{ display: "block", textAlign: "center", marginTop: 14, padding: "12px", borderRadius: 12, background: "#1d4ed8", color: "#fff", fontWeight: 700, fontSize: 14, textDecoration: "none" }}>
+            🧭 Navigate to this address
+          </a>
+        </div>
       )}
     </div>
   );
