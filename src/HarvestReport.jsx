@@ -125,7 +125,12 @@ export default function HarvestReport() {
                     <td colSpan={colSpan} style={{ padding: "4px 10px 14px", background: "#f8fafc" }}>
                       <div style={{ fontSize: 11, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", margin: "6px 0 6px" }}>Stop-by-stop</div>
                       <div style={{ display: "grid", gap: 3 }}>
-                        {[...r.acts].reverse().map((a, i) => {
+                        {[...r.acts].reverse()
+                          // A statused stop logs both a "visit" and the "status" row —
+                          // hide the redundant visit; the status line is the outcome.
+                          // A not-home stop's visit IS its outcome, so keep that.
+                          .filter((a) => !(a.kind === "visit" && a.to_status !== "not_home"))
+                          .map((a, i) => {
                           const pin = pinMap[a.pin_id] || {};
                           return (
                             <div key={i} style={{ display: "flex", gap: 10, alignItems: "baseline", fontSize: 12.5, color: "#334155", padding: "3px 8px", background: a.kind === "arrival" ? "transparent" : "#fff", borderRadius: 6, border: a.kind === "arrival" ? "none" : "1px solid #eef2f7" }}>
