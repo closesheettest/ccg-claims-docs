@@ -62,6 +62,7 @@ export const handler = async (event) => {
       sent_channels: row.sent_channels, sent_at: row.sent_at, opened_at: row.opened_at,
       phone_verified_at: row.phone_verified_at, phone_verified_number: row.phone_verified_number,
       status: row.status, has_phone: hasPhone, has_email: hasEmail, has_contact: hasPhone || hasEmail, mode,
+      sandbox: !!row.sandbox,
     },
   });
 };

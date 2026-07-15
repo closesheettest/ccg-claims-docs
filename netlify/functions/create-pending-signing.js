@@ -76,6 +76,8 @@ export const handler = async (event) => {
     review_availability: (d.review_availability || "").trim() || null,
     document_version: (d.document_version || "insp-v1").trim(),
     delivery_mode: deliveryMode,
+    sandbox: !!d.sandbox,   // training/practice run → never becomes a real deal
+
     prepared_by_rep_name: (d.sales_rep_name || "").trim() || null,
     prepared_at: nowIso,
     expires_at: new Date(Date.now() + EXPIRY_MS).toISOString(),

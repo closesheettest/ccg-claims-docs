@@ -44,17 +44,19 @@ export const handler = async (event) => {
 
   const signedAt = audit.signedAt || new Date().toISOString();
 
-  // TEST signings never touch the real system: a homeowner name containing
-  // "Test" / "Testing" / "Tester" creates NO inspection row and NO JobNimbus
-  // deal (and so no orphan alerts). We just flip the pending row to signed so
-  // the tester still sees the "You're all set" success screen.
-  if (/\btest(ing|er)?\b/i.test(p.client_name || "")) {
+  // SANDBOX (training/practice) and TEST signings never touch the real system:
+  // a practice run (sandbox=true) OR a homeowner name containing "Test" /
+  // "Testing" / "Tester" creates NO inspection row and NO JobNimbus deal (and so
+  // no orphan alerts). We just flip the pending row to signed so the rep still
+  // sees the success screen and experiences the full flow.
+  if (p.sandbox || /\btest(ing|er)?\b/i.test(p.client_name || "")) {
+    const tag = p.sandbox ? "[TRAINING — not saved]" : "[TEST — not pushed to JobNimbus]";
     await patchByToken(token, {
       status: "signed", signed_at: signedAt, inspection_id: null,
-      consent_text: (audit.consentText || "I agree to use electronic records and signatures.") + " [TEST — not pushed to JobNimbus]",
+      consent_text: (audit.consentText || "I agree to use electronic records and signatures.") + " " + tag,
       consent_at: audit.consentAt || signedAt,
     });
-    return json(200, { ok: true, test: true, inspection_id: null });
+    return json(200, { ok: true, test: !p.sandbox, sandbox: !!p.sandbox, inspection_id: null });
   }
 
   const classifyResult = p.obvious_damage ? (p.has_insurance === "yes" ? "damage" : "retail") : null;

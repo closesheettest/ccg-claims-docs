@@ -31,6 +31,7 @@ export const handler = async (event) => {
   const includeAll = event.queryStringParameters?.all === "1"; // audit: include signed/canceled
   // Open = anything not already signed and not already voided/canceled.
   let url = `${SB_URL}/rest/v1/pending_signings?select=${SELECT}` +
+    "&sandbox=eq.false" +   // never surface training/practice runs in the admin list
     (includeAll ? "" : "&status=not.in.(signed,canceled)") +
     `&order=created_at.desc&limit=200`;
   if (q) {

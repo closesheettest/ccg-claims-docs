@@ -8394,6 +8394,19 @@ function PendingSignaturesCard() {
     try { navigator.clipboard.writeText(link); alert("Signing link copied."); } catch { window.prompt("Copy the link:", link); }
   };
 
+  const [clearing, setClearing] = useState(false);
+  const clearSandbox = async () => {
+    if (!window.confirm("Delete ALL training / practice runs? Use this to reset the sandbox after in-classroom training.\n\nReal signings and deals are never touched.")) return;
+    setClearing(true); setErr("");
+    try {
+      const r = await fetch("/.netlify/functions/clear-sandbox", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const d = await r.json().catch(() => ({}));
+      if (!d.ok) { setErr(d.error || "Clear failed."); }
+      else { alert(`Cleared ${d.deleted} practice record${d.deleted === 1 ? "" : "s"}.`); }
+    } catch { setErr("Network error clearing the sandbox."); }
+    setClearing(false);
+  };
+
   const ageStr = (iso) => {
     if (!iso) return "";
     const h = Math.floor((Date.now() - new Date(iso).getTime()) / 3600000);
@@ -8408,6 +8421,14 @@ function PendingSignaturesCard() {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 6 }}>
           <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 18 }}>✍️ Pending signatures</div>
           <button type="button" onClick={() => load(q)} style={{ fontSize: 12.5, fontWeight: 700, color: "#0e7490", background: "none", border: "none", cursor: "pointer" }}>↻ Refresh</button>
+        </div>
+        {/* Training / practice mode — reps rehearse the whole signup+sign flow
+            with no real data. Practice runs never appear in the list above. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "#92400e" }}>🎓 Rep training</span>
+          <a href="/?mode=training" target="_blank" rel="noreferrer" style={{ fontSize: 12.5, fontWeight: 700, color: "#0e7490", textDecoration: "none", border: "1px solid #0e7490", borderRadius: 8, padding: "5px 10px" }}>Open practice link ↗</a>
+          <button type="button" onClick={clearSandbox} disabled={clearing} style={{ fontSize: 12.5, fontWeight: 700, color: "#b91c1c", background: "none", border: "1px solid #fca5a5", borderRadius: 8, padding: "5px 10px", cursor: "pointer", opacity: clearing ? 0.6 : 1 }}>{clearing ? "Clearing…" : "🗑 Clear sandbox"}</button>
+          <span style={{ fontSize: 11.5, color: "#92400e" }}>Practice runs create no deals — clear them after class.</span>
         </div>
         <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 12 }}>
           Links that were sent but not yet signed. Void a stray or duplicate request so its link can't be used.
@@ -8915,9 +8936,18 @@ function SignLinkShare({ link, name, token, pairingCode, mode }) {
 // Module-level so it keeps a STABLE identity across RemoteSignPage re-renders.
 // (Defining it inside the component remounted the whole subtree on every
 // keystroke — which kicked the cursor out of the OTP box after each digit.)
-function RemoteSignFrame({ children }) {
+function TrainingBanner() {
+  return (
+    <div style={{ maxWidth: 540, margin: "0 auto 12px", background: "#f59e0b", color: "#1f2937", borderRadius: 12, padding: "10px 14px", textAlign: "center", fontWeight: 800, fontFamily: "'Oswald', sans-serif", letterSpacing: "0.03em", border: "2px solid #b45309" }}>
+      🎓 TRAINING MODE — practice only. Nothing is saved.
+    </div>
+  );
+}
+
+function RemoteSignFrame({ children, sandbox }) {
   return (
     <div style={{ minHeight: "100vh", background: "#f1f5f9", fontFamily: "'Nunito', system-ui, sans-serif", padding: "18px 14px" }}>
+      {sandbox ? <TrainingBanner /> : null}
       <div style={{ maxWidth: 540, margin: "0 auto 12px", textAlign: "center" }}>
         <img src="/uss-header.png" alt="U.S. Shingle & Metal" style={{ height: 46, objectFit: "contain" }} />
       </div>
@@ -9050,11 +9080,11 @@ function RemoteSignPage({ token }) {
   }
 
   if (stage === "done") {
-    return <RemoteSignFrame><div style={card}><div style={{ textAlign: "center" }}><div style={{ fontSize: 44 }}>✅</div><div style={{ fontSize: 22, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#0f172a", margin: "6px 0 8px" }}>You're all set!</div><div style={{ color: "#374151", fontSize: 15, lineHeight: 1.6 }}>Thank you, {partyName}. Your Free Roof Inspection Agreement is signed{rec?.email ? " — a copy has been emailed to you" : ""}. We'll be in touch to schedule your inspection.</div></div></div>{printable(true)}</RemoteSignFrame>;
+    return <RemoteSignFrame sandbox={!!rec?.sandbox}><div style={card}><div style={{ textAlign: "center" }}><div style={{ fontSize: 44 }}>{rec?.sandbox ? "🎓" : "✅"}</div><div style={{ fontSize: 22, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#0f172a", margin: "6px 0 8px" }}>{rec?.sandbox ? "Practice complete!" : "You're all set!"}</div><div style={{ color: "#374151", fontSize: 15, lineHeight: 1.6 }}>{rec?.sandbox ? "Nice work — you finished the whole signing flow. In a real signup, this is where the deal is created in JobNimbus. Nothing was saved." : <>Thank you, {partyName}. Your Free Roof Inspection Agreement is signed{rec?.email ? " — a copy has been emailed to you" : ""}. We'll be in touch to schedule your inspection.</>}</div></div></div>{rec?.sandbox ? null : printable(true)}</RemoteSignFrame>;
   }
 
   return (
-    <RemoteSignFrame>
+    <RemoteSignFrame sandbox={!!rec?.sandbox}>
       <div style={card}>
         <div style={{ fontSize: 20, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#0f172a", marginBottom: 4 }}>Free Roof Inspection Agreement</div>
         <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 16 }}>{partyName}{addr ? ` · ${addr}` : ""}</div>
@@ -9376,7 +9406,7 @@ export default function App() {
     const stickyInspector = (() => {
       try { return localStorage.getItem("uss_inspector") === "1"; } catch { return false; }
     })();
-    if (!params.get("intake") && !params.get("sign") && portalMode !== "inspector" && portalMode !== "manager" && !stickyInspector) {
+    if (!params.get("intake") && !params.get("sign") && portalMode !== "inspector" && portalMode !== "manager" && portalMode !== "training" && !stickyInspector) {
       return <RepVisitHub />;
     }
   }
@@ -9395,6 +9425,13 @@ export default function App() {
     if (!mode) { try { if (localStorage.getItem("uss_inspector") === "1") return "inspector"; } catch { /* private mode */ } }
     return "input";
   });
+  // ?mode=training → practice/sandbox run. The full flow works for real (real
+  // 6-digit code, real review & sign), but nothing permanent is created — no
+  // inspection row, no JobNimbus deal (finalize-remote-signing short-circuits on
+  // the sandbox flag). Reps rehearse the whole thing without touching real data.
+  const isTraining = (() => {
+    try { return new URLSearchParams(window.location.search).get("mode") === "training"; } catch { return false; }
+  })();
   // ── Guided intake mode ──────────────────────────────────────────
   // When true, the intake screen replaces the all-at-once form with a
   // step-by-step interview flow for new reps. Quick mode (the original
@@ -12248,7 +12285,7 @@ const renderSmsTemplate = (key, vars) => {
               address: data.address || "", city: data.city || "", state: data.state || "", zip: data.zip || "",
               date: data.date || "", roof_type: data.roof_type || "Shingle", lead_source: data.leadSource || "Inspection",
               spanish_only: !!data.spanish_only, language: data.language || "english", sales_rep_name: data.salesRepName || "", sales_rep_id: data.salesRepId || "", sales_rep_email: data.salesRepEmail || "",
-              review_availability: reviewAvail || "", document_version: "insp-v1", mode: codeDelivery,
+              review_availability: reviewAvail || "", document_version: "insp-v1", mode: codeDelivery, sandbox: isTraining,
             } }),
           });
           const j = await r.json().catch(() => ({}));
@@ -14166,6 +14203,12 @@ if (!hasDamage) {
         }}
       >
         {showRepHelp ? <RepHelpModal onClose={() => setShowRepHelp(false)} /> : null}
+
+        {isTraining ? (
+          <div style={{ background: "#f59e0b", color: "#1f2937", borderRadius: 12, padding: "12px 16px", textAlign: "center", fontWeight: 800, fontFamily: "'Oswald', sans-serif", letterSpacing: "0.03em", border: "2px solid #b45309" }}>
+            🎓 TRAINING MODE — practice run. Everything works for real (real 6-digit code), but <u>nothing is saved</u> — no inspection, no JobNimbus deal.
+          </div>
+        ) : null}
 
         {view === "input" ? (
           <Card>
