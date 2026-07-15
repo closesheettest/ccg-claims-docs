@@ -35,7 +35,7 @@
 //   • jn_job_id        IS NOT NULL  (JN job exists)
 //   • cancelled_at     IS NULL      (not voided)
 //   • jn_cert_uploaded_at IS NULL   (cert not in JN yet)
-//   • result_at < now - 15 min      (don't race the original background fire)
+//   • result_at < now - 30 min      (don't race the original background fire)
 //
 // Schedule: hourly at :20 (avoids overlapping cron-push-pending-results
 // at :05 and the 15-min inspection-checker on :00/:15/:30/:45).
@@ -89,7 +89,10 @@ exports.handler = async (event) => {
   //    them is wasted work + a daily false-positive admin SMS.
   const VALID_RESULTS = ['damage', 'retail', 'no_damage'];
   const resultInParam = VALID_RESULTS.map((r) => `"${r}"`).join(',');
-  const cutoffIso = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+  // 30-min fence (widened from 15 after Paul Gladney 2026-07-15: a render that
+  // ran ~16 min finished fine, but the retry fired at the 15-min mark, collided
+  // with the still-running generator, and 504'd — a false-alarm cert-retry SMS).
+  const cutoffIso = new Date(Date.now() - 30 * 60 * 1000).toISOString();
   const q =
     `select=id,client_name,address,jn_job_id,result,result_at,inspector_id,jn_status` +
     `&inspector_id=not.is.null` +
