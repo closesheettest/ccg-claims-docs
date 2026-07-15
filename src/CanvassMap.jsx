@@ -65,6 +65,13 @@ export default function CanvassMap() {
   const [installs, setInstalls] = useState([]);        // read-only star layer (jr + sr)
   const [showInstalls, setShowInstalls] = useState(true);
   const [selectedInstall, setSelectedInstall] = useState(null);
+  // "Start my day" route planner.
+  const [dayMode, setDayMode] = useState(null);        // null | 'choosing' | 'active'
+  const [route, setRoute] = useState([]);              // ordered stops (nearest-first)
+  const [stopIdx, setStopIdx] = useState(0);
+  const choosingRef = useRef(false);                   // map-click reads this (avoid stale closure)
+  const shownRef = useRef([]);                         // current on-screen prospects, for routing
+  const startFromRef = useRef(null);
   const S = useMemo(() => Object.fromEntries(pinTypes.map((t) => [t.key, t])), [pinTypes]);
   const repName = me?.name || "";
 
@@ -102,6 +109,10 @@ export default function CanvassMap() {
       maxZoom: 19, attribution: "&copy; OpenStreetMap",
     }).addTo(m);
     map.current = m;
+    // "Start my day": while choosing a start point, a map tap starts the route there.
+    m.on("click", (e) => {
+      if (choosingRef.current && startFromRef.current) startFromRef.current({ lat: e.latlng.lat, lng: e.latlng.lng });
+    });
     // Cluster group so a zoomed-out map groups nearby pins into a numbered
     // bubble; zooming in splits them back into individual pins/stars.
     layer.current = L.markerClusterGroup({
@@ -132,6 +143,7 @@ export default function CanvassMap() {
     if (!m || !lyr) return;
     lyr.clearLayers();
     const shown = mapped.filter((p) => filter === "all" || p.status === filter);
+    shownRef.current = shown; // for "Start my day" routing
     const markers = [];
     const pts = [];
     for (const p of shown) {
@@ -166,6 +178,56 @@ export default function CanvassMap() {
     if (error) { alert(error.message); return; }
     setProspects((list) => list.map((x) => (x.id === p.id ? { ...x, ...patch } : x)));
     setSelected((s) => (s && s.id === p.id ? { ...s, ...patch } : s));
+  }
+
+  // ── Start my day ───────────────────────────────────────────────────────
+  // Order the on-screen prospect pins nearest-first from a start point (the
+  // rep's location or a tapped spot), then walk them one stop at a time.
+  useEffect(() => { choosingRef.current = dayMode === "choosing"; }, [dayMode]);
+
+  function buildRoute(start, pins) {
+    const rem = pins.filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number");
+    const out = [];
+    let cur = start;
+    while (rem.length) {
+      let bi = 0, bd = Infinity;
+      for (let i = 0; i < rem.length; i++) {
+        const dx = cur.lat - rem[i].latitude, dy = cur.lng - rem[i].longitude;
+        const d = dx * dx + dy * dy;
+        if (d < bd) { bd = d; bi = i; }
+      }
+      const nx = rem.splice(bi, 1)[0];
+      out.push(nx);
+      cur = { lat: nx.latitude, lng: nx.longitude };
+    }
+    return out;
+  }
+  function startFrom(pt) {
+    const r = buildRoute(pt, shownRef.current || []);
+    if (!r.length) { alert("No stops on the map to route. Load leads or change the filter, then start your day."); setDayMode(null); return; }
+    setRoute(r); setStopIdx(0); setDayMode("active");
+    if (map.current) map.current.setView([r[0].latitude, r[0].longitude], 15);
+  }
+  startFromRef.current = startFrom;
+  function useMyLocation() {
+    if (!navigator.geolocation) { alert("Location isn't available on this device — tap the map to pick a start point."); return; }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => startFrom({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => alert("Couldn't get your location. Allow location access, or tap the map to pick a start point."),
+      { enableHighAccuracy: true, timeout: 10000 },
+    );
+  }
+  function nextStop() {
+    setStopIdx((i) => {
+      const ni = i + 1;
+      if (ni < route.length && map.current) map.current.setView([route[ni].latitude, route[ni].longitude], 15);
+      return ni;
+    });
+  }
+  function startOver() { setDayMode(null); setRoute([]); setStopIdx(0); }
+  function dirTo(p) {
+    const dest = [p.address, p.city, p.state, p.zip].filter(Boolean).join(", ") || `${p.latitude},${p.longitude}`;
+    window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}`, "_blank");
   }
 
   const counts = useMemo(() => {
@@ -233,6 +295,63 @@ export default function CanvassMap() {
             No pins in your area yet. The office loads leads from the admin section.
           </div>
         )}
+
+        {/* ── Start my day ── */}
+        {dayMode === null && prospects.length > 0 && (
+          <button type="button" onClick={() => setDayMode("choosing")}
+            style={{ position: "absolute", left: 12, bottom: 16, zIndex: 600, background: "#16a34a", color: "#fff", border: "none", borderRadius: 999, padding: "13px 20px", fontSize: 15, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
+            ▶ Start my day
+          </button>
+        )}
+
+        {dayMode === "choosing" && (
+          <div style={{ position: "absolute", left: "50%", top: 16, transform: "translateX(-50%)", zIndex: 600, background: "#fff", borderRadius: 14, padding: "16px 18px", boxShadow: "0 4px 18px rgba(0,0,0,.2)", width: "min(360px, 92%)", textAlign: "center" }}>
+            <div style={{ fontSize: 16, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#0f172a", marginBottom: 6 }}>Where are you starting?</div>
+            <div style={{ fontSize: 13, color: "#64748b", marginBottom: 14 }}>Start from your location, or <b>tap anywhere on the map</b> to start there. We'll route your stops nearest-first.</div>
+            <button type="button" onClick={useMyLocation}
+              style={{ width: "100%", background: "#16a34a", color: "#fff", border: "none", borderRadius: 12, padding: "13px", fontSize: 15, fontWeight: 800, cursor: "pointer", marginBottom: 8 }}>
+              📍 Start from my location
+            </button>
+            <button type="button" onClick={() => setDayMode(null)}
+              style={{ width: "100%", background: "#fff", color: "#64748b", border: "1px solid #e5e7eb", borderRadius: 12, padding: "11px", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}>
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {dayMode === "active" && (() => {
+          const done = stopIdx >= route.length;
+          const stop = done ? null : route[stopIdx];
+          return (
+            <div style={{ position: "absolute", left: "50%", top: 16, transform: "translateX(-50%)", zIndex: 600, background: "#fff", borderRadius: 14, padding: "14px 16px", boxShadow: "0 4px 18px rgba(0,0,0,.2)", width: "min(380px, 94%)" }}>
+              {done ? (
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 30 }}>🎉</div>
+                  <div style={{ fontSize: 16, fontWeight: 800, fontFamily: "'Oswald', sans-serif", margin: "4px 0 10px" }}>That's every stop — nice work!</div>
+                  <button type="button" onClick={startOver} style={{ width: "100%", background: "#16a34a", color: "#fff", border: "none", borderRadius: 12, padding: "12px", fontSize: 14.5, fontWeight: 800, cursor: "pointer" }}>▶ Start a new route</button>
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", color: "#16a34a" }}>Stop {stopIdx + 1} of {route.length}</span>
+                    <button type="button" onClick={startOver} style={{ background: "none", border: "none", fontSize: 12.5, fontWeight: 700, color: "#94a3b8", cursor: "pointer" }}>↺ Start over</button>
+                  </div>
+                  {stop.name && <div style={{ fontSize: 15.5, fontWeight: 800 }}>{stop.name}</div>}
+                  <div style={{ fontSize: 13.5, color: "#334155", fontWeight: 600 }}>{stop.address}</div>
+                  <div style={{ fontSize: 12.5, color: "#64748b" }}>{[stop.city, stop.state, stop.zip].filter(Boolean).join(", ")}</div>
+                  <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                    <button type="button" onClick={() => dirTo(stop)} style={{ flex: 2, background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 12, padding: "12px", fontSize: 14.5, fontWeight: 800, cursor: "pointer" }}>
+                      🧭 Directions to {stopIdx === 0 ? "first stop" : "this stop"}
+                    </button>
+                    <button type="button" onClick={nextStop} style={{ flex: 1, background: "#fff", color: "#16a34a", border: "1px solid #16a34a", borderRadius: 12, padding: "12px", fontSize: 14, fontWeight: 800, cursor: "pointer" }}>
+                      Next ›
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Selected prospect sheet */}

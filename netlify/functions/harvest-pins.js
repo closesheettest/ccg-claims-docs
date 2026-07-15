@@ -23,6 +23,22 @@ export const handler = async (event) => {
     if (!r.ok) throw new Error(await r.text());
     return r.json();
   };
+  // Paged fetch — PostgREST caps every response at 1000 rows (max-rows), so a
+  // `limit=10000` still stops at 1000. Walk Range windows until fully drained.
+  const sbGetAll = async (path, pageSize = 1000) => {
+    const out = [];
+    for (let from = 0; ; from += pageSize) {
+      const r = await fetch(`${SB_URL}/rest/v1/${path}`, {
+        headers: { ...sbH, "Range-Unit": "items", Range: `${from}-${from + pageSize - 1}` },
+      });
+      if (!r.ok) break;
+      const batch = await r.json().catch(() => []);
+      if (!Array.isArray(batch) || batch.length === 0) break;
+      out.push(...batch);
+      if (batch.length < pageSize) break;
+    }
+    return out;
+  };
 
   const p = event.queryStringParameters || {};
   const rt = (p.rt || "").trim();
@@ -68,8 +84,8 @@ export const handler = async (event) => {
   // Installs — a read-only reference layer shown to EVERY rep (junior + senior)
   // as gold stars, so a rep can see where we've already put roofs on. Comes from
   // the installs table (nightly JN sync), not canvass_prospects.
-  const installs = await sbGet(
-    `installs?latitude=not.is.null&longitude=not.is.null&select=id,jnid,address_line,city,product_type,color,latitude,longitude&limit=10000`,
+  const installs = await sbGetAll(
+    `installs?latitude=not.is.null&longitude=not.is.null&select=id,jnid,address_line,city,product_type,color,latitude,longitude&order=id`,
   ).catch(() => []);
 
   return json(200, { ok: true, rep: { name: repName, level }, pins, pin_types: types, installs });
