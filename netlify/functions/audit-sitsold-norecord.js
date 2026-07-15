@@ -34,33 +34,60 @@ exports.handler = async (event) => {
   try {
     const jobs = await fetchStatusJobs(STATUS);
 
-    // Records already linked to these jnids (so we can skip the ones WITH a record).
+    // Map EVERY inspection record on these jnids (incl. cancelled) so we can tell
+    // "no record at all" apart from "record exists but is cancelled".
     const jnids = jobs.map((j) => j.jnid || j.id).filter(Boolean);
-    const linked = new Set();
+    const byJnid = {}; // jnid -> {id, result, cancelled}
     for (let i = 0; i < jnids.length; i += 80) {
       const chunk = jnids.slice(i, i + 80).map((x) => `"${x}"`).join(",");
-      const got = await sbGet(`inspections?jn_job_id=in.(${encodeURIComponent(chunk)})&select=jn_job_id,cancelled_at`);
-      for (const r of got) if (!r.cancelled_at) linked.add(r.jn_job_id);
+      const got = await sbGet(`inspections?jn_job_id=in.(${encodeURIComponent(chunk)})&select=id,jn_job_id,result,cancelled_at`);
+      for (const r of got) {
+        const prev = byJnid[r.jn_job_id];
+        // Prefer a LIVE (uncancelled) record if there are several on one jnid.
+        if (!prev || (prev.cancelled && !r.cancelled_at)) byJnid[r.jn_job_id] = { id: r.id, result: r.result || null, cancelled: !!r.cancelled_at };
+      }
     }
 
-    // Candidates = the exact set the daily alert flags: sold, non-lead, non-test,
-    // no live inspection record on this jnid.
+    // Candidates = the exact set the daily alert flags: sold, non-lead,
+    // non-test, with no LIVE (uncancelled) inspection record on this jnid.
+    let testExcluded = 0;
     const candidates = [];
     for (const j of jobs) {
       const id = j.jnid || j.id;
-      if (!id || linked.has(id)) continue;
+      if (!id) continue;
+      const rec = byJnid[id];
+      if (rec && !rec.cancelled) continue; // has a live record — fine
       const nm = (j.name || "").trim();
-      const isLead = String(j.record_type_name || "").toLowerCase() === "lead";
+      const rt = String(j.record_type_name || "").trim().toLowerCase();
+      const isLead = rt === "lead";
+      const isTest = /test/i.test(nm) || /test/.test(rt); // name OR record_type "TEST LEAD"
       const sold = Number(j.cf_date_5 || j["Sold Date"] || 0);
-      if (/test/i.test(nm) || isLead || !(sold > 0)) continue;
+      if (isTest) { testExcluded++; continue; }
+      if (isLead || !(sold > 0)) continue;
       candidates.push(j);
     }
 
     // Diagnose each candidate against the inspections table.
     const items = [];
-    const buckets = { record_on_sibling: 0, record_unlinked: 0, no_record: 0 };
+    const buckets = { cancelled_same_job: 0, record_on_sibling: 0, record_unlinked: 0, no_record: 0 };
     for (const j of candidates) {
       const id = j.jnid || j.id;
+
+      // Direct link first: a record IS on this jnid but cancelled → app cancelled
+      // it, JN just still shows Sit Sold Insp (no dupe, no missing data).
+      const onJob = byJnid[id];
+      if (onJob && onJob.cancelled) {
+        buckets.cancelled_same_job++;
+        items.push({
+          bucket: "cancelled_same_job",
+          note: `Record ${onJob.id} is on THIS job but cancelled — app cancelled it; JN status still Sit Sold Insp.`,
+          name: (j.name || "").trim(), address: j.address_line1 || "", zip: String(j.zip || "").trim(),
+          jnid: id, jn_url: `https://app.jobnimbus.com/job/${id}`,
+          match: { id: onJob.id, client: null, address: null, result: onJob.result, cancelled: true, sibling_jn: id, sibling_url: null },
+        });
+        continue;
+      }
+
       const nm = parseName(j.name);
       const street = String(j.address_line1 || j.address || "").toLowerCase().replace(/\s+/g, " ").trim();
       const num = (street.match(/^\d+/) || [""])[0];
@@ -97,9 +124,9 @@ exports.handler = async (event) => {
       });
     }
 
-    const order = { record_on_sibling: 0, record_unlinked: 1, no_record: 2 };
+    const order = { record_on_sibling: 0, cancelled_same_job: 1, record_unlinked: 2, no_record: 3 };
     items.sort((a, b) => order[a.bucket] - order[b.bucket]);
-    return json(200, { ok: true, sit_sold_total: jobs.length, no_record: candidates.length, by_bucket: buckets, items });
+    return json(200, { ok: true, sit_sold_total: jobs.length, flagged: candidates.length, test_excluded: testExcluded, by_bucket: buckets, items });
   } catch (e) {
     return json(500, { ok: false, error: e.message || "error" });
   }
