@@ -18,6 +18,7 @@ import RepVisitHub from "./RepVisitHub";
 import SetterPortal from "./SetterPortal";
 import CanvassMap from "./CanvassMap";
 import HarvestAdmin from "./HarvestAdmin";
+import HarvestUpload from "./HarvestUpload";
 import ReviewApptPicker from "./ReviewApptPicker";
 import JnMatchPickerModal from "./JnMatchPickerModal";
 import ManagerRecordsView from "./ManagerRecordsView";
@@ -4384,6 +4385,7 @@ const MANAGER_TILES = [
 
   // ── Harvesting ── (these open standalone routes, hence `href`)
   { group: "harvest", key: "harvest_map", emoji: "🗺️", label: "Harvesting Map", desc: "The door-knock map — pins by status, reps update them in the field.", href: "/?mode=harvest" },
+  { group: "harvest", key: "harvest_upload", emoji: "📥", label: "Load Leads", desc: "Upload a CSV of leads (office-only), mark its pin type, and delete a bad upload.", href: "/?mode=harvestupload" },
   { group: "harvest", key: "harvest_types", emoji: "🎛️", label: "Pin Types", desc: "Create & edit pin types: color, who can see them, and each one's allowed outcomes.", href: "/?mode=harvestadmin" },
   // ── Inspections ──
   { group: "inspections", key: "team_roles", emoji: "🧑‍🤝‍🧑", label: "Team Roles", desc: "One list of everyone — check Inspector and/or PA to set each person's role. Start here when setting someone up." },
@@ -9341,6 +9343,10 @@ export default function App() {
     // (color, who can see them, allowed outcomes). Reads/writes harvest_pin_types.
     if (portalMode === "harvestadmin") {
       return <HarvestAdmin />;
+    }
+    // ?mode=harvestupload — office lead upload page (CSV/paste + past uploads).
+    if (portalMode === "harvestupload") {
+      return <HarvestUpload />;
     }
     // /?correct=<inspectionId> — the link we text the originating sales rep
     // + their regional manager when a Public Adjuster flags "Correction

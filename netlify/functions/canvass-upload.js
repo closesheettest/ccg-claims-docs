@@ -12,6 +12,8 @@
 // Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, GOOGLE_MAPS_API_KEY
 //      (or VITE_GOOGLE_PLACES_API_KEY)
 
+import { randomUUID } from "crypto";
+
 const GOOGLE_BASE = "https://maps.googleapis.com/maps/api/geocode/json";
 const MAX_ROWS = 400;       // cap per call to stay under the function timeout
 const CONCURRENCY = 5;      // parallel geocode requests
@@ -102,6 +104,7 @@ export const handler = async (event) => {
     }
   } catch { /* if we can't read, just insert all below */ }
 
+  const uploadId = randomUUID(); // this batch — tags new pins so it can be deleted
   const toInsert = [];
   let updated = 0, skipped = 0;
   const nowIso = new Date().toISOString();
@@ -124,13 +127,20 @@ export const handler = async (event) => {
   await Promise.all(updates);
 
   if (toInsert.length) {
+    const tagged = toInsert.map((r) => ({ ...r, upload_id: uploadId }));
     const ins = await fetch(`${SB_URL}/rest/v1/canvass_prospects`, {
-      method: "POST", headers: { ...sbH, Prefer: "return=minimal" }, body: JSON.stringify(toInsert),
+      method: "POST", headers: { ...sbH, Prefer: "return=minimal" }, body: JSON.stringify(tagged),
     });
     if (!ins.ok) return json(500, { ok: false, error: `Insert failed: ${(await ins.text()).slice(0, 200)}` });
   }
 
-  return json(200, { ok: true, inserted: toInsert.length, updated, skipped, geocoded, failed, list_name: listName });
+  // Log the batch so the office can see it in the uploads list and delete it.
+  await fetch(`${SB_URL}/rest/v1/harvest_uploads`, {
+    method: "POST", headers: { ...sbH, Prefer: "return=minimal" },
+    body: JSON.stringify({ id: uploadId, list_name: listName, default_type: defaultType, inserted: toInsert.length, updated, skipped, uploaded_by: (body.uploaded_by || "").toString().trim() || null, uploaded_at: nowIso }),
+  }).catch(() => {});
+
+  return json(200, { ok: true, upload_id: uploadId, inserted: toInsert.length, updated, skipped, geocoded, failed, list_name: listName });
 };
 
 async function sbGet(url, headers) {
