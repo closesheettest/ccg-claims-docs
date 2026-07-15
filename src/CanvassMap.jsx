@@ -88,6 +88,7 @@ export default function CanvassMap() {
   const [round, setRound] = useState(1);               // 1st round, 2nd round, …
   const [resolvedIds, setResolvedIds] = useState(() => new Set()); // pins the rep has STATUSED this session (drop from later rounds)
   const workingRef = useRef(new Set());                // the ORIGINAL round-1 routed pin ids — later rounds only recycle these, minus statused
+  const arrivedRef = useRef(null);                     // { key } — already logged arrival at this stop
   const [panelPos, setPanelPos] = useState(null);      // {left,top} px if dragged, else default bottom-right
   const panelDrag = useRef(null);
   const watchRef = useRef(null);
@@ -234,6 +235,20 @@ export default function CanvassMap() {
     watchRef.current = id;
     return () => { try { navigator.geolocation.clearWatch(id); } catch { /* ignore */ } };
   }, [dayMode]);
+
+  // Log an "arrival" the first time the rep gets within range of the current stop,
+  // so the report can measure time-at-spot (arrival → the outcome tap).
+  useEffect(() => {
+    if (dayMode !== "active" || !myLoc) return;
+    const stop = route[stopIdx];
+    if (!stop || typeof stop.latitude !== "number") return;
+    const key = `${round}:${stopIdx}:${stop.id}`;
+    if (arrivedRef.current === key) return;
+    if (feetBetween(myLoc, { lat: stop.latitude, lng: stop.longitude }) <= ARRIVE_FT) {
+      arrivedRef.current = key;
+      logActivity({ pin_id: stop.id, kind: "arrival" });
+    }
+  }, [myLoc, stopIdx, dayMode, route, round]);
 
   // Draw the route ON the map — a line through the stops in order + numbered
   // circles (current = green, visited = grey, upcoming = white). So the rep sees
