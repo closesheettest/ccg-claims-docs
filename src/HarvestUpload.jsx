@@ -188,13 +188,21 @@ function parseRows(text, defaultType, types) {
   const iZ = idx(["zip", "zipcode", "zip code", "postal", "postal code"]);
   const iN = idx(["name", "homeowner", "owner", "full name"]);
   const iT = idx(["type", "pin type", "pintype", "status", "pin"]);
+  const mapped = new Set([iA, iC, iS, iZ, iN, iT].filter((i) => i >= 0));
   const rows = [];
   for (let li = 1; li < lines.length; li++) {
     const cols = splitCsv(lines[li]);
     const get = (i) => (i >= 0 ? (cols[i] || "") : "");
     const address = (iA >= 0 ? get(iA) : cols[0]) || "";
     if (!address) continue;
-    rows.push({ address, city: get(iC) || null, state: get(iS) || null, zip: get(iZ) || null, name: get(iN) || null, type: resolveType(get(iT)) });
+    // Every OTHER column → extra, keyed by its header, so nothing is lost.
+    const extra = {};
+    for (let c = 0; c < header.length; c++) {
+      if (mapped.has(c)) continue;
+      const v = (cols[c] || "").trim();
+      if (v && header[c]) extra[header[c]] = v;
+    }
+    rows.push({ address, city: get(iC) || null, state: get(iS) || null, zip: get(iZ) || null, name: get(iN) || null, type: resolveType(get(iT)), extra: Object.keys(extra).length ? extra : undefined });
   }
   return rows;
 }

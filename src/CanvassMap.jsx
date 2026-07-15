@@ -147,6 +147,13 @@ export default function CanvassMap() {
       <div style={{ padding: "10px 14px", background: "#0f172a", color: "#fff", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <div style={{ fontWeight: 800, fontSize: 16, fontFamily: "'Oswald', sans-serif", letterSpacing: "0.02em" }}>🌾 Harvesting Map</div>
         <div style={{ fontSize: 12, opacity: 0.8 }}>{mapped.length} pins</div>
+        {me?.level === "admin" && (
+          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+            <a href="/?mode=harvestupload" style={{ color: "#cbd5e1", fontSize: 12.5, fontWeight: 700, textDecoration: "none" }}>📥 Load Leads</a>
+            <a href="/?mode=harvestlinks" style={{ color: "#cbd5e1", fontSize: 12.5, fontWeight: 700, textDecoration: "none" }}>🔗 Rep Links</a>
+            <a href="/?mode=harvestadmin" style={{ color: "#cbd5e1", fontSize: 12.5, fontWeight: 700, textDecoration: "none" }}>🎛️ Pin Types</a>
+          </div>
+        )}
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
           {me ? (
             <span style={{ fontSize: 12.5, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
@@ -194,6 +201,28 @@ export default function CanvassMap() {
             </div>
             <button type="button" onClick={() => setSelected(null)} style={{ background: "none", border: "none", fontSize: 22, color: "#94a3b8", cursor: "pointer", lineHeight: 1 }}>×</button>
           </div>
+
+          {/* All the info we have on this pin */}
+          {(() => {
+            const rows = [];
+            if (selected.extra && typeof selected.extra === "object") {
+              for (const [k, v] of Object.entries(selected.extra)) if (v != null && String(v).trim()) rows.push([k, String(v)]);
+            }
+            if (selected.list_name) rows.push(["List", selected.list_name]);
+            if (selected.status_updated_at) rows.push(["Updated", new Date(selected.status_updated_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })]);
+            if (selected.notes) rows.push(["Notes", selected.notes]);
+            if (!rows.length) return null;
+            return (
+              <div style={{ marginTop: 12, borderTop: "1px solid #f1f5f9", paddingTop: 10, display: "grid", gap: 4 }}>
+                {rows.map(([k, v], i) => (
+                  <div key={k + i} style={{ display: "flex", gap: 8, fontSize: 12.5 }}>
+                    <span style={{ color: "#94a3b8", fontWeight: 700, minWidth: 96, textTransform: "capitalize", flexShrink: 0 }}>{k}</span>
+                    <span style={{ color: "#334155", fontWeight: 600, wordBreak: "break-word" }}>{v}</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
 
           {(() => {
             // Behavior flow: offer only the outcomes this pin type allows. If the
@@ -262,12 +291,12 @@ function Chip({ active, onClick, color, label }) {
 // 1–4 / 5 / 6). Built in the rep's local time (reps are in ET).
 const APPT_HOURS = { 1: [11, 14, 17, 19], 2: [11, 14, 17, 19], 3: [11, 14, 17, 19], 4: [11, 14, 17, 19], 5: [9, 12, 15], 6: [9, 12] };
 function genSlots(days = 14) {
-  const out = []; const now = Date.now(); const b = new Date();
-  for (let d = 0; d < days; d++) {
+  const out = []; const b = new Date();
+  // Start at d=1 (tomorrow) — no same-day appointments.
+  for (let d = 1; d <= days; d++) {
     const day = new Date(b.getFullYear(), b.getMonth(), b.getDate() + d);
     for (const h of (APPT_HOURS[day.getDay()] || [])) {
-      const dt = new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, 0, 0);
-      if (dt.getTime() > now) out.push({ iso: dt.toISOString(), dt });
+      out.push({ iso: new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, 0, 0).toISOString(), dt: new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, 0, 0) });
     }
   }
   return out;
@@ -277,9 +306,16 @@ const hourLabel = (d) => d.toLocaleTimeString("en-US", { hour: "numeric" });
 
 const slotKey = (d) => `${d.toDateString()}-${d.getHours()}`;
 
+// Pull a phone/email out of the pin's CSV "extra" columns if present.
+const extraVal = (pin, names) => {
+  const e = pin.extra || {};
+  for (const k of Object.keys(e)) if (names.some((n) => k.toLowerCase().includes(n)) && e[k]) return String(e[k]);
+  return "";
+};
+
 function AppointmentModal({ pin, rt, onClose, onBooked }) {
-  const [phone, setPhone] = useState(pin.mobile || "");
-  const [email, setEmail] = useState(pin.email || "");
+  const [phone, setPhone] = useState(pin.mobile || extraVal(pin, ["phone", "mobile", "cell"]));
+  const [email, setEmail] = useState(pin.email || extraVal(pin, ["email", "e-mail"]));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [booked, setBooked] = useState(null); // null = still checking JN

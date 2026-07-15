@@ -11,7 +11,8 @@
 // Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
 
 const REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1";
-const PIN_SELECT = "id,name,address,city,state,zip,latitude,longitude,status,status_by,status_updated_at,upload_id";
+// NOTE: `extra` intentionally omitted until sql/canvass_prospects_extra.sql runs.
+const PIN_SELECT = "id,name,address,city,state,zip,latitude,longitude,status,status_by,status_updated_at,upload_id,notes,status_log,list_name,jn_job_id,created_at";
 
 export const handler = async (event) => {
   const SB_URL = process.env.VITE_SUPABASE_URL;
