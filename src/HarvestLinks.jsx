@@ -58,8 +58,12 @@ export default function HarvestLinks() {
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search reps…" style={{ fontSize: 13, padding: "7px 10px", borderRadius: 8, border: "1px solid #cbd5e1", minWidth: 180 }} />
           </div>
           <div style={{ display: "grid", gap: 6 }}>
-            {reps.map((r) => (
-              <div key={r.link} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", border: "1px solid #e5e7eb", borderRadius: 10, padding: "9px 12px", background: "#fff" }}>
+            {reps.map((r, i) => {
+              const showRegion = i === 0 || r.region !== reps[i - 1].region;
+              return (
+              <React.Fragment key={r.link}>
+                {showRegion && <div style={{ fontSize: 13, fontWeight: 800, fontFamily: OSWALD, color: "#0f172a", margin: i === 0 ? "0 0 2px" : "12px 0 2px" }}>📍 {r.region || "No region"}</div>}
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", border: "1px solid #e5e7eb", borderRadius: 10, padding: "9px 12px", background: "#fff" }}>
                 <span style={{ fontSize: 10.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.04em", background: r.level === "senior" ? "#16a34a" : "#334155", color: "#fff", padding: "2px 8px", borderRadius: 10 }}>{r.level}</span>
                 <span style={{ fontSize: 14, fontWeight: 700 }}>{r.name}</span>
                 <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
@@ -67,7 +71,9 @@ export default function HarvestLinks() {
                   <button type="button" onClick={() => copy(r.link, r.link)} style={btn}>{copied === r.link ? "✓ Copied" : "Copy link"}</button>
                 </div>
               </div>
-            ))}
+              </React.Fragment>
+              );
+            })}
           </div>
         </>
       )}

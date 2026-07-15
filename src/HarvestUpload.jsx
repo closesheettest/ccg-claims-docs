@@ -74,13 +74,30 @@ function UploadForm({ types, onDone }) {
   const [markType, setMarkType] = useState("iq");
   const [text, setText] = useState("");
   const [fileName, setFileName] = useState("");
+  const [mapping, setMapping] = useState({});
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
 
   useEffect(() => { if (types.length && !types.find((t) => t.key === markType)) setMarkType(types[0].key); }, [types]); // eslint-disable-line
 
-  const parsed = useMemo(() => parseRows(text, markType, types), [text, markType, types]);
-  const typeCounts = useMemo(() => { const c = {}; for (const r of parsed) c[r.type] = (c[r.type] || 0) + 1; return c; }, [parsed]);
+  const table = useMemo(() => parseTable(text), [text]);
+  const headers = table.headers;
+
+  useEffect(() => {
+    if (!headers.length) { setMapping({}); return; }
+    setMapping({
+      address: guessCol(headers, ["address", "street address", "street", "address1", "addr", "property address", "mailing address"]),
+      name: guessCol(headers, ["name", "full name", "homeowner", "owner", "contact", "first name"]),
+      phone: guessCol(headers, ["phone", "mobile", "cell", "phone number", "mobile phone"]),
+      email: guessCol(headers, ["email", "e-mail", "email address"]),
+      city: guessCol(headers, ["city", "town"]),
+      state: guessCol(headers, ["state", "st"]),
+      zip: guessCol(headers, ["zip", "zipcode", "zip code", "postal", "postal code"]),
+      type: guessCol(headers, ["type", "pin type", "pintype", "pin"]),
+    });
+  }, [text]); // eslint-disable-line
+
+  const rows = useMemo(() => buildRows(table, mapping, markType, types), [table, mapping, markType, types]);
 
   const onFile = (e) => {
     const f = e.target.files?.[0];
@@ -93,12 +110,12 @@ function UploadForm({ types, onDone }) {
   };
 
   async function submit() {
-    if (!parsed.length) return;
+    if (!rows.length) return;
     setBusy(true); setResult(null);
     try {
       const r = await fetch("/.netlify/functions/canvass-upload", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ list_name: listName.trim() || undefined, default_type: markType, rows: parsed }),
+        body: JSON.stringify({ list_name: listName.trim() || undefined, default_type: markType, rows }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) { setResult({ error: j.error || `Error ${r.status}` }); }
@@ -107,11 +124,20 @@ function UploadForm({ types, onDone }) {
     setBusy(false);
   }
 
-  const S = (k) => (types.find((t) => t.key === k)?.label) || k;
+  const FIELDS = [
+    { key: "address", label: "Street address", req: true },
+    { key: "name", label: "Name" },
+    { key: "phone", label: "Phone" },
+    { key: "email", label: "Email" },
+    { key: "city", label: "City" },
+    { key: "state", label: "State" },
+    { key: "zip", label: "ZIP" },
+    { key: "type", label: "Pin type (per row)" },
+  ];
+  const preview = rows.slice(0, 3);
 
   return (
     <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, background: "#f8fafc" }}>
-      {/* Mark this upload as — the primary, deliberate choice (safety) */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 12, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 10, padding: "10px 12px" }}>
         <span style={{ fontSize: 14, fontWeight: 800, color: "#92400e", fontFamily: OSWALD }}>Mark this upload as:</span>
         {(types || []).map((t) => {
@@ -125,7 +151,6 @@ function UploadForm({ types, onDone }) {
           );
         })}
       </div>
-      <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 10 }}>Upload a <b>CSV</b> (or paste). Columns detected: <code>address, city, state, zip, name, type</code>. A <code>type</code> column overrides the mark above per row; otherwise every row uses the mark.</div>
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
         <input value={listName} onChange={(e) => setListName(e.target.value)} placeholder="List name (e.g. 'Seminole storm St.')"
@@ -136,73 +161,116 @@ function UploadForm({ types, onDone }) {
         </label>
         {fileName ? <span style={{ fontSize: 12, color: "#64748b" }}>{fileName}</span> : null}
       </div>
-      <textarea value={text} onChange={(e) => { setText(e.target.value); setFileName(""); }} rows={6}
-        placeholder={"address,city,state,zip\n123 Main St,Tampa,FL,33606\n456 Oak Ave,St Petersburg,FL,33701"}
+      <textarea value={text} onChange={(e) => { setText(e.target.value); setFileName(""); }} rows={5}
+        placeholder={"Paste CSV rows (include a header row) or choose a file above."}
         style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #cbd5e1", fontSize: 13, fontFamily: "monospace", boxSizing: "border-box", resize: "vertical" }} />
-      <div style={{ fontSize: 12, color: "#94a3b8", margin: "6px 0 12px" }}>
-        {parsed.length} row{parsed.length === 1 ? "" : "s"} ready{parsed.length ? ` — ${Object.entries(typeCounts).map(([k, n]) => `${n} ${S(k)}`).join(", ")}` : ""}
-      </div>
 
-      {result?.error && <div style={{ color: "#b91c1c", fontSize: 13, marginBottom: 10 }}>{result.error}</div>}
-      {result?.ok && (
+      {headers.length ? (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 14, fontWeight: 800, fontFamily: OSWALD, marginBottom: 8 }}>Map your columns</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 10 }}>
+            {FIELDS.map((f) => (
+              <label key={f.key} style={{ fontSize: 12.5, color: "#475569", display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontWeight: 700 }}>{f.label}{f.req ? " *" : ""}</span>
+                <select value={mapping[f.key] ?? -1} onChange={(e) => setMapping((m) => ({ ...m, [f.key]: Number(e.target.value) }))}
+                  style={{ fontSize: 13, padding: "7px 8px", borderRadius: 8, border: "1px solid " + (f.req && (mapping[f.key] ?? -1) < 0 ? "#fca5a5" : "#cbd5e1"), background: "#fff" }}>
+                  <option value={-1}>— none —</option>
+                  {headers.map((h, i) => <option key={i} value={i}>{h}</option>)}
+                </select>
+              </label>
+            ))}
+          </div>
+          <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 8 }}>Any column you don't map is still saved and shown on the pin.</div>
+
+          {preview.length ? (
+            <div style={{ marginTop: 12, overflowX: "auto" }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: "#64748b", marginBottom: 4 }}>PREVIEW (first {preview.length})</div>
+              <table style={{ borderCollapse: "collapse", fontSize: 12 }}>
+                <thead><tr>{["Address", "Name", "Phone", "Email", "City/ST/ZIP", "Type"].map((h) => <th key={h} style={cell(true)}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {preview.map((r, i) => (
+                    <tr key={i}>
+                      <td style={cell()}>{r.address || <em style={{ color: "#ef4444" }}>missing</em>}</td>
+                      <td style={cell()}>{r.name || "—"}</td>
+                      <td style={cell()}>{r.phone || "—"}</td>
+                      <td style={cell()}>{r.email || "—"}</td>
+                      <td style={cell()}>{[r.city, r.state, r.zip].filter(Boolean).join(", ") || "—"}</td>
+                      <td style={cell()}>{(types.find((t) => t.key === r.type) || {}).label || r.type}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div style={{ fontSize: 12, color: "#94a3b8", margin: "10px 0 12px" }}>{rows.length} row{rows.length === 1 ? "" : "s"} ready</div>
+      {result && result.error && <div style={{ color: "#b91c1c", fontSize: 13, marginBottom: 10 }}>{result.error}</div>}
+      {result && result.ok && (
         <div style={{ background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: 10, padding: "10px 12px", fontSize: 13, color: "#065f46", marginBottom: 10 }}>
-          ✓ {result.inserted} new{result.updated ? `, ${result.updated} updated` : ""}{result.skipped ? `, ${result.skipped} kept (dedup)` : ""} — {result.geocoded} geocoded{result.failed ? `, ${result.failed} failed` : ""}.
+          ✓ {result.inserted} new{result.updated ? ", " + result.updated + " updated" : ""}{result.skipped ? ", " + result.skipped + " kept (dedup)" : ""} — {result.geocoded} geocoded{result.failed ? ", " + result.failed + " failed" : ""}.
         </div>
       )}
-      <button type="button" onClick={submit} disabled={busy || !parsed.length}
-        style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: "#2563eb", color: "#fff", fontWeight: 800, fontSize: 14, fontFamily: OSWALD, cursor: "pointer", opacity: busy || !parsed.length ? 0.6 : 1 }}>
-        {busy ? "Geocoding…" : `Upload & geocode ${parsed.length || ""}`}
+      <button type="button" onClick={submit} disabled={busy || !rows.length}
+        style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: "#2563eb", color: "#fff", fontWeight: 800, fontSize: 14, fontFamily: OSWALD, cursor: "pointer", opacity: busy || !rows.length ? 0.6 : 1 }}>
+        {busy ? "Geocoding…" : "Upload & geocode " + (rows.length || "")}
       </button>
     </div>
   );
 }
 
-// Parse pasted/CSV text into upload rows. Detects a header; otherwise each line
-// is a full address. Resolves a `type` value (key OR label) to a pin-type key.
-function parseRows(text, defaultType, types) {
-  const lines = String(text || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  if (!lines.length) return [];
-  const splitCsv = (line) => {
-    const out = []; let cur = "", q = false;
-    for (const c of line) {
-      if (c === '"') { q = !q; continue; }
-      if (c === "," && !q) { out.push(cur); cur = ""; continue; }
-      cur += c;
-    }
-    out.push(cur);
-    return out.map((s) => s.trim());
-  };
+const cell = (head) => ({ border: "1px solid #e5e7eb", padding: "5px 8px", textAlign: "left", whiteSpace: "nowrap", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", background: head ? "#f8fafc" : "#fff", fontWeight: head ? 700 : 500, color: head ? "#64748b" : "#334155" });
+
+function splitCsvLine(line) {
+  const out = []; let cur = "", q = false;
+  for (const c of line) {
+    if (c === '"') { q = !q; continue; }
+    if (c === "," && !q) { out.push(cur); cur = ""; continue; }
+    cur += c;
+  }
+  out.push(cur);
+  return out.map((s) => s.trim());
+}
+function parseTable(text) {
+  const lines = String(text || "").split(/\r?\n/).filter((l) => l.trim());
+  if (!lines.length) return { headers: [], rows: [] };
+  return { headers: splitCsvLine(lines[0]), rows: lines.slice(1).map(splitCsvLine) };
+}
+function guessCol(headers, names) {
+  const norm = (s) => String(s || "").toLowerCase().trim();
+  let i = headers.findIndex((h) => names.includes(norm(h)));
+  if (i < 0) i = headers.findIndex((h) => names.some((n) => norm(h).includes(n)));
+  return i;
+}
+function buildRows(table, mapping, defaultType, types) {
+  const { headers, rows } = table;
+  if (!headers.length) return [];
   const resolveType = (raw) => {
     const v = String(raw || "").trim().toLowerCase();
     if (!v) return defaultType;
     const t = (types || []).find((x) => x.key.toLowerCase() === v || (x.label || "").toLowerCase() === v);
     return t ? t.key : defaultType;
   };
-  const header = splitCsv(lines[0]).map((h) => h.toLowerCase());
-  const looksLikeHeader = header.some((h) => /address|street|city|state|zip|name|type|status|pin/.test(h));
-  if (!looksLikeHeader) return lines.map((l) => ({ address: l, type: defaultType }));
-  const idx = (names) => header.findIndex((h) => names.includes(h));
-  const iA = idx(["address", "street address", "street", "address1", "addr"]);
-  const iC = idx(["city", "town"]);
-  const iS = idx(["state", "st"]);
-  const iZ = idx(["zip", "zipcode", "zip code", "postal", "postal code"]);
-  const iN = idx(["name", "homeowner", "owner", "full name"]);
-  const iT = idx(["type", "pin type", "pintype", "status", "pin"]);
-  const mapped = new Set([iA, iC, iS, iZ, iN, iT].filter((i) => i >= 0));
-  const rows = [];
-  for (let li = 1; li < lines.length; li++) {
-    const cols = splitCsv(lines[li]);
-    const get = (i) => (i >= 0 ? (cols[i] || "") : "");
-    const address = (iA >= 0 ? get(iA) : cols[0]) || "";
+  const usedIdx = new Set(Object.values(mapping).filter((i) => i >= 0));
+  const get = (cols, key) => { const i = mapping[key]; return i >= 0 ? (cols[i] || "").trim() : ""; };
+  const out = [];
+  for (const cols of rows) {
+    const address = get(cols, "address");
     if (!address) continue;
-    // Every OTHER column → extra, keyed by its header, so nothing is lost.
     const extra = {};
-    for (let c = 0; c < header.length; c++) {
-      if (mapped.has(c)) continue;
-      const v = (cols[c] || "").trim();
-      if (v && header[c]) extra[header[c]] = v;
-    }
-    rows.push({ address, city: get(iC) || null, state: get(iS) || null, zip: get(iZ) || null, name: get(iN) || null, type: resolveType(get(iT)), extra: Object.keys(extra).length ? extra : undefined });
+    headers.forEach((h, i) => { if (!usedIdx.has(i) && (cols[i] || "").trim() && h) extra[h] = cols[i].trim(); });
+    out.push({
+      address,
+      name: get(cols, "name") || null,
+      phone: get(cols, "phone") || null,
+      email: get(cols, "email") || null,
+      city: get(cols, "city") || null,
+      state: get(cols, "state") || null,
+      zip: get(cols, "zip") || null,
+      type: resolveType(get(cols, "type")),
+      extra: Object.keys(extra).length ? extra : undefined,
+    });
   }
-  return rows;
+  return out;
 }

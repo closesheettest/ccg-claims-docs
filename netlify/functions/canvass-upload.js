@@ -60,8 +60,10 @@ export const handler = async (event) => {
       city: (r.city || "").toString().trim() || null,
       state: (r.state || "").toString().trim() || null,
       zip: (r.zip || "").toString().trim() || null,
+      phone: (r.phone || "").toString().trim() || null,
+      email: (r.email || "").toString().trim() || null,
       type: (r.type || r.status || "").toString().trim().toLowerCase() || defaultType,
-      extra: (r.extra && typeof r.extra === "object") ? r.extra : null, // stored only once the extra column exists
+      extra: (r.extra && typeof r.extra === "object") ? r.extra : null,
     }))
     .filter((r) => r.address)
     .slice(0, MAX_ROWS);
@@ -86,7 +88,7 @@ export const handler = async (event) => {
         longitude: g.ok ? g.lng : null,
         geocode_status: g.ok ? "ok" : "failed",
         status: cleanType(r.type),
-        // extra: r.extra  — re-enable once sql/canvass_prospects_extra.sql runs.
+        phone: r.phone, email: r.email, extra: r.extra,
       };
     }
   }

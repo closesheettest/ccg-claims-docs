@@ -205,6 +205,8 @@ export default function CanvassMap() {
           {/* All the info we have on this pin */}
           {(() => {
             const rows = [];
+            if (selected.phone) rows.push(["Phone", selected.phone]);
+            if (selected.email) rows.push(["Email", selected.email]);
             if (selected.extra && typeof selected.extra === "object") {
               for (const [k, v] of Object.entries(selected.extra)) if (v != null && String(v).trim()) rows.push([k, String(v)]);
             }
@@ -314,7 +316,7 @@ const extraVal = (pin, names) => {
 };
 
 function AppointmentModal({ pin, rt, onClose, onBooked }) {
-  const [phone, setPhone] = useState(pin.mobile || extraVal(pin, ["phone", "mobile", "cell"]));
+  const [phone, setPhone] = useState(pin.phone || extraVal(pin, ["phone", "mobile", "cell"]));
   const [email, setEmail] = useState(pin.email || extraVal(pin, ["email", "e-mail"]));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");

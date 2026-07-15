@@ -31,19 +31,29 @@ export const handler = async (event) => {
     ]);
     // Only ACTIVE field reps (rep-zones active flag) — sales_reps.active is set
     // on nearly everyone, so it's not a real "currently working" signal.
-    const levelByJn = {};
+    const infoByJn = {};
     for (const r of (rz.reps || [])) {
       if (!r.active || !r.jobnimbus_id) continue;
       const lv = (r.rep_level || "").toLowerCase();
-      levelByJn[r.jobnimbus_id] = (lv === "senior" || lv === "junior") ? lv : "junior";
+      infoByJn[r.jobnimbus_id] = {
+        level: (lv === "senior" || lv === "junior") ? lv : "junior",
+        region: (r.zone || "").toString().trim() || null,
+      };
     }
+    const levelRank = (lv) => (lv === "senior" ? 0 : 1); // senior first
     const out = (reps || [])
-      .filter((r) => r.harvest_token && r.jobnimbus_id && levelByJn[r.jobnimbus_id])
+      .filter((r) => r.harvest_token && r.jobnimbus_id && infoByJn[r.jobnimbus_id])
       .map((r) => ({
         name: r.name,
-        level: levelByJn[r.jobnimbus_id],
+        level: infoByJn[r.jobnimbus_id].level,
+        region: infoByJn[r.jobnimbus_id].region,
         link: `${base}/?mode=harvest&rt=${r.harvest_token}`,
-      }));
+      }))
+      // Sort: region → level (senior, then junior) → name (alphabetical).
+      .sort((a, b) =>
+        (a.region || "~").localeCompare(b.region || "~") ||
+        (levelRank(a.level) - levelRank(b.level)) ||
+        String(a.name || "").localeCompare(String(b.name || "")));
     const adminTok = adminRow?.[0]?.value || "";
     return json(200, { ok: true, base, admin_link: adminTok ? `${base}/?mode=harvest&admin=${adminTok}` : "", reps: out });
   } catch (e) {
