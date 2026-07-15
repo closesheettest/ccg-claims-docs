@@ -32,29 +32,36 @@ export default function CanvassMap() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
   const [filter, setFilter] = useState("all");
-  const [repName, setRepName] = useState(() => { try { return localStorage.getItem("canvass_rep") || ""; } catch { return ""; } });
   const [pinTypes, setPinTypes] = useState(FALLBACK_TYPES);
+  const [me, setMe] = useState(null);          // { name, level } once signed in
+  const [authError, setAuthError] = useState("");
   const S = useMemo(() => Object.fromEntries(pinTypes.map((t) => [t.key, t])), [pinTypes]);
+  const repName = me?.name || "";
 
-  // Load the editable pin-type config (colors, labels, allowed outcomes).
-  useEffect(() => {
-    (async () => {
-      const { data } = await supabase.from("harvest_pin_types").select("*").eq("active", true).order("sort");
-      if (data && data.length) setPinTypes(data);
-    })();
-  }, []);
+  // Server decides which pins this rep's level may see. Reads the personal link
+  // token (?rt=) or the office view-all token (?admin=).
+  const auth = (() => {
+    try {
+      const q = new URLSearchParams(window.location.search);
+      return { rt: q.get("rt") || "", admin: q.get("admin") || "" };
+    } catch { return { rt: "", admin: "" }; }
+  })();
 
   async function load() {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("canvass_prospects")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(5000);
-    if (!error) setProspects(data || []);
+    try {
+      const qs = auth.admin ? `admin=${encodeURIComponent(auth.admin)}` : `rt=${encodeURIComponent(auth.rt)}`;
+      const r = await fetch(`/.netlify/functions/harvest-pins?${qs}`);
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) { setAuthError(j.error || "Couldn't load your Harvesting Map."); setLoading(false); return; }
+      setAuthError("");
+      setMe(j.rep || null);
+      if (Array.isArray(j.pin_types) && j.pin_types.length) setPinTypes(j.pin_types);
+      setProspects(j.pins || []);
+    } catch (e) { setAuthError(e.message || "Network error."); }
     setLoading(false);
   }
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
 
   // Init the Leaflet map once.
   useEffect(() => {
@@ -120,17 +127,32 @@ export default function CanvassMap() {
   }, [prospects]);
   const notMapped = prospects.length - mapped.length;
 
-  const saveRep = (v) => { setRepName(v); try { localStorage.setItem("canvass_rep", v); } catch { /* private mode */ } };
+  // Bad/missing link → don't show any pins, just tell them what to do.
+  if (authError) {
+    return (
+      <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT, background: "#f1f5f9", padding: 24 }}>
+        <div style={{ maxWidth: 360, textAlign: "center", background: "#fff", borderRadius: 16, padding: "28px 24px", boxShadow: "0 2px 12px rgba(0,0,0,.1)" }}>
+          <div style={{ fontSize: 40, marginBottom: 10 }}>🔒</div>
+          <div style={{ fontSize: 17, fontWeight: 800, fontFamily: "'Oswald', sans-serif", marginBottom: 8 }}>Harvesting Map</div>
+          <div style={{ fontSize: 14, color: "#475569", lineHeight: 1.5 }}>{authError}</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ position: "fixed", inset: 0, display: "flex", flexDirection: "column", fontFamily: FONT, background: "#f1f5f9" }}>
       {/* Header */}
       <div style={{ padding: "10px 14px", background: "#0f172a", color: "#fff", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <div style={{ fontWeight: 800, fontSize: 16, fontFamily: "'Oswald', sans-serif", letterSpacing: "0.02em" }}>🌾 Harvesting Map</div>
-        <div style={{ fontSize: 12, opacity: 0.8 }}>{mapped.length} mapped{notMapped ? ` · ${notMapped} un-geocoded` : ""}</div>
+        <div style={{ fontSize: 12, opacity: 0.8 }}>{mapped.length} pins</div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-          <input value={repName} onChange={(e) => saveRep(e.target.value)} placeholder="Your name"
-            style={{ fontSize: 12, padding: "6px 8px", borderRadius: 8, border: "none", width: 110 }} />
+          {me ? (
+            <span style={{ fontSize: 12.5, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
+              {me.name}
+              <span style={{ fontSize: 10.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.04em", background: me.level === "senior" ? "#16a34a" : me.level === "admin" ? "#7c3aed" : "#334155", padding: "2px 8px", borderRadius: 10 }}>{me.level}</span>
+            </span>
+          ) : null}
         </div>
       </div>
 

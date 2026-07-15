@@ -19,6 +19,17 @@ import SetterPortal from "./SetterPortal";
 import CanvassMap from "./CanvassMap";
 import HarvestAdmin from "./HarvestAdmin";
 import HarvestUpload from "./HarvestUpload";
+import HarvestLinks from "./HarvestLinks";
+
+// Open the Harvesting Map as the OFFICE (all pins) — fetches the view-all token
+// so the office link isn't hardcoded. Reps use their own personal ?rt= links.
+async function openHarvestAdminMap() {
+  try {
+    const { data } = await supabase.from("app_settings").select("value").eq("key", "harvest_admin_token").maybeSingle();
+    const tok = data?.value;
+    window.open(tok ? `/?mode=harvest&admin=${encodeURIComponent(tok)}` : "/?mode=harvestlinks", "_blank", "noopener");
+  } catch { window.open("/?mode=harvestlinks", "_blank", "noopener"); }
+}
 import ReviewApptPicker from "./ReviewApptPicker";
 import JnMatchPickerModal from "./JnMatchPickerModal";
 import ManagerRecordsView from "./ManagerRecordsView";
@@ -4384,8 +4395,9 @@ const MANAGER_TILES = [
   { group: "signing", key: "training", emoji: "🚗", label: "Training Report", desc: "Who rode with William for field training each day + confirmed hours. Get William's daily picker link here." },
 
   // ── Harvesting ── (these open standalone routes, hence `href`)
-  { group: "harvest", key: "harvest_map", emoji: "🗺️", label: "Harvesting Map", desc: "The door-knock map — pins by status, reps update them in the field.", href: "/?mode=harvest" },
+  { group: "harvest", key: "harvest_map", emoji: "🗺️", label: "Harvesting Map", desc: "The door-knock map (office view — all pins). Reps use their own personal links.", href: "/?mode=harvestlinks" },
   { group: "harvest", key: "harvest_upload", emoji: "📥", label: "Load Leads", desc: "Upload a CSV of leads (office-only), mark its pin type, and delete a bad upload.", href: "/?mode=harvestupload" },
+  { group: "harvest", key: "harvest_links", emoji: "🔗", label: "Rep Links & Access", desc: "Each rep's personal map link + level (senior/junior), to hand out. Reps only see their allowed pins.", href: "/?mode=harvestlinks" },
   { group: "harvest", key: "harvest_types", emoji: "🎛️", label: "Pin Types", desc: "Create & edit pin types: color, who can see them, and each one's allowed outcomes.", href: "/?mode=harvestadmin" },
   // ── Inspections ──
   { group: "inspections", key: "team_roles", emoji: "🧑‍🤝‍🧑", label: "Team Roles", desc: "One list of everyone — check Inspector and/or PA to set each person's role. Start here when setting someone up." },
@@ -8574,7 +8586,7 @@ function AdminDashboard() {
   }
 
   const toolTile = (item) => (
-    <button key={item.group + ":" + item.key} type="button" onClick={() => item.href ? window.open(item.href, "_blank", "noopener") : launchManagerTool(item.key)}
+    <button key={item.group + ":" + item.key} type="button" onClick={() => item.key === "harvest_map" ? openHarvestAdminMap() : item.href ? window.open(item.href, "_blank", "noopener") : launchManagerTool(item.key)}
       style={{ padding: "20px 18px", borderRadius: 20, border: "2px solid #e5e7eb", background: "#fff", textAlign: "left", cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
       <div style={{ fontSize: 32, marginBottom: 8 }}>{item.emoji}</div>
       <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>{item.label}{item.href ? " ↗" : ""}</div>
@@ -9347,6 +9359,10 @@ export default function App() {
     // ?mode=harvestupload — office lead upload page (CSV/paste + past uploads).
     if (portalMode === "harvestupload") {
       return <HarvestUpload />;
+    }
+    // ?mode=harvestlinks — office roster of each rep's personal map link + level.
+    if (portalMode === "harvestlinks") {
+      return <HarvestLinks />;
     }
     // /?correct=<inspectionId> — the link we text the originating sales rep
     // + their regional manager when a Public Adjuster flags "Correction
@@ -16715,7 +16731,7 @@ if (!hasDamage) {
                           {/* Tiles for the selected tab */}
                           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
                             {tiles.map(item => (
-                              <button key={item.key} type="button" onClick={() => item.href ? window.open(item.href, "_blank", "noopener") : setManagerSection(item.key)}
+                              <button key={item.key} type="button" onClick={() => item.key === "harvest_map" ? openHarvestAdminMap() : item.href ? window.open(item.href, "_blank", "noopener") : setManagerSection(item.key)}
                                 style={{ padding: "24px 20px", borderRadius: 20, border: "2px solid #e5e7eb", background: "#fff", textAlign: "left", cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
                                 <div style={{ fontSize: 36, marginBottom: 10 }}>{item.emoji}</div>
                                 <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>{item.label}{item.href ? " ↗" : ""}</div>
