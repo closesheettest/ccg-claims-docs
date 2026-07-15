@@ -4400,6 +4400,7 @@ const MANAGER_TILES = [
   { group: "harvest", key: "harvest_upload", emoji: "📥", label: "Load Leads", desc: "Upload a CSV of leads (office-only), mark its pin type, and delete a bad upload.", href: "/?mode=harvestupload" },
   { group: "harvest", key: "harvest_links", emoji: "🔗", label: "Rep Links & Access", desc: "Each rep's personal map link + level (senior/junior), to hand out. Reps only see their allowed pins.", href: "/?mode=harvestlinks" },
   { group: "harvest", key: "harvest_types", emoji: "🎛️", label: "Pin Types", desc: "Create & edit pin types: color, who can see them, and each one's allowed outcomes.", href: "/?mode=harvestadmin" },
+  { group: "harvest", key: "harvest_report", emoji: "📊", label: "Rep Activity", desc: "Report of each rep's canvassing: pins visited, rounds, outcomes (appts / not-interested / dead), and last active.", href: "/?mode=harvestreport" },
   // ── Inspections ──
   { group: "inspections", key: "team_roles", emoji: "🧑‍🤝‍🧑", label: "Team Roles", desc: "One list of everyone — check Inspector and/or PA to set each person's role. Start here when setting someone up." },
   { group: "inspections", key: "inspectors", emoji: "🔍", label: "Inspectors", desc: "Roster — sync from JN, edit, activate/deactivate" },
