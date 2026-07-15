@@ -66,6 +66,7 @@ export default function CanvassMap() {
   const map = useRef(null);
   const layer = useRef(null);
   const routeLayer = useRef(null);
+  const navLayer = useRef(null);   // in-app driving route to the current stop
   const fitted = useRef(false);
   const [prospects, setProspects] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -145,6 +146,7 @@ export default function CanvassMap() {
     }).addTo(m);
     // Separate layer for the "Start my day" route line + numbered stops (on top).
     routeLayer.current = L.layerGroup().addTo(m);
+    navLayer.current = L.layerGroup().addTo(m); // in-app driving route to current stop
     // Leaflet computes its size at init; inside a flex layout the container
     // may not have its final size yet, leaving the tiles rendered for a tiny
     // box. Recalc on mount AND whenever the container resizes.
@@ -198,11 +200,12 @@ export default function CanvassMap() {
     const log = Array.isArray(p.status_log) ? [...p.status_log, entry] : [entry];
     const patch = { status: newStatus, status_updated_at: nowIso, status_by: repName || null, status_log: log };
     const { error } = await supabase.from("canvass_prospects").update(patch).eq("id", p.id);
-    if (error) { alert(error.message); return; }
+    if (error) { alert(error.message); return false; }
     logActivity({ pin_id: p.id, kind: "status", from_status: p.status, to_status: newStatus });
     setResolvedIds((s) => new Set(s).add(p.id)); // statused → drops out of later rounds
     setProspects((list) => list.map((x) => (x.id === p.id ? { ...x, ...patch } : x)));
     setSelected((s) => (s && s.id === p.id ? { ...s, ...patch } : s));
+    return true;
   }
 
   // Log a rep action (visit / status change) for reporting. Non-blocking.
@@ -239,6 +242,7 @@ export default function CanvassMap() {
     const lyr = routeLayer.current;
     if (!lyr) return;
     lyr.clearLayers();
+    navLayer.current?.clearLayers(); // clear any in-app driving route when the stop/route changes
     if (dayMode !== "active" || route.length === 0) return;
     const stopPts = route.filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number").map((p) => [p.latitude, p.longitude]);
     // Line runs FROM the chosen start point, through every stop in order.
@@ -316,17 +320,27 @@ export default function CanvassMap() {
       { enableHighAccuracy: true, timeout: 10000 },
     );
   }
-  function nextStop() {
-    const stop = route[stopIdx];
-    // The proximity gate means a Next tap = the rep was AT this pin → a real visit.
-    if (stop) logActivity({ pin_id: stop.id, kind: "visit", to_status: stop.status });
+  function advanceStop() {
     setStopIdx((i) => {
       const ni = i + 1;
       if (ni < route.length && map.current) map.current.setView([route[ni].latitude, route[ni].longitude], 15);
       return ni;
     });
   }
-  function startOver() { setDayMode(null); setStartPt(null); setRoute([]); setStopIdx(0); setRound(1); setResolvedIds(new Set()); workingRef.current = new Set(); setPanelPos(null); }
+  // Work the current stop right from the panel: log the visit, apply the outcome
+  // (status / not-home / book appt), then move to the next stop — no window to close.
+  async function workStop(outcome) {
+    const stop = route[stopIdx];
+    if (!stop) return;
+    if (outcome === "appt") { setApptPin(stop); return; } // booking modal advances on book
+    logActivity({ pin_id: stop.id, kind: "visit", to_status: outcome === "nothome" ? "not_home" : outcome });
+    if (outcome !== "nothome") {
+      const ok = await setStatus(stop, outcome);
+      if (ok === false) return; // save failed — stay put
+    }
+    advanceStop();
+  }
+  function startOver() { navLayer.current?.clearLayers(); setDayMode(null); setStartPt(null); setRoute([]); setStopIdx(0); setRound(1); setResolvedIds(new Set()); workingRef.current = new Set(); setPanelPos(null); }
   // Drag the route panel so it never blocks the map (pointer events = mouse + touch).
   function panelPointerDown(e) {
     const el = e.currentTarget.closest("[data-daypanel]"); if (!el) return;
@@ -344,8 +358,29 @@ export default function CanvassMap() {
   }
   function panelPointerUp(e) { panelDrag.current = null; try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ } }
   const addrOf = (p) => encodeURIComponent([p.address, p.city, p.state, p.zip].filter(Boolean).join(", ") || `${p.latitude},${p.longitude}`);
-  // Stop-by-stop directions — just the current stop (Google uses live GPS as origin).
-  function dirTo(p) { window.open(`https://www.google.com/maps/dir/?api=1&destination=${addrOf(p)}`, "_blank"); }
+  // In-app directions: draw the driving route from the rep's location to the stop
+  // ON our map (road-following via OSRM, best-effort; straight line if it's slow/
+  // down). Keeps the rep in the app for the short canvass hops.
+  async function navRoute(stop) {
+    const from = myLoc || startPt;
+    const lyr = navLayer.current, m = map.current;
+    if (lyr) lyr.clearLayers();
+    if (!from || !m) { if (m) m.setView([stop.latitude, stop.longitude], 16); return; }
+    const straight = [[from.lat, from.lng], [stop.latitude, stop.longitude]];
+    if (lyr) L.polyline(straight, { color: "#1d4ed8", weight: 5, opacity: 0.85 }).addTo(lyr);
+    m.fitBounds(straight, { padding: [55, 55], maxZoom: 17 });
+    try {
+      const url = `https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${stop.longitude},${stop.latitude}?overview=full&geometries=geojson`;
+      const j = await (await fetch(url)).json();
+      const g = j.routes?.[0]?.geometry?.coordinates;
+      if (g && g.length && lyr) {
+        const latlngs = g.map(([lng, lat]) => [lat, lng]);
+        lyr.clearLayers();
+        L.polyline(latlngs, { color: "#1d4ed8", weight: 5, opacity: 0.9 }).addTo(lyr);
+        m.fitBounds(latlngs, { padding: [55, 55], maxZoom: 17 });
+      }
+    } catch { /* keep the straight line */ }
+  }
 
   const counts = useMemo(() => {
     const c = {};
@@ -474,6 +509,14 @@ export default function CanvassMap() {
               ) : (() => {
                 const distFt = myLoc ? feetBetween(myLoc, { lat: stop.latitude, lng: stop.longitude }) : null;
                 const near = distFt != null && distFt <= ARRIVE_FT;
+                const outs = ((S[stop.status]?.outcomes) || []).map((k) => S[k]).filter(Boolean);
+                const oBtn = (key, label, color) => (
+                  <button key={key} type="button" disabled={!near} onClick={() => workStop(key)}
+                    style={{ flex: "1 1 44%", minWidth: 92, padding: "11px 8px", borderRadius: 11, fontSize: 13.5, fontWeight: 800, cursor: near ? "pointer" : "not-allowed",
+                      border: `1px solid ${near ? color : "#e5e7eb"}`, background: near ? color : "#fff", color: near ? "#fff" : "#cbd5e1" }}>
+                    {label}
+                  </button>
+                );
                 return (
                 <>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
@@ -483,22 +526,24 @@ export default function CanvassMap() {
                   {stop.name && <div style={{ fontSize: 15.5, fontWeight: 800 }}>{stop.name}</div>}
                   <div style={{ fontSize: 13.5, color: "#334155", fontWeight: 600 }}>{stop.address}</div>
                   <div style={{ fontSize: 12.5, color: "#64748b" }}>{[stop.city, stop.state, stop.zip].filter(Boolean).join(", ")}</div>
-                  <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                    <button type="button" onClick={() => dirTo(stop)} style={{ flex: 2, background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 12, padding: "12px", fontSize: 14.5, fontWeight: 800, cursor: "pointer" }}>
-                      🧭 Directions to {stopIdx === 0 ? "first stop" : "this stop"}
-                    </button>
-                    <button type="button" onClick={nextStop} disabled={!near}
-                      title={near ? "" : "You need to be within 100 ft of this stop"}
-                      style={{ flex: 1, background: near ? "#16a34a" : "#fff", color: near ? "#fff" : "#94a3b8", border: `1px solid ${near ? "#16a34a" : "#e5e7eb"}`, borderRadius: 12, padding: "12px", fontSize: 14, fontWeight: 800, cursor: near ? "pointer" : "not-allowed" }}>
-                      Next ›
-                    </button>
+                  <button type="button" onClick={() => navRoute(stop)}
+                    style={{ width: "100%", marginTop: 12, background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 12, padding: "12px", fontSize: 14.5, fontWeight: 800, cursor: "pointer" }}>
+                    🧭 Directions to {stopIdx === 0 ? "first stop" : "this stop"}
+                  </button>
+                  <div style={{ textAlign: "center", marginTop: 5 }}>
+                    <a href={`https://www.google.com/maps/dir/?api=1&destination=${addrOf(stop)}`} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, fontWeight: 700, color: "#94a3b8", textDecoration: "none" }}>open in Google Maps ↗</a>
+                  </div>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", margin: "13px 0 6px" }}>How'd it go?</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+                    {outs.map((o) => oBtn(o.key, o.label, o.color))}
+                    {oBtn("nothome", "🏠 Not home", "#475569")}
                   </div>
                   <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, textAlign: "center", color: near ? "#16a34a" : "#b45309" }}>
                     {distFt == null
-                      ? "📍 Finding your location… (allow location access to check in)"
+                      ? "📍 Finding your location… (allow location access to log a stop)"
                       : near
-                        ? "✓ You're here — tap Next when you're done"
-                        : `You're about ${Math.round(distFt).toLocaleString()} ft away — get within 100 ft to unlock Next`}
+                        ? "✓ You're here — pick what happened and it moves to the next stop"
+                        : `~${Math.round(distFt).toLocaleString()} ft away — get within 100 ft to log this stop`}
                   </div>
                 </>
                 );
@@ -595,6 +640,11 @@ export default function CanvassMap() {
             setProspects((list) => list.map((x) => (x.id === apptPin.id ? { ...x, ...patch } : x)));
             setSelected((s) => (s && s.id === apptPin.id ? { ...s, ...patch } : s));
             setResolvedIds((s) => new Set(s).add(apptPin.id)); // booked → statused → drops from later rounds
+            // If this was the current route stop, log the visit + move on.
+            if (dayMode === "active" && route[stopIdx] && route[stopIdx].id === apptPin.id) {
+              logActivity({ pin_id: apptPin.id, kind: "visit", to_status: "appt" });
+              advanceStop();
+            }
             setApptPin(null);
           }}
         />
