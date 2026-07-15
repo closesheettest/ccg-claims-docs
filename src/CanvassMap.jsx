@@ -84,6 +84,10 @@ export default function CanvassMap() {
   const [route, setRoute] = useState([]);              // ordered stops (nearest-first)
   const [stopIdx, setStopIdx] = useState(0);
   const [myLoc, setMyLoc] = useState(null);            // live GPS while a route is active
+  const [round, setRound] = useState(1);               // 1st round, 2nd round, …
+  const [routedIds, setRoutedIds] = useState(() => new Set()); // pins already routed in prior rounds
+  const [panelPos, setPanelPos] = useState(null);      // {left,top} px if dragged, else default bottom-right
+  const panelDrag = useRef(null);
   const watchRef = useRef(null);
   const choosingRef = useRef(false);                   // map-click reads this (avoid stale closure)
   const shownRef = useRef([]);                         // current on-screen prospects, for routing
@@ -272,7 +276,24 @@ export default function CanvassMap() {
   function startFrom(pt) {
     const r = buildRoute(pt, shownRef.current || []);
     if (!r.length) { alert("No stops on the map to route. Load leads or change the filter, then start your day."); setDayMode(null); return; }
-    setStartPt(pt); setRoute(r); setStopIdx(0); setDayMode("active");
+    setStartPt(pt); setRoute(r); setStopIdx(0); setRound(1); setRoutedIds(new Set()); setDayMode("active");
+    if (map.current) map.current.setView([r[0].latitude, r[0].longitude], 15);
+  }
+  // How many pins are left to route after the rounds done so far + the current one.
+  function remainingCount() {
+    const worked = new Set(routedIds);
+    route.forEach((p) => worked.add(p.id));
+    return (shownRef.current || []).filter((p) => !worked.has(p.id) && typeof p.latitude === "number").length;
+  }
+  // Next round: route the most efficient N of whatever's LEFT, from where they are.
+  function nextRound() {
+    const worked = new Set(routedIds);
+    route.forEach((p) => worked.add(p.id));
+    const left = (shownRef.current || []).filter((p) => !worked.has(p.id) && typeof p.latitude === "number");
+    if (!left.length) return; // nothing left — the done panel already shows "all worked"
+    const from = myLoc || (route.length ? { lat: route[route.length - 1].latitude, lng: route[route.length - 1].longitude } : startPt);
+    const r = buildRoute(from, left);
+    setRoutedIds(worked); setStartPt(from); setRoute(r); setStopIdx(0); setRound((n) => n + 1); setDayMode("active");
     if (map.current) map.current.setView([r[0].latitude, r[0].longitude], 15);
   }
   startFromRef.current = startFrom;
@@ -291,7 +312,23 @@ export default function CanvassMap() {
       return ni;
     });
   }
-  function startOver() { setDayMode(null); setStartPt(null); setRoute([]); setStopIdx(0); }
+  function startOver() { setDayMode(null); setStartPt(null); setRoute([]); setStopIdx(0); setRound(1); setRoutedIds(new Set()); setPanelPos(null); }
+  // Drag the route panel so it never blocks the map (pointer events = mouse + touch).
+  function panelPointerDown(e) {
+    const el = e.currentTarget.closest("[data-daypanel]"); if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const parent = (el.offsetParent || el.parentElement).getBoundingClientRect();
+    panelDrag.current = { dx: e.clientX - rect.left, dy: e.clientY - rect.top, parent, w: rect.width, h: rect.height };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    e.preventDefault();
+  }
+  function panelPointerMove(e) {
+    const d = panelDrag.current; if (!d) return;
+    const left = Math.max(4, Math.min(d.parent.width - d.w - 4, e.clientX - d.parent.left - d.dx));
+    const top = Math.max(4, Math.min(d.parent.height - d.h - 4, e.clientY - d.parent.top - d.dy));
+    setPanelPos({ left, top });
+  }
+  function panelPointerUp(e) { panelDrag.current = null; try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ } }
   const addrOf = (p) => encodeURIComponent([p.address, p.city, p.state, p.zip].filter(Boolean).join(", ") || `${p.latitude},${p.longitude}`);
   // Directions for the next handful of stops as ONE Google Maps trip (origin =
   // the phone's live location; up to 8 stops — Google's shareable-link waypoint
@@ -379,7 +416,7 @@ export default function CanvassMap() {
         )}
 
         {dayMode === "choosing" && (
-          <div style={{ position: "absolute", left: "50%", top: 16, transform: "translateX(-50%)", zIndex: 600, background: "#fff", borderRadius: 14, padding: "16px 18px", boxShadow: "0 4px 18px rgba(0,0,0,.2)", width: "min(360px, 92%)", textAlign: "center" }}>
+          <div style={{ position: "absolute", right: 10, bottom: 14, zIndex: 600, background: "#fff", borderRadius: 14, padding: "16px 18px", boxShadow: "0 4px 18px rgba(0,0,0,.2)", width: "min(340px, 88%)", textAlign: "center" }}>
             <div style={{ fontSize: 16, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#0f172a", marginBottom: 6 }}>Where are you starting?</div>
             <div style={{ fontSize: 13, color: "#64748b", marginBottom: 14 }}>Start from your location, or <b>tap anywhere on the map</b> to start there. We'll route your stops nearest-first.</div>
             <button type="button" onClick={useMyLocation}
@@ -396,13 +433,37 @@ export default function CanvassMap() {
         {dayMode === "active" && (() => {
           const done = stopIdx >= route.length;
           const stop = done ? null : route[stopIdx];
+          const posStyle = panelPos
+            ? { left: panelPos.left, top: panelPos.top }
+            : { right: 10, bottom: 14 };
+          const left = done ? remainingCount() : 0;
           return (
-            <div style={{ position: "absolute", left: "50%", top: 16, transform: "translateX(-50%)", zIndex: 600, background: "#fff", borderRadius: 14, padding: "14px 16px", boxShadow: "0 4px 18px rgba(0,0,0,.2)", width: "min(380px, 94%)" }}>
+            <div data-daypanel style={{ position: "absolute", ...posStyle, zIndex: 600, background: "#fff", borderRadius: 14, boxShadow: "0 4px 18px rgba(0,0,0,.2)", width: "min(340px, 88%)", overflow: "hidden" }}>
+              {/* Drag handle so it never blocks the map */}
+              <div onPointerDown={panelPointerDown} onPointerMove={panelPointerMove} onPointerUp={panelPointerUp}
+                style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "5px 0 3px", cursor: "grab", touchAction: "none", color: "#cbd5e1", fontSize: 13, letterSpacing: 2, userSelect: "none" }}>
+                ⠿ <span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", letterSpacing: "0.03em" }}>drag</span>
+              </div>
+              <div style={{ padding: "4px 16px 14px" }}>
               {done ? (
                 <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: 30 }}>🎉</div>
-                  <div style={{ fontSize: 16, fontWeight: 800, fontFamily: "'Oswald', sans-serif", margin: "4px 0 10px" }}>That's every stop — nice work!</div>
-                  <button type="button" onClick={startOver} style={{ width: "100%", background: "#16a34a", color: "#fff", border: "none", borderRadius: 12, padding: "12px", fontSize: 14.5, fontWeight: 800, cursor: "pointer" }}>▶ Start a new route</button>
+                  {left > 0 ? (
+                    <>
+                      <div style={{ fontSize: 26 }}>✅</div>
+                      <div style={{ fontSize: 15.5, fontWeight: 800, fontFamily: "'Oswald', sans-serif", margin: "4px 0 4px" }}>Round {round} done!</div>
+                      <div style={{ fontSize: 13, color: "#64748b", marginBottom: 12 }}><b>{left}</b> pin{left === 1 ? "" : "s"} left to work.</div>
+                      <button type="button" onClick={nextRound} style={{ width: "100%", background: "#16a34a", color: "#fff", border: "none", borderRadius: 12, padding: "12px", fontSize: 14.5, fontWeight: 800, cursor: "pointer", marginBottom: 8 }}>
+                        ▶ Start round {round + 1} — next {Math.min(ROUTE_MAX, left)}
+                      </button>
+                      <button type="button" onClick={startOver} style={{ width: "100%", background: "#fff", color: "#64748b", border: "1px solid #e5e7eb", borderRadius: 12, padding: "10px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Finish for the day</button>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: 30 }}>🎉</div>
+                      <div style={{ fontSize: 16, fontWeight: 800, fontFamily: "'Oswald', sans-serif", margin: "4px 0 10px" }}>Every pin worked — nice work!</div>
+                      <button type="button" onClick={startOver} style={{ width: "100%", background: "#16a34a", color: "#fff", border: "none", borderRadius: 12, padding: "12px", fontSize: 14.5, fontWeight: 800, cursor: "pointer" }}>▶ Start a new route</button>
+                    </>
+                  )}
                 </div>
               ) : (() => {
                 const distFt = myLoc ? feetBetween(myLoc, { lat: stop.latitude, lng: stop.longitude }) : null;
@@ -410,7 +471,7 @@ export default function CanvassMap() {
                 return (
                 <>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                    <span style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", color: "#16a34a" }}>Stop {stopIdx + 1} of {route.length}</span>
+                    <span style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", color: "#16a34a" }}>{round > 1 ? `Round ${round} · ` : ""}Stop {stopIdx + 1} of {route.length}</span>
                     <button type="button" onClick={startOver} style={{ background: "none", border: "none", fontSize: 12.5, fontWeight: 700, color: "#94a3b8", cursor: "pointer" }}>↺ Start over</button>
                   </div>
                   {stop.name && <div style={{ fontSize: 15.5, fontWeight: 800 }}>{stop.name}</div>}
@@ -441,6 +502,7 @@ export default function CanvassMap() {
                 </>
                 );
               })()}
+              </div>
             </div>
           );
         })()}
