@@ -94,7 +94,7 @@ function UploadForm({ types, onDone }) {
       city: guessCol(headers, ["city", "town"]),
       state: guessCol(headers, ["state", "st"]),
       zip: guessCol(headers, ["zip", "zipcode", "zip code", "postal", "postal code"]),
-      type: guessCol(headers, ["type", "pin type", "pintype", "pin"]),
+      type: guessCol(headers, ["pin type", "pintype", "pin_type"]), // NOT generic "type" cols like "Contact Type"
     });
   }, [text]); // eslint-disable-line
 
