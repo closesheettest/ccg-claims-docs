@@ -35,6 +35,7 @@ export default function CanvassMap() {
   const [pinTypes, setPinTypes] = useState(FALLBACK_TYPES);
   const [me, setMe] = useState(null);          // { name, level } once signed in
   const [authError, setAuthError] = useState("");
+  const [apptPin, setApptPin] = useState(null); // pin being scheduled → appointment
   const S = useMemo(() => Object.fromEntries(pinTypes.map((t) => [t.key, t])), [pinTypes]);
   const repName = me?.name || "";
 
@@ -210,7 +211,7 @@ export default function CanvassMap() {
                   {options.map((s) => {
                     const on = selected.status === s.key;
                     return (
-                      <button key={s.key} type="button" onClick={() => setStatus(selected, s.key)}
+                      <button key={s.key} type="button" onClick={() => s.key === "appt" ? setApptPin(selected) : setStatus(selected, s.key)}
                         style={{ padding: "9px 14px", borderRadius: 10, fontSize: 13.5, fontWeight: 700, cursor: "pointer",
                           border: on ? `2px solid ${s.color}` : "1px solid #e5e7eb",
                           background: on ? s.color : "#fff", color: on ? "#fff" : "#334155" }}>
@@ -230,6 +231,18 @@ export default function CanvassMap() {
           </a>
         </div>
       )}
+
+      {apptPin && (
+        <AppointmentModal
+          pin={apptPin} rt={auth.rt}
+          onClose={() => setApptPin(null)}
+          onBooked={(patch) => {
+            setProspects((list) => list.map((x) => (x.id === apptPin.id ? { ...x, ...patch } : x)));
+            setSelected((s) => (s && s.id === apptPin.id ? { ...s, ...patch } : s));
+            setApptPin(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -242,5 +255,83 @@ function Chip({ active, onClick, color, label }) {
         background: active ? color : "#fff", color: active ? "#fff" : "#475569" }}>
       {label}
     </button>
+  );
+}
+
+// Fixed appointment windows: Mon–Thu 11/2/5/7, Fri 9/12/3, Sat 9/12 (day-of-week
+// 1–4 / 5 / 6). Built in the rep's local time (reps are in ET).
+const APPT_HOURS = { 1: [11, 14, 17, 19], 2: [11, 14, 17, 19], 3: [11, 14, 17, 19], 4: [11, 14, 17, 19], 5: [9, 12, 15], 6: [9, 12] };
+function genSlots(days = 14) {
+  const out = []; const now = Date.now(); const b = new Date();
+  for (let d = 0; d < days; d++) {
+    const day = new Date(b.getFullYear(), b.getMonth(), b.getDate() + d);
+    for (const h of (APPT_HOURS[day.getDay()] || [])) {
+      const dt = new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, 0, 0);
+      if (dt.getTime() > now) out.push({ iso: dt.toISOString(), dt });
+    }
+  }
+  return out;
+}
+const dayKey = (d) => d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+const hourLabel = (d) => d.toLocaleTimeString("en-US", { hour: "numeric" });
+
+function AppointmentModal({ pin, rt, onClose, onBooked }) {
+  const [phone, setPhone] = useState(pin.mobile || "");
+  const [email, setEmail] = useState(pin.email || "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const slots = useMemo(() => genSlots(14), []);
+  const byDay = {};
+  for (const s of slots) (byDay[dayKey(s.dt)] = byDay[dayKey(s.dt)] || []).push(s);
+
+  async function book(slot) {
+    if (phone.replace(/\D/g, "").length < 10) { setErr("Enter the homeowner's phone number first."); return; }
+    setBusy(slot.iso); setErr("");
+    try {
+      const r = await fetch("/.netlify/functions/harvest-book-appt", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rt, pin_id: pin.id, appt_iso: slot.iso, phone, email }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) { setErr(j.error || "Couldn't book — try again."); setBusy(false); return; }
+      onBooked({ status: "appt", jn_job_id: j.job_id, status_updated_at: new Date().toISOString() });
+    } catch (e) { setErr(e.message || "Network error"); setBusy(false); }
+  }
+
+  return (
+    <div style={{ position: "absolute", inset: 0, background: "rgba(15,23,42,.55)", zIndex: 3000, display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={() => !busy && onClose()}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", width: "100%", maxWidth: 520, borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: "16px 18px 22px", maxHeight: "88vh", overflowY: "auto", fontFamily: FONT }}>
+        <div style={{ display: "flex", alignItems: "center", marginBottom: 4 }}>
+          <div style={{ fontSize: 16, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#166534" }}>📅 Schedule appointment</div>
+          <button type="button" onClick={() => !busy && onClose()} style={{ marginLeft: "auto", background: "none", border: "none", fontSize: 22, color: "#94a3b8", cursor: "pointer" }}>×</button>
+        </div>
+        <div style={{ fontSize: 13, color: "#475569", fontWeight: 600, marginBottom: 12 }}>{pin.address}{pin.city ? `, ${pin.city}` : ""}</div>
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone (required)" inputMode="tel"
+            style={{ flex: 1, minWidth: 150, fontSize: 14, padding: "10px 12px", borderRadius: 10, border: "1px solid #cbd5e1", boxSizing: "border-box" }} />
+          <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email (optional)" inputMode="email"
+            style={{ flex: 1, minWidth: 150, fontSize: 14, padding: "10px 12px", borderRadius: 10, border: "1px solid #cbd5e1", boxSizing: "border-box" }} />
+        </div>
+        <div style={{ fontSize: 12, color: "#64748b", marginBottom: 12 }}>Pick a time — it books the appointment into JobNimbus and turns this pin into an Appointment.</div>
+        {err && <div style={{ color: "#b91c1c", fontSize: 13, marginBottom: 10 }}>{err}</div>}
+
+        <div style={{ maxHeight: "48vh", overflowY: "auto" }}>
+          {Object.keys(byDay).map((k) => (
+            <div key={k} style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 800, color: "#374151", marginBottom: 6 }}>{k}</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {byDay[k].map((s) => (
+                  <button key={s.iso} type="button" disabled={!!busy} onClick={() => book(s)}
+                    style={{ border: "1px solid #16a34a", color: "#16a34a", background: "#fff", borderRadius: 12, padding: "9px 16px", fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: busy ? 0.5 : 1 }}>
+                    {busy === s.iso ? "…" : hourLabel(s.dt)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
