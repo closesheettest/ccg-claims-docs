@@ -4,6 +4,7 @@
 // added) — a safety net against a bad upload. Not shown to reps.
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "./lib/supabase";
+import HarvestNav from "./HarvestNav";
 
 const FONT = "'Nunito', system-ui, sans-serif";
 const OSWALD = "'Oswald', sans-serif";
@@ -40,11 +41,8 @@ export default function HarvestUpload() {
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto", padding: "20px 16px 60px", fontFamily: FONT }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 6 }}>
-        <a href="/?mode=harvest" style={{ fontSize: 13, color: "#0e7490", textDecoration: "none", fontWeight: 700 }}>← Harvesting Map</a>
-        <a href="/?mode=harvestadmin" style={{ fontSize: 13, color: "#0e7490", textDecoration: "none", fontWeight: 700 }}>Pin Types →</a>
-        <div style={{ fontSize: 22, fontWeight: 800, fontFamily: OSWALD }}>🌾 Load Leads</div>
-      </div>
+      <HarvestNav active="upload" />
+      <div style={{ fontSize: 22, fontWeight: 800, fontFamily: OSWALD, marginBottom: 4 }}>📥 Load Leads</div>
       <div style={{ fontSize: 13.5, color: "#64748b", marginBottom: 16 }}>Office-only — reps never see this. Upload leads and mark what type of pin they are.</div>
 
       {msg && <div style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 10, fontSize: 13.5, fontWeight: 600, background: msg.err ? "#fef2f2" : "#ecfdf5", color: msg.err ? "#b91c1c" : "#065f46", border: `1px solid ${msg.err ? "#fecaca" : "#a7f3d0"}` }}>{msg.err || msg.ok}</div>}

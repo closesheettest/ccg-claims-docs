@@ -4,6 +4,7 @@
 // (later) the reports read comes from harvest_pin_types.
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "./lib/supabase";
+import HarvestNav from "./HarvestNav";
 
 const LEVELS = ["senior", "junior"];
 const FONT = "'Nunito', system-ui, sans-serif";
@@ -60,11 +61,8 @@ export default function HarvestAdmin() {
 
   return (
     <div style={{ maxWidth: 1000, margin: "0 auto", padding: "20px 16px 60px", fontFamily: FONT }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 6 }}>
-        <a href="/?mode=harvest" style={{ fontSize: 13, color: "#0e7490", textDecoration: "none", fontWeight: 700 }}>← Harvesting Map</a>
-        <a href="/?mode=harvestupload" style={{ fontSize: 13, color: "#0e7490", textDecoration: "none", fontWeight: 700 }}>Load Leads →</a>
-        <div style={{ fontSize: 22, fontWeight: 800, fontFamily: OSWALD }}>🌾 Pin Types</div>
-      </div>
+      <HarvestNav active="types" />
+      <div style={{ fontSize: 22, fontWeight: 800, fontFamily: OSWALD, marginBottom: 4 }}>🎛️ Pin Types</div>
       <div style={{ fontSize: 13.5, color: "#64748b", marginBottom: 16 }}>
         Each pin type: its color, <b>who can see it</b> (rep level), and the <b>outcomes</b> a rep may switch it to. The map and reports read this.
       </div>

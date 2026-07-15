@@ -2,6 +2,7 @@
 // The office's own "view all" map link, plus every rep's personal link (with
 // their level) to copy and hand out. A rep only sees the pins their level allows.
 import React, { useEffect, useState } from "react";
+import HarvestNav from "./HarvestNav";
 
 const FONT = "'Nunito', system-ui, sans-serif";
 const OSWALD = "'Oswald', sans-serif";
@@ -32,11 +33,8 @@ export default function HarvestLinks() {
 
   return (
     <div style={{ maxWidth: 820, margin: "0 auto", padding: "20px 16px 60px", fontFamily: FONT }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 6 }}>
-        <a href="/?mode=harvestupload" style={{ fontSize: 13, color: "#0e7490", textDecoration: "none", fontWeight: 700 }}>← Load Leads</a>
-        <a href="/?mode=harvestadmin" style={{ fontSize: 13, color: "#0e7490", textDecoration: "none", fontWeight: 700 }}>Pin Types →</a>
-        <div style={{ fontSize: 22, fontWeight: 800, fontFamily: OSWALD }}>🌾 Rep Links &amp; Access</div>
-      </div>
+      <HarvestNav active="links" />
+      <div style={{ fontSize: 22, fontWeight: 800, fontFamily: OSWALD, marginBottom: 4 }}>🔗 Rep Links &amp; Access</div>
       <div style={{ fontSize: 13.5, color: "#64748b", marginBottom: 16 }}>Each rep opens their <b>personal link</b> to work the map — they only see the pin types their level (senior / junior) is allowed to see.</div>
 
       {err && <div style={{ color: "#b91c1c", fontSize: 13.5, marginBottom: 12 }}>{err}</div>}
