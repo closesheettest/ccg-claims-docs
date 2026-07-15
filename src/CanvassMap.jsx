@@ -85,7 +85,8 @@ export default function CanvassMap() {
   const [stopIdx, setStopIdx] = useState(0);
   const [myLoc, setMyLoc] = useState(null);            // live GPS while a route is active
   const [round, setRound] = useState(1);               // 1st round, 2nd round, …
-  const [routedIds, setRoutedIds] = useState(() => new Set()); // pins already routed in prior rounds
+  const [resolvedIds, setResolvedIds] = useState(() => new Set()); // pins the rep has STATUSED this session (drop from later rounds)
+  const workingRef = useRef(new Set());                // the ORIGINAL round-1 routed pin ids — later rounds only recycle these, minus statused
   const [panelPos, setPanelPos] = useState(null);      // {left,top} px if dragged, else default bottom-right
   const panelDrag = useRef(null);
   const watchRef = useRef(null);
@@ -199,6 +200,7 @@ export default function CanvassMap() {
     const { error } = await supabase.from("canvass_prospects").update(patch).eq("id", p.id);
     if (error) { alert(error.message); return; }
     logActivity({ pin_id: p.id, kind: "status", from_status: p.status, to_status: newStatus });
+    setResolvedIds((s) => new Set(s).add(p.id)); // statused → drops out of later rounds
     setProspects((list) => list.map((x) => (x.id === p.id ? { ...x, ...patch } : x)));
     setSelected((s) => (s && s.id === p.id ? { ...s, ...patch } : s));
   }
@@ -286,24 +288,23 @@ export default function CanvassMap() {
   function startFrom(pt) {
     const r = buildRoute(pt, shownRef.current || []);
     if (!r.length) { alert("No stops on the map to route. Load leads or change the filter, then start your day."); setDayMode(null); return; }
-    setStartPt(pt); setRoute(r); setStopIdx(0); setRound(1); setRoutedIds(new Set()); setDayMode("active");
+    // Round 1's stops ARE the day's working set — later rounds only recycle these.
+    workingRef.current = new Set(r.map((p) => p.id));
+    setStartPt(pt); setRoute(r); setStopIdx(0); setRound(1); setResolvedIds(new Set()); setDayMode("active");
     if (map.current) map.current.setView([r[0].latitude, r[0].longitude], 15);
   }
-  // How many pins are left to route after the rounds done so far + the current one.
+  // Of the original routed pins, how many are still un-statused (i.e. left to work).
   function remainingCount() {
-    const worked = new Set(routedIds);
-    route.forEach((p) => worked.add(p.id));
-    return (shownRef.current || []).filter((p) => !worked.has(p.id) && typeof p.latitude === "number").length;
+    return [...workingRef.current].filter((id) => !resolvedIds.has(id)).length;
   }
-  // Next round: route the most efficient N of whatever's LEFT, from where they are.
+  // Next round: re-route the ORIGINAL routed pins that haven't been statused yet,
+  // from where the rep is now. 30 → (minus statused) 25 → … until all are statused.
   function nextRound() {
-    const worked = new Set(routedIds);
-    route.forEach((p) => worked.add(p.id));
-    const left = (shownRef.current || []).filter((p) => !worked.has(p.id) && typeof p.latitude === "number");
-    if (!left.length) return; // nothing left — the done panel already shows "all worked"
+    const left = (shownRef.current || []).filter((p) => workingRef.current.has(p.id) && !resolvedIds.has(p.id) && typeof p.latitude === "number");
+    if (!left.length) return; // all statused — the done panel shows "all worked"
     const from = myLoc || (route.length ? { lat: route[route.length - 1].latitude, lng: route[route.length - 1].longitude } : startPt);
     const r = buildRoute(from, left);
-    setRoutedIds(worked); setStartPt(from); setRoute(r); setStopIdx(0); setRound((n) => n + 1); setDayMode("active");
+    setStartPt(from); setRoute(r); setStopIdx(0); setRound((n) => n + 1); setDayMode("active");
     if (map.current) map.current.setView([r[0].latitude, r[0].longitude], 15);
   }
   startFromRef.current = startFrom;
@@ -325,7 +326,7 @@ export default function CanvassMap() {
       return ni;
     });
   }
-  function startOver() { setDayMode(null); setStartPt(null); setRoute([]); setStopIdx(0); setRound(1); setRoutedIds(new Set()); setPanelPos(null); }
+  function startOver() { setDayMode(null); setStartPt(null); setRoute([]); setStopIdx(0); setRound(1); setResolvedIds(new Set()); workingRef.current = new Set(); setPanelPos(null); }
   // Drag the route panel so it never blocks the map (pointer events = mouse + touch).
   function panelPointerDown(e) {
     const el = e.currentTarget.closest("[data-daypanel]"); if (!el) return;
@@ -593,6 +594,7 @@ export default function CanvassMap() {
           onBooked={(patch) => {
             setProspects((list) => list.map((x) => (x.id === apptPin.id ? { ...x, ...patch } : x)));
             setSelected((s) => (s && s.id === apptPin.id ? { ...s, ...patch } : s));
+            setResolvedIds((s) => new Set(s).add(apptPin.id)); // booked → statused → drops from later rounds
             setApptPin(null);
           }}
         />
