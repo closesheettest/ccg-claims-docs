@@ -275,12 +275,30 @@ function genSlots(days = 14) {
 const dayKey = (d) => d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 const hourLabel = (d) => d.toLocaleTimeString("en-US", { hour: "numeric" });
 
+const slotKey = (d) => `${d.toDateString()}-${d.getHours()}`;
+
 function AppointmentModal({ pin, rt, onClose, onBooked }) {
   const [phone, setPhone] = useState(pin.mobile || "");
   const [email, setEmail] = useState(pin.email || "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const slots = useMemo(() => genSlots(14), []);
+  const [booked, setBooked] = useState(null); // null = still checking JN
+
+  // Pull the rep's already-booked appointments so we only offer free times.
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const r = await fetch(`/.netlify/functions/harvest-availability?rt=${encodeURIComponent(rt)}`);
+        const j = await r.json().catch(() => ({}));
+        if (live) setBooked(Array.isArray(j.booked) ? j.booked : []);
+      } catch { if (live) setBooked([]); }
+    })();
+    return () => { live = false; };
+  }, [rt]);
+
+  const bookedKeys = useMemo(() => new Set((booked || []).map((ms) => slotKey(new Date(ms)))), [booked]);
+  const slots = useMemo(() => genSlots(14).filter((s) => !bookedKeys.has(slotKey(s.dt))), [bookedKeys]);
   const byDay = {};
   for (const s of slots) (byDay[dayKey(s.dt)] = byDay[dayKey(s.dt)] || []).push(s);
 
@@ -313,9 +331,12 @@ function AppointmentModal({ pin, rt, onClose, onBooked }) {
           <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email (optional)" inputMode="email"
             style={{ flex: 1, minWidth: 150, fontSize: 14, padding: "10px 12px", borderRadius: 10, border: "1px solid #cbd5e1", boxSizing: "border-box" }} />
         </div>
-        <div style={{ fontSize: 12, color: "#64748b", marginBottom: 12 }}>Pick a time — it books the appointment into JobNimbus and turns this pin into an Appointment.</div>
+        <div style={{ fontSize: 12, color: "#64748b", marginBottom: 12 }}>Pick a time — it books the appointment into JobNimbus and turns this pin into an Appointment. Times you're already booked are hidden.</div>
         {err && <div style={{ color: "#b91c1c", fontSize: 13, marginBottom: 10 }}>{err}</div>}
 
+        {booked === null ? <div style={{ fontSize: 13, color: "#6b7280", padding: "8px 0" }}>Checking your calendar…</div>
+          : !slots.length ? <div style={{ fontSize: 13, color: "#6b7280", padding: "8px 0" }}>No open times in the next 2 weeks.</div>
+          : (
         <div style={{ maxHeight: "48vh", overflowY: "auto" }}>
           {Object.keys(byDay).map((k) => (
             <div key={k} style={{ marginBottom: 12 }}>
@@ -331,6 +352,7 @@ function AppointmentModal({ pin, rt, onClose, onBooked }) {
             </div>
           ))}
         </div>
+        )}
       </div>
     </div>
   );

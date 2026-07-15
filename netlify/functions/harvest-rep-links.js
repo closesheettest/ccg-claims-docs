@@ -29,16 +29,19 @@ export const handler = async (event) => {
       sbGet(`app_settings?key=eq.harvest_admin_token&select=value&limit=1`),
       fetch(REP_ZONES_URL).then((r) => (r.ok ? r.json() : { reps: [] })).catch(() => ({ reps: [] })),
     ]);
+    // Only ACTIVE field reps (rep-zones active flag) — sales_reps.active is set
+    // on nearly everyone, so it's not a real "currently working" signal.
     const levelByJn = {};
     for (const r of (rz.reps || [])) {
+      if (!r.active || !r.jobnimbus_id) continue;
       const lv = (r.rep_level || "").toLowerCase();
-      if (r.jobnimbus_id) levelByJn[r.jobnimbus_id] = (lv === "senior" || lv === "junior") ? lv : "junior";
+      levelByJn[r.jobnimbus_id] = (lv === "senior" || lv === "junior") ? lv : "junior";
     }
     const out = (reps || [])
-      .filter((r) => r.harvest_token)
+      .filter((r) => r.harvest_token && r.jobnimbus_id && levelByJn[r.jobnimbus_id])
       .map((r) => ({
         name: r.name,
-        level: r.jobnimbus_id ? (levelByJn[r.jobnimbus_id] || "junior") : "junior",
+        level: levelByJn[r.jobnimbus_id],
         link: `${base}/?mode=harvest&rt=${r.harvest_token}`,
       }));
     const adminTok = adminRow?.[0]?.value || "";
