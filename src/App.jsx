@@ -17,6 +17,7 @@ import InspectionPhotosModal from "./InspectionPhotosModal";
 import RepVisitHub from "./RepVisitHub";
 import SetterPortal from "./SetterPortal";
 import CanvassMap from "./CanvassMap";
+import HarvestAdmin from "./HarvestAdmin";
 import ReviewApptPicker from "./ReviewApptPicker";
 import JnMatchPickerModal from "./JnMatchPickerModal";
 import ManagerRecordsView from "./ManagerRecordsView";
@@ -9330,6 +9331,11 @@ export default function App() {
     // (IQ → Appt, Not Home, etc.). Self-contained, mobile-first.
     if (portalMode === "harvest" || portalMode === "canvass") {
       return <CanvassMap />;
+    }
+    // ?mode=harvestadmin — office admin page to configure the map's pin types
+    // (color, who can see them, allowed outcomes). Reads/writes harvest_pin_types.
+    if (portalMode === "harvestadmin") {
+      return <HarvestAdmin />;
     }
     // /?correct=<inspectionId> — the link we text the originating sales rep
     // + their regional manager when a Public Adjuster flags "Correction

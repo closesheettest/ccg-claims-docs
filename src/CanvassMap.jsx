@@ -9,16 +9,18 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { supabase } from "./lib/supabase";
 
-const STATUSES = [
-  { key: "iq", label: "IQ (new)", color: "#2563eb" },
-  { key: "appt", label: "Appointment", color: "#16a34a" },
-  { key: "not_home", label: "Not Home", color: "#9ca3af" },
-  { key: "callback", label: "Callback", color: "#f59e0b" },
-  { key: "not_interested", label: "Not Interested", color: "#ef4444" },
-  { key: "sold", label: "Sold", color: "#7c3aed" },
-  { key: "dnk", label: "Do Not Knock", color: "#111827" },
+// Fallback used only if the harvest_pin_types config table can't be reached.
+// The live pin types (label, color, allowed outcomes, who sees them) are loaded
+// from that table so the office can edit them on the admin page.
+const FALLBACK_TYPES = [
+  { key: "iq", label: "IQ", color: "#2563eb", outcomes: ["iq_ni", "appt"] },
+  { key: "appt", label: "Appointment", color: "#16a34a", outcomes: [], is_terminal: true },
+  { key: "iq_ni", label: "IQ – Not Interested", color: "#f59e0b", outcomes: ["insp_sold", "dead"] },
+  { key: "insp", label: "Inspection Lead", color: "#0ea5e9", outcomes: ["insp_sold", "dead"] },
+  { key: "insp_sold", label: "Inspection Sold", color: "#7c3aed", outcomes: [], is_terminal: true },
+  { key: "dead", label: "Dead / DNK", color: "#111827", outcomes: [], is_terminal: true },
 ];
-const S = Object.fromEntries(STATUSES.map((s) => [s.key, s]));
+const UNKNOWN_TYPE = { color: "#64748b", label: "—", outcomes: [] };
 const FONT = "'Nunito', system-ui, sans-serif";
 
 export default function CanvassMap() {
@@ -32,6 +34,16 @@ export default function CanvassMap() {
   const [filter, setFilter] = useState("all");
   const [repName, setRepName] = useState(() => { try { return localStorage.getItem("canvass_rep") || ""; } catch { return ""; } });
   const [showUpload, setShowUpload] = useState(false);
+  const [pinTypes, setPinTypes] = useState(FALLBACK_TYPES);
+  const S = useMemo(() => Object.fromEntries(pinTypes.map((t) => [t.key, t])), [pinTypes]);
+
+  // Load the editable pin-type config (colors, labels, allowed outcomes).
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from("harvest_pin_types").select("*").eq("active", true).order("sort");
+      if (data && data.length) setPinTypes(data);
+    })();
+  }, []);
 
   async function load() {
     setLoading(true);
@@ -77,7 +89,7 @@ export default function CanvassMap() {
     const shown = mapped.filter((p) => filter === "all" || p.status === filter);
     const pts = [];
     for (const p of shown) {
-      const color = (S[p.status] || S.iq).color;
+      const color = (S[p.status] || UNKNOWN_TYPE).color;
       const marker = L.circleMarker([p.latitude, p.longitude], {
         radius: 9, color: "#fff", weight: 2, fillColor: color, fillOpacity: 0.95,
       });
@@ -130,7 +142,7 @@ export default function CanvassMap() {
       {/* Status filter chips */}
       <div style={{ display: "flex", gap: 6, overflowX: "auto", padding: "8px 12px", background: "#fff", borderBottom: "1px solid #e5e7eb" }}>
         <Chip active={filter === "all"} onClick={() => setFilter("all")} color="#334155" label={`All (${prospects.length})`} />
-        {STATUSES.map((s) => (
+        {pinTypes.map((s) => (
           <Chip key={s.key} active={filter === s.key} onClick={() => setFilter(s.key)} color={s.color} label={`${s.label} (${counts[s.key] || 0})`} />
         ))}
       </div>
@@ -157,28 +169,42 @@ export default function CanvassMap() {
               <div style={{ fontSize: 14, color: "#334155", fontWeight: 600 }}>{selected.address}</div>
               <div style={{ fontSize: 13, color: "#64748b" }}>{[selected.city, selected.state, selected.zip].filter(Boolean).join(", ")}</div>
               <div style={{ marginTop: 6, display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700 }}>
-                <span style={{ width: 10, height: 10, borderRadius: 5, background: (S[selected.status] || S.iq).color, display: "inline-block" }} />
-                {(S[selected.status] || S.iq).label}
+                <span style={{ width: 10, height: 10, borderRadius: 5, background: (S[selected.status] || UNKNOWN_TYPE).color, display: "inline-block" }} />
+                {(S[selected.status] || UNKNOWN_TYPE).label}
                 {selected.status_by ? <span style={{ color: "#94a3b8", fontWeight: 600 }}> · by {selected.status_by}</span> : null}
               </div>
             </div>
             <button type="button" onClick={() => setSelected(null)} style={{ background: "none", border: "none", fontSize: 22, color: "#94a3b8", cursor: "pointer", lineHeight: 1 }}>×</button>
           </div>
 
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#64748b", margin: "14px 0 8px" }}>Set status</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            {STATUSES.map((s) => {
-              const on = selected.status === s.key;
-              return (
-                <button key={s.key} type="button" onClick={() => setStatus(selected, s.key)}
-                  style={{ padding: "9px 14px", borderRadius: 10, fontSize: 13.5, fontWeight: 700, cursor: "pointer",
-                    border: on ? `2px solid ${s.color}` : "1px solid #e5e7eb",
-                    background: on ? s.color : "#fff", color: on ? "#fff" : "#334155" }}>
-                  {s.label}
-                </button>
-              );
-            })}
-          </div>
+          {(() => {
+            // Behavior flow: offer only the outcomes this pin type allows. If the
+            // type defines none (terminal, or unconfigured), fall back to every
+            // type so a mis-set pin can still be corrected.
+            const cur = S[selected.status];
+            const allowed = (cur?.outcomes || []).map((k) => S[k]).filter(Boolean);
+            const options = allowed.length ? allowed : pinTypes;
+            return (
+              <>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#64748b", margin: "14px 0 8px" }}>
+                  {allowed.length ? "Outcome" : "Set status"}
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {options.map((s) => {
+                    const on = selected.status === s.key;
+                    return (
+                      <button key={s.key} type="button" onClick={() => setStatus(selected, s.key)}
+                        style={{ padding: "9px 14px", borderRadius: 10, fontSize: 13.5, fontWeight: 700, cursor: "pointer",
+                          border: on ? `2px solid ${s.color}` : "1px solid #e5e7eb",
+                          background: on ? s.color : "#fff", color: on ? "#fff" : "#334155" }}>
+                        {s.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            );
+          })()}
 
           <a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent([selected.address, selected.city, selected.state, selected.zip].filter(Boolean).join(", "))}`}
             target="_blank" rel="noreferrer"
