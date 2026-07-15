@@ -7,6 +7,9 @@
 import React, { useEffect, useRef, useState, useMemo } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import "leaflet.markercluster";
+import "leaflet.markercluster/dist/MarkerCluster.css";
+import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 import { supabase } from "./lib/supabase";
 
 // Fallback used only if the harvest_pin_types config table can't be reached.
@@ -33,6 +36,17 @@ const STAR_ICON = L.divIcon({
   iconSize: [24, 24],
   iconAnchor: [12, 12],
 });
+
+// Colored dot as an L.Marker (divIcon) so it clusters — markerClusterGroup only
+// clusters L.Marker, not L.circleMarker.
+function dotIcon(color) {
+  return L.divIcon({
+    className: "harvest-dot",
+    html: `<div style="width:18px;height:18px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 1px 2px rgba(0,0,0,.4)"></div>`,
+    iconSize: [18, 18],
+    iconAnchor: [9, 9],
+  });
+}
 const FONT = "'Nunito', system-ui, sans-serif";
 
 export default function CanvassMap() {
@@ -88,7 +102,15 @@ export default function CanvassMap() {
       maxZoom: 19, attribution: "&copy; OpenStreetMap",
     }).addTo(m);
     map.current = m;
-    layer.current = L.layerGroup().addTo(m);
+    // Cluster group so a zoomed-out map groups nearby pins into a numbered
+    // bubble; zooming in splits them back into individual pins/stars.
+    layer.current = L.markerClusterGroup({
+      showCoverageOnHover: false,
+      maxClusterRadius: 55,
+      spiderfyOnMaxZoom: true,
+      disableClusteringAtZoom: 17,
+      chunkedLoading: true,
+    }).addTo(m);
     // Leaflet computes its size at init; inside a flex layout the container
     // may not have its final size yet, leaving the tiles rendered for a tiny
     // box. Recalc on mount AND whenever the container resizes.
@@ -110,14 +132,13 @@ export default function CanvassMap() {
     if (!m || !lyr) return;
     lyr.clearLayers();
     const shown = mapped.filter((p) => filter === "all" || p.status === filter);
+    const markers = [];
     const pts = [];
     for (const p of shown) {
       const color = (S[p.status] || UNKNOWN_TYPE).color;
-      const marker = L.circleMarker([p.latitude, p.longitude], {
-        radius: 9, color: "#fff", weight: 2, fillColor: color, fillOpacity: 0.95,
-      });
+      const marker = L.marker([p.latitude, p.longitude], { icon: dotIcon(color) });
       marker.on("click", () => { setSelectedInstall(null); setSelected(p); });
-      marker.addTo(lyr);
+      markers.push(marker);
       pts.push([p.latitude, p.longitude]);
     }
     // Installs — gold stars, shown to every rep as a reference layer.
@@ -126,9 +147,10 @@ export default function CanvassMap() {
         if (typeof it.latitude !== "number" || typeof it.longitude !== "number") continue;
         const marker = L.marker([it.latitude, it.longitude], { icon: STAR_ICON });
         marker.on("click", () => { setSelected(null); setSelectedInstall(it); });
-        marker.addTo(lyr);
+        markers.push(marker);
       }
     }
+    lyr.addLayers(markers); // bulk add → clustered
     if (pts.length && !fitted.current) {
       m.fitBounds(pts, { padding: [40, 40], maxZoom: 15 });
       fitted.current = true;

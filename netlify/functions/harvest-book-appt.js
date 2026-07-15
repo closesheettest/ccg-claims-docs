@@ -47,8 +47,9 @@ export const handler = async (event) => {
   // Resolve the booking rep + the pin.
   const rep = (await sbGet(`sales_reps?harvest_token=eq.${encodeURIComponent(rt)}&select=name,jobnimbus_id&limit=1`))[0];
   if (!rep) return json(401, { ok: false, error: "Invalid link" });
-  const pin = (await sbGet(`canvass_prospects?id=eq.${encodeURIComponent(pinId)}&select=name,address,city,state,zip,status&limit=1`))[0];
+  const pin = (await sbGet(`canvass_prospects?id=eq.${encodeURIComponent(pinId)}&select=name,address,city,state,zip,status,jn_job_id,status_log&limit=1`))[0];
   if (!pin) return json(404, { ok: false, error: "pin not found" });
+  const existingJobId = String(pin.jn_job_id || "").trim();
 
   const nm = (pin.name || "").trim() || "Homeowner";
   const parts = nm.split(/\s+/).filter(Boolean);
@@ -58,6 +59,57 @@ export const handler = async (event) => {
   const owner = rep.jobnimbus_id || undefined;
 
   try {
+    // ── RESCHEDULE ────────────────────────────────────────────────────────
+    // The pin already has a JobNimbus job (it went IQ → appt → no-sit). Don't
+    // create a second job — RESET the existing appointment: new date, and the
+    // rep who rebooked becomes the sole owner/assigned (the old assignee, if
+    // different, is dropped). Then the pin goes back to 'appt'.
+    if (existingJobId) {
+      await jnPut(`jobs/${existingJobId}`, {
+        status: APPT_STATUS, status_name: APPT_STATUS_NAME,
+        date_start: apptSec,
+        ...(owner ? { owners: [{ id: owner }] } : {}),
+      });
+      // Reset the Initial Appointment task(s): move the first to the new time +
+      // owner, and close out any extras so there's exactly one live appointment.
+      const tFilter = encodeURIComponent(JSON.stringify({ must: [{ term: { "related.id": existingJobId } }] }));
+      const tResp = await jnGet(`tasks?size=50&filter=${tFilter}`);
+      const appts = (tResp.results || tResp.tasks || tResp.data || [])
+        .filter((t) => t.record_type === APPT_TASK_RT || /appointment/i.test(t.record_type_name || ""));
+      if (appts.length) {
+        const t0 = appts[0];
+        await jnPut(`tasks/${t0.jnid || t0.id}`, {
+          date_start: apptSec, date_end: 0, is_completed: false,
+          ...(owner ? { owners: [{ id: owner }] } : {}),
+        });
+        for (const extra of appts.slice(1)) {
+          await jnPut(`tasks/${extra.jnid || extra.id}`, { is_completed: true }).catch(() => {});
+        }
+      } else {
+        await jnPost("tasks", {
+          record_type: APPT_TASK_RT, record_type_name: "Initial Appointment", type: "task",
+          title: `Initial Appointment — ${nm}`, date_start: apptSec, date_end: 0,
+          related: [{ id: existingJobId, type: "job" }], ...(owner ? { owners: [{ id: owner }] } : {}),
+        });
+      }
+      await jnPost("activities", {
+        record_type_name: "Note",
+        note: `🔄 Harvesting appointment RESET by ${rep.name || "rep"} for ${new Date(apptMs).toLocaleString("en-US", { timeZone: "America/New_York" })} — reassigned to ${rep.name || "rep"}`,
+        primary: { id: existingJobId, type: "job" }, related: [{ id: existingJobId, type: "job" }], is_status_change: false,
+      }).catch(() => {});
+
+      const nowIso = new Date().toISOString();
+      const log = Array.isArray(pin.status_log) ? [...pin.status_log] : [];
+      log.push({ at: nowIso, from: pin.status, to: "appt", by: rep.name || "rep", appt_at: apptIso, jn_job_id: existingJobId, reset: true });
+      await fetch(`${SB_URL}/rest/v1/canvass_prospects?id=eq.${encodeURIComponent(pinId)}`, {
+        method: "PATCH", headers: { ...sb, Prefer: "return=minimal" },
+        body: JSON.stringify({ status: "appt", status_updated_at: nowIso, status_by: rep.name || null, jn_job_id: existingJobId, status_log: log }),
+      }).catch(() => {});
+
+      return json(200, { ok: true, job_id: existingJobId, reset: true });
+    }
+
+    // ── FRESH BOOKING ─────────────────────────────────────────────────────
     let contactId = await findExistingContact(phone, nm);
     if (!contactId) {
       const c = { first_name: first, last_name: last, display_name: nm, mobile_phone: phone || "", email: email || "", address_line1: street, city: pin.city || "", state_text: pin.state || "", zip: pin.zip || "" };
@@ -123,6 +175,12 @@ async function jnPost(path, payload) {
   const r = await jnFetch(JN_KEY, path, { method: "POST", body: JSON.stringify(payload) });
   const txt = await r.text();
   if (!r.ok) throw new Error(`JN ${path} ${r.status}: ${txt.slice(0, 160)}`);
+  try { return JSON.parse(txt); } catch { return {}; }
+}
+async function jnPut(path, payload) {
+  const r = await jnFetch(JN_KEY, path, { method: "PUT", body: JSON.stringify(payload) });
+  const txt = await r.text();
+  if (!r.ok) throw new Error(`JN PUT ${path} ${r.status}: ${txt.slice(0, 160)}`);
   try { return JSON.parse(txt); } catch { return {}; }
 }
 async function jnGet(path) {
