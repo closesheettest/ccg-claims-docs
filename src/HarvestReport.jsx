@@ -34,8 +34,8 @@ export default function HarvestReport() {
     const m = new Map();
     for (const r of (rows || [])) {
       const name = r.rep_name || "(unknown)";
-      const cur = m.get(name) || { name, visits: 0, pins: new Set(), rounds: 0, last: null, outcomes: {} };
-      if (r.kind === "visit") { cur.visits += 1; if (r.pin_id) cur.pins.add(r.pin_id); }
+      const cur = m.get(name) || { name, visits: 0, pins: new Set(), rounds: 0, last: null, outcomes: {}, notHome: 0 };
+      if (r.kind === "visit") { cur.visits += 1; if (r.pin_id) cur.pins.add(r.pin_id); if (r.to_status === "not_home") cur.notHome += 1; }
       if (r.kind === "status" && r.to_status) cur.outcomes[r.to_status] = (cur.outcomes[r.to_status] || 0) + 1;
       if (typeof r.round === "number") cur.rounds = Math.max(cur.rounds, r.round);
       if (!cur.last || new Date(r.created_at) > new Date(cur.last)) cur.last = r.created_at;
@@ -74,6 +74,7 @@ export default function HarvestReport() {
                 <th style={{ padding: "8px 10px" }}>Pins visited</th>
                 <th style={{ padding: "8px 10px" }}>Rounds</th>
                 {OUTCOMES.map((o) => <th key={o} style={{ padding: "8px 10px" }}>{OUTCOME_LABELS[o]}</th>)}
+                <th style={{ padding: "8px 10px" }}>Not home</th>
                 <th style={{ padding: "8px 10px" }}>Last active</th>
               </tr>
             </thead>
@@ -84,6 +85,7 @@ export default function HarvestReport() {
                   <td style={{ padding: "9px 10px" }}>{r.pinsVisited}{r.visits !== r.pinsVisited ? <span style={{ color: "#94a3b8" }}> ({r.visits} taps)</span> : null}</td>
                   <td style={{ padding: "9px 10px" }}>{r.rounds || "—"}</td>
                   {OUTCOMES.map((o) => <td key={o} style={{ padding: "9px 10px", fontWeight: r.outcomes[o] ? 700 : 400, color: r.outcomes[o] ? "#0f172a" : "#cbd5e1" }}>{r.outcomes[o] || 0}</td>)}
+                  <td style={{ padding: "9px 10px", fontWeight: r.notHome ? 700 : 400, color: r.notHome ? "#0f172a" : "#cbd5e1" }}>{r.notHome || 0}</td>
                   <td style={{ padding: "9px 10px", color: "#64748b", whiteSpace: "nowrap" }}>{fmt(r.last)}</td>
                 </tr>
               ))}
