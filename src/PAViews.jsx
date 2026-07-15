@@ -120,20 +120,21 @@ function signupBg(opt) {
 // were removed from the portal at Neal's request — the JN fields still
 // exist, they're just not surfaced here.)
 const PA_FIELDS = [
-  { key: "pa_filed",            label: "Claim Filed" },
-  { key: "ins_approved",        label: "Claim Settled" },
-  { key: "iss_uploaded",        label: "Disbursement and Estimate - Uploaded" },
+  { key: "pa_filed",            label: "(PA) Claim Filed" },
+  { key: "pa_coverage_opened", label: "(PA) Coverage Opened" },
+  { key: "iss_uploaded",       label: "(FS Staff) Settlement Uploaded / iink Started", upload: true },
 ];
 
 // "Signed File Details" — shown only once a deal is Signed (Five Star
-// mockup). Each step just captures a date. "Filed with Insurance" reuses
-// the JN-backed pa_filed field; Settled / Closed-Cancelled cache locally
-// until their JobNimbus fields ship (see pa-save-field.js FIELD_MAP).
+// mockup). Each step just captures a date. pa_filed writes to JobNimbus;
+// pa_coverage_opened caches locally until its JN date field ships (see
+// pa-save-field.js FIELD_MAP). The settlement step also takes a file upload
+// that pushes the settlement doc onto the JobNimbus job.
 const SIGNED_DETAIL_FIELDS = [
-  { key: "pa_filed",         label: "Claim Filed" },
-  { key: "ins_approved",     label: "Claim Settled" },
-  { key: "iss_uploaded",     label: "Disbursement and Estimate - Uploaded" },
-  { key: "closed_cancelled", label: "Closed / Cancelled" },
+  { key: "pa_filed",            label: "(PA) Claim Filed" },
+  { key: "pa_coverage_opened", label: "(PA) Coverage Opened" },
+  { key: "iss_uploaded",       label: "(FS Staff) Settlement Uploaded / iink Started", upload: true },
+  { key: "closed_cancelled",   label: "Closed / Cancelled" },
 ];
 
 // ── Date helpers. JN custom dates are unix epoch SECONDS. We anchor the
@@ -2930,6 +2931,49 @@ function milestoneProgress(paFields) {
 // PA self-scheduling for their OWN assigned deal. Unlike the rep's booker (which
 // shows EVERY PA's slots), this loads slots with pa_id=me.id, so the PA only ever
 // sees their own open availability. Books straight into pa_appointments.
+// Read a File as base64 (no data: prefix) for JSON upload.
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result || "").split(",")[1] || "");
+    r.onerror = () => reject(new Error("Couldn't read the file"));
+    r.readAsDataURL(file);
+  });
+}
+
+// Upload a settlement / iink document straight onto the JobNimbus job.
+function SettlementUpload({ inspectionId, paId, onUploaded }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const onFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-picking the same file
+    if (!file) return;
+    if (file.size > 18 * 1024 * 1024) { setMsg({ ok: false, text: "That file is over ~18MB — please upload a smaller PDF/photo." }); return; }
+    setBusy(true); setMsg(null);
+    try {
+      const dataBase64 = await fileToBase64(file);
+      const res = await fetch("/.netlify/functions/pa-upload-settlement", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inspectionId, paId, filename: file.name, contentType: file.type || "application/octet-stream", dataBase64 }),
+      });
+      const b = await res.json().catch(() => ({}));
+      if (!res.ok || !b.ok) setMsg({ ok: false, text: b.error || `Upload failed (${res.status})` });
+      else { setMsg({ ok: true, text: `✓ “${b.filename || file.name}” uploaded to JobNimbus.` }); onUploaded?.(); }
+    } catch (err) { setMsg({ ok: false, text: err.message || "Upload failed" }); }
+    setBusy(false);
+  };
+  return (
+    <div style={{ marginTop: 6 }}>
+      <label style={{ ...secondaryBtn, display: "inline-block", fontSize: 12, borderColor: "#93c5fd", color: "#1d4ed8", cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}>
+        {busy ? "Uploading…" : "⬆ Upload settlement doc to JobNimbus"}
+        <input type="file" accept=".pdf,.png,.jpg,.jpeg,.heic,.doc,.docx,image/*,application/pdf" onChange={onFile} disabled={busy} style={{ display: "none" }} />
+      </label>
+      {msg && <div style={{ marginTop: 4, fontSize: 11.5, color: msg.ok ? "#047857" : "#b91c1c" }}>{msg.text}</div>}
+    </div>
+  );
+}
+
 function PASelfSchedule({ me, job }) {
   const [open, setOpen] = useState(false);
   const [slots, setSlots] = useState(null);
@@ -3796,29 +3840,38 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
         )}
         <div style={{ display: "grid", gap: 10 }}>
           {detailFields.map((f) => (
-            <div key={f.key} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "center" }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700 }}>{f.label}</div>
-                <div style={{ fontSize: 11, color: savedKey === f.key ? "#047857" : "#94a3b8" }}>
-                  {savingKey === f.key ? "Saving…" : savedKey === f.key ? "✓ Saved" : fields[f.key] ? epochToDisplay(fields[f.key]) : "Not set"}
+            <div key={f.key}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "center" }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700 }}>{f.label}</div>
+                  <div style={{ fontSize: 11, color: savedKey === f.key ? "#047857" : "#94a3b8" }}>
+                    {savingKey === f.key ? "Saving…" : savedKey === f.key ? "✓ Saved" : fields[f.key] ? epochToDisplay(fields[f.key]) : "Not set"}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                  <input
+                    type="date"
+                    value={epochToDateInput(fields[f.key])}
+                    disabled={savingKey === f.key}
+                    onChange={(e) => saveField(f.key, dateInputToEpoch(e.target.value))}
+                    style={{ ...inputStyle, width: 160, fontSize: 14 }}
+                  />
+                  {fields[f.key] && (
+                    <button type="button" title="Clear" disabled={savingKey === f.key}
+                      onClick={() => saveField(f.key, null)}
+                      style={{ ...secondaryBtn, padding: "6px 8px", fontSize: 12 }}>
+                      ✕
+                    </button>
+                  )}
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                <input
-                  type="date"
-                  value={epochToDateInput(fields[f.key])}
-                  disabled={savingKey === f.key}
-                  onChange={(e) => saveField(f.key, dateInputToEpoch(e.target.value))}
-                  style={{ ...inputStyle, width: 160, fontSize: 14 }}
+              {f.upload && (
+                <SettlementUpload
+                  inspectionId={jobId}
+                  paId={me.id}
+                  onUploaded={() => { if (!fields[f.key]) saveField(f.key, dateInputToEpoch(new Date().toISOString().slice(0, 10))); }}
                 />
-                {fields[f.key] && (
-                  <button type="button" title="Clear" disabled={savingKey === f.key}
-                    onClick={() => saveField(f.key, null)}
-                    style={{ ...secondaryBtn, padding: "6px 8px", fontSize: 12 }}>
-                    ✕
-                  </button>
-                )}
-              </div>
+              )}
             </div>
           ))}
         </div>
