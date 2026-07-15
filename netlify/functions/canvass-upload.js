@@ -28,11 +28,28 @@ export const handler = async (event) => {
   let body = {};
   try { body = JSON.parse(event.body || "{}"); } catch { return json(400, { ok: false, error: "Invalid JSON body" }); }
 
+  const sbH = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
+  // Valid pin-type keys + which are terminal (protected from re-upload).
+  const validKeys = new Set();
+  const terminalKeys = new Set();
+  try {
+    for (const t of await sbGet(`${SB_URL}/rest/v1/harvest_pin_types?select=key,is_terminal`, sbH)) {
+      validKeys.add(t.key);
+      if (t.is_terminal) terminalKeys.add(t.key);
+    }
+  } catch { /* config unreachable — fall back to defaults below */ }
+  if (!validKeys.size) ["iq", "appt", "iq_ni", "insp", "insp_sold", "dead"].forEach((k) => validKeys.add(k));
+  if (!terminalKeys.size) ["appt", "insp_sold", "dead"].forEach((k) => terminalKeys.add(k));
+  const cleanType = (t) => (validKeys.has(t) ? t : "iq");
+
   const listName = (body.list_name || "").toString().trim() || `List ${new Date().toISOString().slice(0, 10)}`;
   const rawRows = Array.isArray(body.rows) ? body.rows : [];
   if (!rawRows.length) return json(400, { ok: false, error: "rows required" });
 
-  // Normalize: a row can be a plain address string or an object.
+  const defaultType = (body.default_type || "iq").toString().trim().toLowerCase();
+  // Normalize: a row can be a plain address string or an object. A per-row
+  // `type` (pin-type key) lets one CSV carry mixed pin types; otherwise the
+  // batch default_type is used.
   const rows = rawRows
     .map((r) => (typeof r === "string" ? { address: r } : r || {}))
     .map((r) => ({
@@ -41,6 +58,7 @@ export const handler = async (event) => {
       city: (r.city || "").toString().trim() || null,
       state: (r.state || "").toString().trim() || null,
       zip: (r.zip || "").toString().trim() || null,
+      type: (r.type || r.status || "").toString().trim().toLowerCase() || defaultType,
     }))
     .filter((r) => r.address)
     .slice(0, MAX_ROWS);
@@ -64,28 +82,18 @@ export const handler = async (event) => {
         latitude: g.ok ? g.lat : null,
         longitude: g.ok ? g.lng : null,
         geocode_status: g.ok ? "ok" : "failed",
-        status: "iq",
+        status: cleanType(r.type),
       };
     }
   }
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, rows.length) }, worker));
 
-  const sbH = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
-
   // Dedup by geocoded location so re-uploading an address updates the SAME pin
-  // instead of dropping a duplicate. "IQ wins": an uploaded IQ pin that lands on
-  // an existing NON-terminal pin (e.g. an Inspection Lead) resets it to IQ —
-  // fresh leads go back to the top of the funnel. Terminal pins (Appointment,
-  // Inspection Sold, Dead/DNK) are protected: an upload never resets a booked
-  // appt, a sold job, or a do-not-knock.
-  const terminalKeys = new Set();
-  try {
-    for (const t of await sbGet(`${SB_URL}/rest/v1/harvest_pin_types?select=key,is_terminal`, sbH)) {
-      if (t.is_terminal) terminalKeys.add(t.key);
-    }
-  } catch { /* config unreachable — fall back to protecting appt/insp_sold */ }
-  if (!terminalKeys.size) ["appt", "insp_sold", "dead"].forEach((k) => terminalKeys.add(k));
-
+  // instead of dropping a duplicate. Precedence on a collision:
+  //   • existing is TERMINAL (Appointment, Inspection Sold, Dead/DNK) → protected,
+  //     never overwritten by an upload.
+  //   • existing is IQ and the incoming type isn't → keep IQ ("IQ always wins").
+  //   • otherwise → the incoming pin type replaces the existing one.
   const coordKey = (lat, lng) => `${(+lat).toFixed(4)},${(+lng).toFixed(4)}`; // ~11 m
   const existing = {};
   try {
@@ -101,12 +109,16 @@ export const handler = async (event) => {
   for (const row of out) {
     const hit = (row.latitude != null) ? existing[coordKey(row.latitude, row.longitude)] : null;
     if (!hit) { toInsert.push(row); continue; }
-    if (hit.status === "iq" || terminalKeys.has(hit.status)) { skipped++; continue; } // already IQ, or a protected win
+    const newType = row.status;
+    const keep = terminalKeys.has(hit.status)              // protected win
+      || hit.status === newType                             // no change
+      || (hit.status === "iq" && newType !== "iq");         // IQ always wins
+    if (keep) { skipped++; continue; }
     const log = Array.isArray(hit.status_log) ? [...hit.status_log] : [];
-    log.push({ at: nowIso, from: hit.status, to: "iq", by: "upload" });
+    log.push({ at: nowIso, from: hit.status, to: newType, by: "upload" });
     updates.push(fetch(`${SB_URL}/rest/v1/canvass_prospects?id=eq.${hit.id}`, {
       method: "PATCH", headers: { ...sbH, Prefer: "return=minimal" },
-      body: JSON.stringify({ status: "iq", status_updated_at: nowIso, status_by: "upload", status_log: log, list_name: listName }),
+      body: JSON.stringify({ status: newType, status_updated_at: nowIso, status_by: "upload", status_log: log, list_name: listName }),
     }).then((r) => { if (r.ok) updated++; }));
   }
   await Promise.all(updates);

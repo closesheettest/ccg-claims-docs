@@ -33,7 +33,6 @@ export default function CanvassMap() {
   const [selected, setSelected] = useState(null);
   const [filter, setFilter] = useState("all");
   const [repName, setRepName] = useState(() => { try { return localStorage.getItem("canvass_rep") || ""; } catch { return ""; } });
-  const [showUpload, setShowUpload] = useState(false);
   const [pinTypes, setPinTypes] = useState(FALLBACK_TYPES);
   const S = useMemo(() => Object.fromEntries(pinTypes.map((t) => [t.key, t])), [pinTypes]);
 
@@ -132,10 +131,6 @@ export default function CanvassMap() {
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
           <input value={repName} onChange={(e) => saveRep(e.target.value)} placeholder="Your name"
             style={{ fontSize: 12, padding: "6px 8px", borderRadius: 8, border: "none", width: 110 }} />
-          <button type="button" onClick={() => setShowUpload((v) => !v)}
-            style={{ fontSize: 12, fontWeight: 700, padding: "7px 12px", borderRadius: 8, border: "none", background: "#22c55e", color: "#052e16", cursor: "pointer" }}>
-            ⬆ Upload
-          </button>
         </div>
       </div>
 
@@ -155,7 +150,7 @@ export default function CanvassMap() {
         )}
         {!loading && prospects.length === 0 && (
           <div style={{ position: "absolute", top: 20, left: "50%", transform: "translateX(-50%)", background: "#fff", padding: "14px 18px", borderRadius: 12, fontSize: 13.5, color: "#475569", boxShadow: "0 2px 10px rgba(0,0,0,.12)", zIndex: 500, textAlign: "center", maxWidth: 320 }}>
-            No prospects yet. Tap <b>⬆ Upload</b> to add a list of addresses.
+            No pins in your area yet. The office loads leads from the admin section.
           </div>
         )}
       </div>
@@ -213,9 +208,6 @@ export default function CanvassMap() {
           </a>
         </div>
       )}
-
-      {/* Upload panel */}
-      {showUpload && <UploadPanel onClose={() => setShowUpload(false)} onDone={() => { setShowUpload(false); fitted.current = false; load(); }} />}
     </div>
   );
 }
@@ -230,61 +222,3 @@ function Chip({ active, onClick, color, label }) {
     </button>
   );
 }
-
-function UploadPanel({ onClose, onDone }) {
-  const [listName, setListName] = useState("");
-  const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState(null);
-  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
-
-  async function submit() {
-    if (!lines.length) return;
-    setBusy(true); setResult(null);
-    try {
-      const r = await fetch("/.netlify/functions/canvass-upload", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ list_name: listName.trim() || undefined, rows: lines }),
-      });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok || !j.ok) { setResult({ error: j.error || `Error ${r.status}` }); setBusy(false); return; }
-      setResult({ ok: true, ...j });
-    } catch (e) { setResult({ error: e.message || "Network error" }); }
-    setBusy(false);
-  }
-
-  return (
-    <div style={{ position: "absolute", inset: 0, background: "rgba(15,23,42,.55)", zIndex: 2000, display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", width: "100%", maxWidth: 560, borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: "18px 20px 24px", maxHeight: "88vh", overflowY: "auto", fontFamily: FONT }}>
-        <div style={{ display: "flex", alignItems: "center" }}>
-          <div style={{ fontWeight: 800, fontSize: 17, fontFamily: "'Oswald', sans-serif" }}>Upload addresses</div>
-          <button type="button" onClick={onClose} style={{ marginLeft: "auto", background: "none", border: "none", fontSize: 22, color: "#94a3b8", cursor: "pointer" }}>×</button>
-        </div>
-        <div style={{ fontSize: 13, color: "#64748b", margin: "6px 0 14px" }}>One address per line (include city/state/ZIP for best results). They'll be geocoded and dropped on the map as <b>IQ</b>.</div>
-        <input value={listName} onChange={(e) => setListName(e.target.value)} placeholder="List name (optional, e.g. 'Seminole Storm St.')"
-          style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #cbd5e1", fontSize: 14, marginBottom: 10, boxSizing: "border-box" }} />
-        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={8}
-          placeholder={"123 Main St, Tampa, FL 33606\n456 Oak Ave, St Petersburg, FL 33701"}
-          style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #cbd5e1", fontSize: 14, fontFamily: "monospace", boxSizing: "border-box", resize: "vertical" }} />
-        <div style={{ fontSize: 12, color: "#94a3b8", margin: "6px 0 12px" }}>{lines.length} address{lines.length === 1 ? "" : "es"} ready</div>
-
-        {result?.error && <div style={{ color: "#b91c1c", fontSize: 13, marginBottom: 10 }}>{result.error}</div>}
-        {result?.ok && (
-          <div style={{ background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: 10, padding: "10px 12px", fontSize: 13, color: "#065f46", marginBottom: 10 }}>
-            ✓ {result.inserted} new{result.updated ? `, ${result.updated} reset to IQ` : ""}{result.skipped ? `, ${result.skipped} already existed` : ""} — {result.geocoded} geocoded{result.failed ? `, ${result.failed} failed` : ""}.
-          </div>
-        )}
-
-        {result?.ok ? (
-          <button type="button" onClick={onDone} style={btn("#16a34a")}>Done — show on map</button>
-        ) : (
-          <button type="button" onClick={submit} disabled={busy || !lines.length} style={{ ...btn("#2563eb"), opacity: busy || !lines.length ? 0.6 : 1 }}>
-            {busy ? "Geocoding…" : `Upload & geocode ${lines.length || ""}`}
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-const btn = (bg) => ({ width: "100%", padding: "13px", borderRadius: 12, border: "none", background: bg, color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.02em" });
