@@ -235,6 +235,7 @@ export function PAAdminPanel() {
   const [syncing, setSyncing] = useState(false);
   const [busyId, setBusyId] = useState(null);
   const [backfill, setBackfill] = useState(null); // {running, done, total, copied, failed}
+  const [bulkResend, setBulkResend] = useState(null); // {done, total} while resending to all active
   const [decisions, setDecisions] = useState([]);
   const [decisionsLoading, setDecisionsLoading] = useState(true);
   const [reconciling, setReconciling] = useState(false);
@@ -847,6 +848,37 @@ export function PAAdminPanel() {
     setMessage({ kind: result.ok ? "success" : "error", text: result.text });
   }
 
+  // Resend the portal invite to EVERY active adjuster (deactivated ones are
+  // never touched). Sends real texts/emails, so it's gated behind a confirm and
+  // only fires when the office clicks it. Sequential to stay gentle on the SMS
+  // provider; shows live progress.
+  async function resendAllActive() {
+    const targets = pas.filter((p) => p.active && (p.email || p.phone));
+    const skipped = pas.filter((p) => p.active && !p.email && !p.phone).length;
+    if (!targets.length) { setMessage({ kind: "error", text: "No active adjusters have an email or phone on file." }); return; }
+    if (!window.confirm(
+      `Resend the portal invite to ${targets.length} active adjuster${targets.length === 1 ? "" : "s"}?\n\n` +
+      `This texts + emails each one their private portal link.\n` +
+      `Deactivated adjusters are NOT included${skipped ? `, and ${skipped} active one(s) with no email/phone will be skipped` : ""}.`
+    )) return;
+    let sent = 0, failed = 0;
+    for (let i = 0; i < targets.length; i++) {
+      const pa = targets[i];
+      setBulkResend({ done: i, total: targets.length });
+      try {
+        const res = await fetch("/.netlify/functions/send-pa-app-invite", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ paId: pa.id, channel: "auto" }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (res.ok && body.ok) sent++; else failed++;
+      } catch { failed++; }
+    }
+    setBulkResend(null);
+    await loadPas();
+    setMessage({ kind: failed ? "error" : "success", text: `Portal invite sent to ${sent} adjuster${sent === 1 ? "" : "s"}${failed ? ` · ${failed} failed (check their email/phone)` : ""}${skipped ? ` · ${skipped} skipped (no contact info)` : ""}.` });
+  }
+
   async function resendLink(pa) {
     if (!pa.email && !pa.phone) {
       return setMessage({ kind: "error", text: `${pa.name} has no email or phone on file. Add one via Edit first.` });
@@ -956,6 +988,17 @@ export function PAAdminPanel() {
             {backfill?.running
               ? `⬇ Saving ${backfill.done}/${backfill.total}…`
               : "⬇ Backfill JN photos"}
+          </button>
+          <button
+            type="button"
+            onClick={resendAllActive}
+            disabled={!!bulkResend}
+            style={{ ...secondaryBtn, padding: "6px 12px", fontSize: 11, whiteSpace: "nowrap", borderColor: "#93c5fd", color: "#1d4ed8" }}
+            title="Text + email every ACTIVE adjuster their portal link again. Deactivated adjusters are never included."
+          >
+            {bulkResend
+              ? `📨 Sending ${bulkResend.done}/${bulkResend.total}…`
+              : "📨 Resend invite to all active"}
           </button>
         </div>
       </div>
