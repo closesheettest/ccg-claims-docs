@@ -87,7 +87,8 @@ function UploadForm({ types, onDone }) {
     if (!headers.length) { setMapping({}); return; }
     setMapping({
       address: guessCol(headers, ["address", "street address", "street", "address1", "addr", "property address", "mailing address"]),
-      name: guessCol(headers, ["name", "full name", "homeowner", "owner", "contact", "first name"]),
+      name: guessCol(headers, ["first name", "contact first name", "firstname", "name", "full name", "homeowner", "owner"]),
+      last_name: guessCol(headers, ["last name", "contact last name", "lastname", "surname"]),
       phone: guessCol(headers, ["phone", "mobile", "cell", "phone number", "mobile phone"]),
       email: guessCol(headers, ["email", "e-mail", "email address"]),
       city: guessCol(headers, ["city", "town"]),
@@ -126,7 +127,8 @@ function UploadForm({ types, onDone }) {
 
   const FIELDS = [
     { key: "address", label: "Street address", req: true },
-    { key: "name", label: "Name" },
+    { key: "name", label: "First name" },
+    { key: "last_name", label: "Last name" },
     { key: "phone", label: "Phone" },
     { key: "email", label: "Email" },
     { key: "city", label: "City" },
@@ -262,7 +264,7 @@ function buildRows(table, mapping, defaultType, types) {
     headers.forEach((h, i) => { if (!usedIdx.has(i) && (cols[i] || "").trim() && h) extra[h] = cols[i].trim(); });
     out.push({
       address,
-      name: get(cols, "name") || null,
+      name: [get(cols, "name"), get(cols, "last_name")].filter(Boolean).join(" ") || null,
       phone: get(cols, "phone") || null,
       email: get(cols, "email") || null,
       city: get(cols, "city") || null,
