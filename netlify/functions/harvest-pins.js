@@ -25,9 +25,9 @@ export const handler = async (event) => {
   };
   // Paged fetch — PostgREST caps every response at 1000 rows (max-rows), so a
   // `limit=10000` still stops at 1000. Walk Range windows until fully drained.
-  const sbGetAll = async (path, pageSize = 1000) => {
+  const sbGetAll = async (path, pageSize = 1000, maxRows = Infinity) => {
     const out = [];
-    for (let from = 0; ; from += pageSize) {
+    for (let from = 0; from < maxRows; from += pageSize) {
       const r = await fetch(`${SB_URL}/rest/v1/${path}`, {
         headers: { ...sbH, "Range-Unit": "items", Range: `${from}-${from + pageSize - 1}` },
       });
@@ -71,30 +71,18 @@ export const handler = async (event) => {
   if (!level) return json(401, { ok: false, error: "This link isn't valid. Ask your manager for your Harvesting Map link." });
 
   const types = await sbGet(`harvest_pin_types?select=*&order=sort`).catch(() => []);
-  const visibleTypes = (types || [])
-    .filter((t) => level === "admin" || !(t.visible_levels || []).length || (t.visible_levels || []).includes(level));
+  const visible = (types || [])
+    .filter((t) => level === "admin" || !(t.visible_levels || []).length || (t.visible_levels || []).includes(level))
+    .map((t) => t.key);
 
-  // Per-type pin caps so the map stays fast at scale — a rep only needs a
-  // working handful, not tens of thousands. Each rep gets the NEWEST N still-open
-  // pins of each type; as they work them (→ appt/dead), the next ones surface.
-  // Configurable per type via harvest_pin_types.pin_limit; these are the defaults.
-  // The office view-all (admin) gets a big cap so it stays comprehensive.
-  const DEFAULT_LIMITS = { iq: 30, insp: 100 };
-  const REP_FALLBACK = 100;   // any other type a rep can see
-  const ADMIN_LIMIT = 2000;   // office view-all, per type
-  const limitFor = (t) => {
-    if (level === "admin") return ADMIN_LIMIT;
-    const configured = Number(t.pin_limit);
-    if (Number.isFinite(configured) && configured > 0) return configured;
-    return DEFAULT_LIMITS[t.key] ?? REP_FALLBACK;
-  };
-
-  const perType = await Promise.all(
-    visibleTypes.map((t) =>
-      sbGet(`canvass_prospects?status=eq.${encodeURIComponent(t.key)}&latitude=not.is.null&select=${PIN_SELECT}&order=created_at.desc&limit=${limitFor(t)}`).catch(() => []),
-    ),
-  );
-  const pins = perType.flat();
+  // Show the rep ALL the pins their level can see (the map clusters them, and
+  // "Start my day" picks the efficient N to actually route). Paged past the
+  // 1000-row PostgREST cap; a high safety ceiling guards against a runaway set.
+  let pins = [];
+  if (visible.length) {
+    const inList = visible.map((k) => `"${k}"`).join(",");
+    pins = await sbGetAll(`canvass_prospects?status=in.(${inList})&latitude=not.is.null&select=${PIN_SELECT}&order=created_at.desc`, 1000, 8000);
+  }
 
   // Installs — a read-only reference layer shown to EVERY rep (junior + senior)
   // as gold stars, so a rep can see where we've already put roofs on. Comes from

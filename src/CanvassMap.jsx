@@ -47,6 +47,7 @@ function feetBetween(a, b) {
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 const ARRIVE_FT = 100; // must be within this many feet of the stop to advance
+const ROUTE_MAX = 30;  // "Start my day" routes the most efficient N stops from the start
 
 // Colored dot as an L.Marker (divIcon) so it clusters — markerClusterGroup only
 // clusters L.Marker, not L.circleMarker.
@@ -64,6 +65,7 @@ export default function CanvassMap() {
   const mapEl = useRef(null);
   const map = useRef(null);
   const layer = useRef(null);
+  const routeLayer = useRef(null);
   const fitted = useRef(false);
   const [prospects, setProspects] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -135,6 +137,8 @@ export default function CanvassMap() {
       disableClusteringAtZoom: 17,
       chunkedLoading: true,
     }).addTo(m);
+    // Separate layer for the "Start my day" route line + numbered stops (on top).
+    routeLayer.current = L.layerGroup().addTo(m);
     // Leaflet computes its size at init; inside a flex layout the container
     // may not have its final size yet, leaving the tiles rendered for a tiny
     // box. Recalc on mount AND whenever the container resizes.
@@ -211,11 +215,37 @@ export default function CanvassMap() {
     return () => { try { navigator.geolocation.clearWatch(id); } catch { /* ignore */ } };
   }, [dayMode]);
 
+  // Draw the route ON the map — a line through the stops in order + numbered
+  // circles (current = green, visited = grey, upcoming = white). So the rep sees
+  // their whole plan here, without leaving for another map.
+  useEffect(() => {
+    const lyr = routeLayer.current;
+    if (!lyr) return;
+    lyr.clearLayers();
+    if (dayMode !== "active" || route.length === 0) return;
+    const pts = route.filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number").map((p) => [p.latitude, p.longitude]);
+    if (pts.length > 1) L.polyline(pts, { color: "#16a34a", weight: 4, opacity: 0.7, dashArray: "6 7" }).addTo(lyr);
+    route.forEach((p, i) => {
+      if (typeof p.latitude !== "number") return;
+      const current = i === stopIdx, done = i < stopIdx;
+      const bg = current ? "#16a34a" : done ? "#cbd5e1" : "#fff";
+      const fg = current ? "#fff" : done ? "#64748b" : "#16a34a";
+      const icon = L.divIcon({
+        className: "harvest-route-stop",
+        html: `<div style="width:24px;height:24px;border-radius:50%;background:${bg};color:${fg};border:2px solid #16a34a;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;box-shadow:0 1px 3px rgba(0,0,0,.4)">${i + 1}</div>`,
+        iconSize: [24, 24], iconAnchor: [12, 12],
+      });
+      L.marker([p.latitude, p.longitude], { icon, zIndexOffset: 1000 }).on("click", () => { setSelectedInstall(null); setSelected(p); }).addTo(lyr);
+    });
+  }, [dayMode, route, stopIdx]);
+
   function buildRoute(start, pins) {
     const rem = pins.filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number");
     const out = [];
     let cur = start;
-    while (rem.length) {
+    // Greedy nearest-neighbour, stopping at ROUTE_MAX — the most efficient N
+    // stops from the start point (the rest stay visible on the map, just not routed).
+    while (rem.length && out.length < ROUTE_MAX) {
       let bi = 0, bd = Infinity;
       for (let i = 0; i < rem.length; i++) {
         const dx = cur.lat - rem[i].latitude, dy = cur.lng - rem[i].longitude;
