@@ -168,8 +168,11 @@ async function buildSlots(days, home, apptZone, onlyPaId, homeLang) {
     if (!times.length) continue;
     const dateStr = `${y}-${String(mo).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     for (const pa of pas) {
-      // Company paused scheduling (setup/training not done) → offer nothing.
-      if (pausedCompany.has(pa.pa_company_id)) continue;
+      // Company paused scheduling (setup/training not done) → the REP booker
+      // offers that company's PAs nothing. But a PA scheduling their OWN deal
+      // (onlyPaId) must still see their slots to set/reschedule the homeowner —
+      // same self-service exemption the distance/language gates below apply.
+      if (!onlyPaId && pausedCompany.has(pa.pa_company_id)) continue;
       // Language match — the rep booker only offers PAs who speak the
       // homeowner's language (skipped for a PA scheduling their OWN deal).
       if (homeLang && !onlyPaId) {

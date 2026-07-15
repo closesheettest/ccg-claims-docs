@@ -25,6 +25,14 @@ import { supabase } from "./lib/supabase";
 import { fmtSigned } from "./lib/dates";
 import { FL_VB, FL_PROJ, FL_LABELXY, FL_COUNTIES } from "./flCounties";
 
+// Reassigning or moving a deal (to a PA, a company pool, or unassigned) is a
+// manager decision — so it RESOLVES any "PA Decision Needed" hold on the deal.
+// Without this, a parked deal (e.g. a deactivated PA's claims) keeps
+// pa_decision_needed=true after being reassigned, which makes it invisible in
+// the new PA's portal (that query filters pa_decision_needed=false) even though
+// it now bears their pa_id. Spread this into every reassignment patch.
+const RESOLVE_DECISION = { pa_decision_needed: false, pa_decision_reason: null, pa_decision_at: null };
+
 // Haversine distance in miles between two lat/lng pairs. Mirrors the
 // inspector portal's milesBetween so PA distances match inspector ones.
 function milesBetween(lat1, lng1, lat2, lng2) {
@@ -188,6 +196,16 @@ export async function setPaActive(pa, makeActive) {
         : `Deactivated ${pa.name}.`,
     };
   }
+
+  // Reactivation: un-park the deals THIS PA's own deactivation parked. They're
+  // still assigned to the PA (pa_id kept), so returning them clears the decision
+  // hold and they reappear in the PA's portal. Only touches deals parked with
+  // this exact "PA <name> deactivated" reason — deals reassigned to someone
+  // else, or parked for a different reason (Lost, Sit Sold), are left alone.
+  await supabase.from("inspections").update({
+    pa_decision_needed: false, pa_decision_reason: null, pa_decision_at: null,
+    pa_decision_resolved_at: new Date().toISOString(),
+  }).eq("pa_id", pa.id).eq("pa_decision_needed", true).eq("pa_decision_reason", `PA ${pa.name} deactivated`);
 
   // Activation: auto-send the portal link.
   if (!pa.email && !pa.phone) {
@@ -487,7 +505,7 @@ export function PAAdminPanel() {
     setBusyId(dealId);
     const nowIso = new Date().toISOString();
     const { error } = await supabase.from("inspections")
-      .update({ pa_id: paId, pa_claimed_at: nowIso, pa_stage: "active", pa_stage_at: nowIso })
+      .update({ pa_id: paId, pa_claimed_at: nowIso, pa_stage: "active", pa_stage_at: nowIso, ...RESOLVE_DECISION, pa_decision_resolved_at: nowIso })
       .eq("id", dealId);
     setBusyId(null);
     if (error) { setMessage({ kind: "error", text: error.message }); return; }
@@ -528,10 +546,10 @@ export function PAAdminPanel() {
     let patch, who;
     if (target.startsWith("company:")) {
       const cid = target.slice("company:".length);
-      patch = { pa_company_id: cid, pa_company_at: nowIso, pa_id: null, pa_claimed_at: null, pa_stage: null, pa_stage_at: nowIso, pa_opened_at: null };
+      patch = { pa_company_id: cid, pa_company_at: nowIso, pa_id: null, pa_claimed_at: null, pa_stage: null, pa_stage_at: nowIso, pa_opened_at: null, ...RESOLVE_DECISION, pa_decision_resolved_at: nowIso };
       who = `${companies.find((c) => c.id === cid)?.name || "company"} pool`;
     } else {
-      patch = { pa_id: target, pa_company_id: null, pa_claimed_at: nowIso, pa_stage: "active", pa_stage_at: nowIso };
+      patch = { pa_id: target, pa_company_id: null, pa_claimed_at: nowIso, pa_stage: "active", pa_stage_at: nowIso, ...RESOLVE_DECISION, pa_decision_resolved_at: nowIso };
       who = pas.find((p) => p.id === target)?.name || "PA";
     }
     const { error } = await supabase.from("inspections").update(patch).eq("id", dealId);
@@ -551,10 +569,10 @@ export function PAAdminPanel() {
     let patch, who;
     if (target.startsWith("company:")) {
       const cid = target.slice("company:".length);
-      patch = { pa_company_id: cid, pa_company_at: nowIso, pa_id: null, pa_claimed_at: null, pa_stage: null, pa_stage_at: nowIso, pa_opened_at: null };
+      patch = { pa_company_id: cid, pa_company_at: nowIso, pa_id: null, pa_claimed_at: null, pa_stage: null, pa_stage_at: nowIso, pa_opened_at: null, ...RESOLVE_DECISION, pa_decision_resolved_at: nowIso };
       who = `${companies.find((c) => c.id === cid)?.name || "company"} pool`;
     } else {
-      patch = { pa_id: target, pa_company_id: null, pa_claimed_at: nowIso, pa_stage: "active", pa_stage_at: nowIso };
+      patch = { pa_id: target, pa_company_id: null, pa_claimed_at: nowIso, pa_stage: "active", pa_stage_at: nowIso, ...RESOLVE_DECISION, pa_decision_resolved_at: nowIso };
       who = pas.find((p) => p.id === target)?.name || "PA";
     }
     const { error } = await supabase.from("inspections").update(patch).in("id", ids);
@@ -576,13 +594,13 @@ export function PAAdminPanel() {
     if (target && target.startsWith("company:")) {
       const cid = target.slice("company:".length);
       // Into the company pool: clear the PA + working state, stamp pool entry.
-      patch = { pa_company_id: cid, pa_company_at: nowIso, pa_id: null, pa_claimed_at: null, pa_stage: null, pa_stage_at: nowIso, pa_opened_at: null };
+      patch = { pa_company_id: cid, pa_company_at: nowIso, pa_id: null, pa_claimed_at: null, pa_stage: null, pa_stage_at: nowIso, pa_opened_at: null, ...RESOLVE_DECISION, pa_decision_resolved_at: nowIso };
       who = `${companies.find((c) => c.id === cid)?.name || "company"} pool`;
     } else if (target) {
-      patch = { pa_id: target, pa_company_id: null, pa_claimed_at: nowIso, pa_stage: "active", pa_stage_at: nowIso };
+      patch = { pa_id: target, pa_company_id: null, pa_claimed_at: nowIso, pa_stage: "active", pa_stage_at: nowIso, ...RESOLVE_DECISION, pa_decision_resolved_at: nowIso };
       who = pas.find((p) => p.id === target)?.name || "PA";
     } else {
-      patch = { pa_id: null, pa_company_id: null, pa_claimed_at: null, pa_stage: null, pa_stage_at: nowIso };
+      patch = { pa_id: null, pa_company_id: null, pa_claimed_at: null, pa_stage: null, pa_stage_at: nowIso, ...RESOLVE_DECISION, pa_decision_resolved_at: nowIso };
       who = "nobody (unassigned)";
     }
     // Count takeaways: deals being moved OFF a PA (had a pa_id, new target
