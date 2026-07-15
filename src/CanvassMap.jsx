@@ -37,6 +37,17 @@ const STAR_ICON = L.divIcon({
   iconAnchor: [12, 12],
 });
 
+// Straight-line distance in FEET between two {lat,lng} points (haversine).
+function feetBetween(a, b) {
+  if (!a || !b) return Infinity;
+  const R = 20902231; // earth radius, feet
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat), dLng = toRad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+const ARRIVE_FT = 100; // must be within this many feet of the stop to advance
+
 // Colored dot as an L.Marker (divIcon) so it clusters — markerClusterGroup only
 // clusters L.Marker, not L.circleMarker.
 function dotIcon(color) {
@@ -69,6 +80,8 @@ export default function CanvassMap() {
   const [dayMode, setDayMode] = useState(null);        // null | 'choosing' | 'active'
   const [route, setRoute] = useState([]);              // ordered stops (nearest-first)
   const [stopIdx, setStopIdx] = useState(0);
+  const [myLoc, setMyLoc] = useState(null);            // live GPS while a route is active
+  const watchRef = useRef(null);
   const choosingRef = useRef(false);                   // map-click reads this (avoid stale closure)
   const shownRef = useRef([]);                         // current on-screen prospects, for routing
   const startFromRef = useRef(null);
@@ -184,6 +197,19 @@ export default function CanvassMap() {
   // Order the on-screen prospect pins nearest-first from a start point (the
   // rep's location or a tapped spot), then walk them one stop at a time.
   useEffect(() => { choosingRef.current = dayMode === "choosing"; }, [dayMode]);
+
+  // While a route is active, watch the rep's live location so "Next" only
+  // unlocks once they're within ARRIVE_FT of the current stop.
+  useEffect(() => {
+    if (dayMode !== "active" || !navigator.geolocation) { setMyLoc(null); return; }
+    const id = navigator.geolocation.watchPosition(
+      (pos) => setMyLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy }),
+      () => setMyLoc(null),
+      { enableHighAccuracy: true, maximumAge: 4000, timeout: 20000 },
+    );
+    watchRef.current = id;
+    return () => { try { navigator.geolocation.clearWatch(id); } catch { /* ignore */ } };
+  }, [dayMode]);
 
   function buildRoute(start, pins) {
     const rem = pins.filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number");
@@ -330,7 +356,10 @@ export default function CanvassMap() {
                   <div style={{ fontSize: 16, fontWeight: 800, fontFamily: "'Oswald', sans-serif", margin: "4px 0 10px" }}>That's every stop — nice work!</div>
                   <button type="button" onClick={startOver} style={{ width: "100%", background: "#16a34a", color: "#fff", border: "none", borderRadius: 12, padding: "12px", fontSize: 14.5, fontWeight: 800, cursor: "pointer" }}>▶ Start a new route</button>
                 </div>
-              ) : (
+              ) : (() => {
+                const distFt = myLoc ? feetBetween(myLoc, { lat: stop.latitude, lng: stop.longitude }) : null;
+                const near = distFt != null && distFt <= ARRIVE_FT;
+                return (
                 <>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                     <span style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", color: "#16a34a" }}>Stop {stopIdx + 1} of {route.length}</span>
@@ -343,12 +372,22 @@ export default function CanvassMap() {
                     <button type="button" onClick={() => dirTo(stop)} style={{ flex: 2, background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 12, padding: "12px", fontSize: 14.5, fontWeight: 800, cursor: "pointer" }}>
                       🧭 Directions to {stopIdx === 0 ? "first stop" : "this stop"}
                     </button>
-                    <button type="button" onClick={nextStop} style={{ flex: 1, background: "#fff", color: "#16a34a", border: "1px solid #16a34a", borderRadius: 12, padding: "12px", fontSize: 14, fontWeight: 800, cursor: "pointer" }}>
+                    <button type="button" onClick={nextStop} disabled={!near}
+                      title={near ? "" : "You need to be within 100 ft of this stop"}
+                      style={{ flex: 1, background: near ? "#16a34a" : "#fff", color: near ? "#fff" : "#94a3b8", border: `1px solid ${near ? "#16a34a" : "#e5e7eb"}`, borderRadius: 12, padding: "12px", fontSize: 14, fontWeight: 800, cursor: near ? "pointer" : "not-allowed" }}>
                       Next ›
                     </button>
                   </div>
+                  <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, textAlign: "center", color: near ? "#16a34a" : "#b45309" }}>
+                    {distFt == null
+                      ? "📍 Finding your location… (allow location access to check in)"
+                      : near
+                        ? "✓ You're here — tap Next when you're done"
+                        : `You're about ${Math.round(distFt).toLocaleString()} ft away — get within 100 ft to unlock Next`}
+                  </div>
                 </>
-              )}
+                );
+              })()}
             </div>
           );
         })()}
