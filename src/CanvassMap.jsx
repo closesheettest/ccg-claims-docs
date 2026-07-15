@@ -271,7 +271,7 @@ function UploadPanel({ onClose, onDone }) {
         {result?.error && <div style={{ color: "#b91c1c", fontSize: 13, marginBottom: 10 }}>{result.error}</div>}
         {result?.ok && (
           <div style={{ background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: 10, padding: "10px 12px", fontSize: 13, color: "#065f46", marginBottom: 10 }}>
-            ✓ Added {result.inserted} — {result.geocoded} mapped{result.failed ? `, ${result.failed} couldn't be geocoded` : ""}.
+            ✓ {result.inserted} new{result.updated ? `, ${result.updated} reset to IQ` : ""}{result.skipped ? `, ${result.skipped} already existed` : ""} — {result.geocoded} geocoded{result.failed ? `, ${result.failed} failed` : ""}.
           </div>
         )}
 

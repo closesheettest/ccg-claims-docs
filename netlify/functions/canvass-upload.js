@@ -70,16 +70,62 @@ export const handler = async (event) => {
   }
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, rows.length) }, worker));
 
-  // One bulk insert.
-  const ins = await fetch(`${SB_URL}/rest/v1/canvass_prospects`, {
-    method: "POST",
-    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" },
-    body: JSON.stringify(out),
-  });
-  if (!ins.ok) return json(500, { ok: false, error: `Insert failed: ${(await ins.text()).slice(0, 200)}` });
+  const sbH = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
 
-  return json(200, { ok: true, inserted: out.length, geocoded, failed, list_name: listName });
+  // Dedup by geocoded location so re-uploading an address updates the SAME pin
+  // instead of dropping a duplicate. "IQ wins": an uploaded IQ pin that lands on
+  // an existing NON-terminal pin (e.g. an Inspection Lead) resets it to IQ —
+  // fresh leads go back to the top of the funnel. Terminal pins (Appointment,
+  // Inspection Sold, Dead/DNK) are protected: an upload never resets a booked
+  // appt, a sold job, or a do-not-knock.
+  const terminalKeys = new Set();
+  try {
+    for (const t of await sbGet(`${SB_URL}/rest/v1/harvest_pin_types?select=key,is_terminal`, sbH)) {
+      if (t.is_terminal) terminalKeys.add(t.key);
+    }
+  } catch { /* config unreachable — fall back to protecting appt/insp_sold */ }
+  if (!terminalKeys.size) ["appt", "insp_sold", "dead"].forEach((k) => terminalKeys.add(k));
+
+  const coordKey = (lat, lng) => `${(+lat).toFixed(4)},${(+lng).toFixed(4)}`; // ~11 m
+  const existing = {};
+  try {
+    for (const p of await sbGet(`${SB_URL}/rest/v1/canvass_prospects?select=id,latitude,longitude,status,status_log&latitude=not.is.null&limit=20000`, sbH)) {
+      existing[coordKey(p.latitude, p.longitude)] = p;
+    }
+  } catch { /* if we can't read, just insert all below */ }
+
+  const toInsert = [];
+  let updated = 0, skipped = 0;
+  const nowIso = new Date().toISOString();
+  const updates = [];
+  for (const row of out) {
+    const hit = (row.latitude != null) ? existing[coordKey(row.latitude, row.longitude)] : null;
+    if (!hit) { toInsert.push(row); continue; }
+    if (hit.status === "iq" || terminalKeys.has(hit.status)) { skipped++; continue; } // already IQ, or a protected win
+    const log = Array.isArray(hit.status_log) ? [...hit.status_log] : [];
+    log.push({ at: nowIso, from: hit.status, to: "iq", by: "upload" });
+    updates.push(fetch(`${SB_URL}/rest/v1/canvass_prospects?id=eq.${hit.id}`, {
+      method: "PATCH", headers: { ...sbH, Prefer: "return=minimal" },
+      body: JSON.stringify({ status: "iq", status_updated_at: nowIso, status_by: "upload", status_log: log, list_name: listName }),
+    }).then((r) => { if (r.ok) updated++; }));
+  }
+  await Promise.all(updates);
+
+  if (toInsert.length) {
+    const ins = await fetch(`${SB_URL}/rest/v1/canvass_prospects`, {
+      method: "POST", headers: { ...sbH, Prefer: "return=minimal" }, body: JSON.stringify(toInsert),
+    });
+    if (!ins.ok) return json(500, { ok: false, error: `Insert failed: ${(await ins.text()).slice(0, 200)}` });
+  }
+
+  return json(200, { ok: true, inserted: toInsert.length, updated, skipped, geocoded, failed, list_name: listName });
 };
+
+async function sbGet(url, headers) {
+  const r = await fetch(url, { headers });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
 
 async function geocode(query, key) {
   try {
