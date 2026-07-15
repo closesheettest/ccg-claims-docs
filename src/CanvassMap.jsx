@@ -46,7 +46,7 @@ function feetBetween(a, b) {
   const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 }
-const ARRIVE_FT = 100; // must be within this many feet of the stop to advance
+const ARRIVE_FT = 200; // must be within this many feet of the stop to advance
 const ROUTE_MAX = 30;  // "Start my day" routes the most efficient N stops from the start
 
 // Colored dot as an L.Marker (divIcon) so it clusters — markerClusterGroup only
@@ -545,7 +545,7 @@ export default function CanvassMap() {
                       ? "📍 Finding your location… (allow location access to log a stop)"
                       : near
                         ? "✓ You're here — pick what happened and it moves to the next stop"
-                        : `~${Math.round(distFt).toLocaleString()} ft away — get within 100 ft to log this stop`}
+                        : `~${Math.round(distFt).toLocaleString()} ft away — get within ${ARRIVE_FT} ft to log this stop`}
                   </div>
                 </>
                 );
