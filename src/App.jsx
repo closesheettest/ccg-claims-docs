@@ -4365,6 +4365,7 @@ function GuidedIntakeFlow({
 // ───────────────────────────────────────────────────────────────────
 const MANAGER_TABS = [
   { key: "signing",     emoji: "🖊", label: "Signing & Sales" },
+  { key: "harvest",     emoji: "🌾", label: "Harvesting" },
   { key: "inspections", emoji: "🔍", label: "Inspections" },
   { key: "pa",          emoji: "🤝", label: "Public Adjuster" },
   { key: "settings",    emoji: "⚙️", label: "Settings" },
@@ -4380,6 +4381,10 @@ const MANAGER_TILES = [
   { group: "signing", key: "dupes", emoji: "👯", label: "Find Duplicates", desc: (<><span style={{ color: "#dc2626", fontWeight: 800 }}>⚠️ DO NOT USE</span> unless you've been trained on it. Address-based deduper — deletes records.</>) },
   { group: "signing", key: "browseall", emoji: "📚", label: "Browse All Records", desc: "Step through every record one-by-one to verify accuracy" },
   { group: "signing", key: "training", emoji: "🚗", label: "Training Report", desc: "Who rode with William for field training each day + confirmed hours. Get William's daily picker link here." },
+
+  // ── Harvesting ── (these open standalone routes, hence `href`)
+  { group: "harvest", key: "harvest_map", emoji: "🗺️", label: "Harvesting Map", desc: "The door-knock map — pins by status, reps update them in the field.", href: "/?mode=harvest" },
+  { group: "harvest", key: "harvest_types", emoji: "🎛️", label: "Pin Types", desc: "Create & edit pin types: color, who can see them, and each one's allowed outcomes.", href: "/?mode=harvestadmin" },
   // ── Inspections ──
   { group: "inspections", key: "team_roles", emoji: "🧑‍🤝‍🧑", label: "Team Roles", desc: "One list of everyone — check Inspector and/or PA to set each person's role. Start here when setting someone up." },
   { group: "inspections", key: "inspectors", emoji: "🔍", label: "Inspectors", desc: "Roster — sync from JN, edit, activate/deactivate" },
@@ -8567,10 +8572,10 @@ function AdminDashboard() {
   }
 
   const toolTile = (item) => (
-    <button key={item.group + ":" + item.key} type="button" onClick={() => launchManagerTool(item.key)}
+    <button key={item.group + ":" + item.key} type="button" onClick={() => item.href ? window.open(item.href, "_blank", "noopener") : launchManagerTool(item.key)}
       style={{ padding: "20px 18px", borderRadius: 20, border: "2px solid #e5e7eb", background: "#fff", textAlign: "left", cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
       <div style={{ fontSize: 32, marginBottom: 8 }}>{item.emoji}</div>
-      <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>{item.label}</div>
+      <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>{item.label}{item.href ? " ↗" : ""}</div>
       <div style={{ fontSize: 12.5, color: "#6b7280", lineHeight: 1.4 }}>{item.desc}</div>
     </button>
   );
@@ -8582,26 +8587,6 @@ function AdminDashboard() {
           <CardTitle>🛠 Admin Dashboard</CardTitle>
           <CardDescription>Your front door to every app, tool, and report — and ask a question to get the answer on the spot.</CardDescription>
         </CardHeader>
-      </Card>
-
-      {/* Harvesting — the door-knock map + its pin-type config */}
-      <Card>
-        <CardContent>
-          <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 18, marginBottom: 12 }}>🌾 Harvesting</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14 }}>
-            {[
-              { emoji: "🗺️", label: "Harvesting Map", desc: "The door-knock map — pins by status, reps update them in the field.", href: "/?mode=harvest" },
-              { emoji: "🎛️", label: "Pin Types", desc: "Create & edit pin types: color, who can see them, and each one's allowed outcomes.", href: "/?mode=harvestadmin" },
-            ].map((a) => (
-              <div key={a.label} style={{ padding: "20px 18px", borderRadius: 20, border: "2px solid #e5e7eb", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.06)", display: "flex", flexDirection: "column" }}>
-                <div style={{ fontSize: 32, marginBottom: 8 }}>{a.emoji}</div>
-                <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>{a.label}</div>
-                <div style={{ fontSize: 12.5, color: "#6b7280", lineHeight: 1.4, flex: 1, marginBottom: 12 }}>{a.desc}</div>
-                <Button variant="outline" onClick={() => window.open(a.href, "_blank", "noopener")}>Open ↗</Button>
-              </div>
-            ))}
-          </div>
-        </CardContent>
       </Card>
 
       {/* Look up an inspection */}
@@ -16724,10 +16709,10 @@ if (!hasDamage) {
                           {/* Tiles for the selected tab */}
                           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
                             {tiles.map(item => (
-                              <button key={item.key} type="button" onClick={() => setManagerSection(item.key)}
+                              <button key={item.key} type="button" onClick={() => item.href ? window.open(item.href, "_blank", "noopener") : setManagerSection(item.key)}
                                 style={{ padding: "24px 20px", borderRadius: 20, border: "2px solid #e5e7eb", background: "#fff", textAlign: "left", cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
                                 <div style={{ fontSize: 36, marginBottom: 10 }}>{item.emoji}</div>
-                                <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>{item.label}</div>
+                                <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>{item.label}{item.href ? " ↗" : ""}</div>
                                 <div style={{ fontSize: 13, color: "#6b7280", fontFamily: "'Nunito', sans-serif", lineHeight: 1.4 }}>{item.desc}</div>
                               </button>
                             ))}
