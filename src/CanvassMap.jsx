@@ -332,7 +332,9 @@ export default function CanvassMap() {
   async function workStop(outcome) {
     const stop = route[stopIdx];
     if (!stop) return;
-    if (outcome === "appt") { setApptPin(stop); return; } // booking modal advances on book
+    // Real leads: "Appt" opens the booking flow (creates the JobNimbus appt).
+    // Test pins have no real homeowner/job, so their "Appt" just sets the status.
+    if (outcome === "appt" && stop.status !== "test") { setApptPin(stop); return; }
     logActivity({ pin_id: stop.id, kind: "visit", to_status: outcome === "nothome" ? "not_home" : outcome });
     if (outcome !== "nothome") {
       const ok = await setStatus(stop, outcome);
