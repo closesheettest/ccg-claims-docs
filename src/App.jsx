@@ -8584,6 +8584,26 @@ function AdminDashboard() {
         </CardHeader>
       </Card>
 
+      {/* Harvesting — the door-knock map + its pin-type config */}
+      <Card>
+        <CardContent>
+          <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 18, marginBottom: 12 }}>🌾 Harvesting</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14 }}>
+            {[
+              { emoji: "🗺️", label: "Harvesting Map", desc: "The door-knock map — pins by status, reps update them in the field.", href: "/?mode=harvest" },
+              { emoji: "🎛️", label: "Pin Types", desc: "Create & edit pin types: color, who can see them, and each one's allowed outcomes.", href: "/?mode=harvestadmin" },
+            ].map((a) => (
+              <div key={a.label} style={{ padding: "20px 18px", borderRadius: 20, border: "2px solid #e5e7eb", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.06)", display: "flex", flexDirection: "column" }}>
+                <div style={{ fontSize: 32, marginBottom: 8 }}>{a.emoji}</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>{a.label}</div>
+                <div style={{ fontSize: 12.5, color: "#6b7280", lineHeight: 1.4, flex: 1, marginBottom: 12 }}>{a.desc}</div>
+                <Button variant="outline" onClick={() => window.open(a.href, "_blank", "noopener")}>Open ↗</Button>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Look up an inspection */}
       <Card>
         <CardContent>
