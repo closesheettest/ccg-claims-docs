@@ -22,7 +22,7 @@ import { jnFetch } from "./_jn.js";
 // waiting_docs = PA is blocked until the homeowner sends their insurance
 // declaration page (can't have them sign anything without it). Same model
 // as no_contact: deal stays assigned, just moves to its own bucket.
-const STAGES = ["active", "no_contact", "waiting_docs", "dead"];
+const STAGES = ["active", "no_contact", "waiting_docs", "rescheduling", "dead"];
 
 export const handler = async (event) => {
   if (event.httpMethod !== "POST") return json(405, { ok: false, error: "Method not allowed" });
@@ -76,7 +76,7 @@ export const handler = async (event) => {
   // 3. Mirror the note into JobNimbus (best-effort — local save already done).
   let jnNoteAdded = false, jnError = null;
   if (insp.jn_job_id && (text || stage)) {
-    const prefix = stage === "dead" ? "💀 Dead deal (PA)" : stage === "no_contact" ? "📵 Can't reach (PA)" : stage === "waiting_docs" ? "📄 Waiting on docs (PA)" : "📝 PA note";
+    const prefix = stage === "dead" ? "💀 Dead deal (PA)" : stage === "no_contact" ? "📵 Can't reach (PA)" : stage === "waiting_docs" ? "📄 Waiting on docs (PA)" : stage === "rescheduling" ? "🔄 Rescheduling (PA)" : "📝 PA note";
     const noteText = `${prefix}${text ? `: ${text}` : ""}`;
     try {
       const r = await jnFetch(JN_KEY, `activities`, {

@@ -2246,10 +2246,10 @@ function PAPickName({ pas, onPick }) {
 function PAJobList({ me, onOpenJob, wide }) {
   const [mine, setMine] = useState([]);
   const [loading, setLoading] = useState(true);
-  // Company assigns deals now (no self-claim / no pool). The PA's deals
-  // split into three views: still chasing a signature, signed, and "can't
-  // get ahold of them" (no_contact stage). Dead deals drop off entirely.
-  const [mineView, setMineView] = useState("needs"); // needs | signed | no_contact
+  // Company assigns deals now (no self-claim / no pool). The PA's deals are
+  // listed under fixed Five Star categories (Working / Rescheduling / Waiting
+  // on Docs / Signed / Can't reach), with DQ + LOR Canceled as count tallies.
+  const [deadCounts, setDeadCounts] = useState({ dq: 0, lor: 0 }); // closed-file tallies
   const [signupBusyId, setSignupBusyId] = useState(null);
   const [msg, setMsg] = useState(null);
   // Geo-location (like the inspector portal). PAs have no fixed home base,
@@ -2284,6 +2284,20 @@ function PAJobList({ me, onOpenJob, wide }) {
     setMine(data || []);
     setLoading(false);
     if (error) setMsg({ kind: "error", text: error.message });
+    // Closed-file tallies (count only): this PA's dead deals, split into
+    // DQ vs LOR Canceled by the marker their button leaves in the notes log.
+    try {
+      const { data: dead } = await supabase.from("inspections")
+        .select("pa_notes_log")
+        .eq("pa_id", me.id).eq("pa_stage", "dead").is("cancelled_at", null).limit(500);
+      let dq = 0, lor = 0;
+      for (const d of (dead || [])) {
+        const txt = (Array.isArray(d.pa_notes_log) ? d.pa_notes_log : []).map((n) => n?.text || "").join(" ");
+        if (/LOR Cancel/i.test(txt)) lor++;
+        else if (/DQ Lead/i.test(txt)) dq++;
+      }
+      setDeadCounts({ dq, lor });
+    } catch { /* non-blocking */ }
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [me.id]);
 
@@ -2437,7 +2451,7 @@ function PAJobList({ me, onOpenJob, wide }) {
   // Lists stay sorted by newest signing date (from the query). GPS just
   // adds a distance badge per card — it no longer re-sorts (signing date
   // wins, so fresh leads always surface first).
-  const { mineNeeds, mineWorking, mineSigned, mineNoContact, mineWaiting } = useMemo(() => {
+  const { mineNeeds, mineWorking, mineSigned, mineNoContact, mineWaiting, mineRescheduling } = useMemo(() => {
     const withDist = (arr) =>
       arr.map((j) => ({
         ...j,
@@ -2455,21 +2469,32 @@ function PAJobList({ me, onOpenJob, wide }) {
       if (ca !== cb) return ca < cb ? -1 : 1;
       return new Date(b.signed_at || 0) - new Date(a.signed_at || 0);
     });
-    const active = all.filter((j) => j.pa_stage !== "no_contact" && j.pa_stage !== "waiting_docs");
-    // Pre-signature deals split into "New files" (untouched) and "Working"
-    // (the PA has opened the pipeline OR left a note). Signed deals always
-    // go to Signed regardless.
-    const preSign = active.filter((j) => isNeedSignature(j.pa_fields?.pa_signup));
+    const isSigned = (j) => j.pa_fields?.pa_signup === "Signed";
+    const nonSigned = all.filter((j) => !isSigned(j));
+    // Stage buckets (each its own Five Star category). "Working" is everything
+    // active that isn't parked in another stage; new files (untouched) still
+    // split out for the top prioritized dashboard.
+    const inStage = (s) => (j) => j.pa_stage === s;
+    const activeWorking = nonSigned.filter((j) => !["no_contact", "waiting_docs", "rescheduling"].includes(j.pa_stage));
     const isWorking = (j) => !!j.pa_opened_at || (Array.isArray(j.pa_notes_log) && j.pa_notes_log.length > 0);
     return {
-      mineNeeds: sorted(preSign.filter((j) => !isWorking(j))),
-      mineWorking: sorted(preSign.filter((j) => isWorking(j))),
-      mineSigned: sorted(active.filter((j) => j.pa_fields?.pa_signup === "Signed")),
-      mineNoContact: sorted(all.filter((j) => j.pa_stage === "no_contact")),
-      mineWaiting: sorted(all.filter((j) => j.pa_stage === "waiting_docs")),
+      mineNeeds: sorted(activeWorking.filter((j) => !isWorking(j))),
+      mineWorking: sorted(activeWorking.filter((j) => isWorking(j))),
+      mineSigned: sorted(all.filter(isSigned)),
+      mineNoContact: sorted(nonSigned.filter(inStage("no_contact"))),
+      mineWaiting: sorted(nonSigned.filter(inStage("waiting_docs"))),
+      mineRescheduling: sorted(nonSigned.filter(inStage("rescheduling"))),
     };
   }, [mine, paCoords]);
-  const list = mineView === "working" ? mineWorking : mineView === "signed" ? mineSigned : mineView === "no_contact" ? mineNoContact : mineView === "waiting_docs" ? mineWaiting : mineNeeds;
+  // Roster "Claims in Progress (Working)" = new files + worked-but-unsigned.
+  const mineWorkingAll = useMemo(
+    () => [...mineNeeds, ...mineWorking].sort((a, b) => {
+      const ca = a.county || "￿", cb = b.county || "￿";
+      if (ca !== cb) return ca < cb ? -1 : 1;
+      return new Date(b.signed_at || 0) - new Date(a.signed_at || 0);
+    }),
+    [mineNeeds, mineWorking],
+  );
 
   return (
     <div>
@@ -2552,42 +2577,6 @@ function PAJobList({ me, onOpenJob, wide }) {
       </div>
 
 
-      {/* Four views: brand-new files · being worked · signed · can't reach.
-          A deal moves from New files → Working the moment the PA opens its
-          pipeline or leaves a note. */}
-      <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
-        <button type="button" onClick={() => setMineView("needs")}
-          style={{ ...secondaryBtn, flex: "1 1 46%", padding: "9px 6px", fontSize: 12.5, fontWeight: 700,
-            background: mineView === "needs" ? "#1d4ed8" : "#fff", color: mineView === "needs" ? "#fff" : "#1d4ed8",
-            borderColor: "#93c5fd" }}>
-          🆕 New files ({mineNeeds.length})
-        </button>
-        <button type="button" onClick={() => setMineView("working")}
-          style={{ ...secondaryBtn, flex: "1 1 46%", padding: "9px 6px", fontSize: 12.5, fontWeight: 700,
-            background: mineView === "working" ? "#92400e" : "#fff", color: mineView === "working" ? "#fff" : "#92400e",
-            borderColor: "#f59e0b" }}>
-          🛠 Working ({mineWorking.length})
-        </button>
-        <button type="button" onClick={() => setMineView("signed")}
-          style={{ ...secondaryBtn, flex: "1 1 46%", padding: "9px 6px", fontSize: 12.5, fontWeight: 700,
-            background: mineView === "signed" ? "#047857" : "#fff", color: mineView === "signed" ? "#fff" : "#047857",
-            borderColor: "#34d399" }}>
-          ✅ Signed ({mineSigned.length})
-        </button>
-        <button type="button" onClick={() => setMineView("no_contact")}
-          style={{ ...secondaryBtn, flex: "1 1 46%", padding: "9px 6px", fontSize: 12.5, fontWeight: 700,
-            background: mineView === "no_contact" ? "#475569" : "#fff", color: mineView === "no_contact" ? "#fff" : "#475569",
-            borderColor: "#94a3b8" }}>
-          📵 Can't reach ({mineNoContact.length})
-        </button>
-        <button type="button" onClick={() => setMineView("waiting_docs")}
-          style={{ ...secondaryBtn, flex: "1 1 46%", padding: "9px 6px", fontSize: 12.5, fontWeight: 700,
-            background: mineView === "waiting_docs" ? "#3730a3" : "#fff", color: mineView === "waiting_docs" ? "#fff" : "#3730a3",
-            borderColor: "#c7d2fe" }}>
-          📄 Waiting on docs ({mineWaiting.length})
-        </button>
-      </div>
-
       {msg && (
         <div style={{ padding: "8px 12px", borderRadius: 8, fontSize: 12, marginBottom: 10,
           background: msg.kind === "success" ? "#ecfdf5" : "#fef2f2",
@@ -2599,36 +2588,54 @@ function PAJobList({ me, onOpenJob, wide }) {
 
       {loading ? (
         <div style={{ padding: 24, textAlign: "center", color: "#6b7280" }}>Loading…</div>
-      ) : list.length === 0 ? (
+      ) : mine.length === 0 && deadCounts.dq === 0 && deadCounts.lor === 0 ? (
         <div style={{ padding: 24, textAlign: "center", color: "#6b7280", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12 }}>
-          {mineView === "waiting_docs"
-            ? "Nothing waiting on documents. 👍 When you're blocked on a homeowner's insurance declaration page, tap “📄 Waiting on documents” inside a deal and it moves here."
-            : mineView === "no_contact"
-            ? "No “can't get ahold of them” customers. 👍"
-            : mineView === "signed"
-              ? "No signed customers yet. Once you mark a deal “Signed” it moves here."
-              : mineView === "working"
-                ? "Nothing in progress yet. Open a new file or add a note and it moves here."
-                : mine.length === 0
-                  ? "No customers assigned to you yet. New ones show up here automatically."
-                  : "No brand-new files — everything's been opened or worked. 🎉"}
+          No customers assigned to you yet. New ones show up here automatically.
         </div>
       ) : (
-        // Grouped by county (sticky header), newest-signed first within each.
-        <div style={{ display: "grid", gap: 16 }}>
-          {groupByCounty(list).map((g) => (
-            <div key={g.county}>
-              <div style={{ position: "sticky", top: 0, zIndex: 1, display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", marginBottom: 8, background: "#ecfeff", border: "1px solid #a5f3fc", borderRadius: 8, fontWeight: 800, fontSize: 14, color: "#0e7490", fontFamily: "'Oswald', sans-serif" }}>
-                📍 {g.county}
-                <span style={{ fontSize: 12, fontWeight: 700, color: "#0891b2" }}>({g.jobs.length})</span>
+        // Fixed categories (Five Star): clients listed under each, county-grouped.
+        <div style={{ display: "grid", gap: 18 }}>
+          {[
+            { key: "working", flag: "🛠", title: "Claims in Progress (Working)", color: "#92400e", items: mineWorkingAll },
+            { key: "resched", flag: "🔄", title: "Rescheduling", color: "#9a3412", items: mineRescheduling },
+            { key: "waiting", flag: "📄", title: "Waiting on Docs", color: "#3730a3", items: mineWaiting },
+            { key: "signed", flag: "✅", title: "Signed", color: "#047857", items: mineSigned },
+            { key: "nocontact", flag: "📵", title: "Can't reach", color: "#475569", items: mineNoContact },
+          ].map((c) => (
+            <div key={c.key}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, fontFamily: "'Oswald', sans-serif", fontWeight: 800, fontSize: 16, color: c.color }}>
+                <span>{c.flag}</span>{c.title} <span style={{ fontWeight: 700, color: "#94a3b8", fontSize: 13 }}>({c.items.length})</span>
               </div>
-              <div style={{ display: "grid", gap: 8, gridTemplateColumns: wide ? "repeat(auto-fill, minmax(320px, 1fr))" : "1fr" }}>
-                {g.jobs.map((job) => (
-                  <PAJobCard key={job.id} job={job} me={me} onOpen={() => onOpenJob(job.id)} />
-                ))}
-              </div>
+              {c.items.length === 0 ? (
+                <div style={{ fontSize: 12.5, color: "#9ca3af", paddingLeft: 2 }}>None.</div>
+              ) : (
+                <div style={{ display: "grid", gap: 12 }}>
+                  {groupByCounty(c.items).map((g) => (
+                    <div key={g.county}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", marginBottom: 8, background: "#ecfeff", border: "1px solid #a5f3fc", borderRadius: 8, fontWeight: 800, fontSize: 13.5, color: "#0e7490", fontFamily: "'Oswald', sans-serif" }}>
+                        📍 {g.county} <span style={{ fontSize: 12, fontWeight: 700, color: "#0891b2" }}>({g.jobs.length})</span>
+                      </div>
+                      <div style={{ display: "grid", gap: 8, gridTemplateColumns: wide ? "repeat(auto-fill, minmax(320px, 1fr))" : "1fr" }}>
+                        {g.jobs.map((job) => (
+                          <PAJobCard key={job.id} job={job} me={me} onOpen={() => onOpenJob(job.id)} />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
+
+          {/* Closed files — count only (Five Star). */}
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", borderTop: "1px solid #e5e7eb", paddingTop: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, fontWeight: 700, color: "#991b1b", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, padding: "8px 14px" }}>
+              🚫 DQ <span style={{ fontWeight: 800 }}>({deadCounts.dq})</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, fontWeight: 700, color: "#7f1d1d", background: "#fff1f2", border: "1px solid #fecdd3", borderRadius: 10, padding: "8px 14px" }}>
+              🗂 LOR Cancelled <span style={{ fontWeight: 800 }}>({deadCounts.lor})</span>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -2969,6 +2976,10 @@ function PASelfSchedule({ me, job }) {
         return;
       }
       if (!res.ok || !o.ok) throw new Error(o.error || "Couldn't book that slot");
+      // A deal parked in "Rescheduling" now has a fresh appointment → back to active.
+      if (job.pa_stage === "rescheduling") {
+        try { await supabase.from("inspections").update({ pa_stage: "active", pa_stage_at: new Date().toISOString() }).eq("id", job.id); } catch { /* non-blocking */ }
+      }
       setDone((s.label || "your appointment") + (reschedule ? " (rescheduled)" : ""));
     } catch (e) { setErr(e.message); }
     setBooking("");
@@ -3166,6 +3177,7 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
   // milestone fields below it — the PA sees a "Show photos" button
   // and immediately knows there's more to scroll to.
   const [photosShown, setPhotosShown] = useState(false);
+  const [repPhone, setRepPhone] = useState(null); // sales rep's cell, looked up by name
 
   // Copy this deal's JN-only photos into our own storage so it looks like
   // a modern app-captured inspection. Only offered when the photos we're
@@ -3235,6 +3247,32 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
     })();
     return () => { cancelled = true; };
   }, [jobId]);
+
+  // Look up the sales rep's cell so the PA can reach out. Same source order the
+  // company hub uses: CCG sales_reps by name, then the TMS roster (where most
+  // reps' numbers live).
+  useEffect(() => {
+    const name = (job?.sales_rep_name || "").trim();
+    if (!name) { setRepPhone(null); return; }
+    let cancelled = false;
+    (async () => {
+      let phone = null;
+      try {
+        const { data } = await supabase.from("sales_reps").select("phone").eq("name", name).limit(1);
+        phone = data?.[0]?.phone || null;
+      } catch { /* ignore */ }
+      if (!phone) {
+        const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+        try {
+          const rd = await (await fetch("https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1")).json();
+          const hit = (rd.reps || []).find((x) => x.phone && norm(x.name) === norm(name));
+          phone = hit?.phone || null;
+        } catch { /* roster unavailable */ }
+      }
+      if (!cancelled) setRepPhone(phone);
+    })();
+    return () => { cancelled = true; };
+  }, [job?.sales_rep_name]);
 
   async function saveField(key, epochOrNull) {
     setSavingKey(key);
@@ -3386,9 +3424,9 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
       });
       const b = await res.json().catch(() => ({}));
       if (!b.ok) { setFieldErr(b.error || `status ${res.status}`); setNoteBusy(false); return; }
-      // Dead / can't-reach / waiting-on-docs move the deal off the active
-      // list (into their own bucket) — go back to the list.
-      if (stage === "dead" || stage === "no_contact" || stage === "waiting_docs") { onBack(); return; }
+      // Dead / can't-reach / waiting-on-docs / rescheduling move the deal into
+      // their own bucket — go back to the list so the PA sees it land there.
+      if (stage === "dead" || stage === "no_contact" || stage === "waiting_docs" || stage === "rescheduling") { onBack(); return; }
       setJob((j) => j ? {
         ...j,
         pa_stage: stage || j.pa_stage,
@@ -3403,19 +3441,19 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
   // can be rescheduled/rebooked from the company hub.
   function markNotHome() {
     if (noteBusy || refusing || savingKey) return;
-    setLastOutcome("Not home — the office will reschedule");
-    postNote({ text: "🏠 Homeowner not home — needs to reschedule" });
+    setLastOutcome("Not home — moved to Rescheduling");
+    postNote({ text: "🏠 Homeowner not home — needs to reschedule", stage: "rescheduling" });
   }
   function markCancelled() {
     if (noteBusy || refusing || savingKey) return;
-    setLastOutcome("Appointment cancelled");
-    postNote({ text: "❌ Appointment cancelled" });
+    setLastOutcome("Appointment cancelled — moved to Rescheduling");
+    postNote({ text: "❌ Appointment cancelled — needs to reschedule", stage: "rescheduling" });
   }
   // Five Star pipeline outcomes ------------------------------------------------
   function fsReschedule() {
     if (noteBusy || refusing || savingKey) return;
     setLastOutcome("Rescheduling — office will rebook");
-    postNote({ text: "🔄 Rescheduling — homeowner needs to reschedule" });
+    postNote({ text: "🔄 Rescheduling — homeowner needs to reschedule", stage: "rescheduling" });
   }
   function fsWaitingDocs() {
     if (noteBusy || refusing || savingKey) return;
@@ -3564,7 +3602,9 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
             </a>
           : <div style={{ marginTop: 8, fontSize: 13, color: "#b45309", fontWeight: 600 }}>📞 no phone on file</div>}
         <div style={{ fontSize: 12, color: "#6b7280", marginTop: 8 }}>
-          {job.sales_rep_name && <>Rep: {job.sales_rep_name} · </>}
+          {job.sales_rep_name && <>Rep: {job.sales_rep_name}
+            {repPhone && <> · <a href={`tel:${String(repPhone).replace(/[^\d+]/g, "")}`} style={{ color: "#1d4ed8", fontWeight: 700, textDecoration: "none" }}>📞 {repPhone}</a></>}
+            {" · "}</>}
           <span style={{ color: "#991b1b", fontWeight: 700 }}>DAMAGE</span>
         </div>
       </div>
