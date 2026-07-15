@@ -34,7 +34,8 @@ export const handler = async (event) => {
       const s = await sbGet(`app_settings?key=eq.harvest_admin_token&select=value&limit=1`);
       if (s[0]?.value && s[0].value === adminTok) { level = "admin"; repName = "Office"; }
     }
-    if (!level && rt) {
+    const isUuid = (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+    if (!level && rt && isUuid(rt)) {
       const reps = await sbGet(`sales_reps?harvest_token=eq.${encodeURIComponent(rt)}&select=name,jobnimbus_id&limit=1`);
       if (reps[0]) {
         repName = reps[0].name || "Rep";
