@@ -80,6 +80,7 @@ export default function CanvassMap() {
   const [selectedInstall, setSelectedInstall] = useState(null);
   // "Start my day" route planner.
   const [dayMode, setDayMode] = useState(null);        // null | 'choosing' | 'active'
+  const [startPt, setStartPt] = useState(null);        // {lat,lng} the route starts from
   const [route, setRoute] = useState([]);              // ordered stops (nearest-first)
   const [stopIdx, setStopIdx] = useState(0);
   const [myLoc, setMyLoc] = useState(null);            // live GPS while a route is active
@@ -223,8 +224,18 @@ export default function CanvassMap() {
     if (!lyr) return;
     lyr.clearLayers();
     if (dayMode !== "active" || route.length === 0) return;
-    const pts = route.filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number").map((p) => [p.latitude, p.longitude]);
-    if (pts.length > 1) L.polyline(pts, { color: "#16a34a", weight: 4, opacity: 0.7, dashArray: "6 7" }).addTo(lyr);
+    const stopPts = route.filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number").map((p) => [p.latitude, p.longitude]);
+    // Line runs FROM the chosen start point, through every stop in order.
+    const linePts = startPt ? [[startPt.lat, startPt.lng], ...stopPts] : stopPts;
+    if (linePts.length > 1) L.polyline(linePts, { color: "#16a34a", weight: 4, opacity: 0.7, dashArray: "6 7" }).addTo(lyr);
+    if (startPt) {
+      const startIcon = L.divIcon({
+        className: "harvest-route-start",
+        html: `<div style="width:26px;height:26px;border-radius:50%;background:#0f172a;color:#fff;border:2px solid #fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;box-shadow:0 1px 4px rgba(0,0,0,.5)">▶</div>`,
+        iconSize: [26, 26], iconAnchor: [13, 13],
+      });
+      L.marker([startPt.lat, startPt.lng], { icon: startIcon, zIndexOffset: 1100 }).addTo(lyr);
+    }
     route.forEach((p, i) => {
       if (typeof p.latitude !== "number") return;
       const current = i === stopIdx, done = i < stopIdx;
@@ -237,7 +248,7 @@ export default function CanvassMap() {
       });
       L.marker([p.latitude, p.longitude], { icon, zIndexOffset: 1000 }).on("click", () => { setSelectedInstall(null); setSelected(p); }).addTo(lyr);
     });
-  }, [dayMode, route, stopIdx]);
+  }, [dayMode, route, stopIdx, startPt]);
 
   function buildRoute(start, pins) {
     const rem = pins.filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number");
@@ -261,7 +272,7 @@ export default function CanvassMap() {
   function startFrom(pt) {
     const r = buildRoute(pt, shownRef.current || []);
     if (!r.length) { alert("No stops on the map to route. Load leads or change the filter, then start your day."); setDayMode(null); return; }
-    setRoute(r); setStopIdx(0); setDayMode("active");
+    setStartPt(pt); setRoute(r); setStopIdx(0); setDayMode("active");
     if (map.current) map.current.setView([r[0].latitude, r[0].longitude], 15);
   }
   startFromRef.current = startFrom;
@@ -280,10 +291,17 @@ export default function CanvassMap() {
       return ni;
     });
   }
-  function startOver() { setDayMode(null); setRoute([]); setStopIdx(0); }
-  function dirTo(p) {
-    const dest = [p.address, p.city, p.state, p.zip].filter(Boolean).join(", ") || `${p.latitude},${p.longitude}`;
-    window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}`, "_blank");
+  function startOver() { setDayMode(null); setStartPt(null); setRoute([]); setStopIdx(0); }
+  const addrOf = (p) => encodeURIComponent([p.address, p.city, p.state, p.zip].filter(Boolean).join(", ") || `${p.latitude},${p.longitude}`);
+  // Directions for the next handful of stops as ONE Google Maps trip (origin =
+  // the phone's live location; up to 8 stops — Google's shareable-link waypoint
+  // limit). The rep drives the batch, then the next tap picks up where they left off.
+  function dirBatch() {
+    const batch = route.slice(stopIdx, stopIdx + 8);
+    if (!batch.length) return;
+    const dest = addrOf(batch[batch.length - 1]);
+    const waypoints = batch.slice(0, -1).map(addrOf).join("|");
+    window.open(`https://www.google.com/maps/dir/?api=1&destination=${dest}${waypoints ? `&waypoints=${waypoints}` : ""}`, "_blank");
   }
 
   const counts = useMemo(() => {
@@ -399,9 +417,14 @@ export default function CanvassMap() {
                   <div style={{ fontSize: 13.5, color: "#334155", fontWeight: 600 }}>{stop.address}</div>
                   <div style={{ fontSize: 12.5, color: "#64748b" }}>{[stop.city, stop.state, stop.zip].filter(Boolean).join(", ")}</div>
                   <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                    <button type="button" onClick={() => dirTo(stop)} style={{ flex: 2, background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 12, padding: "12px", fontSize: 14.5, fontWeight: 800, cursor: "pointer" }}>
-                      🧭 Directions to {stopIdx === 0 ? "first stop" : "this stop"}
-                    </button>
+                    {(() => {
+                      const n = Math.min(8, route.length - stopIdx);
+                      return (
+                        <button type="button" onClick={dirBatch} style={{ flex: 2, background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 12, padding: "12px", fontSize: 14.5, fontWeight: 800, cursor: "pointer" }}>
+                          🧭 Directions{n > 1 ? ` · next ${n} stops` : " to this stop"}
+                        </button>
+                      );
+                    })()}
                     <button type="button" onClick={nextStop} disabled={!near}
                       title={near ? "" : "You need to be within 100 ft of this stop"}
                       style={{ flex: 1, background: near ? "#16a34a" : "#fff", color: near ? "#fff" : "#94a3b8", border: `1px solid ${near ? "#16a34a" : "#e5e7eb"}`, borderRadius: 12, padding: "12px", fontSize: 14, fontWeight: 800, cursor: near ? "pointer" : "not-allowed" }}>
