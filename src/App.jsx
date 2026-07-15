@@ -9505,9 +9505,10 @@ export default function App() {
   // Per-signup code delivery (both are remote — homeowner signs on their own phone):
   //   "rep_code" = "Sign now" (with them) → 6-digit code shows on the rep's screen
   //   "sms"      = "Send for signing" (remote) → code texted/emailed to the homeowner
-  // Defaults to sms: it works both in person and remotely (homeowner always gets
-  // their own code), so it's the safe default; the rep picks "Sign now" deliberately.
-  const [codeDelivery, setCodeDelivery] = useState("sms");
+  // Defaults to "Sign now" — reps are almost always standing with the homeowner,
+  // so the code-on-their-screen flow is the common case; they switch to "Send for
+  // signing" when doing it remotely.
+  const [codeDelivery, setCodeDelivery] = useState("rep_code");
   const [data, setData] = useState(() => {
     // RepVisitHub "New inspection" lands here as /?intake=1&rep=&repName=&repEmail=
     // — prefill the rep so the signing flow doesn't ask again.
