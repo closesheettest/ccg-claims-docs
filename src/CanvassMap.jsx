@@ -198,8 +198,18 @@ export default function CanvassMap() {
     const patch = { status: newStatus, status_updated_at: nowIso, status_by: repName || null, status_log: log };
     const { error } = await supabase.from("canvass_prospects").update(patch).eq("id", p.id);
     if (error) { alert(error.message); return; }
+    logActivity({ pin_id: p.id, kind: "status", from_status: p.status, to_status: newStatus });
     setProspects((list) => list.map((x) => (x.id === p.id ? { ...x, ...patch } : x)));
     setSelected((s) => (s && s.id === p.id ? { ...s, ...patch } : s));
+  }
+
+  // Log a rep action (visit / status change) for reporting. Non-blocking.
+  function logActivity(row) {
+    try {
+      supabase.from("canvass_activity")
+        .insert({ rep_name: repName || null, rep_token: auth.rt || null, round, ...row })
+        .then(() => {}, () => {});
+    } catch { /* ignore */ }
   }
 
   // ── Start my day ───────────────────────────────────────────────────────
@@ -306,6 +316,9 @@ export default function CanvassMap() {
     );
   }
   function nextStop() {
+    const stop = route[stopIdx];
+    // The proximity gate means a Next tap = the rep was AT this pin → a real visit.
+    if (stop) logActivity({ pin_id: stop.id, kind: "visit", to_status: stop.status });
     setStopIdx((i) => {
       const ni = i + 1;
       if (ni < route.length && map.current) map.current.setView([route[ni].latitude, route[ni].longitude], 15);
@@ -330,16 +343,8 @@ export default function CanvassMap() {
   }
   function panelPointerUp(e) { panelDrag.current = null; try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ } }
   const addrOf = (p) => encodeURIComponent([p.address, p.city, p.state, p.zip].filter(Boolean).join(", ") || `${p.latitude},${p.longitude}`);
-  // Directions for the next handful of stops as ONE Google Maps trip (origin =
-  // the phone's live location; up to 8 stops — Google's shareable-link waypoint
-  // limit). The rep drives the batch, then the next tap picks up where they left off.
-  function dirBatch() {
-    const batch = route.slice(stopIdx, stopIdx + 8);
-    if (!batch.length) return;
-    const dest = addrOf(batch[batch.length - 1]);
-    const waypoints = batch.slice(0, -1).map(addrOf).join("|");
-    window.open(`https://www.google.com/maps/dir/?api=1&destination=${dest}${waypoints ? `&waypoints=${waypoints}` : ""}`, "_blank");
-  }
+  // Stop-by-stop directions — just the current stop (Google uses live GPS as origin).
+  function dirTo(p) { window.open(`https://www.google.com/maps/dir/?api=1&destination=${addrOf(p)}`, "_blank"); }
 
   const counts = useMemo(() => {
     const c = {};
@@ -478,14 +483,9 @@ export default function CanvassMap() {
                   <div style={{ fontSize: 13.5, color: "#334155", fontWeight: 600 }}>{stop.address}</div>
                   <div style={{ fontSize: 12.5, color: "#64748b" }}>{[stop.city, stop.state, stop.zip].filter(Boolean).join(", ")}</div>
                   <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                    {(() => {
-                      const n = Math.min(8, route.length - stopIdx);
-                      return (
-                        <button type="button" onClick={dirBatch} style={{ flex: 2, background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 12, padding: "12px", fontSize: 14.5, fontWeight: 800, cursor: "pointer" }}>
-                          🧭 Directions{n > 1 ? ` · next ${n} stops` : " to this stop"}
-                        </button>
-                      );
-                    })()}
+                    <button type="button" onClick={() => dirTo(stop)} style={{ flex: 2, background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 12, padding: "12px", fontSize: 14.5, fontWeight: 800, cursor: "pointer" }}>
+                      🧭 Directions to {stopIdx === 0 ? "first stop" : "this stop"}
+                    </button>
                     <button type="button" onClick={nextStop} disabled={!near}
                       title={near ? "" : "You need to be within 100 ft of this stop"}
                       style={{ flex: 1, background: near ? "#16a34a" : "#fff", color: near ? "#fff" : "#94a3b8", border: `1px solid ${near ? "#16a34a" : "#e5e7eb"}`, borderRadius: 12, padding: "12px", fontSize: 14, fontWeight: 800, cursor: near ? "pointer" : "not-allowed" }}>

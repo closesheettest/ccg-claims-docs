@@ -8,6 +8,7 @@ const TABS = [
   { key: "upload", label: "📥 Load Leads", href: "/?mode=harvestupload" },
   { key: "links", label: "🔗 Rep Links", href: "/?mode=harvestlinks" },
   { key: "types", label: "🎛️ Pin Types", href: "/?mode=harvestadmin" },
+  { key: "report", label: "📊 Reports", href: "/?mode=harvestreport" },
 ];
 
 export default function HarvestNav({ active }) {

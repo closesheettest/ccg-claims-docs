@@ -106,6 +106,7 @@ export const handler = async (event) => {
         body: JSON.stringify({ status: "appt", status_updated_at: nowIso, status_by: rep.name || null, jn_job_id: existingJobId, status_log: log }),
       }).catch(() => {});
 
+      logActivity({ pin_id: pinId, rep_name: rep.name, rep_token: rt, kind: "status", from_status: pin.status, to_status: "appt" });
       return json(200, { ok: true, job_id: existingJobId, reset: true });
     }
 
@@ -160,6 +161,7 @@ export const handler = async (event) => {
       body: JSON.stringify({ status: "appt", status_updated_at: nowIso, status_by: rep.name || null, jn_job_id: jobId, status_log: log }),
     }).catch(() => {});
 
+    logActivity({ pin_id: pinId, rep_name: rep.name, rep_token: rt, kind: "status", from_status: pin.status, to_status: "appt" });
     return json(200, { ok: true, job_id: jobId, contact_id: contactId, task_id: taskId });
   } catch (e) {
     return json(502, { ok: false, error: `JobNimbus: ${e.message || "failed"}` });
@@ -170,6 +172,12 @@ async function sbGet(path) {
   const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: sb });
   if (!r.ok) return [];
   return r.json().catch(() => []);
+}
+// Log a rep action to canvass_activity for reporting (fire-and-forget).
+function logActivity(row) {
+  fetch(`${SB_URL}/rest/v1/canvass_activity`, {
+    method: "POST", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify(row),
+  }).catch(() => {});
 }
 async function jnPost(path, payload) {
   const r = await jnFetch(JN_KEY, path, { method: "POST", body: JSON.stringify(payload) });
