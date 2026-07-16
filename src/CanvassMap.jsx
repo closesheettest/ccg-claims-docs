@@ -731,11 +731,13 @@ export default function CanvassMap() {
   // until the RPC (sql/canvass_status_counts.sql) exists.
   useEffect(() => {
     let live = true;
+    // Fetched ONCE — the chip totals are global, not per-view, so re-fetching on
+    // every load just piled scans onto an already-strained DB.
     supabase.rpc("canvass_status_counts")
       .then(({ data }) => { if (live && Array.isArray(data)) setDbCounts(Object.fromEntries(data.map((r) => [r.status, Number(r.n)]))); })
       .catch(() => { /* RPC not created yet → keep loadedCounts */ });
     return () => { live = false; };
-  }, [prospects.length === 0]); // once pins first arrive (and on mount)
+  }, []);
   const counts = dbCounts || loadedCounts;
   const notMapped = prospects.length - mapped.length;
 
