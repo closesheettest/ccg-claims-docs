@@ -58,6 +58,9 @@ const ARRIVE_FT = 200; // must be within this many feet of the stop to advance
 const ROUTE_CAP_DEFAULT = 30, ROUTE_CAP_INSP = 100;
 const routeCap = (pins) => {
   if (!pins || !pins.length) return ROUTE_CAP_DEFAULT;
+  // Any higher-priority work in the pool (IQ or No-sit) makes it a senior day → 30.
+  // Only a pure inspection-lead day (juniors, huge volume) routes 100.
+  if (pins.some((p) => p.status === "iq" || p.status === "no_sit_reschedule")) return ROUTE_CAP_DEFAULT;
   const insp = pins.filter((p) => p.status === "insp").length;
   return insp >= pins.length / 2 ? ROUTE_CAP_INSP : ROUTE_CAP_DEFAULT;
 };
@@ -394,17 +397,27 @@ export default function CanvassMap() {
   }, [dayMode, route, stopIdx, startPt]);
 
   function buildRoute(start, pins, cap) {
-    const rem = pins.filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number" && !nonRoutableStatuses.has(p.status));
-    const max = cap || routeCap(rem);
+    const routable = pins.filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number" && !nonRoutableStatuses.has(p.status));
+    const max = cap || routeCap(routable);
+    // PRIORITY: a No-sit (already an appointment) outranks an IQ (qualified lead),
+    // which outranks a cold Inspection Lead. When the pool is mixed and capped, the
+    // higher-priority work makes the cut first (nearest-first within a tier). Then
+    // we nearest-neighbour the chosen set so the actual drive is still efficient.
+    const TIER = { no_sit_reschedule: 0, iq: 1 };
+    const tierOf = (p) => (TIER[p.status] != null ? TIER[p.status] : 2);
+    const dist2 = (a, p) => { const dx = a.lat - p.latitude, dy = a.lng - p.longitude; return dx * dx + dy * dy; };
+    const rem = routable
+      .map((p) => ({ p, t: tierOf(p), d: dist2(start, p) }))
+      .sort((a, b) => a.t - b.t || a.d - b.d)
+      .slice(0, max)
+      .map((x) => x.p);
     const out = [];
     let cur = start;
-    // Greedy nearest-neighbour, stopping at the route cap — the most efficient N
-    // stops from the start point (the rest stay visible on the map, just not routed).
-    while (rem.length && out.length < max) {
+    // Greedy nearest-neighbour over the chosen (priority-selected) stops.
+    while (rem.length) {
       let bi = 0, bd = Infinity;
       for (let i = 0; i < rem.length; i++) {
-        const dx = cur.lat - rem[i].latitude, dy = cur.lng - rem[i].longitude;
-        const d = dx * dx + dy * dy;
+        const d = dist2(cur, rem[i]);
         if (d < bd) { bd = d; bi = i; }
       }
       const nx = rem.splice(bi, 1)[0];
