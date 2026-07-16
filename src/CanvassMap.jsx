@@ -47,7 +47,14 @@ function feetBetween(a, b) {
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 const ARRIVE_FT = 200; // must be within this many feet of the stop to advance
-const ROUTE_MAX = 30;  // "Start my day" routes the most efficient N stops from the start
+// "Start my day" routes the most efficient N stops. IQ canvassing is denser work
+// (30 doors); inspection go-backs cover more ground per rep (100).
+const ROUTE_CAP_IQ = 30, ROUTE_CAP_INSP = 100;
+const routeCap = (pins) => {
+  if (!pins || !pins.length) return ROUTE_CAP_INSP;
+  const iq = pins.filter((p) => p.status === "iq").length;
+  return iq >= pins.length / 2 ? ROUTE_CAP_IQ : ROUTE_CAP_INSP;
+};
 
 // Colored dot as an L.Marker (divIcon) so it clusters — markerClusterGroup only
 // clusters L.Marker, not L.circleMarker.
@@ -103,6 +110,21 @@ export default function CanvassMap() {
   const startFromRef = useRef(null);
   const S = useMemo(() => Object.fromEntries(pinTypes.map((t) => [t.key, t])), [pinTypes]);
   const repName = me?.name || "";
+
+  // "View as" — the office can preview exactly what a junior/senior rep sees.
+  // effLevel is the level we're rendering as (own level, or the previewed one).
+  // visKeys = the pin-type keys that level may see (null = no restriction).
+  const [viewAs, setViewAs] = useState(null);          // null → office's own full view
+  const effLevel = viewAs || me?.level || null;
+  const seesAll = !effLevel || effLevel === "admin";
+  const visKeys = useMemo(() => {
+    if (seesAll) return null;
+    const canSee = (t) => !((t.visible_levels) || []).length || ((t.visible_levels) || []).includes(effLevel);
+    return new Set(pinTypes.filter(canSee).map((t) => t.key));
+  }, [seesAll, effLevel, pinTypes]);
+  const visTypes = useMemo(() => (visKeys ? pinTypes.filter((t) => visKeys.has(t.key)) : pinTypes), [visKeys, pinTypes]);
+  // If we switch to a level that can't see the current filter, fall back to All.
+  useEffect(() => { if (visKeys && filter !== "all" && !visKeys.has(filter)) setFilter("all"); /* eslint-disable-next-line */ }, [visKeys]);
 
   // Server decides which pins this rep's level may see. Reads the personal link
   // token (?rt=) or the office view-all token (?admin=).
@@ -189,8 +211,8 @@ export default function CanvassMap() {
     const m = map.current, lyr = layer.current;
     if (!m || !lyr) return;
     lyr.clearLayers();
-    const shown = mapped.filter((p) => filter === "all" || p.status === filter);
-    shownRef.current = shown; // for "Start my day" routing
+    const shown = mapped.filter((p) => (filter === "all" || p.status === filter) && (!visKeys || visKeys.has(p.status)));
+    shownRef.current = shown; // for "Start my day" routing (already level-filtered)
     const markers = [];
     const pts = [];
     for (const p of shown) {
@@ -214,7 +236,7 @@ export default function CanvassMap() {
       m.fitBounds(pts, { padding: [40, 40], maxZoom: 15 });
       fitted.current = true;
     }
-  }, [mapped, filter, installs, showInstalls]);
+  }, [mapped, filter, installs, showInstalls, visKeys]);
 
   async function setStatus(p, newStatus) {
     const nowIso = new Date().toISOString();
@@ -306,13 +328,14 @@ export default function CanvassMap() {
     });
   }, [dayMode, route, stopIdx, startPt]);
 
-  function buildRoute(start, pins) {
+  function buildRoute(start, pins, cap) {
     const rem = pins.filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number");
+    const max = cap || routeCap(rem);
     const out = [];
     let cur = start;
-    // Greedy nearest-neighbour, stopping at ROUTE_MAX — the most efficient N
+    // Greedy nearest-neighbour, stopping at the route cap — the most efficient N
     // stops from the start point (the rest stay visible on the map, just not routed).
-    while (rem.length && out.length < ROUTE_MAX) {
+    while (rem.length && out.length < max) {
       let bi = 0, bd = Infinity;
       for (let i = 0; i < rem.length; i++) {
         const dx = cur.lat - rem[i].latitude, dy = cur.lng - rem[i].longitude;
@@ -330,7 +353,7 @@ export default function CanvassMap() {
     // the route sees the local leads even if they weren't on screen before.
     if (map.current) map.current.setView([pt.lat, pt.lng], 15);
     const loaded = await load(map.current ? map.current.getBounds() : null);
-    const pool = (loaded.length ? loaded : (shownRef.current || [])).filter((p) => (filter === "all" || p.status === filter) && typeof p.latitude === "number");
+    const pool = (loaded.length ? loaded : (shownRef.current || [])).filter((p) => (filter === "all" || p.status === filter) && typeof p.latitude === "number" && (!visKeys || visKeys.has(p.status)));
     const r = buildRoute(pt, pool);
     if (!r.length) { alert("No stops near here to route. Zoom to your area or change the filter, then start your day."); setDayMode(null); return; }
     // Round 1's stops ARE the day's working set — later rounds only recycle these.
@@ -348,7 +371,7 @@ export default function CanvassMap() {
     const left = (shownRef.current || []).filter((p) => workingRef.current.has(p.id) && !resolvedIds.has(p.id) && typeof p.latitude === "number");
     if (!left.length) return; // all statused — the done panel shows "all worked"
     const from = myLoc || (route.length ? { lat: route[route.length - 1].latitude, lng: route[route.length - 1].longitude } : startPt);
-    const r = buildRoute(from, left);
+    const r = buildRoute(from, left, routeCap(left));
     setStartPt(from); setRoute(r); setStopIdx(0); setRound((n) => n + 1); setDayMode("active");
     if (map.current) map.current.setView([r[0].latitude, r[0].longitude], 15);
   }
@@ -460,6 +483,19 @@ export default function CanvassMap() {
         )}
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
           {me?.level === "admin" && (
+            <div style={{ display: "flex", alignItems: "center", gap: 4, background: "rgba(255,255,255,.08)", borderRadius: 999, padding: 2 }}
+              title="Preview exactly what a rep at this level sees on the map">
+              <span style={{ fontSize: 10, fontWeight: 800, color: "#94a3b8", padding: "0 4px", textTransform: "uppercase", letterSpacing: "0.04em" }}>View as</span>
+              {[["admin", "Office"], ["senior", "Sr"], ["junior", "Jr"]].map(([lv, lbl]) => {
+                const on = (viewAs || "admin") === lv;
+                return (
+                  <button key={lv} type="button" onClick={() => setViewAs(lv === "admin" ? null : lv)}
+                    style={{ fontSize: 11, fontWeight: 800, cursor: "pointer", borderRadius: 999, padding: "3px 9px", border: "none", background: on ? "#7c3aed" : "transparent", color: on ? "#fff" : "#cbd5e1" }}>{lbl}</button>
+                );
+              })}
+            </div>
+          )}
+          {me?.level === "admin" && (
             <button type="button"
               onClick={() => {
                 const next = !showAll;
@@ -490,8 +526,8 @@ export default function CanvassMap() {
 
       {/* Status filter chips */}
       <div style={{ display: "flex", gap: 6, overflowX: "auto", padding: "8px 12px", background: "#fff", borderBottom: "1px solid #e5e7eb" }}>
-        <Chip active={filter === "all"} onClick={() => setFilter("all")} color="#334155" label={`All (${prospects.length})`} />
-        {pinTypes.map((s) => (
+        <Chip active={filter === "all"} onClick={() => setFilter("all")} color="#334155" label={`All (${visKeys ? prospects.filter((p) => visKeys.has(p.status)).length : prospects.length})`} />
+        {visTypes.map((s) => (
           <Chip key={s.key} active={filter === s.key} onClick={() => setFilter(s.key)} color={s.color} label={`${s.label} (${counts[s.key] || 0})`} />
         ))}
         {installs.length > 0 && (
@@ -544,6 +580,7 @@ export default function CanvassMap() {
             ? { left: panelPos.left, top: panelPos.top }
             : { right: 10, bottom: 14 };
           const left = done ? remainingCount() : 0;
+          const leftPins = done ? (shownRef.current || []).filter((p) => workingRef.current.has(p.id) && !resolvedIds.has(p.id)) : [];
           return (
             <div data-daypanel style={{ position: "absolute", ...posStyle, zIndex: 600, background: "#fff", borderRadius: 14, boxShadow: "0 4px 18px rgba(0,0,0,.2)", width: "min(340px, 88%)", overflow: "hidden" }}>
               {/* Drag handle so it never blocks the map */}
@@ -560,7 +597,7 @@ export default function CanvassMap() {
                       <div style={{ fontSize: 15.5, fontWeight: 800, fontFamily: "'Oswald', sans-serif", margin: "4px 0 4px" }}>Round {round} done!</div>
                       <div style={{ fontSize: 13, color: "#64748b", marginBottom: 12 }}><b>{left}</b> pin{left === 1 ? "" : "s"} left to work.</div>
                       <button type="button" onClick={nextRound} style={{ width: "100%", background: "#16a34a", color: "#fff", border: "none", borderRadius: 12, padding: "12px", fontSize: 14.5, fontWeight: 800, cursor: "pointer", marginBottom: 8 }}>
-                        ▶ Start round {round + 1} — next {Math.min(ROUTE_MAX, left)}
+                        ▶ Start round {round + 1} — next {Math.min(routeCap(leftPins), left)}
                       </button>
                       <button type="button" onClick={startOver} style={{ width: "100%", background: "#fff", color: "#64748b", border: "1px solid #e5e7eb", borderRadius: 12, padding: "10px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Finish for the day</button>
                     </>
