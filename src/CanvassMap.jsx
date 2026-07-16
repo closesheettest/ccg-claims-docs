@@ -52,11 +52,14 @@ function feetBetween(a, b) {
 const ARRIVE_FT = 200; // must be within this many feet of the stop to advance
 // "Start my day" routes the most efficient N stops. IQ canvassing is denser work
 // (30 doors); inspection go-backs cover more ground per rep (100).
-const ROUTE_CAP_IQ = 30, ROUTE_CAP_INSP = 100;
+// Only inspection-lead days (juniors — huge volume) route 100 stops. Every other
+// kind of day (IQ, No-sit, mixed) routes 30, so it stays local instead of
+// sprawling across the metro.
+const ROUTE_CAP_DEFAULT = 30, ROUTE_CAP_INSP = 100;
 const routeCap = (pins) => {
-  if (!pins || !pins.length) return ROUTE_CAP_INSP;
-  const iq = pins.filter((p) => p.status === "iq").length;
-  return iq >= pins.length / 2 ? ROUTE_CAP_IQ : ROUTE_CAP_INSP;
+  if (!pins || !pins.length) return ROUTE_CAP_DEFAULT;
+  const insp = pins.filter((p) => p.status === "insp").length;
+  return insp >= pins.length / 2 ? ROUTE_CAP_INSP : ROUTE_CAP_DEFAULT;
 };
 
 // Colored dot as an L.Marker (divIcon) so it clusters — markerClusterGroup only
@@ -425,10 +428,10 @@ export default function CanvassMap() {
     setStartPt(pt); setRoute(r); setStopIdx(0); setRound(1); setResolvedIds(new Set()); setDayMode("active");
     // An IQ day that came up short of a full 30 stops isn't a full effort — offer
     // to top it up with No-sit-reschedule visits (their other go-back work).
-    const iqDay = routeCap(pool) === ROUTE_CAP_IQ; // pool is mostly IQ
-    if (iqDay && r.length < ROUTE_CAP_IQ) {
+    const iqDay = pool.length > 0 && pool.filter((p) => p.status === "iq").length >= pool.length / 2;
+    if (iqDay && r.length < ROUTE_CAP_DEFAULT) {
       const fill = availableFill(r);
-      setFillOffer(fill.length ? { available: fill.length, need: ROUTE_CAP_IQ - r.length } : null);
+      setFillOffer(fill.length ? { available: fill.length, need: ROUTE_CAP_DEFAULT - r.length } : null);
     } else setFillOffer(null);
     if (map.current) map.current.setView([r[0].latitude, r[0].longitude], 15);
   }
@@ -444,7 +447,7 @@ export default function CanvassMap() {
     const fill = availableFill(route);
     if (!fill.length) { setFillOffer(null); return; }
     const from = route.length ? { lat: route[route.length - 1].latitude, lng: route[route.length - 1].longitude } : startPt;
-    const add = buildRoute(from, fill, Math.max(1, ROUTE_CAP_IQ - route.length));
+    const add = buildRoute(from, fill, Math.max(1, ROUTE_CAP_DEFAULT - route.length));
     if (!add.length) { setFillOffer(null); return; }
     add.forEach((p) => workingRef.current.add(p.id));
     setRoute((cur) => [...cur, ...add]);
@@ -1032,6 +1035,10 @@ function origApptLabel(pin) {
 }
 
 function AppointmentModal({ pin, rt, onClose, onBooked }) {
+  // A reschedule (the pin already has a JobNimbus job — e.g. a synced no-sit)
+  // just resets the existing appointment, so we DON'T need to collect phone/email:
+  // the homeowner's already in JN. Only a fresh booking needs contact info.
+  const isReschedule = !!pin.jn_job_id;
   const [phone, setPhone] = useState(pin.phone || extraVal(pin, ["phone", "mobile", "cell"]));
   const [email, setEmail] = useState(pin.email || extraVal(pin, ["email", "e-mail"]));
   const [busy, setBusy] = useState(false);
@@ -1057,7 +1064,7 @@ function AppointmentModal({ pin, rt, onClose, onBooked }) {
   for (const s of slots) (byDay[dayKey(s.dt)] = byDay[dayKey(s.dt)] || []).push(s);
 
   async function book(slot) {
-    if (phone.replace(/\D/g, "").length < 10) { setErr("Enter the homeowner's phone number first."); return; }
+    if (!isReschedule && phone.replace(/\D/g, "").length < 10) { setErr("Enter the homeowner's phone number first."); return; }
     setBusy(slot.iso); setErr("");
     try {
       const r = await fetch("/.netlify/functions/harvest-book-appt", {
@@ -1084,13 +1091,15 @@ function AppointmentModal({ pin, rt, onClose, onBooked }) {
           </div>
         )}
 
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone (required)" inputMode="tel"
-            style={{ flex: 1, minWidth: 150, fontSize: 14, padding: "10px 12px", borderRadius: 10, border: "1px solid #cbd5e1", boxSizing: "border-box" }} />
-          <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email (optional)" inputMode="email"
-            style={{ flex: 1, minWidth: 150, fontSize: 14, padding: "10px 12px", borderRadius: 10, border: "1px solid #cbd5e1", boxSizing: "border-box" }} />
-        </div>
-        <div style={{ fontSize: 12, color: "#64748b", marginBottom: 12 }}>Pick a time — it books the appointment into JobNimbus and turns this pin into an Appointment. Times you're already booked are hidden.</div>
+        {!isReschedule && (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+            <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone (required)" inputMode="tel"
+              style={{ flex: 1, minWidth: 150, fontSize: 14, padding: "10px 12px", borderRadius: 10, border: "1px solid #cbd5e1", boxSizing: "border-box" }} />
+            <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email (optional)" inputMode="email"
+              style={{ flex: 1, minWidth: 150, fontSize: 14, padding: "10px 12px", borderRadius: 10, border: "1px solid #cbd5e1", boxSizing: "border-box" }} />
+          </div>
+        )}
+        <div style={{ fontSize: 12, color: "#64748b", marginBottom: 12 }}>{isReschedule ? "Pick a new time — it resets the appointment in JobNimbus under your name. Times you're already booked are hidden." : "Pick a time — it books the appointment into JobNimbus and turns this pin into an Appointment. Times you're already booked are hidden."}</div>
         {err && <div style={{ color: "#b91c1c", fontSize: 13, marginBottom: 10 }}>{err}</div>}
 
         {booked === null ? <div style={{ fontSize: 13, color: "#6b7280", padding: "8px 0" }}>Checking your calendar…</div>
