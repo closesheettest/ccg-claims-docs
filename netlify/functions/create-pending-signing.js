@@ -78,20 +78,32 @@ export const handler = async (event) => {
     delivery_mode: deliveryMode,
     sandbox: !!d.sandbox,   // training/practice run → never becomes a real deal
 
-    // Harvesting-Map handoff: the pin this signing came from (if any), so
-    // finalize can flip it Inspection Sold once the homeowner signs.
-    harvest_pin: (d.harvest_pin || "").trim() || null,
-
     prepared_by_rep_name: (d.sales_rep_name || "").trim() || null,
     prepared_at: nowIso,
     expires_at: new Date(Date.now() + EXPIRY_MS).toISOString(),
     created_at: nowIso,
   };
+  // Harvesting-Map handoff: the pin this signing came from (if any), so finalize
+  // can flip it Inspection Sold once the homeowner signs. Only set when present,
+  // and tolerate the column not existing yet (retry without it) so a normal
+  // signing is never blocked before sql/pending_signings_harvest_pin.sql is run.
+  const harvestPin = (d.harvest_pin || "").trim() || null;
+  if (harvestPin) row.harvest_pin = harvestPin;
 
-  const ins = await fetch(`${SB_URL}/rest/v1/pending_signings`, {
-    method: "POST", headers: { ...sb, Prefer: "return=representation" }, body: JSON.stringify(row),
+  const doInsert = (r) => fetch(`${SB_URL}/rest/v1/pending_signings`, {
+    method: "POST", headers: { ...sb, Prefer: "return=representation" }, body: JSON.stringify(r),
   });
-  if (!ins.ok) return json(500, { ok: false, error: `Insert failed: ${(await ins.text()).slice(0, 200)}` });
+  let ins = await doInsert(row);
+  if (!ins.ok) {
+    const t = await ins.text();
+    if (harvestPin && /harvest_pin/.test(t)) {
+      const { harvest_pin, ...rest } = row; // column missing → drop it and retry
+      ins = await doInsert(rest);
+      if (!ins.ok) return json(500, { ok: false, error: `Insert failed: ${(await ins.text()).slice(0, 200)}` });
+    } else {
+      return json(500, { ok: false, error: `Insert failed: ${t.slice(0, 200)}` });
+    }
+  }
   const created = (await ins.json().catch(() => []))[0] || row;
 
   // "Send for signing" (sms) → auto-text/email the link now. "Sign now"
