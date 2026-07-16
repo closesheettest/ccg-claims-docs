@@ -38,6 +38,46 @@ const UNKNOWN_TYPE = { color: "#64748b", label: "—", outcomes: [] };
 // "resolved") — so a rep can mark it and still return to it later the same day.
 const KEEP_ROUTABLE = new Set(["insp_callback"]);
 
+// The street a stop is on, for street-by-street routing. "123 N Main St, Tampa"
+// → "n main st". A stop with no parseable street becomes its own micro-group
+// (keyed by rounded lat/lng) so it's still routed, just not merged with others.
+function streetKey(p) {
+  const raw = String(p.address || "").split(",")[0].trim().toLowerCase();
+  const s = raw
+    .replace(/^\s*\d+[a-z]?\s+/, "")                    // drop the leading house number
+    .replace(/\s+(apt|unit|ste|suite|#|lot|bldg)\b.*$/, "") // drop unit/apt
+    .replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+  return s || `~${(p.latitude || 0).toFixed(3)},${(p.longitude || 0).toFixed(3)}`;
+}
+function houseNum(p) { const m = String(p.address || "").match(/\d+/); return m ? parseInt(m[0], 10) : 0; }
+// Order stops STREET-BY-STREET: do a whole street (in house-number order, from
+// the end nearest you) before hopping to the nearest remaining street. Kills the
+// zig-zag / back-tracking a pure nearest-neighbour route produces.
+function orderStreetByStreet(start, stops) {
+  const d2 = (a, p) => { const dx = a.lat - p.latitude, dy = a.lng - p.longitude; return dx * dx + dy * dy; };
+  const groups = new Map();
+  for (const p of stops) { const k = streetKey(p); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(p); }
+  const streets = [...groups.values()].map((g) =>
+    g.slice().sort((a, b) => houseNum(a) - houseNum(b) || a.latitude - b.latitude || a.longitude - b.longitude));
+  const out = [];
+  let cur = start;
+  while (streets.length) {
+    let bi = 0, bd = Infinity, rev = false;
+    for (let i = 0; i < streets.length; i++) {
+      const st = streets[i];
+      const dF = d2(cur, st[0]), dL = d2(cur, st[st.length - 1]);
+      if (dF < bd) { bd = dF; bi = i; rev = false; }   // enter from the low-number end
+      if (dL < bd) { bd = dL; bi = i; rev = true; }     // …or the high-number end, whichever's closer
+    }
+    const st = streets.splice(bi, 1)[0];
+    const walk = rev ? st.slice().reverse() : st;
+    for (const p of walk) out.push(p);
+    const last = walk[walk.length - 1];
+    cur = { lat: last.latitude, lng: last.longitude };
+  }
+  return out;
+}
+
 // Fields the map needs per pin (status_log is left out — heavy + unused here).
 // LITE = everything needed to PLACE a pin + drive the route/actions (identity,
 // contact, geo, status). Deliberately drops the heavy fields — chiefly `extra`
@@ -696,20 +736,9 @@ export default function CanvassMap() {
       .sort((a, b) => a.t - b.t || a.d - b.d)
       .slice(0, max)
       .map((x) => x.p);
-    const out = [];
-    let cur = start;
-    // Greedy nearest-neighbour over the chosen (priority-selected) stops.
-    while (rem.length) {
-      let bi = 0, bd = Infinity;
-      for (let i = 0; i < rem.length; i++) {
-        const d = dist2(cur, rem[i]);
-        if (d < bd) { bd = d; bi = i; }
-      }
-      const nx = rem.splice(bi, 1)[0];
-      out.push(nx);
-      cur = { lat: nx.latitude, lng: nx.longitude };
-    }
-    return out;
+    // Walk the chosen stops STREET-BY-STREET (finish a street before moving on)
+    // instead of nearest-neighbour, which back-tracks and skips around.
+    return orderStreetByStreet(start, rem);
   }
   async function startFrom(pt) {
     // Load a GENEROUS radius (~25 mi) around the start — not just the tight
