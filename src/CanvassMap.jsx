@@ -109,6 +109,7 @@ export default function CanvassMap() {
   const showAllRef = useRef(false);                    // moveend/load read this without a stale closure
   const loadRef = useRef(null);                        // latest load() for the map moveend handler
   const moveTimer = useRef(null);                      // debounce map moves
+  const [fillOffer, setFillOffer] = useState(null);    // {available, need} when an IQ day is under a full 30 stops
   const [signingStop, setSigningStop] = useState(null); // pin being signed in the intake tab
   const signingStopRef = useRef(null);                 // for the cross-tab 'signed' listener
   const completeSignRef = useRef(null);                // latest completeSign() for the listeners
@@ -414,7 +415,32 @@ export default function CanvassMap() {
     // Round 1's stops ARE the day's working set — later rounds only recycle these.
     workingRef.current = new Set(r.map((p) => p.id));
     setStartPt(pt); setRoute(r); setStopIdx(0); setRound(1); setResolvedIds(new Set()); setDayMode("active");
+    // An IQ day that came up short of a full 30 stops isn't a full effort — offer
+    // to top it up with No-sit-reschedule visits (their other go-back work).
+    const iqDay = routeCap(pool) === ROUTE_CAP_IQ; // pool is mostly IQ
+    if (iqDay && r.length < ROUTE_CAP_IQ) {
+      const fill = availableFill(r);
+      setFillOffer(fill.length ? { available: fill.length, need: ROUTE_CAP_IQ - r.length } : null);
+    } else setFillOffer(null);
     if (map.current) map.current.setView([r[0].latitude, r[0].longitude], 15);
+  }
+  // No-sit-reschedule pins we could add to a short day (loaded, visible, not already
+  // in the given route). Used both to decide whether to offer and to build the top-up.
+  function availableFill(routePins) {
+    const routed = new Set((routePins || route).map((p) => p.id));
+    return mapped.filter((p) => p.status === "no_sit_reschedule" && !routed.has(p.id)
+      && typeof p.latitude === "number" && (!visKeys || visKeys.has(p.status)));
+  }
+  // Top up the current day with the nearest No-sit-reschedule visits, up to 30 total.
+  function addFillStops() {
+    const fill = availableFill(route);
+    if (!fill.length) { setFillOffer(null); return; }
+    const from = route.length ? { lat: route[route.length - 1].latitude, lng: route[route.length - 1].longitude } : startPt;
+    const add = buildRoute(from, fill, Math.max(1, ROUTE_CAP_IQ - route.length));
+    if (!add.length) { setFillOffer(null); return; }
+    add.forEach((p) => workingRef.current.add(p.id));
+    setRoute((cur) => [...cur, ...add]);
+    setFillOffer(null);
   }
   // Of the original routed pins, how many are still un-statused (i.e. left to work).
   function remainingCount() {
@@ -427,7 +453,7 @@ export default function CanvassMap() {
     if (!left.length) return; // all statused — the done panel shows "all worked"
     const from = myLoc || (route.length ? { lat: route[route.length - 1].latitude, lng: route[route.length - 1].longitude } : startPt);
     const r = buildRoute(from, left, routeCap(left));
-    setStartPt(from); setRoute(r); setStopIdx(0); setRound((n) => n + 1); setDayMode("active");
+    setStartPt(from); setRoute(r); setStopIdx(0); setRound((n) => n + 1); setDayMode("active"); setFillOffer(null);
     if (map.current) map.current.setView([r[0].latitude, r[0].longitude], 15);
   }
   startFromRef.current = startFrom;
@@ -498,7 +524,7 @@ export default function CanvassMap() {
     if (route[stopIdx] && route[stopIdx].id === stop.id) advanceStop();
   }
   completeSignRef.current = completeSign;
-  function startOver() { navLayer.current?.clearLayers(); setDayMode(null); setStartPt(null); setRoute([]); setStopIdx(0); setRound(1); setResolvedIds(new Set()); workingRef.current = new Set(); setPanelPos(null); setSigningStop(null); }
+  function startOver() { navLayer.current?.clearLayers(); setDayMode(null); setStartPt(null); setRoute([]); setStopIdx(0); setRound(1); setResolvedIds(new Set()); workingRef.current = new Set(); setPanelPos(null); setSigningStop(null); setFillOffer(null); }
   // Drag the route panel so it never blocks the map (pointer events = mouse + touch).
   function panelPointerDown(e) {
     const el = e.currentTarget.closest("[data-daypanel]"); if (!el) return;
@@ -718,6 +744,15 @@ export default function CanvassMap() {
                     <span style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", color: "#16a34a" }}>{round > 1 ? `Round ${round} · ` : ""}Stop {stopIdx + 1} of {route.length}</span>
                     <button type="button" onClick={startOver} style={{ background: "none", border: "none", fontSize: 12.5, fontWeight: 700, color: "#94a3b8", cursor: "pointer" }}>↺ Start over</button>
                   </div>
+                  {fillOffer && (
+                    <div style={{ background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 10, padding: "9px 11px", margin: "2px 0 8px" }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 800, color: "#92400e" }}>Only {route.length} stops — that's not a full day's effort.</div>
+                      <button type="button" onClick={addFillStops}
+                        style={{ marginTop: 7, width: "100%", background: "#d97706", color: "#fff", border: "none", borderRadius: 9, padding: "9px", fontSize: 12.5, fontWeight: 800, cursor: "pointer" }}>
+                        ➕ Add {Math.min(fillOffer.available, fillOffer.need)} “{S["no_sit_reschedule"]?.label || "No sit – need to reschedule"}” to fill the day
+                      </button>
+                    </div>
+                  )}
                   {stop.name && <div style={{ fontSize: 15.5, fontWeight: 800 }}>{stop.name}</div>}
                   <div style={{ fontSize: 13.5, color: "#334155", fontWeight: 600 }}>{stop.address}</div>
                   <div style={{ fontSize: 12.5, color: "#64748b" }}>{[stop.city, stop.state, stop.zip].filter(Boolean).join(", ")}</div>
