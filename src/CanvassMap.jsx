@@ -110,12 +110,26 @@ function dotIcon(color) {
     iconAnchor: [9, 9],
   });
 }
+// Below this zoom the map shows SERVER-side cluster bubbles (aggregated counts)
+// instead of downloading thousands of individual pins; at/above it, real pins.
+const CLUSTER_ZOOM = 13;
+function clusterDivIcon(n, color) {
+  const size = n >= 1000 ? 54 : n >= 250 ? 46 : n >= 50 ? 38 : 32;
+  const label = n >= 1000 ? `${(Math.round(n / 100) / 10)}k` : String(n);
+  return L.divIcon({
+    className: "harvest-cluster",
+    html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};opacity:.9;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:${n >= 1000 ? 12 : 12.5}px;border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.45)">${label}</div>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+  });
+}
 const FONT = "'Nunito', system-ui, sans-serif";
 
 export default function CanvassMap() {
   const mapEl = useRef(null);
   const map = useRef(null);
   const layer = useRef(null);
+  const clusterLayer = useRef(null); // server-side cluster bubbles (low zoom)
   const routeLayer = useRef(null);
   const navLayer = useRef(null);   // in-app driving route to the current stop
   const fitted = useRef(false);
@@ -153,7 +167,10 @@ export default function CanvassMap() {
   const [showAll, setShowAll] = useState(false);       // office overview: load every pin, ignore viewport
   const showAllRef = useRef(false);                    // moveend/load read this without a stale closure
   const loadRef = useRef(null);                        // latest load() for the map moveend handler
+  const loadClustersRef = useRef(null);                // latest loadClusters() for the moveend handler
+  const clusterRpcOk = useRef(null);                   // null=unknown, false=RPC absent (stop retrying), true=works
   const moveTimer = useRef(null);                      // debounce map moves
+  const [clusters, setClusters] = useState([]);        // server-aggregated cluster cells (low zoom)
   const authInfo = useRef(null);                       // {rep, pin_types} resolved once from the token
   const [fillOffer, setFillOffer] = useState(null);    // {available, need} when an IQ day is under a full 30 stops
   const [editingRoute, setEditingRoute] = useState(false); // route-trim sheet open
@@ -257,6 +274,7 @@ export default function CanvassMap() {
 
       setProspects(pins);
       setInstalls(installs);
+      setClusters([]); // entering pin mode → drop any cluster bubbles
       setCapped(pins.length >= CAP || installs.length >= CAP);
       // The initial no-bounds load returns everything (statewide); the map already
       // opens Florida-wide, so we just mark it ready — no fragile fitBounds/size
@@ -269,7 +287,48 @@ export default function CanvassMap() {
     return [];
   }
   loadRef.current = load;
+
+  // Zoomed-out view: fetch SERVER-aggregated cluster cells for the current box
+  // (one grouped query) instead of downloading thousands of pins. Returns true
+  // if it rendered clusters, false to fall back to the per-pin load (RPC missing
+  // or errored). Respects the rep's level + the active chip filter.
+  async function loadClusters(bounds) {
+    try {
+      if (clusterRpcOk.current === false) return false; // RPC not installed → don't keep retrying
+      const info = authInfo.current;
+      if (!info || !bounds) return false;
+      const { rep, pin_types } = info;
+      const lvl = rep && rep.level;
+      const baseKeys = (pin_types || [])
+        .filter((t) => lvl === "admin" || !((t.visible_levels) || []).length || ((t.visible_levels) || []).includes(lvl))
+        .map((t) => t.key);
+      if (!baseKeys.length) return false;
+      const selArr = [...sel].filter((k) => baseKeys.includes(k));
+      const statuses = selArr.length ? selArr : baseKeys;
+      const { data, error } = await supabase.rpc("canvass_clusters", {
+        min_lat: bounds.getSouth(), min_lng: bounds.getWest(),
+        max_lat: bounds.getNorth(), max_lng: bounds.getEast(),
+        cells: 48, statuses,
+      });
+      if (error || !Array.isArray(data)) { clusterRpcOk.current = false; return false; } // RPC not created → fall back to pins for the session
+      clusterRpcOk.current = true;
+      setProspects([]);   // no individual pins at this zoom
+      setInstalls([]);    // installs come back when you zoom in
+      setClusters(data);
+      setCapped(false);
+      setLoading(false);
+      return true;
+    } catch { return false; }
+  }
+  loadClustersRef.current = loadClusters;
+
   useEffect(() => { load(); /* initial global sample; eslint-disable-next-line */ }, []);
+  // Re-cluster when the chip filter changes while zoomed out.
+  useEffect(() => {
+    const m = map.current;
+    if (m && fitted.current && !showAllRef.current && m.getZoom() < CLUSTER_ZOOM) loadClusters(m.getBounds());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sel]);
 
   // Init the Leaflet map once.
   useEffect(() => {
@@ -291,7 +350,15 @@ export default function CanvassMap() {
       // and overwrites it with a tiny-box result.
       if (showAllRef.current || activeDayRef.current || !fitted.current) return;
       clearTimeout(moveTimer.current);
-      moveTimer.current = setTimeout(() => { if (loadRef.current) loadRef.current(m.getBounds()); }, 350);
+      moveTimer.current = setTimeout(async () => {
+        // Zoomed out → server cluster bubbles (no per-pin download); zoomed in →
+        // individual pins. If the cluster RPC isn't there / fails, fall back to pins.
+        if (m.getZoom() < CLUSTER_ZOOM && loadClustersRef.current) {
+          const ok = await loadClustersRef.current(m.getBounds());
+          if (ok) return;
+        }
+        if (loadRef.current) loadRef.current(m.getBounds());
+      }, 350);
     });
     // Cluster group so a zoomed-out map groups nearby pins into a numbered
     // bubble; zooming in splits them back into individual pins/stars.
@@ -302,6 +369,7 @@ export default function CanvassMap() {
       disableClusteringAtZoom: 17,
       chunkedLoading: true,
     }).addTo(m);
+    clusterLayer.current = L.layerGroup().addTo(m); // server cluster bubbles (low zoom)
     // Separate layer for the "Start my day" route line + numbered stops (on top).
     routeLayer.current = L.layerGroup().addTo(m);
     navLayer.current = L.layerGroup().addTo(m); // in-app driving route to current stop
@@ -352,6 +420,21 @@ export default function CanvassMap() {
       fitted.current = true;
     }
   }, [mapped, sel, installs, showInstalls, visKeys]);
+
+  // Draw the server cluster bubbles (low zoom). Tapping one zooms into it.
+  useEffect(() => {
+    const m = map.current, lyr = clusterLayer.current;
+    if (!m || !lyr) return;
+    lyr.clearLayers();
+    for (const c of clusters) {
+      const cy = Number(c.cy), cx = Number(c.cx), n = Number(c.n) || 0;
+      if (!Number.isFinite(cy) || !Number.isFinite(cx) || n <= 0) continue;
+      const color = (S[c.top_status] || UNKNOWN_TYPE).color;
+      const marker = L.marker([cy, cx], { icon: clusterDivIcon(n, color) });
+      marker.on("click", () => m.setView([cy, cx], Math.min(19, Math.max(CLUSTER_ZOOM, m.getZoom() + 3))));
+      lyr.addLayer(marker);
+    }
+  }, [clusters, S]);
 
   async function setStatus(p, newStatus) {
     const nowIso = new Date().toISOString();
