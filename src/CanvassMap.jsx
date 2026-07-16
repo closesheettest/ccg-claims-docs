@@ -124,6 +124,7 @@ export default function CanvassMap() {
   const [me, setMe] = useState(null);          // { name, level } once signed in
   const [authError, setAuthError] = useState("");
   const [apptPin, setApptPin] = useState(null); // pin being scheduled → appointment
+  const [btrPin, setBtrPin] = useState(null);   // insp pin → back-to-retail appt
   const [installs, setInstalls] = useState([]);        // read-only star layer (jr + sr)
   const [showInstalls, setShowInstalls] = useState(true);
   const [selectedInstall, setSelectedInstall] = useState(null);
@@ -1045,6 +1046,16 @@ export default function CanvassMap() {
                     );
                   })}
                 </div>
+                {/* Homeowner declined the inspection but wants a retail appt —
+                    book it here. Counts on the rep's pay like a sign-up; for
+                    William it books onto the zone manager's calendar. */}
+                {selected.status === "insp" && (
+                  <button type="button" onClick={() => setBtrPin(selected)}
+                    style={{ marginTop: 10, padding: "10px 16px", borderRadius: 10, fontSize: 13.5, fontWeight: 800, cursor: "pointer",
+                      border: "2px solid #b45309", background: "#fff7ed", color: "#b45309" }}>
+                    🏠 BTR appt — homeowner wants retail
+                  </button>
+                )}
               </>
             );
           })()}
@@ -1078,6 +1089,23 @@ export default function CanvassMap() {
               advanceStop();
             }
             setApptPin(null);
+          }}
+        />
+      )}
+
+      {btrPin && (
+        <AppointmentModal
+          variant="btr" pin={btrPin} rt={auth.rt}
+          onClose={() => setBtrPin(null)}
+          onBooked={(patch) => {
+            setProspects((list) => list.map((x) => (x.id === btrPin.id ? { ...x, ...patch } : x)));
+            setSelected((s) => (s && s.id === btrPin.id ? { ...s, ...patch } : s));
+            setResolvedIds((s) => new Set(s).add(btrPin.id));
+            if (dayMode === "active" && route[stopIdx] && route[stopIdx].id === btrPin.id) {
+              logActivity({ pin_id: btrPin.id, kind: "visit", to_status: "appt" });
+              advanceStop();
+            }
+            setBtrPin(null);
           }}
         />
       )}
@@ -1158,29 +1186,39 @@ function origApptLabel(pin) {
   return `${datePart} · ${timePart}`;
 }
 
-function AppointmentModal({ pin, rt, onClose, onBooked }) {
-  // A reschedule (the pin already has a JobNimbus job — e.g. a synced no-sit)
-  // just resets the existing appointment, so we DON'T need to collect phone/email:
-  // the homeowner's already in JN. Only a fresh booking needs contact info.
-  const isReschedule = !!pin.jn_job_id;
+function AppointmentModal({ pin, rt, onClose, onBooked, variant }) {
+  // "btr" = book a Back-To-Retail appointment off an inspection pin (homeowner
+  // declined the inspection, wants retail). Always a fresh booking + always
+  // needs contact info. Otherwise: a reschedule (pin already has a JN job — e.g.
+  // a synced no-sit) just resets the existing appointment, so no phone/email.
+  const isBtr = variant === "btr";
+  const isReschedule = !isBtr && !!pin.jn_job_id;
   const [phone, setPhone] = useState(pin.phone || extraVal(pin, ["phone", "mobile", "cell"]));
   const [email, setEmail] = useState(pin.email || extraVal(pin, ["email", "e-mail"]));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [booked, setBooked] = useState(null); // null = still checking JN
+  const [ownerInfo, setOwnerInfo] = useState(null); // BTR: whose calendar (rep or zone manager)
 
-  // Pull the rep's already-booked appointments so we only offer free times.
+  // Pull already-booked appointments so we only offer free times. For a BTR the
+  // calendar belongs to whoever RUNS it (the rep, or the zone manager for William).
   useEffect(() => {
     let live = true;
     (async () => {
       try {
-        const r = await fetch(`/.netlify/functions/harvest-availability?rt=${encodeURIComponent(rt)}`);
+        const url = isBtr
+          ? `/.netlify/functions/harvest-btr-availability?rt=${encodeURIComponent(rt)}&pin_id=${encodeURIComponent(pin.id)}`
+          : `/.netlify/functions/harvest-availability?rt=${encodeURIComponent(rt)}`;
+        const r = await fetch(url);
         const j = await r.json().catch(() => ({}));
-        if (live) setBooked(Array.isArray(j.booked) ? j.booked : []);
+        if (live) {
+          setBooked(Array.isArray(j.booked) ? j.booked : []);
+          if (isBtr) setOwnerInfo({ name: j.owner_name || "you", is_manager: !!j.is_manager, zone: j.zone || null });
+        }
       } catch { if (live) setBooked([]); }
     })();
     return () => { live = false; };
-  }, [rt]);
+  }, [rt, isBtr, pin.id]);
 
   const bookedKeys = useMemo(() => new Set((booked || []).map((ms) => slotKey(new Date(ms)))), [booked]);
   const slots = useMemo(() => genSlots(14).filter((s) => !bookedKeys.has(slotKey(s.dt))), [bookedKeys]);
@@ -1191,7 +1229,7 @@ function AppointmentModal({ pin, rt, onClose, onBooked }) {
     if (!isReschedule && phone.replace(/\D/g, "").length < 10) { setErr("Enter the homeowner's phone number first."); return; }
     setBusy(slot.iso); setErr("");
     try {
-      const r = await fetch("/.netlify/functions/harvest-book-appt", {
+      const r = await fetch(isBtr ? "/.netlify/functions/harvest-book-btr-appt" : "/.netlify/functions/harvest-book-appt", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rt, pin_id: pin.id, appt_iso: slot.iso, phone, email }),
       });
@@ -1205,10 +1243,18 @@ function AppointmentModal({ pin, rt, onClose, onBooked }) {
     <div style={{ position: "absolute", inset: 0, background: "rgba(15,23,42,.55)", zIndex: 3000, display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={() => !busy && onClose()}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", width: "100%", maxWidth: 520, borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: "16px 18px 22px", maxHeight: "88vh", overflowY: "auto", fontFamily: FONT }}>
         <div style={{ display: "flex", alignItems: "center", marginBottom: 4 }}>
-          <div style={{ fontSize: 16, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#166534" }}>{pin.status === "no_sit_reschedule" ? "🔄 Reschedule appointment" : "📅 Schedule appointment"}</div>
+          <div style={{ fontSize: 16, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: isBtr ? "#b45309" : "#166534" }}>{isBtr ? "🏠 Retail (BTR) appointment" : pin.status === "no_sit_reschedule" ? "🔄 Reschedule appointment" : "📅 Schedule appointment"}</div>
           <button type="button" onClick={() => !busy && onClose()} style={{ marginLeft: "auto", background: "none", border: "none", fontSize: 22, color: "#94a3b8", cursor: "pointer" }}>×</button>
         </div>
         <div style={{ fontSize: 13, color: "#475569", fontWeight: 600, marginBottom: pin.status === "no_sit_reschedule" ? 6 : 12 }}>{pin.name ? `${pin.name} · ` : ""}{pin.address}{pin.city ? `, ${pin.city}` : ""}</div>
+        {isBtr && (
+          <div style={{ fontSize: 12.5, color: "#b45309", background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 9, padding: "8px 11px", marginBottom: 12 }}>
+            Books a <b>retail</b> appointment in JobNimbus and counts on your pay like a sign-up.
+            {ownerInfo?.is_manager
+              ? <> Runs with <b>{ownerInfo.name}</b>{ownerInfo.zone ? ` (${ownerInfo.zone} manager)` : ""} — showing their availability.</>
+              : ownerInfo ? <> Shows your availability.</> : null}
+          </div>
+        )}
         {pin.status === "no_sit_reschedule" && (
           <div style={{ fontSize: 12.5, color: "#92400e", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 9, padding: "8px 11px", marginBottom: 12 }}>
             {origApptLabel(pin) ? <><b>Original appointment:</b> {origApptLabel(pin)}.</> : "No original appointment time on file."} Picking a new time resets it in JobNimbus and assigns it to you.
@@ -1223,10 +1269,10 @@ function AppointmentModal({ pin, rt, onClose, onBooked }) {
               style={{ flex: 1, minWidth: 150, fontSize: 14, padding: "10px 12px", borderRadius: 10, border: "1px solid #cbd5e1", boxSizing: "border-box" }} />
           </div>
         )}
-        <div style={{ fontSize: 12, color: "#64748b", marginBottom: 12 }}>{isReschedule ? "Pick a new time — it resets the appointment in JobNimbus under your name. Times you're already booked are hidden." : "Pick a time — it books the appointment into JobNimbus and turns this pin into an Appointment. Times you're already booked are hidden."}</div>
+        <div style={{ fontSize: 12, color: "#64748b", marginBottom: 12 }}>{isBtr ? "Pick a time — booked times are hidden." : isReschedule ? "Pick a new time — it resets the appointment in JobNimbus under your name. Times you're already booked are hidden." : "Pick a time — it books the appointment into JobNimbus and turns this pin into an Appointment. Times you're already booked are hidden."}</div>
         {err && <div style={{ color: "#b91c1c", fontSize: 13, marginBottom: 10 }}>{err}</div>}
 
-        {booked === null ? <div style={{ fontSize: 13, color: "#6b7280", padding: "8px 0" }}>Checking your calendar…</div>
+        {booked === null ? <div style={{ fontSize: 13, color: "#6b7280", padding: "8px 0" }}>{isBtr && ownerInfo?.is_manager ? `Checking ${ownerInfo.name}'s calendar…` : "Checking your calendar…"}</div>
           : !slots.length ? <div style={{ fontSize: 13, color: "#6b7280", padding: "8px 0" }}>No open times in the next 2 weeks.</div>
           : (
         <div style={{ maxHeight: "48vh", overflowY: "auto" }}>
