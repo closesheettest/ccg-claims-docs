@@ -16,7 +16,7 @@ import { randomUUID } from "crypto";
 
 const GOOGLE_BASE = "https://maps.googleapis.com/maps/api/geocode/json";
 const MAX_ROWS = 400;       // cap per call to stay under the function timeout
-const CONCURRENCY = 5;      // parallel geocode requests
+const CONCURRENCY = 8;      // parallel geocode requests
 
 export const handler = async (event) => {
   if (event.httpMethod !== "POST") return json(405, { ok: false, error: "Method not allowed" });
@@ -31,6 +31,23 @@ export const handler = async (event) => {
   try { body = JSON.parse(event.body || "{}"); } catch { return json(400, { ok: false, error: "Invalid JSON body" }); }
 
   const sbH = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
+
+  // Chunked upload: the browser sends batches, each tagged with a shared upload_id,
+  // then a final `finalize` call logs ONE harvest_uploads row for the whole thing.
+  if (body.finalize) {
+    await fetch(`${SB_URL}/rest/v1/harvest_uploads`, {
+      method: "POST", headers: { ...sbH, Prefer: "return=minimal" },
+      body: JSON.stringify({
+        id: body.upload_id || randomUUID(),
+        list_name: (body.list_name || "").toString().trim() || `List ${new Date().toISOString().slice(0, 10)}`,
+        default_type: (body.default_type || "iq").toString().trim().toLowerCase(),
+        inserted: body.inserted || 0, updated: body.updated || 0, skipped: body.skipped || 0,
+        uploaded_by: (body.uploaded_by || "").toString().trim() || null,
+        uploaded_at: new Date().toISOString(),
+      }),
+    }).catch(() => {});
+    return json(200, { ok: true, finalized: true });
+  }
   // Valid pin-type keys + which are terminal (protected from re-upload).
   const validKeys = new Set();
   const terminalKeys = new Set();
@@ -108,7 +125,7 @@ export const handler = async (event) => {
     }
   } catch { /* if we can't read, just insert all below */ }
 
-  const uploadId = randomUUID(); // this batch — tags new pins so it can be deleted
+  const uploadId = (body.upload_id || "").toString().trim() || randomUUID(); // shared across a chunked upload; else per-call
   const toInsert = [];
   let updated = 0, skipped = 0;
   const nowIso = new Date().toISOString();
@@ -139,10 +156,14 @@ export const handler = async (event) => {
   }
 
   // Log the batch so the office can see it in the uploads list and delete it.
-  await fetch(`${SB_URL}/rest/v1/harvest_uploads`, {
-    method: "POST", headers: { ...sbH, Prefer: "return=minimal" },
-    body: JSON.stringify({ id: uploadId, list_name: listName, default_type: defaultType, inserted: toInsert.length, updated, skipped, uploaded_by: (body.uploaded_by || "").toString().trim() || null, uploaded_at: nowIso }),
-  }).catch(() => {});
+  // In chunked mode (client passed an upload_id) the client's finalize call logs
+  // ONE row for the whole upload instead, so skip per-batch logging here.
+  if (!body.upload_id) {
+    await fetch(`${SB_URL}/rest/v1/harvest_uploads`, {
+      method: "POST", headers: { ...sbH, Prefer: "return=minimal" },
+      body: JSON.stringify({ id: uploadId, list_name: listName, default_type: defaultType, inserted: toInsert.length, updated, skipped, uploaded_by: (body.uploaded_by || "").toString().trim() || null, uploaded_at: nowIso }),
+    }).catch(() => {});
+  }
 
   return json(200, { ok: true, upload_id: uploadId, inserted: toInsert.length, updated, skipped, geocoded, failed, list_name: listName });
 };

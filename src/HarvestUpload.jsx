@@ -76,6 +76,7 @@ function UploadForm({ types, onDone }) {
   const [fileName, setFileName] = useState("");
   const [mapping, setMapping] = useState({});
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState(null); // { done, total } while chunk-uploading
   const [result, setResult] = useState(null);
 
   useEffect(() => { if (types.length && !types.find((t) => t.key === markType)) setMarkType(types[0].key); }, [types]); // eslint-disable-line
@@ -112,17 +113,37 @@ function UploadForm({ types, onDone }) {
 
   async function submit() {
     if (!rows.length) return;
-    setBusy(true); setResult(null);
+    setBusy(true); setResult(null); setProgress(null);
+    const post = (payload) => fetch("/.netlify/functions/canvass-upload", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+    }).then((r) => r.json().catch(() => ({ ok: false, error: `Error ${r.status}` })));
     try {
-      const r = await fetch("/.netlify/functions/canvass-upload", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ list_name: listName.trim() || undefined, default_type: markType, rows }),
-      });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok || !j.ok) { setResult({ error: j.error || `Error ${r.status}` }); }
-      else { setResult({ ok: true, ...j }); setText(""); setFileName(""); onDone && onDone(); }
+      const list = listName.trim() || undefined;
+      // Small enough single upload → one call (keeps the fast path).
+      if (rows.length <= 200) {
+        const j = await post({ list_name: list, default_type: markType, rows });
+        if (!j.ok) setResult({ error: j.error || "Upload failed" });
+        else { setResult({ ok: true, ...j }); setText(""); setFileName(""); onDone && onDone(); }
+        setBusy(false); return;
+      }
+      // Big list → chunk it: each batch geocodes + inserts a slice, tagged with a
+      // shared upload_id, then one finalize call logs the upload.
+      const uploadId = (crypto?.randomUUID?.() || String(Math.random()).slice(2) + Date.now());
+      const BATCH = 150;
+      const agg = { inserted: 0, updated: 0, skipped: 0, geocoded: 0, failed: 0, errors: 0 };
+      const total = Math.ceil(rows.length / BATCH);
+      setProgress({ done: 0, total });
+      for (let i = 0, b = 0; i < rows.length; i += BATCH, b++) {
+        const j = await post({ upload_id: uploadId, list_name: list, default_type: markType, rows: rows.slice(i, i + BATCH) });
+        if (j.ok) { agg.inserted += j.inserted || 0; agg.updated += j.updated || 0; agg.skipped += j.skipped || 0; agg.geocoded += j.geocoded || 0; agg.failed += j.failed || 0; }
+        else agg.errors += 1;
+        setProgress({ done: b + 1, total });
+      }
+      await post({ finalize: true, upload_id: uploadId, list_name: list, default_type: markType, inserted: agg.inserted, updated: agg.updated, skipped: agg.skipped });
+      setResult({ ok: true, ...agg });
+      setText(""); setFileName(""); onDone && onDone();
     } catch (e) { setResult({ error: e.message || "Network error" }); }
-    setBusy(false);
+    setProgress(null); setBusy(false);
   }
 
   const FIELDS = [
@@ -211,12 +232,20 @@ function UploadForm({ types, onDone }) {
       {result && result.error && <div style={{ color: "#b91c1c", fontSize: 13, marginBottom: 10 }}>{result.error}</div>}
       {result && result.ok && (
         <div style={{ background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: 10, padding: "10px 12px", fontSize: 13, color: "#065f46", marginBottom: 10 }}>
-          ✓ {result.inserted} new{result.updated ? ", " + result.updated + " updated" : ""}{result.skipped ? ", " + result.skipped + " kept (dedup)" : ""} — {result.geocoded} geocoded{result.failed ? ", " + result.failed + " failed" : ""}.
+          ✓ {result.inserted} new{result.updated ? ", " + result.updated + " updated" : ""}{result.skipped ? ", " + result.skipped + " kept (dedup)" : ""} — {result.geocoded} geocoded{result.failed ? ", " + result.failed + " failed" : ""}{result.errors ? ` · ⚠ ${result.errors} batch${result.errors === 1 ? "" : "es"} errored` : ""}.
+        </div>
+      )}
+      {busy && progress && (
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 12.5, color: "#475569", marginBottom: 4 }}>Geocoding batch {progress.done} of {progress.total}… (leave this tab open)</div>
+          <div style={{ height: 8, borderRadius: 4, background: "#e5e7eb", overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${Math.round((progress.done / progress.total) * 100)}%`, background: "#2563eb", transition: "width .2s" }} />
+          </div>
         </div>
       )}
       <button type="button" onClick={submit} disabled={busy || !rows.length}
         style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: "#2563eb", color: "#fff", fontWeight: 800, fontSize: 14, fontFamily: OSWALD, cursor: "pointer", opacity: busy || !rows.length ? 0.6 : 1 }}>
-        {busy ? "Geocoding…" : "Upload & geocode " + (rows.length || "")}
+        {busy ? (progress ? `Uploading ${progress.done}/${progress.total}…` : "Geocoding…") : "Upload & geocode " + (rows.length || "")}
       </button>
     </div>
   );
