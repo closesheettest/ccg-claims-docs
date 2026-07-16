@@ -233,6 +233,12 @@ export default function CanvassMap() {
       setProspects(pins);
       setInstalls(installs);
       setCapped(pins.length >= CAP || installs.length >= CAP);
+      // First no-bounds load → fit to the ACTUAL loaded pins here (reliable),
+      // so the map centers on the data instead of racing the marker effect.
+      if (!bounds && map.current && !fitted.current) {
+        const pts = pins.filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number").map((p) => [p.latitude, p.longitude]);
+        if (pts.length) { try { map.current.fitBounds(pts, { padding: [40, 40], maxZoom: 13 }); } catch { /* ignore */ } fitted.current = true; }
+      }
       setLoading(false);
       return pins;
     } catch (e) { setAuthError(e.message || "Network error."); }
