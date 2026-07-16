@@ -8905,6 +8905,7 @@ function SignLinkShare({ link, name, token, pairingCode, mode }) {
   const [qr, setQr] = useState("");
   const [copied, setCopied] = useState(false);
   const [opened, setOpened] = useState(false);
+  const [forced, setForced] = useState(false); // rep tapped "Get code" (auto-switch didn't fire)
   const repCode = mode !== "sms" && !!pairingCode; // default = rep-screen pairing code
   useEffect(() => {
     let live = true;
@@ -8939,10 +8940,12 @@ function SignLinkShare({ link, name, token, pairingCode, mode }) {
   if (repCode && opened) {
     return (
       <div style={{ background: "#f0fdf4", border: "2px solid #199c2e", borderRadius: 20, padding: "22px 24px", marginBottom: 20, textAlign: "center" }}>
-        <div style={{ fontSize: 17, fontWeight: 800, color: "#166534", fontFamily: "'Oswald', sans-serif", marginBottom: 6, letterSpacing: "0.03em" }}>✅ They opened it — read them this code</div>
+        <div style={{ fontSize: 17, fontWeight: 800, color: "#166534", fontFamily: "'Oswald', sans-serif", marginBottom: 6, letterSpacing: "0.03em" }}>{forced ? "🔢 Read them this code" : "✅ They opened it — read them this code"}</div>
         <div style={{ fontSize: 13.5, color: "#166534", fontWeight: 600, marginBottom: 14, lineHeight: 1.5 }}>Tell {name || "the homeowner"} to type this into <b>their</b> phone to confirm it's them:</div>
         <div style={{ fontSize: 52, fontWeight: 900, letterSpacing: 12, color: "#0f172a", fontFamily: "'Oswald', sans-serif", background: "#fff", border: "2px solid #199c2e", borderRadius: 14, padding: "14px 0", marginBottom: 10 }}>{pairingCode}</div>
-        <div style={{ fontSize: 12.5, color: "#166534", fontWeight: 600 }}>Then they check the box, sign, and submit — on their own phone.</div>
+        {forced
+          ? <div style={{ fontSize: 12.5, color: "#166534", fontWeight: 600, lineHeight: 1.5 }}>If the agreement isn't open on their phone yet, have them scan the code (or tap the link) first — then type this in, check the box, sign, and submit.</div>
+          : <div style={{ fontSize: 12.5, color: "#166534", fontWeight: 600 }}>Then they check the box, sign, and submit — on their own phone.</div>}
       </div>
     );
   }
@@ -8958,7 +8961,16 @@ function SignLinkShare({ link, name, token, pairingCode, mode }) {
         {copied ? "✓ Copied!" : "🔗 Copy link — text it to them yourself"}
       </button>
       {repCode
-        ? <div style={{ fontSize: 12.5, color: "#0e7490", marginTop: 12, fontWeight: 700 }}>⏳ Waiting for them to open it… a 6-digit code will appear here to read to them.</div>
+        ? <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 12.5, color: "#0e7490", fontWeight: 700 }}>⏳ Waiting for them to open it… a 6-digit code will appear here to read to them.</div>
+            {/* Fail-safe: if the homeowner opened the link but this screen didn't
+                auto-switch (poll missed the open), the rep taps this to reveal the
+                code manually. The code is already known here — nothing to fetch. */}
+            <button type="button" onClick={() => { setForced(true); setOpened(true); }}
+              style={{ marginTop: 10, fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", letterSpacing: "0.02em", color: "#166534", background: "#f0fdf4", border: "2px solid #199c2e", borderRadius: 12, padding: "10px 16px", cursor: "pointer" }}>
+              Didn't switch? Tap to get the code →
+            </button>
+          </div>
         : <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 8, wordBreak: "break-all" }}>{link}</div>}
     </div>
   );
