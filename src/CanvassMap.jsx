@@ -225,9 +225,12 @@ export default function CanvassMap() {
       const box = (q) => (!showAll && bounds)
         ? q.gte("latitude", bounds.getSouth()).lte("latitude", bounds.getNorth()).gte("longitude", bounds.getWest()).lte("longitude", bounds.getEast())
         : q;
+      // NO order-by: sorting the in-view rows (created_at OR id) makes Postgres
+      // sort a large result set and TIMES OUT once the table is big (200k+ pins).
+      // Un-ordered returns in-bounds rows fast; the map doesn't need them sorted.
       const pins = await sbFetchAll(() => box(
         supabase.from("canvass_prospects").select(PIN_FIELDS).not("latitude", "is", null).in("status", baseKeys),
-      ).order("created_at", { ascending: false }), CAP);
+      ), CAP);
       const installs = await sbFetchAll(() => box(
         supabase.from("installs").select("id,jnid,address_line,city,product_type,color,latitude,longitude").not("latitude", "is", null),
       ).order("id"), CAP);
