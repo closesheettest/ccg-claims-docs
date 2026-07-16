@@ -188,7 +188,7 @@ exports.handler = async (event) => {
     if (isReset && jobId) {
       await jnPut(`jobs/${jobId}`, { status: APPT_STATUS, status_name: APPT_STATUS_NAME, sales_rep: repId || undefined, owners: [{ id: owner }], cf_string_8: setterShort });
     } else {
-      const job = await jnPost("jobs", {
+      const jobPayload = {
         name: `${test ? "[TEST] " : ""}${fullName}${c.address ? ` - ${c.address}` : ""}${spanishTag}`.trim(),
         record_type: LEAD_RT, record_type_name: LEAD_RT_NAME,
         status: APPT_STATUS, status_name: APPT_STATUS_NAME,
@@ -198,8 +198,26 @@ exports.handler = async (event) => {
         sales_rep: repId || undefined,
         owners: [{ id: owner }],
         cf_string_8: setterShort,
-      });
-      jobId = job.jnid || job.id;
+      };
+      try {
+        const job = await jnPost("jobs", jobPayload);
+        jobId = job.jnid || job.id;
+      } catch (e) {
+        // JN rejects a second job with the same name ("Duplicate job exists").
+        // The homeowner already has a job — REUSE it (set it to the appointment)
+        // rather than failing to sync or spawning a duplicate. If we can't find
+        // it (name collision across contacts), fall back to a unique name.
+        if (!/duplicate/i.test(e.message || "")) throw e;
+        const existing = contactId ? await findRecentJobForContact(contactId) : null;
+        if (existing) {
+          await jnPut(`jobs/${existing}`, { status: APPT_STATUS, status_name: APPT_STATUS_NAME, sales_rep: repId || undefined, owners: [{ id: owner }], cf_string_8: setterShort, source_name: source });
+          jobId = existing;
+        } else {
+          const suffix = String(c.mobile || "").replace(/\D/g, "").slice(-4) || String(apptMs).slice(-4);
+          const job2 = await jnPost("jobs", { ...jobPayload, name: `${jobPayload.name} (${suffix})` });
+          jobId = job2.jnid || job2.id;
+        }
+      }
       if (!jobId) throw new Error("job create failed");
     }
     // 3. Appointment task (start only — no end date). Reset Appointment when
@@ -341,6 +359,18 @@ async function jnPost(path, payload) {
   const txt = await r.text();
   if (!r.ok) throw new Error(`JN ${path} ${r.status}: ${txt.slice(0, 200)}`);
   try { return JSON.parse(txt); } catch { return {}; }
+}
+// Most-recent JN job attached to a contact — used to REUSE an existing job when
+// JN rejects a new one as a duplicate name (the homeowner already has a job).
+async function findRecentJobForContact(contactId) {
+  try {
+    const jf = encodeURIComponent(JSON.stringify({ must: [{ term: { "primary.id": contactId } }] }));
+    const r = await fetch(`${JN_BASE}/jobs?size=5&sort=-date_created&filter=${jf}`, { headers: jnH });
+    if (!r.ok) return null;
+    const d = await r.json().catch(() => ({}));
+    const j = (d.results || d.jobs || d.data || [])[0];
+    return j ? (j.jnid || j.id) : null;
+  } catch { return null; }
 }
 // Find an existing JN contact by phone (last 10 digits) or exact display name,
 // so we REUSE the homeowner instead of hitting JN's "duplicate display name"

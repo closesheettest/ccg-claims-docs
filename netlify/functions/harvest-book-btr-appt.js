@@ -91,7 +91,7 @@ export const handler = async (event) => {
     if (!contactId) throw new Error("contact create failed");
 
     // 2. Retail Lead job at the appointment time, owned by whoever runs it.
-    const job = await jnPost("jobs", {
+    const jobPayload = {
       name: `${nm}${street ? ` - ${street}` : ""}`.trim(),
       record_type: LEAD_RT, record_type_name: LEAD_RT_NAME,
       status: APPT_STATUS, status_name: APPT_STATUS_NAME,
@@ -100,8 +100,25 @@ export const handler = async (event) => {
       date_start: apptSec,
       address_line1: street, city: pin.city || "", state_text: pin.state || "", zip: pin.zip || "",
       ...(ownerJn ? { owners: [{ id: ownerJn }], sales_rep: ownerJn } : {}),
-    });
-    const jobId = job.jnid || job.id;
+    };
+    let jobId;
+    try {
+      const job = await jnPost("jobs", jobPayload);
+      jobId = job.jnid || job.id;
+    } catch (e) {
+      // JN rejects a duplicate job NAME. Reuse the homeowner's existing job
+      // instead of failing; else fall back to a unique name so it still syncs.
+      if (!/duplicate/i.test(e.message || "")) throw e;
+      const existing = await findRecentJobForContact(contactId);
+      if (existing) {
+        await jnPut(`jobs/${existing}`, { status: APPT_STATUS, status_name: APPT_STATUS_NAME, date_start: apptSec, ...(ownerJn ? { owners: [{ id: ownerJn }], sales_rep: ownerJn } : {}) });
+        jobId = existing;
+      } else {
+        const suffix = phone.replace(/\D/g, "").slice(-4) || String(apptSec).slice(-4);
+        const job2 = await jnPost("jobs", { ...jobPayload, name: `${jobPayload.name} (${suffix})` });
+        jobId = job2.jnid || job2.id;
+      }
+    }
     if (!jobId) throw new Error("job create failed");
 
     // 3. Initial Appointment task on the runner's calendar.
@@ -169,10 +186,23 @@ async function jnPost(path, payload) {
   if (!r.ok) throw new Error(`JN ${path} ${r.status}: ${txt.slice(0, 160)}`);
   try { return JSON.parse(txt); } catch { return {}; }
 }
+async function jnPut(path, payload) {
+  const r = await jnFetch(JN_KEY, path, { method: "PUT", body: JSON.stringify(payload) });
+  const txt = await r.text();
+  if (!r.ok) throw new Error(`JN PUT ${path} ${r.status}: ${txt.slice(0, 160)}`);
+  try { return JSON.parse(txt); } catch { return {}; }
+}
 async function jnGet(path) {
   const r = await jnFetch(JN_KEY, path);
   if (!r.ok) return {};
   return r.json().catch(() => ({}));
+}
+// Most-recent JN job on a contact — to REUSE when JN rejects a duplicate name.
+async function findRecentJobForContact(contactId) {
+  const jf = encodeURIComponent(JSON.stringify({ must: [{ term: { "primary.id": contactId } }] }));
+  const d = await jnGet(`jobs?size=5&sort=-date_created&filter=${jf}`).catch(() => ({}));
+  const j = (d.results || d.jobs || d.data || [])[0];
+  return j ? (j.jnid || j.id) : null;
 }
 async function findExistingContact(phone, fullName) {
   const digits = String(phone || "").replace(/\D/g, "");
