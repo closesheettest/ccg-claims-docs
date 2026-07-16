@@ -233,19 +233,10 @@ export default function CanvassMap() {
       setProspects(pins);
       setInstalls(installs);
       setCapped(pins.length >= CAP || installs.length >= CAP);
-      // First no-bounds load → fit to the ACTUAL loaded pins here (reliable),
-      // so the map centers on the data instead of racing the marker effect.
-      if (!bounds && map.current && !fitted.current) {
-        const pts = pins.filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number").map((p) => [p.latitude, p.longitude]);
-        if (pts.length) {
-          fitted.current = true;
-          // Make sure Leaflet knows its real container size before fitting, else
-          // it fits to a stale/tiny viewport. Do it now + next frame to be safe.
-          const doFit = () => { try { map.current.invalidateSize(); map.current.fitBounds(pts, { padding: [40, 40], maxZoom: 13 }); } catch { /* ignore */ } };
-          doFit();
-          setTimeout(doFit, 250);
-        }
-      }
+      // The initial no-bounds load returns everything (statewide); the map already
+      // opens Florida-wide, so we just mark it ready — no fragile fitBounds/size
+      // race. Panning/zooming then loads by viewport.
+      if (!bounds && !fitted.current) { fitted.current = true; if (map.current) { try { map.current.invalidateSize(); } catch { /* ignore */ } } }
       setLoading(false);
       return pins;
     } catch (e) { setAuthError(e.message || "Network error."); }
@@ -258,7 +249,7 @@ export default function CanvassMap() {
   // Init the Leaflet map once.
   useEffect(() => {
     if (map.current || !mapEl.current) return;
-    const m = L.map(mapEl.current, { zoomControl: true }).setView([27.95, -82.46], 10); // Tampa Bay default
+    const m = L.map(mapEl.current, { zoomControl: true }).setView([27.7, -81.6], 7); // Florida-wide default
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19, attribution: "&copy; OpenStreetMap",
     }).addTo(m);
@@ -713,7 +704,9 @@ export default function CanvassMap() {
               onClick={() => {
                 const next = !showAll;
                 setShowAll(next); showAllRef.current = next;
-                fitted.current = false;                        // re-fit to whatever we load
+                // Turning ON → zoom out to the whole state so every pin is in view
+                // (reliable setView, not a fitBounds guess).
+                if (next && map.current) { try { map.current.setView([27.7, -81.6], 7); } catch { /* ignore */ } }
                 load(next ? null : (map.current ? map.current.getBounds() : null));
               }}
               title="Load every pin at once (whole-state overview). Off = load by map area for speed at scale."
