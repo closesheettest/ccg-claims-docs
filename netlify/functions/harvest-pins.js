@@ -78,11 +78,15 @@ export const handler = async (event) => {
   // Viewport loading — scales to 100k+ pins. The map sends its current bounds
   // (n/s/e/w) and we return only what's in view, capped. Without bounds (initial
   // load) we return a global newest sample just so the map can fit to the data.
+  // Office "Show all" overview (?all=1) ignores the viewport + cap and returns
+  // every pin — fine for clustered rendering at today's scale, guarded by a
+  // safety ceiling so it can't run away if the table ever hits six figures.
+  const showAll = /^(1|true|yes)$/i.test((p.all || "").trim());
   const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
   const n = num(p.n), s = num(p.s), e = num(p.e), w = num(p.w);
-  const hasBox = n != null && s != null && e != null && w != null && n > s && e > w;
+  const hasBox = !showAll && n != null && s != null && e != null && w != null && n > s && e > w;
   const box = hasBox ? `&latitude=gte.${s}&latitude=lte.${n}&longitude=gte.${w}&longitude=lte.${e}` : "";
-  const CAP = hasBox ? 4000 : 2500; // in-view cap / initial global sample
+  const CAP = showAll ? 50000 : hasBox ? 6000 : 3000; // show-all ceiling / in-view cap / initial global sample
 
   let pins = [];
   if (visible.length) {

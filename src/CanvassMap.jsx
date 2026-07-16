@@ -92,6 +92,8 @@ export default function CanvassMap() {
   const [panelPos, setPanelPos] = useState(null);      // {left,top} px if dragged, else default bottom-right
   const [ignoreDist, setIgnoreDist] = useState(false); // admin test toggle: skip the 200 ft gate
   const [capped, setCapped] = useState(false);         // more pins in view than the cap → "zoom in"
+  const [showAll, setShowAll] = useState(false);       // office overview: load every pin, ignore viewport
+  const showAllRef = useRef(false);                    // moveend/load read this without a stale closure
   const loadRef = useRef(null);                        // latest load() for the map moveend handler
   const moveTimer = useRef(null);                      // debounce map moves
   const panelDrag = useRef(null);
@@ -117,7 +119,8 @@ export default function CanvassMap() {
     setLoading(true);
     try {
       let qs = auth.admin ? `admin=${encodeURIComponent(auth.admin)}` : `rt=${encodeURIComponent(auth.rt)}`;
-      if (bounds) qs += `&n=${bounds.getNorth()}&s=${bounds.getSouth()}&e=${bounds.getEast()}&w=${bounds.getWest()}`;
+      if (showAllRef.current) qs += "&all=1";              // office overview — every pin, no viewport
+      else if (bounds) qs += `&n=${bounds.getNorth()}&s=${bounds.getSouth()}&e=${bounds.getEast()}&w=${bounds.getWest()}`;
       const r = await fetch(`/.netlify/functions/harvest-pins?${qs}`);
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) { setAuthError(j.error || "Couldn't load your Harvesting Map."); setLoading(false); return []; }
@@ -150,6 +153,7 @@ export default function CanvassMap() {
     });
     // Viewport loading — reload the pins in view whenever the map settles (debounced).
     m.on("moveend", () => {
+      if (showAllRef.current) return; // already holding every pin — panning needs no refetch
       clearTimeout(moveTimer.current);
       moveTimer.current = setTimeout(() => { if (loadRef.current) loadRef.current(m.getBounds()); }, 350);
     });
@@ -455,6 +459,19 @@ export default function CanvassMap() {
           </div>
         )}
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+          {me?.level === "admin" && (
+            <button type="button"
+              onClick={() => {
+                const next = !showAll;
+                setShowAll(next); showAllRef.current = next;
+                fitted.current = false;                        // re-fit to whatever we load
+                load(next ? null : (map.current ? map.current.getBounds() : null));
+              }}
+              title="Load every pin at once (whole-state overview). Off = load by map area for speed at scale."
+              style={{ fontSize: 11, fontWeight: 800, cursor: "pointer", borderRadius: 999, padding: "3px 10px", border: "1px solid", borderColor: showAll ? "#16a34a" : "#475569", background: showAll ? "#16a34a" : "transparent", color: showAll ? "#fff" : "#cbd5e1" }}>
+              🗺️ {showAll ? "Showing all" : "Show all"}
+            </button>
+          )}
           {me?.level === "admin" && (
             <button type="button" onClick={() => setIgnoreDist((v) => !v)}
               title="Test mode: let the outcome buttons work without being within 200 ft of the pin"
