@@ -21,6 +21,7 @@ import HarvestAdmin from "./HarvestAdmin";
 import HarvestUpload from "./HarvestUpload";
 import HarvestLinks from "./HarvestLinks";
 import HarvestReport from "./HarvestReport";
+import HarvestJnSync from "./HarvestJnSync";
 
 // Open the Harvesting Map as the OFFICE (all pins) — fetches the view-all token
 // so the office link isn't hardcoded. Reps use their own personal ?rt= links.
@@ -9386,6 +9387,11 @@ export default function App() {
     // ?mode=harvestreport — office rep-activity report (visits, rounds, outcomes).
     if (portalMode === "harvestreport") {
       return <HarvestReport />;
+    }
+    // ?mode=harvestjnsync — office page to configure the JobNimbus → Map sync
+    // filters (IQ pins by created date, No-sit pins by appointment date).
+    if (portalMode === "harvestjnsync") {
+      return <HarvestJnSync />;
     }
     // /?correct=<inspectionId> — the link we text the originating sales rep
     // + their regional manager when a Public Adjuster flags "Correction

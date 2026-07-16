@@ -64,7 +64,14 @@ exports.handler = async (event) => {
   const jobs = await fetchJobsByStatus(jnHeaders, NOSIT_STATUS);
   const noSits = jobs.filter((j) => isNoSit(j.status_name));
   const addrOf = (j) => (j.address_line1 || "").trim();
-  const withAddr = noSits.filter((j) => addrOf(j));
+  const withAddrAll = noSits.filter((j) => addrOf(j));
+
+  // Office filter (JN Sync page): enabled toggle + "appointment on or before".
+  const filters = (await readSetting("harvest_jn_filters")) || {};
+  const nf = filters.nosit || {};
+  const enabled = nf.enabled !== false; // default on
+  const apptBeforeSec = nf.appt_before ? Math.floor(Date.parse(`${nf.appt_before}T23:59:59-04:00`) / 1000) : null;
+  const withAddr = !enabled ? [] : withAddrAll.filter((j) => !apptBeforeSec || Number(j.date_start) <= apptBeforeSec);
 
   const sample = withAddr.slice(0, 8).map((j) => ({
     jnid: j.jnid || j.id,
@@ -78,9 +85,11 @@ exports.handler = async (event) => {
     return cors(200, {
       ok: true, dry_run: true,
       status_used: NOSIT_STATUS,
+      enabled, appt_before: nf.appt_before || null,
       no_sits_total: noSits.length,
-      with_address: withAddr.length,
-      no_address: noSits.length - withAddr.length,
+      matching_filter: withAddr.length,
+      with_address: withAddrAll.length,
+      no_address: noSits.length - withAddrAll.length,
       sample,
       note: "Nothing written. Re-call with ?commit=1 to geocode + upsert onto the map.",
     });
