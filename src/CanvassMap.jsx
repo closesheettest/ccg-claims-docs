@@ -103,6 +103,9 @@ export default function CanvassMap() {
   const showAllRef = useRef(false);                    // moveend/load read this without a stale closure
   const loadRef = useRef(null);                        // latest load() for the map moveend handler
   const moveTimer = useRef(null);                      // debounce map moves
+  const [signingStop, setSigningStop] = useState(null); // pin being signed in the intake tab
+  const signingStopRef = useRef(null);                 // for the cross-tab 'signed' listener
+  const completeSignRef = useRef(null);                // latest completeSign() for the listeners
   const panelDrag = useRef(null);
   const watchRef = useRef(null);
   const choosingRef = useRef(false);                   // map-click reads this (avoid stale closure)
@@ -265,6 +268,35 @@ export default function CanvassMap() {
   // Order the on-screen prospect pins nearest-first from a start point (the
   // rep's location or a tapped spot), then walk them one stop at a time.
   useEffect(() => { choosingRef.current = dayMode === "choosing"; }, [dayMode]);
+  useEffect(() => { signingStopRef.current = signingStop; }, [signingStop]);
+  // The intake tab writes localStorage 'harvest_signed' when a signing completes.
+  // That 'storage' event fires in THIS tab (a different one) → advance instantly.
+  // Fallback: when the rep switches back to the map, re-check the pin in the DB.
+  useEffect(() => {
+    const onSigned = (stop) => completeSignRef.current && completeSignRef.current(stop);
+    const onStorage = (e) => {
+      if (e.key !== "harvest_signed" || !e.newValue) return;
+      let sig; try { sig = JSON.parse(e.newValue); } catch { return; }
+      const st = signingStopRef.current;
+      if (st && sig && String(sig.id) === String(st.id)) onSigned(st);
+    };
+    const onFocus = async () => {
+      const st = signingStopRef.current;
+      if (!st) return;
+      try {
+        const { data } = await supabase.from("canvass_prospects").select("status").eq("id", st.id).single();
+        if (data?.status === "insp_sold") onSigned(st);
+      } catch { /* ignore */ }
+    };
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, []);
 
   // While a route is active, watch the rep's live location so "Next" only
   // unlocks once they're within ARRIVE_FT of the current stop.
@@ -406,7 +438,42 @@ export default function CanvassMap() {
     }
     advanceStop();
   }
-  function startOver() { navLayer.current?.clearLayers(); setDayMode(null); setStartPt(null); setRoute([]); setStopIdx(0); setRound(1); setResolvedIds(new Set()); workingRef.current = new Set(); setPanelPos(null); }
+  // "Sign Inspection" — open the Free Roof Inspection intake prefilled with what we
+  // know about this pin (name/phone/address/city/state/zip/email), tagged with the
+  // pin id. When the rep finishes signing there, the intake marks this pin sold and
+  // pings us to advance (see the storage/focus listeners below). City/State/ZIP are
+  // passed too so the intake never re-runs the address lookup on a known address.
+  function signInspection(stop) {
+    if (!stop) return;
+    const p = new URLSearchParams({ intake: "1", harvest_pin: String(stop.id) });
+    if (stop.name) p.set("name", stop.name);
+    if (stop.phone) p.set("phone", stop.phone);
+    if (stop.address) p.set("address", stop.address);
+    if (stop.city) p.set("city", stop.city);
+    if (stop.state) p.set("state", stop.state);
+    if (stop.zip) p.set("zip", stop.zip);
+    if (stop.email) p.set("email", stop.email);
+    // Carry the rep so the intake doesn't re-ask (only when signed in as a real rep).
+    if (me?.jn_id || me?.email) {
+      p.set("rep", me.jn_id || "");
+      p.set("repName", me.name || "");
+      p.set("repEmail", me.email || "");
+    }
+    setSigningStop(stop);
+    window.open(`/?${p.toString()}`, "_blank", "noopener");
+  }
+  // The intake signed this pin (cross-tab signal or focus re-check): reflect it here
+  // — mark sold locally, drop it from later rounds, and advance to the next stop.
+  function completeSign(stop) {
+    if (!stop) return;
+    setResolvedIds((s) => new Set(s).add(stop.id));
+    setProspects((list) => list.map((x) => (x.id === stop.id ? { ...x, status: "insp_sold" } : x)));
+    setSigningStop(null);
+    // Only advance the route if this pin is the stop we're currently on.
+    if (route[stopIdx] && route[stopIdx].id === stop.id) advanceStop();
+  }
+  completeSignRef.current = completeSign;
+  function startOver() { navLayer.current?.clearLayers(); setDayMode(null); setStartPt(null); setRoute([]); setStopIdx(0); setRound(1); setResolvedIds(new Set()); workingRef.current = new Set(); setPanelPos(null); setSigningStop(null); }
   // Drag the route panel so it never blocks the map (pointer events = mouse + touch).
   function panelPointerDown(e) {
     const el = e.currentTarget.closest("[data-daypanel]"); if (!el) return;
@@ -636,9 +703,25 @@ export default function CanvassMap() {
                   <div style={{ textAlign: "center", marginTop: 5 }}>
                     <a href={`https://www.google.com/maps/dir/?api=1&destination=${addrOf(stop)}`} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, fontWeight: 700, color: "#94a3b8", textDecoration: "none" }}>open in Google Maps ↗</a>
                   </div>
+                  {signingStop && signingStop.id === stop.id ? (
+                    <div style={{ marginTop: 14, background: "#faf5ff", border: "1px solid #e9d5ff", borderRadius: 12, padding: "12px 14px", textAlign: "center" }}>
+                      <div style={{ fontSize: 13.5, fontWeight: 800, color: "#7c3aed" }}>🖊️ Signing {stop.name || "this homeowner"}…</div>
+                      <div style={{ fontSize: 12, color: "#7c3aed", opacity: 0.85, margin: "4px 0 10px" }}>Finish in the intake tab. This stop marks <b>Inspection Sold</b> and moves to the next automatically once they sign.</div>
+                      <button type="button" onClick={() => completeSign(stop)} style={{ width: "100%", background: "#16a34a", color: "#fff", border: "none", borderRadius: 11, padding: "11px", fontSize: 13.5, fontWeight: 800, cursor: "pointer", marginBottom: 6 }}>✅ They signed — next stop</button>
+                      <button type="button" onClick={() => setSigningStop(null)} style={{ width: "100%", background: "#fff", color: "#64748b", border: "1px solid #e5e7eb", borderRadius: 11, padding: "9px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>← Back (didn't sign)</button>
+                    </div>
+                  ) : (<>
                   <div style={{ fontSize: 11, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", margin: "13px 0 6px" }}>How'd it go?</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
-                    {outs.map((o) => oBtn(o.key, o.label, o.color))}
+                    {outs.map((o) => o.key === "insp_sold"
+                      ? (
+                        <button key={o.key} type="button" disabled={!near} onClick={() => signInspection(stop)}
+                          style={{ flex: "1 1 44%", minWidth: 92, padding: "11px 8px", borderRadius: 11, fontSize: 13.5, fontWeight: 800, cursor: near ? "pointer" : "not-allowed",
+                            border: `1px solid ${near ? "#7c3aed" : "#e5e7eb"}`, background: near ? "#7c3aed" : "#fff", color: near ? "#fff" : "#cbd5e1" }}>
+                          🖊️ Sign Inspection
+                        </button>
+                      )
+                      : oBtn(o.key, o.label, o.color))}
                     {oBtn("nothome", "🏠 Not home", "#475569")}
                   </div>
                   <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, textAlign: "center", color: near ? "#16a34a" : "#b45309" }}>
@@ -650,6 +733,7 @@ export default function CanvassMap() {
                           ? "✓ You're here — pick what happened and it moves to the next stop"
                           : `~${Math.round(distFt).toLocaleString()} ft away — get within ${ARRIVE_FT} ft to log this stop`}
                   </div>
+                  </>)}
                 </>
                 );
               })()}
@@ -716,11 +800,12 @@ export default function CanvassMap() {
                   {options.map((s) => {
                     const on = selected.status === s.key;
                     return (
-                      <button key={s.key} type="button" onClick={() => s.key === "appt" ? setApptPin(selected) : setStatus(selected, s.key)}
+                      <button key={s.key} type="button"
+                        onClick={() => s.key === "appt" ? setApptPin(selected) : s.key === "insp_sold" ? signInspection(selected) : setStatus(selected, s.key)}
                         style={{ padding: "9px 14px", borderRadius: 10, fontSize: 13.5, fontWeight: 700, cursor: "pointer",
                           border: on ? `2px solid ${s.color}` : "1px solid #e5e7eb",
                           background: on ? s.color : "#fff", color: on ? "#fff" : "#334155" }}>
-                        {s.label}
+                        {s.key === "insp_sold" && !on ? "🖊️ Sign Inspection" : s.label}
                       </button>
                     );
                   })}

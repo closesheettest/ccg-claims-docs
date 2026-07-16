@@ -44,7 +44,7 @@ export const handler = async (event) => {
   const rt = (p.rt || "").trim();
   const adminTok = (p.admin || "").trim();
 
-  let level = null, repName = null;
+  let level = null, repName = null, repJn = null, repEmail = null;
   try {
     if (adminTok) {
       const s = await sbGet(`app_settings?key=eq.harvest_admin_token&select=value&limit=1`);
@@ -52,11 +52,13 @@ export const handler = async (event) => {
     }
     const isUuid = (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
     if (!level && rt && isUuid(rt)) {
-      const reps = await sbGet(`sales_reps?harvest_token=eq.${encodeURIComponent(rt)}&select=name,jobnimbus_id&limit=1`);
+      const reps = await sbGet(`sales_reps?harvest_token=eq.${encodeURIComponent(rt)}&select=name,jobnimbus_id,email&limit=1`);
       if (reps[0]) {
         repName = reps[0].name || "Rep";
+        repEmail = reps[0].email || null;
         level = "junior"; // default when untagged
         const jn = reps[0].jobnimbus_id;
+        repJn = jn || null;
         if (jn) {
           const rz = await fetch(REP_ZONES_URL).then((r) => (r.ok ? r.json() : { reps: [] })).catch(() => ({ reps: [] }));
           const match = (rz.reps || []).find((r) => r.jobnimbus_id === jn);
@@ -102,7 +104,7 @@ export const handler = async (event) => {
     1000, CAP,
   ).catch(() => []);
 
-  return json(200, { ok: true, rep: { name: repName, level }, pins, pin_types: types, installs, capped: pinsCapped || installs.length >= CAP, viewport: hasBox });
+  return json(200, { ok: true, rep: { name: repName, level, jn_id: repJn, email: repEmail }, pins, pin_types: types, installs, capped: pinsCapped || installs.length >= CAP, viewport: hasBox });
 };
 
 function json(statusCode, obj) {

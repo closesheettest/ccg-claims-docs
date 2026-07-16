@@ -9590,19 +9590,37 @@ export default function App() {
     hasInsurance: "",       // "" | "yes" | "no" — only asked when obviousDamage
   };
   const [inspData, setInspData] = useState(() => {
-    // Referrals "Sign them up" lands here as /?intake=1&name=&phone=&address= —
-    // prefill the homeowner so the rep just confirms + signs (then the normal
-    // free-inspection signing flow runs unchanged).
+    // Referrals "Sign them up" AND the Harvesting-Map "Sign Inspection" button land
+    // here as /?intake=1&name=&phone=&address=&city=&state=&zip=&email= — prefill the
+    // homeowner so the rep just confirms + signs. City/State/ZIP are prefilled from
+    // the data we already have, so the rep never has to re-run the Google address
+    // lookup (which is exactly what would otherwise "mess up" a known address).
     if (typeof window !== "undefined") {
       try {
         const p = new URLSearchParams(window.location.search);
         if (p.get("intake") && (p.get("name") || p.get("phone") || p.get("address"))) {
-          return { ...initialInspData, clientName: p.get("name") || "", mobile: p.get("phone") || "", address: p.get("address") || "" };
+          return {
+            ...initialInspData,
+            clientName: p.get("name") || "",
+            mobile: p.get("phone") || "",
+            address: p.get("address") || "",
+            city: p.get("city") || "",
+            state: normalizeStateValue(p.get("state") || "") || "",
+            zip: p.get("zip") || "",
+            email: p.get("email") || "",
+          };
         }
       } catch { /* ignore */ }
     }
     return initialInspData;
   });
+  // Harvesting-Map handoff: when this intake came from a map pin's "Sign Inspection"
+  // button, remember the pin id so a completed signing marks it Inspection Sold and
+  // pings the map tab to advance to the next stop.
+  const harvestPinId = (() => {
+    if (typeof window === "undefined") return "";
+    try { return new URLSearchParams(window.location.search).get("harvest_pin") || ""; } catch { return ""; }
+  })();
   const [inspSig, setInspSig] = useState("");
   const [inspSigMethod, setInspSigMethod] = useState("draw");
   const [inspTypedSig, setInspTypedSig] = useState("");
@@ -12233,6 +12251,23 @@ const renderSmsTemplate = (key, vars) => {
             `,
           }),
         }).catch(e => console.warn("Activity email non-fatal:", e));
+      }
+
+      // Harvesting-Map handoff: this signing came from a map pin's "Sign Inspection"
+      // button. Mark that pin Inspection Sold (source of truth), log it for the rep-
+      // activity report, and ping the map tab (localStorage 'storage' event fires in
+      // OTHER same-origin tabs) so it advances to the next stop automatically.
+      if (harvestPinId) {
+        try {
+          const nowIso = new Date().toISOString();
+          await supabase.from("canvass_prospects")
+            .update({ status: "insp_sold", status_updated_at: nowIso, status_by: data.salesRepName || "sign-inspection" })
+            .eq("id", harvestPinId);
+          supabase.from("canvass_activity")
+            .insert({ pin_id: harvestPinId, rep_name: data.salesRepName || null, kind: "status", from_status: "insp", to_status: "insp_sold" })
+            .then(() => {}, () => {});
+          try { localStorage.setItem("harvest_signed", JSON.stringify({ id: harvestPinId, name: inspData.clientName || "", at: Date.now() })); } catch { /* ignore */ }
+        } catch (e) { console.warn("Harvest pin update non-fatal:", e); }
       }
 
       // Go to thank you page
