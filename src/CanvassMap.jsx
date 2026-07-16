@@ -149,6 +149,7 @@ export default function CanvassMap() {
   const [ignoreDist, setIgnoreDist] = useState(false); // admin test toggle: skip the 200 ft gate
   const [capped, setCapped] = useState(false);         // more pins in view than the cap → "zoom in"
   const [shownCount, setShownCount] = useState(0);     // pins actually drawn after the category filter
+  const [dbCounts, setDbCounts] = useState(null);      // TRUE per-status counts (RPC), so chips are right even when the load is capped
   const [showAll, setShowAll] = useState(false);       // office overview: load every pin, ignore viewport
   const showAllRef = useRef(false);                    // moveend/load read this without a stale closure
   const loadRef = useRef(null);                        // latest load() for the map moveend handler
@@ -717,11 +718,25 @@ export default function CanvassMap() {
     } catch { /* keep the straight line */ }
   }
 
-  const counts = useMemo(() => {
+  // Counts from the LOADED pins — a fallback only. The load is capped + un-ordered,
+  // so a big single-status upload (e.g. 40k inspection leads) can push smaller
+  // buckets (IQ) out of the sample and show "(0)". The RPC below gives the truth.
+  const loadedCounts = useMemo(() => {
     const c = {};
     for (const p of prospects) c[p.status] = (c[p.status] || 0) + 1;
     return c;
   }, [prospects]);
+  // TRUE per-status counts, straight from the DB (one grouped query). Refreshed
+  // when the auth/level resolves and after each load. Falls back to loadedCounts
+  // until the RPC (sql/canvass_status_counts.sql) exists.
+  useEffect(() => {
+    let live = true;
+    supabase.rpc("canvass_status_counts")
+      .then(({ data }) => { if (live && Array.isArray(data)) setDbCounts(Object.fromEntries(data.map((r) => [r.status, Number(r.n)]))); })
+      .catch(() => { /* RPC not created yet → keep loadedCounts */ });
+    return () => { live = false; };
+  }, [prospects.length === 0]); // once pins first arrive (and on mount)
+  const counts = dbCounts || loadedCounts;
   const notMapped = prospects.length - mapped.length;
 
   // Bad/missing link → don't show any pins, just tell them what to do.
@@ -799,7 +814,7 @@ export default function CanvassMap() {
 
       {/* Status filter chips */}
       <div style={{ display: "flex", gap: 6, overflowX: "auto", padding: "8px 12px", background: "#fff", borderBottom: "1px solid #e5e7eb" }}>
-        <Chip active={sel.size === 0} onClick={() => setSel(new Set())} color="#334155" label={`All (${visKeys ? prospects.filter((p) => visKeys.has(p.status)).length : prospects.length})`} />
+        <Chip active={sel.size === 0} onClick={() => setSel(new Set())} color="#334155" label={`All (${dbCounts ? Object.entries(dbCounts).reduce((sum, [k, n]) => sum + ((!visKeys || visKeys.has(k)) ? n : 0), 0) : (visKeys ? prospects.filter((p) => visKeys.has(p.status)).length : prospects.length)})`} />
         {visTypes.map((s) => (
           <Chip key={s.key} active={sel.has(s.key)} check onClick={() => toggleSel(s.key)} color={s.color} label={`${s.label} (${counts[s.key] || 0})`} />
         ))}
