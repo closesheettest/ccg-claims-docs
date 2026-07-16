@@ -127,6 +127,14 @@ export default function CanvassMap() {
     return new Set(pinTypes.filter(canSee).map((t) => t.key));
   }, [seesAll, effLevel, pinTypes]);
   const visTypes = useMemo(() => (visKeys ? pinTypes.filter((t) => visKeys.has(t.key)) : pinTypes), [visKeys, pinTypes]);
+  // Statuses that are NOT a door to knock, so "Start my day" and every later round
+  // skip them: anything terminal (Inspection Sold, Dead) plus "Pending signature"
+  // (the link's already out — waiting on the homeowner, not a stop to re-work).
+  const nonRoutableStatuses = useMemo(() => {
+    const s = new Set(["insp_pending"]);
+    for (const t of pinTypes) if (t.is_terminal) s.add(t.key);
+    return s;
+  }, [pinTypes]);
   // If we switch to a level that can't see the current filter, fall back to All.
   useEffect(() => { if (visKeys && filter !== "all" && !visKeys.has(filter)) setFilter("all"); /* eslint-disable-next-line */ }, [visKeys]);
 
@@ -364,7 +372,7 @@ export default function CanvassMap() {
   }, [dayMode, route, stopIdx, startPt]);
 
   function buildRoute(start, pins, cap) {
-    const rem = pins.filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number");
+    const rem = pins.filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number" && !nonRoutableStatuses.has(p.status));
     const max = cap || routeCap(rem);
     const out = [];
     let cur = start;
