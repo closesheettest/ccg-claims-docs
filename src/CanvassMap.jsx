@@ -113,6 +113,17 @@ function dotIcon(color) {
 // Below this zoom the map shows SERVER-side cluster bubbles (aggregated counts)
 // instead of downloading thousands of individual pins; at/above it, real pins.
 const CLUSTER_ZOOM = 13;
+// Scope selector: a status bucket bigger than this must be narrowed to a REGION
+// before the map loads it, so we never pull 200k+ pins at once. Small buckets
+// (IQ, no-sit, FB) load statewide as before. Regions = rough Florida boxes
+// [[south, west], [north, east]].
+const REGION_THRESHOLD = 15000;
+const REGIONS = [
+  { key: "north", label: "🧭 North",       bounds: [[28.4, -87.7], [31.2, -80.9]] },
+  { key: "west",  label: "🌅 West Coast",  bounds: [[25.7, -83.1], [28.6, -81.55]] },
+  { key: "east",  label: "🌊 East Coast",  bounds: [[26.4, -81.0], [28.7, -79.8]] },
+  { key: "south", label: "🌴 South",       bounds: [[24.3, -82.3], [26.6, -79.9]] },
+];
 function clusterDivIcon(n, color) {
   const size = n >= 1000 ? 54 : n >= 250 ? 46 : n >= 50 ? 38 : 32;
   const label = n >= 1000 ? `${(Math.round(n / 100) / 10)}k` : String(n);
@@ -165,6 +176,9 @@ export default function CanvassMap() {
   const [shownCount, setShownCount] = useState(0);     // pins actually drawn after the category filter
   const [dbCounts, setDbCounts] = useState(null);      // TRUE per-status counts (RPC), so chips are right even when the load is capped
   const [showAll, setShowAll] = useState(false);       // office overview: load every pin, ignore viewport
+  const [region, setRegion] = useState(null);          // scope a huge bucket to a Florida region before loading
+  const [needRegion, setNeedRegion] = useState(false); // huge bucket + no region → prompt to pick one
+  const regionRef = useRef(null);                      // load() reads region without a stale closure
   const showAllRef = useRef(false);                    // moveend/load read this without a stale closure
   const loadRef = useRef(null);                        // latest load() for the map moveend handler
   const loadClustersRef = useRef(null);                // latest loadClusters() for the moveend handler
@@ -256,17 +270,43 @@ export default function CanvassMap() {
         .map((t) => t.key);
       if (!baseKeys.length) { setProspects([]); setInstalls([]); setCapped(false); setLoading(false); return []; }
 
-      // 2) Pins + installs, straight from Supabase (range-paginated → no payload cap).
+      // Load ONLY the selected statuses ("only load what's picked"). Empty
+      // selection (office "All") = everything the level can see.
+      const effStatuses = sel.size ? [...sel].filter((k) => baseKeys.includes(k)) : baseKeys;
+      if (!effStatuses.length) { setProspects([]); setInstalls([]); setClusters([]); setCapped(false); setNeedRegion(false); setLoading(false); return []; }
+
+      // Region gate: a huge bucket (Inspection Leads, 200k+) must be narrowed to
+      // a Florida region first — otherwise we'd pull the whole state. Small
+      // buckets (IQ, no-sit, FB) skip the gate and load statewide.
       const showAll = showAllRef.current;
+      const rgn = regionRef.current;
+      const bigBucket = dbCounts
+        ? effStatuses.reduce((s, k) => s + (dbCounts[k] || 0), 0) > REGION_THRESHOLD
+        : effStatuses.includes("insp");
+      // Only gate when the view is broad (low zoom). Zoomed into a neighborhood
+      // the viewport already scopes it, so a big bucket is fine to load there.
+      const zNow = map.current ? map.current.getZoom() : 7;
+      if (!showAll && bigBucket && !rgn && zNow < CLUSTER_ZOOM) {
+        setProspects([]); setInstalls([]); setClusters([]); setCapped(false); setNeedRegion(true);
+        if (!bounds && !fitted.current) fitted.current = true;
+        setLoading(false); return [];
+      }
+      setNeedRegion(false);
+
+      // 2) Pins + installs, straight from Supabase (range-paginated → no payload cap).
       const CAP = showAll ? 40000 : bounds ? 6000 : 3000;
-      const box = (q) => (!showAll && bounds)
-        ? q.gte("latitude", bounds.getSouth()).lte("latitude", bounds.getNorth()).gte("longitude", bounds.getWest()).lte("longitude", bounds.getEast())
-        : q;
+      const rb = rgn ? (REGIONS.find((r) => r.key === rgn)?.bounds) : null; // [[s,w],[n,e]]
+      const box = (q) => {
+        let qq = q;
+        if (rb) qq = qq.gte("latitude", rb[0][0]).lte("latitude", rb[1][0]).gte("longitude", rb[0][1]).lte("longitude", rb[1][1]);
+        if (!showAll && bounds) qq = qq.gte("latitude", bounds.getSouth()).lte("latitude", bounds.getNorth()).gte("longitude", bounds.getWest()).lte("longitude", bounds.getEast());
+        return qq;
+      };
       // NO order-by: sorting the in-view rows (created_at OR id) makes Postgres
       // sort a large result set and TIMES OUT once the table is big (200k+ pins).
       // Un-ordered returns in-bounds rows fast; the map doesn't need them sorted.
       const pins = await sbFetchAll(() => box(
-        supabase.from("canvass_prospects").select(PIN_FIELDS_LITE).not("latitude", "is", null).in("status", baseKeys),
+        supabase.from("canvass_prospects").select(PIN_FIELDS_LITE).not("latitude", "is", null).in("status", effStatuses),
       ), CAP);
       const installs = await sbFetchAll(() => box(
         supabase.from("installs").select("id,jnid,address_line,city,product_type,color,latitude,longitude").not("latitude", "is", null),
@@ -287,6 +327,40 @@ export default function CanvassMap() {
     return [];
   }
   loadRef.current = load;
+  regionRef.current = region;
+  // Jump to a Florida region + scope the load to it (clears the "pick a region"
+  // gate). Fitting the map there means the viewport load pulls only that area.
+  function pickRegion(key) {
+    const r = REGIONS.find((x) => x.key === key);
+    if (!r) return;
+    regionRef.current = key; setRegion(key); setNeedRegion(false);
+    if (map.current) { try { map.current.fitBounds(r.bounds, { padding: [20, 20] }); } catch { /* ignore */ } }
+    load(map.current ? map.current.getBounds() : null);
+  }
+  function clearRegion() { regionRef.current = null; setRegion(null); load(map.current ? map.current.getBounds() : null); }
+
+  // Level defaults: senior → IQ, junior → Inspection Leads, office/admin → All.
+  // Set once per level (and when VIEW AS changes); manual chip picks are kept.
+  const defaultedFor = useRef(undefined);
+  useEffect(() => {
+    if (!me && !viewAs) return; // wait until auth resolves
+    const key = effLevel || "office";
+    if (defaultedFor.current === key) return;
+    defaultedFor.current = key;
+    regionRef.current = null; setRegion(null);
+    if (effLevel === "senior") setSel(new Set(["iq"]));
+    else if (effLevel === "junior") setSel(new Set(["insp"]));
+    else setSel(new Set());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effLevel, me, viewAs]);
+
+  // Re-load whenever the selected status changes — we now fetch ONLY what's picked.
+  const firstSelRun = useRef(true);
+  useEffect(() => {
+    if (firstSelRun.current) { firstSelRun.current = false; return; }
+    if (fitted.current && loadRef.current) loadRef.current(map.current ? map.current.getBounds() : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sel]);
 
   // Zoomed-out view: fetch SERVER-aggregated cluster cells for the current box
   // (one grouped query) instead of downloading thousands of pins. Returns true
@@ -899,6 +973,12 @@ export default function CanvassMap() {
 
       {/* Status filter chips */}
       <div style={{ display: "flex", gap: 6, overflowX: "auto", padding: "8px 12px", background: "#fff", borderBottom: "1px solid #e5e7eb" }}>
+        {region && (
+          <button type="button" onClick={clearRegion} title="Change area"
+            style={{ whiteSpace: "nowrap", padding: "6px 12px", borderRadius: 20, fontSize: 12.5, fontWeight: 800, cursor: "pointer", border: "1px solid #0e7490", background: "#0e7490", color: "#fff" }}>
+            {REGIONS.find((r) => r.key === region)?.label || "Area"} ✕
+          </button>
+        )}
         <Chip active={sel.size === 0} onClick={() => setSel(new Set())} color="#334155" label={`All (${dbCounts ? Object.entries(dbCounts).reduce((sum, [k, n]) => sum + ((!visKeys || visKeys.has(k)) ? n : 0), 0) : (visKeys ? prospects.filter((p) => visKeys.has(p.status)).length : prospects.length)})`} />
         {visTypes.map((s) => (
           <Chip key={s.key} active={sel.has(s.key)} check onClick={() => toggleSel(s.key)} color={s.color} label={`${s.label} (${counts[s.key] || 0})`} />
@@ -914,9 +994,24 @@ export default function CanvassMap() {
         {loading && (
           <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", background: "#fff", padding: "6px 14px", borderRadius: 20, fontSize: 13, boxShadow: "0 2px 8px rgba(0,0,0,.15)", zIndex: 500 }}>Loading pins…</div>
         )}
-        {!loading && prospects.length === 0 && (
+        {!loading && !needRegion && prospects.length === 0 && clusters.length === 0 && (
           <div style={{ position: "absolute", top: 20, left: "50%", transform: "translateX(-50%)", background: "#fff", padding: "14px 18px", borderRadius: 12, fontSize: 13.5, color: "#475569", boxShadow: "0 2px 10px rgba(0,0,0,.12)", zIndex: 500, textAlign: "center", maxWidth: 320 }}>
             No pins in your area yet. The office loads leads from the admin section.
+          </div>
+        )}
+        {/* Big bucket (Inspection Leads) + no region yet → pick an area so we don't
+            load the whole state. Small buckets (IQ) never hit this. */}
+        {needRegion && !loading && (
+          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 700, background: "rgba(255,255,255,.65)" }}>
+            <div style={{ background: "#fff", borderRadius: 16, padding: "20px 22px", maxWidth: 360, textAlign: "center", boxShadow: "0 8px 30px rgba(0,0,0,.2)", border: "1px solid #e5e7eb" }}>
+              <div style={{ fontSize: 16, fontWeight: 800, fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>📍 Pick your area</div>
+              <div style={{ fontSize: 13, color: "#64748b", marginBottom: 14 }}>Too many doors to load the whole state at once — choose the region you're working:</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                {REGIONS.map((r) => (
+                  <button key={r.key} type="button" onClick={() => pickRegion(r.key)} style={{ padding: "14px 10px", borderRadius: 12, fontSize: 14, fontWeight: 800, cursor: "pointer", border: "2px solid #0e7490", background: "#ecfeff", color: "#0e7490" }}>{r.label}</button>
+                ))}
+              </div>
+            </div>
           </div>
         )}
         {!loading && capped && shownCount > 0 && dayMode === null && (
