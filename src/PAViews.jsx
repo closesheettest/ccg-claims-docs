@@ -236,6 +236,7 @@ export function PAAdminPanel() {
   const [busyId, setBusyId] = useState(null);
   const [backfill, setBackfill] = useState(null); // {running, done, total, copied, failed}
   const [bulkResend, setBulkResend] = useState(null); // {done, total} while resending to all active
+  const [resendCompany, setResendCompany] = useState(""); // company id to scope the resend to (e.g. Five Star)
   const [decisions, setDecisions] = useState([]);
   const [decisionsLoading, setDecisionsLoading] = useState(true);
   const [reconciling, setReconciling] = useState(false);
@@ -852,12 +853,14 @@ export function PAAdminPanel() {
   // never touched). Sends real texts/emails, so it's gated behind a confirm and
   // only fires when the office clicks it. Sequential to stay gentle on the SMS
   // provider; shows live progress.
-  async function resendAllActive() {
-    const targets = pas.filter((p) => p.active && (p.email || p.phone));
-    const skipped = pas.filter((p) => p.active && !p.email && !p.phone).length;
-    if (!targets.length) { setMessage({ kind: "error", text: "No active adjusters have an email or phone on file." }); return; }
+  async function resendAllActive(companyId = null) {
+    const inScope = (p) => !companyId || p.pa_company_id === companyId;
+    const scopeName = companyId ? (companies.find((c) => c.id === companyId)?.name || "this company") : null;
+    const targets = pas.filter((p) => p.active && (p.email || p.phone) && inScope(p));
+    const skipped = pas.filter((p) => p.active && !p.email && !p.phone && inScope(p)).length;
+    if (!targets.length) { setMessage({ kind: "error", text: `No active adjusters${scopeName ? ` at ${scopeName}` : ""} have an email or phone on file.` }); return; }
     if (!window.confirm(
-      `Resend the portal invite to ${targets.length} active adjuster${targets.length === 1 ? "" : "s"}?\n\n` +
+      `Resend the portal invite to ${targets.length} active adjuster${targets.length === 1 ? "" : "s"}${scopeName ? ` at ${scopeName}` : ""}?\n\n` +
       `This texts + emails each one their private portal link.\n` +
       `Deactivated adjusters are NOT included${skipped ? `, and ${skipped} active one(s) with no email/phone will be skipped` : ""}.`
     )) return;
@@ -876,7 +879,7 @@ export function PAAdminPanel() {
     }
     setBulkResend(null);
     await loadPas();
-    setMessage({ kind: failed ? "error" : "success", text: `Portal invite sent to ${sent} adjuster${sent === 1 ? "" : "s"}${failed ? ` · ${failed} failed (check their email/phone)` : ""}${skipped ? ` · ${skipped} skipped (no contact info)` : ""}.` });
+    setMessage({ kind: failed ? "error" : "success", text: `Portal invite sent to ${sent} adjuster${sent === 1 ? "" : "s"}${scopeName ? ` at ${scopeName}` : ""}${failed ? ` · ${failed} failed (check their email/phone)` : ""}${skipped ? ` · ${skipped} skipped (no contact info)` : ""}.` });
   }
 
   async function resendLink(pa) {
@@ -1000,6 +1003,31 @@ export function PAAdminPanel() {
               ? `📨 Sending ${bulkResend.done}/${bulkResend.total}…`
               : "📨 Resend invite to all active"}
           </button>
+          {/* Scope the resend to ONE company (e.g. Five Star) — only that
+              company's ACTIVE adjusters get re-invited. */}
+          {companies.filter((c) => c.active).length > 0 && (
+            <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+              <select
+                value={resendCompany}
+                onChange={(e) => setResendCompany(e.target.value)}
+                disabled={!!bulkResend}
+                style={{ ...secondaryBtn, padding: "6px 8px", fontSize: 11, maxWidth: 130, cursor: "pointer" }}
+                title="Resend the portal invite to just one company's active adjusters."
+              >
+                <option value="">One company…</option>
+                {companies.filter((c) => c.active).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <button
+                type="button"
+                onClick={() => resendCompany && resendAllActive(resendCompany)}
+                disabled={!resendCompany || !!bulkResend}
+                style={{ ...secondaryBtn, padding: "6px 10px", fontSize: 11, whiteSpace: "nowrap", borderColor: "#93c5fd", color: "#1d4ed8", opacity: resendCompany ? 1 : 0.5 }}
+                title="Text + email only the selected company's ACTIVE adjusters their portal link."
+              >
+                📨 Resend
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -3868,6 +3896,23 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
         )}
       </div>
 
+      {/* Settlement / iink document — a prominent, always-visible upload that
+          attaches straight to the JobNimbus job, so it isn't hidden under the
+          milestone list (Five Star staff couldn't find the inline one). */}
+      <div style={{ padding: 14, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 12, marginBottom: 12 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#1e3a8a", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+          📄 Settlement / iink document
+        </div>
+        <div style={{ fontSize: 11, color: "#475569", marginBottom: 8 }}>
+          Upload the settlement or iink doc — it attaches straight onto this claim's JobNimbus job.
+        </div>
+        <SettlementUpload
+          inspectionId={jobId}
+          paId={me.id}
+          onUploaded={() => { if (!fields.iss_uploaded) saveField("iss_uploaded", dateInputToEpoch(new Date().toISOString().slice(0, 10))); }}
+        />
+      </div>
+
       {/* Editable milestones. Once the deal is Signed this becomes the
           "Signed File Details" picker (Five Star mockup): the same date-per-
           step pattern, but relabeled and with the Settled / Closed-Cancelled
@@ -3922,13 +3967,6 @@ function PAPipelineDetail({ me, jobId, onBack, wide, adminView }) {
                   )}
                 </div>
               </div>
-              {f.upload && (
-                <SettlementUpload
-                  inspectionId={jobId}
-                  paId={me.id}
-                  onUploaded={() => { if (!fields[f.key]) saveField(f.key, dateInputToEpoch(new Date().toISOString().slice(0, 10))); }}
-                />
-              )}
             </div>
           ))}
         </div>
