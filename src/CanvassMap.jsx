@@ -34,14 +34,24 @@ const UNKNOWN_TYPE = { color: "#64748b", label: "—", outcomes: [] };
 // Fields the map needs per pin (status_log is left out — heavy + unused here).
 const PIN_FIELDS = "id,name,address,city,state,zip,phone,email,latitude,longitude,status,status_by,status_updated_at,upload_id,notes,list_name,jn_job_id,extra,created_at";
 // Range-paginate a Supabase query (PostgREST returns ≤1000/request) up to `cap`.
-// `build` must return a FRESH query builder each call.
+// `build` must return a FRESH query builder each call. Fetches page 0 first, then
+// — only if the result spans more pages — pulls the rest CONCURRENTLY (in fan-out
+// batches) instead of one slow round-trip at a time, so a big viewport loads in a
+// couple of trips rather than six.
 async function sbFetchAll(build, cap) {
-  const out = [];
-  for (let from = 0; from < cap; from += 1000) {
-    const { data, error } = await build().range(from, from + 999);
-    if (error || !data || !data.length) break;
-    out.push(...data);
-    if (data.length < 1000) break;
+  const PAGE = 1000, FAN = 6;
+  const first = await build().range(0, PAGE - 1);
+  let out = first.data || [];
+  if (out.length < PAGE || cap <= PAGE) return out;
+  const totalPages = Math.ceil(cap / PAGE);
+  for (let start = 1; start < totalPages; start += FAN) {
+    const batch = [];
+    for (let p = start; p < Math.min(start + FAN, totalPages); p++) {
+      batch.push(build().range(p * PAGE, p * PAGE + PAGE - 1).then((r) => r.data || []));
+    }
+    const rows = (await Promise.all(batch)).flat();
+    out = out.concat(rows);
+    if (rows.length < batch.length * PAGE) break; // a page came back short → no more rows
   }
   return out;
 }
