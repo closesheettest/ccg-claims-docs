@@ -11,7 +11,10 @@
 // Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
 
 const REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1";
-const PIN_SELECT = "id,name,address,city,state,zip,phone,email,latitude,longitude,status,status_by,status_updated_at,upload_id,notes,status_log,list_name,jn_job_id,extra,created_at";
+// status_log (a growing array) is intentionally left out of the bulk map load —
+// it's the heaviest field and the map doesn't render it; keeps the show-all
+// payload well under Netlify's ~6MB limit as the pin count grows.
+const PIN_SELECT = "id,name,address,city,state,zip,phone,email,latitude,longitude,status,status_by,status_updated_at,upload_id,notes,list_name,jn_job_id,extra,created_at";
 
 export const handler = async (event) => {
   const SB_URL = process.env.VITE_SUPABASE_URL;
