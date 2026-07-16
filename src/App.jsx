@@ -6640,6 +6640,7 @@ function PACompanyAdminPage({ token }) {
   const [addBusy, setAddBusy] = useState(false);
   const [activateBusy, setActivateBusy] = useState(null);
   const [resendBusy, setResendBusy] = useState(null);   // PA whose link is being resent
+  const [bulkResend, setBulkResend] = useState(null);   // {done,total} while resending to all active
   const [showView, setShowView] = useState(false); // "view a PA's portal" panel
   const [viewPaId, setViewPaId] = useState("");     // which of MY PAs to view as
   const [viewStage, setViewStage] = useState(null); // null=job list · "availability"=their calendar
@@ -6826,6 +6827,33 @@ function PACompanyAdminPage({ token }) {
       else { setErr(""); alert(`✅ Portal link sent to ${p.name}${out.channel_used ? " (" + out.channel_used + ")" : ""}.`); }
     } catch { setErr("Network error."); }
     setResendBusy(null);
+  };
+  // Re-send the portal link to EVERY active adjuster in this company at once.
+  // Sends real texts/emails, so it's gated behind a confirm; sequential to stay
+  // gentle on the SMS provider. Only this company's PAs (token-scoped API).
+  const resendAllCompanyLinks = async () => {
+    const targets = (data?.pas || []).filter((p) => p.active && (p.phone || p.email));
+    const skipped = (data?.pas || []).filter((p) => p.active && !p.phone && !p.email).length;
+    if (!targets.length) { setErr("No active adjusters have an email or phone on file."); return; }
+    if (!window.confirm(
+      `Re-send the portal link to ${targets.length} active adjuster${targets.length === 1 ? "" : "s"}?\n\n` +
+      `This texts + emails each one their private portal link.${skipped ? `\n${skipped} active one(s) with no email/phone will be skipped.` : ""}`
+    )) return;
+    setErr("");
+    let sent = 0, failed = 0;
+    for (let i = 0; i < targets.length; i++) {
+      setBulkResend({ done: i, total: targets.length });
+      try {
+        const res = await fetch("/.netlify/functions/pa-company-api", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token, action: "resend_link", paId: targets[i].id }),
+        });
+        const out = await res.json().catch(() => ({}));
+        if (res.ok && out.ok) sent++; else failed++;
+      } catch { failed++; }
+    }
+    setBulkResend(null);
+    alert(`✅ Portal link sent to ${sent} adjuster${sent === 1 ? "" : "s"}${failed ? ` · ${failed} failed (check their email/phone)` : ""}${skipped ? ` · ${skipped} skipped (no contact info)` : ""}.`);
   };
 
   const fld = { width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 14, marginTop: 3 };
@@ -7075,7 +7103,15 @@ function PACompanyAdminPage({ token }) {
           <div style={{ marginBottom: 16, border: "1px solid #e5e7eb", borderRadius: 12, background: "#fff", padding: 12 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
               <div style={{ fontSize: 14, fontWeight: 800, color: "#111827" }}>👥 Your adjusters</div>
-              <Button variant="outline" onClick={() => { setAddOpen((v) => !v); setErr(""); }}>{addOpen ? "Cancel" : "➕ Add adjuster"}</Button>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {(data.pas || []).filter((p) => p.active).length > 0 && (
+                  <Button variant="outline" onClick={resendAllCompanyLinks} disabled={!!bulkResend}
+                    title="Text + email every active adjuster their portal link again.">
+                    {bulkResend ? `📨 Sending ${bulkResend.done}/${bulkResend.total}…` : "📨 Resend invite to all active"}
+                  </Button>
+                )}
+                <Button variant="outline" onClick={() => { setAddOpen((v) => !v); setErr(""); }}>{addOpen ? "Cancel" : "➕ Add adjuster"}</Button>
+              </div>
             </div>
             {/* Team coverage map — combined area the company's active PAs cover.
                 Active adjusters are listed; tap one to highlight that adjuster's
