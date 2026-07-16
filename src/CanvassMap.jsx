@@ -802,8 +802,9 @@ export default function CanvassMap() {
                     style={{ width: "100%", marginTop: 12, background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 12, padding: "12px", fontSize: 14.5, fontWeight: 800, cursor: "pointer" }}>
                     🧭 Directions to {stopIdx === 0 ? "first stop" : "this stop"}
                   </button>
-                  <div style={{ textAlign: "center", marginTop: 5 }}>
-                    <a href={`https://www.google.com/maps/dir/?api=1&destination=${addrOf(stop)}`} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, fontWeight: 700, color: "#94a3b8", textDecoration: "none" }}>open in Google Maps ↗</a>
+                  <div style={{ textAlign: "center", marginTop: 5, display: "flex", justifyContent: "center", gap: 12 }}>
+                    <a href={`https://www.google.com/maps/dir/?api=1&destination=${addrOf(stop)}`} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, fontWeight: 700, color: "#94a3b8", textDecoration: "none" }}>Google Maps ↗</a>
+                    <a href={`https://maps.apple.com/?daddr=${addrOf(stop)}&dirflg=d`} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, fontWeight: 700, color: "#94a3b8", textDecoration: "none" }}>Apple Maps ↗</a>
                   </div>
                   {signingStop && signingStop.id === stop.id ? (
                     <div style={{ marginTop: 14, background: "#faf5ff", border: "1px solid #e9d5ff", borderRadius: 12, padding: "12px 14px", textAlign: "center" }}>
@@ -947,11 +948,18 @@ export default function CanvassMap() {
             );
           })()}
 
-          <a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent([selected.address, selected.city, selected.state, selected.zip].filter(Boolean).join(", "))}`}
-            target="_blank" rel="noreferrer"
-            style={{ display: "block", textAlign: "center", marginTop: 16, padding: "12px", borderRadius: 12, background: "#1d4ed8", color: "#fff", fontWeight: 700, fontSize: 14, textDecoration: "none" }}>
-            🧭 Navigate to this address
-          </a>
+          <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+            <a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent([selected.address, selected.city, selected.state, selected.zip].filter(Boolean).join(", "))}`}
+              target="_blank" rel="noreferrer"
+              style={{ flex: 1, textAlign: "center", padding: "12px", borderRadius: 12, background: "#1d4ed8", color: "#fff", fontWeight: 700, fontSize: 13.5, textDecoration: "none" }}>
+              🧭 Google Maps
+            </a>
+            <a href={`https://maps.apple.com/?daddr=${encodeURIComponent([selected.address, selected.city, selected.state, selected.zip].filter(Boolean).join(", "))}&dirflg=d`}
+              target="_blank" rel="noreferrer"
+              style={{ flex: 1, textAlign: "center", padding: "12px", borderRadius: 12, background: "#0f172a", color: "#fff", fontWeight: 700, fontSize: 13.5, textDecoration: "none" }}>
+              🍎 Apple Maps
+            </a>
+          </div>
         </div>
       )}
 

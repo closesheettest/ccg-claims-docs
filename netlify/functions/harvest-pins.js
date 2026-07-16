@@ -88,7 +88,9 @@ export const handler = async (event) => {
   const n = num(p.n), s = num(p.s), e = num(p.e), w = num(p.w);
   const hasBox = !showAll && n != null && s != null && e != null && w != null && n > s && e > w;
   const box = hasBox ? `&latitude=gte.${s}&latitude=lte.${n}&longitude=gte.${w}&longitude=lte.${e}` : "";
-  const CAP = showAll ? 50000 : hasBox ? 6000 : 3000; // show-all ceiling / in-view cap / initial global sample
+  // show-all ceiling kept under Netlify's ~6MB response limit (each pin ~300B, so
+  // 15k pins + installs ≈ 4.7MB) / in-view cap / initial global sample.
+  const CAP = showAll ? 15000 : hasBox ? 6000 : 3000;
 
   let pins = [];
   if (visible.length) {

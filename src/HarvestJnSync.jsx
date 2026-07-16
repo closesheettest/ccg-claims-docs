@@ -19,9 +19,9 @@ const LEADS = [
   { key: "ai", status: "ai", color: "#0d9488", title: "🤖 AI pins — AI Bot", source: "AI Bot" },
 ];
 const DEFAULTS = {
-  iq: { enabled: false, created_before: "" },
-  fb: { enabled: false, created_before: "" },
-  ai: { enabled: false, created_before: "" },
+  iq: { enabled: false, created_after: "" },
+  fb: { enabled: false, created_after: "" },
+  ai: { enabled: false, created_after: "" },
   nosit: { enabled: true, appt_before: "" },
 };
 
@@ -35,7 +35,7 @@ export default function HarvestJnSync() {
   useEffect(() => { (async () => {
     try {
       const { data } = await supabase.from("app_settings").select("value").eq("key", "harvest_jn_filters").maybeSingle();
-      if (data?.value) { const v = typeof data.value === "string" ? JSON.parse(data.value) : data.value; setCfg({ ...DEFAULTS, ...v, iq: { ...DEFAULTS.iq, ...(v.iq || {}) }, fb: { ...DEFAULTS.fb, ...(v.fb || {}) }, ai: { ...DEFAULTS.ai, ...(v.ai || {}) }, nosit: { ...DEFAULTS.nosit, ...(v.nosit || {}) } }); }
+      if (data?.value) { const v = typeof data.value === "string" ? JSON.parse(data.value) : data.value; setCfg({ iq: { ...DEFAULTS.iq, ...(v.iq || {}) }, fb: { ...DEFAULTS.fb, ...(v.fb || {}) }, ai: { ...DEFAULTS.ai, ...(v.ai || {}) }, nosit: { ...DEFAULTS.nosit, ...(v.nosit || {}) } }); }
     } catch { /* keep defaults */ }
     await refreshCounts();
     setLoaded(true);
@@ -100,10 +100,10 @@ export default function HarvestJnSync() {
           desc={<>JobNimbus contacts whose lead source is <b>{L.source}</b> with <b>no job</b> yet. They land on the map as {L.status.toUpperCase()} pins (senior-visible), routed with IQ priority.</>}
           enabled={cfg[L.key].enabled}
           onToggle={(v) => patch(L.key, { enabled: v })}
-          dateLabel="Only contacts CREATED on or before:"
-          dateHint="Leave blank for all. Older leads are the ones most worth working."
-          dateVal={cfg[L.key].created_before}
-          onDate={(v) => patch(L.key, { created_before: v })}
+          dateLabel="Only contacts CREATED on or after:"
+          dateHint="Leave blank for all. Newer leads convert better — older ones have often already gone with someone else. Adjust to find the sweet spot."
+          dateVal={cfg[L.key].created_after}
+          onDate={(v) => patch(L.key, { created_after: v })}
           count={counts[L.status]}
           countLabel={`${L.status.toUpperCase()} pins on the map now`}
           onSync={() => syncLead(L.key)}

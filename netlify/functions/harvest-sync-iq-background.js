@@ -44,7 +44,7 @@ exports.handler = async (event) => {
   // Which contacts already own a job (built once, shared) — only if we need it.
   const withJob = new Set();
   if (anyEnabled) {
-    await sharded(`${JN_BASE}/jobs`, H, [], NOW, (job) => {
+    await sharded(`${JN_BASE}/jobs`, H, [], START, NOW, (job) => {
       if (job.primary && job.primary.id) withJob.add(job.primary.id);
       for (const r of job.related || []) if (r && r.id && (r.type === "contact" || !r.type)) withJob.add(r.id);
     });
@@ -70,9 +70,11 @@ exports.handler = async (event) => {
         continue;
       }
 
-      const beforeSec = cfg.created_before ? Math.floor(Date.parse(`${cfg.created_before}T23:59:59-04:00`) / 1000) : NOW;
+      // Filter is "created ON OR AFTER" — newer leads (older ones tend to have
+      // already gone with a competitor / gotten a new roof).
+      const afterSec = cfg.created_after ? Math.floor(Date.parse(`${cfg.created_after}T00:00:00-04:00`) / 1000) : START;
       const cands = [];
-      await sharded(`${JN_BASE}/contacts`, H, [{ match_phrase: { source_name: def.source } }], beforeSec, (c) => {
+      await sharded(`${JN_BASE}/contacts`, H, [{ match_phrase: { source_name: def.source } }], afterSec, NOW, (c) => {
         const id = c.jnid || c.id;
         if (!id || withJob.has(id)) return;
         if (!(c.address_line1 || "").trim()) return;
@@ -126,7 +128,7 @@ exports.handler = async (event) => {
       let removed = 0; if (stale.length) { if (await del(stale)) removed = stale.length; }
 
       await writeSetting(`harvest_leadsync_${key}`, {
-        ok: true, enabled: true, source: def.source, created_on_or_before: cfg.created_before || null,
+        ok: true, enabled: true, source: def.source, created_on_or_after: cfg.created_after || null,
         candidates: cands.length, inserted, updated, removed, geocoded, skipped_ungeocoded: skipped,
         started, finished: new Date().toISOString(),
       });
@@ -152,14 +154,14 @@ async function sbGetAll(path) {
   }
   return out;
 }
-async function sharded(base, headers, must, upper, onRow) {
+async function sharded(base, headers, must, lo, hi, onRow) {
   const filterFor = (gte, lte) => encodeURIComponent(JSON.stringify({ must: [...must, { range: { date_created: { gte, lte } } }] }));
   const countOf = async (gte, lte) => { const r = await fetch(`${base}?size=1&filter=${filterFor(gte, lte)}`, { headers }); const d = await r.json().catch(() => ({})); return Number(d.count || 0); };
   const drain = async (gte, lte) => {
     for (let page = 0; page < 100; page++) { const r = await fetch(`${base}?size=100&from=${page * 100}&filter=${filterFor(gte, lte)}`, { headers }); if (!r.ok) break; const d = await r.json().catch(() => ({})); const rows = d.results || d.contacts || d.jobs || []; if (!rows.length) break; rows.forEach(onRow); if (rows.length < 100) break; }
   };
   const rec = async (gte, lte) => { const c = await countOf(gte, lte); if (!c) return; if (c <= CAP || (lte - gte) <= 86400) { await drain(gte, lte); return; } const mid = Math.floor((gte + lte) / 2); await rec(gte, mid); await rec(mid + 1, lte); };
-  await rec(START, upper);
+  await rec(lo, hi);
 }
 async function geocode(addr) {
   if (!GOOGLE_KEY || !addr) return null;
