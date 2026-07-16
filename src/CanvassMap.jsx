@@ -124,6 +124,24 @@ const REGIONS = [
   { key: "east",  label: "🌊 East Coast",  bounds: [[26.4, -81.0], [28.7, -79.8]] },
   { key: "south", label: "🌴 South",       bounds: [[24.3, -82.3], [26.6, -79.9]] },
 ];
+
+// Persist an in-progress "Start my day" route so a refresh or dropped signal
+// never wipes it. Keyed by the rep's link so different reps/devices don't collide.
+function daySavedKey() {
+  try { const p = new URLSearchParams(window.location.search); return `harvest_day_${p.get("rt") || p.get("admin") || "office"}`; }
+  catch { return "harvest_day_x"; }
+}
+function readSavedDay() {
+  try {
+    const raw = localStorage.getItem(daySavedKey());
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    if (!d || !Array.isArray(d.route) || !d.route.length) return null;
+    // Don't resurrect a stale day (yesterday's route). 18h covers a long day.
+    if (d.at && Date.now() - d.at > 18 * 3600 * 1000) { localStorage.removeItem(daySavedKey()); return null; }
+    return d;
+  } catch { return null; }
+}
 function clusterDivIcon(n, color) {
   const size = n >= 1000 ? 54 : n >= 250 ? 46 : n >= 50 ? 38 : 32;
   const label = n >= 1000 ? `${(Math.round(n / 100) / 10)}k` : String(n);
@@ -160,15 +178,17 @@ export default function CanvassMap() {
   const [installs, setInstalls] = useState([]);        // read-only star layer (jr + sr)
   const [showInstalls, setShowInstalls] = useState(true);
   const [selectedInstall, setSelectedInstall] = useState(null);
-  // "Start my day" route planner.
-  const [dayMode, setDayMode] = useState(null);        // null | 'choosing' | 'active'
-  const [startPt, setStartPt] = useState(null);        // {lat,lng} the route starts from
-  const [route, setRoute] = useState([]);              // ordered stops (nearest-first)
-  const [stopIdx, setStopIdx] = useState(0);
+  // "Start my day" route planner. Restore an in-progress route (survives refresh
+  // / lost signal) synchronously from localStorage so it's there on first paint.
+  const savedDay = useMemo(() => readSavedDay(), []);
+  const [dayMode, setDayMode] = useState(savedDay ? "active" : null);   // null | 'choosing' | 'active'
+  const [startPt, setStartPt] = useState(savedDay?.startPt || null);    // {lat,lng} the route starts from
+  const [route, setRoute] = useState(() => savedDay?.route || []);      // ordered stops (nearest-first)
+  const [stopIdx, setStopIdx] = useState(savedDay ? Math.min(savedDay.stopIdx || 0, savedDay.route.length - 1) : 0);
   const [myLoc, setMyLoc] = useState(null);            // live GPS while a route is active
-  const [round, setRound] = useState(1);               // 1st round, 2nd round, …
-  const [resolvedIds, setResolvedIds] = useState(() => new Set()); // pins the rep has STATUSED this session (drop from later rounds)
-  const workingRef = useRef(new Set());                // the ORIGINAL round-1 routed pin ids — later rounds only recycle these, minus statused
+  const [round, setRound] = useState(savedDay?.round || 1);             // 1st round, 2nd round, …
+  const [resolvedIds, setResolvedIds] = useState(() => new Set(savedDay?.resolved || [])); // pins the rep has STATUSED this session (drop from later rounds)
+  const workingRef = useRef(new Set(savedDay?.working || []));          // the ORIGINAL round-1 routed pin ids — later rounds only recycle these, minus statused
   const arrivedRef = useRef(null);                     // { key } — already logged arrival at this stop
   const [panelPos, setPanelPos] = useState(null);      // {left,top} px if dragged, else default bottom-right
   const [ignoreDist, setIgnoreDist] = useState(false); // admin test toggle: skip the 200 ft gate
@@ -537,6 +557,27 @@ export default function CanvassMap() {
   // Order the on-screen prospect pins nearest-first from a start point (the
   // rep's location or a tapped spot), then walk them one stop at a time.
   useEffect(() => { choosingRef.current = dayMode === "choosing"; activeDayRef.current = dayMode !== null; }, [dayMode]);
+  // Persist the in-progress route so a refresh / lost signal keeps it. Cleared
+  // when the day ends (dayMode → null via "start over" / finishing the route).
+  useEffect(() => {
+    try {
+      if (dayMode === "active" && route.length) {
+        localStorage.setItem(daySavedKey(), JSON.stringify({ v: 1, at: Date.now(), route, stopIdx, round, startPt, resolved: [...resolvedIds], working: [...workingRef.current] }));
+      } else if (dayMode === null) {
+        localStorage.removeItem(daySavedKey());
+      }
+    } catch { /* private mode / quota — non-fatal */ }
+  }, [dayMode, route, stopIdx, round, startPt, resolvedIds]);
+  // Restored a route (refresh / signal loss) → recenter the map on it so the rep
+  // sees their stops instead of the whole state.
+  useEffect(() => {
+    if (!savedDay) return;
+    const pts = (savedDay.route || []).filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number").map((p) => [p.latitude, p.longitude]);
+    if (!pts.length) return;
+    const t = setTimeout(() => { try { map.current?.fitBounds(pts, { padding: [50, 50], maxZoom: 15 }); fitted.current = true; } catch { /* ignore */ } }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => { signingStopRef.current = signingStop; }, [signingStop]);
   // The intake tab writes localStorage 'harvest_signed' when a signing completes.
   // That 'storage' event fires in THIS tab (a different one) → advance instantly.
@@ -1001,7 +1042,7 @@ export default function CanvassMap() {
         )}
         {/* Big bucket (Inspection Leads) + no region yet → pick an area so we don't
             load the whole state. Small buckets (IQ) never hit this. */}
-        {needRegion && !loading && (
+        {needRegion && !loading && dayMode === null && (
           <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 700, background: "rgba(255,255,255,.65)" }}>
             <div style={{ background: "#fff", borderRadius: 16, padding: "20px 22px", maxWidth: 360, textAlign: "center", boxShadow: "0 8px 30px rgba(0,0,0,.2)", border: "1px solid #e5e7eb" }}>
               <div style={{ fontSize: 16, fontWeight: 800, fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>📍 Pick your area</div>
