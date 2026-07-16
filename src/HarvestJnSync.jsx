@@ -1,35 +1,48 @@
 // Harvesting Map — JobNimbus → Map sync filters (?mode=harvestjnsync). Office.
 // Configure which JN records flow onto the map and how far back:
-//   • IQ pins       = "Instant Quote" contacts with no job, by CREATED date.
-//   • No-sit pins   = "No Sit- Need to Reschedule" deals, by APPOINTMENT date.
-// Settings live in app_settings.harvest_jn_filters; the sync functions + crons
-// read them. Each card can be saved and synced on demand.
+//   • Inbound-lead pins (IQ = Instant Quote, FB = Facebook, AI = AI Bot) —
+//     contacts with no job, by CREATED date. Same rule for each.
+//   • No-sit pins = "No Sit- Need to Reschedule" deals, by APPOINTMENT date.
+// Settings live in app_settings.harvest_jn_filters; the sync fns + crons read
+// them. Each card can be saved + synced on demand.
 import React, { useEffect, useState } from "react";
 import { supabase } from "./lib/supabase";
 import HarvestNav from "./HarvestNav";
 
 const FONT = "'Nunito', system-ui, sans-serif";
 const OSWALD = "'Oswald', sans-serif";
-const DEFAULTS = { iq: { enabled: false, created_before: "" }, nosit: { enabled: true, appt_before: "" } };
+
+// The three source-based lead layers (same "contacts with no job, by created date" rule).
+const LEADS = [
+  { key: "iq", status: "iq", color: "#2563eb", title: "🔵 IQ pins — Instant Quote", source: "Instant Quote" },
+  { key: "fb", status: "fb", color: "#1877f2", title: "📘 FB pins — Facebook", source: "Facebook" },
+  { key: "ai", status: "ai", color: "#0d9488", title: "🤖 AI pins — AI Bot", source: "AI Bot" },
+];
+const DEFAULTS = {
+  iq: { enabled: false, created_before: "" },
+  fb: { enabled: false, created_before: "" },
+  ai: { enabled: false, created_before: "" },
+  nosit: { enabled: true, appt_before: "" },
+};
 
 export default function HarvestJnSync() {
   const [cfg, setCfg] = useState(DEFAULTS);
-  const [counts, setCounts] = useState({ iq: null, no_sit_reschedule: null });
-  const [busy, setBusy] = useState("");            // "iq" | "nosit" while syncing
-  const [msg, setMsg] = useState({ iq: "", nosit: "" });
+  const [counts, setCounts] = useState({});
+  const [busy, setBusy] = useState("");
+  const [msg, setMsg] = useState({});
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => { (async () => {
     try {
       const { data } = await supabase.from("app_settings").select("value").eq("key", "harvest_jn_filters").maybeSingle();
-      if (data?.value) { const v = typeof data.value === "string" ? JSON.parse(data.value) : data.value; setCfg({ iq: { ...DEFAULTS.iq, ...(v.iq || {}) }, nosit: { ...DEFAULTS.nosit, ...(v.nosit || {}) } }); }
+      if (data?.value) { const v = typeof data.value === "string" ? JSON.parse(data.value) : data.value; setCfg({ ...DEFAULTS, ...v, iq: { ...DEFAULTS.iq, ...(v.iq || {}) }, fb: { ...DEFAULTS.fb, ...(v.fb || {}) }, ai: { ...DEFAULTS.ai, ...(v.ai || {}) }, nosit: { ...DEFAULTS.nosit, ...(v.nosit || {}) } }); }
     } catch { /* keep defaults */ }
     await refreshCounts();
     setLoaded(true);
   })(); }, []);
 
   async function refreshCounts() {
-    for (const s of ["iq", "no_sit_reschedule"]) {
+    for (const s of ["iq", "fb", "ai", "no_sit_reschedule"]) {
       const { count } = await supabase.from("canvass_prospects").select("id", { count: "exact", head: true }).eq("status", s);
       setCounts((c) => ({ ...c, [s]: count ?? 0 }));
     }
@@ -38,8 +51,28 @@ export default function HarvestJnSync() {
     setCfg(next);
     await supabase.from("app_settings").upsert({ key: "harvest_jn_filters", value: JSON.stringify(next), updated_at: new Date().toISOString() }, { onConflict: "key" });
   }
-  const setIq = (patch) => saveCfg({ ...cfg, iq: { ...cfg.iq, ...patch } });
-  const setNosit = (patch) => saveCfg({ ...cfg, nosit: { ...cfg.nosit, ...patch } });
+  const patch = (key, p) => saveCfg({ ...cfg, [key]: { ...cfg[key], ...p } });
+
+  // Sync one source-based lead layer (iq/fb/ai) — triggers the background job,
+  // then polls its result.
+  async function syncLead(key) {
+    setBusy(key); setMsg((m) => ({ ...m, [key]: "Pulling from JobNimbus (runs in the background)…" }));
+    try {
+      await fetch(`/.netlify/functions/harvest-sync-iq-background?source=${key}`, { method: "POST" });
+      for (let i = 0; i < 45; i++) {
+        await new Promise((r) => setTimeout(r, 4000));
+        const { data } = await supabase.from("app_settings").select("value").eq("key", `harvest_leadsync_${key}`).maybeSingle();
+        const v = data?.value ? (typeof data.value === "string" ? JSON.parse(data.value) : data.value) : null;
+        if (v && v.finished && Date.parse(v.finished) > Date.now() - 6 * 60 * 1000) {
+          if (!v.ok) { setMsg((m) => ({ ...m, [key]: `⚠️ ${v.error || "sync failed"}` })); break; }
+          setMsg((m) => ({ ...m, [key]: `Done: ${v.inserted || 0} added, ${v.updated || 0} updated, ${v.removed || 0} removed · ${v.geocoded || 0} geocoded${v.skipped_ungeocoded ? `, ${v.skipped_ungeocoded} still to place (run again)` : ""}. ${v.candidates ?? 0} matched.` }));
+          await refreshCounts(); break;
+        }
+        setMsg((m) => ({ ...m, [key]: `Working… (${(i + 1) * 4}s)` }));
+      }
+    } catch (e) { setMsg((m) => ({ ...m, [key]: `⚠️ ${e.message}` })); }
+    setBusy("");
+  }
 
   async function syncNosit() {
     setBusy("nosit"); setMsg((m) => ({ ...m, nosit: "Syncing a batch from JobNimbus…" }));
@@ -53,64 +86,42 @@ export default function HarvestJnSync() {
     setBusy("");
   }
 
-  async function syncIq() {
-    setBusy("iq"); setMsg((m) => ({ ...m, iq: "Starting — pulling Instant Quote contacts from JobNimbus (this runs in the background)…" }));
-    try {
-      await fetch("/.netlify/functions/harvest-sync-iq-background", { method: "POST" });
-      // Poll the result the background job writes.
-      for (let i = 0; i < 40; i++) {
-        await new Promise((r) => setTimeout(r, 4000));
-        const { data } = await supabase.from("app_settings").select("value, updated_at").eq("key", "harvest_iq_sync").maybeSingle();
-        const v = data?.value ? (typeof data.value === "string" ? JSON.parse(data.value) : data.value) : null;
-        if (v && v.finished && Date.parse(v.finished) > Date.now() - 5 * 60 * 1000) {
-          if (!v.ok) { setMsg((m) => ({ ...m, iq: `⚠️ ${v.error || "sync failed"}` })); break; }
-          setMsg((m) => ({ ...m, iq: `Done: ${v.inserted || 0} added, ${v.updated || 0} updated, ${v.removed || 0} removed · ${v.geocoded || 0} geocoded${v.skipped_ungeocoded ? `, ${v.skipped_ungeocoded} still to geocode (run again)` : ""}. ${v.candidates ?? ""} Instant-Quote leads matched.` }));
-          await refreshCounts();
-          break;
-        }
-        setMsg((m) => ({ ...m, iq: `Working… (${(i + 1) * 4}s)` }));
-      }
-    } catch (e) { setMsg((m) => ({ ...m, iq: `⚠️ ${e.message}` })); }
-    setBusy("");
-  }
-
-  const fld = { fontSize: 14, padding: "9px 11px", borderRadius: 9, border: "1px solid #cbd5e1", fontFamily: FONT };
   const btn = (on, color) => ({ fontSize: 13.5, fontWeight: 800, padding: "9px 16px", borderRadius: 10, cursor: on ? "not-allowed" : "pointer", border: "none", background: color, color: "#fff", opacity: on ? 0.6 : 1, fontFamily: OSWALD });
 
   return (
     <div style={{ maxWidth: 760, margin: "0 auto", padding: "20px 16px 60px", fontFamily: FONT }}>
       <HarvestNav active="jnsync" />
       <div style={{ fontSize: 22, fontWeight: 800, fontFamily: OSWALD, marginBottom: 4 }}>🔄 JN Sync</div>
-      <div style={{ fontSize: 13, color: "#64748b", marginBottom: 20 }}>Pick which JobNimbus records flow onto the Harvesting Map, and how far back. Changes are saved instantly; the twice-daily cron uses them, or hit <b>Sync now</b> to run it immediately.</div>
+      <div style={{ fontSize: 13, color: "#64748b", marginBottom: 20 }}>Pick which JobNimbus records flow onto the Harvesting Map, and how far back. Changes save instantly; the crons use them, or hit <b>Sync now</b> to run it immediately. A lead's pin flips to an Appointment once a rep books it (which pushes everything to JobNimbus), and drops off once it gets a job.</div>
 
-      {/* IQ pins */}
-      <Card
-        title="🔵 IQ pins — Instant Quote"
-        desc={<>JobNimbus contacts whose lead source is <b>Instant Quote</b> and that have <b>no job</b> yet — leads that never got worked. They land on the map as IQ pins (senior-visible).</>}
-        enabled={cfg.iq.enabled}
-        onToggle={(v) => setIq({ enabled: v })}
-        dateLabel="Only contacts CREATED on or before:"
-        dateHint="Leave blank for all. Older leads are the ones most worth working."
-        dateVal={cfg.iq.created_before}
-        onDate={(v) => setIq({ created_before: v })}
-        count={counts.iq}
-        countLabel="IQ pins on the map now"
-        onSync={syncIq}
-        syncing={busy === "iq"}
-        msg={msg.iq}
-        btnStyle={btn(busy === "iq", "#2563eb")}
-      />
+      {LEADS.map((L) => (
+        <Card key={L.key}
+          title={L.title}
+          desc={<>JobNimbus contacts whose lead source is <b>{L.source}</b> with <b>no job</b> yet. They land on the map as {L.status.toUpperCase()} pins (senior-visible), routed with IQ priority.</>}
+          enabled={cfg[L.key].enabled}
+          onToggle={(v) => patch(L.key, { enabled: v })}
+          dateLabel="Only contacts CREATED on or before:"
+          dateHint="Leave blank for all. Older leads are the ones most worth working."
+          dateVal={cfg[L.key].created_before}
+          onDate={(v) => patch(L.key, { created_before: v })}
+          count={counts[L.status]}
+          countLabel={`${L.status.toUpperCase()} pins on the map now`}
+          onSync={() => syncLead(L.key)}
+          syncing={busy === L.key}
+          msg={msg[L.key]}
+          btnStyle={btn(busy === L.key, L.color)}
+        />
+      ))}
 
-      {/* No-sit pins */}
       <Card
         title="🔴 No-sit pins — Need to Reschedule"
         desc={<>JobNimbus deals in status <b>"No Sit- Need to Reschedule"</b> — appointments that never sat. Reps drive out and re-book them on the spot.</>}
         enabled={cfg.nosit.enabled}
-        onToggle={(v) => setNosit({ enabled: v })}
+        onToggle={(v) => patch("nosit", { enabled: v })}
         dateLabel="Only deals whose APPOINTMENT was on or before:"
         dateHint="Leave blank for all. e.g. only show ones at least a few weeks stale."
         dateVal={cfg.nosit.appt_before}
-        onDate={(v) => setNosit({ appt_before: v })}
+        onDate={(v) => patch("nosit", { appt_before: v })}
         count={counts.no_sit_reschedule}
         countLabel="No-sit pins on the map now"
         onSync={syncNosit}

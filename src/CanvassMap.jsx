@@ -17,6 +17,8 @@ import { supabase } from "./lib/supabase";
 // from that table so the office can edit them on the admin page.
 const FALLBACK_TYPES = [
   { key: "iq", label: "IQ", color: "#2563eb", outcomes: ["iq_ni", "appt", "new_roof"] },
+  { key: "fb", label: "Facebook", color: "#1877f2", outcomes: ["iq_ni", "appt", "new_roof"] },
+  { key: "ai", label: "AI Bot", color: "#0d9488", outcomes: ["iq_ni", "appt", "new_roof"] },
   { key: "appt", label: "Appointment", color: "#16a34a", outcomes: ["no_sit_reschedule", "new_roof"] },
   { key: "no_sit_reschedule", label: "No sit – need to reschedule", color: "#dc2626", outcomes: ["appt", "dead", "new_roof"] },
   { key: "iq_ni", label: "IQ – Not Interested", color: "#f59e0b", outcomes: ["insp_sold", "dead", "new_roof"] },
@@ -58,9 +60,9 @@ const ARRIVE_FT = 200; // must be within this many feet of the stop to advance
 const ROUTE_CAP_DEFAULT = 30, ROUTE_CAP_INSP = 100;
 const routeCap = (pins) => {
   if (!pins || !pins.length) return ROUTE_CAP_DEFAULT;
-  // Any higher-priority work in the pool (IQ or No-sit) makes it a senior day → 30.
-  // Only a pure inspection-lead day (juniors, huge volume) routes 100.
-  if (pins.some((p) => p.status === "iq" || p.status === "no_sit_reschedule")) return ROUTE_CAP_DEFAULT;
+  // Any higher-priority work in the pool (IQ / Facebook / AI / No-sit) makes it a
+  // senior day → 30. Only a pure inspection-lead day (juniors) routes 100.
+  if (pins.some((p) => p.status === "iq" || p.status === "fb" || p.status === "ai" || p.status === "no_sit_reschedule")) return ROUTE_CAP_DEFAULT;
   const insp = pins.filter((p) => p.status === "insp").length;
   return insp >= pins.length / 2 ? ROUTE_CAP_INSP : ROUTE_CAP_DEFAULT;
 };
@@ -403,7 +405,7 @@ export default function CanvassMap() {
     // which outranks a cold Inspection Lead. When the pool is mixed and capped, the
     // higher-priority work makes the cut first (nearest-first within a tier). Then
     // we nearest-neighbour the chosen set so the actual drive is still efficient.
-    const TIER = { no_sit_reschedule: 0, iq: 1 };
+    const TIER = { no_sit_reschedule: 0, iq: 1, fb: 1, ai: 1 };
     const tierOf = (p) => (TIER[p.status] != null ? TIER[p.status] : 2);
     const dist2 = (a, p) => { const dx = a.lat - p.latitude, dy = a.lng - p.longitude; return dx * dx + dy * dy; };
     const rem = routable
