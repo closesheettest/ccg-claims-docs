@@ -31,6 +31,21 @@ const FALLBACK_TYPES = [
 ];
 const UNKNOWN_TYPE = { color: "#64748b", label: "—", outcomes: [] };
 
+// Fields the map needs per pin (status_log is left out — heavy + unused here).
+const PIN_FIELDS = "id,name,address,city,state,zip,phone,email,latitude,longitude,status,status_by,status_updated_at,upload_id,notes,list_name,jn_job_id,extra,created_at";
+// Range-paginate a Supabase query (PostgREST returns ≤1000/request) up to `cap`.
+// `build` must return a FRESH query builder each call.
+async function sbFetchAll(build, cap) {
+  const out = [];
+  for (let from = 0; from < cap; from += 1000) {
+    const { data, error } = await build().range(from, from + 999);
+    if (error || !data || !data.length) break;
+    out.push(...data);
+    if (data.length < 1000) break;
+  }
+  return out;
+}
+
 // Gold star for installs (roofs we've already put on) — a read-only reference
 // layer every rep (junior + senior) sees. Distinct shape so it never reads as a
 // canvassing pin.
@@ -118,6 +133,7 @@ export default function CanvassMap() {
   const showAllRef = useRef(false);                    // moveend/load read this without a stale closure
   const loadRef = useRef(null);                        // latest load() for the map moveend handler
   const moveTimer = useRef(null);                      // debounce map moves
+  const authInfo = useRef(null);                       // {rep, pin_types} resolved once from the token
   const [fillOffer, setFillOffer] = useState(null);    // {available, need} when an IQ day is under a full 30 stops
   const [editingRoute, setEditingRoute] = useState(false); // route-trim sheet open
   const [signingStop, setSigningStop] = useState(null); // pin being signed in the intake tab
@@ -173,23 +189,52 @@ export default function CanvassMap() {
 
   // Load pins for a viewport (bounds). Without bounds → an initial global sample
   // so the map can fit to wherever the data is; after that, moves load by view.
+  //
+  // The data lives in Supabase (the JN sync writes it there), so the map reads it
+  // DIRECTLY from Supabase — paginating with range requests — instead of routing
+  // it through the harvest-pins function (which buffers into one response and hit
+  // Netlify's ~6MB limit at scale). The function is only used ONCE, for auth: it
+  // resolves the rep's level + pin types from their token.
   async function load(bounds) {
     setLoading(true);
     try {
-      let qs = auth.admin ? `admin=${encodeURIComponent(auth.admin)}` : `rt=${encodeURIComponent(auth.rt)}`;
-      if (showAllRef.current) qs += "&all=1";              // office overview — every pin, no viewport
-      else if (bounds) qs += `&n=${bounds.getNorth()}&s=${bounds.getSouth()}&e=${bounds.getEast()}&w=${bounds.getWest()}`;
-      const r = await fetch(`/.netlify/functions/harvest-pins?${qs}`);
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok || !j.ok) { setAuthError(j.error || "Couldn't load your Harvesting Map."); setLoading(false); return []; }
-      setAuthError("");
-      setMe(j.rep || null);
-      if (Array.isArray(j.pin_types) && j.pin_types.length) setPinTypes(j.pin_types);
-      setProspects(j.pins || []);
-      setInstalls(Array.isArray(j.installs) ? j.installs : []);
-      setCapped(!!j.capped);
+      // 1) Resolve auth/level once (tiny call).
+      if (!authInfo.current) {
+        const qs = auth.admin ? `admin=${encodeURIComponent(auth.admin)}` : `rt=${encodeURIComponent(auth.rt)}`;
+        const r = await fetch(`/.netlify/functions/harvest-pins?${qs}&authonly=1`);
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.ok) { setAuthError(j.error || "Couldn't load your Harvesting Map."); setLoading(false); return []; }
+        setAuthError("");
+        setMe(j.rep || null);
+        if (Array.isArray(j.pin_types) && j.pin_types.length) setPinTypes(j.pin_types);
+        authInfo.current = { rep: j.rep || {}, pin_types: j.pin_types || [] };
+      }
+      const { rep, pin_types } = authInfo.current;
+      const lvl = rep && rep.level;
+      // The pin-type keys this rep's LEVEL may see (same rule the function used).
+      const baseKeys = (pin_types || [])
+        .filter((t) => lvl === "admin" || !((t.visible_levels) || []).length || ((t.visible_levels) || []).includes(lvl))
+        .map((t) => t.key);
+      if (!baseKeys.length) { setProspects([]); setInstalls([]); setCapped(false); setLoading(false); return []; }
+
+      // 2) Pins + installs, straight from Supabase (range-paginated → no payload cap).
+      const showAll = showAllRef.current;
+      const CAP = showAll ? 40000 : bounds ? 6000 : 3000;
+      const box = (q) => (!showAll && bounds)
+        ? q.gte("latitude", bounds.getSouth()).lte("latitude", bounds.getNorth()).gte("longitude", bounds.getWest()).lte("longitude", bounds.getEast())
+        : q;
+      const pins = await sbFetchAll(() => box(
+        supabase.from("canvass_prospects").select(PIN_FIELDS).not("latitude", "is", null).in("status", baseKeys),
+      ).order("created_at", { ascending: false }), CAP);
+      const installs = await sbFetchAll(() => box(
+        supabase.from("installs").select("id,jnid,address_line,city,product_type,color,latitude,longitude").not("latitude", "is", null),
+      ).order("id"), CAP);
+
+      setProspects(pins);
+      setInstalls(installs);
+      setCapped(pins.length >= CAP || installs.length >= CAP);
       setLoading(false);
-      return j.pins || [];
+      return pins;
     } catch (e) { setAuthError(e.message || "Network error."); }
     setLoading(false);
     return [];

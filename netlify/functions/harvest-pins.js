@@ -76,6 +76,13 @@ export const handler = async (event) => {
   if (!level) return json(401, { ok: false, error: "This link isn't valid. Ask your manager for your Harvesting Map link." });
 
   const types = await sbGet(`harvest_pin_types?select=*&order=sort`).catch(() => []);
+
+  // authonly=1 → the map reads pins DIRECTLY from Supabase (no 6MB function
+  // payload limit); we only resolve the rep's level + pin types here.
+  if (/^(1|true|yes)$/i.test((p.authonly || "").trim())) {
+    return json(200, { ok: true, rep: { name: repName, level, jn_id: repJn, email: repEmail }, pin_types: types });
+  }
+
   const visible = (types || [])
     .filter((t) => level === "admin" || !(t.visible_levels || []).length || (t.visible_levels || []).includes(level))
     .map((t) => t.key);
