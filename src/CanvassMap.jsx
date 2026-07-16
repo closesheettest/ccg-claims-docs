@@ -256,10 +256,11 @@ export default function CanvassMap() {
     });
     // Viewport loading — reload the pins in view whenever the map settles (debounced).
     m.on("moveend", () => {
-      // Skip refetch when we already hold every pin, OR while a day is in
-      // progress (we loaded a wide radius up front — don't shrink it back to the
-      // current view and starve the route/next round).
-      if (showAllRef.current || activeDayRef.current) return;
+      // Skip refetch when we already hold every pin, while a day is in progress
+      // (we loaded a wide radius up front), OR before the initial full-sample load
+      // has fit the map — otherwise the default-view moveend races the first load
+      // and overwrites it with a tiny-box result.
+      if (showAllRef.current || activeDayRef.current || !fitted.current) return;
       clearTimeout(moveTimer.current);
       moveTimer.current = setTimeout(() => { if (loadRef.current) loadRef.current(m.getBounds()); }, 350);
     });
