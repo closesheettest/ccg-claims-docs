@@ -47,6 +47,7 @@ export default function SetterPortal({ Address }) {
   const [today, setToday] = useState(null);
   const [pushing, setPushing] = useState(null);   // setter_appointment id being re-pushed to JN
   const [spanishOnly, setSpanishOnly] = useState(false);
+  const [confirmDouble, setConfirmDouble] = useState(null); // {existing_iso,new_iso} when the homeowner already has an appt
 
   async function loadToday() {
     setToday(null);
@@ -82,7 +83,7 @@ export default function SetterPortal({ Address }) {
   useEffect(() => { supabase.from("app_settings").select("value").eq("key", "visit_token").maybeSingle().then(({ data }) => setToken(data?.value || "")); }, []);
   useEffect(() => { if (setter) localStorage.setItem("setter_name", setter); }, [setter]);
 
-  function reset() { setStage("search"); setPicked(null); setMatches(null); setShowNew(false); setForm({ first: "", last: "", mobile: "", email: "" }); setClient(null); setAvail(null); setChosen(null); setResult(null); setErr(""); }
+  function reset() { setStage("search"); setPicked(null); setMatches(null); setShowNew(false); setForm({ first: "", last: "", mobile: "", email: "" }); setClient(null); setAvail(null); setChosen(null); setResult(null); setErr(""); setConfirmDouble(null); }
 
   // Address picked from Google → search JobNimbus for an existing homeowner.
   async function onPick(p) {
@@ -117,19 +118,24 @@ export default function SetterPortal({ Address }) {
     loadAvail(picked);
   }
 
-  async function book() {
+  async function book(confirm) {
     if (!chosen) { setErr("Pick a time first."); return; }
     setBooking(true); setErr("");
     const payload = { token, setter_name: setter, appt_iso: chosen.iso, source, spanish_only: spanishOnly, lat: picked.lat, lng: picked.lng, county: picked.county, homeowner_name: client.name, address: picked.formatted || [picked.address, picked.city, picked.state, picked.zip].filter(Boolean).join(", "), phone: client.contact?.mobile || undefined };
     if (client.contact_id) payload.contact_id = client.contact_id; else payload.contact = client.contact;
+    if (confirm) payload.confirm = confirm;
     try {
       const r = await fetch(`${FN}/setter-book-appointment`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const o = await r.json();
+      // This homeowner already has an appointment → let the setter decide.
+      if (o.needs_confirm) { setConfirmDouble({ existing_iso: o.existing_iso, new_iso: o.new_iso }); setBooking(false); return; }
+      if (o.kept) { setConfirmDouble(null); setResult({ ...o, kept: true }); setStage("done"); setBooking(false); return; }
       if (!o.ok) { setErr(o.error || "Booking failed."); setBooking(false); return; }
-      setResult(o); setStage("done");
+      setConfirmDouble(null); setResult(o); setStage("done");
     } catch { setErr("Network error."); }
     setBooking(false);
   }
+  const fmtEt = (iso) => { try { return new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch { return iso; } };
 
   const wrap = { maxWidth: 560, margin: "0 auto", padding: "18px 14px 60px" };
   const header = (
@@ -199,9 +205,9 @@ export default function SetterPortal({ Address }) {
     <div style={wrap}>
       {header}
       <div style={{ ...C.card, textAlign: "center" }}>
-        <div style={{ fontSize: 40 }}>✅</div>
-        <div style={{ fontWeight: 900, fontSize: 18, color: "#166534", margin: "8px 0" }}>Appointment booked!</div>
-        <div style={{ fontSize: 14, color: "#334155" }}>{client?.name} — {chosen?.when}</div>
+        <div style={{ fontSize: 40 }}>{result.kept ? "👍" : "✅"}</div>
+        <div style={{ fontWeight: 900, fontSize: 18, color: "#166534", margin: "8px 0" }}>{result.kept ? "Kept their existing appointment" : "Appointment booked!"}</div>
+        <div style={{ fontSize: 14, color: "#334155" }}>{client?.name} — {result.kept ? fmtEt(result.existing_iso) : chosen?.when}</div>
         {result.reset && <div style={{ fontSize: 13, color: "#1d4ed8", marginTop: 6, fontWeight: 700 }}>↻ Reschedule — booked as a Reset Appointment (this was a No-Sit lead).</div>}
         {result.out_of_range && <div style={{ fontSize: 13, color: "#92400e", marginTop: 6 }}>⚠️ Outside rep range — a manager will assign a rep.</div>}
         {result.jn_ok === false && <div style={{ fontSize: 13, color: "#b91c1c", marginTop: 6, fontWeight: 700 }}>⚠️ Saved here, but the JobNimbus sync failed — it's in your "Today" list for a manager to repair.</div>}
@@ -272,10 +278,29 @@ export default function SetterPortal({ Address }) {
         </div>
 
         {err && <div style={{ color: "#dc2626", fontSize: 14, marginBottom: 10 }}>{err}</div>}
-        <button onClick={book} disabled={!chosen || booking}
+        <button onClick={() => book()} disabled={!chosen || booking}
           style={{ ...C.btn, width: "100%", background: chosen ? "#16a34a" : "#94a3b8", color: "#fff", cursor: chosen ? "pointer" : "not-allowed" }}>
           {booking ? "Booking…" : chosen ? `Book — ${chosen.when}` : "Pick a time"}
         </button>
+
+        {/* Already has an appointment → change it or keep it. */}
+        {confirmDouble && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.55)", zIndex: 4000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => !booking && setConfirmDouble(null)}>
+            <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: "20px 20px 18px", maxWidth: 420, width: "100%", boxShadow: "0 10px 40px rgba(0,0,0,.3)" }}>
+              <div style={{ fontWeight: 900, fontSize: 17, color: "#b45309", marginBottom: 6 }}>⚠️ Already has an appointment</div>
+              <div style={{ fontSize: 14, color: "#334155", lineHeight: 1.5, marginBottom: 14 }}>
+                <b>{client?.name || "This homeowner"}</b> already has an appointment:
+                <div style={{ margin: "8px 0", padding: "8px 12px", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 10, fontWeight: 800, color: "#92400e" }}>📅 {fmtEt(confirmDouble.existing_iso)}</div>
+                Change it to the new time, or keep the one they have?
+                <div style={{ margin: "8px 0 0", padding: "8px 12px", background: "#ecfdf5", border: "1px solid #86efac", borderRadius: 10, fontWeight: 800, color: "#065f46" }}>🆕 {fmtEt(confirmDouble.new_iso)}</div>
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button onClick={() => book("reschedule")} disabled={booking} style={{ ...C.btn, flex: 1, background: "#16a34a", color: "#fff" }}>{booking ? "…" : "Change to new time"}</button>
+                <button onClick={() => book("keep")} disabled={booking} style={{ ...C.btn, flex: 1, background: "#f1f5f9", color: "#334155" }}>Keep existing</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

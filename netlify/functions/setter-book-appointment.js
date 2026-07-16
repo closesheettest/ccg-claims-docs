@@ -184,6 +184,21 @@ exports.handler = async (event) => {
       }
       if (!contactId) throw new Error("contact create failed");
     }
+    // ── Prompt before double-booking ─────────────────────────────────────────
+    // If this homeowner already has an UPCOMING appointment, don't silently
+    // change it — ask the setter. (No-Sit reschedules already ARE a reschedule,
+    // so skip the prompt there.) The setter's choice comes back as `confirm`:
+    //   'reschedule' → move it to the new time · 'keep' → leave it as-is.
+    const confirm = String(body.confirm || "").toLowerCase();
+    if (!isReset && confirm !== "reschedule") {
+      const ex = await findExistingAppt(contactId);
+      if (ex && ex.apptSec) {
+        if (confirm === "keep") {
+          return cors(200, JSON.stringify({ ok: true, kept: true, existing_iso: new Date(ex.apptSec * 1000).toISOString(), job_id: ex.jobId }));
+        }
+        return cors(200, JSON.stringify({ ok: false, needs_confirm: true, existing_iso: new Date(ex.apptSec * 1000).toISOString(), new_iso: body.appt_iso, job_id: ex.jobId }));
+      }
+    }
     // 2. Job — RESET the existing No-Sit deal in place, or create a new retail Lead.
     if (isReset && jobId) {
       await jnPut(`jobs/${jobId}`, { status: APPT_STATUS, status_name: APPT_STATUS_NAME, sales_rep: repId || undefined, owners: [{ id: owner }], cf_string_8: setterShort });
@@ -359,6 +374,32 @@ async function jnPost(path, payload) {
   const txt = await r.text();
   if (!r.ok) throw new Error(`JN ${path} ${r.status}: ${txt.slice(0, 200)}`);
   try { return JSON.parse(txt); } catch { return {}; }
+}
+// Does this homeowner already have an UPCOMING appointment? Scans their most
+// recent jobs for a non-completed Initial/Reset Appointment task dated now-or-
+// later. Returns { jobId, apptSec } of the soonest one, or null.
+async function findExistingAppt(contactId) {
+  try {
+    const jf = encodeURIComponent(JSON.stringify({ must: [{ term: { "primary.id": contactId } }] }));
+    const jr = await fetch(`${JN_BASE}/jobs?size=5&sort=-date_created&filter=${jf}`, { headers: jnH });
+    if (!jr.ok) return null;
+    const jobs = ((await jr.json().catch(() => ({}))).results || []).slice(0, 3);
+    const nowSec = Math.floor(Date.now() / 1000);
+    let best = null;
+    for (const j of jobs) {
+      const jid = j.jnid || j.id;
+      const tf = encodeURIComponent(JSON.stringify({ must: [{ term: { "related.id": jid } }] }));
+      const tr = await fetch(`${JN_BASE}/tasks?size=20&filter=${tf}`, { headers: jnH });
+      if (!tr.ok) continue;
+      const appts = ((await tr.json().catch(() => ({}))).results || [])
+        .filter((t) => /appointment/i.test(t.record_type_name || "") && !t.is_completed && Number(t.date_start) >= nowSec);
+      for (const t of appts) {
+        const sec = Number(t.date_start);
+        if (!best || sec < best.apptSec) best = { jobId: jid, apptSec: sec };
+      }
+    }
+    return best;
+  } catch { return null; }
 }
 // Most-recent JN job attached to a contact — used to REUSE an existing job when
 // JN rejects a new one as a duplicate name (the homeowner already has a job).
