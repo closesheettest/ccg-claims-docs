@@ -32,7 +32,14 @@ const FALLBACK_TYPES = [
 const UNKNOWN_TYPE = { color: "#64748b", label: "—", outcomes: [] };
 
 // Fields the map needs per pin (status_log is left out — heavy + unused here).
-const PIN_FIELDS = "id,name,address,city,state,zip,phone,email,latitude,longitude,status,status_by,status_updated_at,upload_id,notes,list_name,jn_job_id,extra,created_at";
+// LITE = everything needed to PLACE a pin + drive the route/actions (identity,
+// contact, geo, status). Deliberately drops the heavy fields — chiefly `extra`
+// (the whole CSV row as JSON, ~340KB of a 790KB viewport) plus notes/metadata —
+// so a 6000-pin viewport ships ~260KB instead of ~790KB (≈3× faster to load).
+const PIN_FIELDS_LITE = "id,name,address,city,state,zip,phone,email,latitude,longitude,status,jn_job_id";
+// The rest, fetched for ONE pin on demand (click / before an action) so the
+// detail sheet + booking prefill (extra.phone, extra.orig_appt_sec) still work.
+const PIN_DETAIL_FIELDS = "id,notes,extra,list_name,status_updated_at,status_by,upload_id,created_at";
 // Range-paginate a Supabase query (PostgREST returns ≤1000/request) up to `cap`.
 // `build` must return a FRESH query builder each call. Fetches page 0 first, then
 // — only if the result spans more pages — pulls the rest CONCURRENTLY (in fan-out
@@ -240,7 +247,7 @@ export default function CanvassMap() {
       // sort a large result set and TIMES OUT once the table is big (200k+ pins).
       // Un-ordered returns in-bounds rows fast; the map doesn't need them sorted.
       const pins = await sbFetchAll(() => box(
-        supabase.from("canvass_prospects").select(PIN_FIELDS).not("latitude", "is", null).in("status", baseKeys),
+        supabase.from("canvass_prospects").select(PIN_FIELDS_LITE).not("latitude", "is", null).in("status", baseKeys),
       ), CAP);
       const installs = await sbFetchAll(() => box(
         supabase.from("installs").select("id,jnid,address_line,city,product_type,color,latitude,longitude").not("latitude", "is", null),
@@ -323,7 +330,7 @@ export default function CanvassMap() {
     for (const p of shown) {
       const color = (S[p.status] || UNKNOWN_TYPE).color;
       const marker = L.marker([p.latitude, p.longitude], { icon: dotIcon(color) });
-      marker.on("click", () => { setSelectedInstall(null); setSelected(p); });
+      marker.on("click", () => openPin(p));
       markers.push(marker);
       pts.push([p.latitude, p.longitude]);
     }
@@ -460,7 +467,7 @@ export default function CanvassMap() {
         html: `<div style="width:24px;height:24px;border-radius:50%;background:${bg};color:${fg};border:2px solid #16a34a;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;box-shadow:0 1px 3px rgba(0,0,0,.4)">${i + 1}</div>`,
         iconSize: [24, 24], iconAnchor: [12, 12],
       });
-      L.marker([p.latitude, p.longitude], { icon, zIndexOffset: 1000 }).on("click", () => { setSelectedInstall(null); setSelected(p); }).addTo(lyr);
+      L.marker([p.latitude, p.longitude], { icon, zIndexOffset: 1000 }).on("click", () => openPin(p)).addTo(lyr);
     });
   }, [dayMode, route, stopIdx, startPt]);
 
@@ -513,7 +520,7 @@ export default function CanvassMap() {
     // when few are inside the tighter route-loading box.
     const FR = 0.8;
     fillPoolRef.current = await sbFetchAll(() =>
-      supabase.from("canvass_prospects").select(PIN_FIELDS)
+      supabase.from("canvass_prospects").select(PIN_FIELDS_LITE)
         .eq("status", "no_sit_reschedule").not("latitude", "is", null)
         .gte("latitude", pt.lat - FR).lte("latitude", pt.lat + FR)
         .gte("longitude", pt.lng - FR).lte("longitude", pt.lng + FR),
@@ -584,6 +591,26 @@ export default function CanvassMap() {
       return ni;
     });
   }
+  // Pins load LITE (no notes/extra/metadata). Pull the rest for ONE pin the
+  // moment it's needed — clicked open, or about to be signed / booked — so the
+  // detail sheet + booking prefill (extra.phone, extra.orig_appt_sec) work. Merges
+  // into the in-memory list too, so a second open is instant. Never blocks the UI.
+  async function hydratePin(pin) {
+    if (!pin || pin._hydrated) return pin;
+    try {
+      const { data } = await supabase.from("canvass_prospects").select(PIN_DETAIL_FIELDS).eq("id", pin.id).single();
+      const merged = { ...pin, ...(data || {}), _hydrated: true };
+      setProspects((list) => list.map((x) => (x.id === pin.id ? { ...x, ...(data || {}), _hydrated: true } : x)));
+      return merged;
+    } catch { return { ...pin, _hydrated: true }; }
+  }
+  // Open a pin's detail sheet: show it instantly with the LITE data, then fill in
+  // notes/extra/etc. once hydrated.
+  function openPin(p) {
+    setSelectedInstall(null);
+    setSelected(p);
+    hydratePin(p).then((full) => setSelected((s) => (s && s.id === p.id ? { ...s, ...full } : s)));
+  }
   // Work the current stop right from the panel: log the visit, apply the outcome
   // (status / not-home / book appt), then move to the next stop — no window to close.
   async function workStop(outcome) {
@@ -591,7 +618,7 @@ export default function CanvassMap() {
     if (!stop) return;
     // Real leads: "Appt" opens the booking flow (creates the JobNimbus appt).
     // Test pins have no real homeowner/job, so their "Appt" just sets the status.
-    if (outcome === "appt" && stop.status !== "test") { setApptPin(stop); return; }
+    if (outcome === "appt" && stop.status !== "test") { setApptPin(await hydratePin(stop)); return; }
     logActivity({ pin_id: stop.id, kind: "visit", to_status: outcome === "nothome" ? "not_home" : outcome });
     if (outcome !== "nothome") {
       const ok = await setStatus(stop, outcome);
