@@ -124,6 +124,12 @@ async function buildSlots(days, home, apptZone, onlyPaId, homeLang) {
   // works even before the scheduling_paused column exists (then: none paused).
   const pausedCompany = new Set();
   for (const c of await sbGet(`pa_companies?scheduling_paused=eq.true&select=id&limit=500`)) pausedCompany.add(c.id);
+  // Individual PAs paused from NEW appointments (e.g. Chad Warren) — they stay
+  // active so they keep working their existing deals, they just aren't offered
+  // for new bookings. Tolerant query so this works before the pas.scheduling_paused
+  // column exists (then: none paused).
+  const pausedPa = new Set();
+  try { for (const p of await sbGet(`pas?scheduling_paused=eq.true&select=id&limit=500`)) pausedPa.add(p.id); } catch { /* column not added yet */ }
 
   // Blocked designated slots per PA (absence = available). Key: "weekday:startMin".
   const blocks = await sbGet(`pa_slot_blocks?select=pa_id,weekday,start_min&limit=20000`);
@@ -173,6 +179,9 @@ async function buildSlots(days, home, apptZone, onlyPaId, homeLang) {
       // (onlyPaId) must still see their slots to set/reschedule the homeowner —
       // same self-service exemption the distance/language gates below apply.
       if (!onlyPaId && pausedCompany.has(pa.pa_company_id)) continue;
+      // This individual PA is paused from new appointments (still works their own
+      // deals via onlyPaId, which skips this gate).
+      if (!onlyPaId && pausedPa.has(pa.id)) continue;
       // Language match — the rep booker only offers PAs who speak the
       // homeowner's language (skipped for a PA scheduling their OWN deal).
       if (homeLang && !onlyPaId) {

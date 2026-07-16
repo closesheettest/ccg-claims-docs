@@ -60,13 +60,17 @@ export const handler = async (event) => {
   const pausedIds = new Set();
   try { for (const c of (await get(`${SB_URL}/rest/v1/pa_companies?scheduling_paused=eq.true&select=id`, sb)) || []) pausedIds.add(c.id); } catch { /* column not added yet */ }
   for (const c of companies) { companyName[c.id] = c.name; if (!pausedIds.has(c.id)) activeCompanyIds.add(c.id); }
+  // Individual PAs paused from new appointments (e.g. Chad Warren) — no new deals
+  // route to them either. Tolerant query so it works before the column exists.
+  const pausedPa = new Set();
+  try { for (const p of (await get(`${SB_URL}/rest/v1/pas?scheduling_paused=eq.true&select=id`, sb)) || []) pausedPa.add(p.id); } catch { /* column not added yet */ }
 
   // 2. Build targets — one per active company (weight = its active-PA count)
   //    + one per independent active PA. PAs in an INACTIVE company are skipped
   //    (deactivating a company pauses its intake).
-  const independents = pas.filter((p) => !p.pa_company_id);
+  const independents = pas.filter((p) => !p.pa_company_id && !pausedPa.has(p.id));
   const companyPaCount = {};
-  for (const p of pas) if (p.pa_company_id && activeCompanyIds.has(p.pa_company_id)) {
+  for (const p of pas) if (p.pa_company_id && activeCompanyIds.has(p.pa_company_id) && !pausedPa.has(p.id)) {
     companyPaCount[p.pa_company_id] = (companyPaCount[p.pa_company_id] || 0) + 1;
   }
   const targets = [];
