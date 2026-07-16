@@ -143,6 +143,7 @@ export default function CanvassMap() {
   const watchRef = useRef(null);
   const choosingRef = useRef(false);                   // map-click reads this (avoid stale closure)
   const activeDayRef = useRef(false);                  // day in progress → don't reload pins on map move
+  const fillPoolRef = useRef([]);                      // wide no-sit pool (fetched on start) to fill a short day
   const shownRef = useRef([]);                         // current on-screen prospects, for routing
   const startFromRef = useRef(null);
   const S = useMemo(() => Object.fromEntries(pinTypes.map((t) => [t.key, t])), [pinTypes]);
@@ -491,6 +492,17 @@ export default function CanvassMap() {
     // Round 1's stops ARE the day's working set — later rounds only recycle these.
     workingRef.current = new Set(r.map((p) => p.id));
     setStartPt(pt); setRoute(r); setStopIdx(0); setRound(1); setResolvedIds(new Set()); setDayMode("active");
+    // Fill pool: pull a WIDE (~55 mi) net of No-sit-reschedule pins around the
+    // start straight from Supabase — so an IQ day can fill up with no-sits even
+    // when few are inside the tighter route-loading box.
+    const FR = 0.8;
+    fillPoolRef.current = await sbFetchAll(() =>
+      supabase.from("canvass_prospects").select(PIN_FIELDS)
+        .eq("status", "no_sit_reschedule").not("latitude", "is", null)
+        .gte("latitude", pt.lat - FR).lte("latitude", pt.lat + FR)
+        .gte("longitude", pt.lng - FR).lte("longitude", pt.lng + FR),
+      4000,
+    ).catch(() => []);
     // An IQ day that came up short of a full 30 stops isn't a full effort — offer
     // to top it up with No-sit-reschedule visits (their other go-back work).
     const iqDay = pool.length > 0 && pool.filter((p) => p.status === "iq").length >= pool.length / 2;
@@ -500,11 +512,12 @@ export default function CanvassMap() {
     } else setFillOffer(null);
     if (map.current) map.current.setView([r[0].latitude, r[0].longitude], 15);
   }
-  // No-sit-reschedule pins we could add to a short day (loaded, visible, not already
-  // in the given route). Used both to decide whether to offer and to build the top-up.
+  // No-sit-reschedule pins we could add to a short day (from the wide fill pool if
+  // loaded, else whatever's on the map), visible + not already in the given route.
   function availableFill(routePins) {
     const routed = new Set((routePins || route).map((p) => p.id));
-    return mapped.filter((p) => p.status === "no_sit_reschedule" && !routed.has(p.id)
+    const src = (fillPoolRef.current && fillPoolRef.current.length) ? fillPoolRef.current : mapped;
+    return src.filter((p) => p.status === "no_sit_reschedule" && !routed.has(p.id)
       && typeof p.latitude === "number" && (!visKeys || visKeys.has(p.status)));
   }
   // Top up the current day with the nearest No-sit-reschedule visits, up to 30 total.
@@ -516,6 +529,13 @@ export default function CanvassMap() {
     if (!add.length) { setFillOffer(null); return; }
     add.forEach((p) => workingRef.current.add(p.id));
     setRoute((cur) => [...cur, ...add]);
+    // Some fill pins came from the WIDE pool (beyond the loaded map area) — merge
+    // them into prospects so they render as pins + get shownRef for later rounds.
+    setProspects((cur) => {
+      const have = new Set(cur.map((p) => p.id));
+      const extra = add.filter((p) => !have.has(p.id));
+      return extra.length ? [...cur, ...extra] : cur;
+    });
     setFillOffer(null);
   }
   // Of the original routed pins, how many are still un-statused (i.e. left to work).
