@@ -22,7 +22,11 @@ const FALLBACK_TYPES = [
   { key: "appt", label: "Appointment", color: "#16a34a", outcomes: ["no_sit_reschedule", "new_roof"] },
   { key: "no_sit_reschedule", label: "No sit – need to reschedule", color: "#dc2626", outcomes: ["appt", "dead", "new_roof"] },
   { key: "iq_ni", label: "IQ – Not Interested", color: "#f59e0b", outcomes: ["insp_sold", "dead", "new_roof"] },
-  { key: "insp", label: "Inspection Lead", color: "#0ea5e9", outcomes: ["insp_sold", "insp_ni", "dead", "new_roof"] },
+  { key: "insp", label: "Inspection Lead", color: "#0ea5e9", outcomes: ["insp_sold", "insp_ni", "insp_callback", "dead", "new_roof"] },
+  // "Pending (come back)" — statuses the door but KEEPS it on the go-back list
+  // (see KEEP_ROUTABLE); a rep can note "talked to them, come back" without it
+  // dropping off their route for the day.
+  { key: "insp_callback", label: "⏳ Pending (come back)", color: "#eab308", outcomes: ["insp_sold", "insp_ni", "insp_callback", "dead", "new_roof"] },
   { key: "insp_ni", label: "Not Interested", color: "#78716c", outcomes: [], is_terminal: true },
   { key: "insp_pending", label: "Pending signature", color: "#ea580c", outcomes: ["insp_sold", "dead"] },
   { key: "insp_sold", label: "Inspection Sold", color: "#7c3aed", outcomes: [], is_terminal: true },
@@ -30,6 +34,9 @@ const FALLBACK_TYPES = [
   { key: "dead", label: "Dead / DNK", color: "#111827", outcomes: [], is_terminal: true },
 ];
 const UNKNOWN_TYPE = { color: "#64748b", label: "—", outcomes: [] };
+// Statuses that RECORD an outcome but keep the door on the go-back list (not
+// "resolved") — so a rep can mark it and still return to it later the same day.
+const KEEP_ROUTABLE = new Set(["insp_callback"]);
 
 // Fields the map needs per pin (status_log is left out — heavy + unused here).
 // LITE = everything needed to PLACE a pin + drive the route/actions (identity,
@@ -538,7 +545,8 @@ export default function CanvassMap() {
     const { error } = await supabase.from("canvass_prospects").update(patch).eq("id", p.id);
     if (error) { alert(error.message); return false; }
     logActivity({ pin_id: p.id, kind: "status", from_status: p.status, to_status: newStatus });
-    setResolvedIds((s) => new Set(s).add(p.id)); // statused → drops out of later rounds
+    // "Pending (come back)" records the status but stays on the go-back list.
+    if (!KEEP_ROUTABLE.has(newStatus)) setResolvedIds((s) => new Set(s).add(p.id)); // statused → drops out of later rounds
     setProspects((list) => list.map((x) => (x.id === p.id ? { ...x, ...patch } : x)));
     setSelected((s) => (s && s.id === p.id ? { ...s, ...patch } : s));
     return true;
@@ -766,10 +774,20 @@ export default function CanvassMap() {
   function remainingCount() {
     return [...workingRef.current].filter((id) => !resolvedIds.has(id)).length;
   }
-  // Next round: re-route the ORIGINAL routed pins that haven't been statused yet,
-  // from where the rep is now. 30 → (minus statused) 25 → … until all are statused.
+  // Pins available to re-route today = every loaded pin PLUS the current route
+  // stops. The route stops matter because a "Pending (come back)" door changes
+  // status and the chip filter would drop it from shownRef — but it must stay on
+  // the go-back list. Deduped by id; the loaded (freshest) copy wins.
+  function dayPoolPins() {
+    const m = new Map();
+    for (const p of [...route, ...(mapped || [])]) if (p && p.id != null && typeof p.latitude === "number") m.set(p.id, p);
+    return [...m.values()];
+  }
+  // Next round: re-route the ORIGINAL routed pins that haven't been RESOLVED yet
+  // (Pending doors stay in), from where the rep is now. 30 → (minus resolved)
+  // 25 → … until every door has a final outcome.
   function nextRound() {
-    const left = (shownRef.current || []).filter((p) => workingRef.current.has(p.id) && !resolvedIds.has(p.id) && typeof p.latitude === "number");
+    const left = dayPoolPins().filter((p) => workingRef.current.has(p.id) && !resolvedIds.has(p.id));
     if (!left.length) return; // all statused — the done panel shows "all worked"
     const from = myLoc || (route.length ? { lat: route[route.length - 1].latitude, lng: route[route.length - 1].longitude } : startPt);
     const r = buildRoute(from, left, routeCap(left));
@@ -1096,7 +1114,7 @@ export default function CanvassMap() {
             ? { left: panelPos.left, top: panelPos.top }
             : { right: 10, bottom: 14 };
           const left = done ? remainingCount() : 0;
-          const leftPins = done ? (shownRef.current || []).filter((p) => workingRef.current.has(p.id) && !resolvedIds.has(p.id)) : [];
+          const leftPins = done ? dayPoolPins().filter((p) => workingRef.current.has(p.id) && !resolvedIds.has(p.id)) : [];
           return (
             <div data-daypanel style={{ position: "absolute", ...posStyle, zIndex: 600, background: "#fff", borderRadius: 14, boxShadow: "0 4px 18px rgba(0,0,0,.2)", width: "min(340px, 88%)", overflow: "hidden" }}>
               {/* Drag handle so it never blocks the map */}
