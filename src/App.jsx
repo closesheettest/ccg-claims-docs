@@ -254,7 +254,7 @@ const loadGooglePlaces = () => {
 // Lock-down: the new element handles its own input, so the only way to
 // commit data to the parent is by selecting from the dropdown. Free-typed
 // text without a selection never makes it through.
-function AddressAutocomplete({ value, onChange, onPlaceSelected, placeholder, style, errorBorder, id }) {
+function AddressAutocomplete({ value, onChange, onPlaceSelected, placeholder, style, errorBorder, id, confirmPrefill }) {
   const wrapperRef = React.useRef(null);
   const elementRef = React.useRef(null);
   const [verified, setVerified] = React.useState(false);
@@ -262,12 +262,18 @@ function AddressAutocomplete({ value, onChange, onPlaceSelected, placeholder, st
   const [ready, setReady] = React.useState(false);
   // True when the rep picked a city/region-only suggestion (no street).
   const [streetMissing, setStreetMissing] = React.useState(false);
+  // confirmPrefill: when the address arrives already known (e.g. a Harvesting-Map
+  // pin's "Sign Inspection"), show it as a confirmed value and DON'T mount the
+  // Google typeahead — so a known, geocoded address can't get mangled by an
+  // accidental re-lookup. The rep taps "Change" only if it's actually wrong.
+  const [editing, setEditing] = React.useState(!(confirmPrefill && value));
 
   React.useEffect(() => {
+    if (!editing || elementRef.current) return; // confirmed mode → don't mount the typeahead
     let mounted = true;
     loadGooglePlaces()
       .then(async (google) => {
-        if (!mounted || !wrapperRef.current) return;
+        if (!mounted || !wrapperRef.current || elementRef.current) return;
 
         // Create the new element. PlaceAutocompleteElement is a custom HTML
         // element (Web Component) — we just append it to our wrapper div.
@@ -328,13 +334,14 @@ function AddressAutocomplete({ value, onChange, onPlaceSelected, placeholder, st
         console.error("Google Places load error:", e);
         if (mounted) setLoadError(e.message || "Could not load address autocomplete");
       });
-    return () => {
-      mounted = false;
-      if (elementRef.current && elementRef.current.parentNode) {
-        elementRef.current.parentNode.removeChild(elementRef.current);
-      }
-    };
+    return () => { mounted = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
+  // Remove the Google element on full unmount.
+  React.useEffect(() => () => {
+    if (elementRef.current && elementRef.current.parentNode) {
+      elementRef.current.parentNode.removeChild(elementRef.current);
+    }
   }, []);
 
   // Keep the element's input value in sync with our React state when the
@@ -383,6 +390,15 @@ function AddressAutocomplete({ value, onChange, onPlaceSelected, placeholder, st
             ⚠️ {loadError}
           </div>
         </>
+      ) : confirmPrefill && value && !editing ? (
+        // Known address (prefilled from a map pin) — show it confirmed, no typeahead.
+        <div style={{ display: "flex", alignItems: "center", gap: 10, border: "2px solid #199c2e", borderRadius: 14, background: "#f0fdf4", padding: "0 12px", minHeight: 44, boxSizing: "border-box", ...(style || {}) }}>
+          <span style={{ fontSize: 14, color: "#14532d", fontWeight: 700, fontFamily: "'Nunito', sans-serif", flex: 1 }}>✓ {value}</span>
+          <button type="button" onClick={() => setEditing(true)}
+            style={{ background: "#fff", border: "1px solid #86efac", color: "#166534", borderRadius: 8, padding: "5px 10px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "'Nunito', sans-serif" }}>
+            Change
+          </button>
+        </div>
       ) : (
         <>
           {/* Google's PlaceAutocompleteElement is appended into this wrapper at runtime */}
@@ -4047,6 +4063,7 @@ function GuidedIntakeFlow({
               to mistype the city / mismatch the state / miss the zip. */}
           <AddressAutocomplete
             value={data.address || ""}
+            confirmPrefill
             onChange={(v) => update({ address: v })}
             onPlaceSelected={({ address, city, state, zip }) => {
               update({
@@ -14536,6 +14553,7 @@ if (!hasDamage) {
                       <Label>Address</Label>
                       <AddressAutocomplete
                         value={data.address}
+                        confirmPrefill
                         onChange={(v) => update("address", v)}
                         onPlaceSelected={({ address, city, state, zip }) => {
                           // Fill all 4 fields atomically
