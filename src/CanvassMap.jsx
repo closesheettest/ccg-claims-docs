@@ -237,7 +237,14 @@ export default function CanvassMap() {
       // so the map centers on the data instead of racing the marker effect.
       if (!bounds && map.current && !fitted.current) {
         const pts = pins.filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number").map((p) => [p.latitude, p.longitude]);
-        if (pts.length) { try { map.current.fitBounds(pts, { padding: [40, 40], maxZoom: 13 }); } catch { /* ignore */ } fitted.current = true; }
+        if (pts.length) {
+          fitted.current = true;
+          // Make sure Leaflet knows its real container size before fitting, else
+          // it fits to a stale/tiny viewport. Do it now + next frame to be safe.
+          const doFit = () => { try { map.current.invalidateSize(); map.current.fitBounds(pts, { padding: [40, 40], maxZoom: 13 }); } catch { /* ignore */ } };
+          doFit();
+          setTimeout(doFit, 250);
+        }
       }
       setLoading(false);
       return pins;
