@@ -149,6 +149,23 @@ export const handler = async (event) => {
     consent_at: audit.consentAt || signedAt,
   });
 
+  // 5b. Harvesting-Map handoff: this remote signing came from a map pin (marked
+  // "Pending signature" when the link was sent). Now that it's signed and in
+  // JobNimbus, flip that pin to Inspection Sold and log it for the rep report.
+  if (p.harvest_pin) {
+    try {
+      const nowIso = new Date().toISOString();
+      await fetch(`${SB_URL}/rest/v1/canvass_prospects?id=eq.${encodeURIComponent(p.harvest_pin)}`, {
+        method: "PATCH", headers: { ...sb, Prefer: "return=minimal" },
+        body: JSON.stringify({ status: "insp_sold", status_updated_at: nowIso, status_by: p.sales_rep_name || "remote-sign" }),
+      });
+      await fetch(`${SB_URL}/rest/v1/canvass_activity`, {
+        method: "POST", headers: { ...sb, Prefer: "return=minimal" },
+        body: JSON.stringify({ pin_id: p.harvest_pin, rep_name: p.sales_rep_name || null, kind: "status", from_status: "insp_pending", to_status: "insp_sold" }),
+      }).catch(() => {});
+    } catch { /* non-fatal — the pin just stays Pending until a manual update */ }
+  }
+
   // 6. Notify the rep (SMS) + ops (activity email).
   const addr = [p.address, p.city, p.state, p.zip].filter(Boolean).join(", ");
   if (p.sales_rep_id) {

@@ -21,6 +21,7 @@ const FALLBACK_TYPES = [
   { key: "no_sit_reschedule", label: "No sit – need to reschedule", color: "#dc2626", outcomes: ["appt", "dead"] },
   { key: "iq_ni", label: "IQ – Not Interested", color: "#f59e0b", outcomes: ["insp_sold", "dead"] },
   { key: "insp", label: "Inspection Lead", color: "#0ea5e9", outcomes: ["insp_sold", "dead"] },
+  { key: "insp_pending", label: "Pending signature", color: "#ea580c", outcomes: ["insp_sold", "dead"] },
   { key: "insp_sold", label: "Inspection Sold", color: "#7c3aed", outcomes: [], is_terminal: true },
   { key: "dead", label: "Dead / DNK", color: "#111827", outcomes: [], is_terminal: true },
 ];
@@ -273,19 +274,21 @@ export default function CanvassMap() {
   // That 'storage' event fires in THIS tab (a different one) → advance instantly.
   // Fallback: when the rep switches back to the map, re-check the pin in the DB.
   useEffect(() => {
-    const onSigned = (stop) => completeSignRef.current && completeSignRef.current(stop);
+    const onSigned = (stop, status) => completeSignRef.current && completeSignRef.current(stop, status);
     const onStorage = (e) => {
       if (e.key !== "harvest_signed" || !e.newValue) return;
       let sig; try { sig = JSON.parse(e.newValue); } catch { return; }
       const st = signingStopRef.current;
-      if (st && sig && String(sig.id) === String(st.id)) onSigned(st);
+      if (st && sig && String(sig.id) === String(st.id)) onSigned(st, sig.status || "insp_sold");
     };
     const onFocus = async () => {
       const st = signingStopRef.current;
       if (!st) return;
       try {
         const { data } = await supabase.from("canvass_prospects").select("status").eq("id", st.id).single();
-        if (data?.status === "insp_sold") onSigned(st);
+        // Signed on the spot / homeowner signed (sold) OR remote link sent (pending)
+        // — either way the rep is done here; advance with whatever the pin now is.
+        if (data?.status === "insp_sold" || data?.status === "insp_pending") onSigned(st, data.status);
       } catch { /* ignore */ }
     };
     window.addEventListener("storage", onStorage);
@@ -462,12 +465,14 @@ export default function CanvassMap() {
     setSigningStop(stop);
     window.open(`/?${p.toString()}`, "_blank", "noopener");
   }
-  // The intake signed this pin (cross-tab signal or focus re-check): reflect it here
-  // — mark sold locally, drop it from later rounds, and advance to the next stop.
-  function completeSign(stop) {
+  // The intake resolved this pin (cross-tab signal or focus re-check): reflect it
+  // here. status is "insp_sold" (signed on the spot / homeowner signed) or
+  // "insp_pending" (remote link sent, awaiting their signature). Either way the
+  // rep is done at this door — drop it from later rounds and advance the route.
+  function completeSign(stop, status = "insp_sold") {
     if (!stop) return;
     setResolvedIds((s) => new Set(s).add(stop.id));
-    setProspects((list) => list.map((x) => (x.id === stop.id ? { ...x, status: "insp_sold" } : x)));
+    setProspects((list) => list.map((x) => (x.id === stop.id ? { ...x, status } : x)));
     setSigningStop(null);
     // Only advance the route if this pin is the stop we're currently on.
     if (route[stopIdx] && route[stopIdx].id === stop.id) advanceStop();

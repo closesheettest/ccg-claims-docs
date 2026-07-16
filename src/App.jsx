@@ -12376,12 +12376,24 @@ const renderSmsTemplate = (key, vars) => {
               date: data.date || "", roof_type: data.roof_type || "Shingle", lead_source: data.leadSource || "Inspection",
               spanish_only: !!data.spanish_only, language: data.language || "english", sales_rep_name: data.salesRepName || "", sales_rep_id: data.salesRepId || "", sales_rep_email: data.salesRepEmail || "",
               review_availability: reviewAvail || "", document_version: "insp-v1", mode: codeDelivery, sandbox: isTraining,
+              harvest_pin: harvestPinId || "",
             } }),
           });
           const j = await r.json().catch(() => ({}));
           setIsSubmitting(false);
           setPendingSend(false);
           if (!r.ok || !j.ok) { alert(j.error || "Could not send the signing link — check the phone/email and try again."); return; }
+          // Harvesting-Map handoff: the link is out but not signed yet. Mark the
+          // pin "Pending signature" and ping the map so the rep advances to the
+          // next stop — finalize-remote-signing flips it to Sold when they sign.
+          if (harvestPinId) {
+            try {
+              await supabase.from("canvass_prospects")
+                .update({ status: "insp_pending", status_updated_at: new Date().toISOString(), status_by: data.salesRepName || "sign-inspection" })
+                .eq("id", harvestPinId);
+              try { localStorage.setItem("harvest_signed", JSON.stringify({ id: harvestPinId, status: "insp_pending", at: Date.now() })); } catch { /* ignore */ }
+            } catch (e) { console.warn("Harvest pin pending update non-fatal:", e); }
+          }
           const channels = (j.sent || []).map((c) => (c === "sms" ? "text" : c)).join(" & ") || "link";
           // Always keep the direct link so the confirmation screen can show a QR
           // code + Copy button — the dependable in-person path that doesn't rely
@@ -12861,7 +12873,7 @@ const renderSmsTemplate = (key, vars) => {
           supabase.from("canvass_activity")
             .insert({ pin_id: harvestPinId, rep_name: data.salesRepName || null, kind: "status", from_status: "insp", to_status: "insp_sold" })
             .then(() => {}, () => {});
-          try { localStorage.setItem("harvest_signed", JSON.stringify({ id: harvestPinId, at: Date.now() })); } catch { /* ignore */ }
+          try { localStorage.setItem("harvest_signed", JSON.stringify({ id: harvestPinId, status: "insp_sold", at: Date.now() })); } catch { /* ignore */ }
         } catch (e) { console.warn("Harvest pin update non-fatal:", e); }
       }
 

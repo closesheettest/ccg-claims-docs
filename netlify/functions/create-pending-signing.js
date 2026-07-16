@@ -78,6 +78,10 @@ export const handler = async (event) => {
     delivery_mode: deliveryMode,
     sandbox: !!d.sandbox,   // training/practice run → never becomes a real deal
 
+    // Harvesting-Map handoff: the pin this signing came from (if any), so
+    // finalize can flip it Inspection Sold once the homeowner signs.
+    harvest_pin: (d.harvest_pin || "").trim() || null,
+
     prepared_by_rep_name: (d.sales_rep_name || "").trim() || null,
     prepared_at: nowIso,
     expires_at: new Date(Date.now() + EXPIRY_MS).toISOString(),
