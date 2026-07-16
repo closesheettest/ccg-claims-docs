@@ -1530,6 +1530,11 @@ function PARow({ pa, companies = [], busy, onToggle, onResend, onUpdate, onDelet
             <div style={{ fontWeight: 700, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <span>{pa.name}</span>
               {!pa.active && <span style={{ fontSize: 10, color: "#6b7280" }}>(inactive)</span>}
+              {pa.active && pa.scheduling_paused && (
+                <span style={{ fontSize: 10, padding: "2px 8px", background: "#fef3c7", color: "#92400e", borderRadius: 999, fontWeight: 700 }}>
+                  ⏸ no new appts
+                </span>
+              )}
               {pa.app_link_sent_at && (
                 <span style={{ fontSize: 10, padding: "2px 8px", background: "#dbeafe", color: "#1e40af", borderRadius: 999, fontWeight: 700 }}>
                   🔗 link sent
@@ -1567,6 +1572,15 @@ function PARow({ pa, companies = [], busy, onToggle, onResend, onUpdate, onDelet
                 style={{ ...secondaryBtn, fontSize: 11, opacity: !hasContact ? 0.55 : 1, cursor: !hasContact ? "not-allowed" : "pointer" }}
                 title={!hasContact ? "Add a phone or email via Edit first" : "Re-send the portal link"}>
                 {busy ? "…" : "🔗 Resend link"}
+              </button>
+            )}
+            {pa.active && (
+              <button type="button" onClick={() => onUpdate({ scheduling_paused: !pa.scheduling_paused })} disabled={busy}
+                style={{ ...secondaryBtn, fontSize: 11, ...(pa.scheduling_paused ? { background: "#fef3c7", borderColor: "#fcd34d", color: "#92400e" } : {}) }}
+                title={pa.scheduling_paused
+                  ? "Resume — start offering this PA for new appointments/deals again"
+                  : "Pause new appointments — stays active on their existing deals, just isn't offered for new bookings or auto-assigned new deals"}>
+                {busy ? "…" : pa.scheduling_paused ? "▶ Resume appts" : "⏸ Pause new appts"}
               </button>
             )}
             <button type="button" onClick={onToggle} disabled={busy}
