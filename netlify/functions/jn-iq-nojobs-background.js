@@ -28,10 +28,15 @@ const SOURCE = "Instant Quote";
 const CAP = 9500;                 // split any date window with more rows than this
 const START = 1451606400;         // 2016-01-01 — before any JN data
 
-exports.handler = async () => {
+exports.handler = async (event) => {
   const started = new Date().toISOString();
   const H = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
   const NOW = Math.floor(Date.now() / 1000);
+  // Optional ?before=YYYY-MM-DD → only count IQ contacts CREATED on/before that
+  // date (end of that day, ET). Jobs are still scanned in full, so a contact from
+  // April that got a job in June still counts as "has a job".
+  const qp = (event && event.queryStringParameters) || {};
+  const beforeSec = qp.before ? Math.floor(Date.parse(`${qp.before}T23:59:59-04:00`) / 1000) : NOW;
   try {
     // 1) Every contact id that owns at least one job.
     const withJob = new Set();
@@ -45,7 +50,7 @@ exports.handler = async () => {
     // 2) Every Instant-Quote contact → no-job count.
     let total = 0, noJob = 0;
     const sample = [];
-    await sharded(`${JN_BASE}/contacts`, H, [{ match_phrase: { source_name: SOURCE } }], NOW, (c) => {
+    await sharded(`${JN_BASE}/contacts`, H, [{ match_phrase: { source_name: SOURCE } }], beforeSec, (c) => {
       total++;
       if (!withJob.has(c.jnid || c.id)) {
         noJob++;
@@ -59,6 +64,7 @@ exports.handler = async () => {
 
     await writeSetting(RESULT_KEY, {
       ok: true, source: SOURCE,
+      created_on_or_before: qp.before || null,
       iq_contacts_total: total,
       iq_contacts_with_job: total - noJob,
       iq_contacts_no_job: noJob,
