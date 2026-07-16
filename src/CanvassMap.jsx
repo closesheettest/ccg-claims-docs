@@ -110,6 +110,7 @@ export default function CanvassMap() {
   const loadRef = useRef(null);                        // latest load() for the map moveend handler
   const moveTimer = useRef(null);                      // debounce map moves
   const [fillOffer, setFillOffer] = useState(null);    // {available, need} when an IQ day is under a full 30 stops
+  const [editingRoute, setEditingRoute] = useState(false); // route-trim sheet open
   const [signingStop, setSigningStop] = useState(null); // pin being signed in the intake tab
   const signingStopRef = useRef(null);                 // for the cross-tab 'signed' listener
   const completeSignRef = useRef(null);                // latest completeSign() for the listeners
@@ -524,7 +525,17 @@ export default function CanvassMap() {
     if (route[stopIdx] && route[stopIdx].id === stop.id) advanceStop();
   }
   completeSignRef.current = completeSign;
-  function startOver() { navLayer.current?.clearLayers(); setDayMode(null); setStartPt(null); setRoute([]); setStopIdx(0); setRound(1); setResolvedIds(new Set()); workingRef.current = new Set(); setPanelPos(null); setSigningStop(null); setFillOffer(null); }
+  function startOver() { navLayer.current?.clearLayers(); setDayMode(null); setStartPt(null); setRoute([]); setStopIdx(0); setRound(1); setResolvedIds(new Set()); workingRef.current = new Set(); setPanelPos(null); setSigningStop(null); setFillOffer(null); setEditingRoute(false); }
+  // Drop a stop the rep doesn't want to drive to (e.g. it's across the bay). Keeps
+  // the current stop stable and re-numbers the rest; the map line redraws.
+  function removeStop(id) {
+    const curId = route[stopIdx]?.id;
+    const next = route.filter((p) => p.id !== id);
+    workingRef.current.delete(id);
+    setRoute(next);
+    const ni = next.findIndex((p) => p.id === curId);
+    setStopIdx(ni >= 0 ? ni : Math.min(stopIdx, Math.max(0, next.length - 1)));
+  }
   // Drag the route panel so it never blocks the map (pointer events = mouse + touch).
   function panelPointerDown(e) {
     const el = e.currentTarget.closest("[data-daypanel]"); if (!el) return;
@@ -742,7 +753,10 @@ export default function CanvassMap() {
                 <>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                     <span style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", color: "#16a34a" }}>{round > 1 ? `Round ${round} · ` : ""}Stop {stopIdx + 1} of {route.length}</span>
-                    <button type="button" onClick={startOver} style={{ background: "none", border: "none", fontSize: 12.5, fontWeight: 700, color: "#94a3b8", cursor: "pointer" }}>↺ Start over</button>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <button type="button" onClick={() => setEditingRoute(true)} style={{ background: "none", border: "none", fontSize: 12.5, fontWeight: 700, color: "#1d4ed8", cursor: "pointer" }}>✏️ Edit route</button>
+                      <button type="button" onClick={startOver} style={{ background: "none", border: "none", fontSize: 12.5, fontWeight: 700, color: "#94a3b8", cursor: "pointer" }}>↺ Start over</button>
+                    </div>
                   </div>
                   {fillOffer && (
                     <div style={{ background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 10, padding: "9px 11px", margin: "2px 0 8px" }}>
@@ -802,6 +816,34 @@ export default function CanvassMap() {
           );
         })()}
       </div>
+
+      {/* Route editor — trim stops that are too far to be worth the drive */}
+      {editingRoute && dayMode === "active" && (
+        <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: "#fff", borderTopLeftRadius: 18, borderTopRightRadius: 18, boxShadow: "0 -4px 20px rgba(0,0,0,.18)", padding: "14px 16px 20px", zIndex: 1100, maxHeight: "72vh", overflowY: "auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+            <div style={{ fontSize: 16, fontWeight: 800, fontFamily: "'Oswald', sans-serif" }}>Edit today's route</div>
+            <button type="button" onClick={() => setEditingRoute(false)} style={{ background: "#0f172a", color: "#fff", border: "none", borderRadius: 9, padding: "7px 15px", fontSize: 13, fontWeight: 800, cursor: "pointer" }}>Done</button>
+          </div>
+          <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 10 }}>Remove any stop you don't want to drive to — miles are straight-line from your start. {route.length} stop{route.length === 1 ? "" : "s"} in the route.</div>
+          <div style={{ display: "grid", gap: 6 }}>
+            {route.map((p, i) => {
+              const mi = startPt ? feetBetween(startPt, { lat: p.latitude, lng: p.longitude }) / 5280 : null;
+              const far = mi != null && mi >= 8;
+              return (
+                <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 10, border: "1px solid #eef2f7", background: i === stopIdx ? "#f0fdf4" : "#fff" }}>
+                  <span style={{ minWidth: 22, height: 22, borderRadius: 11, background: i === stopIdx ? "#16a34a" : "#e2e8f0", color: i === stopIdx ? "#fff" : "#475569", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{i + 1}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name || p.address}</div>
+                    <div style={{ fontSize: 11.5, color: far ? "#b91c1c" : "#64748b", fontWeight: far ? 800 : 600 }}>{mi != null ? `${mi.toFixed(1)} mi from start${far ? " • far" : ""}` : p.address}</div>
+                  </div>
+                  <button type="button" onClick={() => removeStop(p.id)} disabled={route.length <= 1}
+                    style={{ background: "#fff", border: "1px solid #fecaca", color: "#dc2626", borderRadius: 8, padding: "6px 11px", fontSize: 12, fontWeight: 800, cursor: route.length <= 1 ? "not-allowed" : "pointer", flexShrink: 0 }}>Remove</button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Selected prospect sheet */}
       {selected && (
