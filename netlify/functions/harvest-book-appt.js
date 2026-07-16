@@ -68,7 +68,9 @@ export const handler = async (event) => {
       await jnPut(`jobs/${existingJobId}`, {
         status: APPT_STATUS, status_name: APPT_STATUS_NAME,
         date_start: apptSec,
-        ...(owner ? { owners: [{ id: owner }] } : {}),
+        // The rebooking rep takes it over — both the assigned owner AND the
+        // sales rep become this rep (JN tracks them as separate fields).
+        ...(owner ? { owners: [{ id: owner }], sales_rep: owner } : {}),
       });
       // Reset the Initial Appointment task(s): move the first to the new time +
       // owner, and close out any extras so there's exactly one live appointment.
@@ -134,7 +136,7 @@ export const handler = async (event) => {
       source_name: "Harvesting",
       date_start: apptSec, // Start Date = appointment date
       address_line1: street, city: pin.city || "", state_text: pin.state || "", zip: pin.zip || "",
-      ...(owner ? { owners: [{ id: owner }] } : {}),
+      ...(owner ? { owners: [{ id: owner }], sales_rep: owner } : {}),
     });
     const jobId = job.jnid || job.id;
     if (!jobId) throw new Error("job create failed");

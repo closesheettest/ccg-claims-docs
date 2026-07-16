@@ -39,13 +39,16 @@ function isNoSit(statusName) {
 }
 
 exports.handler = async (event) => {
-  if (event.httpMethod === "OPTIONS") return cors(200, "");
-  if (event.httpMethod !== "GET") return cors(405, { ok: false, error: "GET only" });
+  const scheduled = !event.httpMethod; // Netlify scheduled invocation → auto-commit
+  if (!scheduled) {
+    if (event.httpMethod === "OPTIONS") return cors(200, "");
+    if (event.httpMethod !== "GET") return cors(405, { ok: false, error: "GET only" });
+  }
   if (!JN_KEY) return cors(500, { ok: false, error: "Missing JOBNIMBUS_API_KEY" });
   if (!SB_URL || !SB_KEY) return cors(500, { ok: false, error: "Missing Supabase env" });
 
   const qp = event.queryStringParameters || {};
-  const commit = /^(1|true|yes)$/i.test(String(qp.commit || ""));
+  const commit = scheduled || /^(1|true|yes)$/i.test(String(qp.commit || ""));
   const jnHeaders = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
 
   if (qp.statuses) {
@@ -233,3 +236,7 @@ async function writeSetting(key, obj) {
 function cors(status, body) {
   return { statusCode: status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" }, body: JSON.stringify(body) };
 }
+
+// Keep the map's no-sits fresh: pull from JN twice a day (geocodes a bounded
+// batch per run + reconciles re-booked ones away).
+exports.config = { schedule: "40 7,15 * * *" };

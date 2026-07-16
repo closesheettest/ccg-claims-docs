@@ -770,6 +770,9 @@ export default function CanvassMap() {
                   {stop.name && <div style={{ fontSize: 15.5, fontWeight: 800 }}>{stop.name}</div>}
                   <div style={{ fontSize: 13.5, color: "#334155", fontWeight: 600 }}>{stop.address}</div>
                   <div style={{ fontSize: 12.5, color: "#64748b" }}>{[stop.city, stop.state, stop.zip].filter(Boolean).join(", ")}</div>
+                  {stop.status === "no_sit_reschedule" && origApptLabel(stop) && (
+                    <div style={{ fontSize: 12.5, fontWeight: 800, color: "#c2410c", marginTop: 4 }}>🔄 No-sit · original appt was {origApptLabel(stop)}</div>
+                  )}
                   <button type="button" onClick={() => navRoute(stop)}
                     style={{ width: "100%", marginTop: 12, background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 12, padding: "12px", fontSize: 14.5, fontWeight: 800, cursor: "pointer" }}>
                     🧭 Directions to {stopIdx === 0 ? "first stop" : "this stop"}
@@ -853,6 +856,9 @@ export default function CanvassMap() {
               {selected.name && <div style={{ fontWeight: 800, fontSize: 16 }}>{selected.name}</div>}
               <div style={{ fontSize: 14, color: "#334155", fontWeight: 600 }}>{selected.address}</div>
               <div style={{ fontSize: 13, color: "#64748b" }}>{[selected.city, selected.state, selected.zip].filter(Boolean).join(", ")}</div>
+              {selected.status === "no_sit_reschedule" && origApptLabel(selected) && (
+                <div style={{ fontSize: 12.5, fontWeight: 800, color: "#c2410c", marginTop: 4 }}>🔄 No-sit · original appt was {origApptLabel(selected)}</div>
+              )}
               <div style={{ marginTop: 6, display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700 }}>
                 <span style={{ width: 10, height: 10, borderRadius: 5, background: (S[selected.status] || UNKNOWN_TYPE).color, display: "inline-block" }} />
                 {(S[selected.status] || UNKNOWN_TYPE).label}
@@ -1005,6 +1011,18 @@ const extraVal = (pin, names) => {
   for (const k of Object.keys(e)) if (names.some((n) => k.toLowerCase().includes(n)) && e[k]) return String(e[k]);
   return "";
 };
+// The ORIGINAL appointment a no-sit was booked for (from the JN sync), in ET.
+// Midnight-ET means no specific time was set → show the date only.
+function origApptLabel(pin) {
+  const sec = Number(pin && pin.extra && pin.extra.orig_appt_sec);
+  if (!Number.isFinite(sec) || sec <= 0) return null;
+  const d = new Date(sec * 1000);
+  const hm = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(d);
+  const datePart = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric" }).format(d);
+  if (hm === "00:00" || hm === "24:00") return datePart;
+  const timePart = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }).format(d);
+  return `${datePart} · ${timePart}`;
+}
 
 function AppointmentModal({ pin, rt, onClose, onBooked }) {
   const [phone, setPhone] = useState(pin.phone || extraVal(pin, ["phone", "mobile", "cell"]));
@@ -1049,10 +1067,15 @@ function AppointmentModal({ pin, rt, onClose, onBooked }) {
     <div style={{ position: "absolute", inset: 0, background: "rgba(15,23,42,.55)", zIndex: 3000, display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={() => !busy && onClose()}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", width: "100%", maxWidth: 520, borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: "16px 18px 22px", maxHeight: "88vh", overflowY: "auto", fontFamily: FONT }}>
         <div style={{ display: "flex", alignItems: "center", marginBottom: 4 }}>
-          <div style={{ fontSize: 16, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#166534" }}>📅 Schedule appointment</div>
+          <div style={{ fontSize: 16, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#166534" }}>{pin.status === "no_sit_reschedule" ? "🔄 Reschedule appointment" : "📅 Schedule appointment"}</div>
           <button type="button" onClick={() => !busy && onClose()} style={{ marginLeft: "auto", background: "none", border: "none", fontSize: 22, color: "#94a3b8", cursor: "pointer" }}>×</button>
         </div>
-        <div style={{ fontSize: 13, color: "#475569", fontWeight: 600, marginBottom: 12 }}>{pin.address}{pin.city ? `, ${pin.city}` : ""}</div>
+        <div style={{ fontSize: 13, color: "#475569", fontWeight: 600, marginBottom: pin.status === "no_sit_reschedule" ? 6 : 12 }}>{pin.name ? `${pin.name} · ` : ""}{pin.address}{pin.city ? `, ${pin.city}` : ""}</div>
+        {pin.status === "no_sit_reschedule" && (
+          <div style={{ fontSize: 12.5, color: "#92400e", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 9, padding: "8px 11px", marginBottom: 12 }}>
+            {origApptLabel(pin) ? <><b>Original appointment:</b> {origApptLabel(pin)}.</> : "No original appointment time on file."} Picking a new time resets it in JobNimbus and assigns it to you.
+          </div>
+        )}
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
           <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone (required)" inputMode="tel"
