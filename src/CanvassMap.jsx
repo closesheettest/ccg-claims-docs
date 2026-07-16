@@ -338,37 +338,17 @@ export default function CanvassMap() {
       if (!baseKeys.length) { setProspects([]); setInstalls([]); setCapped(false); setLoading(false); return []; }
 
       // Load ONLY the selected statuses ("only load what's picked"). Empty
-      // selection (office "All") = everything the level can see.
+      // selection (office "All") = everything the level can see. No region gate —
+      // clustering keeps the zoomed-out view cheap; the viewport scopes the rest.
       const effStatuses = sel.size ? [...sel].filter((k) => baseKeys.includes(k)) : baseKeys;
-      if (!effStatuses.length) { setProspects([]); setInstalls([]); setClusters([]); setCapped(false); setNeedRegion(false); setLoading(false); return []; }
-
-      // Region gate: a huge bucket (Inspection Leads, 200k+) must be narrowed to
-      // a Florida region first — otherwise we'd pull the whole state. Small
-      // buckets (IQ, no-sit, FB) skip the gate and load statewide.
-      const showAll = showAllRef.current;
-      const rgn = regionRef.current;
-      const bigBucket = dbCounts
-        ? effStatuses.reduce((s, k) => s + (dbCounts[k] || 0), 0) > REGION_THRESHOLD
-        : effStatuses.includes("insp");
-      // Only gate when the view is broad (low zoom). Zoomed into a neighborhood
-      // the viewport already scopes it, so a big bucket is fine to load there.
-      const zNow = map.current ? map.current.getZoom() : 7;
-      if (!showAll && bigBucket && !rgn && zNow < CLUSTER_ZOOM) {
-        setProspects([]); setInstalls([]); setClusters([]); setCapped(false); setNeedRegion(true);
-        if (!bounds && !fitted.current) fitted.current = true;
-        setLoading(false); return [];
-      }
-      setNeedRegion(false);
+      if (!effStatuses.length) { setProspects([]); setInstalls([]); setClusters([]); setCapped(false); setLoading(false); return []; }
 
       // 2) Pins + installs, straight from Supabase (range-paginated → no payload cap).
+      const showAll = showAllRef.current;
       const CAP = showAll ? 40000 : bounds ? 6000 : 3000;
-      const rb = rgn ? (REGIONS.find((r) => r.key === rgn)?.bounds) : null; // [[s,w],[n,e]]
-      const box = (q) => {
-        let qq = q;
-        if (rb) qq = qq.gte("latitude", rb[0][0]).lte("latitude", rb[1][0]).gte("longitude", rb[0][1]).lte("longitude", rb[1][1]);
-        if (!showAll && bounds) qq = qq.gte("latitude", bounds.getSouth()).lte("latitude", bounds.getNorth()).gte("longitude", bounds.getWest()).lte("longitude", bounds.getEast());
-        return qq;
-      };
+      const box = (q) => (!showAll && bounds)
+        ? q.gte("latitude", bounds.getSouth()).lte("latitude", bounds.getNorth()).gte("longitude", bounds.getWest()).lte("longitude", bounds.getEast())
+        : q;
       // NO order-by: sorting the in-view rows (created_at OR id) makes Postgres
       // sort a large result set and TIMES OUT once the table is big (200k+ pins).
       // Un-ordered returns in-bounds rows fast; the map doesn't need them sorted.
@@ -1061,12 +1041,6 @@ export default function CanvassMap() {
 
       {/* Status filter chips */}
       <div style={{ display: "flex", gap: 6, overflowX: "auto", padding: "8px 12px", background: "#fff", borderBottom: "1px solid #e5e7eb" }}>
-        {region && (
-          <button type="button" onClick={clearRegion} title="Change area"
-            style={{ whiteSpace: "nowrap", padding: "6px 12px", borderRadius: 20, fontSize: 12.5, fontWeight: 800, cursor: "pointer", border: "1px solid #0e7490", background: "#0e7490", color: "#fff" }}>
-            {REGIONS.find((r) => r.key === region)?.label || "Area"} ✕
-          </button>
-        )}
         <Chip active={sel.size === 0} onClick={() => setSel(new Set())} color="#334155" label={`All (${dbCounts ? Object.entries(dbCounts).reduce((sum, [k, n]) => sum + ((!visKeys || visKeys.has(k)) ? n : 0), 0) : (visKeys ? prospects.filter((p) => visKeys.has(p.status)).length : prospects.length)})`} />
         {visTypes.map((s) => (
           <Chip key={s.key} active={sel.has(s.key)} check onClick={() => toggleSel(s.key)} color={s.color} label={`${s.label} (${counts[s.key] || 0})`} />
@@ -1082,24 +1056,9 @@ export default function CanvassMap() {
         {loading && (
           <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", background: "#fff", padding: "6px 14px", borderRadius: 20, fontSize: 13, boxShadow: "0 2px 8px rgba(0,0,0,.15)", zIndex: 500 }}>Loading pins…</div>
         )}
-        {!loading && !needRegion && prospects.length === 0 && clusters.length === 0 && (
+        {!loading && prospects.length === 0 && clusters.length === 0 && (
           <div style={{ position: "absolute", top: 20, left: "50%", transform: "translateX(-50%)", background: "#fff", padding: "14px 18px", borderRadius: 12, fontSize: 13.5, color: "#475569", boxShadow: "0 2px 10px rgba(0,0,0,.12)", zIndex: 500, textAlign: "center", maxWidth: 320 }}>
             No pins in your area yet. The office loads leads from the admin section.
-          </div>
-        )}
-        {/* Big bucket (Inspection Leads) + no region yet → pick an area so we don't
-            load the whole state. Small buckets (IQ) never hit this. */}
-        {needRegion && !loading && dayMode === null && (
-          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 700, background: "rgba(255,255,255,.65)" }}>
-            <div style={{ background: "#fff", borderRadius: 16, padding: "20px 22px", maxWidth: 360, textAlign: "center", boxShadow: "0 8px 30px rgba(0,0,0,.2)", border: "1px solid #e5e7eb" }}>
-              <div style={{ fontSize: 16, fontWeight: 800, fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>📍 Pick your area</div>
-              <div style={{ fontSize: 13, color: "#64748b", marginBottom: 14 }}>Too many doors to load the whole state at once — choose the region you're working:</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                {REGIONS.map((r) => (
-                  <button key={r.key} type="button" onClick={() => pickRegion(r.key)} style={{ padding: "14px 10px", borderRadius: 12, fontSize: 14, fontWeight: 800, cursor: "pointer", border: "2px solid #0e7490", background: "#ecfeff", color: "#0e7490" }}>{r.label}</button>
-                ))}
-              </div>
-            </div>
           </div>
         )}
         {!loading && capped && shownCount > 0 && dayMode === null && (
