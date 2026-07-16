@@ -9550,11 +9550,26 @@ export default function App() {
   const [codeDelivery, setCodeDelivery] = useState("rep_code");
   const [data, setData] = useState(() => {
     // RepVisitHub "New inspection" lands here as /?intake=1&rep=&repName=&repEmail=
-    // — prefill the rep so the signing flow doesn't ask again.
+    // — prefill the rep so the signing flow doesn't ask again. The Harvesting-Map
+    // "Sign Inspection" button additionally passes the homeowner we already know
+    // (&name=&phone=&address=&city=&state=&zip=&email=) so the rep just confirms +
+    // signs. City/State/ZIP come prefilled, so the rep never re-runs the Google
+    // address lookup on a known address (which is what would otherwise mangle it).
     if (typeof window !== "undefined") {
       const p = new URLSearchParams(window.location.search);
-      if (p.get("intake") && (p.get("rep") || p.get("repName"))) {
-        return { ...initialData, salesRepId: p.get("rep") || "", salesRepName: p.get("repName") || "", salesRepEmail: p.get("repEmail") || "" };
+      if (p.get("intake")) {
+        const pre = {};
+        if (p.get("rep") || p.get("repName")) {
+          pre.salesRepId = p.get("rep") || ""; pre.salesRepName = p.get("repName") || ""; pre.salesRepEmail = p.get("repEmail") || "";
+        }
+        if (p.get("name")) pre.homeowner1 = p.get("name");
+        if (p.get("phone")) pre.phone = p.get("phone");
+        if (p.get("address")) pre.address = p.get("address");
+        if (p.get("city")) pre.city = p.get("city");
+        if (p.get("state")) pre.state = normalizeStateValue(p.get("state") || "") || "";
+        if (p.get("zip")) pre.zip = p.get("zip");
+        if (p.get("email")) pre.signerEmail = p.get("email");
+        if (Object.keys(pre).length) return { ...initialData, ...pre };
       }
     }
     return initialData;
@@ -12253,23 +12268,6 @@ const renderSmsTemplate = (key, vars) => {
         }).catch(e => console.warn("Activity email non-fatal:", e));
       }
 
-      // Harvesting-Map handoff: this signing came from a map pin's "Sign Inspection"
-      // button. Mark that pin Inspection Sold (source of truth), log it for the rep-
-      // activity report, and ping the map tab (localStorage 'storage' event fires in
-      // OTHER same-origin tabs) so it advances to the next stop automatically.
-      if (harvestPinId) {
-        try {
-          const nowIso = new Date().toISOString();
-          await supabase.from("canvass_prospects")
-            .update({ status: "insp_sold", status_updated_at: nowIso, status_by: data.salesRepName || "sign-inspection" })
-            .eq("id", harvestPinId);
-          supabase.from("canvass_activity")
-            .insert({ pin_id: harvestPinId, rep_name: data.salesRepName || null, kind: "status", from_status: "insp", to_status: "insp_sold" })
-            .then(() => {}, () => {});
-          try { localStorage.setItem("harvest_signed", JSON.stringify({ id: harvestPinId, name: inspData.clientName || "", at: Date.now() })); } catch { /* ignore */ }
-        } catch (e) { console.warn("Harvest pin update non-fatal:", e); }
-      }
-
       // Go to thank you page
       window.scrollTo({ top: 0, behavior: "smooth" });
       setInspectionOnly(true);
@@ -12832,6 +12830,23 @@ const renderSmsTemplate = (key, vars) => {
         if (res.ok) console.log("JN sync (submitDoc):", res.data);
         // Failure case is logged by the helper; orphan cron picks it up.
       }).catch(e => console.warn("JN sync handler failed:", e));
+
+      // Harvesting-Map handoff: this signing came from a map pin's "Sign Inspection"
+      // button. Now that the inspection is signed, mark that pin Inspection Sold
+      // (source of truth), log it for the rep-activity report, and ping the map tab
+      // (a 'storage' event fires in OTHER same-origin tabs) so it advances the route.
+      if (harvestPinId && selectedDocs.includes("insp")) {
+        try {
+          const nowIso = new Date().toISOString();
+          await supabase.from("canvass_prospects")
+            .update({ status: "insp_sold", status_updated_at: nowIso, status_by: data.salesRepName || "sign-inspection" })
+            .eq("id", harvestPinId);
+          supabase.from("canvass_activity")
+            .insert({ pin_id: harvestPinId, rep_name: data.salesRepName || null, kind: "status", from_status: "insp", to_status: "insp_sold" })
+            .then(() => {}, () => {});
+          try { localStorage.setItem("harvest_signed", JSON.stringify({ id: harvestPinId, at: Date.now() })); } catch { /* ignore */ }
+        } catch (e) { console.warn("Harvest pin update non-fatal:", e); }
+      }
 
       window.scrollTo({ top: 0, behavior: "smooth" });
       if (isSigningFromLink) {
