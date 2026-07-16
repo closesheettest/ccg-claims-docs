@@ -75,23 +75,30 @@ export const handler = async (event) => {
     .filter((t) => level === "admin" || !(t.visible_levels || []).length || (t.visible_levels || []).includes(level))
     .map((t) => t.key);
 
-  // Show the rep ALL the pins their level can see (the map clusters them, and
-  // "Start my day" picks the efficient N to actually route). Paged past the
-  // 1000-row PostgREST cap; a high safety ceiling guards against a runaway set.
+  // Viewport loading — scales to 100k+ pins. The map sends its current bounds
+  // (n/s/e/w) and we return only what's in view, capped. Without bounds (initial
+  // load) we return a global newest sample just so the map can fit to the data.
+  const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
+  const n = num(p.n), s = num(p.s), e = num(p.e), w = num(p.w);
+  const hasBox = n != null && s != null && e != null && w != null && n > s && e > w;
+  const box = hasBox ? `&latitude=gte.${s}&latitude=lte.${n}&longitude=gte.${w}&longitude=lte.${e}` : "";
+  const CAP = hasBox ? 4000 : 2500; // in-view cap / initial global sample
+
   let pins = [];
   if (visible.length) {
     const inList = visible.map((k) => `"${k}"`).join(",");
-    pins = await sbGetAll(`canvass_prospects?status=in.(${inList})&latitude=not.is.null&select=${PIN_SELECT}&order=created_at.desc`, 1000, 8000);
+    pins = await sbGetAll(`canvass_prospects?status=in.(${inList})&latitude=not.is.null${box}&select=${PIN_SELECT}&order=created_at.desc`, 1000, CAP);
   }
+  const pinsCapped = pins.length >= CAP;
 
-  // Installs — a read-only reference layer shown to EVERY rep (junior + senior)
-  // as gold stars, so a rep can see where we've already put roofs on. Comes from
-  // the installs table (nightly JN sync), not canvass_prospects.
+  // Installs — read-only gold-star reference layer (every level). Same viewport
+  // treatment so they don't balloon the payload at scale.
   const installs = await sbGetAll(
-    `installs?latitude=not.is.null&longitude=not.is.null&select=id,jnid,address_line,city,product_type,color,latitude,longitude&order=id`,
+    `installs?latitude=not.is.null&longitude=not.is.null${box}&select=id,jnid,address_line,city,product_type,color,latitude,longitude&order=id`,
+    1000, CAP,
   ).catch(() => []);
 
-  return json(200, { ok: true, rep: { name: repName, level }, pins, pin_types: types, installs });
+  return json(200, { ok: true, rep: { name: repName, level }, pins, pin_types: types, installs, capped: pinsCapped || installs.length >= CAP, viewport: hasBox });
 };
 
 function json(statusCode, obj) {

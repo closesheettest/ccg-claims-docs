@@ -91,6 +91,9 @@ export default function CanvassMap() {
   const arrivedRef = useRef(null);                     // { key } — already logged arrival at this stop
   const [panelPos, setPanelPos] = useState(null);      // {left,top} px if dragged, else default bottom-right
   const [ignoreDist, setIgnoreDist] = useState(false); // admin test toggle: skip the 200 ft gate
+  const [capped, setCapped] = useState(false);         // more pins in view than the cap → "zoom in"
+  const loadRef = useRef(null);                        // latest load() for the map moveend handler
+  const moveTimer = useRef(null);                      // debounce map moves
   const panelDrag = useRef(null);
   const watchRef = useRef(null);
   const choosingRef = useRef(false);                   // map-click reads this (avoid stale closure)
@@ -108,22 +111,30 @@ export default function CanvassMap() {
     } catch { return { rt: "", admin: "" }; }
   })();
 
-  async function load() {
+  // Load pins for a viewport (bounds). Without bounds → an initial global sample
+  // so the map can fit to wherever the data is; after that, moves load by view.
+  async function load(bounds) {
     setLoading(true);
     try {
-      const qs = auth.admin ? `admin=${encodeURIComponent(auth.admin)}` : `rt=${encodeURIComponent(auth.rt)}`;
+      let qs = auth.admin ? `admin=${encodeURIComponent(auth.admin)}` : `rt=${encodeURIComponent(auth.rt)}`;
+      if (bounds) qs += `&n=${bounds.getNorth()}&s=${bounds.getSouth()}&e=${bounds.getEast()}&w=${bounds.getWest()}`;
       const r = await fetch(`/.netlify/functions/harvest-pins?${qs}`);
       const j = await r.json().catch(() => ({}));
-      if (!r.ok || !j.ok) { setAuthError(j.error || "Couldn't load your Harvesting Map."); setLoading(false); return; }
+      if (!r.ok || !j.ok) { setAuthError(j.error || "Couldn't load your Harvesting Map."); setLoading(false); return []; }
       setAuthError("");
       setMe(j.rep || null);
       if (Array.isArray(j.pin_types) && j.pin_types.length) setPinTypes(j.pin_types);
       setProspects(j.pins || []);
       setInstalls(Array.isArray(j.installs) ? j.installs : []);
+      setCapped(!!j.capped);
+      setLoading(false);
+      return j.pins || [];
     } catch (e) { setAuthError(e.message || "Network error."); }
     setLoading(false);
+    return [];
   }
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+  loadRef.current = load;
+  useEffect(() => { load(); /* initial global sample; eslint-disable-next-line */ }, []);
 
   // Init the Leaflet map once.
   useEffect(() => {
@@ -136,6 +147,11 @@ export default function CanvassMap() {
     // "Start my day": while choosing a start point, a map tap starts the route there.
     m.on("click", (e) => {
       if (choosingRef.current && startFromRef.current) startFromRef.current({ lat: e.latlng.lat, lng: e.latlng.lng });
+    });
+    // Viewport loading — reload the pins in view whenever the map settles (debounced).
+    m.on("moveend", () => {
+      clearTimeout(moveTimer.current);
+      moveTimer.current = setTimeout(() => { if (loadRef.current) loadRef.current(m.getBounds()); }, 350);
     });
     // Cluster group so a zoomed-out map groups nearby pins into a numbered
     // bubble; zooming in splits them back into individual pins/stars.
@@ -305,9 +321,14 @@ export default function CanvassMap() {
     }
     return out;
   }
-  function startFrom(pt) {
-    const r = buildRoute(pt, shownRef.current || []);
-    if (!r.length) { alert("No stops on the map to route. Load leads or change the filter, then start your day."); setDayMode(null); return; }
+  async function startFrom(pt) {
+    // Center on the start + load that area's pins first (viewport loading), so
+    // the route sees the local leads even if they weren't on screen before.
+    if (map.current) map.current.setView([pt.lat, pt.lng], 15);
+    const loaded = await load(map.current ? map.current.getBounds() : null);
+    const pool = (loaded.length ? loaded : (shownRef.current || [])).filter((p) => (filter === "all" || p.status === filter) && typeof p.latitude === "number");
+    const r = buildRoute(pt, pool);
+    if (!r.length) { alert("No stops near here to route. Zoom to your area or change the filter, then start your day."); setDayMode(null); return; }
     // Round 1's stops ARE the day's working set — later rounds only recycle these.
     workingRef.current = new Set(r.map((p) => p.id));
     setStartPt(pt); setRoute(r); setStopIdx(0); setRound(1); setResolvedIds(new Set()); setDayMode("active");
@@ -471,6 +492,9 @@ export default function CanvassMap() {
           <div style={{ position: "absolute", top: 20, left: "50%", transform: "translateX(-50%)", background: "#fff", padding: "14px 18px", borderRadius: 12, fontSize: 13.5, color: "#475569", boxShadow: "0 2px 10px rgba(0,0,0,.12)", zIndex: 500, textAlign: "center", maxWidth: 320 }}>
             No pins in your area yet. The office loads leads from the admin section.
           </div>
+        )}
+        {!loading && capped && dayMode === null && (
+          <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", background: "#fffbeb", border: "1px solid #fcd34d", color: "#92400e", padding: "6px 14px", borderRadius: 20, fontSize: 12.5, fontWeight: 700, boxShadow: "0 2px 8px rgba(0,0,0,.12)", zIndex: 500, whiteSpace: "nowrap" }}>Showing the densest area — zoom in to see every pin</div>
         )}
 
         {/* ── Start my day ── */}
