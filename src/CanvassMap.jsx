@@ -73,6 +73,7 @@ const ARRIVE_FT = 200; // must be within this many feet of the stop to advance
 // kind of day (IQ, No-sit, mixed) routes 30, so it stays local instead of
 // sprawling across the metro.
 const ROUTE_CAP_DEFAULT = 30, ROUTE_CAP_INSP = 100;
+const MAX_ROUTE_MI = 25; // never route a stop more than 25 mi from the start point
 const routeCap = (pins) => {
   if (!pins || !pins.length) return ROUTE_CAP_DEFAULT;
   // Any higher-priority work in the pool (IQ / Facebook / AI / No-sit) makes it a
@@ -450,7 +451,8 @@ export default function CanvassMap() {
   }, [dayMode, route, stopIdx, startPt]);
 
   function buildRoute(start, pins, cap) {
-    const routable = pins.filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number" && !nonRoutableStatuses.has(p.status));
+    const routable = pins.filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number" && !nonRoutableStatuses.has(p.status)
+      && feetBetween(start, { lat: p.latitude, lng: p.longitude }) / 5280 <= MAX_ROUTE_MI); // within 25 mi of the start
     const max = cap || routeCap(routable);
     // PRIORITY: a No-sit (already an appointment) outranks an IQ (qualified lead),
     // which outranks a cold Inspection Lead. When the pool is mixed and capped, the
@@ -840,6 +842,10 @@ export default function CanvassMap() {
               ) : (() => {
                 const distFt = myLoc ? feetBetween(myLoc, { lat: stop.latitude, lng: stop.longitude }) : null;
                 const near = ignoreDist || (distFt != null && distFt <= ARRIVE_FT);
+                // Genuinely at the stop (real proximity, not the admin test toggle):
+                // once here, directions are turned off until they STATUS this stop —
+                // statusing advances to the next stop, which re-enables directions.
+                const arrived = distFt != null && distFt <= ARRIVE_FT;
                 const outs = ((S[stop.status]?.outcomes) || []).map((k) => S[k]).filter(Boolean);
                 const oBtn = (key, label, color) => (
                   <button key={key} type="button" disabled={!near} onClick={() => workStop(key)}
@@ -878,14 +884,16 @@ export default function CanvassMap() {
                   {stop.status === "no_sit_reschedule" && origApptLabel(stop) && (
                     <div style={{ fontSize: 12.5, fontWeight: 800, color: "#c2410c", marginTop: 4 }}>🔄 No-sit · original appt was {origApptLabel(stop)}</div>
                   )}
-                  <button type="button" onClick={() => navRoute(stop)}
-                    style={{ width: "100%", marginTop: 12, background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 12, padding: "12px", fontSize: 14.5, fontWeight: 800, cursor: "pointer" }}>
-                    🧭 Directions to {stopIdx === 0 ? "first stop" : "this stop"}
+                  <button type="button" onClick={() => !arrived && navRoute(stop)} disabled={arrived}
+                    style={{ width: "100%", marginTop: 12, background: arrived ? "#e5e7eb" : "#1d4ed8", color: arrived ? "#94a3b8" : "#fff", border: "none", borderRadius: 12, padding: "12px", fontSize: 14.5, fontWeight: 800, cursor: arrived ? "not-allowed" : "pointer" }}>
+                    {arrived ? "✓ You're here — status this stop below" : `🧭 Directions to ${stopIdx === 0 ? "first stop" : "this stop"}`}
                   </button>
-                  <div style={{ textAlign: "center", marginTop: 5, display: "flex", justifyContent: "center", gap: 12 }}>
-                    <a href={`https://www.google.com/maps/dir/?api=1&destination=${addrOf(stop)}`} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, fontWeight: 700, color: "#94a3b8", textDecoration: "none" }}>Google Maps ↗</a>
-                    <a href={`https://maps.apple.com/?daddr=${addrOf(stop)}&dirflg=d`} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, fontWeight: 700, color: "#94a3b8", textDecoration: "none" }}>Apple Maps ↗</a>
-                  </div>
+                  {!arrived && (
+                    <div style={{ textAlign: "center", marginTop: 5, display: "flex", justifyContent: "center", gap: 12 }}>
+                      <a href={`https://www.google.com/maps/dir/?api=1&destination=${addrOf(stop)}`} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, fontWeight: 700, color: "#94a3b8", textDecoration: "none" }}>Google Maps ↗</a>
+                      <a href={`https://maps.apple.com/?daddr=${addrOf(stop)}&dirflg=d`} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, fontWeight: 700, color: "#94a3b8", textDecoration: "none" }}>Apple Maps ↗</a>
+                    </div>
+                  )}
                   {signingStop && signingStop.id === stop.id ? (
                     <div style={{ marginTop: 14, background: "#faf5ff", border: "1px solid #e9d5ff", borderRadius: 12, padding: "12px 14px", textAlign: "center" }}>
                       <div style={{ fontSize: 13.5, fontWeight: 800, color: "#7c3aed" }}>🖊️ Signing {stop.name || "this homeowner"}…</div>
