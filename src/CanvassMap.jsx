@@ -80,7 +80,11 @@ export default function CanvassMap() {
   const [prospects, setProspects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
-  const [filter, setFilter] = useState("all");
+  // Status filter — a Set of selected pin-type keys. Empty = show All. Multi-select
+  // so a rep can, e.g., work IQ + No-sit-reschedule together.
+  const [sel, setSel] = useState(() => new Set());
+  const inFilter = (status) => sel.size === 0 || sel.has(status);
+  const toggleSel = (key) => setSel((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
   const [pinTypes, setPinTypes] = useState(FALLBACK_TYPES);
   const [me, setMe] = useState(null);          // { name, level } once signed in
   const [authError, setAuthError] = useState("");
@@ -136,8 +140,15 @@ export default function CanvassMap() {
     for (const t of pinTypes) if (t.is_terminal) s.add(t.key);
     return s;
   }, [pinTypes]);
-  // If we switch to a level that can't see the current filter, fall back to All.
-  useEffect(() => { if (visKeys && filter !== "all" && !visKeys.has(filter)) setFilter("all"); /* eslint-disable-next-line */ }, [visKeys]);
+  // If we switch to a level that can't see some selected types, drop just those.
+  useEffect(() => {
+    if (!visKeys) return;
+    setSel((prev) => {
+      const n = new Set([...prev].filter((k) => visKeys.has(k)));
+      return n.size === prev.size ? prev : n;
+    });
+    /* eslint-disable-next-line */
+  }, [visKeys]);
 
   // Server decides which pins this rep's level may see. Reads the personal link
   // token (?rt=) or the office view-all token (?admin=).
@@ -224,7 +235,7 @@ export default function CanvassMap() {
     const m = map.current, lyr = layer.current;
     if (!m || !lyr) return;
     lyr.clearLayers();
-    const shown = mapped.filter((p) => (filter === "all" || p.status === filter) && (!visKeys || visKeys.has(p.status)));
+    const shown = mapped.filter((p) => inFilter(p.status) && (!visKeys || visKeys.has(p.status)));
     shownRef.current = shown; // for "Start my day" routing (already level-filtered)
     const markers = [];
     const pts = [];
@@ -249,7 +260,7 @@ export default function CanvassMap() {
       m.fitBounds(pts, { padding: [40, 40], maxZoom: 15 });
       fitted.current = true;
     }
-  }, [mapped, filter, installs, showInstalls, visKeys]);
+  }, [mapped, sel, installs, showInstalls, visKeys]);
 
   async function setStatus(p, newStatus) {
     const nowIso = new Date().toISOString();
@@ -397,7 +408,7 @@ export default function CanvassMap() {
     // the route sees the local leads even if they weren't on screen before.
     if (map.current) map.current.setView([pt.lat, pt.lng], 15);
     const loaded = await load(map.current ? map.current.getBounds() : null);
-    const pool = (loaded.length ? loaded : (shownRef.current || [])).filter((p) => (filter === "all" || p.status === filter) && typeof p.latitude === "number" && (!visKeys || visKeys.has(p.status)));
+    const pool = (loaded.length ? loaded : (shownRef.current || [])).filter((p) => inFilter(p.status) && typeof p.latitude === "number" && (!visKeys || visKeys.has(p.status)));
     const r = buildRoute(pt, pool);
     if (!r.length) { alert("No stops near here to route. Zoom to your area or change the filter, then start your day."); setDayMode(null); return; }
     // Round 1's stops ARE the day's working set — later rounds only recycle these.
@@ -607,9 +618,9 @@ export default function CanvassMap() {
 
       {/* Status filter chips */}
       <div style={{ display: "flex", gap: 6, overflowX: "auto", padding: "8px 12px", background: "#fff", borderBottom: "1px solid #e5e7eb" }}>
-        <Chip active={filter === "all"} onClick={() => setFilter("all")} color="#334155" label={`All (${visKeys ? prospects.filter((p) => visKeys.has(p.status)).length : prospects.length})`} />
+        <Chip active={sel.size === 0} onClick={() => setSel(new Set())} color="#334155" label={`All (${visKeys ? prospects.filter((p) => visKeys.has(p.status)).length : prospects.length})`} />
         {visTypes.map((s) => (
-          <Chip key={s.key} active={filter === s.key} onClick={() => setFilter(s.key)} color={s.color} label={`${s.label} (${counts[s.key] || 0})`} />
+          <Chip key={s.key} active={sel.has(s.key)} check onClick={() => toggleSel(s.key)} color={s.color} label={`${s.label} (${counts[s.key] || 0})`} />
         ))}
         {installs.length > 0 && (
           <Chip active={showInstalls} onClick={() => setShowInstalls((v) => !v)} color={INSTALL_COLOR} label={`⭐ Installs (${installs.length})`} />
@@ -881,13 +892,13 @@ export default function CanvassMap() {
   );
 }
 
-function Chip({ active, onClick, color, label }) {
+function Chip({ active, onClick, color, label, check }) {
   return (
     <button type="button" onClick={onClick}
       style={{ whiteSpace: "nowrap", padding: "6px 12px", borderRadius: 20, fontSize: 12.5, fontWeight: 700, cursor: "pointer",
         border: active ? `2px solid ${color}` : "1px solid #e5e7eb",
         background: active ? color : "#fff", color: active ? "#fff" : "#475569" }}>
-      {label}
+      {check && active ? "✓ " : ""}{label}
     </button>
   );
 }
