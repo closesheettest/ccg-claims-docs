@@ -8,8 +8,8 @@ import HarvestNav from "./HarvestNav";
 
 const FONT = "'Nunito', system-ui, sans-serif";
 const OSWALD = "'Oswald', sans-serif";
-const OUTCOMES = ["appt", "iq_ni", "insp_sold", "no_sit_reschedule", "dead"];
-const OUTCOME_LABELS = { appt: "Appts", iq_ni: "Not interested", insp_sold: "Sold", no_sit_reschedule: "No-sit", dead: "Dead" };
+const OUTCOMES = ["appt", "iq_ni", "insp_ni", "insp_sold", "no_sit_reschedule", "dead"];
+const OUTCOME_LABELS = { appt: "Appts", iq_ni: "IQ not int.", insp_ni: "Not interested", insp_sold: "Sold", no_sit_reschedule: "No-sit", dead: "Dead" };
 
 export default function HarvestReport() {
   const [rows, setRows] = useState(null);
