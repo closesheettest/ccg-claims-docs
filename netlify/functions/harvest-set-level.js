@@ -23,8 +23,8 @@ export const handler = async (event) => {
   const repId = (body.rep_id || "").trim();
   const raw = (body.level || "").toLowerCase().trim();
   if (!repId) return json(400, { ok: false, error: "rep_id required" });
-  const level = raw === "none" ? null : (["admin", "senior", "junior"].includes(raw) ? raw : undefined);
-  if (level === undefined) return json(400, { ok: false, error: "level must be admin|senior|junior|none" });
+  const level = raw === "none" ? null : (["admin", "senior", "junior", "trainee"].includes(raw) ? raw : undefined);
+  if (level === undefined) return json(400, { ok: false, error: "level must be admin|senior|junior|trainee|none" });
 
   const base = (process.env.URL || process.env.PUBLIC_SITE_URL || "https://free-roof-inspections.netlify.app").replace(/\/$/, "");
 

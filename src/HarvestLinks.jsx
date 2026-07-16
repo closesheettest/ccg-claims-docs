@@ -16,6 +16,8 @@ export default function HarvestLinks() {
   const [assignQ, setAssignQ] = useState("");
   const [saving, setSaving] = useState("");   // rep id currently saving
   const [note, setNote] = useState("");
+  const [week, setWeek] = useState(null);     // this week's TMS trainees
+  const [granting, setGranting] = useState(""); // phone being granted
 
   const load = async () => {
     try {
@@ -26,7 +28,29 @@ export default function HarvestLinks() {
       setData(j);
     } catch (e) { setErr(e.message || "Network error"); }
   };
-  useEffect(() => { load(); }, []);
+  const loadWeek = async () => {
+    try {
+      const r = await fetch("/.netlify/functions/harvest-trainees");
+      const j = await r.json().catch(() => ({}));
+      if (j.ok) setWeek(j.trainees || []);
+    } catch { /* non-fatal */ }
+  };
+  useEffect(() => { load(); loadWeek(); }, []);
+
+  // Grant a trainee map access (trainee level) + text them their link.
+  const grantTrainee = async (t) => {
+    setGranting(t.phone); setNote("");
+    try {
+      const r = await fetch("/.netlify/functions/harvest-trainees", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "grant", name: t.name, phone: t.phone }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!j.ok) { setNote(`⚠️ ${t.name}: ${j.error || "couldn't grant"}`); }
+      else { setNote(`✓ ${t.name} — access granted${j.sent ? " and link texted 📲" : " (couldn't text — copy the link)"}.`); await loadWeek(); await load(); }
+    } catch (e) { setNote(`⚠️ ${e.message || "network error"}`); }
+    finally { setGranting(""); }
+  };
 
   const copy = (text, id) => {
     try { navigator.clipboard.writeText(text); setCopied(id); setTimeout(() => setCopied(""), 1500); }
@@ -56,7 +80,7 @@ export default function HarvestLinks() {
   const admins = data?.admins || [];
   const reps = (data?.reps || []).filter((r) => !q.trim() || (r.name || "").toLowerCase().includes(q.toLowerCase()));
   // Assign picker: match anyone in the full roster (min 2 chars), cap the list.
-  const cardedIds = new Set([...(data?.admins || []), ...(data?.reps || [])].map((c) => c.id));
+  const cardedIds = new Set([...(data?.admins || []), ...(data?.trainees || []), ...(data?.reps || [])].map((c) => c.id));
   const matches = assignQ.trim().length >= 2
     ? (data?.all || []).filter((r) => (r.name || "").toLowerCase().includes(assignQ.toLowerCase())).slice(0, 8)
     : [];
@@ -82,6 +106,34 @@ export default function HarvestLinks() {
         </div>
       )}
 
+      {/* This week's field trainees (from the training system). One tap grants
+          map access at TRAINEE level (junior pins) + texts them their link. */}
+      {week && week.length > 0 && (
+        <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 12, padding: 14, marginBottom: 22 }}>
+          <div style={{ fontSize: 15, fontWeight: 800, fontFamily: OSWALD, marginBottom: 2 }}>🎓 This week's trainees ({week.length})</div>
+          <div style={{ fontSize: 12.5, color: "#92400e", marginBottom: 10 }}>They knock + sign starting day 2. Tap to give them map access and <b>text them their link</b>.</div>
+          <div style={{ display: "grid", gap: 6 }}>
+            {week.map((t) => (
+              <div key={t.phone || t.name} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", border: "1px solid #fde68a", borderRadius: 10, padding: "9px 12px", background: "#fff" }}>
+                <span style={{ fontSize: 14, fontWeight: 700 }}>{t.name}</span>
+                <span style={{ fontSize: 12, color: "#94a3b8" }}>{t.phone}</span>
+                <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+                  {t.has_access ? (
+                    <>
+                      <span style={{ fontSize: 11.5, fontWeight: 800, color: "#166534" }}>✓ has access</span>
+                      <button type="button" onClick={() => copy(t.link, t.link)} style={btn}>{copied === t.link ? "✓ Copied" : "Copy link"}</button>
+                      <button type="button" disabled={granting === t.phone} onClick={() => grantTrainee(t)} style={btn}>{granting === t.phone ? "…" : "Re-text link"}</button>
+                    </>
+                  ) : (
+                    <button type="button" disabled={granting === t.phone || !t.phone} onClick={() => grantTrainee(t)} style={{ ...pill, background: "#d97706" }}>{granting === t.phone ? "…" : "📲 Grant access & text link"}</button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {data && (
         <>
           {/* Assign access — promote anyone to Admin (view-all) or set their level. */}
@@ -99,6 +151,7 @@ export default function HarvestLinks() {
                       <button type="button" disabled={saving === m.id} onClick={() => setLevel(m.id, "admin", m.name)} style={{ ...pill, background: "#7c3aed" }}>{saving === m.id ? "…" : "Admin"}</button>
                       <button type="button" disabled={saving === m.id} onClick={() => setLevel(m.id, "senior", m.name)} style={{ ...pill, background: "#16a34a" }}>Senior</button>
                       <button type="button" disabled={saving === m.id} onClick={() => setLevel(m.id, "junior", m.name)} style={{ ...pill, background: "#334155" }}>Junior</button>
+                      <button type="button" disabled={saving === m.id} onClick={() => setLevel(m.id, "trainee", m.name)} style={{ ...pill, background: "#d97706" }}>Trainee</button>
                     </div>
                   </div>
                 ))}
@@ -119,6 +172,26 @@ export default function HarvestLinks() {
                     <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
                       <LevelSelect card={r} disabled={saving === r.id} onPick={(lv) => setLevel(r.id, lv, r.name)} />
                       <a href={r.link} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, fontWeight: 700, color: "#7c3aed", textDecoration: "none" }}>Open ↗</a>
+                      <button type="button" onClick={() => copy(r.link, r.link)} style={btn}>{copied === r.link ? "✓ Copied" : "Copy link"}</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Trainees — junior-visibility links, tagged distinctly. */}
+          {(data.trainees || []).length > 0 && (
+            <div style={{ marginBottom: 22 }}>
+              <div style={{ fontSize: 16, fontWeight: 800, fontFamily: OSWALD, marginBottom: 8 }}>🎓 Trainees ({data.trainees.length})</div>
+              <div style={{ display: "grid", gap: 6 }}>
+                {data.trainees.map((r) => (
+                  <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", border: "1px solid #fde68a", borderRadius: 10, padding: "9px 12px", background: "#fffbeb" }}>
+                    <span style={{ fontSize: 10.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.04em", background: "#d97706", color: "#fff", padding: "2px 8px", borderRadius: 10 }}>trainee</span>
+                    <span style={{ fontSize: 14, fontWeight: 700 }}>{r.name}</span>
+                    <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+                      <LevelSelect card={r} disabled={saving === r.id} onPick={(lv) => setLevel(r.id, lv, r.name)} />
+                      <a href={r.link} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, fontWeight: 700, color: "#b45309", textDecoration: "none" }}>Open ↗</a>
                       <button type="button" onClick={() => copy(r.link, r.link)} style={btn}>{copied === r.link ? "✓ Copied" : "Copy link"}</button>
                     </div>
                   </div>
@@ -172,6 +245,7 @@ function LevelSelect({ card, disabled, onPick }) {
       <option value="admin">Admin · view all</option>
       <option value="senior">Senior</option>
       <option value="junior">Junior</option>
+      <option value="trainee">Trainee</option>
     </select>
   );
 }

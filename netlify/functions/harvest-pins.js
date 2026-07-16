@@ -65,8 +65,10 @@ export const handler = async (event) => {
         // takes precedence over the rep-zones default. Lets the office give a
         // trainer/manager a personal view-all link without touching rep-zones.
         const ov = (reps[0].harvest_level || "").toLowerCase();
-        if (ov === "admin" || ov === "senior" || ov === "junior") {
-          level = ov;
+        if (ov === "admin" || ov === "senior" || ov === "junior" || ov === "trainee") {
+          // Trainees get JUNIOR pin visibility (insp + iq_ni — what they're
+          // training on); the 'trainee' tag itself is just for the roster.
+          level = ov === "trainee" ? "junior" : ov;
           if (ov === "admin") repName = reps[0].name || "Office";
           repJn = reps[0].jobnimbus_id || null;
         } else {

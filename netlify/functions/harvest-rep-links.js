@@ -52,7 +52,7 @@ export const handler = async (event) => {
     // A rep gets a link card if they're an active field rep (in rep-zones) OR the
     // office has explicitly assigned them a harvest_level (so a trainer/manager
     // not in rep-zones, or an inactive one, still shows once assigned).
-    const norm = (v) => { const s = (v || "").toLowerCase(); return (s === "admin" || s === "senior" || s === "junior") ? s : null; };
+    const norm = (v) => { const s = (v || "").toLowerCase(); return (s === "admin" || s === "senior" || s === "junior" || s === "trainee") ? s : null; };
     const cards = [];
     for (const r of (allReps || [])) {
       if (!r.harvest_token) continue;
@@ -74,7 +74,8 @@ export const handler = async (event) => {
     const levelRank = (lv) => (lv === "senior" ? 0 : 1); // senior first
     const byName = (a, b) => String(a.name || "").localeCompare(String(b.name || ""));
     const admins = cards.filter((c) => c.level === "admin").sort(byName);
-    const reps = cards.filter((c) => c.level !== "admin").sort((a, b) =>
+    const trainees = cards.filter((c) => c.level === "trainee").sort(byName);
+    const reps = cards.filter((c) => c.level !== "admin" && c.level !== "trainee").sort((a, b) =>
       (a.region || "~").localeCompare(b.region || "~") ||
       (levelRank(a.level) - levelRank(b.level)) || byName(a, b));
 
@@ -90,6 +91,7 @@ export const handler = async (event) => {
       base,
       admin_link: adminTok ? `${base}/?mode=harvest&admin=${adminTok}` : "",
       admins,
+      trainees,
       reps,
       all,
     });
