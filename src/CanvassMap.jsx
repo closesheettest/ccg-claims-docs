@@ -837,15 +837,21 @@ export default function CanvassMap() {
                       <button type="button" onClick={startOver} style={{ background: "none", border: "none", fontSize: 12.5, fontWeight: 700, color: "#94a3b8", cursor: "pointer" }}>↺ Start over</button>
                     </div>
                   </div>
-                  {fillOffer && (
+                  {fillOffer && (() => {
+                    // Recompute live so trimming stops in Edit route bumps the
+                    // "add N" up (remove 10 of 16 → room for 24 more, not 14).
+                    const addN = Math.min(availableFill(route).length, Math.max(0, ROUTE_CAP_DEFAULT - route.length));
+                    if (addN <= 0) return null;
+                    return (
                     <div style={{ background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 10, padding: "9px 11px", margin: "2px 0 8px" }}>
                       <div style={{ fontSize: 12.5, fontWeight: 800, color: "#92400e" }}>Only {route.length} stops — that's not a full day's effort.</div>
                       <button type="button" onClick={addFillStops}
                         style={{ marginTop: 7, width: "100%", background: "#d97706", color: "#fff", border: "none", borderRadius: 9, padding: "9px", fontSize: 12.5, fontWeight: 800, cursor: "pointer" }}>
-                        ➕ Add {Math.min(fillOffer.available, fillOffer.need)} “{S["no_sit_reschedule"]?.label || "No sit – need to reschedule"}” to fill the day
+                        ➕ Add {addN} “{S["no_sit_reschedule"]?.label || "No sit – need to reschedule"}” to fill the day
                       </button>
                     </div>
-                  )}
+                    );
+                  })()}
                   {stop.name && <div style={{ fontSize: 15.5, fontWeight: 800 }}>{stop.name}</div>}
                   <div style={{ fontSize: 13.5, color: "#334155", fontWeight: 600 }}>{stop.address}</div>
                   <div style={{ fontSize: 12.5, color: "#64748b" }}>{[stop.city, stop.state, stop.zip].filter(Boolean).join(", ")}</div>
