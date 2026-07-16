@@ -8,8 +8,10 @@ import HarvestNav from "./HarvestNav";
 
 const FONT = "'Nunito', system-ui, sans-serif";
 const OSWALD = "'Oswald', sans-serif";
-const OUTCOMES = ["appt", "iq_ni", "insp_ni", "insp_sold", "no_sit_reschedule", "dead"];
-const OUTCOME_LABELS = { appt: "Appts", iq_ni: "IQ not int.", insp_ni: "Not interested", insp_sold: "Sold", no_sit_reschedule: "No-sit", dead: "Dead" };
+const OUTCOMES = ["appt", "iq_ni", "insp_ni", "insp_sold", "no_sit_reschedule", "new_roof", "dead"];
+const OUTCOME_LABELS = { appt: "Appts", iq_ni: "IQ not int.", insp_ni: "Not interested", insp_sold: "Sold", no_sit_reschedule: "No-sit", new_roof: "New Roof", dead: "Dead" };
+// Friendly names for a pin's ORIGINAL status (for the New-Roof breakdown).
+const STATUS_LABEL = { iq: "IQ", iq_ni: "IQ – Not Interested", no_sit_reschedule: "No-sit – need to reschedule", insp: "Inspection Lead", appt: "Appointment", insp_pending: "Pending signature", insp_sold: "Inspection Sold" };
 
 export default function HarvestReport() {
   const [rows, setRows] = useState(null);
@@ -22,7 +24,7 @@ export default function HarvestReport() {
     (async () => {
       setRows(null); setErr(""); setOpenRep(null);
       let q = supabase.from("canvass_activity")
-        .select("rep_name, pin_id, kind, to_status, round, created_at")
+        .select("rep_name, pin_id, kind, from_status, to_status, round, created_at")
         .order("created_at", { ascending: false }).limit(50000);
       if (period === "today") { const d = new Date(); d.setHours(0, 0, 0, 0); q = q.gte("created_at", d.toISOString()); }
       else if (period === "7d") { q = q.gte("created_at", new Date(Date.now() - 7 * 86400000).toISOString()); }
@@ -68,6 +70,20 @@ export default function HarvestReport() {
       .sort((a, b) => new Date(b.last) - new Date(a.last));
   }, [rows]);
 
+  // "Dropping the ball" data point: doors we found already had a NEW ROOF
+  // (a competitor got it), broken down by what the pin WAS — e.g. how many of
+  // our no-sits we lost because we didn't stay on them.
+  const newRoof = useMemo(() => {
+    const bySrc = {}; let total = 0;
+    for (const r of (rows || [])) {
+      if (r.kind === "status" && r.to_status === "new_roof") {
+        const src = r.from_status || "(unknown)";
+        bySrc[src] = (bySrc[src] || 0) + 1; total++;
+      }
+    }
+    return { total, bySrc: Object.entries(bySrc).sort((a, b) => b[1] - a[1]) };
+  }, [rows]);
+
   const fmt = (iso) => { try { return new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch { return "—"; } };
   const fmtT = (iso) => { try { return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }); } catch { return ""; } };
   const fmtDur = (s) => { if (s == null) return "—"; const m = Math.floor(s / 60), sec = Math.round(s % 60); return m ? `${m}m ${sec}s` : `${sec}s`; };
@@ -86,6 +102,21 @@ export default function HarvestReport() {
         </div>
       </div>
       <div style={{ fontSize: 13, color: "#64748b", marginBottom: 16 }}>Each door a rep works (within 200 ft) is a visit; the outcome they tap fills in the columns. <b>Avg at spot</b> = time from arriving to tapping the outcome. <b>Tap a rep's row</b> for a stop-by-stop breakdown.</div>
+
+      {newRoof.total > 0 && (
+        <div style={{ background: "#ecfeff", border: "1px solid #67e8f9", borderRadius: 12, padding: "14px 16px", marginBottom: 18 }}>
+          <div style={{ fontSize: 14.5, fontWeight: 800, color: "#0e7490", fontFamily: OSWALD }}>🚩 New Roofs we lost — {newRoof.total}</div>
+          <div style={{ fontSize: 12.5, color: "#155e75", margin: "3px 0 10px" }}>Doors that already had a new roof (a competitor got it) — i.e. deals we let slip. Broken down by what the lead <b>was</b>:</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {newRoof.bySrc.map(([src, n]) => (
+              <div key={src} style={{ background: "#fff", border: "1px solid #cffafe", borderRadius: 10, padding: "8px 12px" }}>
+                <span style={{ fontSize: 17, fontWeight: 800, color: "#0891b2" }}>{n}</span>
+                <span style={{ fontSize: 12.5, color: "#475569", marginLeft: 6 }}>{STATUS_LABEL[src] || src}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {err && <div style={{ color: "#b91c1c", fontSize: 13.5, marginBottom: 12 }}>{err}</div>}
       {rows === null && !err ? <div style={{ color: "#94a3b8", fontSize: 13 }}>Loading…</div> : null}

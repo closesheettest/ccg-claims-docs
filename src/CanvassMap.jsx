@@ -16,14 +16,15 @@ import { supabase } from "./lib/supabase";
 // The live pin types (label, color, allowed outcomes, who sees them) are loaded
 // from that table so the office can edit them on the admin page.
 const FALLBACK_TYPES = [
-  { key: "iq", label: "IQ", color: "#2563eb", outcomes: ["iq_ni", "appt"] },
-  { key: "appt", label: "Appointment", color: "#16a34a", outcomes: ["no_sit_reschedule"] },
-  { key: "no_sit_reschedule", label: "No sit – need to reschedule", color: "#dc2626", outcomes: ["appt", "dead"] },
-  { key: "iq_ni", label: "IQ – Not Interested", color: "#f59e0b", outcomes: ["insp_sold", "dead"] },
-  { key: "insp", label: "Inspection Lead", color: "#0ea5e9", outcomes: ["insp_sold", "insp_ni", "dead"] },
+  { key: "iq", label: "IQ", color: "#2563eb", outcomes: ["iq_ni", "appt", "new_roof"] },
+  { key: "appt", label: "Appointment", color: "#16a34a", outcomes: ["no_sit_reschedule", "new_roof"] },
+  { key: "no_sit_reschedule", label: "No sit – need to reschedule", color: "#dc2626", outcomes: ["appt", "dead", "new_roof"] },
+  { key: "iq_ni", label: "IQ – Not Interested", color: "#f59e0b", outcomes: ["insp_sold", "dead", "new_roof"] },
+  { key: "insp", label: "Inspection Lead", color: "#0ea5e9", outcomes: ["insp_sold", "insp_ni", "dead", "new_roof"] },
   { key: "insp_ni", label: "Not Interested", color: "#78716c", outcomes: [], is_terminal: true },
   { key: "insp_pending", label: "Pending signature", color: "#ea580c", outcomes: ["insp_sold", "dead"] },
   { key: "insp_sold", label: "Inspection Sold", color: "#7c3aed", outcomes: [], is_terminal: true },
+  { key: "new_roof", label: "New Roof", color: "#0891b2", outcomes: [], is_terminal: true },
   { key: "dead", label: "Dead / DNK", color: "#111827", outcomes: [], is_terminal: true },
 ];
 const UNKNOWN_TYPE = { color: "#64748b", label: "—", outcomes: [] };
@@ -117,6 +118,7 @@ export default function CanvassMap() {
   const panelDrag = useRef(null);
   const watchRef = useRef(null);
   const choosingRef = useRef(false);                   // map-click reads this (avoid stale closure)
+  const activeDayRef = useRef(false);                  // day in progress → don't reload pins on map move
   const shownRef = useRef([]);                         // current on-screen prospects, for routing
   const startFromRef = useRef(null);
   const S = useMemo(() => Object.fromEntries(pinTypes.map((t) => [t.key, t])), [pinTypes]);
@@ -201,7 +203,10 @@ export default function CanvassMap() {
     });
     // Viewport loading — reload the pins in view whenever the map settles (debounced).
     m.on("moveend", () => {
-      if (showAllRef.current) return; // already holding every pin — panning needs no refetch
+      // Skip refetch when we already hold every pin, OR while a day is in
+      // progress (we loaded a wide radius up front — don't shrink it back to the
+      // current view and starve the route/next round).
+      if (showAllRef.current || activeDayRef.current) return;
       clearTimeout(moveTimer.current);
       moveTimer.current = setTimeout(() => { if (loadRef.current) loadRef.current(m.getBounds()); }, 350);
     });
@@ -290,7 +295,7 @@ export default function CanvassMap() {
   // ── Start my day ───────────────────────────────────────────────────────
   // Order the on-screen prospect pins nearest-first from a start point (the
   // rep's location or a tapped spot), then walk them one stop at a time.
-  useEffect(() => { choosingRef.current = dayMode === "choosing"; }, [dayMode]);
+  useEffect(() => { choosingRef.current = dayMode === "choosing"; activeDayRef.current = dayMode !== null; }, [dayMode]);
   useEffect(() => { signingStopRef.current = signingStop; }, [signingStop]);
   // The intake tab writes localStorage 'harvest_signed' when a signing completes.
   // That 'storage' event fires in THIS tab (a different one) → advance instantly.
@@ -406,10 +411,12 @@ export default function CanvassMap() {
     return out;
   }
   async function startFrom(pt) {
-    // Center on the start + load that area's pins first (viewport loading), so
-    // the route sees the local leads even if they weren't on screen before.
-    if (map.current) map.current.setView([pt.lat, pt.lng], 15);
-    const loaded = await load(map.current ? map.current.getBounds() : null);
+    // Load a GENEROUS radius (~25 mi) around the start — not just the tight
+    // on-screen box — so the route can actually reach the cap instead of only
+    // routing whatever few pins happened to be loaded in view.
+    const R = 0.36;
+    const wide = { getNorth: () => pt.lat + R, getSouth: () => pt.lat - R, getEast: () => pt.lng + R, getWest: () => pt.lng - R };
+    const loaded = await load(wide);
     const pool = (loaded.length ? loaded : (shownRef.current || [])).filter((p) => inFilter(p.status) && typeof p.latitude === "number" && (!visKeys || visKeys.has(p.status)));
     const r = buildRoute(pt, pool);
     if (!r.length) { alert("No stops near here to route. Zoom to your area or change the filter, then start your day."); setDayMode(null); return; }
