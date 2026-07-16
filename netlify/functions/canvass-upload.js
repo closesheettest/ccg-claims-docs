@@ -79,10 +79,12 @@ export const handler = async (event) => {
       zip: (r.zip || "").toString().trim() || null,
       phone: (r.phone || "").toString().trim() || null,
       email: (r.email || "").toString().trim() || null,
+      latitude: numOrNull(r.latitude),
+      longitude: numOrNull(r.longitude),
       type: (r.type || r.status || "").toString().trim().toLowerCase() || defaultType,
       extra: (r.extra && typeof r.extra === "object") ? r.extra : null,
     }))
-    .filter((r) => r.address)
+    .filter((r) => r.address || (r.latitude != null && r.longitude != null))
     .slice(0, MAX_ROWS);
   if (!rows.length) return json(400, { ok: false, error: "no usable addresses" });
 
@@ -94,16 +96,21 @@ export const handler = async (event) => {
     while (cursor < rows.length) {
       const i = cursor++;
       const r = rows[i];
-      const query = [r.address, r.city, r.state, r.zip].filter(Boolean).join(", ");
-      const g = await geocode(query, googleKey);
-      if (g.ok) geocoded++; else failed++;
+      let lat = r.latitude, lng = r.longitude, gstatus;
+      if (lat != null && lng != null) {
+        geocoded++; gstatus = "provided"; // already geocoded in the file — no Google call
+      } else {
+        const query = [r.address, r.city, r.state, r.zip].filter(Boolean).join(", ");
+        const g = await geocode(query, googleKey);
+        if (g.ok) { lat = g.lat; lng = g.lng; geocoded++; } else { lat = null; lng = null; failed++; }
+        gstatus = g.ok ? "ok" : "failed";
+      }
       out[i] = {
         list_name: listName,
         name: r.name,
         address: r.address, city: r.city, state: r.state, zip: r.zip,
-        latitude: g.ok ? g.lat : null,
-        longitude: g.ok ? g.lng : null,
-        geocode_status: g.ok ? "ok" : "failed",
+        latitude: lat, longitude: lng,
+        geocode_status: gstatus,
         status: cleanType(r.type),
         phone: r.phone, email: r.email, extra: r.extra,
       };
@@ -168,6 +175,11 @@ export const handler = async (event) => {
   return json(200, { ok: true, upload_id: uploadId, inserted: toInsert.length, updated, skipped, geocoded, failed, list_name: listName });
 };
 
+function numOrNull(v) {
+  if (v == null || v === "") return null;
+  const n = typeof v === "number" ? v : parseFloat(String(v).replace(/[^\d.\-]/g, ""));
+  return Number.isFinite(n) && Math.abs(n) <= 180 ? n : null;
+}
 async function sbGet(url, headers) {
   const r = await fetch(url, { headers });
   if (!r.ok) throw new Error(await r.text());

@@ -95,6 +95,8 @@ function UploadForm({ types, onDone }) {
       city: guessCol(headers, ["city", "town"]),
       state: guessCol(headers, ["state", "st"]),
       zip: guessCol(headers, ["zip", "zipcode", "zip code", "postal", "postal code"]),
+      latitude: guessCol(headers, ["latitude", "lat", "y"]),
+      longitude: guessCol(headers, ["longitude", "long", "lng", "lon", "x"]),
       type: guessCol(headers, ["pin type", "pintype", "pin_type"]), // NOT generic "type" cols like "Contact Type"
     });
   }, [text]); // eslint-disable-line
@@ -155,6 +157,8 @@ function UploadForm({ types, onDone }) {
     { key: "city", label: "City" },
     { key: "state", label: "State" },
     { key: "zip", label: "ZIP" },
+    { key: "latitude", label: "Latitude", hint: "already have coords? map these to skip geocoding" },
+    { key: "longitude", label: "Longitude" },
     { key: "type", label: "Pin type (per row)" },
   ];
   const preview = rows.slice(0, 3);
@@ -285,20 +289,26 @@ function buildRows(table, mapping, defaultType, types) {
   };
   const usedIdx = new Set(Object.values(mapping).filter((i) => i >= 0));
   const get = (cols, key) => { const i = mapping[key]; return i >= 0 ? (cols[i] || "").trim() : ""; };
+  const num = (v) => { const n = parseFloat(String(v).replace(/[^\d.\-]/g, "")); return Number.isFinite(n) ? n : null; };
   const out = [];
   for (const cols of rows) {
     const address = get(cols, "address");
-    if (!address) continue;
+    const latitude = num(get(cols, "latitude"));
+    const longitude = num(get(cols, "longitude"));
+    const hasCoords = latitude != null && longitude != null;
+    if (!address && !hasCoords) continue; // need an address to geocode, OR ready coords
     const extra = {};
     headers.forEach((h, i) => { if (!usedIdx.has(i) && (cols[i] || "").trim() && h) extra[h] = cols[i].trim(); });
     out.push({
-      address,
+      address: address || `${latitude}, ${longitude}`,
       name: [get(cols, "name"), get(cols, "last_name")].filter(Boolean).join(" ") || null,
       phone: get(cols, "phone") || null,
       email: get(cols, "email") || null,
       city: get(cols, "city") || null,
       state: get(cols, "state") || null,
       zip: get(cols, "zip") || null,
+      latitude: hasCoords ? latitude : undefined,
+      longitude: hasCoords ? longitude : undefined,
       type: resolveType(get(cols, "type")),
       extra: Object.keys(extra).length ? extra : undefined,
     });
