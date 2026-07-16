@@ -148,6 +148,7 @@ export default function CanvassMap() {
   const [panelPos, setPanelPos] = useState(null);      // {left,top} px if dragged, else default bottom-right
   const [ignoreDist, setIgnoreDist] = useState(false); // admin test toggle: skip the 200 ft gate
   const [capped, setCapped] = useState(false);         // more pins in view than the cap → "zoom in"
+  const [shownCount, setShownCount] = useState(0);     // pins actually drawn after the category filter
   const [showAll, setShowAll] = useState(false);       // office overview: load every pin, ignore viewport
   const showAllRef = useRef(false);                    // moveend/load read this without a stale closure
   const loadRef = useRef(null);                        // latest load() for the map moveend handler
@@ -325,6 +326,7 @@ export default function CanvassMap() {
     lyr.clearLayers();
     const shown = mapped.filter((p) => inFilter(p.status) && (!visKeys || visKeys.has(p.status)));
     shownRef.current = shown; // for "Start my day" routing (already level-filtered)
+    setShownCount(shown.length); // drives the "0 match your filter" hint
     const markers = [];
     const pts = [];
     for (const p of shown) {
@@ -817,8 +819,15 @@ export default function CanvassMap() {
             No pins in your area yet. The office loads leads from the admin section.
           </div>
         )}
-        {!loading && capped && dayMode === null && (
+        {!loading && capped && shownCount > 0 && dayMode === null && (
           <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", background: "#fffbeb", border: "1px solid #fcd34d", color: "#92400e", padding: "6px 14px", borderRadius: 20, fontSize: 12.5, fontWeight: 700, boxShadow: "0 2px 8px rgba(0,0,0,.12)", zIndex: 500, whiteSpace: "nowrap" }}>Showing the densest area — zoom in to see every pin</div>
+        )}
+        {/* Loaded pins, but the category filter is hiding them all — explain the
+            blank map (e.g. "IQ" selected when every pin is an Inspection Lead). */}
+        {!loading && shownCount === 0 && mapped.length > 0 && dayMode === null && (
+          <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", background: "#eff6ff", border: "1px solid #93c5fd", color: "#1e3a8a", padding: "6px 14px", borderRadius: 20, fontSize: 12.5, fontWeight: 700, boxShadow: "0 2px 8px rgba(0,0,0,.12)", zIndex: 500, whiteSpace: "nowrap" }}>
+            0 of {mapped.length.toLocaleString()} pins match your filter — tap <b>All</b> up top to see them
+          </div>
         )}
 
         {/* ── Start my day ── */}
