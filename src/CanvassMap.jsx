@@ -90,6 +90,7 @@ export default function CanvassMap() {
   const workingRef = useRef(new Set());                // the ORIGINAL round-1 routed pin ids — later rounds only recycle these, minus statused
   const arrivedRef = useRef(null);                     // { key } — already logged arrival at this stop
   const [panelPos, setPanelPos] = useState(null);      // {left,top} px if dragged, else default bottom-right
+  const [ignoreDist, setIgnoreDist] = useState(false); // admin test toggle: skip the 200 ft gate
   const panelDrag = useRef(null);
   const watchRef = useRef(null);
   const choosingRef = useRef(false);                   // map-click reads this (avoid stale closure)
@@ -433,6 +434,13 @@ export default function CanvassMap() {
           </div>
         )}
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+          {me?.level === "admin" && (
+            <button type="button" onClick={() => setIgnoreDist((v) => !v)}
+              title="Test mode: let the outcome buttons work without being within 200 ft of the pin"
+              style={{ fontSize: 11, fontWeight: 800, cursor: "pointer", borderRadius: 999, padding: "3px 10px", border: "1px solid", borderColor: ignoreDist ? "#f59e0b" : "#475569", background: ignoreDist ? "#f59e0b" : "transparent", color: ignoreDist ? "#111827" : "#cbd5e1" }}>
+              🧪 Distance {ignoreDist ? "OFF" : "ON"}
+            </button>
+          )}
           {me ? (
             <span style={{ fontSize: 12.5, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
               {me.name}
@@ -525,7 +533,7 @@ export default function CanvassMap() {
                 </div>
               ) : (() => {
                 const distFt = myLoc ? feetBetween(myLoc, { lat: stop.latitude, lng: stop.longitude }) : null;
-                const near = distFt != null && distFt <= ARRIVE_FT;
+                const near = ignoreDist || (distFt != null && distFt <= ARRIVE_FT);
                 const outs = ((S[stop.status]?.outcomes) || []).map((k) => S[k]).filter(Boolean);
                 const oBtn = (key, label, color) => (
                   <button key={key} type="button" disabled={!near} onClick={() => workStop(key)}
@@ -556,11 +564,13 @@ export default function CanvassMap() {
                     {oBtn("nothome", "🏠 Not home", "#475569")}
                   </div>
                   <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, textAlign: "center", color: near ? "#16a34a" : "#b45309" }}>
-                    {distFt == null
-                      ? "📍 Finding your location… (allow location access to log a stop)"
-                      : near
-                        ? "✓ You're here — pick what happened and it moves to the next stop"
-                        : `~${Math.round(distFt).toLocaleString()} ft away — get within ${ARRIVE_FT} ft to log this stop`}
+                    {ignoreDist
+                      ? "🧪 Distance gate OFF (test) — pick what happened"
+                      : distFt == null
+                        ? "📍 Finding your location… (allow location access to log a stop)"
+                        : near
+                          ? "✓ You're here — pick what happened and it moves to the next stop"
+                          : `~${Math.round(distFt).toLocaleString()} ft away — get within ${ARRIVE_FT} ft to log this stop`}
                   </div>
                 </>
                 );
