@@ -193,6 +193,46 @@ const CLUSTER_ZOOM = 13;
 // Seniors work these TWO together — the filter is locked to both (they can't
 // narrow to just one).
 const SENIOR_STATUSES = ["iq", "no_sit_reschedule"];
+
+// ── Team-trail helpers (office view) ────────────────────────────────────────
+function trailMi(a, b) {
+  const R = 3958.8, toR = (x) => (x * Math.PI) / 180;
+  const dLat = toR(b[0] - a[0]), dLng = toR(b[1] - a[1]);
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(toR(a[0])) * Math.cos(toR(b[0])) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+// Split a rep's pings into segments, breaking where two consecutive pings imply
+// an IMPOSSIBLE speed (>85 mph) — that's a stale/backgrounded jump, not a drive,
+// so we don't connect it (kills the straight line cutting across the whole map).
+function trailSegments(pings) {
+  const segs = []; let cur = [];
+  for (let i = 0; i < pings.length; i++) {
+    const p = pings[i], pt = [p.lat, p.lng];
+    if (cur.length) {
+      const prev = pings[i - 1];
+      const mi = trailMi([prev.lat, prev.lng], pt);
+      const dtH = Math.max((Date.parse(p.at) - Date.parse(prev.at)) / 3.6e6, 1 / 3600);
+      if (mi > 0.25 && mi / dtH > 85) { segs.push(cur); cur = []; }
+    }
+    cur.push(pt);
+  }
+  if (cur.length) segs.push(cur);
+  return segs;
+}
+// Snap one segment to the road network (OSRM). Downsamples to ≤24 waypoints so
+// the request stays small; returns the straight segment if OSRM is slow/down.
+async function snapTrailSegment(seg) {
+  if (seg.length < 2) return seg;
+  let ws = seg;
+  if (seg.length > 24) { const step = Math.ceil(seg.length / 23); ws = seg.filter((_, i) => i % step === 0); if (ws[ws.length - 1] !== seg[seg.length - 1]) ws.push(seg[seg.length - 1]); }
+  const coords = ws.map(([lat, lng]) => `${lng},${lat}`).join(";");
+  try {
+    const j = await (await fetch(`https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`)).json();
+    const g = j.routes?.[0]?.geometry?.coordinates;
+    if (g && g.length) return g.map(([lng, lat]) => [lat, lng]);
+  } catch { /* fall through to straight */ }
+  return seg;
+}
 // Scope selector: a status bucket bigger than this must be narrowed to a REGION
 // before the map loads it, so we never pull 200k+ pins at once. Small buckets
 // (IQ, no-sit, FB) load statewide as before. Regions = rough Florida boxes
@@ -323,6 +363,9 @@ export default function CanvassMap() {
   const accessLogged = useRef(false); // stamp map access (billing) once per session
   const zoomHintTimer = useRef(null); // auto-hide the "zoom in" nudge
   const [team, setTeam] = useState([]); // other reps' breadcrumbs (admin only)
+  const trailCache = useRef(new Map()); // rep trail key → road-snapped segments
+  const trailSnapping = useRef(new Set());
+  const [snapTick, setSnapTick] = useState(0); // bump to redraw once a trail is snapped
   const fitted = useRef(false);
   const [prospects, setProspects] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -981,25 +1024,44 @@ export default function CanvassMap() {
     const id = setInterval(pull, 30000);
     return () => { live = false; clearInterval(id); };
   }, [me?.level, auth.admin]);
-  // Draw each rep's trailing line + a labelled dot at their latest position.
+  // Draw each rep's trail (road-snapped, jumps broken) + a labelled dot at their
+  // latest position. Snapping is async + cached, so a trail is snapped once and
+  // reused across the 30s polls; a faint dashed straight line shows until it lands.
   useEffect(() => {
     const lyr = teamLayer.current;
     if (!lyr) return;
     lyr.clearLayers();
     for (const r of team) {
-      const pts = (r.pings || []).filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng)).map((p) => [p.lat, p.lng]);
-      if (!pts.length) continue;
-      if (pts.length > 1) L.polyline(pts, { color: "#2563eb", weight: 3, opacity: 0.65 }).addTo(lyr);
-      const last = pts[pts.length - 1];
+      const pings = (r.pings || []).filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
+      if (!pings.length) continue;
+      const last = pings[pings.length - 1];
+      const key = `${r.rep_id || r.name}|${pings.length}|${last.at || ""}`;
+      const cached = trailCache.current.get(key);
+      if (cached) {
+        cached.forEach((seg) => { if (seg.length > 1) L.polyline(seg, { color: "#2563eb", weight: 3.5, opacity: 0.75 }).addTo(lyr); });
+      } else {
+        const segs = trailSegments(pings);
+        segs.forEach((seg) => { if (seg.length > 1) L.polyline(seg, { color: "#2563eb", weight: 2.5, opacity: 0.35, dashArray: "3 7" }).addTo(lyr); });
+        if (!trailSnapping.current.has(key)) {
+          trailSnapping.current.add(key);
+          Promise.all(segs.map(snapTrailSegment)).then((snapped) => {
+            trailCache.current.set(key, snapped);
+            trailSnapping.current.delete(key);
+            if (trailCache.current.size > 80) trailCache.current.delete(trailCache.current.keys().next().value);
+            setSnapTick((t) => t + 1);
+          }).catch(() => trailSnapping.current.delete(key));
+        }
+      }
       const label = `${escapeHtml(r.name)}${r.last_action ? " · " + escapeHtml(r.last_action) : ""}`;
       const icon = L.divIcon({
         className: "harvest-rep",
         html: `<div style="display:flex;flex-direction:column;align-items:center;transform:translateY(-4px)"><div style="background:#1e3a8a;color:#fff;font-size:10px;font-weight:800;padding:1px 6px;border-radius:8px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.4);margin-bottom:2px">${label}</div><div style="width:14px;height:14px;border-radius:50%;background:#2563eb;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.5)"></div></div>`,
         iconSize: [1, 1], iconAnchor: [0, 7],
       });
-      L.marker(last, { icon, zIndexOffset: 2500, interactive: false }).addTo(lyr);
+      L.marker([last.lat, last.lng], { icon, zIndexOffset: 2500, interactive: false }).addTo(lyr);
     }
-  }, [team]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [team, snapTick]);
   // While in "route an area" mode, drag a box on the map; on release we route the
   // doors inside it. Pointer events cover both touch (phone) and mouse.
   useEffect(() => {
