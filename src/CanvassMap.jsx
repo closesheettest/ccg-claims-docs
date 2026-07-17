@@ -172,7 +172,10 @@ function feetBetween(a, b) {
   const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 }
-const ARRIVE_FT = 200; // must be within this many feet of the stop to advance
+const ARRIVE_FT = 400; // must be within this many feet of the stop to status it.
+// 400 (was 200) absorbs geocoding error — an address often geocodes to the street
+// centroid or parcel corner a few hundred feet off the actual door — plus everyday
+// phone-GPS drift. GPS accuracy is credited on top, and there's a manual override.
 // "Start my day" routes the most efficient N stops. IQ canvassing is denser work
 // (30 doors); inspection go-backs cover more ground per rep (100).
 // Only inspection-lead days (juniors — huge volume) route 100 stops. Every other
@@ -451,7 +454,8 @@ export default function CanvassMap() {
   const workingRef = useRef(new Set(savedDay?.working || []));          // the ORIGINAL round-1 routed pin ids — later rounds only recycle these, minus statused
   const arrivedRef = useRef(null);                     // { key } — already logged arrival at this stop
   const [panelPos, setPanelPos] = useState(null);      // {left,top} px if dragged, else default bottom-right
-  const [ignoreDist, setIgnoreDist] = useState(false); // admin test toggle: skip the 200 ft gate
+  const [ignoreDist, setIgnoreDist] = useState(false); // admin test toggle: skip the distance gate
+  const [manualHere, setManualHere] = useState(null);  // stop id the rep confirmed "I'm at the door" (GPS/geocode wrong)
   const [capped, setCapped] = useState(false);         // more pins in view than the cap → "zoom in"
   const [shownCount, setShownCount] = useState(0);     // pins actually drawn after the category filter
   const [dbCounts, setDbCounts] = useState(null);      // TRUE per-status counts (RPC), so chips are right even when the load is capped
@@ -1413,6 +1417,7 @@ export default function CanvassMap() {
     );
   }
   function advanceStop() {
+    setManualHere(null); // the "I'm at the door" override is per-stop
     setStopIdx((i) => {
       const ni = i + 1;
       if (ni < route.length && map.current) map.current.setView([route[ni].latitude, route[ni].longitude], 15);
@@ -1975,11 +1980,16 @@ export default function CanvassMap() {
                 </div>
               ) : (() => {
                 const distFt = myLoc ? feetBetween(myLoc, { lat: stop.latitude, lng: stop.longitude }) : null;
-                const near = ignoreDist || (distFt != null && distFt <= ARRIVE_FT);
-                // Genuinely at the stop (real proximity, not the admin test toggle):
-                // once here, directions are turned off until they STATUS this stop —
-                // statusing advances to the next stop, which re-enables directions.
-                const arrived = distFt != null && distFt <= ARRIVE_FT;
+                // Credit the fix's own uncertainty: a ±100m GPS reading that says
+                // 358 ft could really be at the door. Capped at 400 ft so a wildly
+                // bad fix can't fully bypass the gate.
+                const accFt = myLoc?.acc != null ? Math.min(myLoc.acc * 3.28084, 400) : 0;
+                const effFt = distFt != null ? Math.max(0, distFt - accFt) : null;
+                const gpsNear = effFt != null && effFt <= ARRIVE_FT;
+                const near = ignoreDist || gpsNear || manualHere === stop.id;
+                // Genuinely at the stop: once here, directions are turned off until
+                // they STATUS this stop — statusing advances to the next stop.
+                const arrived = gpsNear || manualHere === stop.id;
                 const outs = ((S[stop.status]?.outcomes) || []).map((k) => S[k]).filter(Boolean);
                 const oBtn = (key, label, color) => (
                   <button key={key} type="button" disabled={!near} onClick={() => workStop(key)}
@@ -2081,9 +2091,17 @@ export default function CanvassMap() {
                       : distFt == null
                         ? "📍 Finding your location… (allow location access to log a stop)"
                         : near
-                          ? "✓ You're here — pick what happened and it moves to the next stop"
+                          ? (manualHere === stop.id ? "📍 Marked at the door — pick what happened" : "✓ You're here — pick what happened and it moves to the next stop")
                           : `~${Math.round(distFt).toLocaleString()} ft away — get within ${ARRIVE_FT} ft to log this stop`}
                   </div>
+                  {/* GPS/geocode can read a rep as far away when they're at the door.
+                      Let them confirm they're here so they're never locked out. */}
+                  {!near && distFt != null && (
+                    <button type="button" onClick={() => { setManualHere(stop.id); logActivity({ pin_id: stop.id, kind: "manual_here", to_status: stop.status }); }}
+                      style={{ marginTop: 8, width: "100%", padding: "9px", borderRadius: 10, border: "1px dashed #b45309", background: "#fff", color: "#b45309", fontSize: 12.5, fontWeight: 800, cursor: "pointer" }}>
+                      📍 I'm at the door — GPS is off, let me status it
+                    </button>
+                  )}
                   </>)}
                 </>
                 );
