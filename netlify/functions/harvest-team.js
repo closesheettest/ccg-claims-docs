@@ -39,11 +39,17 @@ export const handler = async (event) => {
     if (!byRep.has(key)) byRep.set(key, { rep_id: pg.rep_id, name: pg.rep_name || "Rep", pings: [] });
     byRep.get(key).pings.push({ lat: pg.lat, lng: pg.lng, at: pg.at });
   }
-  const reps = [...byRep.values()].map((r) => {
-    const a = lastByName[(r.name || "").toLowerCase()];
-    const label = a ? (a.kind === "status" ? (ACTION_LABEL[a.to_status] || a.to_status) : a.to_status === "not_home" ? "Not home" : "Working a door") : null;
-    return { ...r, last_action: label, last_at: a?.created_at || (r.pings[r.pings.length - 1]?.at || null) };
-  }).sort((a, b) => new Date(b.last_at || 0) - new Date(a.last_at || 0));
+  // A rep with no ping in the last 20 min has stopped (closed the map / done for
+  // now) — drop them from the LIVE view so it reflects who's actually out working.
+  // They reappear the moment they ping again. (History still keeps the full day.)
+  const IDLE_MS = 20 * 60 * 1000, now = Date.now();
+  const reps = [...byRep.values()]
+    .filter((r) => { const last = r.pings[r.pings.length - 1]?.at; return last && (now - Date.parse(last)) <= IDLE_MS; })
+    .map((r) => {
+      const a = lastByName[(r.name || "").toLowerCase()];
+      const label = a ? (a.kind === "status" ? (ACTION_LABEL[a.to_status] || a.to_status) : a.to_status === "not_home" ? "Not home" : "Working a door") : null;
+      return { ...r, last_action: label, last_at: a?.created_at || (r.pings[r.pings.length - 1]?.at || null) };
+    }).sort((a, b) => new Date(b.last_at || 0) - new Date(a.last_at || 0));
 
   return json(200, { ok: true, reps });
 };

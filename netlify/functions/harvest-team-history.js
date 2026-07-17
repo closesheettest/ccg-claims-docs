@@ -54,18 +54,23 @@ exports.handler = async (event) => {
     const s = Math.sin(dLat / 2) ** 2 + Math.cos(toR(a.lat)) * Math.cos(toR(b.lat)) * Math.sin(dLng / 2) ** 2;
     return 2 * R * Math.asin(Math.sqrt(s));
   };
+  // A gap of >20 min with no ping = they stopped (closed the map / done), so that
+  // gap is NOT working time. Working minutes = sum of gaps ≤20 min, which excludes
+  // idle stretches instead of counting the whole first-to-last span as "active".
+  const IDLE_MIN = 20;
   const reps = [...byRep.values()].map((r) => {
     const ps = r.pings;
-    let miles = 0;
+    let miles = 0, working = 0;
     for (let i = 1; i < ps.length; i++) {
       const seg = mi(ps[i - 1], ps[i]);
-      const dtH = Math.max((Date.parse(ps[i].at) - Date.parse(ps[i - 1].at)) / 3.6e6, 1 / 3600);
-      if (seg / dtH <= 85) miles += seg;   // skip impossible jumps (same rule as the trail)
+      const dtMin = (Date.parse(ps[i].at) - Date.parse(ps[i - 1].at)) / 60000;
+      const dtH = Math.max(dtMin / 60, 1 / 3600);
+      if (seg / dtH <= 85) miles += seg;        // skip impossible jumps (same rule as the trail)
+      if (dtMin > 0 && dtMin <= IDLE_MIN) working += dtMin;   // only continuous-activity time
     }
     const first = ps[0]?.at || null, last = ps[ps.length - 1]?.at || null;
-    const active_min = first && last ? Math.round((Date.parse(last) - Date.parse(first)) / 60000) : 0;
-    return { ...r, summary: { count: ps.length, first_at: first, last_at: last, miles: Math.round(miles * 10) / 10, active_min } };
-  }).sort((a, b) => (b.summary.miles - a.summary.miles));
+    return { ...r, summary: { count: ps.length, first_at: first, last_at: last, miles: Math.round(miles * 10) / 10, active_min: Math.round(working) } };
+  }).sort((a, b) => (b.summary.active_min - a.summary.active_min));
 
   return json(200, { ok: true, date, reps });
 };
