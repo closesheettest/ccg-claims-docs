@@ -828,6 +828,30 @@ export default function CanvassMap() {
   }
   // Close the visit sheet and refresh the list so a just-worked go-back drops off.
   function closeVisit() { setSelectedVisit(null); loadVisits(); }
+  // Fold today's / overdue go-backs into the route as stops (worked inline in the
+  // route panel via the same VisitActions). Nearest-first from the rep; appends if
+  // a day's already running, else starts a go-back route.
+  function addGobacksToRoute() {
+    const today = visits.filter((v) => { const s = visitDueStatus(v); return (s === "today" || s === "overdue") && v.latitude != null && v.longitude != null; });
+    if (!today.length) return;
+    const stops = today.map((v) => ({
+      id: `v_${v.inspection_id}`, latitude: Number(v.latitude), longitude: Number(v.longitude),
+      name: v.client_name || v.address, address: v.address, city: v.city, state: v.state, zip: v.zip,
+      status: "goback", _visit: v,
+    }));
+    setGobackCard(false);
+    if (dayMode === "active" && route.length) {
+      const have = new Set(route.map((s) => s.id));
+      const add = stops.filter((s) => !have.has(s.id));
+      if (add.length) setRoute((r) => [...r, ...add]);
+    } else {
+      const from = myLoc || { lat: stops[0].latitude, lng: stops[0].longitude };
+      const d2 = (s) => (from.lat - s.latitude) ** 2 + (from.lng - s.longitude) ** 2;
+      const ordered = [...stops].sort((a, b) => d2(a) - d2(b));
+      setStartPt(from); setRoute(ordered); setStopIdx(0); setRound(1);
+      setResolvedIds(new Set()); workingRef.current = new Set(); setDayMode("active");
+    }
+  }
   // Draw the go-back badges (toggleable).
   useEffect(() => {
     const lyr = visitsLayer.current; if (!lyr) return;
@@ -1576,6 +1600,12 @@ export default function CanvassMap() {
                       </button>
                     );
                   })}
+                  <div style={{ padding: "10px 12px" }}>
+                    <button type="button" onClick={addGobacksToRoute}
+                      style={{ width: "100%", background: "#16a34a", color: "#fff", border: "none", borderRadius: 10, padding: "11px", fontSize: 13.5, fontWeight: 800, cursor: "pointer" }}>
+                      ➕ Add today's go-backs to my route
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -1694,6 +1724,17 @@ export default function CanvassMap() {
                       <div style={{ fontSize: 12, color: "#7c3aed", opacity: 0.85, margin: "4px 0 10px" }}>Finish in the intake tab. This stop marks <b>Inspection Sold</b> and moves to the next automatically once they sign.</div>
                       <button type="button" onClick={() => completeSign(stop)} style={{ width: "100%", background: "#16a34a", color: "#fff", border: "none", borderRadius: 11, padding: "11px", fontSize: 13.5, fontWeight: 800, cursor: "pointer", marginBottom: 6 }}>✅ They signed — next stop</button>
                       <button type="button" onClick={() => setSigningStop(null)} style={{ width: "100%", background: "#fff", color: "#64748b", border: "1px solid #e5e7eb", borderRadius: 11, padding: "9px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>← Back (didn't sign)</button>
+                    </div>
+                  ) : stop._visit ? (
+                    <div style={{ marginTop: 12 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 800, color: (GOBACK_META[stop._visit.bucket] || GOBACK_META.damage).color, marginBottom: 8 }}>
+                        {(GOBACK_META[stop._visit.bucket] || GOBACK_META.damage).emoji} {(GOBACK_META[stop._visit.bucket] || GOBACK_META.damage).label} go-back — {(GOBACK_META[stop._visit.bucket] || GOBACK_META.damage).sub.toLowerCase()}
+                      </div>
+                      {visitToken
+                        ? <VisitActions type={stop._visit.bucket} deal={stop._visit} rep={{ name: me?.name || "", jobnimbus_id: me?.jn_id || "", email: me?.email || "" }} api={visitApi} />
+                        : <div style={{ fontSize: 13, color: "#94a3b8", textAlign: "center", padding: "8px 0" }}>Loading…</div>}
+                      <button type="button" onClick={() => { loadVisits(); advanceStop(); }}
+                        style={{ marginTop: 12, width: "100%", background: "#0f172a", color: "#fff", border: "none", borderRadius: 11, padding: "11px", fontSize: 13.5, fontWeight: 800, cursor: "pointer" }}>Next stop →</button>
                     </div>
                   ) : !ownsPin(stop) ? (
                     <div style={{ marginTop: 14, background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 12, padding: "14px 16px", textAlign: "center" }}>
