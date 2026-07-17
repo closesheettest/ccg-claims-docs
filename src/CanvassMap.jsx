@@ -249,6 +249,7 @@ export default function CanvassMap() {
   const selectLayer = useRef(null); // the box being drawn to route an area
   const selectStart = useRef(null); // first corner of the selection box
   const lastPingRef = useRef(0);   // throttle rep location pings
+  const accessLogged = useRef(false); // stamp map access (billing) once per session
   const zoomHintTimer = useRef(null); // auto-hide the "zoom in" nudge
   const [team, setTeam] = useState([]); // other reps' breadcrumbs (admin only)
   const fitted = useRef(false);
@@ -717,6 +718,13 @@ export default function CanvassMap() {
     lastPingRef.current = now;
     fetch("/.netlify/functions/harvest-ping", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rt: auth.rt, lat: myLoc.lat, lng: myLoc.lng }) }).catch(() => {});
   }, [myLoc]);
+  // Bill it: once a real rep opens the map, stamp their access for the month.
+  useEffect(() => {
+    if (accessLogged.current || !me || !auth.rt) return;
+    accessLogged.current = true;
+    fetch("/.netlify/functions/harvest-access", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rt: auth.rt }) }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me]);
   // Office/admin: poll everyone's breadcrumbs every 30s.
   useEffect(() => {
     if (me?.level !== "admin" || !auth.admin) return;

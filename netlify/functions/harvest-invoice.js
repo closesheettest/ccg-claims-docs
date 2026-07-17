@@ -24,10 +24,17 @@ export const handler = async (event) => {
   const s = await sbGet(`app_settings?key=eq.harvest_admin_token&select=value&limit=1`);
   if (!p.admin || s[0]?.value !== p.admin) return json(401, { ok: false, error: "admin only" });
 
+  // Which month? default = current (ET). 'YYYY-MM'.
+  const curMonth = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }).slice(0, 7);
+  const reqMonth = /^\d{4}-\d{2}$/.test(p.month || "") ? p.month : curMonth;
+  const isCurrent = reqMonth === curMonth;
+
   const norm = (v) => { const x = (v || "").toLowerCase(); return (x === "admin" || x === "senior" || x === "junior" || x === "trainee") ? x : null; };
-  const [reps, rz] = await Promise.all([
+  const [reps, rz, ledger] = await Promise.all([
     sbGet(`sales_reps?select=id,name,jobnimbus_id,harvest_token,active,harvest_level&order=name`),
     fetch(REP_ZONES_URL).then((r) => (r.ok ? r.json() : { reps: [] })).catch(() => ({ reps: [] })),
+    // Everyone the ledger recorded as having access this month (incl. people since removed).
+    sbGet(`harvest_access_months?month=eq.${encodeURIComponent(reqMonth)}&select=rep_id,rep_name`),
   ]);
   const zoneLevel = {};
   for (const r of (rz.reps || [])) {
@@ -36,20 +43,26 @@ export const handler = async (event) => {
     zoneLevel[r.jobnimbus_id] = (lv === "senior" || lv === "junior") ? lv : "junior";
   }
 
-  // A person has a SEAT if they have a personal link (harvest_token) AND either an
-  // explicit level (admin/trainee/senior/junior) or they're an active field rep.
-  const people = [];
-  for (const r of (reps || [])) {
-    if (!r.harvest_token) continue;
-    const override = norm(r.harvest_level);
-    const zl = r.jobnimbus_id ? zoneLevel[r.jobnimbus_id] : null;
-    if (!override && !zl) continue;
-    people.push({ name: r.name || "Rep", level: override || zl });
+  // Merge two sources, deduped by name:
+  //   (a) the LEDGER for the month — anyone who was GIVEN access / opened the map
+  //       that month, even if they've since been removed (dropped trainees).
+  //   (b) for the CURRENT month, the live roster — people with a seat right now
+  //       (covers seats granted before the ledger existed).
+  const byName = new Map();
+  const add = (name, level) => { const k = String(name || "").trim().toLowerCase(); if (!k) return; if (!byName.has(k) || (level && !byName.get(k).level)) byName.set(k, { name: String(name).trim(), level: level || byName.get(k)?.level || null }); };
+  for (const r of (ledger || [])) add(r.rep_name, null);
+  if (isCurrent) {
+    for (const r of (reps || [])) {
+      if (!r.harvest_token) continue;
+      const level = norm(r.harvest_level) || (r.jobnimbus_id ? zoneLevel[r.jobnimbus_id] : null);
+      if (!level) continue; // seat = has a link AND a level/active-field-rep
+      add(r.name, level);
+    }
   }
-  people.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  const people = [...byName.values()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
 
-  const now = new Date();
-  const month = now.toLocaleString("en-US", { timeZone: "America/New_York", month: "long", year: "numeric" });
+  const [y, m] = reqMonth.split("-");
+  const month = new Date(Number(y), Number(m) - 1, 1).toLocaleString("en-US", { month: "long", year: "numeric" });
   const count = people.length;
   return json(200, { ok: true, month, rate, count, total: count * rate, people });
 };

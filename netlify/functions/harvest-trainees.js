@@ -12,6 +12,8 @@
 //
 // Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, URL/PUBLIC_SITE_URL
 
+import { stampAccess } from "./harvest-access.js";
+
 const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const TMS_TRAINEES = "https://trainingmanagementsys.netlify.app/.netlify/functions/trainees-this-week";
@@ -50,6 +52,9 @@ export const handler = async (event) => {
     }
 
     const link = `${base}/?mode=harvest&rt=${token}`;
+    // Bill it: stamp this trainee's access for the current month right now, so
+    // they're billed even if they drop out before ever opening the map.
+    await stampAccess(sb, repId, name);
     // Text them the link.
     let sent = false;
     try {
