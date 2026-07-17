@@ -1004,7 +1004,7 @@ export default function CanvassMap() {
   useEffect(() => {
     if (!myLoc || !auth.rt) return;
     const now = Date.now();
-    if (now - lastPingRef.current < 30000) return;
+    if (now - lastPingRef.current < 10000) return;
     lastPingRef.current = now;
     fetch("/.netlify/functions/harvest-ping", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rt: auth.rt, lat: myLoc.lat, lng: myLoc.lng }) }).catch(() => {});
   }, [myLoc]);
@@ -1028,7 +1028,7 @@ export default function CanvassMap() {
       } catch { /* ignore */ }
     };
     pull();
-    const id = setInterval(pull, 15000);
+    const id = setInterval(pull, 5000);
     return () => { live = false; clearInterval(id); };
   }, [me?.level, auth.admin, historyMode]);
   // Draw each rep's trail (road-snapped, jumps broken) + a labelled dot at their

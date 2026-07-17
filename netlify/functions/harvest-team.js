@@ -24,9 +24,10 @@ export const handler = async (event) => {
   if (!adminTok || s[0]?.value !== adminTok) return json(401, { ok: false, error: "admin only" });
 
   const since = new Date(Date.now() - mins * 60000).toISOString();
-  // Recent pings (cap generous — 6h/6 reps ≈ a few hundred rows). Oldest→newest so
-  // the trail line draws in order.
-  const pings = await sbGet(`harvest_rep_pings?at=gte.${encodeURIComponent(since)}&select=rep_id,rep_name,lat,lng,at&order=at.asc&limit=5000`, sb).catch(() => []);
+  // Recent pings, oldest→newest so the trail draws in order. Cap raised to 20000:
+  // at a 10s ping rate a 2h window is ~720 pings/rep, and order=at.asc + a small
+  // cap would drop the NEWEST rows (the reps' current spots), not the oldest.
+  const pings = await sbGet(`harvest_rep_pings?at=gte.${encodeURIComponent(since)}&select=rep_id,rep_name,lat,lng,at&order=at.asc&limit=20000`, sb).catch(() => []);
   // Latest canvass action per rep (what they're doing) — pull recent, keep newest per rep.
   const acts = await sbGet(`canvass_activity?created_at=gte.${encodeURIComponent(since)}&select=rep_name,kind,to_status,created_at&order=created_at.desc&limit=2000`, sb).catch(() => []);
   const lastByName = {};

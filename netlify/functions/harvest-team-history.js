@@ -33,7 +33,10 @@ exports.handler = async (event) => {
   const nd = new Date(Date.UTC(y, m - 1, d + 1));
   const to = `${nd.getUTCFullYear()}-${String(nd.getUTCMonth() + 1).padStart(2, "0")}-${String(nd.getUTCDate()).padStart(2, "0")}T00:00:00-04:00`;
 
-  let q = `harvest_rep_pings?at=gte.${encodeURIComponent(from)}&at=lt.${encodeURIComponent(to)}&select=rep_id,rep_name,lat,lng,at&order=at.asc&limit=50000`;
+  // High cap: at a 10s ping rate a full 8h day is ~2880 pings/rep, so a busy day
+  // across many reps can be large. order=at.asc + too small a cap would drop the
+  // END of the day, not the start.
+  let q = `harvest_rep_pings?at=gte.${encodeURIComponent(from)}&at=lt.${encodeURIComponent(to)}&select=rep_id,rep_name,lat,lng,at&order=at.asc&limit=150000`;
   if (p.rep_id) q += `&rep_id=eq.${encodeURIComponent(String(p.rep_id))}`;
   const pings = await sbGet(q);
 
