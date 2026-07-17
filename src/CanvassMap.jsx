@@ -245,6 +245,47 @@ function selfGenIcon(pulse) {
     iconSize: [26, 26], iconAnchor: [13, 24],
   });
 }
+// Post-inspection go-back visits — a squared badge (distinct from round door dots
+// and the self-gen house) in the same color/emoji as the Rep Visit Hub buckets.
+const GOBACK_META = {
+  damage:    { color: "#b8324f", emoji: "🏚️", label: "Damage",    sub: "Set the PA appointment" },
+  no_damage: { color: "#16a34a", emoji: "✅", label: "No-Damage", sub: "Referrals + send certificate" },
+  retail:    { color: "#d97706", emoji: "🏠", label: "Retail",    sub: "Schedule a retail options appt" },
+};
+function gobackIcon(bucket, due) {
+  const m = GOBACK_META[bucket] || GOBACK_META.damage;
+  const ring = due ? ";box-shadow:0 0 0 3px rgba(250,204,21,.9),0 1px 4px rgba(0,0,0,.5)" : ";box-shadow:0 1px 4px rgba(0,0,0,.5)";
+  return L.divIcon({
+    className: "harvest-goback",
+    html: `<div style="width:24px;height:24px;border-radius:6px;background:${m.color};border:2px solid #fff${ring};display:flex;align-items:center;justify-content:center;font-size:13px">${m.emoji}</div>`,
+    iconSize: [24, 24], iconAnchor: [12, 12],
+  });
+}
+// Which go-backs need attention TODAY. result_task_at = a hard booked PA time;
+// review_availability = the homeowner's soft day/time preference ("Mon, Wed · 2pm").
+function visitDueStatus(v) {
+  const todayKey = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  if (v.result_task_at) {
+    const dt = new Date(v.result_task_at);
+    if (isNaN(dt)) return "none";
+    const k = dt.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    return k < todayKey ? "overdue" : k === todayKey ? "today" : "later";
+  }
+  const s = v.review_availability;
+  if (s) {
+    const daysPart = String(s).split(" · ")[0] || "";
+    const wd = new Date().toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "short" }).slice(0, 3).toLowerCase();
+    return (/any/i.test(daysPart) || daysPart.toLowerCase().includes(wd)) ? "today" : "flex";
+  }
+  return "none";
+}
+function visitWhenLabel(v) {
+  if (v.result_task_at) {
+    const dt = new Date(v.result_task_at);
+    if (!isNaN(dt)) return dt.toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "numeric", day: "numeric", hour: "numeric", hour12: true });
+  }
+  return v.review_availability || "";
+}
 
 export default function CanvassMap() {
   const mapEl = useRef(null);
@@ -286,6 +327,12 @@ export default function CanvassMap() {
   const [installs, setInstalls] = useState([]);        // read-only star layer (jr + sr)
   const [showInstalls, setShowInstalls] = useState(true);
   const [selectedInstall, setSelectedInstall] = useState(null);
+  const [visits, setVisits] = useState([]);            // rep's post-inspection go-backs (damage/no_damage/retail)
+  const [showGobacks, setShowGobacks] = useState(true);
+  const [selectedVisit, setSelectedVisit] = useState(null);
+  const [gobackCard, setGobackCard] = useState(false); // "Today's go-backs" list open
+  const visitsLayer = useRef(null);
+  const visitsLoaded = useRef(false);
   // "Start my day" route planner. Restore an in-progress route (survives refresh
   // / lost signal) synchronously from localStorage so it's there on first paint.
   const savedDay = useMemo(() => readSavedDay(), []);
@@ -540,12 +587,14 @@ export default function CanvassMap() {
     m.on("click", (e) => {
       if (addingRef.current && dropPinRef.current) { dropPinRef.current({ lat: e.latlng.lat, lng: e.latlng.lng }); return; }
       if (choosingRef.current && startFromRef.current) { startFromRef.current({ lat: e.latlng.lat, lng: e.latlng.lng }); return; }
-      // Tap empty map to dismiss an open pin/install info sheet. (Marker clicks
-      // don't reach the map, so tapping another pin still opens that one.)
+      // Tap empty map to dismiss an open pin/install/visit info sheet. (Marker
+      // clicks don't reach the map, so tapping another pin still opens that one.)
       setSelected(null);
       setSelectedInstall(null);
+      setSelectedVisit(null);
     });
     newPinLayer.current = L.layerGroup().addTo(m);
+    visitsLayer.current = L.layerGroup().addTo(m);
     // Viewport loading — reload the pins in view whenever the map settles (debounced).
     m.on("moveend", () => {
       // Skip refetch when we already hold every pin, while a day is in progress
@@ -748,6 +797,35 @@ export default function CanvassMap() {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // Load the rep's post-inspection go-backs once (damage / no-damage / retail),
+  // so scheduled follow-ups ride on the same map as fresh doors.
+  useEffect(() => {
+    if (visitsLoaded.current || !me || !auth.rt) return;
+    visitsLoaded.current = true;
+    (async () => {
+      try {
+        const r = await fetch("/.netlify/functions/harvest-visits", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rt: auth.rt, lat: myLoc?.lat, lng: myLoc?.lng }),
+        });
+        const d = await r.json();
+        if (d.ok && Array.isArray(d.visits)) setVisits(d.visits.filter((v) => v.latitude != null && v.longitude != null));
+      } catch { /* non-fatal */ }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me]);
+  // Draw the go-back badges (toggleable).
+  useEffect(() => {
+    const lyr = visitsLayer.current; if (!lyr) return;
+    lyr.clearLayers();
+    if (!showGobacks) return;
+    for (const v of visits) {
+      const due = visitDueStatus(v);
+      const mk = L.marker([v.latitude, v.longitude], { icon: gobackIcon(v.bucket, due === "today" || due === "overdue"), zIndexOffset: 500 });
+      mk.on("click", () => { setSelected(null); setSelectedInstall(null); setSelectedVisit(v); });
+      lyr.addLayer(mk);
+    }
+  }, [visits, showGobacks]);
   useEffect(() => { signingStopRef.current = signingStop; }, [signingStop]);
   // The intake tab writes localStorage 'harvest_signed' when a signing completes.
   // That 'storage' event fires in THIS tab (a different one) → advance instantly.
@@ -1099,6 +1177,7 @@ export default function CanvassMap() {
   // notes/extra/etc. once hydrated.
   function openPin(p) {
     setSelectedInstall(null);
+    setSelectedVisit(null);
     setSelected(p);
     hydratePin(p).then((full) => setSelected((s) => (s && s.id === p.id ? { ...s, ...full } : s)));
   }
@@ -1454,6 +1533,40 @@ export default function CanvassMap() {
             📍
           </button>
         )}
+
+        {/* ── Today's go-backs ── the day's scheduled follow-ups, surfaced to work. */}
+        {visits.length > 0 && !selecting && (() => {
+          const today = visits.filter((v) => { const s = visitDueStatus(v); return s === "today" || s === "overdue"; });
+          if (!today.length) return null;
+          return (
+            <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", zIndex: 650, width: "min(370px, 92%)" }}>
+              <button type="button" onClick={() => setGobackCard((o) => !o)}
+                style={{ width: "100%", background: "#0f172a", color: "#fff", border: "none", borderRadius: gobackCard ? "12px 12px 0 0" : 12, padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", boxShadow: "0 3px 14px rgba(0,0,0,.3)" }}>
+                <span style={{ fontSize: 13.5, fontWeight: 800 }}>🗓️ {today.length} go-back{today.length > 1 ? "s" : ""} to work today</span>
+                <span style={{ fontSize: 11, opacity: 0.8 }}>{gobackCard ? "▲ hide" : "▼ show"}</span>
+              </button>
+              {gobackCard && (
+                <div style={{ background: "#fff", borderRadius: "0 0 12px 12px", boxShadow: "0 3px 14px rgba(0,0,0,.3)", maxHeight: "42vh", overflowY: "auto" }}>
+                  {today.map((v) => {
+                    const m = GOBACK_META[v.bucket] || GOBACK_META.damage;
+                    const overdue = visitDueStatus(v) === "overdue";
+                    return (
+                      <button key={v.inspection_id} type="button"
+                        onClick={() => { setGobackCard(false); if (v.latitude != null) map.current?.setView([v.latitude, v.longitude], Math.max(map.current.getZoom(), 16)); setSelected(null); setSelectedVisit(v); }}
+                        style={{ display: "flex", width: "100%", gap: 10, alignItems: "center", padding: "10px 12px", borderBottom: "1px solid #f1f5f9", background: "#fff", border: "none", cursor: "pointer", textAlign: "left" }}>
+                        <span style={{ width: 28, height: 28, borderRadius: 7, background: m.color, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>{m.emoji}</span>
+                        <span style={{ flex: 1, minWidth: 0 }}>
+                          <span style={{ display: "block", fontSize: 13, fontWeight: 800, color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{v.client_name || v.address}</span>
+                          <span style={{ display: "block", fontSize: 11.5, color: overdue ? "#b91c1c" : "#64748b", fontWeight: overdue ? 800 : 600 }}>{m.label}{overdue ? " · ⚠️ overdue" : ""}{visitWhenLabel(v) ? ` · ${visitWhenLabel(v)}` : ""}{v.distance_mi != null ? ` · ${v.distance_mi} mi` : ""}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {dayMode === "choosing" && (
           <div style={{ position: "absolute", right: 10, bottom: 14, zIndex: 600, background: "#fff", borderRadius: 14, padding: "16px 18px", boxShadow: "0 4px 18px rgba(0,0,0,.2)", width: "min(340px, 88%)", textAlign: "center" }}>
@@ -1899,6 +2012,46 @@ export default function CanvassMap() {
           }}
         />
       )}
+
+      {/* Go-back visit sheet — a scheduled follow-up (damage / no-damage / retail). */}
+      {selectedVisit && (() => {
+        const v = selectedVisit, m = GOBACK_META[v.bucket] || GOBACK_META.damage, due = visitDueStatus(v);
+        const dest = encodeURIComponent([v.address, v.city, v.state, v.zip].filter(Boolean).join(", ") || `${v.latitude},${v.longitude}`);
+        return (
+          <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: "#fff", borderTopLeftRadius: 18, borderTopRightRadius: 18, boxShadow: "0 -4px 20px rgba(0,0,0,.18)", padding: "16px 18px 22px", zIndex: 1000, maxHeight: "66vh", overflowY: "auto" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+              <span style={{ width: 34, height: 34, borderRadius: 8, background: m.color, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>{m.emoji}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 800, fontSize: 16 }}>{v.client_name || "Homeowner"}</div>
+                <div style={{ fontSize: 13.5, color: "#334155", fontWeight: 600 }}>{v.address}</div>
+                <div style={{ fontSize: 12.5, color: "#64748b" }}>{[v.city, v.state, v.zip].filter(Boolean).join(", ")}</div>
+              </div>
+              <button type="button" onClick={() => setSelectedVisit(null)} style={{ background: "none", border: "none", fontSize: 22, color: "#94a3b8", cursor: "pointer", lineHeight: 1 }}>×</button>
+            </div>
+
+            <div style={{ marginTop: 12, background: due === "overdue" ? "#fef2f2" : "#f8fafc", border: `1px solid ${due === "overdue" ? "#fca5a5" : "#e2e8f0"}`, borderRadius: 10, padding: "10px 12px" }}>
+              <div style={{ fontSize: 13.5, fontWeight: 800, color: m.color }}>{m.label} visit — {m.sub.toLowerCase()}</div>
+              <div style={{ fontSize: 12.5, color: due === "overdue" ? "#b91c1c" : "#475569", fontWeight: 700, marginTop: 3 }}>
+                {v.result_task_at ? "🗓️ Scheduled: " : "🏠 Best time: "}{visitWhenLabel(v) || "anytime"}{due === "overdue" ? " · ⚠️ overdue" : due === "today" ? " · today" : ""}
+                {v.distance_mi != null ? ` · ${v.distance_mi} mi away` : ""}
+              </div>
+            </div>
+
+            {v.mobile && <div style={{ marginTop: 10, fontSize: 13 }}><a href={`tel:${v.mobile}`} style={{ color: "#1d4ed8", fontWeight: 700, textDecoration: "none" }}>📞 {v.mobile}</a></div>}
+
+            <div style={{ marginTop: 12, background: "#faf5ff", border: "1px dashed #ddd6fe", borderRadius: 10, padding: "10px 12px", fontSize: 12.5, color: "#6d28d9", fontWeight: 700 }}>
+              ⚙️ The {m.label.toLowerCase()} action (set PA appt / referrals + certificate / retail appt) is coming to this sheet next.
+            </div>
+
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              <a href={`https://www.google.com/maps/dir/?api=1&destination=${dest}`} target="_blank" rel="noreferrer"
+                style={{ flex: 1, textAlign: "center", padding: "12px", borderRadius: 12, background: "#1d4ed8", color: "#fff", fontWeight: 700, fontSize: 13.5, textDecoration: "none" }}>🧭 Google Maps</a>
+              <a href={`https://maps.apple.com/?daddr=${dest}&dirflg=d`} target="_blank" rel="noreferrer"
+                style={{ flex: 1, textAlign: "center", padding: "12px", borderRadius: 12, background: "#0f172a", color: "#fff", fontWeight: 700, fontSize: 13.5, textDecoration: "none" }}>🍎 Apple Maps</a>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Selected install sheet — read-only (installs aren't canvassing pins). */}
       {selectedInstall && (
