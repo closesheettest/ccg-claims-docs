@@ -642,11 +642,21 @@ export default function CanvassMap() {
     const el = map.current?.getContainer();
     if (el) el.style.cursor = adding ? "crosshair" : "";
   }, [adding]);
-  // Draw the pin the rep is currently placing (purple, pulsing).
+  // Draw the pin the rep is currently placing (purple, pulsing). Draggable so
+  // "wrong house" is a one-second fix — drop it on the right roof and, if they'd
+  // already checked, it re-runs the owner lookup for the new spot.
   useEffect(() => {
     const lyr = newPinLayer.current; if (!lyr) return;
     lyr.clearLayers();
-    if (newPin) L.marker([newPin.lat, newPin.lng], { icon: selfGenIcon(true), zIndexOffset: 2200, interactive: false }).addTo(lyr);
+    if (!newPin) return;
+    const hadCheck = !!newPin.check;
+    const mk = L.marker([newPin.lat, newPin.lng], { icon: selfGenIcon(true), zIndexOffset: 2200, draggable: true, autoPan: true });
+    mk.on("dragend", () => {
+      const ll = mk.getLatLng();
+      if (hadCheck) runOwnerCheck(ll.lat, ll.lng);      // re-verify the new roof
+      else setNewPin((n) => (n ? { ...n, lat: ll.lat, lng: ll.lng } : n));
+    });
+    mk.addTo(lyr);
   }, [newPin]);
 
   async function setStatus(p, newStatus) {
@@ -1119,21 +1129,22 @@ export default function CanvassMap() {
     map.current?.panTo([lat, lng]);
   }
   dropPinRef.current = dropPin;
-  // "Owner occupied?" — homestead / mailing-address check via the FL cadastral.
-  async function checkOwner() {
-    if (!newPin) return;
-    setNewPin((n) => ({ ...n, checking: true }));
+  // "Owner occupied?" — homestead / mailing-address check via the FL cadastral,
+  // at a specific spot (so a dragged pin re-checks the house it landed on).
+  async function runOwnerCheck(lat, lng) {
+    setNewPin((n) => (n ? { ...n, lat, lng, checking: true } : n));
     try {
       const r = await fetch("/.netlify/functions/harvest-owner-check", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lat: newPin.lat, lng: newPin.lng }),
+        body: JSON.stringify({ lat, lng }),
       });
       const d = await r.json();
-      setNewPin((n) => ({ ...n, checking: false, check: d }));
+      setNewPin((n) => (n ? { ...n, checking: false, check: d } : n));
     } catch {
-      setNewPin((n) => ({ ...n, checking: false, check: { ok: false, found: false, reason: "Couldn't reach the property records — try again." } }));
+      setNewPin((n) => (n ? { ...n, checking: false, check: { ok: false, found: false, reason: "Couldn't reach the property records — try again." } } : n));
     }
   }
+  function checkOwner() { if (newPin) runOwnerCheck(newPin.lat, newPin.lng); }
   // Persist the self-gen door as a canvass pin, then route into the chosen action.
   // action: 'sign' | 'retail' | 'pending'. Returns after the pin row exists.
   async function commitSelfGen(action) {
@@ -1603,6 +1614,10 @@ export default function CanvassMap() {
               )}
             </div>
             <button type="button" onClick={cancelAdd} style={{ background: "none", border: "none", fontSize: 22, color: "#94a3b8", cursor: "pointer", lineHeight: 1 }}>×</button>
+          </div>
+
+          <div style={{ marginTop: 8, fontSize: 12, color: "#7c3aed", fontWeight: 700, background: "#faf5ff", border: "1px solid #e9d5ff", borderRadius: 9, padding: "7px 10px" }}>
+            ✋ Wrong house? Drag the purple pin onto the right roof{newPin.check ? " — it re-checks automatically." : "."}
           </div>
 
           {/* Step 1 — the "Owner occupied?" button */}
