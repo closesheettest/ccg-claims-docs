@@ -649,13 +649,8 @@ export default function CanvassMap() {
     const lyr = newPinLayer.current; if (!lyr) return;
     lyr.clearLayers();
     if (!newPin) return;
-    const hadCheck = !!newPin.check;
     const mk = L.marker([newPin.lat, newPin.lng], { icon: selfGenIcon(true), zIndexOffset: 2200, draggable: true, autoPan: true });
-    mk.on("dragend", () => {
-      const ll = mk.getLatLng();
-      if (hadCheck) runOwnerCheck(ll.lat, ll.lng);      // re-verify the new roof
-      else setNewPin((n) => (n ? { ...n, lat: ll.lat, lng: ll.lng } : n));
-    });
+    mk.on("dragend", () => { const ll = mk.getLatLng(); runOwnerCheck(ll.lat, ll.lng); }); // re-verify the new roof
     mk.addTo(lyr);
   }, [newPin]);
 
@@ -1125,8 +1120,9 @@ export default function CanvassMap() {
   // when they press "Owner occupied?").
   function dropPin({ lat, lng }) {
     setAdding(false);
-    setNewPin({ lat, lng, checking: false, check: null, saving: false });
+    setNewPin({ lat, lng, checking: true, check: null, saving: false });
     map.current?.panTo([lat, lng]);
+    runOwnerCheck(lat, lng);   // pull the address + owner right away
   }
   dropPinRef.current = dropPin;
   // "Owner occupied?" — homestead / mailing-address check via the FL cadastral,
@@ -1144,7 +1140,6 @@ export default function CanvassMap() {
       setNewPin((n) => (n ? { ...n, checking: false, check: { ok: false, found: false, reason: "Couldn't reach the property records — try again." } } : n));
     }
   }
-  function checkOwner() { if (newPin) runOwnerCheck(newPin.lat, newPin.lng); }
   // Persist the self-gen door as a canvass pin, then route into the chosen action.
   // action: 'sign' | 'retail' | 'pending'. Returns after the pin row exists.
   async function commitSelfGen(action) {
@@ -1622,25 +1617,23 @@ export default function CanvassMap() {
           </div>
 
           <div style={{ marginTop: 8, fontSize: 12, color: "#7c3aed", fontWeight: 700, background: "#faf5ff", border: "1px solid #e9d5ff", borderRadius: 9, padding: "7px 10px" }}>
-            ✋ Wrong house? Drag the purple pin onto the right roof{newPin.check ? " — it re-checks automatically." : "."}
+            ✋ Wrong house? Drag the purple pin onto the right roof — it re-checks automatically.
           </div>
 
-          {/* Step 1 — the "Owner occupied?" button */}
-          {!newPin.check && (
-            <button type="button" onClick={checkOwner} disabled={newPin.checking}
-              style={{ marginTop: 14, width: "100%", padding: "14px", borderRadius: 12, border: "none", background: newPin.checking ? "#c4b5fd" : "#7c3aed", color: "#fff", fontSize: 15, fontWeight: 800, cursor: newPin.checking ? "default" : "pointer" }}>
-              {newPin.checking ? "Checking property records…" : "🔎 Owner occupied?"}
-            </button>
+          {/* While the lookup runs (on drop OR after a drag) */}
+          {newPin.checking && (
+            <div style={{ marginTop: 14, padding: "14px", borderRadius: 12, background: "#f5f3ff", border: "1px solid #ddd6fe", color: "#6d28d9", fontSize: 14.5, fontWeight: 800, textAlign: "center" }}>
+              📍 Checking property records…
+            </div>
           )}
 
-          {/* Step 2 — verdict */}
-          {newPin.check && (() => {
+          {/* Verdict + actions — hidden while a (re)check is in flight so nobody acts on a stale result */}
+          {!newPin.checking && newPin.check && (() => {
             const c = newPin.check;
             if (!c.found) {
               return (
                 <div style={{ marginTop: 12 }}>
-                  <div style={{ background: "#fef9c3", border: "1px solid #fde047", color: "#854d0e", borderRadius: 10, padding: "10px 12px", fontSize: 13, fontWeight: 600 }}>{c.reason || "No parcel found here."}</div>
-                  <button type="button" onClick={checkOwner} style={{ marginTop: 10, width: "100%", padding: "12px", borderRadius: 10, border: "1px solid #cbd5e1", background: "#fff", color: "#334155", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}>Try the check again</button>
+                  <div style={{ background: "#fef9c3", border: "1px solid #fde047", color: "#854d0e", borderRadius: 10, padding: "10px 12px", fontSize: 13, fontWeight: 600 }}>{c.reason || "No parcel found here — drag the pin onto the roof."}</div>
                 </div>
               );
             }
@@ -1671,6 +1664,14 @@ export default function CanvassMap() {
               </div>
             );
           })()}
+
+          {/* Safety net — force a fresh lookup at the pin's current spot, no matter what. */}
+          {!newPin.checking && !newPin.saving && (
+            <button type="button" onClick={() => runOwnerCheck(newPin.lat, newPin.lng)}
+              style={{ marginTop: 12, width: "100%", padding: "11px", borderRadius: 10, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+              🔄 Re-check this spot
+            </button>
+          )}
         </div>
       )}
 
