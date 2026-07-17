@@ -1553,18 +1553,13 @@ export default function CanvassMap() {
             🔍 Zoom into your neighborhood first, then start
           </div>
         )}
-        {/* ── Add a house ── rep spots a damaged roof and drops their own pin. */}
-        {auth.rt && !selecting && !adding && !newPin && dayMode === null && (
-          <button type="button" onClick={startAddHouse}
-            style={{ position: "absolute", left: 12, bottom: 120, zIndex: 600, background: "#7c3aed", color: "#fff", border: "none", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
-            ＋ Add a house
-          </button>
-        )}
-        {/* During an active route the left stack is free — keep Add-a-house reachable. */}
-        {auth.rt && !selecting && !adding && !newPin && dayMode !== null && (
-          <button type="button" onClick={startAddHouse}
-            style={{ position: "absolute", left: 12, bottom: 16, zIndex: 600, background: "#7c3aed", color: "#fff", border: "none", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
-            ＋ Add a house
+        {/* ── Add a house ── rep spots a damaged roof and drops their own pin.
+             Top-right under the location pin — away from the Start-my-day /
+             Route-an-area stack, so it can't be hit while building a route. */}
+        {auth.rt && !selecting && !adding && !newPin && (
+          <button type="button" onClick={startAddHouse} title="Add a house"
+            style={{ position: "absolute", right: 12, top: (myLoc && !selecting) ? 64 : 12, zIndex: 600, background: "#7c3aed", color: "#fff", border: "2px solid #fff", borderRadius: 999, width: 44, height: 44, fontSize: 19, boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>
+            🏠
           </button>
         )}
         {adding && (
