@@ -366,6 +366,12 @@ export default function CanvassMap() {
   const trailCache = useRef(new Map()); // rep trail key → road-snapped segments
   const trailSnapping = useRef(new Set());
   const [snapTick, setSnapTick] = useState(0); // bump to redraw once a trail is snapped
+  // Admin route-history: view a past day's trails (pauses the live poll).
+  const [historyMode, setHistoryMode] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyDate, setHistoryDate] = useState(() => new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }));
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const [historyReps, setHistoryReps] = useState([]); // per-rep summaries for the panel
   const fitted = useRef(false);
   const [prospects, setProspects] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1009,9 +1015,10 @@ export default function CanvassMap() {
     fetch("/.netlify/functions/harvest-access", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rt: auth.rt }) }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me]);
-  // Office/admin: poll everyone's breadcrumbs every 30s.
+  // Office/admin: poll everyone's breadcrumbs every 30s. Paused while viewing a
+  // past day's route history (so it doesn't overwrite the loaded trails).
   useEffect(() => {
-    if (me?.level !== "admin" || !auth.admin) return;
+    if (me?.level !== "admin" || !auth.admin || historyMode) return;
     let live = true;
     const pull = async () => {
       try {
@@ -1023,7 +1030,7 @@ export default function CanvassMap() {
     pull();
     const id = setInterval(pull, 30000);
     return () => { live = false; clearInterval(id); };
-  }, [me?.level, auth.admin]);
+  }, [me?.level, auth.admin, historyMode]);
   // Draw each rep's trail (road-snapped, jumps broken) + a labelled dot at their
   // latest position. Snapping is async + cached, so a trail is snapped once and
   // reused across the 30s polls; a faint dashed straight line shows until it lands.
@@ -1062,6 +1069,24 @@ export default function CanvassMap() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [team, snapTick]);
+  // Load a past day's route history into the team view (road-snapped like live).
+  async function loadHistory(date) {
+    if (!auth.admin) return;
+    setHistoryBusy(true);
+    try {
+      const r = await fetch(`/.netlify/functions/harvest-team-history?admin=${encodeURIComponent(auth.admin)}&date=${encodeURIComponent(date)}`);
+      const j = await r.json();
+      if (!j.ok) { alert(j.error || "Couldn't load history."); setHistoryBusy(false); return; }
+      setHistoryMode(true);
+      setHistoryReps(j.reps || []);
+      setTeam(j.reps || []);           // reuses the road-snapped trail rendering
+      // Fit the map to the day's trails.
+      const pts = (j.reps || []).flatMap((rp) => (rp.pings || []).map((p) => [p.lat, p.lng]));
+      if (pts.length && map.current) { try { map.current.fitBounds(pts, { padding: [50, 50], maxZoom: 15 }); } catch { /* ignore */ } }
+    } catch { alert("Network error loading history."); }
+    setHistoryBusy(false);
+  }
+  function backToLive() { setHistoryMode(false); setHistoryReps([]); setTeam([]); }
   // While in "route an area" mode, drag a box on the map; on release we route the
   // doors inside it. Pointer events cover both touch (phone) and mouse.
   useEffect(() => {
@@ -1722,6 +1747,51 @@ export default function CanvassMap() {
             style={{ position: "absolute", right: isDesktop ? 312 : 12, top: 12, zIndex: 600, background: "#fff", color: "#1d4ed8", border: "1px solid #cbd5e1", borderRadius: 999, width: 44, height: 44, fontSize: 19, boxShadow: "0 3px 12px rgba(0,0,0,.2)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
             📍
           </button>
+        )}
+
+        {/* ── Route history (admin) ── replay any past day's rep trails ── */}
+        {me?.level === "admin" && (
+          <div style={{ position: "absolute", left: 12, top: 12, zIndex: 640, width: "min(300px, 82%)" }}>
+            <button type="button" onClick={() => setHistoryOpen((o) => !o)}
+              style={{ background: historyMode ? "#7c3aed" : "#0f172a", color: "#fff", border: "none", borderRadius: historyOpen ? "12px 12px 0 0" : 12, padding: "9px 14px", fontSize: 13, fontWeight: 800, cursor: "pointer", boxShadow: "0 3px 12px rgba(0,0,0,.25)", width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span>🕘 Route history{historyMode ? ` · ${historyDate}` : ""}</span>
+              <span style={{ fontSize: 11, opacity: 0.8 }}>{historyOpen ? "▲" : "▼"}</span>
+            </button>
+            {historyOpen && (
+              <div style={{ background: "#fff", borderRadius: "0 0 12px 12px", boxShadow: "0 3px 14px rgba(0,0,0,.25)", padding: "12px", maxHeight: "60vh", overflowY: "auto" }}>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input type="date" value={historyDate} max={new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" })}
+                    onChange={(e) => setHistoryDate(e.target.value)}
+                    style={{ flex: 1, border: "1px solid #cbd5e1", borderRadius: 8, padding: "7px 8px", fontSize: 13 }} />
+                  <button type="button" onClick={() => loadHistory(historyDate)} disabled={historyBusy}
+                    style={{ background: "#16a34a", color: "#fff", border: "none", borderRadius: 8, padding: "7px 12px", fontSize: 13, fontWeight: 800, cursor: "pointer", opacity: historyBusy ? 0.6 : 1 }}>
+                    {historyBusy ? "…" : "Show"}
+                  </button>
+                </div>
+                {historyMode && (
+                  <button type="button" onClick={backToLive} style={{ marginTop: 8, width: "100%", background: "#fff", color: "#7c3aed", border: "1px solid #ddd6fe", borderRadius: 8, padding: "7px", fontSize: 12.5, fontWeight: 800, cursor: "pointer" }}>← Back to live</button>
+                )}
+                {historyMode && (
+                  <div style={{ marginTop: 10 }}>
+                    {historyReps.length === 0 && <div style={{ fontSize: 12.5, color: "#94a3b8", textAlign: "center", padding: "6px 0" }}>No rep trails recorded that day.</div>}
+                    {historyReps.map((r) => {
+                      const s = r.summary || {};
+                      const t = (iso) => iso ? new Date(iso).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }) : "—";
+                      const hm = `${Math.floor((s.active_min || 0) / 60)}h ${(s.active_min || 0) % 60}m`;
+                      return (
+                        <button key={r.rep_id || r.name} type="button"
+                          onClick={() => { const pts = (r.pings || []).map((p) => [p.lat, p.lng]); if (pts.length && map.current) map.current.fitBounds(pts, { padding: [50, 50], maxZoom: 16 }); }}
+                          style={{ display: "block", width: "100%", textAlign: "left", background: "#f8fafc", border: "1px solid #eef2f7", borderRadius: 10, padding: "8px 10px", marginBottom: 6, cursor: "pointer" }}>
+                          <div style={{ fontSize: 13, fontWeight: 800, color: "#0f172a" }}>{r.name}</div>
+                          <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 2 }}>🚗 {s.miles} mi · ⏱ {hm} · {t(s.first_at)}–{t(s.last_at)}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         )}
 
         {/* ── Go-backs to work ── scheduled-due PLUS aging follow-ups (most have no

@@ -30,8 +30,10 @@ export const handler = async (event) => {
       method: "POST", headers: { ...sb, Prefer: "return=minimal" },
       body: JSON.stringify({ rep_id: rep.id, rep_name: rep.name || "Rep", lat, lng }),
     });
-    // Keep the trail short — drop this rep's pings older than 6h (fire-and-forget).
-    const cutoff = new Date(Date.now() - 6 * 3600 * 1000).toISOString();
+    // Retain ~45 days so the office can pull a day's route history (the live team
+    // view still only queries the last 6h, so this doesn't slow it down). Older
+    // than that is dropped so the table can't grow without bound (fire-and-forget).
+    const cutoff = new Date(Date.now() - 45 * 24 * 3600 * 1000).toISOString();
     fetch(`${SB_URL}/rest/v1/harvest_rep_pings?rep_id=eq.${rep.id}&at=lt.${encodeURIComponent(cutoff)}`, { method: "DELETE", headers: sb }).catch(() => {});
   } catch { /* non-fatal */ }
   return json(200, { ok: true });
