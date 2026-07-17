@@ -190,6 +190,9 @@ function dotIcon(color) {
 // Below this zoom the map shows SERVER-side cluster bubbles (aggregated counts)
 // instead of downloading thousands of individual pins; at/above it, real pins.
 const CLUSTER_ZOOM = 13;
+// Seniors work these TWO together — the filter is locked to both (they can't
+// narrow to just one).
+const SENIOR_STATUSES = ["iq", "no_sit_reschedule"];
 // Scope selector: a status bucket bigger than this must be narrowed to a REGION
 // before the map loads it, so we never pull 200k+ pins at once. Small buckets
 // (IQ, no-sit, FB) load statewide as before. Regions = rough Florida boxes
@@ -414,9 +417,21 @@ export default function CanvassMap() {
   // "View as" — the office can preview exactly what a junior/senior rep sees.
   // effLevel is the level we're rendering as (own level, or the previewed one).
   // visKeys = the pin-type keys that level may see (null = no restriction).
+  // Web (desktop) vs mobile — desktop puts the status filters in a right column
+  // with upload / JN-sync there; mobile keeps the top chip bar.
+  const [isDesktop, setIsDesktop] = useState(() => typeof window !== "undefined" && window.matchMedia("(min-width: 980px)").matches);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(min-width: 980px)");
+    const on = () => setIsDesktop(mq.matches);
+    mq.addEventListener ? mq.addEventListener("change", on) : mq.addListener(on);
+    return () => { mq.removeEventListener ? mq.removeEventListener("change", on) : mq.removeListener(on); };
+  }, []);
   const [viewAs, setViewAs] = useState(null);          // null → office's own full view
   const effLevel = viewAs || me?.level || null;
   const seesAll = !effLevel || effLevel === "admin";
+  // Seniors' status filter is fixed to IQ + No-sit — they can't switch to one.
+  const selLocked = effLevel === "senior";
   const visKeys = useMemo(() => {
     if (seesAll) return null;
     const canSee = (t) => !((t.visible_levels) || []).length || ((t.visible_levels) || []).includes(effLevel);
@@ -538,7 +553,8 @@ export default function CanvassMap() {
     if (defaultedFor.current === key) return;
     defaultedFor.current = key;
     regionRef.current = null; setRegion(null);
-    if (effLevel === "senior") setSel(new Set(["iq"]));
+    // Seniors work IQ + No-sit TOGETHER — not one or the other (filter locked below).
+    if (effLevel === "senior") setSel(new Set(SENIOR_STATUSES));
     else if (effLevel === "junior") setSel(new Set(["insp"]));
     else setSel(new Set());
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1527,21 +1543,57 @@ export default function CanvassMap() {
         </div>
       </div>
 
-      {/* Status filter chips */}
-      <div style={{ display: "flex", gap: 6, overflowX: "auto", padding: "8px 12px", background: "#fff", borderBottom: "1px solid #e5e7eb" }}>
-        <Chip active={sel.size === 0} onClick={() => setSel(new Set())} color="#334155" label={`All (${dbCounts ? Object.entries(dbCounts).reduce((sum, [k, n]) => sum + ((!visKeys || visKeys.has(k)) ? n : 0), 0) : (visKeys ? prospects.filter((p) => visKeys.has(p.status)).length : prospects.length)})`} />
-        {visTypes.map((s) => (
-          <Chip key={s.key} active={sel.has(s.key)} check onClick={() => toggleSel(s.key)} color={s.color} label={`${s.label} (${counts[s.key] || 0})`} />
-        ))}
-        {installs.length > 0 && (
-          <Chip active={showInstalls} onClick={() => setShowInstalls((v) => !v)} color={INSTALL_COLOR} label={`⭐ Installs (${installs.length})`} />
-        )}
-      </div>
+      {/* Status filter chips — MOBILE only. Desktop puts them as cards in the
+          right column (see below). Seniors' filter is locked to IQ + No-sit. */}
+      {!isDesktop && (
+        <div style={{ display: "flex", gap: 6, overflowX: "auto", padding: "8px 12px", background: "#fff", borderBottom: "1px solid #e5e7eb" }}>
+          {!selLocked && <Chip active={sel.size === 0} onClick={() => setSel(new Set())} color="#334155" label={`All (${dbCounts ? Object.entries(dbCounts).reduce((sum, [k, n]) => sum + ((!visKeys || visKeys.has(k)) ? n : 0), 0) : (visKeys ? prospects.filter((p) => visKeys.has(p.status)).length : prospects.length)})`} />}
+          {visTypes.map((s) => (
+            <Chip key={s.key} active={sel.has(s.key)} check onClick={() => selLocked ? null : toggleSel(s.key)} color={s.color} label={`${s.label} (${counts[s.key] || 0})`} />
+          ))}
+          {installs.length > 0 && (
+            <Chip active={showInstalls} onClick={() => setShowInstalls((v) => !v)} color={INSTALL_COLOR} label={`⭐ Installs (${installs.length})`} />
+          )}
+        </div>
+      )}
 
       {/* Map */}
       <div style={{ position: "relative", flex: 1 }}>
-        <div ref={mapEl} style={{ position: "absolute", inset: 0 }} />
+        <div ref={mapEl} style={{ position: "absolute", inset: 0, right: isDesktop ? 300 : 0 }} />
         <style>{`@keyframes hpulse{0%{box-shadow:0 1px 5px rgba(0,0,0,.5),0 0 0 0 rgba(124,58,237,.5)}70%{box-shadow:0 1px 5px rgba(0,0,0,.5),0 0 0 14px rgba(124,58,237,0)}100%{box-shadow:0 1px 5px rgba(0,0,0,.5),0 0 0 0 rgba(124,58,237,0)}}`}</style>
+
+        {/* ── Web (desktop) right column: status cards + upload / JN sync ── */}
+        {isDesktop && (
+          <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, width: 300, background: "#f8fafc", borderLeft: "1px solid #e5e7eb", zIndex: 460, overflowY: "auto", padding: "14px 12px" }}>
+            <div style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", color: "#94a3b8", margin: "2px 2px 8px" }}>Pins to show</div>
+            {selLocked && (
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#166534", background: "#dcfce7", border: "1px solid #86efac", borderRadius: 10, padding: "8px 10px", marginBottom: 10 }}>
+                🔒 You work <b>IQ + No-sit</b> together — both always on.
+              </div>
+            )}
+            {!selLocked && (
+              <StatusCard color="#334155" label="All pins"
+                count={dbCounts ? Object.entries(dbCounts).reduce((sum, [k, n]) => sum + ((!visKeys || visKeys.has(k)) ? n : 0), 0) : (visKeys ? prospects.filter((p) => visKeys.has(p.status)).length : prospects.length)}
+                active={sel.size === 0} onClick={() => setSel(new Set())} />
+            )}
+            {visTypes.map((s) => (
+              <StatusCard key={s.key} color={s.color} label={s.label} count={counts[s.key] || 0}
+                active={sel.has(s.key)} locked={selLocked} onClick={() => selLocked ? null : toggleSel(s.key)} />
+            ))}
+            {installs.length > 0 && (
+              <StatusCard color={INSTALL_COLOR} label="⭐ Installs" count={installs.length}
+                active={showInstalls} onClick={() => setShowInstalls((v) => !v)} />
+            )}
+            {me?.level === "admin" && (
+              <>
+                <div style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", color: "#94a3b8", margin: "16px 2px 8px" }}>Office</div>
+                {[["📥 Upload leads", "/?mode=harvestupload"], ["🔄 JN Sync", "/?mode=harvestjnsync"], ["🔗 Rep Links", "/?mode=harvestlinks"], ["📊 Reports", "/?mode=harvestreport"]].map(([lbl, href]) => (
+                  <a key={href} href={href} style={{ display: "block", textDecoration: "none", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, padding: "11px 12px", marginBottom: 8, fontSize: 13.5, fontWeight: 800, color: "#0f172a" }}>{lbl}</a>
+                ))}
+              </>
+            )}
+          </div>
+        )}
         {loading && (
           <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", background: "#fff", padding: "6px 14px", borderRadius: 20, fontSize: 13, boxShadow: "0 2px 8px rgba(0,0,0,.15)", zIndex: 500 }}>Loading pins…</div>
         )}
@@ -1585,7 +1637,7 @@ export default function CanvassMap() {
              Route-an-area stack, so it can't be hit while building a route. */}
         {auth.rt && !selecting && !adding && !newPin && (
           <button type="button" onClick={startAddHouse} title="Add a house"
-            style={{ position: "absolute", right: 12, top: (myLoc && !selecting) ? 64 : 12, zIndex: 600, background: "#7c3aed", color: "#fff", border: "2px solid #fff", borderRadius: 999, width: 44, height: 44, fontSize: 19, boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>
+            style={{ position: "absolute", right: isDesktop ? 312 : 12, top: (myLoc && !selecting) ? 64 : 12, zIndex: 600, background: "#7c3aed", color: "#fff", border: "2px solid #fff", borderRadius: 999, width: 44, height: 44, fontSize: 19, boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>
             🏠
           </button>
         )}
@@ -1605,7 +1657,7 @@ export default function CanvassMap() {
         {myLoc && !selecting && (
           <button type="button" title="Center on me"
             onClick={() => map.current && map.current.setView([myLoc.lat, myLoc.lng], Math.max(map.current.getZoom(), 16))}
-            style={{ position: "absolute", right: 12, top: 12, zIndex: 600, background: "#fff", color: "#1d4ed8", border: "1px solid #cbd5e1", borderRadius: 999, width: 44, height: 44, fontSize: 19, boxShadow: "0 3px 12px rgba(0,0,0,.2)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            style={{ position: "absolute", right: isDesktop ? 312 : 12, top: 12, zIndex: 600, background: "#fff", color: "#1d4ed8", border: "1px solid #cbd5e1", borderRadius: 999, width: 44, height: 44, fontSize: 19, boxShadow: "0 3px 12px rgba(0,0,0,.2)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
             📍
           </button>
         )}
@@ -1620,7 +1672,7 @@ export default function CanvassMap() {
           if (!needs.length) return null;
           const hot = needs.some((x) => x.w === "overdue" || (x.age || 0) >= 14);
           return (
-            <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", zIndex: 650, width: "min(370px, 92%)" }}>
+            <div style={{ position: "absolute", top: 12, left: isDesktop ? "calc((100% - 300px) / 2)" : "50%", transform: "translateX(-50%)", zIndex: 650, width: "min(370px, 92%)" }}>
               <button type="button" onClick={() => setGobackCard((o) => !o)}
                 style={{ width: "100%", background: hot ? "#7f1d1d" : "#0f172a", color: "#fff", border: "none", borderRadius: gobackCard ? "12px 12px 0 0" : 12, padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", boxShadow: "0 3px 14px rgba(0,0,0,.3)" }}>
                 <span style={{ fontSize: 13.5, fontWeight: 800 }}>{hot ? "⚠️" : "🗓️"} {needs.length} go-back{needs.length > 1 ? "s" : ""} to work</span>
@@ -2010,6 +2062,13 @@ export default function CanvassMap() {
               <div style={{ fontSize: 13.5, fontWeight: 800, color: "#334155", marginTop: 2 }}>This pin belongs to {pinOwnerName(selected)}</div>
               <div style={{ fontSize: 12.5, color: "#64748b", marginTop: 3 }}>They self-generated this door — only {pinOwnerName(selected)} can work it.</div>
             </div>
+          ) : auth.rt ? (
+            // Reps STATUS a door only by working it on a route — so every knock is
+            // logged in order, at the door (distance-gated). No off-route statusing.
+            <div style={{ marginTop: 14, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 12, padding: "14px 16px", textAlign: "center" }}>
+              <div style={{ fontSize: 13.5, fontWeight: 800, color: "#1e3a8a" }}>Work this door on a route</div>
+              <div style={{ fontSize: 12.5, color: "#334155", marginTop: 4, lineHeight: 1.5 }}>To status it (signed, not interested, appt, …), tap <b>▶ Start my day</b> or <b>▢ Route an area</b>. It comes up in order with the <b>“How’d it go?”</b> buttons when you're at the door.</div>
+            </div>
           ) : (() => {
             // Behavior flow: offer only the outcomes this pin type allows. If the
             // type defines none (terminal, or unconfigured), fall back to every
@@ -2197,6 +2256,19 @@ function Chip({ active, onClick, color, label, check }) {
         border: active ? `2px solid ${color}` : "1px solid #e5e7eb",
         background: active ? color : "#fff", color: active ? "#fff" : "#475569" }}>
       {check && active ? "✓ " : ""}{label}
+    </button>
+  );
+}
+
+// Desktop right-column filter card — the "chip" for the web view.
+function StatusCard({ color, label, count, active, onClick, locked }) {
+  return (
+    <button type="button" onClick={onClick}
+      style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", padding: "11px 12px", marginBottom: 8, borderRadius: 12, cursor: locked ? "default" : "pointer",
+        border: active ? `2px solid ${color}` : "1px solid #e2e8f0", background: active ? `${color}14` : "#fff" }}>
+      <span style={{ width: 12, height: 12, borderRadius: 4, background: color, flexShrink: 0 }} />
+      <span style={{ flex: 1, fontSize: 14, fontWeight: 800, color: "#0f172a" }}>{label}</span>
+      <span style={{ fontSize: 13, fontWeight: 800, color: active ? "#fff" : "#64748b", background: active ? color : "#f1f5f9", borderRadius: 999, padding: "2px 9px", minWidth: 22, textAlign: "center" }}>{count}</span>
     </button>
   );
 }
