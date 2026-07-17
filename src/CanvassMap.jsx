@@ -596,7 +596,11 @@ export default function CanvassMap() {
     const m = map.current, lyr = layer.current;
     if (!m || !lyr) return;
     lyr.clearLayers();
-    const shown = mapped.filter((p) => inFilter(p.status) && (!visKeys || visKeys.has(p.status)));
+    // A rep ALWAYS sees the doors they self-generated — even after the door's
+    // status moves off the active filter (e.g. tapping Pending → insp_callback),
+    // so their own leads never vanish. (Routing still skips terminal statuses.)
+    const isMineSelfGen = (p) => p.extra && typeof p.extra === "object" && p.extra.self_generated && ownsPin(p);
+    const shown = mapped.filter((p) => isMineSelfGen(p) || (inFilter(p.status) && (!visKeys || visKeys.has(p.status))));
     shownRef.current = shown; // for "Start my day" routing (already level-filtered)
     setShownCount(shown.length); // drives the "0 match your filter" hint
     const markers = [];
