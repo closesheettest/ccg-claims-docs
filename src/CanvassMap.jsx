@@ -535,7 +535,11 @@ export default function CanvassMap() {
     // "Start my day": while choosing a start point, a map tap starts the route there.
     m.on("click", (e) => {
       if (addingRef.current && dropPinRef.current) { dropPinRef.current({ lat: e.latlng.lat, lng: e.latlng.lng }); return; }
-      if (choosingRef.current && startFromRef.current) startFromRef.current({ lat: e.latlng.lat, lng: e.latlng.lng });
+      if (choosingRef.current && startFromRef.current) { startFromRef.current({ lat: e.latlng.lat, lng: e.latlng.lng }); return; }
+      // Tap empty map to dismiss an open pin/install info sheet. (Marker clicks
+      // don't reach the map, so tapping another pin still opens that one.)
+      setSelected(null);
+      setSelectedInstall(null);
     });
     newPinLayer.current = L.layerGroup().addTo(m);
     // Viewport loading — reload the pins in view whenever the map settles (debounced).
