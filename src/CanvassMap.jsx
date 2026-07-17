@@ -201,6 +201,22 @@ function trailMi(a, b) {
   const s = Math.sin(dLat / 2) ** 2 + Math.cos(toR(a[0])) * Math.cos(toR(b[0])) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(s));
 }
+// Drop GPS-jump outliers: a ping that would require >90 mph from the last kept
+// one is a bad fix (cell-tower/wifi), so we skip it entirely — keeps the current-
+// position dot and trail from teleporting even if a stray ping slipped into the DB.
+function dropGpsOutliers(pings) {
+  const out = [];
+  for (const p of pings) {
+    if (out.length) {
+      const prev = out[out.length - 1];
+      const mi = trailMi([prev.lat, prev.lng], [p.lat, p.lng]);
+      const dtH = Math.max((Date.parse(p.at) - Date.parse(prev.at)) / 3.6e6, 1 / 3600);
+      if (mi > 0.15 && mi / dtH > 90) continue;
+    }
+    out.push(p);
+  }
+  return out;
+}
 // Split a rep's pings into segments, breaking where two consecutive pings imply
 // an IMPOSSIBLE speed (>85 mph) — that's a stale/backgrounded jump, not a drive,
 // so we don't connect it (kills the straight line cutting across the whole map).
@@ -360,6 +376,7 @@ export default function CanvassMap() {
   const selectLayer = useRef(null); // the box being drawn to route an area
   const selectStart = useRef(null); // first corner of the selection box
   const lastPingRef = useRef(0);   // throttle rep location pings
+  const lastPosRef = useRef(null); // last GOOD posted position (reject GPS jumps)
   const accessLogged = useRef(false); // stamp map access (billing) once per session
   const zoomHintTimer = useRef(null); // auto-hide the "zoom in" nudge
   const [team, setTeam] = useState([]); // other reps' breadcrumbs (admin only)
@@ -1005,7 +1022,19 @@ export default function CanvassMap() {
     if (!myLoc || !auth.rt) return;
     const now = Date.now();
     if (now - lastPingRef.current < 10000) return;
+    // Reject a bad GPS fix so it never lands on the map:
+    //  • poor accuracy (>150m ⇒ a cell-tower / wifi fallback, not a real GPS lock)
+    //  • a teleport — an impossible speed (>90 mph) from the last GOOD ping. The
+    //    dt uses real elapsed time, so a genuine drive-then-reopen isn't rejected.
+    if (myLoc.acc != null && myLoc.acc > 150) return;
+    const prev = lastPosRef.current;
+    if (prev) {
+      const mi = trailMi([prev.lat, prev.lng], [myLoc.lat, myLoc.lng]);
+      const dtH = Math.max((now - prev.at) / 3.6e6, 1 / 3600);
+      if (mi > 0.15 && mi / dtH > 90) return;
+    }
     lastPingRef.current = now;
+    lastPosRef.current = { lat: myLoc.lat, lng: myLoc.lng, at: now };
     fetch("/.netlify/functions/harvest-ping", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rt: auth.rt, lat: myLoc.lat, lng: myLoc.lng }) }).catch(() => {});
   }, [myLoc]);
   // Bill it: once a real rep opens the map, stamp their access for the month.
@@ -1039,7 +1068,7 @@ export default function CanvassMap() {
     if (!lyr) return;
     lyr.clearLayers();
     for (const r of team) {
-      const pings = (r.pings || []).filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
+      const pings = dropGpsOutliers((r.pings || []).filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng)));
       if (!pings.length) continue;
       const last = pings[pings.length - 1];
       const key = `${r.rep_id || r.name}|${pings.length}|${last.at || ""}`;
