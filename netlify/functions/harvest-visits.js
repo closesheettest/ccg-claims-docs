@@ -19,6 +19,25 @@ const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BUCKETS = ["damage", "no_damage", "retail"];
+const REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1";
+const norm = (s) => String(s || "").trim().toLowerCase();
+
+// Only an ACTIVE TERRITORY REP works go-backs. An inspector/trainer (William) or
+// a trainee isn't one — their inspected results are orphans that a manager assigns
+// to a real rep via the Needs-assignment queue, so handing them a go-back list
+// would have them working deals that aren't theirs. Same "active rep" test the
+// manager queue uses, so the two can never disagree.
+async function isTerritoryRep(rep) {
+  try {
+    const r = await fetch(REP_ZONES_URL);
+    if (!r.ok) return true; // fail-open: don't strip a real rep's list on an outage
+    const reps = (await r.json()).reps || [];
+    return reps.some((x) => x.active && (
+      (rep.jobnimbus_id && x.jobnimbus_id === rep.jobnimbus_id) ||
+      (rep.name && x.name && norm(x.name) === norm(rep.name))
+    ));
+  } catch { return true; }
+}
 
 export const handler = async (event) => {
   if (event.httpMethod !== "POST") return json(405, { ok: false, error: "POST only" });
@@ -34,6 +53,9 @@ export const handler = async (event) => {
   const rep = (await sbGet(`sales_reps?harvest_token=eq.${encodeURIComponent(rt)}&select=name,jobnimbus_id&limit=1`))[0];
   if (!rep) return json(401, { ok: false, error: "Invalid link" });
   if (!rep.jobnimbus_id && !rep.name) return json(200, { ok: true, visits: [] });
+  // Not an active territory rep (inspector/trainer/trainee) → no go-backs to work;
+  // their results are assigned out by a manager instead.
+  if (!(await isTerritoryRep(rep))) return json(200, { ok: true, visits: [], not_territory_rep: true });
 
   const visitToken = (await sbGet(`app_settings?key=eq.visit_token&select=value&limit=1`))[0]?.value;
   if (!visitToken) return json(200, { ok: true, visits: [], note: "visit_token not set" });
