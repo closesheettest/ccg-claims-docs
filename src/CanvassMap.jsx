@@ -112,7 +112,7 @@ function orderStreetByStreet(start, stops) {
 // contact, geo, status). Deliberately drops the heavy fields — chiefly `extra`
 // (the whole CSV row as JSON, ~340KB of a 790KB viewport) plus notes/metadata —
 // so a 6000-pin viewport ships ~260KB instead of ~790KB (≈3× faster to load).
-const PIN_FIELDS_LITE = "id,name,address,city,state,zip,phone,email,latitude,longitude,status,jn_job_id";
+const PIN_FIELDS_LITE = "id,name,address,city,state,zip,phone,email,latitude,longitude,status,jn_job_id,list_name";
 // The rest, fetched for ONE pin on demand (click / before an action) so the
 // detail sheet + booking prefill (extra.phone, extra.orig_appt_sec) still work.
 const PIN_DETAIL_FIELDS = "id,notes,extra,list_name,status_updated_at,status_by,upload_id,created_at";
@@ -265,6 +265,8 @@ export default function CanvassMap() {
   const [prospects, setProspects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
+  const [noteDraft, setNoteDraft] = useState("");   // editable note on a self-gen pin
+  const [savingNote, setSavingNote] = useState(false);
   // Status filter — a Set of selected pin-type keys. Empty = show All. Multi-select
   // so a rep can, e.g., work IQ + No-sit-reschedule together.
   const [sel, setSel] = useState(() => new Set());
@@ -331,10 +333,12 @@ export default function CanvassMap() {
   // Self-gen pins belong to the rep who dropped them. Any rep can SEE the pin,
   // but only its creator (or admin/office) can work it. Match by JobNimbus id,
   // falling back to name. Non-self-gen pins are workable by anyone as before.
+  // Detectable on the LIGHT load (no `extra`) via the reserved list name.
+  const isSelfGenPin = (p) => !!(p && (p.list_name === "Self-Generated" || (p.extra && typeof p.extra === "object" && p.extra.self_generated)));
   const ownsPin = (p) => {
-    if (!(p && p.extra && typeof p.extra === "object" && p.extra.self_generated)) return true;
+    if (!isSelfGenPin(p)) return true;
     if (!auth.rt || me?.level === "admin") return true; // office / admin see & work all
-    const jn = p.extra.created_by_jn, nm = p.extra.created_by;
+    const jn = p.extra?.created_by_jn, nm = p.extra?.created_by;
     if (jn && me?.jn_id) return String(jn) === String(me.jn_id);
     if (nm && me?.name) return nm === me.name;
     return false;
@@ -596,19 +600,18 @@ export default function CanvassMap() {
     const m = map.current, lyr = layer.current;
     if (!m || !lyr) return;
     lyr.clearLayers();
-    // A rep ALWAYS sees the doors they self-generated — even after the door's
-    // status moves off the active filter (e.g. tapping Pending → insp_callback),
-    // so their own leads never vanish. (Routing still skips terminal statuses.)
-    const isMineSelfGen = (p) => p.extra && typeof p.extra === "object" && p.extra.self_generated && ownsPin(p);
-    const shown = mapped.filter((p) => isMineSelfGen(p) || (inFilter(p.status) && (!visKeys || visKeys.has(p.status))));
+    // Self-generated doors ALWAYS show — even after the status moves off the
+    // active filter (e.g. tapping Pending → insp_callback), so a rep's own leads
+    // never vanish. (Routing still skips terminal statuses.)
+    const shown = mapped.filter((p) => isSelfGenPin(p) || (inFilter(p.status) && (!visKeys || visKeys.has(p.status))));
     shownRef.current = shown; // for "Start my day" routing (already level-filtered)
     setShownCount(shown.length); // drives the "0 match your filter" hint
     const markers = [];
     const pts = [];
     for (const p of shown) {
-      const isSelfGen = p.extra && typeof p.extra === "object" && p.extra.self_generated;
+      const isSelfGen = isSelfGenPin(p);
       const color = (S[p.status] || UNKNOWN_TYPE).color;
-      const marker = L.marker([p.latitude, p.longitude], { icon: isSelfGen ? selfGenIcon(false) : dotIcon(color) });
+      const marker = L.marker([p.latitude, p.longitude], { icon: isSelfGen ? selfGenIcon(true) : dotIcon(color) });
       marker.on("click", () => openPin(p));
       markers.push(marker);
       pts.push([p.latitude, p.longitude]);
@@ -661,6 +664,20 @@ export default function CanvassMap() {
     mk.on("dragend", () => { const ll = mk.getLatLng(); runOwnerCheck(ll.lat, ll.lng); }); // re-verify the new roof
     mk.addTo(lyr);
   }, [newPin]);
+
+  // Keep the note editor in sync with whichever self-gen pin is open.
+  useEffect(() => { setNoteDraft(selected && typeof selected.notes === "string" ? selected.notes : ""); }, [selected?.id, selected?.notes]);
+  // Save a note onto a self-gen pin (only its creator / admin can, gated in the UI).
+  async function saveNote() {
+    if (!selected) return;
+    setSavingNote(true);
+    const note = noteDraft.trim();
+    const { error } = await supabase.from("canvass_prospects").update({ notes: note }).eq("id", selected.id);
+    setSavingNote(false);
+    if (error) { alert(error.message); return; }
+    setProspects((list) => list.map((x) => (x.id === selected.id ? { ...x, notes: note } : x)));
+    setSelected((s) => (s && s.id === selected.id ? { ...s, notes: note } : s));
+  }
 
   async function setStatus(p, newStatus) {
     const nowIso = new Date().toISOString();
@@ -1709,11 +1726,13 @@ export default function CanvassMap() {
             if (selected.phone) rows.push(["Phone", selected.phone]);
             if (selected.email) rows.push(["Email", selected.email]);
             if (selected.extra && typeof selected.extra === "object") {
-              for (const [k, v] of Object.entries(selected.extra)) if (v != null && String(v).trim()) rows.push([k, String(v)]);
+              const HIDE = new Set(["self_generated", "created_by_jn"]); // internal bookkeeping
+              for (const [k, v] of Object.entries(selected.extra)) if (!HIDE.has(k) && v != null && String(v).trim()) rows.push([k, String(v)]);
             }
             if (selected.list_name) rows.push(["List", selected.list_name]);
             if (selected.status_updated_at) rows.push(["Updated", new Date(selected.status_updated_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })]);
-            if (selected.notes) rows.push(["Notes", selected.notes]);
+            // Self-gen owned pins get the editable note field below instead.
+            if (selected.notes && !(isSelfGenPin(selected) && ownsPin(selected))) rows.push(["Notes", selected.notes]);
             if (!rows.length) return null;
             return (
               <div style={{ marginTop: 12, borderTop: "1px solid #f1f5f9", paddingTop: 10, display: "grid", gap: 4 }}>
@@ -1772,6 +1791,21 @@ export default function CanvassMap() {
               </>
             );
           })()}
+
+          {/* Notes — only on doors a rep self-generated (their own lead). */}
+          {isSelfGenPin(selected) && ownsPin(selected) && (
+            <div style={{ marginTop: 16, borderTop: "1px solid #f1f5f9", paddingTop: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: "#6d28d9", textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: 6 }}>📝 My notes</div>
+              <textarea value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)} rows={3}
+                placeholder="Notes on this door — gate code, best time to knock, roof details…"
+                style={{ width: "100%", boxSizing: "border-box", border: "1px solid #ddd6fe", borderRadius: 10, padding: "10px 12px", fontSize: 13.5, fontFamily: FONT, resize: "vertical", background: "#faf5ff" }} />
+              <button type="button" onClick={saveNote} disabled={savingNote || noteDraft === (selected.notes || "")}
+                style={{ marginTop: 8, width: "100%", padding: "10px", borderRadius: 10, border: "none", fontSize: 13.5, fontWeight: 800, cursor: (savingNote || noteDraft === (selected.notes || "")) ? "default" : "pointer",
+                  background: (savingNote || noteDraft === (selected.notes || "")) ? "#e9d5ff" : "#7c3aed", color: "#fff" }}>
+                {savingNote ? "Saving…" : noteDraft === (selected.notes || "") ? "Saved" : "Save note"}
+              </button>
+            </div>
+          )}
 
           <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
             <a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent([selected.address, selected.city, selected.state, selected.zip].filter(Boolean).join(", "))}`}
