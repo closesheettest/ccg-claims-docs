@@ -113,7 +113,19 @@ function orderStreetByStreet(start, stops) {
 // contact, geo, status). Deliberately drops the heavy fields — chiefly `extra`
 // (the whole CSV row as JSON, ~340KB of a 790KB viewport) plus notes/metadata —
 // so a 6000-pin viewport ships ~260KB instead of ~790KB (≈3× faster to load).
-const PIN_FIELDS_LITE = "id,name,address,city,state,zip,phone,email,latitude,longitude,status,jn_job_id,list_name";
+const PIN_FIELDS_LITE = "id,name,address,city,state,zip,phone,email,latitude,longitude,status,jn_job_id,list_name,status_updated_at,status_by";
+// "Worked today" doors show baby blue so other reps see them handled and skip them.
+const BABY_BLUE = "#7dd3fc";
+// A door counts as worked today only if a REP touched it today — status_by is a
+// rep's name, NOT a "JN … sync" (the sync stamps status_updated_at on every synced
+// door, which would otherwise baby-blue hundreds of untouched pins).
+function workedTodayET(p) {
+  if (!p || !p.status_updated_at || !p.status_by || /^JN\b/i.test(p.status_by)) return false;
+  const d = new Date(p.status_updated_at);
+  if (isNaN(d)) return false;
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  return d.toLocaleDateString("en-CA", { timeZone: "America/New_York" }) === today;
+}
 // The rest, fetched for ONE pin on demand (click / before an action) so the
 // detail sheet + booking prefill (extra.phone, extra.orig_appt_sec) still work.
 const PIN_DETAIL_FIELDS = "id,notes,extra,list_name,status_updated_at,status_by,upload_id,created_at";
@@ -413,6 +425,9 @@ export default function CanvassMap() {
   const newPinLayer = useRef(null);             // temp layer for the pin being placed
   const [installs, setInstalls] = useState([]);        // read-only star layer (jr + sr)
   const [showInstalls, setShowInstalls] = useState(true);
+  const [workedPins, setWorkedPins] = useState([]);    // doors worked TODAY (baby blue, not routable)
+  const [showWorked, setShowWorked] = useState(true);
+  const workedLayer = useRef(null);
   const [selectedInstall, setSelectedInstall] = useState(null);
   const [visits, setVisits] = useState([]);            // rep's post-inspection go-backs (damage/no_damage/retail)
   const [showGobacks, setShowGobacks] = useState(true);
@@ -582,9 +597,17 @@ export default function CanvassMap() {
       const installs = await sbFetchAll(() => box(
         supabase.from("installs").select("id,jnid,address_line,city,product_type,color,latitude,longitude").not("latitude", "is", null),
       ).order("id"), CAP);
+      // Doors worked TODAY (any status, so ones that changed off the filter still
+      // show) — baby blue, so other reps see them handled. Best-effort.
+      const todayKey = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+      const worked = await sbFetchAll(() => box(
+        supabase.from("canvass_prospects").select(PIN_FIELDS_LITE).not("latitude", "is", null)
+          .gte("status_updated_at", `${todayKey}T00:00:00-04:00`).not("status_by", "is", null).not("status_by", "ilike", "JN%"),
+      ), CAP).catch(() => []);
 
       setProspects(pins);
       setInstalls(installs);
+      setWorkedPins(worked || []);
       setClusters([]); // entering pin mode → drop any cluster bubbles
       setCapped(pins.length >= CAP || installs.length >= CAP);
       // The initial no-bounds load returns everything (statewide); the map already
@@ -696,6 +719,7 @@ export default function CanvassMap() {
     });
     newPinLayer.current = L.layerGroup().addTo(m);
     visitsLayer.current = L.layerGroup().addTo(m);
+    workedLayer.current = L.layerGroup().addTo(m);
     // Viewport loading — reload the pins in view whenever the map settles (debounced).
     m.on("moveend", () => {
       // Skip refetch when we already hold every pin, while a day is in progress
@@ -754,14 +778,17 @@ export default function CanvassMap() {
     // active filter (e.g. tapping Pending → insp_callback), so a rep's own leads
     // never vanish. (Routing still skips terminal statuses.)
     const shown = mapped.filter((p) => isSelfGenPin(p) || (inFilter(p.status) && (!visKeys || visKeys.has(p.status))));
-    shownRef.current = shown; // for "Start my day" routing (already level-filtered)
+    // Routing skips doors already worked TODAY — no rep gets re-routed to a door
+    // another rep (or they) already handled today.
+    shownRef.current = shown.filter((p) => !workedTodayET(p));
     setShownCount(shown.length); // drives the "0 match your filter" hint
     const markers = [];
     const pts = [];
     for (const p of shown) {
       const isSelfGen = isSelfGenPin(p);
-      const color = (S[p.status] || UNKNOWN_TYPE).color;
-      const marker = L.marker([p.latitude, p.longitude], { icon: isSelfGen ? selfGenIcon(true) : dotIcon(color) });
+      const worked = workedTodayET(p);
+      const color = worked ? BABY_BLUE : (S[p.status] || UNKNOWN_TYPE).color;
+      const marker = L.marker([p.latitude, p.longitude], { icon: isSelfGen && !worked ? selfGenIcon(true) : dotIcon(color) });
       marker.on("click", () => openPin(p));
       markers.push(marker);
       pts.push([p.latitude, p.longitude]);
@@ -781,6 +808,25 @@ export default function CanvassMap() {
       fitted.current = true;
     }
   }, [mapped, sel, installs, showInstalls, visKeys]);
+
+  // Baby-blue "worked today" layer — doors handled today whose status has since
+  // moved OFF the active filter (so the main loop no longer draws them). Read-only
+  // reference (like installs), never routed. In-filter worked pins are already
+  // baby-blued by the main loop, so skip anything already drawn there.
+  useEffect(() => {
+    const lyr = workedLayer.current; if (!lyr) return;
+    lyr.clearLayers();
+    if (!showWorked) return;
+    const shownIds = new Set(mapped.map((p) => p.id));
+    for (const p of workedPins) {
+      if (shownIds.has(p.id)) continue;
+      if (typeof p.latitude !== "number" || typeof p.longitude !== "number") continue;
+      const marker = L.marker([p.latitude, p.longitude], { icon: dotIcon(BABY_BLUE) });
+      marker.on("click", () => openPin(p));
+      lyr.addLayer(marker);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workedPins, showWorked, mapped]);
 
   // Draw the server cluster bubbles (low zoom). Tapping one zooms into it.
   useEffect(() => {
@@ -1670,6 +1716,9 @@ export default function CanvassMap() {
           {installs.length > 0 && (
             <Chip active={showInstalls} onClick={() => setShowInstalls((v) => !v)} color={INSTALL_COLOR} label={`⭐ Installs (${installs.length})`} />
           )}
+          {workedPins.length > 0 && (
+            <Chip active={showWorked} onClick={() => setShowWorked((v) => !v)} color={BABY_BLUE} label={`🔵 Worked today (${workedPins.length})`} />
+          )}
         </div>
       )}
 
@@ -1699,6 +1748,10 @@ export default function CanvassMap() {
             {installs.length > 0 && (
               <StatusCard color={INSTALL_COLOR} label="⭐ Installs" count={installs.length}
                 active={showInstalls} onClick={() => setShowInstalls((v) => !v)} />
+            )}
+            {workedPins.length > 0 && (
+              <StatusCard color={BABY_BLUE} label="🔵 Worked today" count={workedPins.length}
+                active={showWorked} onClick={() => setShowWorked((v) => !v)} />
             )}
             {me?.level === "admin" && (
               <>
