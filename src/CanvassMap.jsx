@@ -854,7 +854,7 @@ export default function CanvassMap() {
     selectLayer.current?.clearLayers();
     try { m?.dragging.enable(); m?.doubleClickZoom.enable(); m?.boxZoom.enable(); } catch { /* ignore */ }
   }
-  function finalizeSelection(b) {
+  async function finalizeSelection(b) {
     const m = map.current;
     const inBox = (shownRef.current || []).filter((p) =>
       typeof p.latitude === "number" && typeof p.longitude === "number" && b.contains([p.latitude, p.longitude]) && !nonRoutableStatuses.has(p.status));
@@ -866,6 +866,20 @@ export default function CanvassMap() {
     workingRef.current = new Set(r.map((p) => p.id));
     setStartPt(start); setRoute(r); setStopIdx(0); setRound(1); setResolvedIds(new Set()); setDayMode("active"); setFillOffer(null);
     if (r[0]) m.setView([r[0].latitude, r[0].longitude], 16);
+    // A short box (e.g. a sparse IQ area) isn't a full day — pull No-sit-reschedule
+    // pins near the box and offer to top it up to a full day, same as Start my day.
+    const c = b.getCenter(), FR = 0.8;
+    fillPoolRef.current = await sbFetchAll(() =>
+      supabase.from("canvass_prospects").select(PIN_FIELDS_LITE)
+        .eq("status", "no_sit_reschedule").not("latitude", "is", null)
+        .gte("latitude", c.lat - FR).lte("latitude", c.lat + FR)
+        .gte("longitude", c.lng - FR).lte("longitude", c.lng + FR),
+      4000,
+    ).catch(() => []);
+    if (r.length < ROUTE_CAP_DEFAULT) {
+      const fill = availableFill(r);
+      setFillOffer(fill.length ? { available: fill.length, need: ROUTE_CAP_DEFAULT - r.length } : null);
+    }
   }
 
   async function startFrom(pt) {
