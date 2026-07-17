@@ -989,15 +989,40 @@ export default function CanvassMap() {
   useEffect(() => {
     const el = mapEl.current, m = map.current;
     if (!el || !m || !selecting) return;
+    // iOS: without touch-action:none the browser claims a finger-drag as a SCROLL
+    // and CANCELS our pointer events mid-drag — the screen moves and no box ever
+    // draws. Leaflet's dragging.disable() only stops Leaflet's own panning, not
+    // the browser gesture, so set it explicitly for the duration of the drag.
+    const prevTouchAction = el.style.touchAction;
+    el.style.touchAction = "none";
     const toLatLng = (cx, cy) => { const r = el.getBoundingClientRect(); return m.containerPointToLatLng([cx - r.left, cy - r.top]); };
     const draw = (b) => { selectLayer.current.clearLayers(); L.rectangle(b, { color: "#1d4ed8", weight: 2, dashArray: "6 5", fillColor: "#3b82f6", fillOpacity: 0.12, interactive: false }).addTo(selectLayer.current); };
-    const onDown = (e) => { selectStart.current = toLatLng(e.clientX, e.clientY); e.preventDefault(); };
-    const onMove = (e) => { if (!selectStart.current) return; draw(L.latLngBounds(selectStart.current, toLatLng(e.clientX, e.clientY))); };
-    const onUp = (e) => { if (!selectStart.current) return; const b = L.latLngBounds(selectStart.current, toLatLng(e.clientX, e.clientY)); selectStart.current = null; finalizeSelection(b); };
-    el.addEventListener("pointerdown", onDown);
-    el.addEventListener("pointermove", onMove);
+    const onDown = (e) => {
+      selectStart.current = toLatLng(e.clientX, e.clientY);
+      // Capture so the moves keep coming to us even if the finger slides off.
+      try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+      e.preventDefault();
+    };
+    const onMove = (e) => { if (!selectStart.current) return; e.preventDefault(); draw(L.latLngBounds(selectStart.current, toLatLng(e.clientX, e.clientY))); };
+    const onUp = (e) => {
+      if (!selectStart.current) return;
+      try { el.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+      const b = L.latLngBounds(selectStart.current, toLatLng(e.clientX, e.clientY));
+      selectStart.current = null;
+      finalizeSelection(b);
+    };
+    const onCancel = () => { selectStart.current = null; selectLayer.current?.clearLayers(); };
+    el.addEventListener("pointerdown", onDown, { passive: false });
+    el.addEventListener("pointermove", onMove, { passive: false });
     el.addEventListener("pointerup", onUp);
-    return () => { el.removeEventListener("pointerdown", onDown); el.removeEventListener("pointermove", onMove); el.removeEventListener("pointerup", onUp); };
+    el.addEventListener("pointercancel", onCancel);
+    return () => {
+      el.style.touchAction = prevTouchAction;
+      el.removeEventListener("pointerdown", onDown);
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointerup", onUp);
+      el.removeEventListener("pointercancel", onCancel);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selecting]);
 
@@ -1079,13 +1104,15 @@ export default function CanvassMap() {
   function startSelecting() {
     const m = map.current; if (!m) return;
     setSelecting(true);
-    try { m.dragging.disable(); m.doubleClickZoom.disable(); m.boxZoom.disable(); } catch { /* ignore */ }
+    // touchZoom too — on a phone a pinch mid-draw would otherwise zoom the map
+    // out from under the box being drawn.
+    try { m.dragging.disable(); m.doubleClickZoom.disable(); m.boxZoom.disable(); m.touchZoom.disable(); } catch { /* ignore */ }
   }
   function cancelSelecting() {
     const m = map.current;
     setSelecting(false); selectStart.current = null;
     selectLayer.current?.clearLayers();
-    try { m?.dragging.enable(); m?.doubleClickZoom.enable(); m?.boxZoom.enable(); } catch { /* ignore */ }
+    try { m?.dragging.enable(); m?.doubleClickZoom.enable(); m?.boxZoom.enable(); m?.touchZoom.enable(); } catch { /* ignore */ }
   }
   async function finalizeSelection(b) {
     const m = map.current;
@@ -1570,7 +1597,7 @@ export default function CanvassMap() {
         )}
         {selecting && (
           <div style={{ position: "absolute", left: "50%", top: 12, transform: "translateX(-50%)", zIndex: 750, background: "#1d4ed8", color: "#fff", borderRadius: 12, padding: "10px 14px", boxShadow: "0 3px 14px rgba(0,0,0,.3)", display: "flex", alignItems: "center", gap: 12, whiteSpace: "nowrap" }}>
-            <span style={{ fontSize: 13.5, fontWeight: 700 }}>✏️ Drag a box around the doors to route</span>
+            <span style={{ fontSize: 13.5, fontWeight: 700 }}>✏️ Drag your finger across the doors to box them in</span>
             <button type="button" onClick={cancelSelecting} style={{ background: "rgba(255,255,255,.22)", color: "#fff", border: "none", borderRadius: 8, padding: "5px 12px", fontSize: 12.5, fontWeight: 800, cursor: "pointer" }}>Cancel</button>
           </div>
         )}
