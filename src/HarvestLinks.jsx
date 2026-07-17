@@ -120,7 +120,11 @@ export default function HarvestLinks() {
       });
       const j = await r.json().catch(() => ({}));
       if (!j.ok) { setNote(`⚠️ ${t.name}: ${j.error || "couldn't grant"}`); }
-      else { setNote(`✓ ${t.name} — access granted${j.sent ? " and link texted 📲" : " (couldn't text — copy the link)"}.`); await loadWeek(); await load(); }
+      else {
+        const via = [j.sent && "texted 📲", j.emailed && "emailed ✉️"].filter(Boolean).join(" + ");
+        setNote(`✓ ${t.name} — access granted${via ? ` and link ${via}` : " (couldn't text or email — copy the link)"}.`);
+        await loadWeek(); await load();
+      }
     } catch (e) { setNote(`⚠️ ${e.message || "network error"}`); }
     finally { setGranting(""); }
   };

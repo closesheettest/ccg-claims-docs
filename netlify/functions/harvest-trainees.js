@@ -33,15 +33,23 @@ export const handler = async (event) => {
     if ((body.action || "grant") !== "grant") return json(400, { ok: false, error: "unknown action" });
     if (!phone || last10(phone).length !== 10) return json(400, { ok: false, error: "a valid phone is required" });
 
-    // Reuse an existing sales_reps row for this phone; else create one.
-    const existing = (await sbGet(`sales_reps?select=id,name,phone,harvest_token&limit=500`))
-      .find((r) => last10(r.phone) === last10(phone));
-    let repId, token;
+    // Reuse this trainee's existing sales_reps row — match on phone, then on NAME.
+    // The name fallback matters: most rows carry a BLANK phone (the rep sync
+    // doesn't fill it), so phone-only matching missed them and we'd try to insert
+    // a second row — which the sales_reps unique-name constraint rejects, and the
+    // grant failed with nothing sent. Only create a row for a genuinely new person.
+    const norm = (s) => String(s || "").trim().toLowerCase();
+    const allReps = await sbGet(`sales_reps?select=id,name,phone,email,harvest_token&limit=1000`);
+    const existing = allReps.find((r) => last10(r.phone) && last10(r.phone) === last10(phone))
+      || (name ? allReps.find((r) => norm(r.name) === norm(name)) : null);
+    let repId, token, repEmail = existing?.email || "";
     if (existing) {
       repId = existing.id;
       token = existing.harvest_token || crypto.randomUUID();
       const patch = { harvest_level: "trainee", harvest_token: token };
       if (!existing.name && name) patch.name = name;
+      // Backfill the phone so they're textable and the next match hits on phone.
+      if (last10(existing.phone) !== last10(phone)) patch.phone = phone;
       const up = await fetch(`${SB_URL}/rest/v1/sales_reps?id=eq.${encodeURIComponent(repId)}`, { method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify(patch) });
       if (!up.ok) return json(500, { ok: false, error: (await up.text().catch(() => "")).slice(0, 200) || "update failed" });
     } else {
@@ -55,16 +63,26 @@ export const handler = async (event) => {
     // Bill it: stamp this trainee's access for the current month right now, so
     // they're billed even if they drop out before ever opening the map.
     await stampAccess(sb, repId, name);
-    // Text them the link.
-    let sent = false;
+    // Send BOTH ways — a text alone silently misses anyone on DND / opted out.
+    const first = (name || "there").split(/\s+/)[0];
+    let sent = false, emailed = false;
     try {
-      const first = (name || "there").split(/\s+/)[0];
       const msg = `Hi ${first}, here's your U.S. Shingle Harvesting Map link for field training — open it to see your doors and knock: ${link}`;
       const r = await fetch(`${base}/.netlify/functions/ghl-sms`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: phone, name: name || "Trainee", message: msg }) });
       sent = r.ok;
     } catch { /* link still returned so the office can copy it */ }
+    if (repEmail) {
+      try {
+        const html = `<p>Hi ${first},</p>
+<p>Here's your <b>Harvesting Map</b> link for field training. Open it on your phone to see your doors and start knocking.</p>
+<p><a href="${link}" style="display:inline-block;background:#16a34a;color:#fff;font-weight:bold;padding:12px 20px;border-radius:8px;text-decoration:none">Open my Harvesting Map</a></p>
+<p style="color:#666;font-size:12px;word-break:break-all">${link}</p>`;
+        const r = await fetch(`${base}/.netlify/functions/send-email`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: repEmail, subject: "Your Harvesting Map link", html }) });
+        emailed = r.ok;
+      } catch { /* sms may have landed */ }
+    }
 
-    return json(200, { ok: true, link, sent, rep_id: repId });
+    return json(200, { ok: true, link, sent, emailed, rep_id: repId });
   }
 
   // ── GET: this week's trainees + who already has access ────────────────────
