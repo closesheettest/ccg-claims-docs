@@ -121,8 +121,15 @@ exports.handler = async (event) => {
   // Skipped when mode === "confirm" (the manager's confirm call comes
   // back through confirm-inspection-result, not here) and for rows with
   // no inspector_id (office-classified records never hit this path).
+  //
+  // ALSO skipped for a NO-INSPECTION submission (`note` is only ever sent by
+  // the inspector app's "can't inspect" path — tarp/obvious damage or back to
+  // retail). No inspection happened, so there's no call to QA and no photo set
+  // to review — holding it just stalls the deal in a tile meant for reviewing
+  // real inspections. It fires straight through with its note instead. (The
+  // Damage variant already skips the PA handoff on its own.)
   const mode = (body.mode || "submit").trim();
-  if (mode !== "confirm" && insp.inspector_id) {
+  if (mode !== "confirm" && insp.inspector_id && !note) {
     let requiresConfirmation = false;
     try {
       const ir = await fetch(
@@ -286,6 +293,17 @@ exports.handler = async (event) => {
   });
   if (!updRes.ok) {
     return json(500, { ok: false, error: `Could not update inspection: ${await updRes.text()}` });
+  }
+  // Record that NO physical inspection happened, and why. `note` is only sent by
+  // the app's "can't inspect" path, so its presence IS the marker — before this,
+  // the note went to JobNimbus only, leaving nothing in our data to tell a
+  // no-inspection apart from a real inspection that happened to have 2 photos.
+  // Sent as its OWN patch so a missing column (pre-migration) can't fail the
+  // result write above.
+  if (note) {
+    await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${inspectionId}`, {
+      method: "PATCH", headers: sbHeaders, body: JSON.stringify({ no_inspection_note: note }),
+    }).catch(() => {});
   }
 
   // 3. Upload each photo to JN (if linked).
