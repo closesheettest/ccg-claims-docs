@@ -22,6 +22,8 @@
 // Data: FL Dept. of Revenue statewide cadastral (updated yearly from all county
 // property appraisers). Public ArcGIS FeatureServer — no key, no cost.
 
+import { findExistingPin } from "./_harvest-dupe.js";
+
 const LAYER =
   "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0/query";
 const FIELDS =
@@ -90,6 +92,7 @@ export const handler = async (event) => {
       ok: true, found: false,
       verdict: "no_parcel",
       reason: "Couldn't find a parcel here — drop the pin right on the rooftop and try again.",
+      existing: await existingHere(lat, lng, ""),
     });
   }
 
@@ -123,8 +126,17 @@ export const handler = async (event) => {
     parcel_id: a.PARCEL_ID || "",
     address: { line1: a.PHY_ADDR1 || "", city: a.PHY_CITY || "", state: "FL", zip: String(a.PHY_ZIPCD || "") },
     mailing: { line1: a.OWN_ADDR1 || "", city: a.OWN_CITY || "", state: a.OWN_STATE || "", zip: String(a.OWN_ZIPCD || "") },
+    existing: await existingHere(lat, lng, a.PHY_ADDR1 || ""),
   });
 };
+
+// Non-fatal lookup for an already-placed pin at this property (warn the rep).
+async function existingHere(lat, lng, address) {
+  try {
+    const e = await findExistingPin(lat, lng, address);
+    return e ? { id: e.id, name: e.name || "", address: e.address || "", status: e.status || "", rep: e.assigned_rep_name || "" } : null;
+  } catch { return null; }
+}
 
 function json(statusCode, obj) {
   return { statusCode, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" }, body: JSON.stringify(obj) };

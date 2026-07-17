@@ -13,6 +13,8 @@
 //
 // Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
 
+import { findExistingPin } from "./_harvest-dupe.js";
+
 const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -32,6 +34,16 @@ export const handler = async (event) => {
 
   const rep = (await sbGet(`sales_reps?harvest_token=eq.${encodeURIComponent(rt)}&select=id,name,jobnimbus_id&limit=1`))[0];
   if (!rep) return json(401, { ok: false, error: "Invalid link" });
+
+  // Fail-safe: never drop a second pin on a property that's already on the map.
+  const dupe = await findExistingPin(lat, lng, String(body.address || "").trim());
+  if (dupe) {
+    return json(409, {
+      ok: false, duplicate: true,
+      error: "There's already a pin on this property.",
+      existing: { id: dupe.id, name: dupe.name || "", address: dupe.address || "", status: dupe.status || "", rep: dupe.assigned_rep_name || "" },
+    });
+  }
 
   const row = {
     list_name: "Self-Generated",

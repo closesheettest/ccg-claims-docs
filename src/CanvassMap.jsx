@@ -1201,6 +1201,11 @@ export default function CanvassMap() {
         }),
       });
       const d = await r.json();
+      if (d.duplicate) {
+        // A pin was placed here between the check and commit — reflect the block.
+        setNewPin((n) => (n ? { ...n, saving: false, check: { ...(n.check || {}), existing: d.existing } } : n));
+        return;
+      }
       if (!d.ok || !d.pin) { alert(d.error || "Couldn't save the pin."); setNewPin((n) => ({ ...n, saving: false })); return; }
       const pin = d.pin;
       setProspects((list) => [...list, pin]);   // show + persist on the map
@@ -1675,6 +1680,20 @@ export default function CanvassMap() {
           {/* Verdict + actions — hidden while a (re)check is in flight so nobody acts on a stale result */}
           {!newPin.checking && newPin.check && (() => {
             const c = newPin.check;
+            // Fail-safe: this property is already on the map — no duplicate pins.
+            if (c.existing) {
+              const st = c.existing.status || "";
+              return (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", color: "#991b1b", borderRadius: 10, padding: "12px 14px" }}>
+                    <div style={{ fontSize: 14, fontWeight: 800 }}>🚫 Already pinned</div>
+                    <div style={{ fontSize: 12.5, marginTop: 4 }}>This property is already on the map{c.existing.rep ? ` — ${c.existing.rep}` : ""}{st ? ` · ${S[st]?.label || st}` : ""}. You can't add a duplicate.</div>
+                    {c.existing.address && <div style={{ fontSize: 12, marginTop: 3, opacity: 0.85 }}>{c.existing.address}</div>}
+                  </div>
+                  <div style={{ marginTop: 10, fontSize: 12.5, color: "#7c3aed", fontWeight: 700, textAlign: "center" }}>Drag the pin to a different house, or close.</div>
+                </div>
+              );
+            }
             if (!c.found) {
               return (
                 <div style={{ marginTop: 12 }}>
