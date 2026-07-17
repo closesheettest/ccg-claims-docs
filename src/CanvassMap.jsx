@@ -679,6 +679,26 @@ export default function CanvassMap() {
     setSelected((s) => (s && s.id === selected.id ? { ...s, notes: note } : s));
   }
 
+  // Delete a door the rep self-generated (server verifies it's theirs + self-gen).
+  async function deletePin() {
+    if (!selected) return;
+    if (!window.confirm(`Delete this self-generated door${selected.address ? ` — ${selected.address}` : ""}? This can't be undone.`)) return;
+    const id = selected.id;
+    try {
+      const r = await fetch("/.netlify/functions/harvest-delete-pin", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rt: auth.rt, pin_id: id }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!d.ok) { alert(d.error || "Couldn't delete the pin."); return; }
+      setProspects((list) => list.filter((x) => x.id !== id));
+      workingRef.current.delete(id);
+      setResolvedIds((s) => { const n = new Set(s); n.delete(id); return n; });
+      setRoute((r2) => r2.filter((p) => p.id !== id));
+      setSelected(null);
+    } catch { alert("Couldn't delete the pin — try again."); }
+  }
+
   async function setStatus(p, newStatus) {
     const nowIso = new Date().toISOString();
     const entry = { at: nowIso, from: p.status, to: newStatus, by: repName || "rep" };
@@ -1803,6 +1823,10 @@ export default function CanvassMap() {
                 style={{ marginTop: 8, width: "100%", padding: "10px", borderRadius: 10, border: "none", fontSize: 13.5, fontWeight: 800, cursor: (savingNote || noteDraft === (selected.notes || "")) ? "default" : "pointer",
                   background: (savingNote || noteDraft === (selected.notes || "")) ? "#e9d5ff" : "#7c3aed", color: "#fff" }}>
                 {savingNote ? "Saving…" : noteDraft === (selected.notes || "") ? "Saved" : "Save note"}
+              </button>
+              <button type="button" onClick={deletePin}
+                style={{ marginTop: 8, width: "100%", padding: "9px", borderRadius: 10, border: "1px solid #fecaca", background: "#fff", color: "#dc2626", fontSize: 12.5, fontWeight: 800, cursor: "pointer" }}>
+                🗑 Delete this pin
               </button>
             </div>
           )}
