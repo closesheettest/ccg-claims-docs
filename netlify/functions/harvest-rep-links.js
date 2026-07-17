@@ -29,10 +29,13 @@ export const handler = async (event) => {
   const base = (process.env.URL || process.env.PUBLIC_SITE_URL || "https://free-roof-inspections.netlify.app").replace(/\/$/, "");
 
   try {
-    // Pull every rep (name/token/level). harvest_level may not exist yet — fall
-    // back to the base select so this keeps working before the migration runs.
-    const allReps = await sbGet(`sales_reps?select=id,name,jobnimbus_id,harvest_token,active,harvest_level&order=name`).catch(() =>
-      sbGet(`sales_reps?select=id,name,jobnimbus_id,harvest_token,active&order=name`));
+    // Pull every rep (name/token/level + contact so the office can SEND the link).
+    // harvest_level / harvest_link_sent_at may not exist yet — fall back through
+    // progressively smaller selects so this keeps working before a migration runs.
+    const allReps = await sbGet(`sales_reps?select=id,name,jobnimbus_id,harvest_token,active,harvest_level,phone,email,harvest_link_sent_at&order=name`).catch(() => null)
+      || await sbGet(`sales_reps?select=id,name,jobnimbus_id,harvest_token,active,harvest_level,phone,email&order=name`).catch(() => null)
+      || await sbGet(`sales_reps?select=id,name,jobnimbus_id,harvest_token,active,harvest_level&order=name`).catch(() =>
+        sbGet(`sales_reps?select=id,name,jobnimbus_id,harvest_token,active&order=name`));
 
     const [adminRow, rz] = await Promise.all([
       sbGet(`app_settings?key=eq.harvest_admin_token&select=value&limit=1`).catch(() => []),
@@ -68,6 +71,11 @@ export const handler = async (event) => {
         region: zoneInfo?.region || null,
         active: r.active !== false,
         link: `${base}/?mode=harvest&rt=${r.harvest_token}`,
+        // Contact + "we already sent it" flag, so the office can text/email the
+        // link and see at a glance who's had theirs.
+        phone: r.phone || null,
+        email: r.email || null,
+        sent_at: r.harvest_link_sent_at || null,
       });
     }
 

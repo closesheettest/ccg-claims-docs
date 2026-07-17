@@ -22,9 +22,45 @@ export default function HarvestLinks() {
   const [granting, setGranting] = useState(""); // phone being granted
   const [invoice, setInvoice] = useState(null); // generated monthly invoice
   const [invBusy, setInvBusy] = useState(false);
+  const [sendingId, setSendingId] = useState(""); // rep id currently being sent their link
 
   // Admin token (needed for the invoice call) is embedded in the office link.
   const adminTok = (data?.admin_link || "").match(/admin=([^&]+)/)?.[1] || "";
+  // Text + email a rep their personal link (both channels — a text alone misses
+  // anyone on DND/opted out), then refresh so the "✓ Sent" flag shows.
+  const sendLink = async (r) => {
+    if (!adminTok) { setNote("⚠️ Office link not loaded yet — try again in a moment."); return; }
+    setSendingId(r.id); setNote("");
+    try {
+      const res = await fetch("/.netlify/functions/harvest-send-link", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ admin: adminTok, rep_id: r.id }),
+      });
+      const j = await res.json();
+      if (!j.ok) setNote(`⚠️ ${j.error || "Couldn't send the link."}`);
+      else { setNote(`✓ ${j.name} — link sent${j.sent_sms ? " 📲" : ""}${j.sent_email ? " ✉️" : ""}.`); await load(); }
+    } catch { setNote("⚠️ Network error — try again."); }
+    setSendingId("");
+  };
+  // Send button + "already sent" flag, shown on every link card (admins/trainees/reps).
+  const sendCell = (r) => {
+    const noContact = !r.phone && !r.email;
+    return (
+      <>
+        <button type="button" disabled={sendingId === r.id || noContact} onClick={() => sendLink(r)}
+          title={noContact ? "No phone or email on file for this rep" : "Text + email them their link"}
+          style={{ ...btn, ...(noContact ? { opacity: 0.45, cursor: "not-allowed" } : {}) }}>
+          {sendingId === r.id ? "Sending…" : r.sent_at ? "Resend" : "📲 Send link"}
+        </button>
+        {r.sent_at && (
+          <span title={new Date(r.sent_at).toLocaleString()}
+            style={{ fontSize: 11.5, fontWeight: 800, color: "#166534", background: "#dcfce7", border: "1px solid #86efac", borderRadius: 999, padding: "3px 8px", whiteSpace: "nowrap" }}>
+            ✓ Sent {fmtSent(r.sent_at)}
+          </span>
+        )}
+      </>
+    );
+  };
   const genInvoice = async () => {
     if (!adminTok) { setNote("⚠️ Office link not loaded yet — try again in a moment."); return; }
     setInvBusy(true); setNote("");
@@ -242,6 +278,7 @@ export default function HarvestLinks() {
                       <LevelSelect card={r} disabled={saving === r.id} onPick={(lv) => setLevel(r.id, lv, r.name)} />
                       <a href={r.link} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, fontWeight: 700, color: "#7c3aed", textDecoration: "none" }}>Open ↗</a>
                       <button type="button" onClick={() => copy(r.link, r.link)} style={btn}>{copied === r.link ? "✓ Copied" : "Copy link"}</button>
+                      {sendCell(r)}
                     </div>
                   </div>
                 ))}
@@ -262,6 +299,7 @@ export default function HarvestLinks() {
                       <LevelSelect card={r} disabled={saving === r.id} onPick={(lv) => setLevel(r.id, lv, r.name)} />
                       <a href={r.link} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, fontWeight: 700, color: "#b45309", textDecoration: "none" }}>Open ↗</a>
                       <button type="button" onClick={() => copy(r.link, r.link)} style={btn}>{copied === r.link ? "✓ Copied" : "Copy link"}</button>
+                      {sendCell(r)}
                     </div>
                   </div>
                 ))}
@@ -287,6 +325,7 @@ export default function HarvestLinks() {
                   <LevelSelect card={r} disabled={saving === r.id} onPick={(lv) => setLevel(r.id, lv, r.name)} />
                   <a href={r.link} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, fontWeight: 700, color: "#0e7490", textDecoration: "none" }}>Open ↗</a>
                   <button type="button" onClick={() => copy(r.link, r.link)} style={btn}>{copied === r.link ? "✓ Copied" : "Copy link"}</button>
+                      {sendCell(r)}
                 </div>
               </div>
               </React.Fragment>
@@ -320,4 +359,8 @@ function LevelSelect({ card, disabled, onPick }) {
 }
 
 const btn = { fontSize: 12.5, fontWeight: 700, color: "#334155", background: "#fff", border: "1px solid #cbd5e1", borderRadius: 8, padding: "6px 12px", cursor: "pointer" };
+// "Jul 17" for the ✓ Sent flag.
+function fmtSent(iso) {
+  try { return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" }); } catch { return ""; }
+}
 const pill = { fontSize: 12, fontWeight: 800, color: "#fff", border: "none", borderRadius: 8, padding: "6px 12px", cursor: "pointer" };
