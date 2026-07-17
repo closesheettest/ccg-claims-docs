@@ -200,6 +200,12 @@ function clusterDivIcon(n, color) {
   });
 }
 const FONT = "'Nunito', system-ui, sans-serif";
+// Live "you are here" blue dot (Google-Maps style).
+const ME_ICON = L.divIcon({
+  className: "harvest-me",
+  html: `<div style="width:16px;height:16px;border-radius:50%;background:#1d4ed8;border:3px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25),0 1px 5px rgba(0,0,0,.5)"></div>`,
+  iconSize: [16, 16], iconAnchor: [8, 8],
+});
 
 export default function CanvassMap() {
   const mapEl = useRef(null);
@@ -208,6 +214,9 @@ export default function CanvassMap() {
   const clusterLayer = useRef(null); // server-side cluster bubbles (low zoom)
   const routeLayer = useRef(null);
   const navLayer = useRef(null);   // in-app driving route to the current stop
+  const locLayer = useRef(null);   // live "you are here" blue dot
+  const selectLayer = useRef(null); // the box being drawn to route an area
+  const selectStart = useRef(null); // first corner of the selection box
   const fitted = useRef(false);
   const [prospects, setProspects] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -232,7 +241,8 @@ export default function CanvassMap() {
   const [startPt, setStartPt] = useState(savedDay?.startPt || null);    // {lat,lng} the route starts from
   const [route, setRoute] = useState(() => savedDay?.route || []);      // ordered stops (nearest-first)
   const [stopIdx, setStopIdx] = useState(savedDay ? Math.min(savedDay.stopIdx || 0, savedDay.route.length - 1) : 0);
-  const [myLoc, setMyLoc] = useState(null);            // live GPS while a route is active
+  const [myLoc, setMyLoc] = useState(null);            // live GPS (always on while the map is open)
+  const [selecting, setSelecting] = useState(false);   // drawing a box to route the doors inside it
   const [round, setRound] = useState(savedDay?.round || 1);             // 1st round, 2nd round, …
   const [resolvedIds, setResolvedIds] = useState(() => new Set(savedDay?.resolved || [])); // pins the rep has STATUSED this session (drop from later rounds)
   const workingRef = useRef(new Set(savedDay?.working || []));          // the ORIGINAL round-1 routed pin ids — later rounds only recycle these, minus statused
@@ -494,6 +504,8 @@ export default function CanvassMap() {
     // Separate layer for the "Start my day" route line + numbered stops (on top).
     routeLayer.current = L.layerGroup().addTo(m);
     navLayer.current = L.layerGroup().addTo(m); // in-app driving route to current stop
+    selectLayer.current = L.layerGroup().addTo(m); // route-an-area box
+    locLayer.current = L.layerGroup().addTo(m);    // blue "you are here" (on top)
     // Leaflet computes its size at init; inside a flex layout the container
     // may not have its final size yet, leaving the tiles rendered for a tiny
     // box. Recalc on mount AND whenever the container resizes.
@@ -638,18 +650,44 @@ export default function CanvassMap() {
     };
   }, []);
 
-  // While a route is active, watch the rep's live location so "Next" only
-  // unlocks once they're within ARRIVE_FT of the current stop.
+  // Watch the rep's live location the WHOLE time the map is open — powers the
+  // blue "you are here" dot, and the route's within-ARRIVE_FT gate. Keep the last
+  // known position on a transient error (don't blank the dot).
   useEffect(() => {
-    if (dayMode !== "active" || !navigator.geolocation) { setMyLoc(null); return; }
+    if (!navigator.geolocation) { setMyLoc(null); return; }
     const id = navigator.geolocation.watchPosition(
       (pos) => setMyLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy }),
-      () => setMyLoc(null),
+      () => { /* keep last known */ },
       { enableHighAccuracy: true, maximumAge: 4000, timeout: 20000 },
     );
     watchRef.current = id;
     return () => { try { navigator.geolocation.clearWatch(id); } catch { /* ignore */ } };
-  }, [dayMode]);
+  }, []);
+  // Draw/update the blue "you are here" dot (+ accuracy halo) as GPS moves.
+  useEffect(() => {
+    const lyr = locLayer.current;
+    if (!lyr) return;
+    lyr.clearLayers();
+    if (!myLoc) return;
+    if (myLoc.acc && myLoc.acc < 400) L.circle([myLoc.lat, myLoc.lng], { radius: myLoc.acc, color: "#1d4ed8", weight: 1, opacity: 0.5, fillColor: "#3b82f6", fillOpacity: 0.12, interactive: false }).addTo(lyr);
+    L.marker([myLoc.lat, myLoc.lng], { icon: ME_ICON, zIndexOffset: 3000, interactive: false }).addTo(lyr);
+  }, [myLoc]);
+  // While in "route an area" mode, drag a box on the map; on release we route the
+  // doors inside it. Pointer events cover both touch (phone) and mouse.
+  useEffect(() => {
+    const el = mapEl.current, m = map.current;
+    if (!el || !m || !selecting) return;
+    const toLatLng = (cx, cy) => { const r = el.getBoundingClientRect(); return m.containerPointToLatLng([cx - r.left, cy - r.top]); };
+    const draw = (b) => { selectLayer.current.clearLayers(); L.rectangle(b, { color: "#1d4ed8", weight: 2, dashArray: "6 5", fillColor: "#3b82f6", fillOpacity: 0.12, interactive: false }).addTo(selectLayer.current); };
+    const onDown = (e) => { selectStart.current = toLatLng(e.clientX, e.clientY); e.preventDefault(); };
+    const onMove = (e) => { if (!selectStart.current) return; draw(L.latLngBounds(selectStart.current, toLatLng(e.clientX, e.clientY))); };
+    const onUp = (e) => { if (!selectStart.current) return; const b = L.latLngBounds(selectStart.current, toLatLng(e.clientX, e.clientY)); selectStart.current = null; finalizeSelection(b); };
+    el.addEventListener("pointerdown", onDown);
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerup", onUp);
+    return () => { el.removeEventListener("pointerdown", onDown); el.removeEventListener("pointermove", onMove); el.removeEventListener("pointerup", onUp); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selecting]);
 
   // Log an "arrival" the first time the rep gets within range of the current stop,
   // so the report can measure time-at-spot (arrival → the outcome tap).
@@ -700,9 +738,9 @@ export default function CanvassMap() {
     });
   }, [dayMode, route, stopIdx, startPt]);
 
-  function buildRoute(start, pins, cap) {
+  function buildRoute(start, pins, cap, skipRadius) {
     const routable = pins.filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number" && !nonRoutableStatuses.has(p.status)
-      && feetBetween(start, { lat: p.latitude, lng: p.longitude }) / 5280 <= MAX_ROUTE_MI); // within 25 mi of the start
+      && (skipRadius || feetBetween(start, { lat: p.latitude, lng: p.longitude }) / 5280 <= MAX_ROUTE_MI)); // within 25 mi of the start (unless the box already bounded them)
     const max = cap || routeCap(routable);
     // PRIORITY: a No-sit (already an appointment) outranks an IQ (qualified lead),
     // which outranks a cold Inspection Lead. When the pool is mixed and capped, the
@@ -720,6 +758,33 @@ export default function CanvassMap() {
     // instead of nearest-neighbour, which back-tracks and skips around.
     return orderStreetByStreet(start, rem);
   }
+
+  // ── Route an area: drag a box, route exactly the doors inside it ──────────
+  function startSelecting() {
+    const m = map.current; if (!m) return;
+    setSelecting(true);
+    try { m.dragging.disable(); m.doubleClickZoom.disable(); m.boxZoom.disable(); } catch { /* ignore */ }
+  }
+  function cancelSelecting() {
+    const m = map.current;
+    setSelecting(false); selectStart.current = null;
+    selectLayer.current?.clearLayers();
+    try { m?.dragging.enable(); m?.doubleClickZoom.enable(); m?.boxZoom.enable(); } catch { /* ignore */ }
+  }
+  function finalizeSelection(b) {
+    const m = map.current;
+    const inBox = (shownRef.current || []).filter((p) =>
+      typeof p.latitude === "number" && typeof p.longitude === "number" && b.contains([p.latitude, p.longitude]) && !nonRoutableStatuses.has(p.status));
+    cancelSelecting();
+    if (!inBox.length) { alert("No doors in that box — draw around some pins."); return; }
+    const start = myLoc || { lat: b.getCenter().lat, lng: b.getCenter().lng };
+    const r = buildRoute(start, inBox, inBox.length, true); // route EXACTLY these, no 25-mi cap
+    if (!r.length) return;
+    workingRef.current = new Set(r.map((p) => p.id));
+    setStartPt(start); setRoute(r); setStopIdx(0); setRound(1); setResolvedIds(new Set()); setDayMode("active"); setFillOffer(null);
+    if (r[0]) m.setView([r[0].latitude, r[0].longitude], 16);
+  }
+
   async function startFrom(pt) {
     // Load a GENEROUS radius (~25 mi) around the start — not just the tight
     // on-screen box — so the route can actually reach the cap instead of only
@@ -1073,10 +1138,31 @@ export default function CanvassMap() {
         )}
 
         {/* ── Start my day ── */}
-        {dayMode === null && prospects.length > 0 && (
+        {dayMode === null && !selecting && prospects.length > 0 && (
           <button type="button" onClick={() => setDayMode("choosing")}
             style={{ position: "absolute", left: 12, bottom: 16, zIndex: 600, background: "#16a34a", color: "#fff", border: "none", borderRadius: 999, padding: "13px 20px", fontSize: 15, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
             ▶ Start my day
+          </button>
+        )}
+        {/* Route an area — drag a box, route exactly the doors inside it. */}
+        {dayMode === null && !selecting && prospects.length > 0 && (
+          <button type="button" onClick={startSelecting}
+            style={{ position: "absolute", left: 12, bottom: 68, zIndex: 600, background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
+            ▢ Route an area
+          </button>
+        )}
+        {selecting && (
+          <div style={{ position: "absolute", left: "50%", top: 12, transform: "translateX(-50%)", zIndex: 750, background: "#1d4ed8", color: "#fff", borderRadius: 12, padding: "10px 14px", boxShadow: "0 3px 14px rgba(0,0,0,.3)", display: "flex", alignItems: "center", gap: 12, whiteSpace: "nowrap" }}>
+            <span style={{ fontSize: 13.5, fontWeight: 700 }}>✏️ Drag a box around the doors to route</span>
+            <button type="button" onClick={cancelSelecting} style={{ background: "rgba(255,255,255,.22)", color: "#fff", border: "none", borderRadius: 8, padding: "5px 12px", fontSize: 12.5, fontWeight: 800, cursor: "pointer" }}>Cancel</button>
+          </div>
+        )}
+        {/* Recenter on the rep's live location. */}
+        {myLoc && !selecting && (
+          <button type="button" title="Center on me"
+            onClick={() => map.current && map.current.setView([myLoc.lat, myLoc.lng], Math.max(map.current.getZoom(), 16))}
+            style={{ position: "absolute", right: 12, top: 12, zIndex: 600, background: "#fff", color: "#1d4ed8", border: "1px solid #cbd5e1", borderRadius: 999, width: 44, height: 44, fontSize: 19, boxShadow: "0 3px 12px rgba(0,0,0,.2)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            📍
           </button>
         )}
 
