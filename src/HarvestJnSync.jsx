@@ -22,7 +22,7 @@ const DEFAULTS = {
   iq: { enabled: false, created_after: "" },
   fb: { enabled: false, created_after: "" },
   ai: { enabled: false, created_after: "" },
-  nosit: { enabled: true, appt_before: "" },
+  nosit: { enabled: true, appt_after: "" },
 };
 
 export default function HarvestJnSync() {
@@ -118,10 +118,10 @@ export default function HarvestJnSync() {
         desc={<>JobNimbus deals in status <b>"No Sit- Need to Reschedule"</b> — appointments that never sat. Reps drive out and re-book them on the spot.</>}
         enabled={cfg.nosit.enabled}
         onToggle={(v) => patch("nosit", { enabled: v })}
-        dateLabel="Only deals whose APPOINTMENT was on or before:"
-        dateHint="Leave blank for all. e.g. only show ones at least a few weeks stale."
-        dateVal={cfg.nosit.appt_before}
-        onDate={(v) => patch("nosit", { appt_before: v })}
+        dateLabel="Only deals whose APPOINTMENT was on or after:"
+        dateHint="Leave blank for all. Forward from this date — same as the IQ filter above."
+        dateVal={cfg.nosit.appt_after || cfg.nosit.appt_before || ""}
+        onDate={(v) => patch("nosit", { appt_after: v, appt_before: "" })}
         count={counts.no_sit_reschedule}
         countLabel="No-sit pins on the map now"
         onSync={syncNosit}

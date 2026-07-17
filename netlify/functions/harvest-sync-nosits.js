@@ -66,12 +66,18 @@ exports.handler = async (event) => {
   const addrOf = (j) => (j.address_line1 || "").trim();
   const withAddrAll = noSits.filter((j) => addrOf(j));
 
-  // Office filter (JN Sync page): enabled toggle + "appointment on or before".
+  // Office filter (JN Sync page): enabled toggle + "appointment ON OR AFTER".
+  // FORWARD from the date, same as the IQ sync's created_after — the office sets
+  // one date and both syncs mean the same thing by it. (It used to run BACKWARD
+  // off `appt_before`, which kept a 2024-2025 tail on the map and excluded the
+  // recent no-sits worth re-knocking.) `appt_before` is still read as a fallback
+  // so an un-migrated setting behaves as the same forward cutoff.
   const filters = (await readSetting("harvest_jn_filters")) || {};
   const nf = filters.nosit || {};
   const enabled = nf.enabled !== false; // default on
-  const apptBeforeSec = nf.appt_before ? Math.floor(Date.parse(`${nf.appt_before}T23:59:59-04:00`) / 1000) : null;
-  const withAddr = !enabled ? [] : withAddrAll.filter((j) => !apptBeforeSec || Number(j.date_start) <= apptBeforeSec);
+  const apptFrom = nf.appt_after || nf.appt_before || "";
+  const apptFromSec = apptFrom ? Math.floor(Date.parse(`${apptFrom}T00:00:00-04:00`) / 1000) : null;
+  const withAddr = !enabled ? [] : withAddrAll.filter((j) => !apptFromSec || Number(j.date_start) >= apptFromSec);
 
   const sample = withAddr.slice(0, 8).map((j) => ({
     jnid: j.jnid || j.id,
@@ -85,7 +91,7 @@ exports.handler = async (event) => {
     return cors(200, {
       ok: true, dry_run: true,
       status_used: NOSIT_STATUS,
-      enabled, appt_before: nf.appt_before || null,
+      enabled, appt_on_or_after: apptFrom || null,
       no_sits_total: noSits.length,
       matching_filter: withAddr.length,
       with_address: withAddrAll.length,
