@@ -7,6 +7,8 @@ import HarvestNav from "./HarvestNav";
 
 const FONT = "'Nunito', system-ui, sans-serif";
 const OSWALD = "'Oswald', sans-serif";
+const esc = (s) => String(s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const money = (n) => `$${Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export default function HarvestLinks() {
   const [data, setData] = useState(null);
@@ -18,6 +20,41 @@ export default function HarvestLinks() {
   const [note, setNote] = useState("");
   const [week, setWeek] = useState(null);     // this week's TMS trainees
   const [granting, setGranting] = useState(""); // phone being granted
+  const [invoice, setInvoice] = useState(null); // generated monthly invoice
+  const [invBusy, setInvBusy] = useState(false);
+
+  // Admin token (needed for the invoice call) is embedded in the office link.
+  const adminTok = (data?.admin_link || "").match(/admin=([^&]+)/)?.[1] || "";
+  const genInvoice = async () => {
+    if (!adminTok) { setNote("⚠️ Office link not loaded yet — try again in a moment."); return; }
+    setInvBusy(true); setNote("");
+    try {
+      const r = await fetch(`/.netlify/functions/harvest-invoice?admin=${encodeURIComponent(adminTok)}`);
+      const j = await r.json().catch(() => ({}));
+      if (!j.ok) setNote(`⚠️ ${j.error || "couldn't generate invoice"}`);
+      else setInvoice(j);
+    } catch (e) { setNote(`⚠️ ${e.message || "network error"}`); }
+    finally { setInvBusy(false); }
+  };
+  const printInvoice = () => {
+    if (!invoice) return;
+    const rows = invoice.people.map((p, i) => `<tr><td style="padding:4px 10px;color:#64748b">${i + 1}</td><td style="padding:4px 10px">${esc(p.name)}</td><td style="padding:4px 10px;color:#64748b;text-transform:capitalize">${esc(p.level || "")}</td></tr>`).join("");
+    const money = (n) => `$${Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const html = `<!doctype html><html><head><title>Harvesting Map Invoice — ${esc(invoice.month)}</title><style>body{font-family:system-ui,sans-serif;color:#0f172a;max-width:680px;margin:32px auto;padding:0 20px}h1{font-size:22px;margin:0 0 2px}table{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:8px}th{text-align:left;color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:4px 10px;border-bottom:1px solid #e5e7eb}tr:nth-child(even){background:#f8fafc}</style></head><body>
+      <h1>🌾 Harvesting Map — Invoice</h1>
+      <div style="color:#64748b;font-size:14px;margin-bottom:18px">Billing period: <b>${esc(invoice.month)}</b></div>
+      <div style="border:1px solid #e5e7eb;border-radius:12px;padding:16px 18px;margin-bottom:18px">
+        <div style="display:flex;justify-content:space-between;font-size:15px"><span>Harvesting Map access — ${invoice.count} ${invoice.count === 1 ? "person" : "people"} × ${money(invoice.rate)}</span><b>${money(invoice.total)}</b></div>
+        <div style="border-top:2px solid #0f172a;margin-top:12px;padding-top:10px;display:flex;justify-content:space-between;font-size:18px;font-weight:800"><span>Total due</span><span>${money(invoice.total)}</span></div>
+      </div>
+      <div style="font-size:12px;color:#94a3b8;margin-bottom:6px">People with map access (${invoice.count}):</div>
+      <table><thead><tr><th>#</th><th>Name</th><th>Level</th></tr></thead><tbody>${rows}</tbody></table>
+      <div style="margin-top:24px;color:#94a3b8;font-size:11px">Generated ${new Date().toLocaleDateString("en-US")}</div>
+    </body></html>`;
+    const w = window.open("", "_blank");
+    if (!w) { setNote("⚠️ Allow pop-ups to print the invoice."); return; }
+    w.document.write(html); w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
+  };
 
   const load = async () => {
     try {
@@ -103,6 +140,38 @@ export default function HarvestLinks() {
             <a href={data.admin_link} target="_blank" rel="noreferrer" style={{ fontSize: 13, fontWeight: 700, color: "#fff", background: "#7c3aed", borderRadius: 8, padding: "7px 14px", textDecoration: "none" }}>Open map ↗</a>
             <button type="button" onClick={() => copy(data.admin_link, "admin")} style={btn}>{copied === "admin" ? "✓ Copied" : "Copy link"}</button>
           </div>
+        </div>
+      )}
+
+      {/* Monthly invoice — bills $40 per person who had a map seat this month. */}
+      {data && (
+        <div style={{ background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 12, padding: 14, marginBottom: 22 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 800, fontFamily: OSWALD, color: "#166534" }}>💵 Monthly Invoice</div>
+              <div style={{ fontSize: 12.5, color: "#15803d" }}>$40 per person with map access this month.</div>
+            </div>
+            <button type="button" onClick={genInvoice} disabled={invBusy}
+              style={{ marginLeft: "auto", fontSize: 13.5, fontWeight: 800, color: "#fff", background: "#16a34a", border: "none", borderRadius: 10, padding: "10px 16px", cursor: "pointer", opacity: invBusy ? 0.6 : 1 }}>
+              {invBusy ? "…" : invoice ? "↻ Recalculate" : "Generate invoice"}
+            </button>
+          </div>
+          {invoice && (
+            <div style={{ marginTop: 12, background: "#fff", border: "1px solid #d1fae5", borderRadius: 10, padding: "14px 16px" }}>
+              <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>Billing period: <b style={{ color: "#0f172a" }}>{invoice.month}</b></div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 14.5 }}>
+                <span>Harvesting Map access — <b>{invoice.count}</b> {invoice.count === 1 ? "person" : "people"} × {money(invoice.rate)}</span>
+                <span style={{ fontWeight: 800 }}>{money(invoice.total)}</span>
+              </div>
+              <div style={{ borderTop: "2px solid #0f172a", marginTop: 10, paddingTop: 8, display: "flex", justifyContent: "space-between", fontSize: 18, fontWeight: 800 }}>
+                <span>Total due</span><span>{money(invoice.total)}</span>
+              </div>
+              <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <button type="button" onClick={printInvoice} style={{ ...btn, borderColor: "#16a34a", color: "#166534" }}>🖨 Print / Save PDF</button>
+                <span style={{ fontSize: 11.5, color: "#94a3b8" }}>{invoice.count} with a seat this month — tap Print for the itemized list.</span>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
