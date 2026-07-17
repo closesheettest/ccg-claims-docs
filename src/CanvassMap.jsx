@@ -50,6 +50,35 @@ function streetKey(p) {
   return s || `~${(p.latitude || 0).toFixed(3)},${(p.longitude || 0).toFixed(3)}`;
 }
 function houseNum(p) { const m = String(p.address || "").match(/\d+/); return m ? parseInt(m[0], 10) : 0; }
+// 2-opt: repeatedly reverse a route segment whenever doing so SHORTENS the total
+// path. Kills the crossings / back-tracks a street-by-street pass can still leave
+// (e.g. the last stop ending up right next to the first). Whole streets stay
+// intact — reversing inside a tight street never helps, so only the order streets
+// are strung together gets fixed. O(n²)/pass, trivial for a day's stops.
+function twoOpt(start, stops) {
+  if (stops.length < 4) return stops;
+  const d = (a, b) => { const dx = a.lat - b.lat, dy = a.lng - b.lng; return Math.sqrt(dx * dx + dy * dy); };
+  const at = (p) => ({ lat: p.latitude, lng: p.longitude });
+  const order = stops.slice();
+  let improved = true, pass = 0;
+  while (improved && pass < 8) {
+    improved = false; pass++;
+    for (let i = 0; i < order.length - 1; i++) {
+      for (let k = i + 1; k < order.length; k++) {
+        const A = i === 0 ? start : at(order[i - 1]);
+        const B = at(order[i]), C = at(order[k]);
+        const D = k + 1 < order.length ? at(order[k + 1]) : null;
+        const before = d(A, B) + (D ? d(C, D) : 0);
+        const after = d(A, C) + (D ? d(B, D) : 0);
+        if (after + 1e-12 < before) {
+          let lo = i, hi = k; while (lo < hi) { const t = order[lo]; order[lo] = order[hi]; order[hi] = t; lo++; hi--; }
+          improved = true;
+        }
+      }
+    }
+  }
+  return order;
+}
 // Order stops STREET-BY-STREET: do a whole street (in house-number order, from
 // the end nearest you) before hopping to the nearest remaining street. Kills the
 // zig-zag / back-tracking a pure nearest-neighbour route produces.
@@ -802,9 +831,9 @@ export default function CanvassMap() {
       .sort((a, b) => a.t - b.t || a.d - b.d)
       .slice(0, max)
       .map((x) => x.p);
-    // Walk the chosen stops STREET-BY-STREET (finish a street before moving on)
-    // instead of nearest-neighbour, which back-tracks and skips around.
-    return orderStreetByStreet(start, rem);
+    // Street-by-street first (finish a street before moving on), then 2-opt to
+    // remove the leftover back-tracks / crossings so the drive actually flows.
+    return twoOpt(start, orderStreetByStreet(start, rem));
   }
 
   // ── Route an area: drag a box, route exactly the doors inside it ──────────
