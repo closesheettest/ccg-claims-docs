@@ -117,12 +117,18 @@ exports.handler = async (event) => {
       return cors(200, JSON.stringify({ ok: true }));
     }
 
-    // action: load
+    // action: load — inspected results (damage + no-damage + retail by default)
+    // in this zone whose rep isn't an active territory rep, so they show for no
+    // one until a manager assigns them. Oldest-first + age, so nothing sits for
+    // months. Pass results:['damage'] to narrow.
     const zone = String(body.zone || "").trim();
     if (!zone) return cors(400, JSON.stringify({ ok: false, error: "zone required" }));
-    const sel = "id,client_name,address,city,county,zip,mobile,original_sales_rep_id,original_sales_rep_name,sales_rep_id,sales_rep_name,pa_stage";
-    const rows = await sbGet(`inspections?result=eq.damage&cancelled_at=is.null&pa_signed_at=is.null&jn_job_id=not.is.null&select=${sel}&order=result_at.desc&limit=3000`);
+    const wanted = (Array.isArray(body.results) && body.results.length ? body.results : ["damage", "no_damage", "retail"])
+      .filter((x) => ["damage", "no_damage", "retail"].includes(x));
+    const sel = "id,client_name,address,city,county,zip,mobile,result,result_at,original_sales_rep_id,original_sales_rep_name,sales_rep_id,sales_rep_name,pa_stage";
+    const rows = await sbGet(`inspections?result=in.(${wanted.join(",")})&cancelled_at=is.null&pa_signed_at=is.null&jn_job_id=not.is.null&select=${sel}&order=result_at.asc&limit=5000`);
     const isActive = (id, name) => (id && activeById.has(id)) || (name && activeByName.has(norm(name)));
+    const now = Date.now();
     const deals = rows.filter((r) => {
       if (r.pa_stage === "active" || r.pa_stage === "waiting_docs") return false;       // a PA is on it
       if (isActive(r.original_sales_rep_id, r.original_sales_rep_name) || isActive(r.sales_rep_id, r.sales_rep_name)) return false; // already an active rep's
@@ -130,7 +136,9 @@ exports.handler = async (event) => {
       return zones.includes(zone);
     }).map((r) => ({
       inspection_id: r.id, client_name: r.client_name, address: r.address, city: r.city, county: r.county, zip: r.zip,
-      mobile: r.mobile, current_rep: r.original_sales_rep_name || r.sales_rep_name || null,
+      mobile: r.mobile, result: r.result, result_at: r.result_at,
+      age_days: r.result_at ? Math.max(0, Math.floor((now - Date.parse(r.result_at)) / 864e5)) : null,
+      current_rep: r.sales_rep_name || r.original_sales_rep_name || null,
     }));
     const zoneReps = reps.filter((r) => r.active && r.zone === zone && r.jobnimbus_id).map((r) => ({ jobnimbus_id: r.jobnimbus_id, name: r.name }));
     return cors(200, JSON.stringify({ ok: true, deals, reps: zoneReps }));
