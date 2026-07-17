@@ -39,10 +39,11 @@ export const handler = async (event) => {
     if (!byRep.has(key)) byRep.set(key, { rep_id: pg.rep_id, name: pg.rep_name || "Rep", pings: [] });
     byRep.get(key).pings.push({ lat: pg.lat, lng: pg.lng, at: pg.at });
   }
-  // A rep with no ping in the last 20 min has stopped (closed the map / done for
+  // A rep with no ping in the last 15 min has stopped (closed the map / done for
   // now) — drop them from the LIVE view so it reflects who's actually out working.
-  // They reappear the moment they ping again. (History still keeps the full day.)
-  const IDLE_MS = 20 * 60 * 1000, now = Date.now();
+  // 15 min leaves room for a homeowner conversation / scheduling an appt while the
+  // map's open (those still ping every 10s anyway). They reappear on the next ping.
+  const IDLE_MS = 15 * 60 * 1000, now = Date.now();
   const reps = [...byRep.values()]
     .filter((r) => { const last = r.pings[r.pings.length - 1]?.at; return last && (now - Date.parse(last)) <= IDLE_MS; })
     .map((r) => {

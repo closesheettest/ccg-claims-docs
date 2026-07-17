@@ -54,10 +54,11 @@ exports.handler = async (event) => {
     const s = Math.sin(dLat / 2) ** 2 + Math.cos(toR(a.lat)) * Math.cos(toR(b.lat)) * Math.sin(dLng / 2) ** 2;
     return 2 * R * Math.asin(Math.sqrt(s));
   };
-  // A gap of >20 min with no ping = they stopped (closed the map / done), so that
-  // gap is NOT working time. Working minutes = sum of gaps ≤20 min, which excludes
+  // A gap of >15 min with no ping = they stopped (closed the map / done), so that
+  // gap is NOT working time. Working minutes = sum of gaps ≤15 min, which excludes
   // idle stretches instead of counting the whole first-to-last span as "active".
-  const IDLE_MIN = 20;
+  // 15 min still counts a homeowner conversation / scheduling an appt as work.
+  const IDLE_MIN = 15;
   const reps = [...byRep.values()].map((r) => {
     const ps = r.pings;
     let miles = 0, working = 0;
