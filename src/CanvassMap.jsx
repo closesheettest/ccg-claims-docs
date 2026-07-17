@@ -1971,17 +1971,24 @@ export default function CanvassMap() {
             <button type="button" onClick={() => setSelected(null)} style={{ background: "none", border: "none", fontSize: 22, color: "#94a3b8", cursor: "pointer", lineHeight: 1 }}>×</button>
           </div>
 
-          {/* All the info we have on this pin */}
+          {/* Info a REP actually needs at the door. The `extra` blob keeps every
+              uploaded/synced field for the office, but reps don't need back-office
+              metadata (Date Contact, List, RepCard user, Synced at, Updated, IDs,
+              Country Code, Verified Pin, …). Show a short ALLOWLIST from extra and
+              hide the rest — nothing is deleted, just not displayed. */}
           {(() => {
             const rows = [];
             if (selected.phone) rows.push(["Phone", selected.phone]);
             if (selected.email) rows.push(["Email", selected.email]);
             if (selected.extra && typeof selected.extra === "object") {
-              const HIDE = new Set(["self_generated", "created_by_jn"]); // internal bookkeeping
-              for (const [k, v] of Object.entries(selected.extra)) if (!HIDE.has(k) && v != null && String(v).trim()) rows.push([k, String(v)]);
+              // Keys worth showing a rep (case-insensitive). Everything else in
+              // `extra` is office bookkeeping and stays hidden.
+              const SHOW = { owner: "Owner", occupancy: "Occupancy", homestead: "Homestead", "damage notes": "Notes", "damage_notes": "Notes" };
+              for (const [k, v] of Object.entries(selected.extra)) {
+                const label = SHOW[String(k).toLowerCase()];
+                if (label && v != null && String(v).trim()) rows.push([label, String(v)]);
+              }
             }
-            if (selected.list_name) rows.push(["List", selected.list_name]);
-            if (selected.status_updated_at) rows.push(["Updated", new Date(selected.status_updated_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })]);
             // Self-gen owned pins get the editable note field below instead.
             if (selected.notes && !(isSelfGenPin(selected) && ownsPin(selected))) rows.push(["Notes", selected.notes]);
             if (!rows.length) return null;
