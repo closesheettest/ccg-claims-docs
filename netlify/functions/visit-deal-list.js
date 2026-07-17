@@ -32,10 +32,13 @@ exports.handler = async (event) => {
   const lat = body.lat != null ? +body.lat : null;
   const lng = body.lng != null ? +body.lng : null;
 
-  // Match the ORIGINAL signer (frozen) or current rep, by JN id then name.
+  // Match the CURRENT assigned rep only (by JN id, then name). A deal reassigned
+  // to another rep shows on THEIR go-back list, not the original signer's — so the
+  // signer (e.g. William, who signs a lot in training) doesn't keep seeing deals
+  // that were handed off. Unassigned deals still surface for whoever holds them now.
   const conds = [];
-  if (repId) conds.push(`original_sales_rep_id.eq.${q(repId)}`, `sales_rep_id.eq.${q(repId)}`);
-  if (repName) conds.push(`original_sales_rep_name.eq.${q(repName)}`, `sales_rep_name.eq.${q(repName)}`);
+  if (repId) conds.push(`sales_rep_id.eq.${q(repId)}`);
+  if (repName) conds.push(`sales_rep_name.eq.${q(repName)}`);
   if (!conds.length) return cors(400, JSON.stringify({ ok: false, error: "rep required" }));
 
   try {
