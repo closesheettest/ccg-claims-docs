@@ -249,6 +249,7 @@ export default function CanvassMap() {
   const selectLayer = useRef(null); // the box being drawn to route an area
   const selectStart = useRef(null); // first corner of the selection box
   const lastPingRef = useRef(0);   // throttle rep location pings
+  const zoomHintTimer = useRef(null); // auto-hide the "zoom in" nudge
   const [team, setTeam] = useState([]); // other reps' breadcrumbs (admin only)
   const fitted = useRef(false);
   const [prospects, setProspects] = useState([]);
@@ -276,6 +277,7 @@ export default function CanvassMap() {
   const [stopIdx, setStopIdx] = useState(savedDay ? Math.min(savedDay.stopIdx || 0, savedDay.route.length - 1) : 0);
   const [myLoc, setMyLoc] = useState(null);            // live GPS (always on while the map is open)
   const [selecting, setSelecting] = useState(false);   // drawing a box to route the doors inside it
+  const [zoomHint, setZoomHint] = useState(false);     // tapped Start/Route while zoomed out (clusters, no pins)
   const [round, setRound] = useState(savedDay?.round || 1);             // 1st round, 2nd round, …
   const [resolvedIds, setResolvedIds] = useState(() => new Set(savedDay?.resolved || [])); // pins the rep has STATUSED this session (drop from later rounds)
   const workingRef = useRef(new Set(savedDay?.working || []));          // the ORIGINAL round-1 routed pin ids — later rounds only recycle these, minus statused
@@ -836,6 +838,10 @@ export default function CanvassMap() {
     return twoOpt(start, orderStreetByStreet(start, rem));
   }
 
+  // Tapped Start/Route while zoomed out (only clusters loaded, no pins to route) —
+  // flash a hint to zoom in instead of silently doing nothing.
+  function nudgeZoom() { setZoomHint(true); clearTimeout(zoomHintTimer.current); zoomHintTimer.current = setTimeout(() => setZoomHint(false), 2600); }
+
   // ── Route an area: drag a box, route exactly the doors inside it ──────────
   function startSelecting() {
     const m = map.current; if (!m) return;
@@ -1214,19 +1220,24 @@ export default function CanvassMap() {
           </div>
         )}
 
-        {/* ── Start my day ── */}
-        {dayMode === null && !selecting && prospects.length > 0 && (
-          <button type="button" onClick={() => setDayMode("choosing")}
-            style={{ position: "absolute", left: 12, bottom: 16, zIndex: 600, background: "#16a34a", color: "#fff", border: "none", borderRadius: 999, padding: "13px 20px", fontSize: 15, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
+        {/* ── Start my day ── (stays visible in cluster view; nudges to zoom in) */}
+        {dayMode === null && !selecting && (prospects.length > 0 || clusters.length > 0) && (
+          <button type="button" onClick={() => (prospects.length ? setDayMode("choosing") : nudgeZoom())}
+            style={{ position: "absolute", left: 12, bottom: 16, zIndex: 600, background: "#16a34a", color: "#fff", border: "none", borderRadius: 999, padding: "13px 20px", fontSize: 15, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer", opacity: prospects.length ? 1 : 0.85 }}>
             ▶ Start my day
           </button>
         )}
         {/* Route an area — drag a box, route exactly the doors inside it. */}
-        {dayMode === null && !selecting && prospects.length > 0 && (
-          <button type="button" onClick={startSelecting}
-            style={{ position: "absolute", left: 12, bottom: 68, zIndex: 600, background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
+        {dayMode === null && !selecting && (prospects.length > 0 || clusters.length > 0) && (
+          <button type="button" onClick={() => (prospects.length ? startSelecting() : nudgeZoom())}
+            style={{ position: "absolute", left: 12, bottom: 68, zIndex: 600, background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer", opacity: prospects.length ? 1 : 0.85 }}>
             ▢ Route an area
           </button>
+        )}
+        {zoomHint && (
+          <div style={{ position: "absolute", left: "50%", bottom: 120, transform: "translateX(-50%)", zIndex: 800, background: "#1e293b", color: "#fff", borderRadius: 10, padding: "10px 16px", fontSize: 13, fontWeight: 700, boxShadow: "0 3px 14px rgba(0,0,0,.35)", whiteSpace: "nowrap" }}>
+            🔍 Zoom into your neighborhood first, then start
+          </div>
         )}
         {selecting && (
           <div style={{ position: "absolute", left: "50%", top: 12, transform: "translateX(-50%)", zIndex: 750, background: "#1d4ed8", color: "#fff", borderRadius: 12, padding: "10px 14px", boxShadow: "0 3px 14px rgba(0,0,0,.3)", display: "flex", alignItems: "center", gap: 12, whiteSpace: "nowrap" }}>
