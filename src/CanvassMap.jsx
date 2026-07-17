@@ -1609,7 +1609,12 @@ export default function CanvassMap() {
                 <>
                   <div style={{ fontSize: 14, color: "#334155", fontWeight: 700, marginTop: 3 }}>{newPin.check.address?.line1}</div>
                   <div style={{ fontSize: 13, color: "#64748b" }}>{[newPin.check.address?.city, newPin.check.address?.state, newPin.check.address?.zip].filter(Boolean).join(", ")}</div>
-                  {newPin.check.owner && <div style={{ fontSize: 12.5, color: "#475569", marginTop: 4 }}><b>Owner:</b> {newPin.check.owner}</div>}
+                  {newPin.check.owner && (
+                    <div style={{ marginTop: 7, display: "inline-flex", alignItems: "center", gap: 6, background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 8, padding: "5px 10px" }}>
+                      <span style={{ fontSize: 11, fontWeight: 800, color: "#7c3aed", textTransform: "uppercase", letterSpacing: "0.03em" }}>Owner</span>
+                      <span style={{ fontSize: 16, fontWeight: 800, color: "#1e1b4b" }}>{newPin.check.owner}</span>
+                    </div>
+                  )}
                 </>
               )}
             </div>
