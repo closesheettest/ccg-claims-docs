@@ -11,6 +11,7 @@ import "leaflet.markercluster";
 import "leaflet.markercluster/dist/MarkerCluster.css";
 import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 import { supabase } from "./lib/supabase";
+import VisitActions from "./VisitActions";
 
 // Fallback used only if the harvest_pin_types config table can't be reached.
 // The live pin types (label, color, allowed outcomes, who sees them) are loaded
@@ -331,6 +332,7 @@ export default function CanvassMap() {
   const [showGobacks, setShowGobacks] = useState(true);
   const [selectedVisit, setSelectedVisit] = useState(null);
   const [gobackCard, setGobackCard] = useState(false); // "Today's go-backs" list open
+  const [visitToken, setVisitToken] = useState("");    // token to drive the visit-action endpoints
   const visitsLayer = useRef(null);
   const visitsLoaded = useRef(false);
   // "Start my day" route planner. Restore an in-progress route (survives refresh
@@ -799,21 +801,33 @@ export default function CanvassMap() {
   }, []);
   // Load the rep's post-inspection go-backs once (damage / no-damage / retail),
   // so scheduled follow-ups ride on the same map as fresh doors.
+  async function loadVisits() {
+    try {
+      const r = await fetch("/.netlify/functions/harvest-visits", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rt: auth.rt, lat: myLoc?.lat, lng: myLoc?.lng }),
+      });
+      const d = await r.json();
+      if (d.ok && Array.isArray(d.visits)) setVisits(d.visits.filter((v) => v.latitude != null && v.longitude != null));
+      if (d.visit_token) setVisitToken(d.visit_token);
+    } catch { /* non-fatal */ }
+  }
   useEffect(() => {
     if (visitsLoaded.current || !me || !auth.rt) return;
     visitsLoaded.current = true;
-    (async () => {
-      try {
-        const r = await fetch("/.netlify/functions/harvest-visits", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ rt: auth.rt, lat: myLoc?.lat, lng: myLoc?.lng }),
-        });
-        const d = await r.json();
-        if (d.ok && Array.isArray(d.visits)) setVisits(d.visits.filter((v) => v.latitude != null && v.longitude != null));
-      } catch { /* non-fatal */ }
-    })();
+    loadVisits();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me]);
+  // Drive the visit-action endpoints with the visit token (same call shape the
+  // Rep Visit Hub uses, so the shared panels behave identically).
+  async function visitApi(fn, payload) {
+    const r = await fetch(`/.netlify/functions/${fn}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: visitToken, ...payload }) });
+    const o = await r.json().catch(() => ({}));
+    if (!r.ok || !o.ok) { const err = new Error(o.error || "Request failed"); err.body = o; throw err; }
+    return o;
+  }
+  // Close the visit sheet and refresh the list so a just-worked go-back drops off.
+  function closeVisit() { setSelectedVisit(null); loadVisits(); }
   // Draw the go-back badges (toggleable).
   useEffect(() => {
     const lyr = visitsLayer.current; if (!lyr) return;
@@ -2026,7 +2040,7 @@ export default function CanvassMap() {
                 <div style={{ fontSize: 13.5, color: "#334155", fontWeight: 600 }}>{v.address}</div>
                 <div style={{ fontSize: 12.5, color: "#64748b" }}>{[v.city, v.state, v.zip].filter(Boolean).join(", ")}</div>
               </div>
-              <button type="button" onClick={() => setSelectedVisit(null)} style={{ background: "none", border: "none", fontSize: 22, color: "#94a3b8", cursor: "pointer", lineHeight: 1 }}>×</button>
+              <button type="button" onClick={closeVisit} style={{ background: "none", border: "none", fontSize: 22, color: "#94a3b8", cursor: "pointer", lineHeight: 1 }}>×</button>
             </div>
 
             <div style={{ marginTop: 12, background: due === "overdue" ? "#fef2f2" : "#f8fafc", border: `1px solid ${due === "overdue" ? "#fca5a5" : "#e2e8f0"}`, borderRadius: 10, padding: "10px 12px" }}>
@@ -2039,8 +2053,11 @@ export default function CanvassMap() {
 
             {v.mobile && <div style={{ marginTop: 10, fontSize: 13 }}><a href={`tel:${v.mobile}`} style={{ color: "#1d4ed8", fontWeight: 700, textDecoration: "none" }}>📞 {v.mobile}</a></div>}
 
-            <div style={{ marginTop: 12, background: "#faf5ff", border: "1px dashed #ddd6fe", borderRadius: 10, padding: "10px 12px", fontSize: 12.5, color: "#6d28d9", fontWeight: 700 }}>
-              ⚙️ The {m.label.toLowerCase()} action (set PA appt / referrals + certificate / retail appt) is coming to this sheet next.
+            {/* The bucket's real action, shared verbatim with the Rep Visit Hub. */}
+            <div style={{ marginTop: 14 }}>
+              {visitToken
+                ? <VisitActions type={v.bucket} deal={v} rep={{ name: me?.name || "", jobnimbus_id: me?.jn_id || "", email: me?.email || "" }} api={visitApi} />
+                : <div style={{ fontSize: 13, color: "#94a3b8", textAlign: "center", padding: "10px 0" }}>Loading…</div>}
             </div>
 
             <div style={{ display: "flex", gap: 8, marginTop: 14 }}>

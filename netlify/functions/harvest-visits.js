@@ -52,7 +52,9 @@ export const handler = async (event) => {
 
   const lists = await Promise.all(BUCKETS.map(call));
   const visits = lists.flat();
-  return json(200, { ok: true, visits });
+  // Hand the authenticated rep the visit token so the map can drive the SAME
+  // action endpoints (pa-schedule-api, no-damage-send, retail-*) the hub uses.
+  return json(200, { ok: true, visits, visit_token: visitToken });
 };
 
 function json(statusCode, obj) {
