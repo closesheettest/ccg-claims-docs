@@ -9707,6 +9707,12 @@ export default function App() {
     if (typeof window === "undefined") return "";
     try { return new URLSearchParams(window.location.search).get("harvest_pin") || ""; } catch { return ""; }
   })();
+  // Optional JN lead-source override carried on the intake URL (e.g. a rep-
+  // generated door on the Harvesting Map opens the intake with source=Self%20Generated).
+  const harvestSource = (() => {
+    if (typeof window === "undefined") return "";
+    try { return new URLSearchParams(window.location.search).get("source") || ""; } catch { return ""; }
+  })();
   const [inspSig, setInspSig] = useState("");
   const [inspSigMethod, setInspSigMethod] = useState("draw");
   const [inspTypedSig, setInspTypedSig] = useState("");
@@ -12224,6 +12230,7 @@ const renderSmsTemplate = (key, vars) => {
       // in the background and saves the jn_job_id when it lands.
       postJnSyncWithRetry({
         leadSource: data.leadSource || "Inspection",
+        sourceOverride: harvestSource || undefined,
         docsSignedList: ["insp"],
         homeowner1: inspData.clientName || data.homeowner1 || "",
         homeowner2: "",
@@ -12893,6 +12900,7 @@ const renderSmsTemplate = (key, vars) => {
       // see the comment block on postJnSyncWithRetry for rationale.
       postJnSyncWithRetry({
         leadSource: data.leadSource || "Inspection",
+        sourceOverride: harvestSource || undefined,
         docsSignedList: selectedDocs,
         homeowner1: data.homeowner1 || "",
         homeowner2: data.homeowner2 || "",

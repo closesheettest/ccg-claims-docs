@@ -56,6 +56,12 @@ export const handler = async (event) => {
   const pin = (await sbGet(`canvass_prospects?id=eq.${encodeURIComponent(pinId)}&select=name,address,city,state,zip,phone,email,latitude,longitude,extra,status,status_log&limit=1`))[0];
   if (!pin) return json(404, { ok: false, error: "pin not found" });
 
+  // A rep-generated door (dropped on the Harvesting Map) reports to JN as
+  // "Self Generated" instead of the default "Harvesting" source.
+  const selfGen = !!(pin.extra && typeof pin.extra === "object" && pin.extra.self_generated === true);
+  const jnSource = selfGen ? "Self Generated" : "Harvesting";
+  const payLeadSource = selfGen ? "Self Generated" : "Harvest BTR Appt";
+
   const nm = (pin.name || "").trim() || "Homeowner";
   const parts = nm.split(/\s+/).filter(Boolean);
   const first = parts.length > 1 ? parts.slice(0, -1).join(" ") : (parts[0] || "");
@@ -96,7 +102,7 @@ export const handler = async (event) => {
       record_type: LEAD_RT, record_type_name: LEAD_RT_NAME,
       status: APPT_STATUS, status_name: APPT_STATUS_NAME,
       primary: { id: contactId }, location: { id: RETAIL_LOCATION },
-      source_name: "Harvesting",
+      source_name: jnSource,
       date_start: apptSec,
       address_line1: street, city: pin.city || "", state_text: pin.state || "", zip: pin.zip || "",
       ...(ownerJn ? { owners: [{ id: ownerJn }], sales_rep: ownerJn } : {}),
@@ -150,7 +156,7 @@ export const handler = async (event) => {
       result: "retail", result_at: nowIso,
       retail_outcome: "btr_appt", retail_outcome_at: nowIso, retail_outcome_by: rep.name || null,
       jn_job_id: jobId, jn_status: APPT_STATUS_NAME, jn_pushed_at: nowIso,
-      lead_source: "Harvest BTR Appt",
+      lead_source: payLeadSource,
     }).catch((e) => { console.warn("BTR pay-credit insert failed:", e.message); });
 
     // 5. Flip the pin to Appt.

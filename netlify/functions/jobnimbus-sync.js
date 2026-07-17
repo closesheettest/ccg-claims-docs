@@ -405,7 +405,7 @@ exports.handler = async (event) => {
   catch { return { statusCode: 400, body: JSON.stringify({ error: "Invalid JSON" }) }; }
 
   const {
-    leadSource, docsSignedList,
+    leadSource, docsSignedList, sourceOverride,
     homeowner1, homeowner2,
     phone, email: rawEmail,
     address, city, state, zip,
@@ -445,6 +445,10 @@ exports.handler = async (event) => {
   console.log("=== JN Sync Start ===");
   if (isTest) console.log("🧪 TEST MODE — overrides:", testOverrideEmail, testOverridePhone);
   console.log("Lead:", leadSource, "| Docs:", docsSignedList);
+  // JN lead source. Default "Inspection" (every signed roof inspection), but a
+  // caller can override — e.g. a rep-generated door on the Harvesting Map sends
+  // "Self Generated" so JN's source reporting credits it as self-gen.
+  const jnSource = (typeof sourceOverride === "string" && sourceOverride.trim()) ? sourceOverride.trim() : "Inspection";
   console.log("Name:", homeowner1, "| Address:", address, city, state, zip);
   console.log("Rep:", salesRepName, salesRepId, "| Has PDF:", !!pdfBase64);
 
@@ -573,7 +577,7 @@ exports.handler = async (event) => {
       // creates Sit Sold Insp / Sit Sold PA jobs). Hardcoded — not leadSource —
       // so the source is correct from signing forward, no matter what the rep
       // picked, and JN's source-based reporting always credits the inspection.
-      source_name: "Inspection",
+      source_name: jnSource,
       // Address fields on the job so city shows in reports
       address_line1: address || "",
       city: (city || "").split(",")[0].trim(),
@@ -637,7 +641,7 @@ exports.handler = async (event) => {
           jnid: jobId,
           sales_rep: salesRepId || undefined,
           owners: salesRepId ? [{ id: salesRepId }] : undefined,
-          source_name: "Inspection",   // re-assert the inspection source
+          source_name: jnSource,   // re-assert the source (Inspection, or an override)
           cf_string_34: "Needs Inspection",
           cf_date_5: soldDateUnix,
           // date_start intentionally omitted — leave JN's Start Date alone.
@@ -664,7 +668,7 @@ exports.handler = async (event) => {
         await fetch(`${JN_BASE}/jobs/${jobId}`, {
           method: "PUT",
           headers: jnHeaders(apiKey),
-          body: JSON.stringify({ jnid: jobId, source_name: "Inspection" }),
+          body: JSON.stringify({ jnid: jobId, source_name: jnSource }),
         });
       } catch (e) { console.warn("Linked-job source PUT failed:", e.message); }
     }

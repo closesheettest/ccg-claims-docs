@@ -236,6 +236,15 @@ const ME_ICON = L.divIcon({
   html: `<div style="width:16px;height:16px;border-radius:50%;background:#1d4ed8;border:3px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25),0 1px 5px rgba(0,0,0,.5)"></div>`,
   iconSize: [16, 16], iconAnchor: [8, 8],
 });
+// Rep-generated door — a purple house pin so self-gen leads stand out from the
+// uploaded/synced pins. `pulse` = the pin the rep is placing right now.
+function selfGenIcon(pulse) {
+  return L.divIcon({
+    className: "harvest-selfgen",
+    html: `<div style="width:26px;height:26px;border-radius:50% 50% 50% 2px;transform:rotate(45deg);background:#7c3aed;border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.5)${pulse ? ";animation:hpulse 1.2s ease-out infinite" : ""}"><div style="transform:rotate(-45deg);color:#fff;font-size:13px;font-weight:800;text-align:center;line-height:24px">🏠</div></div>`,
+    iconSize: [26, 26], iconAnchor: [13, 24],
+  });
+}
 
 export default function CanvassMap() {
   const mapEl = useRef(null);
@@ -266,6 +275,12 @@ export default function CanvassMap() {
   const [authError, setAuthError] = useState("");
   const [apptPin, setApptPin] = useState(null); // pin being scheduled → appointment
   const [btrPin, setBtrPin] = useState(null);   // insp pin → back-to-retail appt
+  // "Add a house" — a rep in the field drops their own pin on a damaged roof.
+  const [adding, setAdding] = useState(false);  // tap-to-place mode armed
+  const addingRef = useRef(false);              // map-click reads this (no stale closure)
+  const [newPin, setNewPin] = useState(null);   // { lat, lng, checking, check, saving } being placed
+  const dropPinRef = useRef(null);              // latest drop handler for the map click
+  const newPinLayer = useRef(null);             // temp layer for the pin being placed
   const [installs, setInstalls] = useState([]);        // read-only star layer (jr + sr)
   const [showInstalls, setShowInstalls] = useState(true);
   const [selectedInstall, setSelectedInstall] = useState(null);
@@ -507,8 +522,10 @@ export default function CanvassMap() {
     map.current = m;
     // "Start my day": while choosing a start point, a map tap starts the route there.
     m.on("click", (e) => {
+      if (addingRef.current && dropPinRef.current) { dropPinRef.current({ lat: e.latlng.lat, lng: e.latlng.lng }); return; }
       if (choosingRef.current && startFromRef.current) startFromRef.current({ lat: e.latlng.lat, lng: e.latlng.lng });
     });
+    newPinLayer.current = L.layerGroup().addTo(m);
     // Viewport loading — reload the pins in view whenever the map settles (debounced).
     m.on("moveend", () => {
       // Skip refetch when we already hold every pin, while a day is in progress
@@ -569,8 +586,9 @@ export default function CanvassMap() {
     const markers = [];
     const pts = [];
     for (const p of shown) {
+      const isSelfGen = p.extra && typeof p.extra === "object" && p.extra.self_generated;
       const color = (S[p.status] || UNKNOWN_TYPE).color;
-      const marker = L.marker([p.latitude, p.longitude], { icon: dotIcon(color) });
+      const marker = L.marker([p.latitude, p.longitude], { icon: isSelfGen ? selfGenIcon(false) : dotIcon(color) });
       marker.on("click", () => openPin(p));
       markers.push(marker);
       pts.push([p.latitude, p.longitude]);
@@ -605,6 +623,19 @@ export default function CanvassMap() {
       lyr.addLayer(marker);
     }
   }, [clusters, S]);
+
+  // Keep the map-click ref in sync + swap the cursor while placing a pin.
+  useEffect(() => {
+    addingRef.current = adding;
+    const el = map.current?.getContainer();
+    if (el) el.style.cursor = adding ? "crosshair" : "";
+  }, [adding]);
+  // Draw the pin the rep is currently placing (purple, pulsing).
+  useEffect(() => {
+    const lyr = newPinLayer.current; if (!lyr) return;
+    lyr.clearLayers();
+    if (newPin) L.marker([newPin.lat, newPin.lng], { icon: selfGenIcon(true), zIndexOffset: 2200, interactive: false }).addTo(lyr);
+  }, [newPin]);
 
   async function setStatus(p, newStatus) {
     const nowIso = new Date().toISOString();
@@ -1029,7 +1060,7 @@ export default function CanvassMap() {
   // pin id. When the rep finishes signing there, the intake marks this pin sold and
   // pings us to advance (see the storage/focus listeners below). City/State/ZIP are
   // passed too so the intake never re-runs the address lookup on a known address.
-  function signInspection(stop) {
+  function signInspection(stop, opts = {}) {
     if (!stop) return;
     const p = new URLSearchParams({ intake: "1", harvest_pin: String(stop.id) });
     if (stop.name) p.set("name", stop.name);
@@ -1039,6 +1070,8 @@ export default function CanvassMap() {
     if (stop.state) p.set("state", stop.state);
     if (stop.zip) p.set("zip", stop.zip);
     if (stop.email) p.set("email", stop.email);
+    // A rep-generated door → JN lead source "Self Generated".
+    if (opts.selfGen || (stop.extra && stop.extra.self_generated)) p.set("source", "Self Generated");
     // Carry the rep so the intake doesn't re-ask (only when signed in as a real rep).
     if (me?.jn_id || me?.email) {
       p.set("rep", me.jn_id || "");
@@ -1061,6 +1094,63 @@ export default function CanvassMap() {
     if (route[stopIdx] && route[stopIdx].id === stop.id) advanceStop();
   }
   completeSignRef.current = completeSign;
+
+  // ── Add-a-house (rep self-gen) ──────────────────────────────────────────
+  // Arm tap-to-place: the next map tap drops a self-gen pin there.
+  function startAddHouse() { setSelected(null); setSelectedInstall(null); setNewPin(null); setAdding(true); }
+  function cancelAdd() { setAdding(false); setNewPin(null); }
+  // The rep tapped a roof — place the pin and open its sheet (owner check runs
+  // when they press "Owner occupied?").
+  function dropPin({ lat, lng }) {
+    setAdding(false);
+    setNewPin({ lat, lng, checking: false, check: null, saving: false });
+    map.current?.panTo([lat, lng]);
+  }
+  dropPinRef.current = dropPin;
+  // "Owner occupied?" — homestead / mailing-address check via the FL cadastral.
+  async function checkOwner() {
+    if (!newPin) return;
+    setNewPin((n) => ({ ...n, checking: true }));
+    try {
+      const r = await fetch("/.netlify/functions/harvest-owner-check", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lat: newPin.lat, lng: newPin.lng }),
+      });
+      const d = await r.json();
+      setNewPin((n) => ({ ...n, checking: false, check: d }));
+    } catch {
+      setNewPin((n) => ({ ...n, checking: false, check: { ok: false, found: false, reason: "Couldn't reach the property records — try again." } }));
+    }
+  }
+  // Persist the self-gen door as a canvass pin, then route into the chosen action.
+  // action: 'sign' | 'retail' | 'pending'. Returns after the pin row exists.
+  async function commitSelfGen(action) {
+    if (!newPin || newPin.saving) return;
+    const c = newPin.check || {};
+    setNewPin((n) => ({ ...n, saving: true }));
+    try {
+      const r = await fetch("/.netlify/functions/harvest-add-pin", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rt: auth.rt, lat: newPin.lat, lng: newPin.lng,
+          address: c.address?.line1 || "", city: c.address?.city || "", state: c.address?.state || "FL", zip: c.address?.zip || "",
+          owner: c.owner || "", homestead: !!c.homestead, verdict: c.verdict || "", parcel_id: c.parcel_id || "",
+        }),
+      });
+      const d = await r.json();
+      if (!d.ok || !d.pin) { alert(d.error || "Couldn't save the pin."); setNewPin((n) => ({ ...n, saving: false })); return; }
+      const pin = d.pin;
+      setProspects((list) => [...list, pin]);   // show + persist on the map
+      setNewPin(null);
+      if (action === "sign") signInspection(pin, { selfGen: true });
+      else if (action === "retail") setBtrPin(pin);
+      else if (action === "pending") await setStatus(pin, "insp_callback");
+    } catch {
+      alert("Couldn't save the pin — try again.");
+      setNewPin((n) => (n ? { ...n, saving: false } : n));
+    }
+  }
+
   function startOver() { navLayer.current?.clearLayers(); setDayMode(null); setStartPt(null); setRoute([]); setStopIdx(0); setRound(1); setResolvedIds(new Set()); workingRef.current = new Set(); setPanelPos(null); setSigningStop(null); setFillOffer(null); setEditingRoute(false); }
   // Drop a stop the rep doesn't want to drive to (e.g. it's across the bay). Keeps
   // the current stop stable and re-numbers the rest; the map line redraws.
@@ -1223,6 +1313,7 @@ export default function CanvassMap() {
       {/* Map */}
       <div style={{ position: "relative", flex: 1 }}>
         <div ref={mapEl} style={{ position: "absolute", inset: 0 }} />
+        <style>{`@keyframes hpulse{0%{box-shadow:0 1px 5px rgba(0,0,0,.5),0 0 0 0 rgba(124,58,237,.5)}70%{box-shadow:0 1px 5px rgba(0,0,0,.5),0 0 0 14px rgba(124,58,237,0)}100%{box-shadow:0 1px 5px rgba(0,0,0,.5),0 0 0 0 rgba(124,58,237,0)}}`}</style>
         {loading && (
           <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", background: "#fff", padding: "6px 14px", borderRadius: 20, fontSize: 13, boxShadow: "0 2px 8px rgba(0,0,0,.15)", zIndex: 500 }}>Loading pins…</div>
         )}
@@ -1259,6 +1350,26 @@ export default function CanvassMap() {
         {zoomHint && (
           <div style={{ position: "absolute", left: "50%", bottom: 120, transform: "translateX(-50%)", zIndex: 800, background: "#1e293b", color: "#fff", borderRadius: 10, padding: "10px 16px", fontSize: 13, fontWeight: 700, boxShadow: "0 3px 14px rgba(0,0,0,.35)", whiteSpace: "nowrap" }}>
             🔍 Zoom into your neighborhood first, then start
+          </div>
+        )}
+        {/* ── Add a house ── rep spots a damaged roof and drops their own pin. */}
+        {auth.rt && !selecting && !adding && !newPin && dayMode === null && (
+          <button type="button" onClick={startAddHouse}
+            style={{ position: "absolute", left: 12, bottom: 120, zIndex: 600, background: "#7c3aed", color: "#fff", border: "none", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
+            ＋ Add a house
+          </button>
+        )}
+        {/* During an active route the left stack is free — keep Add-a-house reachable. */}
+        {auth.rt && !selecting && !adding && !newPin && dayMode !== null && (
+          <button type="button" onClick={startAddHouse}
+            style={{ position: "absolute", left: 12, bottom: 16, zIndex: 600, background: "#7c3aed", color: "#fff", border: "none", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
+            ＋ Add a house
+          </button>
+        )}
+        {adding && (
+          <div style={{ position: "absolute", left: "50%", top: 12, transform: "translateX(-50%)", zIndex: 750, background: "#7c3aed", color: "#fff", borderRadius: 12, padding: "10px 14px", boxShadow: "0 3px 14px rgba(0,0,0,.3)", display: "flex", alignItems: "center", gap: 12, whiteSpace: "nowrap" }}>
+            <span style={{ fontSize: 13.5, fontWeight: 700 }}>🏠 Tap the roof of the house</span>
+            <button type="button" onClick={cancelAdd} style={{ background: "rgba(255,255,255,.22)", color: "#fff", border: "none", borderRadius: 8, padding: "5px 12px", fontSize: 12.5, fontWeight: 800, cursor: "pointer" }}>Cancel</button>
           </div>
         )}
         {selecting && (
@@ -1447,6 +1558,72 @@ export default function CanvassMap() {
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* New self-gen door sheet — owner-occupancy check + the three actions */}
+      {newPin && (
+        <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: "#fff", borderTopLeftRadius: 18, borderTopRightRadius: 18, boxShadow: "0 -4px 20px rgba(0,0,0,.18)", padding: "16px 18px 22px", zIndex: 1200, maxHeight: "72vh", overflowY: "auto" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 800, fontSize: 16, color: "#6d28d9" }}>🏠 New self-gen door</div>
+              {newPin.check?.found && (
+                <>
+                  <div style={{ fontSize: 14, color: "#334155", fontWeight: 700, marginTop: 3 }}>{newPin.check.address?.line1}</div>
+                  <div style={{ fontSize: 13, color: "#64748b" }}>{[newPin.check.address?.city, newPin.check.address?.state, newPin.check.address?.zip].filter(Boolean).join(", ")}</div>
+                  {newPin.check.owner && <div style={{ fontSize: 12.5, color: "#475569", marginTop: 4 }}><b>Owner:</b> {newPin.check.owner}</div>}
+                </>
+              )}
+            </div>
+            <button type="button" onClick={cancelAdd} style={{ background: "none", border: "none", fontSize: 22, color: "#94a3b8", cursor: "pointer", lineHeight: 1 }}>×</button>
+          </div>
+
+          {/* Step 1 — the "Owner occupied?" button */}
+          {!newPin.check && (
+            <button type="button" onClick={checkOwner} disabled={newPin.checking}
+              style={{ marginTop: 14, width: "100%", padding: "14px", borderRadius: 12, border: "none", background: newPin.checking ? "#c4b5fd" : "#7c3aed", color: "#fff", fontSize: 15, fontWeight: 800, cursor: newPin.checking ? "default" : "pointer" }}>
+              {newPin.checking ? "Checking property records…" : "🔎 Owner occupied?"}
+            </button>
+          )}
+
+          {/* Step 2 — verdict */}
+          {newPin.check && (() => {
+            const c = newPin.check;
+            if (!c.found) {
+              return (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ background: "#fef9c3", border: "1px solid #fde047", color: "#854d0e", borderRadius: 10, padding: "10px 12px", fontSize: 13, fontWeight: 600 }}>{c.reason || "No parcel found here."}</div>
+                  <button type="button" onClick={checkOwner} style={{ marginTop: 10, width: "100%", padding: "12px", borderRadius: 10, border: "1px solid #cbd5e1", background: "#fff", color: "#334155", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}>Try the check again</button>
+                </div>
+              );
+            }
+            const occ = c.owner_occupied;
+            const badge = occ
+              ? { bg: "#dcfce7", bd: "#86efac", fg: "#166534", label: c.homestead ? "✅ OWNER OCCUPIED · homestead on file" : "✅ OWNER OCCUPIED · mailing matches" }
+              : { bg: "#fee2e2", bd: "#fca5a5", fg: "#991b1b", label: "⚠️ NON owner-occupied · likely a rental" };
+            return (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ background: badge.bg, border: `1px solid ${badge.bd}`, color: badge.fg, borderRadius: 10, padding: "10px 12px" }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 800 }}>{badge.label}</div>
+                  <div style={{ fontSize: 12, marginTop: 3, opacity: 0.9 }}>{c.reason}</div>
+                </div>
+                {occ ? (
+                  <div style={{ marginTop: 14, display: "grid", gap: 8 }}>
+                    <button type="button" disabled={newPin.saving} onClick={() => commitSelfGen("sign")}
+                      style={{ padding: "13px", borderRadius: 12, border: "none", background: "#7c3aed", color: "#fff", fontSize: 14.5, fontWeight: 800, cursor: "pointer", opacity: newPin.saving ? 0.6 : 1 }}>🖊️ Sign Inspection</button>
+                    <button type="button" disabled={newPin.saving} onClick={() => commitSelfGen("retail")}
+                      style={{ padding: "13px", borderRadius: 12, border: "2px solid #b45309", background: "#fff7ed", color: "#b45309", fontSize: 14.5, fontWeight: 800, cursor: "pointer", opacity: newPin.saving ? 0.6 : 1 }}>🏠 Retail Appointment</button>
+                    <button type="button" disabled={newPin.saving} onClick={() => commitSelfGen("pending")}
+                      style={{ padding: "13px", borderRadius: 12, border: "2px solid #ca8a04", background: "#fefce8", color: "#a16207", fontSize: 14.5, fontWeight: 800, cursor: "pointer", opacity: newPin.saving ? 0.6 : 1 }}>⏳ Pending (come back)</button>
+                  </div>
+                ) : (
+                  <button type="button" disabled={newPin.saving} onClick={() => commitSelfGen("pending")}
+                    style={{ marginTop: 12, width: "100%", padding: "12px", borderRadius: 10, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", fontSize: 13.5, fontWeight: 700, cursor: "pointer", opacity: newPin.saving ? 0.6 : 1 }}>Save as pending anyway</button>
+                )}
+                {newPin.saving && <div style={{ marginTop: 8, fontSize: 12.5, color: "#7c3aed", fontWeight: 700, textAlign: "center" }}>Saving…</div>}
+              </div>
+            );
+          })()}
         </div>
       )}
 
