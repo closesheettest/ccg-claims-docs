@@ -287,6 +287,23 @@ function visitWhenLabel(v) {
   }
   return v.review_availability || "";
 }
+// Days since the inspection result was set (how long the go-back has waited).
+function visitAgeDays(v) {
+  if (!v.result_at) return null;
+  const d = Date.parse(v.result_at);
+  return isNaN(d) ? null : Math.max(0, Math.floor((Date.now() - d) / 864e5));
+}
+// A go-back "needs work now" if it's scheduled for today / overdue, OR it's just
+// been AGING unworked (most go-backs have no scheduled date — they'd otherwise
+// never alert). Returns "overdue" | "today" | "aging" | null.
+const GOBACK_AGING_DAYS = 7;
+function visitNeedsWork(v) {
+  const s = visitDueStatus(v);
+  if (s === "overdue" || s === "today") return s;
+  if (s === "later") return null;               // has a future scheduled date → not yet
+  const age = visitAgeDays(v);
+  return age != null && age >= GOBACK_AGING_DAYS ? "aging" : null;
+}
 
 export default function CanvassMap() {
   const mapEl = useRef(null);
@@ -832,7 +849,7 @@ export default function CanvassMap() {
   // route panel via the same VisitActions). Nearest-first from the rep; appends if
   // a day's already running, else starts a go-back route.
   function addGobacksToRoute() {
-    const today = visits.filter((v) => { const s = visitDueStatus(v); return (s === "today" || s === "overdue") && v.latitude != null && v.longitude != null; });
+    const today = visits.filter((v) => visitNeedsWork(v) && v.latitude != null && v.longitude != null);
     if (!today.length) return;
     const stops = today.map((v) => ({
       id: `v_${v.inspection_id}`, latitude: Number(v.latitude), longitude: Number(v.longitude),
@@ -858,8 +875,7 @@ export default function CanvassMap() {
     lyr.clearLayers();
     if (!showGobacks) return;
     for (const v of visits) {
-      const due = visitDueStatus(v);
-      const mk = L.marker([v.latitude, v.longitude], { icon: gobackIcon(v.bucket, due === "today" || due === "overdue"), zIndexOffset: 500 });
+      const mk = L.marker([v.latitude, v.longitude], { icon: gobackIcon(v.bucket, !!visitNeedsWork(v)), zIndexOffset: 500 });
       mk.on("click", () => { setSelected(null); setSelectedInstall(null); setSelectedVisit(v); });
       lyr.addLayer(mk);
     }
@@ -1572,22 +1588,28 @@ export default function CanvassMap() {
           </button>
         )}
 
-        {/* ── Today's go-backs ── the day's scheduled follow-ups, surfaced to work. */}
+        {/* ── Go-backs to work ── scheduled-due PLUS aging follow-ups (most have no
+             scheduled date, so aging is what surfaces a stale pile). Worst first. */}
         {visits.length > 0 && !selecting && (() => {
-          const today = visits.filter((v) => { const s = visitDueStatus(v); return s === "today" || s === "overdue"; });
-          if (!today.length) return null;
+          const RANK = { overdue: 0, aging: 1, today: 2 };
+          const needs = visits.map((v) => ({ v, w: visitNeedsWork(v), age: visitAgeDays(v) }))
+            .filter((x) => x.w)
+            .sort((a, b) => (RANK[a.w] - RANK[b.w]) || ((b.age || 0) - (a.age || 0)));
+          if (!needs.length) return null;
+          const hot = needs.some((x) => x.w === "overdue" || (x.age || 0) >= 14);
           return (
             <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", zIndex: 650, width: "min(370px, 92%)" }}>
               <button type="button" onClick={() => setGobackCard((o) => !o)}
-                style={{ width: "100%", background: "#0f172a", color: "#fff", border: "none", borderRadius: gobackCard ? "12px 12px 0 0" : 12, padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", boxShadow: "0 3px 14px rgba(0,0,0,.3)" }}>
-                <span style={{ fontSize: 13.5, fontWeight: 800 }}>🗓️ {today.length} go-back{today.length > 1 ? "s" : ""} to work today</span>
-                <span style={{ fontSize: 11, opacity: 0.8 }}>{gobackCard ? "▲ hide" : "▼ show"}</span>
+                style={{ width: "100%", background: hot ? "#7f1d1d" : "#0f172a", color: "#fff", border: "none", borderRadius: gobackCard ? "12px 12px 0 0" : 12, padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", boxShadow: "0 3px 14px rgba(0,0,0,.3)" }}>
+                <span style={{ fontSize: 13.5, fontWeight: 800 }}>{hot ? "⚠️" : "🗓️"} {needs.length} go-back{needs.length > 1 ? "s" : ""} to work</span>
+                <span style={{ fontSize: 11, opacity: 0.85 }}>{gobackCard ? "▲ hide" : "▼ show"}</span>
               </button>
               {gobackCard && (
-                <div style={{ background: "#fff", borderRadius: "0 0 12px 12px", boxShadow: "0 3px 14px rgba(0,0,0,.3)", maxHeight: "42vh", overflowY: "auto" }}>
-                  {today.map((v) => {
+                <div style={{ background: "#fff", borderRadius: "0 0 12px 12px", boxShadow: "0 3px 14px rgba(0,0,0,.3)", maxHeight: "46vh", overflowY: "auto" }}>
+                  {needs.map(({ v, w, age }) => {
                     const m = GOBACK_META[v.bucket] || GOBACK_META.damage;
-                    const overdue = visitDueStatus(v) === "overdue";
+                    const status = w === "overdue" ? "⚠️ overdue" : w === "aging" ? `⏳ ${age}d waiting` : "today";
+                    const warn = w === "overdue" || (age || 0) >= 14;
                     return (
                       <button key={v.inspection_id} type="button"
                         onClick={() => { setGobackCard(false); if (v.latitude != null) map.current?.setView([v.latitude, v.longitude], Math.max(map.current.getZoom(), 16)); setSelected(null); setSelectedVisit(v); }}
@@ -1595,7 +1617,7 @@ export default function CanvassMap() {
                         <span style={{ width: 28, height: 28, borderRadius: 7, background: m.color, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>{m.emoji}</span>
                         <span style={{ flex: 1, minWidth: 0 }}>
                           <span style={{ display: "block", fontSize: 13, fontWeight: 800, color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{v.client_name || v.address}</span>
-                          <span style={{ display: "block", fontSize: 11.5, color: overdue ? "#b91c1c" : "#64748b", fontWeight: overdue ? 800 : 600 }}>{m.label}{overdue ? " · ⚠️ overdue" : ""}{visitWhenLabel(v) ? ` · ${visitWhenLabel(v)}` : ""}{v.distance_mi != null ? ` · ${v.distance_mi} mi` : ""}</span>
+                          <span style={{ display: "block", fontSize: 11.5, color: warn ? "#b91c1c" : "#64748b", fontWeight: warn ? 800 : 600 }}>{m.label} · {status}{visitWhenLabel(v) ? ` · ${visitWhenLabel(v)}` : ""}{v.distance_mi != null ? ` · ${v.distance_mi} mi` : ""}</span>
                         </span>
                       </button>
                     );
@@ -1603,7 +1625,7 @@ export default function CanvassMap() {
                   <div style={{ padding: "10px 12px" }}>
                     <button type="button" onClick={addGobacksToRoute}
                       style={{ width: "100%", background: "#16a34a", color: "#fff", border: "none", borderRadius: 10, padding: "11px", fontSize: 13.5, fontWeight: 800, cursor: "pointer" }}>
-                      ➕ Add today's go-backs to my route
+                      ➕ Add these go-backs to my route
                     </button>
                   </div>
                 </div>
@@ -2087,7 +2109,8 @@ export default function CanvassMap() {
             <div style={{ marginTop: 12, background: due === "overdue" ? "#fef2f2" : "#f8fafc", border: `1px solid ${due === "overdue" ? "#fca5a5" : "#e2e8f0"}`, borderRadius: 10, padding: "10px 12px" }}>
               <div style={{ fontSize: 13.5, fontWeight: 800, color: m.color }}>{m.label} visit — {m.sub.toLowerCase()}</div>
               <div style={{ fontSize: 12.5, color: due === "overdue" ? "#b91c1c" : "#475569", fontWeight: 700, marginTop: 3 }}>
-                {v.result_task_at ? "🗓️ Scheduled: " : "🏠 Best time: "}{visitWhenLabel(v) || "anytime"}{due === "overdue" ? " · ⚠️ overdue" : due === "today" ? " · today" : ""}
+                {visitWhenLabel(v) ? `${v.result_task_at ? "🗓️ Scheduled: " : "🏠 Best time: "}${visitWhenLabel(v)}` : (visitAgeDays(v) != null ? `⏳ waiting ${visitAgeDays(v)} days` : "🏠 anytime")}
+                {due === "overdue" ? " · ⚠️ overdue" : due === "today" ? " · today" : ""}
                 {v.distance_mi != null ? ` · ${v.distance_mi} mi away` : ""}
               </div>
             </div>
