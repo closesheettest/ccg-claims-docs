@@ -328,6 +328,18 @@ export default function CanvassMap() {
   const startFromRef = useRef(null);
   const S = useMemo(() => Object.fromEntries(pinTypes.map((t) => [t.key, t])), [pinTypes]);
   const repName = me?.name || "";
+  // Self-gen pins belong to the rep who dropped them. Any rep can SEE the pin,
+  // but only its creator (or admin/office) can work it. Match by JobNimbus id,
+  // falling back to name. Non-self-gen pins are workable by anyone as before.
+  const ownsPin = (p) => {
+    if (!(p && p.extra && typeof p.extra === "object" && p.extra.self_generated)) return true;
+    if (!auth.rt || me?.level === "admin") return true; // office / admin see & work all
+    const jn = p.extra.created_by_jn, nm = p.extra.created_by;
+    if (jn && me?.jn_id) return String(jn) === String(me.jn_id);
+    if (nm && me?.name) return nm === me.name;
+    return false;
+  };
+  const pinOwnerName = (p) => (p && p.extra && p.extra.created_by) || "another rep";
 
   // "View as" — the office can preview exactly what a junior/senior rep sees.
   // effLevel is the level we're rendering as (own level, or the previewed one).
@@ -1500,6 +1512,12 @@ export default function CanvassMap() {
                       <button type="button" onClick={() => completeSign(stop)} style={{ width: "100%", background: "#16a34a", color: "#fff", border: "none", borderRadius: 11, padding: "11px", fontSize: 13.5, fontWeight: 800, cursor: "pointer", marginBottom: 6 }}>✅ They signed — next stop</button>
                       <button type="button" onClick={() => setSigningStop(null)} style={{ width: "100%", background: "#fff", color: "#64748b", border: "1px solid #e5e7eb", borderRadius: 11, padding: "9px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>← Back (didn't sign)</button>
                     </div>
+                  ) : !ownsPin(stop) ? (
+                    <div style={{ marginTop: 14, background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 12, padding: "14px 16px", textAlign: "center" }}>
+                      <div style={{ fontSize: 22 }}>🔒</div>
+                      <div style={{ fontSize: 13.5, fontWeight: 800, color: "#334155", marginTop: 2 }}>This pin belongs to {pinOwnerName(stop)}</div>
+                      <div style={{ fontSize: 12.5, color: "#64748b", marginTop: 3 }}>Only {pinOwnerName(stop)} can work their self-generated door.</div>
+                    </div>
                   ) : (<>
                   <div style={{ fontSize: 11, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", margin: "13px 0 6px" }}>How'd it go?</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
@@ -1514,6 +1532,15 @@ export default function CanvassMap() {
                       : oBtn(o.key, o.label, o.color))}
                     {oBtn("nothome", "🏠 Not home", "#475569")}
                   </div>
+                  {/* Homeowner declined the inspection but wants a retail appt —
+                      book it right from the route stop (same as the pin sheet). */}
+                  {stop.status === "insp" && (
+                    <button type="button" disabled={!near} onClick={() => near && setBtrPin(stop)}
+                      style={{ marginTop: 8, width: "100%", padding: "11px", borderRadius: 11, fontSize: 13.5, fontWeight: 800, cursor: near ? "pointer" : "not-allowed",
+                        border: `2px solid ${near ? "#b45309" : "#e5e7eb"}`, background: near ? "#fff7ed" : "#fff", color: near ? "#b45309" : "#cbd5e1" }}>
+                      🏠 BTR appt — homeowner wants retail
+                    </button>
+                  )}
                   <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, textAlign: "center", color: near ? "#16a34a" : "#b45309" }}>
                     {ignoreDist
                       ? "🧪 Distance gate OFF (test) — pick what happened"
@@ -1671,7 +1698,13 @@ export default function CanvassMap() {
             );
           })()}
 
-          {(() => {
+          {!ownsPin(selected) ? (
+            <div style={{ marginTop: 14, background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 12, padding: "14px 16px", textAlign: "center" }}>
+              <div style={{ fontSize: 22 }}>🔒</div>
+              <div style={{ fontSize: 13.5, fontWeight: 800, color: "#334155", marginTop: 2 }}>This pin belongs to {pinOwnerName(selected)}</div>
+              <div style={{ fontSize: 12.5, color: "#64748b", marginTop: 3 }}>They self-generated this door — only {pinOwnerName(selected)} can work it.</div>
+            </div>
+          ) : (() => {
             // Behavior flow: offer only the outcomes this pin type allows. If the
             // type defines none (terminal, or unconfigured), fall back to every
             // type so a mis-set pin can still be corrected.

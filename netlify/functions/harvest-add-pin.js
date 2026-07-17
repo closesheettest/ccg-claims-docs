@@ -49,6 +49,7 @@ export const handler = async (event) => {
     extra: {
       self_generated: true,
       created_by: rep.name || null,
+      created_by_jn: rep.jobnimbus_id || null,   // stable owner id for the "belongs to X" gate
       owner: String(body.owner || "").trim() || null,
       homestead: body.homestead === true,
       occupancy: String(body.verdict || "").trim() || null,
