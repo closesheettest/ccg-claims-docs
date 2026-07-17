@@ -200,6 +200,7 @@ function clusterDivIcon(n, color) {
   });
 }
 const FONT = "'Nunito', system-ui, sans-serif";
+const escapeHtml = (s) => String(s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 // Live "you are here" blue dot (Google-Maps style).
 const ME_ICON = L.divIcon({
   className: "harvest-me",
@@ -215,8 +216,11 @@ export default function CanvassMap() {
   const routeLayer = useRef(null);
   const navLayer = useRef(null);   // in-app driving route to the current stop
   const locLayer = useRef(null);   // live "you are here" blue dot
+  const teamLayer = useRef(null);  // office view: every rep's trail + position
   const selectLayer = useRef(null); // the box being drawn to route an area
   const selectStart = useRef(null); // first corner of the selection box
+  const lastPingRef = useRef(0);   // throttle rep location pings
+  const [team, setTeam] = useState([]); // other reps' breadcrumbs (admin only)
   const fitted = useRef(false);
   const [prospects, setProspects] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -505,6 +509,7 @@ export default function CanvassMap() {
     routeLayer.current = L.layerGroup().addTo(m);
     navLayer.current = L.layerGroup().addTo(m); // in-app driving route to current stop
     selectLayer.current = L.layerGroup().addTo(m); // route-an-area box
+    teamLayer.current = L.layerGroup().addTo(m);   // office: everyone's trails
     locLayer.current = L.layerGroup().addTo(m);    // blue "you are here" (on top)
     // Leaflet computes its size at init; inside a flex layout the container
     // may not have its final size yet, leaving the tiles rendered for a tiny
@@ -672,6 +677,49 @@ export default function CanvassMap() {
     if (myLoc.acc && myLoc.acc < 400) L.circle([myLoc.lat, myLoc.lng], { radius: myLoc.acc, color: "#1d4ed8", weight: 1, opacity: 0.5, fillColor: "#3b82f6", fillOpacity: 0.12, interactive: false }).addTo(lyr);
     L.marker([myLoc.lat, myLoc.lng], { icon: ME_ICON, zIndexOffset: 3000, interactive: false }).addTo(lyr);
   }, [myLoc]);
+  // Real reps post their location (~every 60s) so the office team view can trail
+  // them. Admin/office links (no rt) don't ping — they only WATCH.
+  useEffect(() => {
+    if (!myLoc || !auth.rt) return;
+    const now = Date.now();
+    if (now - lastPingRef.current < 60000) return;
+    lastPingRef.current = now;
+    fetch("/.netlify/functions/harvest-ping", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rt: auth.rt, lat: myLoc.lat, lng: myLoc.lng }) }).catch(() => {});
+  }, [myLoc]);
+  // Office/admin: poll everyone's breadcrumbs every 30s.
+  useEffect(() => {
+    if (me?.level !== "admin" || !auth.admin) return;
+    let live = true;
+    const pull = async () => {
+      try {
+        const r = await fetch(`/.netlify/functions/harvest-team?admin=${encodeURIComponent(auth.admin)}`);
+        const j = await r.json().catch(() => ({}));
+        if (live && j.ok) setTeam(j.reps || []);
+      } catch { /* ignore */ }
+    };
+    pull();
+    const id = setInterval(pull, 30000);
+    return () => { live = false; clearInterval(id); };
+  }, [me?.level, auth.admin]);
+  // Draw each rep's trailing line + a labelled dot at their latest position.
+  useEffect(() => {
+    const lyr = teamLayer.current;
+    if (!lyr) return;
+    lyr.clearLayers();
+    for (const r of team) {
+      const pts = (r.pings || []).filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng)).map((p) => [p.lat, p.lng]);
+      if (!pts.length) continue;
+      if (pts.length > 1) L.polyline(pts, { color: "#2563eb", weight: 3, opacity: 0.65 }).addTo(lyr);
+      const last = pts[pts.length - 1];
+      const label = `${escapeHtml(r.name)}${r.last_action ? " · " + escapeHtml(r.last_action) : ""}`;
+      const icon = L.divIcon({
+        className: "harvest-rep",
+        html: `<div style="display:flex;flex-direction:column;align-items:center;transform:translateY(-4px)"><div style="background:#1e3a8a;color:#fff;font-size:10px;font-weight:800;padding:1px 6px;border-radius:8px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.4);margin-bottom:2px">${label}</div><div style="width:14px;height:14px;border-radius:50%;background:#2563eb;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.5)"></div></div>`,
+        iconSize: [1, 1], iconAnchor: [0, 7],
+      });
+      L.marker(last, { icon, zIndexOffset: 2500, interactive: false }).addTo(lyr);
+    }
+  }, [team]);
   // While in "route an area" mode, drag a box on the map; on release we route the
   // doors inside it. Pointer events cover both touch (phone) and mouse.
   useEffect(() => {
