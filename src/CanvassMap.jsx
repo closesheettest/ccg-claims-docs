@@ -51,60 +51,87 @@ function streetKey(p) {
   return s || `~${(p.latitude || 0).toFixed(3)},${(p.longitude || 0).toFixed(3)}`;
 }
 function houseNum(p) { const m = String(p.address || "").match(/\d+/); return m ? parseInt(m[0], 10) : 0; }
-// 2-opt: repeatedly reverse a route segment whenever doing so SHORTENS the total
-// path. Kills the crossings / back-tracks a street-by-street pass can still leave
-// (e.g. the last stop ending up right next to the first). Whole streets stay
-// intact — reversing inside a tight street never helps, so only the order streets
-// are strung together gets fixed. O(n²)/pass, trivial for a day's stops.
-function twoOpt(start, stops) {
-  if (stops.length < 4) return stops;
-  const d = (a, b) => { const dx = a.lat - b.lat, dy = a.lng - b.lng; return Math.sqrt(dx * dx + dy * dy); };
-  const at = (p) => ({ lat: p.latitude, lng: p.longitude });
-  const order = stops.slice();
-  let improved = true, pass = 0;
+// Break the day's stops into STREET SEGMENTS: group by street name, sort each by
+// house number, then split a group wherever consecutive houses jump more than
+// GAP_FT apart. That split matters — one street NAME often covers two far-apart
+// stretches (a road that resumes across town, or the same name reused in another
+// neighbourhood). Left merged, the house-number sort interleaves those distant
+// houses and marches the rep out, back, and out again (the "why am I returning to
+// this street?" zig-zag). Each returned segment is one real, contiguous stretch,
+// already in walking order.
+function streetSegments(stops) {
+  const GAP_FT = 1200;
+  const groups = new Map();
+  for (const p of stops) { const k = streetKey(p); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(p); }
+  const segs = [];
+  for (const g of groups.values()) {
+    const sorted = g.slice().sort((a, b) => houseNum(a) - houseNum(b) || a.latitude - b.latitude || a.longitude - b.longitude);
+    let run = [sorted[0]];
+    for (let i = 1; i < sorted.length; i++) {
+      const a = sorted[i - 1], b = sorted[i];
+      if (feetBetween({ lat: a.latitude, lng: a.longitude }, { lat: b.latitude, lng: b.longitude }) > GAP_FT) {
+        segs.push(run); run = [b];
+      } else run.push(b);
+    }
+    segs.push(run);
+  }
+  return segs;
+}
+// Order the day's stops so the rep FINISHES a street before leaving it, and never
+// walks away only to come back. We route whole street segments (never individual
+// houses): nearest-segment-first to build a sane order, then a segment-level 2-opt
+// that reverses runs of whole streets whenever that shortens the drive. Because the
+// 2-opt moves whole segments (never splitting one), a street can never get chopped
+// across the route — the old stop-level 2-opt COULD split a street mid-run, which
+// is exactly what sent reps back to a street they'd "already done". All distances
+// are true feet (haversine), so FL longitude isn't under-counted vs latitude.
+function orderStops(start, stops) {
+  const segs = streetSegments(stops);
+  if (segs.length <= 1) return segs.flat();
+  const co = (p) => ({ lat: p.latitude, lng: p.longitude });
+  // Nearest-segment-first construction. Each pick also chooses which END of the
+  // segment to enter from (rev = walk it high→low), whichever endpoint is closer.
+  const remaining = segs.slice();
+  const entries = [];
+  let cur = { lat: start.lat, lng: start.lng };
+  while (remaining.length) {
+    let bi = 0, bd = Infinity, rev = false;
+    for (let i = 0; i < remaining.length; i++) {
+      const s = remaining[i];
+      const dF = feetBetween(cur, co(s[0])), dL = feetBetween(cur, co(s[s.length - 1]));
+      if (dF < bd) { bd = dF; bi = i; rev = false; }
+      if (dL < bd) { bd = dL; bi = i; rev = true; }
+    }
+    const s = remaining.splice(bi, 1)[0];
+    entries.push({ seg: s, rev });
+    const tail = rev ? s[0] : s[s.length - 1];
+    cur = co(tail);
+  }
+  // Segment-level 2-opt: reversing entries[i..k] flips both their ORDER and each
+  // segment's internal direction (you'd traverse that block backwards). Whole
+  // streets stay atomic. n = segment count (small — a day is tens of streets), so
+  // recomputing the full length per trial is cheap.
+  const head = (e) => co(e.rev ? e.seg[e.seg.length - 1] : e.seg[0]);
+  const tail = (e) => co(e.rev ? e.seg[0] : e.seg[e.seg.length - 1]);
+  const total = (arr) => {
+    let t = feetBetween(start, head(arr[0]));
+    for (let i = 0; i < arr.length - 1; i++) t += feetBetween(tail(arr[i]), head(arr[i + 1]));
+    return t;
+  };
+  let best = total(entries), improved = true, pass = 0;
   while (improved && pass < 8) {
     improved = false; pass++;
-    for (let i = 0; i < order.length - 1; i++) {
-      for (let k = i + 1; k < order.length; k++) {
-        const A = i === 0 ? start : at(order[i - 1]);
-        const B = at(order[i]), C = at(order[k]);
-        const D = k + 1 < order.length ? at(order[k + 1]) : null;
-        const before = d(A, B) + (D ? d(C, D) : 0);
-        const after = d(A, C) + (D ? d(B, D) : 0);
-        if (after + 1e-12 < before) {
-          let lo = i, hi = k; while (lo < hi) { const t = order[lo]; order[lo] = order[hi]; order[hi] = t; lo++; hi--; }
-          improved = true;
-        }
+    for (let i = 0; i < entries.length - 1; i++) {
+      for (let k = i + 1; k < entries.length; k++) {
+        const block = entries.slice(i, k + 1).reverse().map((e) => ({ seg: e.seg, rev: !e.rev }));
+        const cand = entries.slice(0, i).concat(block, entries.slice(k + 1));
+        const t = total(cand);
+        if (t + 1e-6 < best) { entries.splice(0, entries.length, ...cand); best = t; improved = true; }
       }
     }
   }
-  return order;
-}
-// Order stops STREET-BY-STREET: do a whole street (in house-number order, from
-// the end nearest you) before hopping to the nearest remaining street. Kills the
-// zig-zag / back-tracking a pure nearest-neighbour route produces.
-function orderStreetByStreet(start, stops) {
-  const d2 = (a, p) => { const dx = a.lat - p.latitude, dy = a.lng - p.longitude; return dx * dx + dy * dy; };
-  const groups = new Map();
-  for (const p of stops) { const k = streetKey(p); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(p); }
-  const streets = [...groups.values()].map((g) =>
-    g.slice().sort((a, b) => houseNum(a) - houseNum(b) || a.latitude - b.latitude || a.longitude - b.longitude));
   const out = [];
-  let cur = start;
-  while (streets.length) {
-    let bi = 0, bd = Infinity, rev = false;
-    for (let i = 0; i < streets.length; i++) {
-      const st = streets[i];
-      const dF = d2(cur, st[0]), dL = d2(cur, st[st.length - 1]);
-      if (dF < bd) { bd = dF; bi = i; rev = false; }   // enter from the low-number end
-      if (dL < bd) { bd = dL; bi = i; rev = true; }     // …or the high-number end, whichever's closer
-    }
-    const st = streets.splice(bi, 1)[0];
-    const walk = rev ? st.slice().reverse() : st;
-    for (const p of walk) out.push(p);
-    const last = walk[walk.length - 1];
-    cur = { lat: last.latitude, lng: last.longitude };
-  }
+  for (const e of entries) { const walk = e.rev ? e.seg.slice().reverse() : e.seg; for (const p of walk) out.push(p); }
   return out;
 }
 
@@ -1273,9 +1300,8 @@ export default function CanvassMap() {
       .sort((a, b) => a.t - b.t || a.d - b.d)
       .slice(0, max)
       .map((x) => x.p);
-    // Street-by-street first (finish a street before moving on), then 2-opt to
-    // remove the leftover back-tracks / crossings so the drive actually flows.
-    return twoOpt(start, orderStreetByStreet(start, rem));
+    // Whole-street ordering: finish a street before moving on, streets never split.
+    return orderStops(start, rem);
   }
 
   // Tapped Start/Route while zoomed out (only clusters loaded, no pins to route) —
@@ -1406,6 +1432,32 @@ export default function CanvassMap() {
     const r = buildRoute(from, left, routeCap(left));
     setStartPt(from); setRoute(r); setStopIdx(0); setRound((n) => n + 1); setDayMode("active"); setFillOffer(null);
     if (map.current) map.current.setView([r[0].latitude, r[0].longitude], 15);
+  }
+  // "Re-route from here" — the rep has drifted and the remaining order no longer
+  // matches where they're standing. Take every door still left to work today and
+  // re-order it from their LIVE GPS, nearest street first, whole streets kept
+  // together. No new round, no new pins pulled — just re-anchor what's left so they
+  // stop walking away and back. Falls back to the current stop if GPS is blocked.
+  const [rerouting, setRerouting] = useState(false);
+  function rerouteFromHere() {
+    const left = dayPoolPins().filter((p) => workingRef.current.has(p.id) && !resolvedIds.has(p.id));
+    if (left.length < 2) return; // nothing meaningful to re-order
+    const apply = (from) => {
+      const r = buildRoute(from, left, routeCap(left), true); // exactly the day's leftovers, no radius cull
+      setRerouting(false);
+      if (!r.length) return;
+      setStartPt(from); setRoute(r); setStopIdx(0); setDayMode("active"); setFillOffer(null);
+      if (map.current) map.current.setView([r[0].latitude, r[0].longitude], 16);
+    };
+    const fallback = () => apply(myLoc || (route[stopIdx] ? { lat: route[stopIdx].latitude, lng: route[stopIdx].longitude } : startPt));
+    if (navigator.geolocation) {
+      setRerouting(true);
+      navigator.geolocation.getCurrentPosition(
+        (pos) => apply({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        fallback,
+        { enableHighAccuracy: true, timeout: 8000 },
+      );
+    } else fallback();
   }
   startFromRef.current = startFrom;
   function useMyLocation() {
@@ -2007,6 +2059,12 @@ export default function CanvassMap() {
                       <button type="button" onClick={startOver} style={{ background: "none", border: "none", fontSize: 12.5, fontWeight: 700, color: "#94a3b8", cursor: "pointer" }}>↺ Start over</button>
                     </div>
                   </div>
+                  {/* One tap re-orders whatever's left from where the rep is standing —
+                      the fix for "I keep walking away and coming back to this street". */}
+                  <button type="button" onClick={rerouteFromHere} disabled={rerouting}
+                    style={{ width: "100%", marginBottom: 10, background: "#ecfdf5", color: "#047857", border: "1px solid #6ee7b7", borderRadius: 10, padding: "9px", fontSize: 12.5, fontWeight: 800, cursor: rerouting ? "wait" : "pointer" }}>
+                    {rerouting ? "📍 Finding you…" : "📍 Re-route from where I am"}
+                  </button>
                   {fillOffer && (() => {
                     // Recompute live so trimming stops in Edit route bumps the
                     // "add N" up (remove 10 of 16 → room for 24 more, not 14).
