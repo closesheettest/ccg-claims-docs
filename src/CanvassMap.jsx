@@ -817,9 +817,12 @@ export default function CanvassMap() {
     const pts = [];
     for (const p of shown) {
       const isSelfGen = isSelfGenPin(p);
-      const worked = workedTodayET(p);
-      const color = worked ? BABY_BLUE : (S[p.status] || UNKNOWN_TYPE).color;
-      const marker = L.marker([p.latitude, p.longitude], { icon: isSelfGen && !worked ? selfGenIcon(true) : dotIcon(color) });
+      // Always draw a door in its REAL status color — a door statused today (e.g.
+      // "New Roof") must READ as New Roof, not a generic baby-blue that hides the
+      // outcome from the next rep. Re-knock protection doesn't need the colour: the
+      // route builder already skips doors worked today (see shownRef below).
+      const color = (S[p.status] || UNKNOWN_TYPE).color;
+      const marker = L.marker([p.latitude, p.longitude], { icon: isSelfGen ? selfGenIcon(true) : dotIcon(color) });
       marker.on("click", () => openPin(p));
       markers.push(marker);
       pts.push([p.latitude, p.longitude]);
