@@ -2062,13 +2062,6 @@ export default function CanvassMap() {
                     style={{ width: "100%", marginBottom: 10, background: "#ecfdf5", color: "#047857", border: "1px solid #6ee7b7", borderRadius: 10, padding: "9px", fontSize: 12.5, fontWeight: 800, cursor: rerouting ? "wait" : "pointer" }}>
                     {rerouting ? "📍 Finding you…" : "📍 Re-route from where I am"}
                   </button>
-                  {/* Big + red so reps can actually find it — was a faint text link nobody
-                      noticed. Confirms first so a mis-tap doesn't wipe an in-progress route. */}
-                  <button type="button"
-                    onClick={() => { if (window.confirm("Cancel this route and start a new one? Your progress on worked doors is saved — this just clears the current route.")) startOver(); }}
-                    style={{ width: "100%", marginBottom: 12, background: "#dc2626", color: "#fff", border: "none", borderRadius: 11, padding: "12px", fontSize: 14, fontWeight: 800, cursor: "pointer", boxShadow: "0 2px 8px rgba(220,38,38,.3)" }}>
-                    ✕ Cancel route &amp; start a new one
-                  </button>
                   {fillOffer && (() => {
                     // Recompute live so trimming stops in Edit route bumps the
                     // "add N" up (remove 10 of 16 → room for 24 more, not 14).
@@ -2090,8 +2083,15 @@ export default function CanvassMap() {
                   {stop.status === "no_sit_reschedule" && origApptLabel(stop) && (
                     <div style={{ fontSize: 12.5, fontWeight: 800, color: "#c2410c", marginTop: 4 }}>🔄 No-sit · original appt was {origApptLabel(stop)}</div>
                   )}
+                  {/* Thin red box right above Directions — reps couldn't find the old
+                      faint text link. Confirms first so a mis-tap can't wipe the route. */}
+                  <button type="button"
+                    onClick={() => { if (window.confirm("Cancel this route and start a new one? Your progress on worked doors is saved — this just clears the current route.")) startOver(); }}
+                    style={{ width: "100%", marginTop: 12, background: "#fff", color: "#dc2626", border: "1px solid #dc2626", borderRadius: 9, padding: "8px", fontSize: 12.5, fontWeight: 800, cursor: "pointer" }}>
+                    ✕ Cancel route &amp; start a new one
+                  </button>
                   <button type="button" onClick={() => !arrived && navRoute(stop)} disabled={arrived}
-                    style={{ width: "100%", marginTop: 12, background: arrived ? "#e5e7eb" : "#1d4ed8", color: arrived ? "#94a3b8" : "#fff", border: "none", borderRadius: 12, padding: "12px", fontSize: 14.5, fontWeight: 800, cursor: arrived ? "not-allowed" : "pointer" }}>
+                    style={{ width: "100%", marginTop: 8, background: arrived ? "#e5e7eb" : "#1d4ed8", color: arrived ? "#94a3b8" : "#fff", border: "none", borderRadius: 12, padding: "12px", fontSize: 14.5, fontWeight: 800, cursor: arrived ? "not-allowed" : "pointer" }}>
                     {arrived ? "✓ You're here — status this stop below" : `🧭 Directions to ${stopIdx === 0 ? "first stop" : "this stop"}`}
                   </button>
                   {!arrived && (
