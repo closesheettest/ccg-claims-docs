@@ -2054,16 +2054,20 @@ export default function CanvassMap() {
                 <>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                     <span style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", color: "#16a34a" }}>{round > 1 ? `Round ${round} · ` : ""}Stop {stopIdx + 1} of {route.length}</span>
-                    <div style={{ display: "flex", gap: 10 }}>
-                      <button type="button" onClick={() => setEditingRoute(true)} style={{ background: "none", border: "none", fontSize: 12.5, fontWeight: 700, color: "#1d4ed8", cursor: "pointer" }}>✏️ Edit route</button>
-                      <button type="button" onClick={startOver} style={{ background: "none", border: "none", fontSize: 12.5, fontWeight: 700, color: "#94a3b8", cursor: "pointer" }}>↺ Start over</button>
-                    </div>
+                    <button type="button" onClick={() => setEditingRoute(true)} style={{ background: "none", border: "none", fontSize: 12.5, fontWeight: 700, color: "#1d4ed8", cursor: "pointer" }}>✏️ Edit route</button>
                   </div>
                   {/* One tap re-orders whatever's left from where the rep is standing —
                       the fix for "I keep walking away and coming back to this street". */}
                   <button type="button" onClick={rerouteFromHere} disabled={rerouting}
                     style={{ width: "100%", marginBottom: 10, background: "#ecfdf5", color: "#047857", border: "1px solid #6ee7b7", borderRadius: 10, padding: "9px", fontSize: 12.5, fontWeight: 800, cursor: rerouting ? "wait" : "pointer" }}>
                     {rerouting ? "📍 Finding you…" : "📍 Re-route from where I am"}
+                  </button>
+                  {/* Big + red so reps can actually find it — was a faint text link nobody
+                      noticed. Confirms first so a mis-tap doesn't wipe an in-progress route. */}
+                  <button type="button"
+                    onClick={() => { if (window.confirm("Cancel this route and start a new one? Your progress on worked doors is saved — this just clears the current route.")) startOver(); }}
+                    style={{ width: "100%", marginBottom: 12, background: "#dc2626", color: "#fff", border: "none", borderRadius: 11, padding: "12px", fontSize: 14, fontWeight: 800, cursor: "pointer", boxShadow: "0 2px 8px rgba(220,38,38,.3)" }}>
+                    ✕ Cancel route &amp; start a new one
                   </button>
                   {fillOffer && (() => {
                     // Recompute live so trimming stops in Edit route bumps the
