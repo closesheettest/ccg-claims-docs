@@ -212,22 +212,23 @@ function buildApptPlan(start, nowMs, endMs, appts, pool) {
     const budget = toPos ? Math.max(0, raw) : Math.max(0, Math.min(raw, APLAN.TAIL_CAP));
     if (budget <= 0) return [];
     const base = toPos ? feetBetween(from, toPos) : 0;
+    // Cluster the leg's doors right AROUND the destination: the appointment for a
+    // to-appt leg (so the rep is pre-positioned when it's time), or the last appt for
+    // the after-hours tail. Door-knocking wants a tight, dense block near where you're
+    // headed — not doors spread along a long drive (that just makes reps criss-cross).
+    const target = toPos || { lat: from.lat, lng: from.lng };
     const cands = [];
     for (const p of rem) {
       if (used.has(p.id)) continue;
       const pc = { lat: p.latitude, lng: p.longitude };
-      const df = feetBetween(from, pc);
+      const dTarget = feetBetween(pc, target);
       if (toPos) {
-        // Only doors roughly ON THE WAY to the appt (small detour off the straight line).
-        if ((feetBetween(pc, toPos) + df - base) / 5280 > APLAN.MAX_DETOUR_MI) continue;
-      } else if (df / 5280 > APLAN.TAIL_RADIUS_MI) continue;
-      cands.push({ p, df });
+        // On-the-way filter: don't grab doors that would be a big detour from from→appt.
+        if ((feetBetween(from, pc) + dTarget - base) / 5280 > APLAN.MAX_DETOUR_MI) continue;
+      } else if (dTarget / 5280 > APLAN.TAIL_RADIUS_MI) continue;
+      cands.push({ p, key: dTarget });
     }
-    // Work a TIGHT, DENSE cluster: the `budget` doors NEAREST the leg's start, then
-    // order them street-by-street. Door-knocking wants density (knock a neighborhood,
-    // don't drive between scattered pins) — an even spread across the leg makes reps
-    // criss-cross past doors they skipped, which is what looked broken.
-    cands.sort((a, b) => a.df - b.df);
+    cands.sort((a, b) => a.key - b.key); // nearest the destination = tight cluster around it
     const chosen = cands.slice(0, budget).map((c) => c.p);
     chosen.forEach((p) => used.add(p.id));
     return orderStops(from, chosen);
