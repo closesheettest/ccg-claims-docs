@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { fmtSigned } from './lib/dates'
+import ManagerHarvestMap from './ManagerHarvestMap'
 
 // Zone-scoped Regional Manager records page.
 //
@@ -64,6 +65,7 @@ export default function ManagerRecordsView({ token }) {
   const [openReps, setOpenReps] = useState({}) // repName → bool
   const [cancelledOpen, setCancelledOpen] = useState(false)
   const [companyLeadsOpen, setCompanyLeadsOpen] = useState(false)
+  const [teamMapOpen, setTeamMapOpen] = useState(false)
 
   // Load (or reload) the records. Exposed so a successful assign can
   // refresh the page — the reassigned lead then drops out of company
@@ -287,6 +289,20 @@ export default function ManagerRecordsView({ token }) {
             <li><strong>Wrong homeowner name or address?</strong> Tap <strong>✏️ Edit Details</strong>.</li>
             <li>If a row has a ⚠ next to it, something needs your attention. If a row has ✅ it's all good — no action needed.</li>
           </ul>
+        </section>
+
+        {/* ─────────── Team Harvesting Map (your zone's reps only) ─────────── */}
+        <section style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, marginBottom: 14, overflow: 'hidden' }}>
+          <button type="button" onClick={() => setTeamMapOpen((o) => !o)}
+            style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '14px 18px', background: teamMapOpen ? zoneTheme.deep : '#fff', color: teamMapOpen ? '#fff' : '#0f172a', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+            <span style={{ fontSize: 16, fontWeight: 800 }}>🗺️ Team Harvesting Map — where your reps are working</span>
+            <span style={{ fontSize: 13, fontWeight: 700, opacity: 0.85 }}>{teamMapOpen ? '▲ hide' : '▼ show'}</span>
+          </button>
+          {teamMapOpen && (
+            <div style={{ padding: '14px 16px 18px' }}>
+              <ManagerHarvestMap token={token} theme={zoneTheme} />
+            </div>
+          )}
         </section>
 
         {/* ─────────── Assign Appointments (setter bookings → pick a rep) ─────────── */}
