@@ -135,6 +135,52 @@ function orderStops(start, stops) {
   return out;
 }
 
+// Order stops by REAL DRIVING distance (the road network), not straight line. This
+// is what makes a single-entrance subdivision get worked in ONE pass: by air its
+// streets sit near each other and near the outside, so a crow-flies route hops in and
+// out of it; by ROAD every interior stop is far from the outside (you can only get in
+// one way) but close to its neighbours, so they cluster and stay together.
+// Uses OSRM's table service — the same public router the turn-by-turn line already
+// hits — to get an NxN driving-time matrix, then nearest-neighbour + 2-opt on it.
+// Returns null on ANY failure (server down, rate-limited, too many stops) so the
+// caller keeps the instant street-by-street order as a fallback.
+async function roadOrder(start, stops) {
+  const n = stops.length;
+  if (n < 3 || n > 90) return null; // tiny routes don't need it; the table server caps ~100 coords
+  const pts = [start, ...stops.map((p) => ({ lat: p.latitude, lng: p.longitude }))];
+  const coords = pts.map((p) => `${p.lng},${p.lat}`).join(";");
+  try {
+    const res = await fetch(`https://router.project-osrm.org/table/v1/driving/${coords}?annotations=duration`);
+    const j = await res.json();
+    if (j.code !== "Ok" || !Array.isArray(j.durations)) return null;
+    const D = j.durations, N = pts.length;
+    const val = (a, b) => (D[a] && D[a][b] != null ? D[a][b] : Infinity);
+    // Nearest-neighbour from the start point (index 0).
+    const used = new Array(N).fill(false); used[0] = true;
+    let cur = 0; const seq = [0];
+    for (let k = 1; k < N; k++) {
+      let best = -1, bd = Infinity;
+      for (let j2 = 1; j2 < N; j2++) if (!used[j2] && val(cur, j2) < bd) { bd = val(cur, j2); best = j2; }
+      if (best < 0) for (let j2 = 1; j2 < N; j2++) if (!used[j2]) { best = j2; break; } // unreachable → append
+      used[best] = true; seq.push(best); cur = best;
+    }
+    // 2-opt on the driving matrix to iron out the remaining crossings.
+    let improved = true, pass = 0;
+    while (improved && pass < 10) {
+      improved = false; pass++;
+      for (let i = 1; i < seq.length - 1; i++) {
+        for (let k = i + 1; k < seq.length; k++) {
+          const A = seq[i - 1], B = seq[i], C = seq[k], E = k + 1 < seq.length ? seq[k + 1] : null;
+          const before = val(A, B) + (E != null ? val(C, E) : 0);
+          const after = val(A, C) + (E != null ? val(B, E) : 0);
+          if (after + 1e-6 < before) { let lo = i, hi = k; while (lo < hi) { const t = seq[lo]; seq[lo] = seq[hi]; seq[hi] = t; lo++; hi--; } improved = true; }
+        }
+      }
+    }
+    return seq.slice(1).map((idx) => stops[idx - 1]);
+  } catch { return null; }
+}
+
 // Fields the map needs per pin (status_log is left out — heavy + unused here).
 // LITE = everything needed to PLACE a pin + drive the route/actions (identity,
 // contact, geo, status). Deliberately drops the heavy fields — chiefly `extra`
@@ -473,6 +519,9 @@ export default function CanvassMap() {
   const [startPt, setStartPt] = useState(savedDay?.startPt || null);    // {lat,lng} the route starts from
   const [route, setRoute] = useState(() => savedDay?.route || []);      // ordered stops (nearest-first)
   const [stopIdx, setStopIdx] = useState(savedDay ? Math.min(savedDay.stopIdx || 0, savedDay.route.length - 1) : 0);
+  const [optimizing, setOptimizing] = useState(false); // fetching the road-distance order in the background
+  const routeGen = useRef(0);                          // bumps on every new base route; a stale road-order result won't apply
+  const stopIdxRef = useRef(0);                        // current stop index, for the road-order guard (don't reshuffle after they've started)
   const [myLoc, setMyLoc] = useState(null);            // live GPS (always on while the map is open)
   const [selecting, setSelecting] = useState(false);   // drawing a box to route the doors inside it
   const [zoomHint, setZoomHint] = useState(false);     // tapped Start/Route while zoomed out (clusters, no pins)
@@ -980,6 +1029,7 @@ export default function CanvassMap() {
   // Order the on-screen prospect pins nearest-first from a start point (the
   // rep's location or a tapped spot), then walk them one stop at a time.
   useEffect(() => { choosingRef.current = dayMode === "choosing"; activeDayRef.current = dayMode !== null; }, [dayMode]);
+  useEffect(() => { stopIdxRef.current = stopIdx; }, [stopIdx]);
   // Persist the in-progress route so a refresh / lost signal keeps it. Cleared
   // when the day ends (dayMode → null via "start over" / finishing the route).
   useEffect(() => {
@@ -1330,6 +1380,22 @@ export default function CanvassMap() {
     return orderStops(start, rem);
   }
 
+  // The instant street-by-street route (buildRoute) shows immediately; then this
+  // quietly re-orders it by REAL driving distance and swaps in the better order. It's
+  // guarded so a slow result can't reshuffle the day out from under the rep: it only
+  // applies if no newer route replaced this one (routeGen) AND they haven't started
+  // working yet (still on stop 1). Same pins, just a smarter order — ids unchanged.
+  async function optimizeByRoad(start, baseStops) {
+    if (!start || !baseStops || baseStops.length < 3) return;
+    const gen = ++routeGen.current;
+    setOptimizing(true);
+    const better = await roadOrder(start, baseStops);
+    if (routeGen.current === gen) setOptimizing(false);
+    if (!better || routeGen.current !== gen || stopIdxRef.current !== 0) return;
+    setRoute(better);
+    if (map.current && better[0]) map.current.setView([better[0].latitude, better[0].longitude], Math.max(map.current.getZoom(), 15));
+  }
+
   // Tapped Start/Route while zoomed out (only clusters loaded, no pins to route) —
   // flash a hint to zoom in instead of silently doing nothing.
   function nudgeZoom() { setZoomHint(true); clearTimeout(zoomHintTimer.current); zoomHintTimer.current = setTimeout(() => setZoomHint(false), 2600); }
@@ -1360,6 +1426,7 @@ export default function CanvassMap() {
     workingRef.current = new Set(r.map((p) => p.id));
     setStartPt(start); setRoute(r); setStopIdx(0); setRound(1); setResolvedIds(new Set()); setDayMode("active"); setFillOffer(null);
     if (r[0]) m.setView([r[0].latitude, r[0].longitude], 16);
+    optimizeByRoad(start, r); // refine to real driving order in the background
     // A short box (e.g. a sparse IQ area) isn't a full day — pull No-sit-reschedule
     // pins near the box and offer to top it up to a full day, same as Start my day.
     const c = b.getCenter(), FR = 0.8;
@@ -1389,6 +1456,7 @@ export default function CanvassMap() {
     // Round 1's stops ARE the day's working set — later rounds only recycle these.
     workingRef.current = new Set(r.map((p) => p.id));
     setStartPt(pt); setRoute(r); setStopIdx(0); setRound(1); setResolvedIds(new Set()); setDayMode("active");
+    optimizeByRoad(pt, r); // refine to real driving order in the background
     // Fill pool: pull a WIDE (~55 mi) net of No-sit-reschedule pins around the
     // start straight from Supabase — so an IQ day can fill up with no-sits even
     // when few are inside the tighter route-loading box.
@@ -1458,6 +1526,7 @@ export default function CanvassMap() {
     const r = buildRoute(from, left, routeCap(left));
     setStartPt(from); setRoute(r); setStopIdx(0); setRound((n) => n + 1); setDayMode("active"); setFillOffer(null);
     if (map.current) map.current.setView([r[0].latitude, r[0].longitude], 15);
+    optimizeByRoad(from, r); // refine to real driving order in the background
   }
   // "Re-route from here" — the rep has drifted and the remaining order no longer
   // matches where they're standing. Take every door still left to work today and
@@ -1474,6 +1543,7 @@ export default function CanvassMap() {
       if (!r.length) return;
       setStartPt(from); setRoute(r); setStopIdx(0); setDayMode("active"); setFillOffer(null);
       if (map.current) map.current.setView([r[0].latitude, r[0].longitude], 16);
+      optimizeByRoad(from, r); // refine to real driving order in the background
     };
     const fallback = () => apply(myLoc || (route[stopIdx] ? { lat: route[stopIdx].latitude, lng: route[stopIdx].longitude } : startPt));
     if (navigator.geolocation) {
@@ -1640,7 +1710,7 @@ export default function CanvassMap() {
     }
   }
 
-  function startOver() { navLayer.current?.clearLayers(); setDayMode(null); setStartPt(null); setRoute([]); setStopIdx(0); setRound(1); setResolvedIds(new Set()); workingRef.current = new Set(); setPanelPos(null); setSigningStop(null); setFillOffer(null); setEditingRoute(false); }
+  function startOver() { routeGen.current++; setOptimizing(false); navLayer.current?.clearLayers(); setDayMode(null); setStartPt(null); setRoute([]); setStopIdx(0); setRound(1); setResolvedIds(new Set()); workingRef.current = new Set(); setPanelPos(null); setSigningStop(null); setFillOffer(null); setEditingRoute(false); }
   // Drop a stop the rep doesn't want to drive to (e.g. it's across the bay). Keeps
   // the current stop stable and re-numbers the rest; the map line redraws.
   function removeStop(id) {
@@ -2085,7 +2155,7 @@ export default function CanvassMap() {
                 return (
                 <>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                    <span style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", color: "#16a34a" }}>{round > 1 ? `Round ${round} · ` : ""}Stop {stopIdx + 1} of {route.length}</span>
+                    <span style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", color: "#16a34a" }}>{round > 1 ? `Round ${round} · ` : ""}Stop {stopIdx + 1} of {route.length}{optimizing ? <span style={{ color: "#94a3b8", fontWeight: 700 }}> · 🛣️ optimizing…</span> : null}</span>
                     <button type="button" onClick={() => setEditingRoute(true)} style={{ background: "none", border: "none", fontSize: 12.5, fontWeight: 700, color: "#1d4ed8", cursor: "pointer" }}>✏️ Edit route</button>
                   </div>
                   {/* One tap re-orders whatever's left from where the rep is standing —
