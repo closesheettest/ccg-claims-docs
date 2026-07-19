@@ -190,7 +190,7 @@ async function roadOrder(start, stops) {
 // from the ACTUAL time, so finishing early (or a quick no-sit) adds doors and running
 // long trims them. Pins are picked for being ON THE WAY (least detour to the next
 // appt) and ordered street-by-street. Returns pins + appt "anchor" stops interleaved.
-const APLAN = { MIN_PER_DOOR: 8, SPEED_MPH: 30, BUFFER_MIN: 10, WINDOW_MIN: 120, MAX_DETOUR_MI: 3, TAIL_CAP: 40, TAIL_RADIUS_MI: 12 };
+const APLAN = { MIN_PER_DOOR: 8, SPEED_MPH: 30, BUFFER_MIN: 10, WINDOW_MIN: 120, MAX_DETOUR_MI: 6, TAIL_CAP: 40, TAIL_RADIUS_MI: 25 };
 function apptAnchor(a) {
   return { id: `appt_${a.jn_job_id}`, latitude: a.lat, longitude: a.lng, name: a.name, address: a.address, status: "appt_anchor", isAppt: true, _appt: { at_ms: a.at_ms, jn_job_id: a.jn_job_id } };
 }
