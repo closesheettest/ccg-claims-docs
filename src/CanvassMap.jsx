@@ -682,7 +682,11 @@ export default function CanvassMap() {
   // Test tools show on any ?test= link AND on the office/admin map (so admin can try
   // Smart Scheduling right from "VIEW AS Sr/Jr" without a special URL).
   const isAdminLink = useMemo(() => { try { return !!new URLSearchParams(window.location.search).get("admin"); } catch { return false; } }, []);
-  const testMode = !!testParam || isAdminLink;
+  // Practice/demo mode (?demo=1) — for managers to explore the tools. Opens with no
+  // token, real pins, but NOTHING is saved (writes are no-ops) and the distance gate is
+  // off so they can tap through the flow. Turns on the test harness too (test appts).
+  const demoMode = useMemo(() => { try { return new URLSearchParams(window.location.search).get("demo") === "1"; } catch { return false; } }, []);
+  const testMode = !!testParam || isAdminLink || demoMode;
   const testLevel = testParam === "sr" ? "senior" : testParam === "jr" ? "junior" : null;
   const [testAppts, setTestAppts] = useState([]);
   const [addingTestAppt, setAddingTestAppt] = useState(false);
@@ -820,16 +824,24 @@ export default function CanvassMap() {
   async function load(bounds) {
     setLoading(true);
     try {
-      // 1) Resolve auth/level once (tiny call).
+      // 1) Resolve auth/level once (tiny call). Demo mode skips it — a synthetic
+      // admin-level "Practice" user (pin types pulled straight from the config table).
       if (!authInfo.current) {
-        const qs = auth.admin ? `admin=${encodeURIComponent(auth.admin)}` : `rt=${encodeURIComponent(auth.rt)}`;
-        const r = await fetch(`/.netlify/functions/harvest-pins?${qs}&authonly=1`);
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok || !j.ok) { setAuthError(j.error || "Couldn't load your Harvesting Map."); setLoading(false); return []; }
-        setAuthError("");
-        setMe(j.rep || null);
-        if (Array.isArray(j.pin_types) && j.pin_types.length) setPinTypes(j.pin_types);
-        authInfo.current = { rep: j.rep || {}, pin_types: j.pin_types || [] };
+        if (demoMode) {
+          const { data: pt } = await supabase.from("harvest_pin_types").select("*").order("sort");
+          setAuthError(""); setMe({ name: "Practice", level: "admin" });
+          if (pt?.length) setPinTypes(pt);
+          authInfo.current = { rep: { name: "Practice", level: "admin" }, pin_types: pt || [] };
+        } else {
+          const qs = auth.admin ? `admin=${encodeURIComponent(auth.admin)}` : `rt=${encodeURIComponent(auth.rt)}`;
+          const r = await fetch(`/.netlify/functions/harvest-pins?${qs}&authonly=1`);
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok || !j.ok) { setAuthError(j.error || "Couldn't load your Harvesting Map."); setLoading(false); return []; }
+          setAuthError("");
+          setMe(j.rep || null);
+          if (Array.isArray(j.pin_types) && j.pin_types.length) setPinTypes(j.pin_types);
+          authInfo.current = { rep: j.rep || {}, pin_types: j.pin_types || [] };
+        }
       }
       const { rep, pin_types } = authInfo.current;
       const lvl = rep && rep.level;
@@ -1146,6 +1158,7 @@ export default function CanvassMap() {
   // Delete a door the rep self-generated (server verifies it's theirs + self-gen).
   async function deletePin() {
     if (!selected) return;
+    if (demoMode) { alert("🧪 Practice mode — nothing is deleted here."); return; }
     if (!window.confirm(`Delete this self-generated door${selected.address ? ` — ${selected.address}` : ""}? This can't be undone.`)) return;
     const id = selected.id;
     try {
@@ -1168,6 +1181,13 @@ export default function CanvassMap() {
     const entry = { at: nowIso, from: p.status, to: newStatus, by: repName || "rep" };
     const log = Array.isArray(p.status_log) ? [...p.status_log, entry] : [entry];
     const patch = { status: newStatus, status_updated_at: nowIso, status_by: repName || null, status_log: log };
+    // Practice mode: update the pin on-screen so they see the flow, but save nothing.
+    if (demoMode) {
+      setResolvedIds((s) => new Set(s).add(p.id));
+      setProspects((list) => list.map((x) => (x.id === p.id ? { ...x, ...patch } : x)));
+      setSelected((s) => (s && s.id === p.id ? { ...s, ...patch } : s));
+      return true;
+    }
     const { error } = await supabase.from("canvass_prospects").update(patch).eq("id", p.id);
     if (error) { alert(error.message); return false; }
     logActivity({ pin_id: p.id, kind: "status", from_status: p.status, to_status: newStatus, ...locAudit(p) });
@@ -1199,6 +1219,7 @@ export default function CanvassMap() {
   // exist and the insert would 400 — so on that error we retry WITHOUT them, keeping
   // basic reporting alive until the office runs the SQL.
   function logActivity(row) {
+    if (demoMode) return; // practice mode logs nothing
     try {
       const full = { rep_name: repName || null, rep_token: auth.rt || null, round, ...row };
       supabase.from("canvass_activity").insert(full).then(({ error }) => {
@@ -1984,9 +2005,9 @@ export default function CanvassMap() {
   async function workStop(outcome) {
     const stop = route[stopIdx];
     if (!stop) return;
-    // Real leads: "Appt" opens the booking flow (creates the JobNimbus appt).
-    // Test pins have no real homeowner/job, so their "Appt" just sets the status.
-    if (outcome === "appt" && stop.status !== "test") { setApptPin(await hydratePin(stop)); return; }
+    // Real leads: "Appt" opens the booking flow (creates the JobNimbus appt). Test
+    // pins / practice mode just set the status (no real homeowner/job to book).
+    if (outcome === "appt" && stop.status !== "test" && !demoMode) { setApptPin(await hydratePin(stop)); return; }
     logActivity({ pin_id: stop.id, kind: "visit", to_status: outcome === "nothome" ? "not_home" : outcome, ...locAudit(stop) });
     if (outcome !== "nothome") {
       const ok = await setStatus(stop, outcome);
@@ -2001,6 +2022,7 @@ export default function CanvassMap() {
   // passed too so the intake never re-runs the address lookup on a known address.
   function signInspection(stop, opts = {}) {
     if (!stop) return;
+    if (demoMode) { alert("🧪 Practice mode — signing opens the real intake, so it's turned off here. Everything else you can try freely."); return; }
     const p = new URLSearchParams({ intake: "1", harvest_pin: String(stop.id) });
     if (stop.name) p.set("name", stop.name);
     if (stop.phone) p.set("phone", stop.phone);
@@ -2204,6 +2226,11 @@ export default function CanvassMap() {
 
   return (
     <div style={{ position: "fixed", inset: 0, display: "flex", flexDirection: "column", fontFamily: FONT, background: "#f1f5f9" }}>
+      {demoMode && (
+        <div style={{ background: "#7c3aed", color: "#fff", textAlign: "center", padding: "6px 12px", fontSize: 12.5, fontWeight: 800, letterSpacing: "0.02em" }}>
+          🧪 PRACTICE MODE — try anything, nothing you do here is saved. Real pins, no real changes.
+        </div>
+      )}
       {/* Header */}
       <div style={{ padding: "10px 14px", background: "#0f172a", color: "#fff", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <div style={{ fontWeight: 800, fontSize: 16, fontFamily: "'Oswald', sans-serif", letterSpacing: "0.02em" }}>🌾 Harvesting Map</div>
@@ -2624,7 +2651,7 @@ export default function CanvassMap() {
                 // either a mis-located pin or someone statusing from the couch, so it
                 // shouldn't get the easy one-tap bypass.
                 const gpsUnsure = myLoc == null || myLoc.acc == null || myLoc.acc > 150;
-                const near = ignoreDist || gpsNear || manualHere === stop.id;
+                const near = ignoreDist || demoMode || gpsNear || manualHere === stop.id;
                 // Genuinely at the stop: once here, directions are turned off until
                 // they STATUS this stop — statusing advances to the next stop.
                 const arrived = gpsNear || manualHere === stop.id;
@@ -2727,7 +2754,7 @@ export default function CanvassMap() {
                   {/* Homeowner declined the inspection but wants a retail appt —
                       book it right from the route stop (same as the pin sheet). */}
                   {stop.status === "insp" && (
-                    <button type="button" disabled={!near} onClick={() => near && setBtrPin(stop)}
+                    <button type="button" disabled={!near} onClick={() => near && (demoMode ? alert("🧪 Practice mode — booking is off here.") : setBtrPin(stop))}
                       style={{ marginTop: 8, width: "100%", padding: "11px", borderRadius: 11, fontSize: 13.5, fontWeight: 800, cursor: near ? "pointer" : "not-allowed",
                         border: `2px solid ${near ? "#b45309" : "#e5e7eb"}`, background: near ? "#fff7ed" : "#fff", color: near ? "#b45309" : "#cbd5e1" }}>
                       🏠 BTR appt — homeowner wants retail
@@ -3021,7 +3048,7 @@ export default function CanvassMap() {
                         const on = selected.status === s.key;
                         return (
                           <button key={s.key} type="button"
-                            onClick={() => s.key === "appt" ? setApptPin(selected) : s.key === "insp_sold" ? signInspection(selected) : setStatus(selected, s.key)}
+                            onClick={() => s.key === "appt" ? (demoMode ? setStatus(selected, "appt") : setApptPin(selected)) : s.key === "insp_sold" ? signInspection(selected) : setStatus(selected, s.key)}
                             style={{ padding: "9px 14px", borderRadius: 10, fontSize: 13.5, fontWeight: 700, cursor: "pointer",
                               border: on ? `2px solid ${s.color}` : "1px solid #e5e7eb",
                               background: on ? s.color : "#fff", color: on ? "#fff" : "#334155" }}>
@@ -3031,7 +3058,7 @@ export default function CanvassMap() {
                       })}
                     </div>
                     {selected.status === "insp" && (
-                      <button type="button" onClick={() => setBtrPin(selected)}
+                      <button type="button" onClick={() => demoMode ? alert("🧪 Practice mode — booking is off here.") : setBtrPin(selected)}
                         style={{ marginTop: 10, padding: "10px 16px", borderRadius: 10, fontSize: 13.5, fontWeight: 800, cursor: "pointer",
                           border: "2px solid #b45309", background: "#fff7ed", color: "#b45309" }}>
                         🏠 BTR appt — homeowner wants retail
