@@ -10,6 +10,7 @@ const TABS = [
   { key: "types", label: "🎛️ Pin Types", href: "/?mode=harvestadmin" },
   { key: "jnsync", label: "🔄 JN Sync", href: "/?mode=harvestjnsync" },
   { key: "report", label: "📊 Reports", href: "/?mode=harvestreport" },
+  { key: "training", label: "🎓 Training", href: "/?mode=harvesttrainingadmin" },
 ];
 
 export default function HarvestNav({ active }) {

@@ -21,6 +21,7 @@ import HarvestAdmin from "./HarvestAdmin";
 import HarvestUpload from "./HarvestUpload";
 import HarvestLinks from "./HarvestLinks";
 import HarvestReport from "./HarvestReport";
+import HarvestTrainingAdmin from "./HarvestTrainingAdmin";
 import HarvestJnSync from "./HarvestJnSync";
 
 // Open the Harvesting Map as the OFFICE (all pins) — fetches the view-all token
@@ -9435,6 +9436,10 @@ export default function App() {
     // ?mode=harvestreport — office rep-activity report (visits, rounds, outcomes).
     if (portalMode === "harvestreport") {
       return <HarvestReport />;
+    }
+    // ?mode=harvesttrainingadmin — office authoring for the tool-training lessons/tests.
+    if (portalMode === "harvesttrainingadmin") {
+      return <HarvestTrainingAdmin />;
     }
     // ?mode=harvestjnsync — office page to configure the JobNimbus → Map sync
     // filters (IQ pins by created date, No-sit pins by appointment date).
