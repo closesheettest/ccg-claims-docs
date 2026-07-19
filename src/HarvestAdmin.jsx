@@ -20,6 +20,8 @@ export default function HarvestAdmin() {
   const [radiusBusy, setRadiusBusy] = useState(false);
   const [mgrMap, setMgrMap] = useState(true);     // regional-manager team map on/off
   const [mgrBusy, setMgrBusy] = useState(false);
+  const [smartSched, setSmartSched] = useState(true); // Smart Scheduling on/off
+  const [smartBusy, setSmartBusy] = useState(false);
 
   const load = async () => {
     const { data, error } = await supabase.from("harvest_pin_types").select("*").order("sort");
@@ -32,7 +34,15 @@ export default function HarvestAdmin() {
       .then(({ data }) => { const n = Number(data?.value); if (Number.isFinite(n) && n > 0) setRadius(n); });
     supabase.from("app_settings").select("value").eq("key", "harvest_manager_map_enabled").maybeSingle()
       .then(({ data }) => { if (data) setMgrMap(String(data.value) !== "false"); });
+    supabase.from("app_settings").select("value").eq("key", "harvest_smart_scheduling_enabled").maybeSingle()
+      .then(({ data }) => { if (data) setSmartSched(String(data.value) !== "false"); });
   }, []);
+  const saveSmartSched = async (next) => {
+    setSmartSched(next); setSmartBusy(true); setMsg(null);
+    const { error } = await supabase.from("app_settings").upsert({ key: "harvest_smart_scheduling_enabled", value: next ? "true" : "false" }, { onConflict: "key" });
+    setSmartBusy(false);
+    setMsg(error ? { err: error.message } : { ok: `Smart Scheduling turned ${next ? "ON" : "OFF"}.` });
+  };
   const saveRadius = async () => {
     setRadiusBusy(true); setMsg(null);
     const { error } = await supabase.from("app_settings").upsert({ key: "harvest_goback_radius_mi", value: String(radius) }, { onConflict: "key" });
@@ -115,6 +125,20 @@ export default function HarvestAdmin() {
         <button type="button" onClick={() => saveMgrMap(!mgrMap)} disabled={mgrBusy} title={mgrMap ? "On — tap to turn off" : "Off — tap to turn on"}
           style={{ flexShrink: 0, width: 62, height: 32, borderRadius: 999, border: "none", cursor: mgrBusy ? "default" : "pointer", background: mgrMap ? "#16a34a" : "#cbd5e1", position: "relative", opacity: mgrBusy ? 0.6 : 1, transition: "background .15s" }}>
           <span style={{ position: "absolute", top: 3, left: mgrMap ? 33 : 3, width: 26, height: 26, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,.3)", transition: "left .15s" }} />
+        </button>
+      </div>
+
+      {/* Smart Scheduling — company on/off (shut it off if it needs tweaking). */}
+      <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, marginBottom: 16, background: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 800 }}>🧠 Smart Scheduling</div>
+          <div style={{ fontSize: 12.5, color: "#64748b", marginTop: 3 }}>
+            Lets reps <b>plan their day around their appointments</b> — the map fills the gaps before/between/after appts with doors that fit the clock. Turn off to hide it from <b>all</b> reps while it's being tuned.
+          </div>
+        </div>
+        <button type="button" onClick={() => saveSmartSched(!smartSched)} disabled={smartBusy} title={smartSched ? "On — tap to turn off" : "Off — tap to turn on"}
+          style={{ flexShrink: 0, width: 62, height: 32, borderRadius: 999, border: "none", cursor: smartBusy ? "default" : "pointer", background: smartSched ? "#7c3aed" : "#cbd5e1", position: "relative", opacity: smartBusy ? 0.6 : 1, transition: "background .15s" }}>
+          <span style={{ position: "absolute", top: 3, left: smartSched ? 33 : 3, width: 26, height: 26, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,.3)", transition: "left .15s" }} />
         </button>
       </div>
 

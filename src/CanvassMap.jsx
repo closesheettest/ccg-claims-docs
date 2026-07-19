@@ -252,6 +252,17 @@ function hmToMsToday(hm) {
   const d = new Date(); d.setHours(Number(m[1]) || 0, Number(m[2]) || 0, 0, 0);
   return d.getTime();
 }
+// Lenient time parse for the test-appt prompt: "2:00 PM", "2pm", "14:00" → today ms.
+function parseTimeToday(str) {
+  const m = /^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/.exec(String(str || "").trim().toLowerCase());
+  if (!m) return 0;
+  let h = Number(m[1]); const min = Number(m[2] || 0), ap = m[3];
+  if (ap === "pm" && h < 12) h += 12;
+  if (ap === "am" && h === 12) h = 0;
+  if (h > 23 || min > 59) return 0;
+  const d = new Date(); d.setHours(h, min, 0, 0);
+  return d.getTime();
+}
 
 // Short date / time for the pin's visit-history timeline (e.g. "7/18" · "2:14 PM").
 function fmtMD(iso) { try { return new Date(iso).toLocaleDateString("en-US", { month: "numeric", day: "numeric" }); } catch { return ""; } }
@@ -613,9 +624,20 @@ export default function CanvassMap() {
   const [showApptPlan, setShowApptPlan] = useState(false);   // start/end time sheet before building the appt plan
   const [planStartHM, setPlanStartHM] = useState("");        // "HH:MM" the day starts (default now)
   const [planEndHM, setPlanEndHM] = useState("20:00");       // "HH:MM" the day ends (default 8 PM)
+  const [smartSchedEnabled, setSmartSchedEnabled] = useState(true); // company on/off (app_settings.harvest_smart_scheduling_enabled)
   const apptPoolRef = useRef([]);                      // the pin pool the appt plan drew from (for re-planning on "Appt done")
   const apptListRef = useRef([]);                      // today's appts (for re-planning)
   const apptEndRef = useRef(0);                        // end-of-day ms, reused by the "Appt done" re-plan
+  // Test harness (?test=sr|jr): drop fake appts on the map to see Smart Scheduling
+  // build a plan, at senior or junior pin visibility, without touching real JN appts.
+  const testParam = useMemo(() => { try { return new URLSearchParams(window.location.search).get("test"); } catch { return null; } }, []);
+  const testMode = !!testParam;
+  const testLevel = testParam === "sr" ? "senior" : testParam === "jr" ? "junior" : null;
+  const [testAppts, setTestAppts] = useState([]);
+  const [addingTestAppt, setAddingTestAppt] = useState(false);
+  const addingTestApptRef = useRef(false);
+  const testApptRef = useRef(null);
+  const testApptLayer = useRef(null);
   const [myLoc, setMyLoc] = useState(null);            // live GPS (always on while the map is open)
   const [selecting, setSelecting] = useState(false);   // drawing a box to route the doors inside it
   const [zoomHint, setZoomHint] = useState(false);     // tapped Start/Route while zoomed out (clusters, no pins)
@@ -886,6 +908,7 @@ export default function CanvassMap() {
     map.current = m;
     // "Start my day": while choosing a start point, a map tap starts the route there.
     m.on("click", (e) => {
+      if (addingTestApptRef.current && testApptRef.current) { testApptRef.current({ lat: e.latlng.lat, lng: e.latlng.lng }); return; }
       if (addingRef.current && dropPinRef.current) { dropPinRef.current({ lat: e.latlng.lat, lng: e.latlng.lng }); return; }
       if (choosingRef.current && startFromRef.current) { startFromRef.current({ lat: e.latlng.lat, lng: e.latlng.lng }); return; }
       // Tap empty map to dismiss an open pin/install/visit info sheet. (Marker
@@ -897,6 +920,7 @@ export default function CanvassMap() {
     newPinLayer.current = L.layerGroup().addTo(m);
     visitsLayer.current = L.layerGroup().addTo(m);
     workedLayer.current = L.layerGroup().addTo(m);
+    testApptLayer.current = L.layerGroup().addTo(m);
     // Viewport loading — reload the pins in view whenever the map settles (debounced).
     m.on("moveend", () => {
       // Skip refetch when we already hold every pin, while a day is in progress
@@ -1529,6 +1553,21 @@ export default function CanvassMap() {
     });
   }, [dayMode, route, stopIdx, startPt, routeGeom]);
 
+  // Draw the dropped TEST appts (test harness) with their time, until a plan is built.
+  useEffect(() => {
+    const lyr = testApptLayer.current; if (!lyr) return;
+    lyr.clearLayers();
+    if (dayMode === "active") return; // once planned, the route markers take over
+    testAppts.forEach((a, i) => {
+      const icon = L.divIcon({
+        className: "test-appt",
+        html: `<div style="display:flex;flex-direction:column;align-items:center;transform:translateY(-6px)"><div style="background:#7c3aed;color:#fff;font-size:10px;font-weight:800;padding:1px 6px;border-radius:8px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.4);margin-bottom:2px">🧪 #${i + 1} · ${apptTimeLabel(a.at_ms)}</div><div style="width:26px;height:26px;border-radius:50% 50% 50% 2px;transform:rotate(45deg);background:#7c3aed;border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.5)"><div style="transform:rotate(-45deg);color:#fff;font-size:12px;text-align:center;line-height:24px">📅</div></div></div>`,
+        iconSize: [1, 1], iconAnchor: [0, 12],
+      });
+      L.marker([a.lat, a.lng], { icon, zIndexOffset: 1600 }).addTo(lyr);
+    });
+  }, [testAppts, dayMode]);
+
   function buildRoute(start, pins, cap, skipRadius) {
     const routable = pins.filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number" && !nonRoutableStatuses.has(p.status)
       && (skipRadius || feetBetween(start, { lat: p.latitude, lng: p.longitude }) / 5280 <= MAX_ROUTE_MI)); // within 25 mi of the start (unless the box already bounded them)
@@ -1656,10 +1695,21 @@ export default function CanvassMap() {
     if (map.current) map.current.setView([r[0].latitude, r[0].longitude], 15);
   }
 
+  // ── Test harness: drop fake appts on the map (?test=sr|jr) ─────────────────
+  function dropTestAppt(pt) {
+    setAddingTestAppt(false);
+    const t = window.prompt("Test appointment time today (e.g. 2:00 PM or 14:00):", "2:00 PM");
+    if (t == null) return;
+    const at_ms = parseTimeToday(t);
+    if (!at_ms) { alert("Couldn't read that time — try like “2:00 PM” or “14:00”."); return; }
+    setTestAppts((list) => [...list, { jn_job_id: `test_${Date.now()}_${list.length}`, name: `Test appt ${list.length + 1}`, address: "Test appointment", lat: pt.lat, lng: pt.lng, at_ms }]);
+  }
+  testApptRef.current = dropTestAppt;
+
   // ── Plan the day around today's appointments ───────────────────────────────
   // Open the little "start / end time" sheet, defaulting start to NOW and end to 8 PM.
   function openApptPlan() {
-    if (!auth.rt) return;
+    if (!auth.rt && !testMode) return;
     const d = new Date();
     setPlanStartHM(`${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`);
     setShowApptPlan(true);
@@ -1667,17 +1717,19 @@ export default function CanvassMap() {
   // Pull the rep's appts (time + location), then weave door-knocking into the gaps
   // (buildApptPlan) between their chosen start and end times. Appts are anchor stops.
   async function planAroundAppts() {
-    if (!auth.rt || planningAppts) return;
+    if ((!auth.rt && !testMode) || planningAppts) return;
     const startMs = hmToMsToday(planStartHM) || Date.now();
     let endMs = hmToMsToday(planEndHM) || (startMs + 8 * 3600000);
     if (endMs <= startMs) endMs = startMs + 3600000; // guard against end ≤ start
     setPlanningAppts(true);
     try {
-      const j = await (await fetch(`/.netlify/functions/harvest-today-appts?rt=${encodeURIComponent(auth.rt)}`)).json().catch(() => ({}));
-      const appts = (j.appts || [])
+      // Test harness uses the fake appts dropped on the map; otherwise pull today's from JN.
+      let raw = testAppts;
+      if (!raw.length) raw = ((await (await fetch(`/.netlify/functions/harvest-today-appts?rt=${encodeURIComponent(auth.rt || "")}`)).json().catch(() => ({}))).appts) || [];
+      const appts = raw
         .filter((a) => typeof a.lat === "number" && typeof a.lng === "number" && a.at_ms >= startMs - 30 * 60000)
         .sort((a, b) => a.at_ms - b.at_ms);
-      if (!appts.length) { setPlanningAppts(false); alert("No upcoming appointments for today (that we can place on the map). Book appts first, then plan around them."); return; }
+      if (!appts.length) { setPlanningAppts(false); alert(testMode ? "No test appts ahead of your start time — drop some with “Add test appt” (and set times after your start)." : "No upcoming appointments for today (that we can place on the map). Book appts first, then plan around them."); return; }
       const start = myLoc || { lat: appts[0].lat, lng: appts[0].lng };
       // Load a generous box around the rep + every appt so the plan has pins to fill with.
       const lats = [start.lat, ...appts.map((a) => a.lat)], lngs = [start.lng, ...appts.map((a) => a.lng)];
@@ -2034,12 +2086,18 @@ export default function CanvassMap() {
       .catch(() => { /* RPC not created yet → keep loadedCounts */ });
     return () => { live = false; };
   }, []);
-  // Admin-tunable go-back route radius (miles). Set on the Pin Types admin page.
+  // Admin-tunable go-back route radius (miles) + Smart Scheduling on/off. Pin Types admin page.
   useEffect(() => {
     supabase.from("app_settings").select("value").eq("key", "harvest_goback_radius_mi").maybeSingle()
       .then(({ data }) => { const n = Number(data?.value); if (Number.isFinite(n) && n > 0) setGobackRadiusMi(n); })
       .catch(() => { /* keep default 5 */ });
+    supabase.from("app_settings").select("value").eq("key", "harvest_smart_scheduling_enabled").maybeSingle()
+      .then(({ data }) => { if (data) setSmartSchedEnabled(String(data.value) !== "false"); })
+      .catch(() => { /* keep default on */ });
   }, []);
+  // Test link ?test=sr|jr → preview at that rep level.
+  useEffect(() => { if (testLevel) setViewAs(testLevel); }, [testLevel]);
+  useEffect(() => { addingTestApptRef.current = addingTestAppt; }, [addingTestAppt]);
   const counts = dbCounts || loadedCounts;
   const notMapped = prospects.length - mapped.length;
 
@@ -2207,16 +2265,28 @@ export default function CanvassMap() {
             ▢ Route an area
           </button>
         )}
-        {/* Plan around my appts — reps only (appts are per-rep). */}
-        {dayMode === null && !selecting && auth.rt && (
+        {/* Smart Scheduling — plan the day around appts (reps, or a ?test= link). */}
+        {dayMode === null && !selecting && (auth.rt || testMode) && smartSchedEnabled && (
           <button type="button" onClick={openApptPlan}
             style={{ position: "absolute", left: 12, bottom: 112, zIndex: 600, background: "#7c3aed", color: "#fff", border: "none", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
-            📅 Plan around my appts
+            🧠 Smart Scheduling
           </button>
+        )}
+        {/* Test harness (?test=sr|jr): drop fake appts to see Smart Scheduling work. */}
+        {dayMode === null && !selecting && testMode && (
+          <button type="button" onClick={() => setAddingTestAppt(true)}
+            style={{ position: "absolute", left: 12, bottom: 156, zIndex: 600, background: "#f59e0b", color: "#111827", border: "none", borderRadius: 999, padding: "9px 15px", fontSize: 12.5, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
+            🧪 Add test appt{testAppts.length ? ` (${testAppts.length})` : ""}
+          </button>
+        )}
+        {addingTestAppt && (
+          <div style={{ position: "absolute", left: "50%", bottom: 200, transform: "translateX(-50%)", zIndex: 800, background: "#7c3aed", color: "#fff", borderRadius: 10, padding: "9px 15px", fontSize: 13, fontWeight: 700, boxShadow: "0 3px 14px rgba(0,0,0,.35)", whiteSpace: "nowrap" }}>
+            📅 Tap the map to drop a test appt
+          </div>
         )}
         {showApptPlan && (
           <div style={{ position: "absolute", right: 10, bottom: 14, zIndex: 700, background: "#fff", borderRadius: 14, padding: "16px 18px", boxShadow: "0 4px 18px rgba(0,0,0,.2)", width: "min(340px, 90%)" }}>
-            <div style={{ fontSize: 16, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#0f172a", marginBottom: 4 }}>📅 Plan around my appts</div>
+            <div style={{ fontSize: 16, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#0f172a", marginBottom: 4 }}>🧠 Smart Scheduling</div>
             <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 12 }}>Your appts go in in order; we fill the gaps with doors that fit before each one, then more after — until your end time.</div>
             <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
               <label style={{ flex: 1, fontSize: 12, fontWeight: 700, color: "#475569" }}>Start now / at
