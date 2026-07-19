@@ -936,7 +936,7 @@ export default function CanvassMap() {
     const patch = { status: newStatus, status_updated_at: nowIso, status_by: repName || null, status_log: log };
     const { error } = await supabase.from("canvass_prospects").update(patch).eq("id", p.id);
     if (error) { alert(error.message); return false; }
-    logActivity({ pin_id: p.id, kind: "status", from_status: p.status, to_status: newStatus });
+    logActivity({ pin_id: p.id, kind: "status", from_status: p.status, to_status: newStatus, ...locAudit(p) });
     // "Pending (come back)" records the status but stays on the go-back list.
     if (!KEEP_ROUTABLE.has(newStatus)) setResolvedIds((s) => new Set(s).add(p.id)); // statused → drops out of later rounds
     setProspects((list) => list.map((x) => (x.id === p.id ? { ...x, ...patch } : x)));
@@ -944,12 +944,35 @@ export default function CanvassMap() {
     return true;
   }
 
+  // Where the rep physically was when they logged an action, and how trustworthy the
+  // GPS was. Feeds the office report so couch-canvassing (a whole route statused from
+  // one spot) is obvious. loc_flag: 'verified' = at the door; 'gps_off' = phone had no
+  // real fix; 'far' = phone was CONFIDENT the rep was well away from the door.
+  function locAudit(pin) {
+    const accM = myLoc?.acc ?? null;
+    const d = (myLoc && pin && typeof pin.latitude === "number")
+      ? feetBetween(myLoc, { lat: pin.latitude, lng: pin.longitude }) : null;
+    const accFt = accM != null ? Math.min(accM * 3.28084, 400) : 0;
+    let flag;
+    if (d != null && d - accFt <= ARRIVE_FT) flag = "verified";
+    else if (myLoc == null || accM == null || accM > 150) flag = "gps_off";
+    else flag = "far";
+    return { lat: myLoc?.lat ?? null, lng: myLoc?.lng ?? null, acc_m: accM != null ? Math.round(accM) : null, dist_ft: d != null ? Math.round(d) : null, loc_flag: flag };
+  }
   // Log a rep action (visit / status change) for reporting. Non-blocking.
+  // The row may carry the location-audit fields (lat/lng/acc_m/dist_ft/loc_flag). If
+  // that migration (sql/harvest_location_audit.sql) hasn't run yet those columns don't
+  // exist and the insert would 400 — so on that error we retry WITHOUT them, keeping
+  // basic reporting alive until the office runs the SQL.
   function logActivity(row) {
     try {
-      supabase.from("canvass_activity")
-        .insert({ rep_name: repName || null, rep_token: auth.rt || null, round, ...row })
-        .then(() => {}, () => {});
+      const full = { rep_name: repName || null, rep_token: auth.rt || null, round, ...row };
+      supabase.from("canvass_activity").insert(full).then(({ error }) => {
+        if (error && /lat|lng|acc_m|dist_ft|loc_flag|column/i.test(error.message || "")) {
+          const { lat, lng, acc_m, dist_ft, loc_flag, ...basic } = full; // eslint-disable-line no-unused-vars
+          supabase.from("canvass_activity").insert(basic).then(() => {}, () => {});
+        }
+      }, () => {});
     } catch { /* ignore */ }
   }
 
@@ -1248,7 +1271,7 @@ export default function CanvassMap() {
     if (arrivedRef.current === key) return;
     if (feetBetween(myLoc, { lat: stop.latitude, lng: stop.longitude }) <= ARRIVE_FT) {
       arrivedRef.current = key;
-      logActivity({ pin_id: stop.id, kind: "arrival" });
+      logActivity({ pin_id: stop.id, kind: "arrival", ...locAudit(stop) });
     }
   }, [myLoc, stopIdx, dayMode, route, round]);
 
@@ -1508,7 +1531,7 @@ export default function CanvassMap() {
     // Real leads: "Appt" opens the booking flow (creates the JobNimbus appt).
     // Test pins have no real homeowner/job, so their "Appt" just sets the status.
     if (outcome === "appt" && stop.status !== "test") { setApptPin(await hydratePin(stop)); return; }
-    logActivity({ pin_id: stop.id, kind: "visit", to_status: outcome === "nothome" ? "not_home" : outcome });
+    logActivity({ pin_id: stop.id, kind: "visit", to_status: outcome === "nothome" ? "not_home" : outcome, ...locAudit(stop) });
     if (outcome !== "nothome") {
       const ok = await setStatus(stop, outcome);
       if (ok === false) return; // save failed — stay put
@@ -2041,6 +2064,12 @@ export default function CanvassMap() {
                 const accFt = myLoc?.acc != null ? Math.min(myLoc.acc * 3.28084, 400) : 0;
                 const effFt = distFt != null ? Math.max(0, distFt - accFt) : null;
                 const gpsNear = effFt != null && effFt <= ARRIVE_FT;
+                // Is the phone's own reading trustworthy? No fix, or a >150m accuracy
+                // (a cell-tower / wifi guess, not a real satellite lock) = "GPS is off".
+                // A GOOD fix that puts the rep far from the door is NOT "off" — it's
+                // either a mis-located pin or someone statusing from the couch, so it
+                // shouldn't get the easy one-tap bypass.
+                const gpsUnsure = myLoc == null || myLoc.acc == null || myLoc.acc > 150;
                 const near = ignoreDist || gpsNear || manualHere === stop.id;
                 // Genuinely at the stop: once here, directions are turned off until
                 // they STATUS this stop — statusing advances to the next stop.
@@ -2159,14 +2188,23 @@ export default function CanvassMap() {
                           ? (manualHere === stop.id ? "📍 Marked at the door — pick what happened" : "✓ You're here — pick what happened and it moves to the next stop")
                           : `~${Math.round(distFt).toLocaleString()} ft away — get within ${ARRIVE_FT} ft to log this stop`}
                   </div>
-                  {/* GPS/geocode can read a rep as far away when they're at the door.
-                      Let them confirm they're here so they're never locked out. */}
-                  {!near && distFt != null && (
-                    <button type="button" onClick={() => { setManualHere(stop.id); logActivity({ pin_id: stop.id, kind: "manual_here", to_status: stop.status }); }}
+                  {/* Two different "I'm here anyway" paths, by how sure the phone is:
+                      • GPS is genuinely off (no fix / junk accuracy) → friendly override,
+                        because the phone truly can't confirm the rep either way.
+                      • GPS is CONFIDENT the rep is far → still let them through (a pin can
+                        be geocoded wrong), but it's clearly flagged and sent to the office
+                        report, so statusing a whole route from the couch lights up. */}
+                  {!near && (gpsUnsure ? (
+                    <button type="button" onClick={() => { setManualHere(stop.id); logActivity({ pin_id: stop.id, kind: "manual_here", to_status: stop.status, ...locAudit(stop) }); }}
                       style={{ marginTop: 8, width: "100%", padding: "9px", borderRadius: 10, border: "1px dashed #b45309", background: "#fff", color: "#b45309", fontSize: 12.5, fontWeight: 800, cursor: "pointer" }}>
-                      📍 I'm at the door — GPS is off, let me status it
+                      📍 I'm at the door — GPS is weak, let me status it
                     </button>
-                  )}
+                  ) : (
+                    <button type="button" onClick={() => { setManualHere(stop.id); logActivity({ pin_id: stop.id, kind: "manual_here", to_status: stop.status, ...locAudit(stop) }); }}
+                      style={{ marginTop: 8, width: "100%", padding: "9px", borderRadius: 10, border: "1px solid #dc2626", background: "#fef2f2", color: "#b91c1c", fontSize: 12, fontWeight: 800, cursor: "pointer", lineHeight: 1.35 }}>
+                      ⚠️ GPS shows you ~{Math.round(distFt).toLocaleString()} ft from this door.<br />Status anyway — this gets flagged for your manager.
+                    </button>
+                  ))}
                   </>)}
                 </>
                 );
@@ -2450,7 +2488,7 @@ export default function CanvassMap() {
             setResolvedIds((s) => new Set(s).add(apptPin.id)); // booked → statused → drops from later rounds
             // If this was the current route stop, log the visit + move on.
             if (dayMode === "active" && route[stopIdx] && route[stopIdx].id === apptPin.id) {
-              logActivity({ pin_id: apptPin.id, kind: "visit", to_status: "appt" });
+              logActivity({ pin_id: apptPin.id, kind: "visit", to_status: "appt", ...locAudit(apptPin) });
               advanceStop();
             }
             setApptPin(null);
@@ -2467,7 +2505,7 @@ export default function CanvassMap() {
             setSelected((s) => (s && s.id === btrPin.id ? { ...s, ...patch } : s));
             setResolvedIds((s) => new Set(s).add(btrPin.id));
             if (dayMode === "active" && route[stopIdx] && route[stopIdx].id === btrPin.id) {
-              logActivity({ pin_id: btrPin.id, kind: "visit", to_status: "appt" });
+              logActivity({ pin_id: btrPin.id, kind: "visit", to_status: "appt", ...locAudit(btrPin) });
               advanceStop();
             }
             setBtrPin(null);

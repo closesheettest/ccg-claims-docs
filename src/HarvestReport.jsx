@@ -19,16 +19,25 @@ export default function HarvestReport() {
   const [period, setPeriod] = useState("all"); // today | 7d | all
   const [pinMap, setPinMap] = useState({});    // pin_id → { name, address }
   const [openRep, setOpenRep] = useState(null); // expanded rep row
+  const [auditOff, setAuditOff] = useState(false); // location columns not migrated yet
 
   useEffect(() => {
     (async () => {
       setRows(null); setErr(""); setOpenRep(null);
-      let q = supabase.from("canvass_activity")
-        .select("rep_name, pin_id, kind, from_status, to_status, round, created_at")
-        .order("created_at", { ascending: false }).limit(50000);
-      if (period === "today") { const d = new Date(); d.setHours(0, 0, 0, 0); q = q.gte("created_at", d.toISOString()); }
-      else if (period === "7d") { q = q.gte("created_at", new Date(Date.now() - 7 * 86400000).toISOString()); }
-      const { data, error } = await q;
+      const RICH = "rep_name, pin_id, kind, from_status, to_status, round, created_at, dist_ft, loc_flag, lat, lng";
+      const BASIC = "rep_name, pin_id, kind, from_status, to_status, round, created_at";
+      const build = (cols) => {
+        let q = supabase.from("canvass_activity").select(cols).order("created_at", { ascending: false }).limit(50000);
+        if (period === "today") { const d = new Date(); d.setHours(0, 0, 0, 0); q = q.gte("created_at", d.toISOString()); }
+        else if (period === "7d") { q = q.gte("created_at", new Date(Date.now() - 7 * 86400000).toISOString()); }
+        return q;
+      };
+      // Try the location-aware columns; if the migration hasn't run yet, fall back to
+      // the basic report rather than erroring the whole page.
+      let { data, error } = await build(RICH);
+      let off = false;
+      if (error && /loc_flag|dist_ft|\blat\b|\blng\b|column/i.test(error.message || "")) { off = true; ({ data, error } = await build(BASIC)); }
+      setAuditOff(off);
       if (error) { setErr(error.message.includes("canvass_activity") ? "Run sql/canvass_activity.sql in Supabase to turn on reporting." : error.message); return; }
       setRows(data || []);
       // Pull the addresses for the pins referenced (for the click-in detail).
@@ -44,12 +53,23 @@ export default function HarvestReport() {
     const m = new Map();
     for (const r of (rows || [])) {
       const name = r.rep_name || "(unknown)";
-      const cur = m.get(name) || { name, visits: 0, pins: new Set(), rounds: 0, last: null, outcomes: {}, notHome: 0, acts: [] };
+      const cur = m.get(name) || { name, visits: 0, pins: new Set(), rounds: 0, last: null, outcomes: {}, notHome: 0, acts: [], offSpot: 0, farCount: 0, gpsOff: 0, coords: [] };
       cur.acts.push(r);
       if (r.kind === "visit") { cur.visits += 1; if (r.pin_id) cur.pins.add(r.pin_id); if (r.to_status === "not_home") cur.notHome += 1; }
       if (r.kind === "status" && r.to_status) cur.outcomes[r.to_status] = (cur.outcomes[r.to_status] || 0) + 1;
       if (typeof r.round === "number") cur.rounds = Math.max(cur.rounds, r.round);
       if (!cur.last || new Date(r.created_at) > new Date(cur.last)) cur.last = r.created_at;
+      // Location audit: count off-the-door actions, and gather coords for the
+      // "all from one spot" (couch-canvassing) check. Only real work counts — an
+      // 'arrival' isn't an outcome, so skip it.
+      if (r.kind !== "arrival") {
+        const offSpot = r.loc_flag === "far" || r.loc_flag === "gps_off";
+        if (r.loc_flag === "far") { cur.farCount += 1; cur.offSpot += 1; }
+        else if (r.loc_flag === "gps_off") { cur.gpsOff += 1; cur.offSpot += 1; }
+        // Only OFF-spot coords feed the cluster check — a pile of verified-at-door
+        // actions near one spot (e.g. parking in the same lot) is legit and mustn't flag.
+        if (offSpot && typeof r.lat === "number" && typeof r.lng === "number") cur.coords.push([r.lat, r.lng]);
+      }
       m.set(name, cur);
     }
     // Avg time at spot = arrival → the outcome tap (paired per stop, chronologically).
@@ -65,6 +85,15 @@ export default function HarvestReport() {
         }
       }
       cur.avgSpot = n ? sum / n : null;
+      // Biggest group of actions logged from the SAME ~180ft spot. A rep working the
+      // street moves; a rep statusing a route from their couch doesn't — so a large
+      // single-spot cluster is the tell.
+      const buckets = new Map();
+      for (const [la, ln] of cur.coords) { const k = `${Math.round(la * 1000)}_${Math.round(ln * 1000)}`; buckets.set(k, (buckets.get(k) || 0) + 1); }
+      cur.maxSameSpot = buckets.size ? Math.max(...buckets.values()) : 0;
+      // Flag for a manager's eyes: several confidently-far statuses, or a big pile of
+      // actions from one spot. Not proof — a prompt to look at their stop-by-stop.
+      cur.flagged = cur.farCount >= 3 || cur.maxSameSpot >= 10;
     }
     return [...m.values()].map((r) => ({ ...r, pinsVisited: r.pins.size }))
       .sort((a, b) => new Date(b.last) - new Date(a.last));
@@ -84,10 +113,19 @@ export default function HarvestReport() {
     return { total, bySrc: Object.entries(bySrc).sort((a, b) => b[1] - a[1]) };
   }, [rows]);
 
+  const flaggedReps = useMemo(() => byRep.filter((r) => r.flagged), [byRep]);
+
   const fmt = (iso) => { try { return new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch { return "—"; } };
   const fmtT = (iso) => { try { return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }); } catch { return ""; } };
   const fmtDur = (s) => { if (s == null) return "—"; const m = Math.floor(s / 60), sec = Math.round(s % 60); return m ? `${m}m ${sec}s` : `${sec}s`; };
   const ACT_LABEL = (r) => r.kind === "arrival" ? "📍 Arrived" : r.kind === "status" ? `✏️ ${OUTCOME_LABELS[r.to_status] || r.to_status}` : r.to_status === "not_home" ? "🏠 Not home" : "🚶 Visit";
+  // Location tag shown on each stop in the detail view.
+  const LOC_TAG = (r) => {
+    if (r.loc_flag === "far") return { txt: `⚠️ ${r.dist_ft != null ? `${r.dist_ft.toLocaleString()} ft away` : "far from door"}`, color: "#b91c1c" };
+    if (r.loc_flag === "gps_off") return { txt: "📶 weak GPS", color: "#b45309" };
+    if (r.loc_flag === "verified") return { txt: "✓ at door", color: "#16a34a" };
+    return null;
+  };
 
   return (
     <div style={{ maxWidth: 940, margin: "0 auto", padding: "20px 16px 60px", fontFamily: FONT }}>
@@ -118,6 +156,29 @@ export default function HarvestReport() {
         </div>
       )}
 
+      {auditOff && rows && (
+        <div style={{ background: "#f8fafc", border: "1px dashed #cbd5e1", borderRadius: 12, padding: "12px 14px", marginBottom: 16, fontSize: 12.5, color: "#475569" }}>
+          📍 <b>Location check is off.</b> Run <code>sql/harvest_location_audit.sql</code> in Supabase to record where each door was worked from — then this report flags statuses done far from the door or all from one spot.
+        </div>
+      )}
+      {!auditOff && flaggedReps.length > 0 && (
+        <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 12, padding: "14px 16px", marginBottom: 18 }}>
+          <div style={{ fontSize: 14.5, fontWeight: 800, color: "#b91c1c", fontFamily: OSWALD }}>🚩 Location check — {flaggedReps.length} rep{flaggedReps.length > 1 ? "s" : ""} to look at</div>
+          <div style={{ fontSize: 12.5, color: "#7f1d1d", margin: "3px 0 10px" }}>Not proof of anything — just doors statused <b>far from the pin</b> or a pile of them logged <b>from one spot</b> (a rep working the street moves around). Tap the rep below for their stop-by-stop.</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {flaggedReps.map((r) => (
+              <button key={r.name} type="button" onClick={() => setOpenRep(r.name)}
+                style={{ textAlign: "left", background: "#fff", border: "1px solid #fecaca", borderRadius: 10, padding: "8px 12px", cursor: "pointer" }}>
+                <span style={{ fontSize: 13.5, fontWeight: 800, color: "#991b1b" }}>{r.name}</span>
+                <span style={{ fontSize: 12, color: "#7f1d1d", marginLeft: 8 }}>
+                  {r.farCount > 0 ? `${r.farCount} far` : ""}{r.farCount > 0 && r.maxSameSpot >= 10 ? " · " : ""}{r.maxSameSpot >= 10 ? `${r.maxSameSpot} from one spot` : ""}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {err && <div style={{ color: "#b91c1c", fontSize: 13.5, marginBottom: 12 }}>{err}</div>}
       {rows === null && !err ? <div style={{ color: "#94a3b8", fontSize: 13 }}>Loading…</div> : null}
       {rows && byRep.length === 0 && !err && <div style={{ color: "#64748b", fontSize: 13.5, background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 12, padding: "18px 16px" }}>No activity yet for this period. Reps' visits and status changes show up here as they work the map.</div>}
@@ -133,22 +194,29 @@ export default function HarvestReport() {
                 <th style={{ padding: "8px 10px" }}>Rounds</th>
                 {OUTCOMES.map((o) => <th key={o} style={{ padding: "8px 10px" }}>{OUTCOME_LABELS[o]}</th>)}
                 <th style={{ padding: "8px 10px" }}>Not home</th>
+                {!auditOff && <th style={{ padding: "8px 10px" }}>Off-spot</th>}
                 <th style={{ padding: "8px 10px" }}>Last active</th>
               </tr>
             </thead>
             <tbody>
               {byRep.map((r) => {
                 const open = openRep === r.name;
-                const colSpan = 5 + OUTCOMES.length;
+                const colSpan = (auditOff ? 6 : 7) + OUTCOMES.length;
                 return (
                 <React.Fragment key={r.name}>
-                <tr onClick={() => setOpenRep(open ? null : r.name)} style={{ borderTop: "1px solid #e5e7eb", cursor: "pointer", background: open ? "#f8fafc" : "#fff" }}>
-                  <td style={{ padding: "9px 10px", fontWeight: 700 }}><span style={{ color: "#94a3b8", marginRight: 5 }}>{open ? "▾" : "▸"}</span>{r.name}</td>
+                <tr onClick={() => setOpenRep(open ? null : r.name)} style={{ borderTop: "1px solid #e5e7eb", cursor: "pointer", background: r.flagged ? "#fff7f7" : open ? "#f8fafc" : "#fff" }}>
+                  <td style={{ padding: "9px 10px", fontWeight: 700 }}><span style={{ color: "#94a3b8", marginRight: 5 }}>{open ? "▾" : "▸"}</span>{r.flagged ? <span title="Location check — see the banner above">🚩 </span> : null}{r.name}</td>
                   <td style={{ padding: "9px 10px" }}>{r.pinsVisited}{r.visits !== r.pinsVisited ? <span style={{ color: "#94a3b8" }}> ({r.visits} taps)</span> : null}</td>
                   <td style={{ padding: "9px 10px", fontWeight: r.avgSpot != null ? 700 : 400, color: r.avgSpot != null ? "#0f172a" : "#cbd5e1" }}>{fmtDur(r.avgSpot)}</td>
                   <td style={{ padding: "9px 10px" }}>{r.rounds || "—"}</td>
                   {OUTCOMES.map((o) => <td key={o} style={{ padding: "9px 10px", fontWeight: r.outcomes[o] ? 700 : 400, color: r.outcomes[o] ? "#0f172a" : "#cbd5e1" }}>{r.outcomes[o] || 0}</td>)}
                   <td style={{ padding: "9px 10px", fontWeight: r.notHome ? 700 : 400, color: r.notHome ? "#0f172a" : "#cbd5e1" }}>{r.notHome || 0}</td>
+                  {!auditOff && (
+                    <td style={{ padding: "9px 10px", fontWeight: r.offSpot ? 800 : 400, color: r.farCount ? "#b91c1c" : r.offSpot ? "#b45309" : "#cbd5e1", whiteSpace: "nowrap" }}
+                      title={r.offSpot ? `${r.farCount} far from door, ${r.gpsOff} weak-GPS${r.maxSameSpot >= 10 ? `, up to ${r.maxSameSpot} from one spot` : ""}` : ""}>
+                      {r.offSpot || 0}{r.farCount ? ` (${r.farCount}⚠️)` : ""}
+                    </td>
+                  )}
                   <td style={{ padding: "9px 10px", color: "#64748b", whiteSpace: "nowrap" }}>{fmt(r.last)}</td>
                 </tr>
                 {open && (
@@ -163,11 +231,13 @@ export default function HarvestReport() {
                           .filter((a) => !(a.kind === "visit" && a.to_status !== "not_home"))
                           .map((a, i) => {
                           const pin = pinMap[a.pin_id] || {};
+                          const tag = a.kind !== "arrival" ? LOC_TAG(a) : null;
                           return (
                             <div key={i} style={{ display: "flex", gap: 10, alignItems: "baseline", fontSize: 12.5, color: "#334155", padding: "3px 8px", background: a.kind === "arrival" ? "transparent" : "#fff", borderRadius: 6, border: a.kind === "arrival" ? "none" : "1px solid #eef2f7" }}>
                               <span style={{ color: "#94a3b8", minWidth: 62, flexShrink: 0 }}>{fmtT(a.created_at)}</span>
                               <span style={{ fontWeight: 700, minWidth: 96, flexShrink: 0 }}>{ACT_LABEL(a)}</span>
-                              <span style={{ color: "#475569" }}>{pin.name || pin.address || (a.pin_id ? "(pin)" : "")}{pin.name && pin.address ? ` · ${pin.address}` : ""}{a.round > 1 ? ` · round ${a.round}` : ""}</span>
+                              <span style={{ color: "#475569", flex: 1, minWidth: 0 }}>{pin.name || pin.address || (a.pin_id ? "(pin)" : "")}{pin.name && pin.address ? ` · ${pin.address}` : ""}{a.round > 1 ? ` · round ${a.round}` : ""}</span>
+                              {tag && <span style={{ color: tag.color, fontWeight: 700, fontSize: 11.5, whiteSpace: "nowrap", flexShrink: 0 }}>{tag.txt}</span>}
                             </div>
                           );
                         })}
