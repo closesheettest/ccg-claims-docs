@@ -5,9 +5,13 @@
 // did, and today's counts. Same shape as harvest-team.js but scoped by manager token
 // (not the company-wide admin token).
 //
-//   GET ?manager=<token>[&mins=120]
-//   → { ok, manager:{name,zone}, reps:[{ rep_id, name, live, pings, last_pos,
+//   GET ?zone=Zone%201[&mins=120]         ← how the TMS manager page calls it
+//   GET ?manager=<token>[&mins=120]        ← CCG regional_managers token (also fine)
+//   → { ok, zone, reps:[{ rep_id, name, live, pings, last_pos,
 //        last_action, last_at, today:{knocks,sold,appts,notHome,ni} }], updated_at }
+//
+// Zone-scoped, no secret — same posture as the sibling zone-* endpoints the TMS
+// manager page already calls (zone-appt-conversion, zone-leaderboard, …). CORS open.
 //
 // Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
 
@@ -18,21 +22,27 @@ const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/fu
 const ACTION_LABEL = { insp_sold: "Signed ✍️", insp_ni: "Not interested", insp_callback: "Pending", dead: "Dead", new_roof: "New roof", appt: "Booked appt", iq_ni: "IQ not int.", no_sit_reschedule: "No-sit", not_home: "Not home" };
 
 export const handler = async (event) => {
-  if (!SB_URL || !SB_KEY) return json(500, { ok: false, error: "env missing" });
+  if (event.httpMethod === "OPTIONS") return cors(200, "");
+  if (!SB_URL || !SB_KEY) return cors(500, { ok: false, error: "env missing" });
   const p = event.queryStringParameters || {};
-  const token = String(p.manager || "").trim();
-  if (!token) return json(400, { ok: false, error: "manager token required" });
   const mins = Math.min(Math.max(parseInt(p.mins, 10) || 120, 10), 720);
   const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` };
 
-  // 1) Token → manager (+ zone).
-  const manager = await fetchManager(token, sb);
-  if (!manager) return json(401, { ok: false, error: "invalid manager token" });
+  // Scope: a zone directly (how the TMS manager page calls it), OR a CCG
+  // regional_managers token that resolves to a zone.
+  let zone = String(p.zone || "").trim();
+  if (!zone) {
+    const token = String(p.manager || "").trim();
+    if (!token) return cors(400, { ok: false, error: "zone or manager token required" });
+    const manager = await fetchManager(token, sb);
+    if (!manager) return cors(401, { ok: false, error: "invalid manager token" });
+    zone = manager.zone;
+  }
 
-  // 2) Manager's zone → the reps on their team (name + JN id).
-  const teamReps = await fetchRepsInZoneBridged(manager.zone, sb);
-  const base = { ok: true, manager: { name: manager.name, zone: manager.zone }, updated_at: new Date().toISOString() };
-  if (!teamReps.length) return json(200, { ...base, reps: [] });
+  // Zone → the reps on that team (name + JN id).
+  const teamReps = await fetchRepsInZoneBridged(zone, sb);
+  const base = { ok: true, zone, updated_at: new Date().toISOString() };
+  if (!teamReps.length) return cors(200, { ...base, reps: [] });
   const allow = new Set(teamReps.map((r) => normalizeName(r.name)).filter(Boolean));
 
   // 3) Recent pings (trails) + today's activity (counts + last action), team-filtered.
@@ -88,7 +98,7 @@ export const handler = async (event) => {
     };
   }).sort((x, y) => (Number(y.live) - Number(x.live)) || (y.today.knocks - x.today.knocks) || String(x.name).localeCompare(String(y.name)));
 
-  return json(200, { ...base, reps });
+  return cors(200, { ...base, reps });
 };
 
 // ── Helpers (mirrors manager-records-api.js) ────────────────────────────────
@@ -121,6 +131,13 @@ async function sbGet(path, sb) {
   if (!r.ok) throw new Error(await r.text().catch(() => "err"));
   return r.json();
 }
-function json(status, body) {
-  return { statusCode: status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" }, body: JSON.stringify(body) };
+function cors(status, body) {
+  return {
+    statusCode: status,
+    headers: {
+      "Content-Type": "application/json", "Cache-Control": "no-store",
+      "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type",
+    },
+    body: typeof body === "string" ? body : JSON.stringify(body),
+  };
 }
