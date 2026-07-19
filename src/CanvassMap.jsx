@@ -1103,22 +1103,42 @@ export default function CanvassMap() {
   function addGobacksToRoute() {
     const today = visits.filter((v) => visitNeedsWork(v) && v.latitude != null && v.longitude != null);
     if (!today.length) return;
-    const stops = today.map((v) => ({
+    const mkStop = (v) => ({
       id: `v_${v.inspection_id}`, latitude: Number(v.latitude), longitude: Number(v.longitude),
       name: v.client_name || v.address, address: v.address, city: v.city, state: v.state, zip: v.zip,
       status: "goback", _visit: v,
-    }));
-    setGobackCard(false);
-    if (dayMode === "active" && route.length) {
+    });
+    const activeRoute = dayMode === "active" && route.length > 0;
+    if (activeRoute) {
+      // Only fold in go-backs that fall WITHIN the route the rep already drew — a rep
+      // working Beverly Hills shouldn't get a go-back 80 mi away bolted onto today.
+      // "Within" = inside the route's box (start + every stop) padded ~1.5 mi, so
+      // anything in the area he's actually working counts; the rest stay on the card.
+      const anchors = [...(startPt ? [{ lat: startPt.lat, lng: startPt.lng }] : []),
+        ...route.filter((s) => typeof s.latitude === "number").map((s) => ({ lat: s.latitude, lng: s.longitude }))];
+      const PAD = 0.022; // ~1.5 mi in degrees
+      const lats = anchors.map((a) => a.lat), lngs = anchors.map((a) => a.lng);
+      const minLat = Math.min(...lats) - PAD, maxLat = Math.max(...lats) + PAD;
+      const minLng = Math.min(...lngs) - PAD, maxLng = Math.max(...lngs) + PAD;
       const have = new Set(route.map((s) => s.id));
-      const add = stops.filter((s) => !have.has(s.id));
-      if (add.length) setRoute((r) => [...r, ...add]);
+      const add = today
+        .filter((v) => Number(v.latitude) >= minLat && Number(v.latitude) <= maxLat && Number(v.longitude) >= minLng && Number(v.longitude) <= maxLng)
+        .map(mkStop).filter((s) => !have.has(s.id));
+      if (!add.length) { alert("No go-backs fall within today's route — they're outside this area, so they're left on the list for another day."); return; }
+      setGobackCard(false);
+      const merged = [...route, ...add];
+      setRoute(merged);
+      optimizeByRoad(startPt || myLoc, merged); // re-order the day (incl. the new go-backs) by road if they haven't started
     } else {
+      // No route yet → build one from all the go-backs, nearest-first from the rep.
+      const stops = today.map(mkStop);
+      setGobackCard(false);
       const from = myLoc || { lat: stops[0].latitude, lng: stops[0].longitude };
       const d2 = (s) => (from.lat - s.latitude) ** 2 + (from.lng - s.longitude) ** 2;
       const ordered = [...stops].sort((a, b) => d2(a) - d2(b));
       setStartPt(from); setRoute(ordered); setStopIdx(0); setRound(1);
       setResolvedIds(new Set()); workingRef.current = new Set(); setDayMode("active");
+      optimizeByRoad(from, ordered);
     }
   }
   // Draw the go-back badges (toggleable).
@@ -2136,8 +2156,11 @@ export default function CanvassMap() {
                   <div style={{ padding: "10px 12px" }}>
                     <button type="button" onClick={addGobacksToRoute}
                       style={{ width: "100%", background: "#16a34a", color: "#fff", border: "none", borderRadius: 10, padding: "11px", fontSize: 13.5, fontWeight: 800, cursor: "pointer" }}>
-                      ➕ Add these go-backs to my route
+                      {dayMode === "active" && route.length ? "➕ Add the go-backs within my route" : "➕ Route these go-backs"}
                     </button>
+                    {dayMode === "active" && route.length ? (
+                      <div style={{ fontSize: 11, color: "#94a3b8", textAlign: "center", marginTop: 6 }}>Only go-backs inside today's route area get added — the rest stay here.</div>
+                    ) : null}
                   </div>
                 </div>
               )}
