@@ -526,6 +526,7 @@ export default function CanvassMap() {
   const [route, setRoute] = useState(() => savedDay?.route || []);      // ordered stops (nearest-first)
   const [stopIdx, setStopIdx] = useState(savedDay ? Math.min(savedDay.stopIdx || 0, savedDay.route.length - 1) : 0);
   const [optimizing, setOptimizing] = useState(false); // fetching the road-distance order in the background
+  const [routeGeom, setRouteGeom] = useState(null);    // the route line SNAPPED to roads (OSRM), or null → straight fallback
   const routeGen = useRef(0);                          // bumps on every new base route; a stale road-order result won't apply
   const stopIdxRef = useRef(0);                        // current stop index, for the road-order guard (don't reshuffle after they've started)
   const [myLoc, setMyLoc] = useState(null);            // live GPS (always on while the map is open)
@@ -1331,6 +1332,31 @@ export default function CanvassMap() {
     }
   }, [myLoc, stopIdx, dayMode, route, round]);
 
+  // Snap the whole route line to the ROADS (not crow-flies): ask OSRM for the
+  // driving geometry through the start + every stop in order, and draw THAT. Refetch
+  // only when the route or start changes (NOT on each stop advance — the numbered
+  // circles recolor without re-hitting the router). Falls back to straight segments
+  // on any failure or a very long route. Guarded so a stale result can't overwrite a
+  // newer route's line.
+  const routeGeomGen = useRef(0);
+  useEffect(() => {
+    const gen = ++routeGeomGen.current;
+    if (dayMode !== "active" || route.length < 2) { setRouteGeom(null); return; }
+    const stops = route.filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number");
+    const pts = startPt ? [{ lat: startPt.lat, lng: startPt.lng }, ...stops.map((p) => ({ lat: p.latitude, lng: p.longitude }))]
+      : stops.map((p) => ({ lat: p.latitude, lng: p.longitude }));
+    if (pts.length < 2 || pts.length > 90) { setRouteGeom(null); return; } // OSRM route waypoint ceiling
+    const coords = pts.map((p) => `${p.lng},${p.lat}`).join(";");
+    fetch(`https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (routeGeomGen.current !== gen) return; // a newer route replaced this one
+        const g = j.routes?.[0]?.geometry?.coordinates;
+        setRouteGeom(g && g.length ? g.map(([lng, lat]) => [lat, lng]) : null);
+      })
+      .catch(() => { if (routeGeomGen.current === gen) setRouteGeom(null); });
+  }, [route, startPt, dayMode]);
+
   // Draw the route ON the map — a line through the stops in order + numbered
   // circles (current = green, visited = grey, upcoming = white). So the rep sees
   // their whole plan here, without leaving for another map.
@@ -1341,9 +1367,12 @@ export default function CanvassMap() {
     navLayer.current?.clearLayers(); // clear any in-app driving route when the stop/route changes
     if (dayMode !== "active" || route.length === 0) return;
     const stopPts = route.filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number").map((p) => [p.latitude, p.longitude]);
-    // Line runs FROM the chosen start point, through every stop in order.
-    const linePts = startPt ? [[startPt.lat, startPt.lng], ...stopPts] : stopPts;
-    if (linePts.length > 1) L.polyline(linePts, { color: "#16a34a", weight: 4, opacity: 0.7, dashArray: "6 7" }).addTo(lyr);
+    // Prefer the road-snapped geometry; fall back to straight segments from the start
+    // through each stop until (or unless) the router answers.
+    const straight = startPt ? [[startPt.lat, startPt.lng], ...stopPts] : stopPts;
+    const snapped = routeGeom && routeGeom.length > 1;
+    const linePts = snapped ? routeGeom : straight;
+    if (linePts.length > 1) L.polyline(linePts, { color: "#16a34a", weight: 4, opacity: snapped ? 0.85 : 0.6, dashArray: snapped ? null : "6 7" }).addTo(lyr);
     if (startPt) {
       const startIcon = L.divIcon({
         className: "harvest-route-start",
@@ -1364,7 +1393,7 @@ export default function CanvassMap() {
       });
       L.marker([p.latitude, p.longitude], { icon, zIndexOffset: 1000 }).on("click", () => openPin(p)).addTo(lyr);
     });
-  }, [dayMode, route, stopIdx, startPt]);
+  }, [dayMode, route, stopIdx, startPt, routeGeom]);
 
   function buildRoute(start, pins, cap, skipRadius) {
     const routable = pins.filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number" && !nonRoutableStatuses.has(p.status)
