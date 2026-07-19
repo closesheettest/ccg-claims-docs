@@ -193,7 +193,7 @@ async function roadOrder(start, stops) {
 // WINDOW_MIN = assumed time AT an appt for the INITIAL plan (60 min). Kept modest so
 // the gap between appts actually fills with doors; the live "Appt done" re-plan uses
 // the REAL clock, so a longer appt just trims the next leg and a shorter one adds.
-const APLAN = { MIN_PER_DOOR: 8, SPEED_MPH: 30, BUFFER_MIN: 10, WINDOW_MIN: 60, MAX_DETOUR_MI: 6, TAIL_CAP: 40, TAIL_RADIUS_MI: 25 };
+const APLAN = { MIN_PER_DOOR: 8, SPEED_MPH: 30, BUFFER_MIN: 10, WINDOW_MIN: 60, MAX_DETOUR_MI: 6, TAIL_CAP: 40, TAIL_RADIUS_MI: 8 };
 function apptAnchor(a) {
   return { id: `appt_${a.jn_job_id}`, latitude: a.lat, longitude: a.lng, name: a.name, address: a.address, status: "appt_anchor", isAppt: true, _appt: { at_ms: a.at_ms, jn_job_id: a.jn_job_id } };
 }
@@ -218,27 +218,17 @@ function buildApptPlan(start, nowMs, endMs, appts, pool) {
       const pc = { lat: p.latitude, lng: p.longitude };
       const df = feetBetween(from, pc);
       if (toPos) {
-        const dt = feetBetween(pc, toPos);
-        if ((df + dt - base) / 5280 > APLAN.MAX_DETOUR_MI) continue; // not on the way
-        cands.push({ p, prog: df / (df + dt + 1e-6) }); // 0 at start → 1 at the appt
-      } else {
-        if (df / 5280 > APLAN.TAIL_RADIUS_MI) continue;
-        cands.push({ p, prog: df });
-      }
+        // Only doors roughly ON THE WAY to the appt (small detour off the straight line).
+        if ((feetBetween(pc, toPos) + df - base) / 5280 > APLAN.MAX_DETOUR_MI) continue;
+      } else if (df / 5280 > APLAN.TAIL_RADIUS_MI) continue;
+      cands.push({ p, df });
     }
-    let chosen;
-    if (toPos) {
-      // Order candidates by PROGRESS toward the appt, then — if there are more than fit
-      // — take an EVEN SPREAD across the leg (not the nearest cluster), so the rep works
-      // doors the whole way to the appt instead of a pile by the start.
-      cands.sort((x, y) => x.prog - y.prog);
-      chosen = cands.length <= budget
-        ? cands.map((c) => c.p)
-        : Array.from({ length: budget }, (_, i) => cands[Math.floor(i * cands.length / budget)].p);
-    } else {
-      cands.sort((x, y) => x.prog - y.prog);
-      chosen = cands.slice(0, budget).map((c) => c.p);
-    }
+    // Work a TIGHT, DENSE cluster: the `budget` doors NEAREST the leg's start, then
+    // order them street-by-street. Door-knocking wants density (knock a neighborhood,
+    // don't drive between scattered pins) — an even spread across the leg makes reps
+    // criss-cross past doors they skipped, which is what looked broken.
+    cands.sort((a, b) => a.df - b.df);
+    const chosen = cands.slice(0, budget).map((c) => c.p);
     chosen.forEach((p) => used.add(p.id));
     return orderStops(from, chosen);
   };
