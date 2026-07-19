@@ -2235,7 +2235,7 @@ export default function CanvassMap() {
       <div style={{ padding: "10px 14px", background: "#0f172a", color: "#fff", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <div style={{ fontWeight: 800, fontSize: 16, fontFamily: "'Oswald', sans-serif", letterSpacing: "0.02em" }}>🌾 Harvesting Map</div>
         <div style={{ fontSize: 12, opacity: 0.8 }}>{mapped.length} pins</div>
-        {me?.level === "admin" && (
+        {me?.level === "admin" && !demoMode && (
           <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
             <a href="/?mode=harvestupload" style={{ color: "#cbd5e1", fontSize: 12.5, fontWeight: 700, textDecoration: "none" }}>📥 Load Leads</a>
             <a href="/?mode=harvestlinks" style={{ color: "#cbd5e1", fontSize: 12.5, fontWeight: 700, textDecoration: "none" }}>🔗 Rep Links</a>
@@ -2337,7 +2337,7 @@ export default function CanvassMap() {
               <StatusCard color={BABY_BLUE} label="🔵 Worked today" count={workedPins.length}
                 active={showWorked} onClick={() => setShowWorked((v) => !v)} />
             )}
-            {me?.level === "admin" && (
+            {me?.level === "admin" && !demoMode && (
               <>
                 <div style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", color: "#94a3b8", margin: "16px 2px 8px" }}>Office</div>
                 {[["📥 Upload leads", "/?mode=harvestupload"], ["🔄 JN Sync", "/?mode=harvestjnsync"], ["🔗 Rep Links", "/?mode=harvestlinks"], ["📊 Reports", "/?mode=harvestreport"]].map(([lbl, href]) => (
@@ -2458,8 +2458,10 @@ export default function CanvassMap() {
           </button>
         )}
 
-        {/* ── Route history (admin) ── replay any past day's rep trails ── */}
-        {me?.level === "admin" && (
+        {/* ── Route history (admin) ── replay any past day's rep trails ──
+            Hidden in practice mode: it reads real reps' location history, which
+            isn't a "practice" tool — the sandbox stays map-only. */}
+        {me?.level === "admin" && !demoMode && (
           <div style={{ position: "absolute", left: 12, top: 12, zIndex: 640, width: "min(300px, 82%)" }}>
             <button type="button" onClick={() => setHistoryOpen((o) => !o)}
               style={{ background: historyMode ? "#7c3aed" : "#0f172a", color: "#fff", border: "none", borderRadius: historyOpen ? "12px 12px 0 0" : 12, padding: "9px 14px", fontSize: 13, fontWeight: 800, cursor: "pointer", boxShadow: "0 3px 12px rgba(0,0,0,.25)", width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
