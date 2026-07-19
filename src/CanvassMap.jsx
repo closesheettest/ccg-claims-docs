@@ -1110,20 +1110,16 @@ export default function CanvassMap() {
     });
     const activeRoute = dayMode === "active" && route.length > 0;
     if (activeRoute) {
-      // Only fold in go-backs that fall WITHIN the route the rep already drew — a rep
-      // working Beverly Hills shouldn't get a go-back 80 mi away bolted onto today.
-      // "Within" = inside the route's box (start + every stop) padded ~1.5 mi, so
-      // anything in the area he's actually working counts; the rest stay on the card.
+      // Only fold in go-backs NEAR the route the rep already drew — a rep working
+      // Beverly Hills shouldn't get a go-back 80 mi away bolted onto today. "Near" =
+      // within NEAR_MI of the start or ANY stop (not a bounding box — a box only pads
+      // the outer edges, so a go-back just past the northernmost stop got missed).
       const anchors = [...(startPt ? [{ lat: startPt.lat, lng: startPt.lng }] : []),
         ...route.filter((s) => typeof s.latitude === "number").map((s) => ({ lat: s.latitude, lng: s.longitude }))];
-      const PAD = 0.022; // ~1.5 mi in degrees
-      const lats = anchors.map((a) => a.lat), lngs = anchors.map((a) => a.lng);
-      const minLat = Math.min(...lats) - PAD, maxLat = Math.max(...lats) + PAD;
-      const minLng = Math.min(...lngs) - PAD, maxLng = Math.max(...lngs) + PAD;
+      const NEAR_MI = 5;
+      const nearRoute = (v) => anchors.some((a) => feetBetween(a, { lat: Number(v.latitude), lng: Number(v.longitude) }) / 5280 <= NEAR_MI);
       const have = new Set(route.map((s) => s.id));
-      const add = today
-        .filter((v) => Number(v.latitude) >= minLat && Number(v.latitude) <= maxLat && Number(v.longitude) >= minLng && Number(v.longitude) <= maxLng)
-        .map(mkStop).filter((s) => !have.has(s.id));
+      const add = today.filter(nearRoute).map(mkStop).filter((s) => !have.has(s.id));
       if (!add.length) { alert("No go-backs fall within today's route — they're outside this area, so they're left on the list for another day."); return; }
       setGobackCard(false);
       const merged = [...route, ...add];
