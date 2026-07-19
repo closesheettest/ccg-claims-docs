@@ -20,7 +20,7 @@ export default function HarvestAdmin() {
   const [radiusBusy, setRadiusBusy] = useState(false);
   const [mgrMap, setMgrMap] = useState(true);     // regional-manager team map on/off
   const [mgrBusy, setMgrBusy] = useState(false);
-  const [smartSched, setSmartSched] = useState(true); // Smart Scheduling on/off
+  const [smartSched, setSmartSched] = useState(false); // Smart Scheduling on/off (default OFF until turned on)
   const [smartBusy, setSmartBusy] = useState(false);
 
   const load = async () => {

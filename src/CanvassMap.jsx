@@ -624,7 +624,7 @@ export default function CanvassMap() {
   const [showApptPlan, setShowApptPlan] = useState(false);   // start/end time sheet before building the appt plan
   const [planStartHM, setPlanStartHM] = useState("");        // "HH:MM" the day starts (default now)
   const [planEndHM, setPlanEndHM] = useState("20:00");       // "HH:MM" the day ends (default 8 PM)
-  const [smartSchedEnabled, setSmartSchedEnabled] = useState(true); // company on/off (app_settings.harvest_smart_scheduling_enabled)
+  const [smartSchedEnabled, setSmartSchedEnabled] = useState(false); // company on/off (default OFF until turned on in admin)
   const apptPoolRef = useRef([]);                      // the pin pool the appt plan drew from (for re-planning on "Appt done")
   const apptListRef = useRef([]);                      // today's appts (for re-planning)
   const apptEndRef = useRef(0);                        // end-of-day ms, reused by the "Appt done" re-plan
@@ -2265,8 +2265,9 @@ export default function CanvassMap() {
             ▢ Route an area
           </button>
         )}
-        {/* Smart Scheduling — plan the day around appts (reps, or a ?test= link). */}
-        {dayMode === null && !selecting && (auth.rt || testMode) && smartSchedEnabled && (
+        {/* Smart Scheduling — plan the day around appts. Real reps see it only when the
+            company toggle is ON; a ?test= link always shows it (so it can be tried while off). */}
+        {dayMode === null && !selecting && ((auth.rt && smartSchedEnabled) || testMode) && (
           <button type="button" onClick={openApptPlan}
             style={{ position: "absolute", left: 12, bottom: 112, zIndex: 600, background: "#7c3aed", color: "#fff", border: "none", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
             🧠 Smart Scheduling
