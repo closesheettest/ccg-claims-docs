@@ -12,6 +12,7 @@ import "leaflet.markercluster/dist/MarkerCluster.css";
 import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 import { supabase } from "./lib/supabase";
 import VisitActions from "./VisitActions";
+import HarvestTraining from "./HarvestTraining";
 
 // Fallback used only if the harvest_pin_types config table can't be reached.
 // The live pin types (label, color, allowed outcomes, who sees them) are loaded
@@ -794,6 +795,19 @@ export default function CanvassMap() {
       return { rt: q.get("rt") || "", admin: q.get("admin") || "" };
     } catch { return { rt: "", admin: "" }; }
   })();
+
+  // Tool-training gate: a REP must have passed the rep training before their map
+  // unlocks. Office/admin links aren't gated. On any error (e.g. training not set up)
+  // we let them in rather than lock reps out.
+  const [repTrainingOk, setRepTrainingOk] = useState(auth.rt ? null : true);
+  useEffect(() => {
+    if (!auth.rt) { setRepTrainingOk(true); return; }
+    let live = true;
+    supabase.from("harvest_training_results").select("passed")
+      .eq("user_type", "rep").eq("user_key", auth.rt).eq("passed", true).limit(1)
+      .then(({ data, error }) => { if (live) setRepTrainingOk(error ? true : (data || []).length > 0); }, () => { if (live) setRepTrainingOk(true); });
+    return () => { live = false; };
+  }, [auth.rt]);
 
   // Load pins for a viewport (bounds). Without bounds → an initial global sample
   // so the map can fit to wherever the data is; after that, moves load by view.
@@ -2168,6 +2182,12 @@ export default function CanvassMap() {
   useEffect(() => { addingTestApptRef.current = addingTestAppt; }, [addingTestAppt]);
   const counts = dbCounts || loadedCounts;
   const notMapped = prospects.length - mapped.length;
+
+  // Rep hasn't passed the tool training yet → send them through it first. (Skips
+  // itself if no training content is authored, so it never locks reps out.)
+  if (auth.rt && !authError && repTrainingOk === false) {
+    return <HarvestTraining track="rep" userType="rep" userKey={auth.rt} name={me?.name} toolLabel="your Harvesting Map" onPass={() => setRepTrainingOk(true)} />;
+  }
 
   // Bad/missing link → don't show any pins, just tell them what to do.
   if (authError) {
