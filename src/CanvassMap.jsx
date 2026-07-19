@@ -493,7 +493,14 @@ export default function CanvassMap() {
   // so a rep can, e.g., work IQ + No-sit-reschedule together.
   const [sel, setSel] = useState(() => new Set());
   const inFilter = (status) => sel.size === 0 || sel.has(status);
-  const toggleSel = (key) => setSel((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  const toggleSel = (key) => setSel((prev) => {
+    const n = new Set(prev);
+    n.has(key) ? n.delete(key) : n.add(key);
+    // Seniors work IQ + No-sit as their base — those two stay on no matter what they
+    // add, so toggling other types never accidentally drops the core work.
+    if (effLevel === "senior") SENIOR_STATUSES.forEach((k) => n.add(k));
+    return n;
+  });
   const [pinTypes, setPinTypes] = useState(FALLBACK_TYPES);
   const [me, setMe] = useState(null);          // { name, level } once signed in
   const [authError, setAuthError] = useState("");
@@ -598,8 +605,11 @@ export default function CanvassMap() {
   const [viewAs, setViewAs] = useState(null);          // null → office's own full view
   const effLevel = viewAs || me?.level || null;
   const seesAll = !effLevel || effLevel === "admin";
-  // Seniors' status filter is fixed to IQ + No-sit — they can't switch to one.
+  // Seniors always have IQ + No-sit ON (their base work) but CAN add other types on
+  // top — e.g. peek at Inspection Leads or a Pending-signature door. Only the two base
+  // types are pinned/uncheckable; everything else toggles freely.
   const selLocked = effLevel === "senior";
+  const isPinned = (key) => selLocked && SENIOR_STATUSES.includes(key);
   const visKeys = useMemo(() => {
     if (seesAll) return null;
     const canSee = (t) => !((t.visible_levels) || []).length || ((t.visible_levels) || []).includes(effLevel);
@@ -1924,7 +1934,7 @@ export default function CanvassMap() {
         <div style={{ display: "flex", gap: 6, overflowX: "auto", padding: "8px 12px", background: "#fff", borderBottom: "1px solid #e5e7eb" }}>
           {!selLocked && <Chip active={sel.size === 0} onClick={() => setSel(new Set())} color="#334155" label={`All (${dbCounts ? Object.entries(dbCounts).reduce((sum, [k, n]) => sum + ((!visKeys || visKeys.has(k)) ? n : 0), 0) : (visKeys ? prospects.filter((p) => visKeys.has(p.status)).length : prospects.length)})`} />}
           {visTypes.map((s) => (
-            <Chip key={s.key} active={sel.has(s.key)} check onClick={() => selLocked ? null : toggleSel(s.key)} color={s.color} label={`${s.label} (${counts[s.key] || 0})`} />
+            <Chip key={s.key} active={sel.has(s.key)} check onClick={() => isPinned(s.key) ? null : toggleSel(s.key)} color={s.color} label={`${isPinned(s.key) ? "🔒 " : ""}${s.label} (${counts[s.key] || 0})`} />
           ))}
           {installs.length > 0 && (
             <Chip active={showInstalls} onClick={() => setShowInstalls((v) => !v)} color={INSTALL_COLOR} label={`⭐ Installs (${installs.length})`} />
@@ -1946,7 +1956,7 @@ export default function CanvassMap() {
             <div style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", color: "#94a3b8", margin: "2px 2px 8px" }}>Pins to show</div>
             {selLocked && (
               <div style={{ fontSize: 12, fontWeight: 700, color: "#166534", background: "#dcfce7", border: "1px solid #86efac", borderRadius: 10, padding: "8px 10px", marginBottom: 10 }}>
-                🔒 You work <b>IQ + No-sit</b> together — both always on.
+                🔒 <b>IQ + No-sit</b> stay on always. Tap any other type to add it to your map too.
               </div>
             )}
             {!selLocked && (
@@ -1955,8 +1965,8 @@ export default function CanvassMap() {
                 active={sel.size === 0} onClick={() => setSel(new Set())} />
             )}
             {visTypes.map((s) => (
-              <StatusCard key={s.key} color={s.color} label={s.label} count={counts[s.key] || 0}
-                active={sel.has(s.key)} locked={selLocked} onClick={() => selLocked ? null : toggleSel(s.key)} />
+              <StatusCard key={s.key} color={s.color} label={`${isPinned(s.key) ? "🔒 " : ""}${s.label}`} count={counts[s.key] || 0}
+                active={sel.has(s.key)} locked={isPinned(s.key)} onClick={() => isPinned(s.key) ? null : toggleSel(s.key)} />
             ))}
             {installs.length > 0 && (
               <StatusCard color={INSTALL_COLOR} label="⭐ Installs" count={installs.length}
