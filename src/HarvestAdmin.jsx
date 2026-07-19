@@ -16,6 +16,8 @@ export default function HarvestAdmin() {
   const [msg, setMsg] = useState(null);
   const [adding, setAdding] = useState(false);
   const [newType, setNewType] = useState({ key: "", label: "", color: "#2563eb" });
+  const [radius, setRadius] = useState(5);        // go-back route radius (miles)
+  const [radiusBusy, setRadiusBusy] = useState(false);
 
   const load = async () => {
     const { data, error } = await supabase.from("harvest_pin_types").select("*").order("sort");
@@ -23,6 +25,16 @@ export default function HarvestAdmin() {
     setTypes(data || []);
   };
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    supabase.from("app_settings").select("value").eq("key", "harvest_goback_radius_mi").maybeSingle()
+      .then(({ data }) => { const n = Number(data?.value); if (Number.isFinite(n) && n > 0) setRadius(n); });
+  }, []);
+  const saveRadius = async () => {
+    setRadiusBusy(true); setMsg(null);
+    const { error } = await supabase.from("app_settings").upsert({ key: "harvest_goback_radius_mi", value: String(radius) }, { onConflict: "key" });
+    setRadiusBusy(false);
+    setMsg(error ? { err: error.message } : { ok: `Go-back radius set to ${radius} mi.` });
+  };
 
   const allKeys = useMemo(() => (types || []).map((t) => t.key), [types]);
 
@@ -68,6 +80,19 @@ export default function HarvestAdmin() {
       </div>
 
       {msg && <div style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 10, fontSize: 13.5, fontWeight: 600, background: msg.err ? "#fef2f2" : "#ecfdf5", color: msg.err ? "#b91c1c" : "#065f46", border: `1px solid ${msg.err ? "#fecaca" : "#a7f3d0"}` }}>{msg.err || msg.ok}</div>}
+
+      {/* Go-back route radius — how near a stop a go-back must be to get folded in. */}
+      <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, marginBottom: 16, background: "#fff" }}>
+        <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 4 }}>📍 Go-back route radius</div>
+        <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 14 }}>
+          When a rep taps <b>“Add the go-backs within my route”</b>, only go-backs within this many miles of a route stop get added. Higher = casts a wider net; lower = keeps it tight to the route.
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <input type="range" min={1} max={25} step={1} value={radius} onChange={(e) => setRadius(Number(e.target.value))} style={{ flex: 1, accentColor: "#16a34a" }} />
+          <span style={{ fontSize: 20, fontWeight: 800, fontFamily: OSWALD, minWidth: 62, textAlign: "right" }}>{radius} mi</span>
+          <button type="button" onClick={saveRadius} disabled={radiusBusy} style={{ fontSize: 13, fontWeight: 700, padding: "9px 18px", borderRadius: 8, border: "none", background: "#16a34a", color: "#fff", cursor: "pointer", opacity: radiusBusy ? 0.6 : 1 }}>{radiusBusy ? "Saving…" : "Save"}</button>
+        </div>
+      </div>
 
       <div style={{ display: "grid", gap: 12 }}>
         {types.map((t) => (

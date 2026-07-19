@@ -522,6 +522,7 @@ export default function CanvassMap() {
   const [showGobacks, setShowGobacks] = useState(true);
   const [selectedVisit, setSelectedVisit] = useState(null);
   const [gobackCard, setGobackCard] = useState(false); // "Today's go-backs" list open
+  const [gobackRadiusMi, setGobackRadiusMi] = useState(5); // admin-tunable (app_settings.harvest_goback_radius_mi)
   const [visitToken, setVisitToken] = useState("");    // token to drive the visit-action endpoints
   const visitsLayer = useRef(null);
   const visitsLoaded = useRef(false);
@@ -1116,7 +1117,7 @@ export default function CanvassMap() {
       // the outer edges, so a go-back just past the northernmost stop got missed).
       const anchors = [...(startPt ? [{ lat: startPt.lat, lng: startPt.lng }] : []),
         ...route.filter((s) => typeof s.latitude === "number").map((s) => ({ lat: s.latitude, lng: s.longitude }))];
-      const NEAR_MI = 5;
+      const NEAR_MI = gobackRadiusMi; // admin-tunable on the Pin Types page
       const nearRoute = (v) => anchors.some((a) => feetBetween(a, { lat: Number(v.latitude), lng: Number(v.longitude) }) / 5280 <= NEAR_MI);
       const have = new Set(route.map((s) => s.id));
       const add = today.filter(nearRoute).map(mkStop).filter((s) => !have.has(s.id));
@@ -1867,6 +1868,12 @@ export default function CanvassMap() {
       .then(({ data }) => { if (live && Array.isArray(data)) setDbCounts(Object.fromEntries(data.map((r) => [r.status, Number(r.n)]))); })
       .catch(() => { /* RPC not created yet → keep loadedCounts */ });
     return () => { live = false; };
+  }, []);
+  // Admin-tunable go-back route radius (miles). Set on the Pin Types admin page.
+  useEffect(() => {
+    supabase.from("app_settings").select("value").eq("key", "harvest_goback_radius_mi").maybeSingle()
+      .then(({ data }) => { const n = Number(data?.value); if (Number.isFinite(n) && n > 0) setGobackRadiusMi(n); })
+      .catch(() => { /* keep default 5 */ });
   }, []);
   const counts = dbCounts || loadedCounts;
   const notMapped = prospects.length - mapped.length;
