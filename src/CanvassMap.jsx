@@ -631,7 +631,10 @@ export default function CanvassMap() {
   // Test harness (?test=sr|jr): drop fake appts on the map to see Smart Scheduling
   // build a plan, at senior or junior pin visibility, without touching real JN appts.
   const testParam = useMemo(() => { try { return new URLSearchParams(window.location.search).get("test"); } catch { return null; } }, []);
-  const testMode = !!testParam;
+  // Test tools show on any ?test= link AND on the office/admin map (so admin can try
+  // Smart Scheduling right from "VIEW AS Sr/Jr" without a special URL).
+  const isAdminLink = useMemo(() => { try { return !!new URLSearchParams(window.location.search).get("admin"); } catch { return false; } }, []);
+  const testMode = !!testParam || isAdminLink;
   const testLevel = testParam === "sr" ? "senior" : testParam === "jr" ? "junior" : null;
   const [testAppts, setTestAppts] = useState([]);
   const [addingTestAppt, setAddingTestAppt] = useState(false);
