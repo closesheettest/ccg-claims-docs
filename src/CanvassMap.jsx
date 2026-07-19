@@ -199,7 +199,10 @@ function apptAnchor(a) {
 }
 // nowMs = when the rep starts; endMs = when the day ends (e.g. 8 PM) — the tail after
 // the last appt is sized so they stop by end-of-day, not by a fixed door count.
-function buildApptPlan(start, nowMs, endMs, appts, pool) {
+// endPt = where the rep wants to END UP (their start point — home, or a hotel like
+// William's). When given, the after-last-appt doors route BACK toward it, so the day
+// finishes near where they started. Falls back to clustering by the last appt.
+function buildApptPlan(start, nowMs, endMs, appts, pool, endPt) {
   const used = new Set();
   const rem = (pool || []).filter((p) => p && typeof p.latitude === "number" && typeof p.longitude === "number");
   const travelMin = (a, b) => (feetBetween(a, b) / 5280) / APLAN.SPEED_MPH * 60;
@@ -209,7 +212,7 @@ function buildApptPlan(start, nowMs, endMs, appts, pool) {
     // open tail uses the same clock math (window = time left until end-of-day),
     // capped so a very long evening can't build an absurd route.
     const raw = Math.floor((windowMin - (toPos ? travelMin(from, toPos) : 0) - APLAN.BUFFER_MIN) / APLAN.MIN_PER_DOOR);
-    const budget = toPos ? Math.max(0, raw) : Math.max(0, Math.min(raw, APLAN.TAIL_CAP));
+    const budget = Math.max(0, Math.min(raw, APLAN.TAIL_CAP));
     if (budget <= 0) return [];
     const base = toPos ? feetBetween(from, toPos) : 0;
     // Cluster the leg's doors right AROUND the destination: the appointment for a
@@ -243,9 +246,12 @@ function buildApptPlan(start, nowMs, endMs, appts, pool) {
     curPos = { lat: a.lat, lng: a.lng };
     curTime = Math.max(a.at_ms, curTime) + APLAN.WINDOW_MIN * 60000;
   }
-  // Tail: fill until the day ends. If the last appt runs past end-of-day (curTime >
-  // endMs) this is 0 — matches "a 7 PM appt means no more stops unless they finish early".
-  for (const p of fill(curPos, null, Math.max(0, (endMs - curTime) / 60000))) out.push(p);
+  // Tail: fill until the day ends. If endPt is set, work the doors on the way BACK to
+  // it (dense block near the end point) so they finish near home/their hotel. If the
+  // last appt runs past end-of-day this is 0 (a 7 PM appt → no more stops).
+  const tailWindow = Math.max(0, (endMs - curTime) / 60000);
+  const tailTo = endPt && typeof endPt.lat === "number" ? endPt : null;
+  for (const p of fill(curPos, tailTo, tailWindow)) out.push(p);
   return out;
 }
 // Appt time label, e.g. "11:00 AM".
@@ -633,6 +639,8 @@ export default function CanvassMap() {
   const apptPoolRef = useRef([]);                      // the pin pool the appt plan drew from (for re-planning on "Appt done")
   const apptListRef = useRef([]);                      // today's appts (for re-planning)
   const apptEndRef = useRef(0);                        // end-of-day ms, reused by the "Appt done" re-plan
+  const apptHomeRef = useRef(null);                    // where the day should END (start point — home/hotel), for the routed-home tail
+  const [planHome, setPlanHome] = useState(null);      // draw a 🏠 marker at the end point
   // Test harness (?test=sr|jr): drop fake appts on the map to see Smart Scheduling
   // build a plan, at senior or junior pin visibility, without touching real JN appts.
   const testParam = useMemo(() => { try { return new URLSearchParams(window.location.search).get("test"); } catch { return null; } }, []);
@@ -1537,6 +1545,15 @@ export default function CanvassMap() {
       });
       L.marker([startPt.lat, startPt.lng], { icon: startIcon, zIndexOffset: 1100 }).addTo(lyr);
     }
+    // End-of-day point (home / hotel) the plan routes back to — 🏠 marker.
+    if (planHome && typeof planHome.lat === "number") {
+      const homeIcon = L.divIcon({
+        className: "harvest-route-home",
+        html: `<div style="display:flex;flex-direction:column;align-items:center;transform:translateY(-4px)"><div style="background:#0f172a;color:#fff;font-size:9.5px;font-weight:800;padding:1px 6px;border-radius:8px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.4);margin-bottom:2px">end by 8pm</div><div style="width:24px;height:24px;border-radius:50%;background:#0f172a;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;font-size:13px">🏠</div></div>`,
+        iconSize: [1, 1], iconAnchor: [0, 12],
+      });
+      L.marker([planHome.lat, planHome.lng], { icon: homeIcon, zIndexOffset: 1050 }).addTo(lyr);
+    }
     // Number the DOORS 1,2,3… continuously — appointments get their own 📅+time badge
     // and DON'T consume a door number (so the door sequence never skips at an appt).
     let doorNum = 0;
@@ -1562,7 +1579,7 @@ export default function CanvassMap() {
       });
       L.marker([p.latitude, p.longitude], { icon, zIndexOffset: 1000 }).on("click", () => openPin(p)).addTo(lyr);
     });
-  }, [dayMode, route, stopIdx, startPt, routeGeom]);
+  }, [dayMode, route, stopIdx, startPt, routeGeom, planHome]);
 
   // Draw the dropped TEST appts (test harness) with their time, until a plan is built.
   useEffect(() => {
@@ -1751,10 +1768,12 @@ export default function CanvassMap() {
       const loaded = await load(wide);
       const pool = (loaded.length ? loaded : (shownRef.current || [])).filter((p) => inFilter(p.status) && typeof p.latitude === "number"
         && (!visKeys || visKeys.has(p.status)) && !nonRoutableStatuses.has(p.status) && !workedTodayET(p));
-      apptPoolRef.current = pool; apptListRef.current = appts; apptEndRef.current = endMs;
-      const route = buildApptPlan(start, startMs, endMs, appts, pool);
+      // End the day back where they started (home, or a hotel like William's).
+      const home = { lat: start.lat, lng: start.lng };
+      apptPoolRef.current = pool; apptListRef.current = appts; apptEndRef.current = endMs; apptHomeRef.current = home;
+      const route = buildApptPlan(start, startMs, endMs, appts, pool, home);
       workingRef.current = new Set(route.filter((s) => !s.isAppt).map((s) => s.id));
-      setStartPt(start); setRoute(route); setStopIdx(0); setRound(1); setResolvedIds(new Set()); setDayMode("active"); setFillOffer(null); setShowApptPlan(false);
+      setStartPt(start); setRoute(route); setStopIdx(0); setRound(1); setResolvedIds(new Set()); setDayMode("active"); setFillOffer(null); setShowApptPlan(false); setPlanHome(home);
       if (map.current && route[0]) map.current.setView([route[0].latitude, route[0].longitude], 15);
     } catch { alert("Couldn't load your appointments — try again."); }
     setPlanningAppts(false);
@@ -1770,7 +1789,7 @@ export default function CanvassMap() {
     const prefixIds = new Set(prefix.map((s) => s.id));
     const pool = (apptPoolRef.current || []).filter((p) => !prefixIds.has(p.id) && !resolvedIds.has(p.id));
     const endMs = apptEndRef.current || (Date.now() + 3600000);
-    const tail = buildApptPlan(from, Date.now(), endMs, restAppts, pool);
+    const tail = buildApptPlan(from, Date.now(), endMs, restAppts, pool, apptHomeRef.current);
     const next = [...prefix, ...tail];
     workingRef.current = new Set(next.filter((s) => !s.isAppt).map((s) => s.id));
     logActivity({ pin_id: null, kind: "appt_done", to_status: "appt" });
@@ -2027,7 +2046,7 @@ export default function CanvassMap() {
     }
   }
 
-  function startOver() { routeGen.current++; setOptimizing(false); navLayer.current?.clearLayers(); setDayMode(null); setStartPt(null); setRoute([]); setStopIdx(0); setRound(1); setResolvedIds(new Set()); workingRef.current = new Set(); setPanelPos(null); setSigningStop(null); setFillOffer(null); setEditingRoute(false); }
+  function startOver() { routeGen.current++; setOptimizing(false); navLayer.current?.clearLayers(); setDayMode(null); setStartPt(null); setRoute([]); setStopIdx(0); setRound(1); setResolvedIds(new Set()); workingRef.current = new Set(); setPanelPos(null); setSigningStop(null); setFillOffer(null); setEditingRoute(false); setPlanHome(null); }
   // Drop a stop the rep doesn't want to drive to (e.g. it's across the bay). Keeps
   // the current stop stable and re-numbers the rest; the map line redraws.
   function removeStop(id) {
