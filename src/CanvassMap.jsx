@@ -234,6 +234,10 @@ function buildApptPlan(start, nowMs, endMs, appts, pool, endPt) {
     cands.sort((a, b) => a.key - b.key); // nearest the destination = tight cluster around it
     const chosen = cands.slice(0, budget).map((c) => c.p);
     chosen.forEach((p) => used.add(p.id));
+    // Order so the leg ENDS at the destination (the appt, or home for the tail): order
+    // outward FROM the destination, then reverse — so the rep enters from the from-side
+    // and finishes right at the appt/home, no backtracking to it after overshooting.
+    if (toPos) return orderStops(toPos, chosen).reverse();
     return orderStops(from, chosen);
   };
   const out = [];
