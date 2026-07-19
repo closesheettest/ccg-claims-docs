@@ -197,6 +197,38 @@ const APLAN = { MIN_PER_DOOR: 8, SPEED_MPH: 30, BUFFER_MIN: 10, WINDOW_MIN: 60, 
 function apptAnchor(a) {
   return { id: `appt_${a.jn_job_id}`, latitude: a.lat, longitude: a.lng, name: a.name, address: a.address, status: "appt_anchor", isAppt: true, _appt: { at_ms: a.at_ms, jn_job_id: a.jn_job_id } };
 }
+// Order a leg's doors as an efficient PATH from `from` to a destination (`to` = the
+// appt, or home for the tail): nearest-neighbour from `from`, then 2-opt that counts
+// the final hop to the destination — so the path flows start→…→destination without
+// wandering off to a far door first or overshooting past the anchor.
+function orderLeg(from, to, doors) {
+  if (!doors || doors.length <= 1) return (doors || []).slice();
+  const co = (p) => ({ lat: p.latitude, lng: p.longitude });
+  const remaining = doors.slice();
+  const order = [];
+  let cur = { lat: from.lat, lng: from.lng };
+  while (remaining.length) {
+    let bi = 0, bd = Infinity;
+    for (let i = 0; i < remaining.length; i++) { const d = feetBetween(cur, co(remaining[i])); if (d < bd) { bd = d; bi = i; } }
+    const p = remaining.splice(bi, 1)[0]; order.push(p); cur = co(p);
+  }
+  const end = to ? { lat: to.lat, lng: to.lng } : null;
+  let improved = true, pass = 0;
+  while (improved && pass < 6) {
+    improved = false; pass++;
+    for (let i = 0; i < order.length - 1; i++) {
+      for (let k = i + 1; k < order.length; k++) {
+        const A = i === 0 ? { lat: from.lat, lng: from.lng } : co(order[i - 1]);
+        const B = co(order[i]), C = co(order[k]);
+        const D = k + 1 < order.length ? co(order[k + 1]) : end;
+        const before = feetBetween(A, B) + (D ? feetBetween(C, D) : 0);
+        const after = feetBetween(A, C) + (D ? feetBetween(B, D) : 0);
+        if (after + 1 < before) { let lo = i, hi = k; while (lo < hi) { const t = order[lo]; order[lo] = order[hi]; order[hi] = t; lo++; hi--; } improved = true; }
+      }
+    }
+  }
+  return order;
+}
 // nowMs = when the rep starts; endMs = when the day ends (e.g. 8 PM) — the tail after
 // the last appt is sized so they stop by end-of-day, not by a fixed door count.
 // endPt = where the rep wants to END UP (their start point — home, or a hotel like
@@ -234,11 +266,9 @@ function buildApptPlan(start, nowMs, endMs, appts, pool, endPt) {
     cands.sort((a, b) => a.key - b.key); // nearest the destination = tight cluster around it
     const chosen = cands.slice(0, budget).map((c) => c.p);
     chosen.forEach((p) => used.add(p.id));
-    // Order so the leg ENDS at the destination (the appt, or home for the tail): order
-    // outward FROM the destination, then reverse — so the rep enters from the from-side
-    // and finishes right at the appt/home, no backtracking to it after overshooting.
-    if (toPos) return orderStops(toPos, chosen).reverse();
-    return orderStops(from, chosen);
+    // Order as an efficient PATH from `from` to the destination (appt / home), so the
+    // rep starts near where they are and finishes at the anchor — no wandering.
+    return orderLeg(from, toPos, chosen);
   };
   const out = [];
   let curPos = { lat: start.lat, lng: start.lng };
