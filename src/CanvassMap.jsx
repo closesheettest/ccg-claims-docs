@@ -1537,24 +1537,27 @@ export default function CanvassMap() {
       });
       L.marker([startPt.lat, startPt.lng], { icon: startIcon, zIndexOffset: 1100 }).addTo(lyr);
     }
+    // Number the DOORS 1,2,3… continuously — appointments get their own 📅+time badge
+    // and DON'T consume a door number (so the door sequence never skips at an appt).
+    let doorNum = 0;
     route.forEach((p, i) => {
       if (typeof p.latitude !== "number") return;
       const current = i === stopIdx, done = i < stopIdx;
-      // Appointment anchors stand out — purple 📅 pin instead of a numbered dot.
       if (p.isAppt) {
         const apptIcon = L.divIcon({
           className: "harvest-route-appt",
-          html: `<div style="width:30px;height:30px;border-radius:50% 50% 50% 2px;transform:rotate(45deg);background:${done ? "#c4b5fd" : "#7c3aed"};border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.5)"><div style="transform:rotate(-45deg);color:#fff;font-size:14px;text-align:center;line-height:27px">📅</div></div>`,
-          iconSize: [30, 30], iconAnchor: [15, 15],
+          html: `<div style="display:flex;flex-direction:column;align-items:center;transform:translateY(-6px)"><div style="background:${done ? "#c4b5fd" : "#7c3aed"};color:#fff;font-size:10px;font-weight:800;padding:1px 7px;border-radius:8px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.4);margin-bottom:2px">📅 ${apptTimeLabel(p._appt?.at_ms)}</div><div style="width:28px;height:28px;border-radius:50% 50% 50% 2px;transform:rotate(45deg);background:${done ? "#c4b5fd" : "#7c3aed"};border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.5)"><div style="transform:rotate(-45deg);color:#fff;font-size:13px;text-align:center;line-height:25px">📅</div></div></div>`,
+          iconSize: [1, 1], iconAnchor: [0, 14],
         });
         L.marker([p.latitude, p.longitude], { icon: apptIcon, zIndexOffset: 1500 }).addTo(lyr);
         return;
       }
+      doorNum += 1;
       const bg = current ? "#16a34a" : done ? "#cbd5e1" : "#fff";
       const fg = current ? "#fff" : done ? "#64748b" : "#16a34a";
       const icon = L.divIcon({
         className: "harvest-route-stop",
-        html: `<div style="width:24px;height:24px;border-radius:50%;background:${bg};color:${fg};border:2px solid #16a34a;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;box-shadow:0 1px 3px rgba(0,0,0,.4)">${i + 1}</div>`,
+        html: `<div style="width:24px;height:24px;border-radius:50%;background:${bg};color:${fg};border:2px solid #16a34a;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;box-shadow:0 1px 3px rgba(0,0,0,.4)">${doorNum}</div>`,
         iconSize: [24, 24], iconAnchor: [12, 12],
       });
       L.marker([p.latitude, p.longitude], { icon, zIndexOffset: 1000 }).on("click", () => openPin(p)).addTo(lyr);
@@ -2469,6 +2472,9 @@ export default function CanvassMap() {
         {dayMode === "active" && (() => {
           const done = stopIdx >= route.length;
           const stop = done ? null : route[stopIdx];
+          // Door numbering (appointments excluded) to match the map's markers.
+          const doorTotal = route.filter((s) => !s.isAppt).length;
+          const doorNo = route.slice(0, stopIdx + 1).filter((s) => !s.isAppt).length;
           const posStyle = panelPos
             ? { left: panelPos.left, top: panelPos.top }
             : { right: 10, bottom: 14 };
@@ -2507,7 +2513,7 @@ export default function CanvassMap() {
                 <>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                     <span style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", color: "#7c3aed" }}>📅 Appointment</span>
-                    <span style={{ fontSize: 11.5, fontWeight: 700, color: "#94a3b8" }}>Stop {stopIdx + 1} of {route.length}</span>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, color: "#94a3b8" }}>Next door: {Math.min(doorNo + 1, doorTotal)} of {doorTotal}</span>
                   </div>
                   <div style={{ background: "#faf5ff", border: "1px solid #e9d5ff", borderRadius: 12, padding: "12px 14px" }}>
                     <div style={{ fontSize: 17, fontWeight: 800, color: "#6d28d9" }}>{apptTimeLabel(stop._appt?.at_ms)}</div>
@@ -2558,7 +2564,7 @@ export default function CanvassMap() {
                 return (
                 <>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                    <span style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", color: "#16a34a" }}>{round > 1 ? `Round ${round} · ` : ""}Stop {stopIdx + 1} of {route.length}{optimizing ? <span style={{ color: "#94a3b8", fontWeight: 700 }}> · 🛣️ optimizing…</span> : null}</span>
+                    <span style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", color: "#16a34a" }}>{round > 1 ? `Round ${round} · ` : ""}{doorTotal ? `Door ${doorNo} of ${doorTotal}` : `Stop ${stopIdx + 1} of ${route.length}`}{optimizing ? <span style={{ color: "#94a3b8", fontWeight: 700 }}> · 🛣️ optimizing…</span> : null}</span>
                     <button type="button" onClick={() => setEditingRoute(true)} style={{ background: "none", border: "none", fontSize: 12.5, fontWeight: 700, color: "#1d4ed8", cursor: "pointer" }}>✏️ Edit route</button>
                   </div>
                   {/* One tap re-orders whatever's left from where the rep is standing —
