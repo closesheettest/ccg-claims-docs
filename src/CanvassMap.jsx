@@ -2136,24 +2136,10 @@ export default function CanvassMap() {
                 <span style={{ fontSize: 11, opacity: 0.85 }}>{gobackCard ? "▲ hide" : "▼ show"}</span>
               </button>
               {gobackCard && (
-                <div style={{ background: "#fff", borderRadius: "0 0 12px 12px", boxShadow: "0 3px 14px rgba(0,0,0,.3)", maxHeight: "46vh", overflowY: "auto" }}>
-                  {needs.map(({ v, w, age }) => {
-                    const m = GOBACK_META[v.bucket] || GOBACK_META.damage;
-                    const status = w === "overdue" ? "⚠️ overdue" : w === "aging" ? `⏳ ${age}d waiting` : "today";
-                    const warn = w === "overdue" || (age || 0) >= 14;
-                    return (
-                      <button key={v.inspection_id} type="button"
-                        onClick={() => { setGobackCard(false); if (v.latitude != null) map.current?.setView([v.latitude, v.longitude], Math.max(map.current.getZoom(), 16)); setSelected(null); setSelectedVisit(v); }}
-                        style={{ display: "flex", width: "100%", gap: 10, alignItems: "center", padding: "10px 12px", borderBottom: "1px solid #f1f5f9", background: "#fff", border: "none", cursor: "pointer", textAlign: "left" }}>
-                        <span style={{ width: 28, height: 28, borderRadius: 7, background: m.color, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>{m.emoji}</span>
-                        <span style={{ flex: 1, minWidth: 0 }}>
-                          <span style={{ display: "block", fontSize: 13, fontWeight: 800, color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{v.client_name || v.address}</span>
-                          <span style={{ display: "block", fontSize: 11.5, color: warn ? "#b91c1c" : "#64748b", fontWeight: warn ? 800 : 600 }}>{m.label} · {status}{visitWhenLabel(v) ? ` · ${visitWhenLabel(v)}` : ""}{v.distance_mi != null ? ` · ${v.distance_mi} mi` : ""}</span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                  <div style={{ padding: "10px 12px" }}>
+                <div style={{ background: "#fff", borderRadius: "0 0 12px 12px", boxShadow: "0 3px 14px rgba(0,0,0,.3)", overflow: "hidden" }}>
+                  {/* Action pinned at the TOP so it's always visible — a long go-back
+                      list used to push it off-screen where reps never scrolled to it. */}
+                  <div style={{ padding: "10px 12px", borderBottom: "1px solid #eef2f7" }}>
                     <button type="button" onClick={addGobacksToRoute}
                       style={{ width: "100%", background: "#16a34a", color: "#fff", border: "none", borderRadius: 10, padding: "11px", fontSize: 13.5, fontWeight: 800, cursor: "pointer" }}>
                       {dayMode === "active" && route.length ? "➕ Add the go-backs within my route" : "➕ Route these go-backs"}
@@ -2161,6 +2147,24 @@ export default function CanvassMap() {
                     {dayMode === "active" && route.length ? (
                       <div style={{ fontSize: 11, color: "#94a3b8", textAlign: "center", marginTop: 6 }}>Only go-backs inside today's route area get added — the rest stay here.</div>
                     ) : null}
+                  </div>
+                  <div style={{ maxHeight: "40vh", overflowY: "auto" }}>
+                    {needs.map(({ v, w, age }) => {
+                      const m = GOBACK_META[v.bucket] || GOBACK_META.damage;
+                      const status = w === "overdue" ? "⚠️ overdue" : w === "aging" ? `⏳ ${age}d waiting` : "today";
+                      const warn = w === "overdue" || (age || 0) >= 14;
+                      return (
+                        <button key={v.inspection_id} type="button"
+                          onClick={() => { setGobackCard(false); if (v.latitude != null) map.current?.setView([v.latitude, v.longitude], Math.max(map.current.getZoom(), 16)); setSelected(null); setSelectedVisit(v); }}
+                          style={{ display: "flex", width: "100%", gap: 10, alignItems: "center", padding: "10px 12px", borderBottom: "1px solid #f1f5f9", background: "#fff", border: "none", cursor: "pointer", textAlign: "left" }}>
+                          <span style={{ width: 28, height: 28, borderRadius: 7, background: m.color, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>{m.emoji}</span>
+                          <span style={{ flex: 1, minWidth: 0 }}>
+                            <span style={{ display: "block", fontSize: 13, fontWeight: 800, color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{v.client_name || v.address}</span>
+                            <span style={{ display: "block", fontSize: 11.5, color: warn ? "#b91c1c" : "#64748b", fontWeight: warn ? 800 : 600 }}>{m.label} · {status}{visitWhenLabel(v) ? ` · ${visitWhenLabel(v)}` : ""}{v.distance_mi != null ? ` · ${v.distance_mi} mi` : ""}</span>
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )}
