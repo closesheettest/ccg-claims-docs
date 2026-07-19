@@ -28,6 +28,12 @@ export const handler = async (event) => {
   const mins = Math.min(Math.max(parseInt(p.mins, 10) || 120, 10), 720);
   const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` };
 
+  // Company kill-switch: the office can turn the regional-manager map off on the
+  // Pin Types admin page (app_settings.harvest_manager_map_enabled). Default ON.
+  const setRow = await sbGet("app_settings?key=eq.harvest_manager_map_enabled&select=value&limit=1", sb).catch(() => []);
+  const enabled = !(setRow[0] && String(setRow[0].value) === "false");
+  if (!enabled) return cors(200, { ok: true, enabled: false, reps: [] });
+
   // Scope: a zone directly (how the TMS manager page calls it), OR a CCG
   // regional_managers token that resolves to a zone.
   let zone = String(p.zone || "").trim();
@@ -41,17 +47,20 @@ export const handler = async (event) => {
 
   // Zone → the reps on that team (name + JN id).
   const teamReps = await fetchRepsInZoneBridged(zone, sb);
-  const base = { ok: true, zone, updated_at: new Date().toISOString() };
+  const base = { ok: true, enabled: true, zone, updated_at: new Date().toISOString() };
   if (!teamReps.length) return cors(200, { ...base, reps: [] });
   const allow = new Set(teamReps.map((r) => normalizeName(r.name)).filter(Boolean));
 
   // 3) Recent pings (trails) + today's activity (counts + last action), team-filtered.
   const since = new Date(Date.now() - mins * 60000).toISOString();
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-  const [pingsAll, actsAll] = await Promise.all([
-    sbGet(`harvest_rep_pings?at=gte.${encodeURIComponent(since)}&select=rep_id,rep_name,lat,lng,at&order=at.asc&limit=20000`, sb).catch(() => []),
+  // `ended` may not be migrated yet → fall back to the column-less ping select.
+  const pingSel = (cols) => sbGet(`harvest_rep_pings?at=gte.${encodeURIComponent(since)}&select=${cols}&order=at.asc&limit=20000`, sb);
+  const [pingsRaw, actsAll] = await Promise.all([
+    pingSel("rep_id,rep_name,lat,lng,at,ended").catch(() => null),
     sbGet(`canvass_activity?created_at=gte.${encodeURIComponent(todayStart.toISOString())}&select=rep_name,kind,to_status,created_at&order=created_at.desc&limit=10000`, sb).catch(() => []),
   ]);
+  const pingsAll = pingsRaw !== null ? pingsRaw : await pingSel("rep_id,rep_name,lat,lng,at").catch(() => []);
   const pings = pingsAll.filter((pg) => allow.has(normalizeName(pg.rep_name)));
   const acts = actsAll.filter((a) => allow.has(normalizeName(a.rep_name)));
 
@@ -74,7 +83,7 @@ export const handler = async (event) => {
   for (const pg of pings) {
     const n = normalizeName(pg.rep_name); if (!n) continue;
     if (!pingsByName.has(n)) pingsByName.set(n, { rep_id: pg.rep_id, pings: [] });
-    pingsByName.get(n).pings.push({ lat: pg.lat, lng: pg.lng, at: pg.at });
+    pingsByName.get(n).pings.push({ lat: pg.lat, lng: pg.lng, at: pg.at, ended: pg.ended === true });
   }
 
   const IDLE_MS = 15 * 60 * 1000, now = Date.now();
@@ -83,7 +92,8 @@ export const handler = async (event) => {
     const g = pingsByName.get(n);
     const arr = g?.pings || [];
     const last = arr.length ? arr[arr.length - 1] : null;
-    const live = !!(last && (now - Date.parse(last.at)) <= IDLE_MS);
+    // Live only if the newest ping is recent AND wasn't an explicit "closed" beacon.
+    const live = !!(last && !last.ended && (now - Date.parse(last.at)) <= IDLE_MS);
     const a = lastByName[n];
     const label = a ? (a.kind === "status" ? (ACTION_LABEL[a.to_status] || a.to_status) : a.to_status === "not_home" ? "Not home" : "Working a door") : null;
     return {

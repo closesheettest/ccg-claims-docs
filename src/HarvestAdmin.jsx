@@ -18,6 +18,8 @@ export default function HarvestAdmin() {
   const [newType, setNewType] = useState({ key: "", label: "", color: "#2563eb" });
   const [radius, setRadius] = useState(5);        // go-back route radius (miles)
   const [radiusBusy, setRadiusBusy] = useState(false);
+  const [mgrMap, setMgrMap] = useState(true);     // regional-manager team map on/off
+  const [mgrBusy, setMgrBusy] = useState(false);
 
   const load = async () => {
     const { data, error } = await supabase.from("harvest_pin_types").select("*").order("sort");
@@ -28,12 +30,20 @@ export default function HarvestAdmin() {
   useEffect(() => {
     supabase.from("app_settings").select("value").eq("key", "harvest_goback_radius_mi").maybeSingle()
       .then(({ data }) => { const n = Number(data?.value); if (Number.isFinite(n) && n > 0) setRadius(n); });
+    supabase.from("app_settings").select("value").eq("key", "harvest_manager_map_enabled").maybeSingle()
+      .then(({ data }) => { if (data) setMgrMap(String(data.value) !== "false"); });
   }, []);
   const saveRadius = async () => {
     setRadiusBusy(true); setMsg(null);
     const { error } = await supabase.from("app_settings").upsert({ key: "harvest_goback_radius_mi", value: String(radius) }, { onConflict: "key" });
     setRadiusBusy(false);
     setMsg(error ? { err: error.message } : { ok: `Go-back radius set to ${radius} mi.` });
+  };
+  const saveMgrMap = async (next) => {
+    setMgrMap(next); setMgrBusy(true); setMsg(null);
+    const { error } = await supabase.from("app_settings").upsert({ key: "harvest_manager_map_enabled", value: next ? "true" : "false" }, { onConflict: "key" });
+    setMgrBusy(false);
+    setMsg(error ? { err: error.message } : { ok: `Regional managers' team map turned ${next ? "ON" : "OFF"}.` });
   };
 
   const allKeys = useMemo(() => (types || []).map((t) => t.key), [types]);
@@ -92,6 +102,20 @@ export default function HarvestAdmin() {
           <span style={{ fontSize: 20, fontWeight: 800, fontFamily: OSWALD, minWidth: 62, textAlign: "right" }}>{radius} mi</span>
           <button type="button" onClick={saveRadius} disabled={radiusBusy} style={{ fontSize: 13, fontWeight: 700, padding: "9px 18px", borderRadius: 8, border: "none", background: "#16a34a", color: "#fff", cursor: "pointer", opacity: radiusBusy ? 0.6 : 1 }}>{radiusBusy ? "Saving…" : "Save"}</button>
         </div>
+      </div>
+
+      {/* Regional managers' Team Map — company on/off. */}
+      <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, marginBottom: 16, background: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 800 }}>🗺️ Regional managers' Team Map</div>
+          <div style={{ fontSize: 12.5, color: "#64748b", marginTop: 3 }}>
+            Shows each regional manager a live map of <b>their zone's reps</b> (positions, trails, today's counts) on their dashboard. Turn off to hide it from <b>all</b> managers.
+          </div>
+        </div>
+        <button type="button" onClick={() => saveMgrMap(!mgrMap)} disabled={mgrBusy} title={mgrMap ? "On — tap to turn off" : "Off — tap to turn on"}
+          style={{ flexShrink: 0, width: 62, height: 32, borderRadius: 999, border: "none", cursor: mgrBusy ? "default" : "pointer", background: mgrMap ? "#16a34a" : "#cbd5e1", position: "relative", opacity: mgrBusy ? 0.6 : 1, transition: "background .15s" }}>
+          <span style={{ position: "absolute", top: 3, left: mgrMap ? 33 : 3, width: 26, height: 26, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,.3)", transition: "left .15s" }} />
+        </button>
       </div>
 
       <div style={{ display: "grid", gap: 12 }}>

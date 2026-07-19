@@ -1224,6 +1224,24 @@ export default function CanvassMap() {
     lastPosRef.current = { lat: myLoc.lat, lng: myLoc.lng, at: now };
     fetch("/.netlify/functions/harvest-ping", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rt: auth.rt, lat: myLoc.lat, lng: myLoc.lng }) }).catch(() => {});
   }, [myLoc]);
+  // When the rep CLOSES the map (tab/app close, navigate away), fire a one-shot
+  // beacon marking their last ping "ended" — so the live team views drop them right
+  // away instead of showing them live for the 15-min idle grace. Only on a real
+  // teardown (pagehide with persisted=false); a bfcache background (they may come
+  // straight back) is left alone, and reopening just resumes normal pinging.
+  useEffect(() => {
+    if (!auth.rt) return;
+    const bye = (e) => {
+      if (e && e.persisted) return;
+      const p = lastPosRef.current; if (!p) return;
+      try {
+        const blob = new Blob([JSON.stringify({ rt: auth.rt, lat: p.lat, lng: p.lng, ended: true })], { type: "application/json" });
+        navigator.sendBeacon("/.netlify/functions/harvest-ping", blob);
+      } catch { /* ignore */ }
+    };
+    window.addEventListener("pagehide", bye);
+    return () => window.removeEventListener("pagehide", bye);
+  }, [auth.rt]);
   // Bill it: once a real rep opens the map, stamp their access for the month.
   useEffect(() => {
     if (accessLogged.current || !me || !auth.rt) return;

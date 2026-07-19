@@ -27,7 +27,11 @@ export const handler = async (event) => {
   // Recent pings, oldest→newest so the trail draws in order. Cap raised to 20000:
   // at a 10s ping rate a 2h window is ~720 pings/rep, and order=at.asc + a small
   // cap would drop the NEWEST rows (the reps' current spots), not the oldest.
-  const pings = await sbGet(`harvest_rep_pings?at=gte.${encodeURIComponent(since)}&select=rep_id,rep_name,lat,lng,at&order=at.asc&limit=20000`, sb).catch(() => []);
+  // `ended` may not be migrated yet → fall back to the column-less select so the
+  // team view never breaks (a missing `ended` just reads as not-ended = still live).
+  const pingSel = (cols) => sbGet(`harvest_rep_pings?at=gte.${encodeURIComponent(since)}&select=${cols}&order=at.asc&limit=20000`, sb);
+  let pings = await pingSel("rep_id,rep_name,lat,lng,at,ended").catch(() => null);
+  if (pings === null) pings = await pingSel("rep_id,rep_name,lat,lng,at").catch(() => []);
   // Latest canvass action per rep (what they're doing) — pull recent, keep newest per rep.
   const acts = await sbGet(`canvass_activity?created_at=gte.${encodeURIComponent(since)}&select=rep_name,kind,to_status,created_at&order=created_at.desc&limit=2000`, sb).catch(() => []);
   const lastByName = {};
@@ -37,15 +41,16 @@ export const handler = async (event) => {
   for (const pg of pings) {
     const key = pg.rep_id || pg.rep_name;
     if (!byRep.has(key)) byRep.set(key, { rep_id: pg.rep_id, name: pg.rep_name || "Rep", pings: [] });
-    byRep.get(key).pings.push({ lat: pg.lat, lng: pg.lng, at: pg.at });
+    byRep.get(key).pings.push({ lat: pg.lat, lng: pg.lng, at: pg.at, ended: pg.ended === true });
   }
   // A rep with no ping in the last 15 min has stopped (closed the map / done for
   // now) — drop them from the LIVE view so it reflects who's actually out working.
   // 15 min leaves room for a homeowner conversation / scheduling an appt while the
   // map's open (those still ping every 10s anyway). They reappear on the next ping.
+  // A rep whose NEWEST ping is `ended` closed the map explicitly → drop immediately.
   const IDLE_MS = 15 * 60 * 1000, now = Date.now();
   const reps = [...byRep.values()]
-    .filter((r) => { const last = r.pings[r.pings.length - 1]?.at; return last && (now - Date.parse(last)) <= IDLE_MS; })
+    .filter((r) => { const last = r.pings[r.pings.length - 1]; return last && !last.ended && (now - Date.parse(last.at)) <= IDLE_MS; })
     .map((r) => {
       const a = lastByName[(r.name || "").toLowerCase()];
       const label = a ? (a.kind === "status" ? (ACTION_LABEL[a.to_status] || a.to_status) : a.to_status === "not_home" ? "Not home" : "Working a door") : null;
