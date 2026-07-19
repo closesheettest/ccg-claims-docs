@@ -1625,10 +1625,13 @@ export default function CanvassMap() {
   // tried without anyone home. Reads canvass_activity for this one pin.
   async function loadPinActivity(pinId) {
     setSelActs(null); setShowStatusEdit(false);
+    const pull = (cols) => supabase.from("canvass_activity").select(cols)
+      .eq("pin_id", pinId).order("created_at", { ascending: true }).limit(200);
     try {
-      const { data, error } = await supabase.from("canvass_activity")
-        .select("rep_name, kind, to_status, from_status, created_at")
-        .eq("pin_id", pinId).order("created_at", { ascending: true }).limit(200);
+      // Include the location-audit columns (dist_ft/loc_flag); if that migration
+      // hasn't run they don't exist, so fall back to the basic select.
+      let { data, error } = await pull("rep_name, kind, to_status, from_status, created_at, dist_ft, loc_flag");
+      if (error && /dist_ft|loc_flag|column/i.test(error.message || "")) ({ data, error } = await pull("rep_name, kind, to_status, from_status, created_at"));
       setSelActs(error ? "err" : (data || []));
     } catch { setSelActs("err"); }
   }
@@ -2551,10 +2554,17 @@ export default function CanvassMap() {
                       <div style={{ display: "grid", gap: 4 }}>
                         {acts.map((a, i) => {
                           const lab = actLabel(a);
+                          // How far the rep was from the door when they logged it, coloured
+                          // by trust: red = confidently far, amber = weak GPS, grey = at the door.
+                          const dist = a.dist_ft != null
+                            ? { txt: `${a.dist_ft.toLocaleString()} ft`, color: a.loc_flag === "far" ? "#b91c1c" : a.loc_flag === "gps_off" ? "#b45309" : "#94a3b8" }
+                            : null;
                           return (
                             <div key={i} style={{ display: "flex", gap: 8, alignItems: "baseline", fontSize: 12.5, background: "#f8fafc", borderRadius: 7, padding: "6px 9px" }}>
                               <span style={{ color: "#64748b", fontWeight: 700, minWidth: 38, flexShrink: 0 }}>{fmtMD(a.created_at)}</span>
-                              <span style={{ fontWeight: 700, color: lab.color, flex: 1, minWidth: 0 }}>{lab.txt}</span>
+                              <span style={{ fontWeight: 700, color: lab.color, flexShrink: 0 }}>{lab.txt}</span>
+                              {dist ? <span style={{ color: dist.color, fontWeight: 700, flexShrink: 0 }}>· {dist.txt}</span> : null}
+                              <span style={{ flex: 1 }} />
                               {a.rep_name ? <span style={{ color: "#334155", flexShrink: 0 }}>{a.rep_name}</span> : null}
                               <span style={{ color: "#94a3b8", flexShrink: 0 }}>{fmtTime(a.created_at)}</span>
                             </div>
