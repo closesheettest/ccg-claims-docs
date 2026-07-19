@@ -1451,12 +1451,21 @@ export default function CanvassMap() {
   }
   async function finalizeSelection(b) {
     const m = map.current;
-    const inBox = (shownRef.current || []).filter((p) =>
-      typeof p.latitude === "number" && typeof p.longitude === "number" && b.contains([p.latitude, p.longitude]) && !nonRoutableStatuses.has(p.status));
     cancelSelecting();
+    // Load the doors INSIDE the drawn box straight from Supabase (by the box bounds),
+    // so "Route an area" works at ANY zoom — even zoomed way out where the map is
+    // showing clusters, not individual pins. No more "zoom in first" just to box a
+    // spread-out area on a phone. Falls back to whatever's already on screen.
+    const loaded = await load(b);
+    const source = (loaded && loaded.length) ? loaded : (shownRef.current || []);
+    const inBox = source.filter((p) =>
+      typeof p.latitude === "number" && typeof p.longitude === "number" && b.contains([p.latitude, p.longitude])
+      && inFilter(p.status) && (!visKeys || visKeys.has(p.status)) && !nonRoutableStatuses.has(p.status) && !workedTodayET(p));
     if (!inBox.length) { alert("No doors in that box — draw around some pins."); return; }
     const start = myLoc || { lat: b.getCenter().lat, lng: b.getCenter().lng };
-    const r = buildRoute(start, inBox, inBox.length, true); // route EXACTLY these, no 25-mi cap
+    // Route the box's doors (nearest-first within it), ceilinged so a giant zoomed-out
+    // box can't build a thousand-stop day.
+    const r = buildRoute(start, inBox, Math.min(inBox.length, 300), true);
     if (!r.length) return;
     workingRef.current = new Set(r.map((p) => p.id));
     setStartPt(start); setRoute(r); setStopIdx(0); setRound(1); setResolvedIds(new Set()); setDayMode("active"); setFillOffer(null);
@@ -1995,8 +2004,8 @@ export default function CanvassMap() {
         )}
         {/* Route an area — drag a box, route exactly the doors inside it. */}
         {dayMode === null && !selecting && (prospects.length > 0 || clusters.length > 0) && (
-          <button type="button" onClick={() => (prospects.length ? startSelecting() : nudgeZoom())}
-            style={{ position: "absolute", left: 12, bottom: 68, zIndex: 600, background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer", opacity: prospects.length ? 1 : 0.85 }}>
+          <button type="button" onClick={startSelecting}
+            style={{ position: "absolute", left: 12, bottom: 68, zIndex: 600, background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
             ▢ Route an area
           </button>
         )}
