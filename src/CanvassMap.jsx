@@ -2276,12 +2276,20 @@ export default function CanvassMap() {
             🧠 Smart Scheduling
           </button>
         )}
-        {/* Test harness (?test=sr|jr): drop fake appts to see Smart Scheduling work. */}
+        {/* Test harness: drop fake appts to see Smart Scheduling work; clear to reset. */}
         {dayMode === null && !selecting && testMode && (
-          <button type="button" onClick={() => setAddingTestAppt(true)}
-            style={{ position: "absolute", left: 12, bottom: 156, zIndex: 600, background: "#f59e0b", color: "#111827", border: "none", borderRadius: 999, padding: "9px 15px", fontSize: 12.5, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
-            🧪 Add test appt{testAppts.length ? ` (${testAppts.length})` : ""}
-          </button>
+          <div style={{ position: "absolute", left: 12, bottom: 156, zIndex: 600, display: "flex", gap: 6, alignItems: "center" }}>
+            <button type="button" onClick={() => setAddingTestAppt(true)}
+              style={{ background: "#f59e0b", color: "#111827", border: "none", borderRadius: 999, padding: "9px 15px", fontSize: 12.5, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
+              🧪 Add test appt{testAppts.length ? ` (${testAppts.length})` : ""}
+            </button>
+            {testAppts.length > 0 && (
+              <button type="button" onClick={() => { setTestAppts([]); setAddingTestAppt(false); }}
+                style={{ background: "#fff", color: "#b91c1c", border: "1px solid #fecaca", borderRadius: 999, padding: "9px 12px", fontSize: 12, fontWeight: 800, boxShadow: "0 3px 12px rgba(0,0,0,.2)", cursor: "pointer" }}>
+                ✕ Clear
+              </button>
+            )}
+          </div>
         )}
         {addingTestAppt && (
           <div style={{ position: "absolute", left: "50%", bottom: 200, transform: "translateX(-50%)", zIndex: 800, background: "#7c3aed", color: "#fff", borderRadius: 10, padding: "9px 15px", fontSize: 13, fontWeight: 700, boxShadow: "0 3px 14px rgba(0,0,0,.35)", whiteSpace: "nowrap" }}>
@@ -2513,6 +2521,11 @@ export default function CanvassMap() {
                     ✅ Appointment done — plan the rest of my day
                   </button>
                   <div style={{ fontSize: 11.5, color: "#94a3b8", textAlign: "center", marginTop: 7 }}>Tap when you leave — we re-fill your doors based on the time before your next appt.</div>
+                  <button type="button"
+                    onClick={() => { if (window.confirm("Cancel this plan and start over?")) startOver(); }}
+                    style={{ width: "100%", marginTop: 10, background: "#fff", color: "#dc2626", border: "1px solid #dc2626", borderRadius: 10, padding: "9px", fontSize: 12.5, fontWeight: 800, cursor: "pointer" }}>
+                    ✕ Cancel plan &amp; start over
+                  </button>
                 </>
               ) : (() => {
                 const distFt = myLoc ? feetBetween(myLoc, { lat: stop.latitude, lng: stop.longitude }) : null;
