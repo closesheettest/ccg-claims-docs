@@ -116,8 +116,8 @@ export const handler = async (event) => {
       if (!Number.isNaN(s.getTime()) && !Number.isNaN(e.getTime())) { start = s; end = e; period = 'custom' }
     }
     if (!start) {
-      period = qp.period === 'month' ? 'month' : qp.period === 'lastmonth' ? 'lastmonth' : qp.period === 'lastweek' ? 'lastweek' : 'week'
-      ;({ start, end } = period === 'month' ? monthRange() : period === 'lastmonth' ? lastMonthRange() : period === 'lastweek' ? lastWeekRange() : weekRange())
+      period = qp.period === 'month' ? 'month' : qp.period === 'lastmonth' ? 'lastmonth' : qp.period === 'lastweek' ? 'lastweek' : qp.period === 'last30' ? 'last30' : 'week'
+      ;({ start, end } = period === 'month' ? monthRange() : period === 'lastmonth' ? lastMonthRange() : period === 'lastweek' ? lastWeekRange() : period === 'last30' ? last30Range() : weekRange())
     }
     const startMs = start.getTime()
     const endMs = end.getTime()
@@ -312,6 +312,11 @@ function weekRange(now = new Date()) {
   endBase.setUTCDate(endBase.getUTCDate() + 6)
   const end = etWallToUTC(endBase.getUTCFullYear(), endBase.getUTCMonth() + 1, endBase.getUTCDate(), 23, 59, 59)
   return { start, end }
+}
+
+// Rolling last 30 days: exactly 30×24h back → now.
+function last30Range(now = new Date()) {
+  return { start: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000), end: now }
 }
 
 // Prior Mon–Sun week (this week's window shifted back 7 days) — Monday recap.

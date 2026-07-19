@@ -57,8 +57,8 @@ export const handler = async (event) => {
     // ?period=lastweek → the prior Mon–Sun week (for Monday's recap blast).
     // Default = this week.
     const rawPeriod = (event.queryStringParameters || {}).period
-    const period = rawPeriod === 'month' ? 'month' : rawPeriod === 'lastmonth' ? 'lastmonth' : rawPeriod === 'lastweek' ? 'lastweek' : 'week'
-    const { start, end } = period === 'month' ? monthRange() : period === 'lastmonth' ? lastMonthRange() : period === 'lastweek' ? lastWeekRange() : weekRange()
+    const period = rawPeriod === 'month' ? 'month' : rawPeriod === 'lastmonth' ? 'lastmonth' : rawPeriod === 'lastweek' ? 'lastweek' : rawPeriod === 'last30' ? 'last30' : 'week'
+    const { start, end } = period === 'month' ? monthRange() : period === 'lastmonth' ? lastMonthRange() : period === 'lastweek' ? lastWeekRange() : period === 'last30' ? last30Range() : weekRange()
 
     // Pull every signed inspection in the window (cancelled excluded
     // server-side). Same column set the app's My Stats query uses.
@@ -181,6 +181,11 @@ function weekRange(now = new Date()) {
   endBase.setUTCDate(endBase.getUTCDate() + 6)
   const end = etWallToUTC(endBase.getUTCFullYear(), endBase.getUTCMonth() + 1, endBase.getUTCDate(), 23, 59, 59)
   return { start, end }
+}
+
+// Rolling last 30 days: exactly 30×24h back → now.
+function last30Range(now = new Date()) {
+  return { start: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000), end: now }
 }
 
 // The PRIOR Mon–Sun week (this week's window shifted back 7 days). Used by the
