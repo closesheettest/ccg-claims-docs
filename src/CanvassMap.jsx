@@ -209,22 +209,33 @@ function buildApptPlan(start, nowMs, endMs, appts, pool) {
     const budget = toPos ? Math.max(0, raw) : Math.max(0, Math.min(raw, APLAN.TAIL_CAP));
     if (budget <= 0) return [];
     const base = toPos ? feetBetween(from, toPos) : 0;
-    const scored = [];
+    const cands = [];
     for (const p of rem) {
       if (used.has(p.id)) continue;
       const pc = { lat: p.latitude, lng: p.longitude };
       const df = feetBetween(from, pc);
       if (toPos) {
-        const detour = (df + feetBetween(pc, toPos) - base) / 5280;
-        if (detour > APLAN.MAX_DETOUR_MI) continue;
-        scored.push({ p, key: detour });
+        const dt = feetBetween(pc, toPos);
+        if ((df + dt - base) / 5280 > APLAN.MAX_DETOUR_MI) continue; // not on the way
+        cands.push({ p, prog: df / (df + dt + 1e-6) }); // 0 at start → 1 at the appt
       } else {
         if (df / 5280 > APLAN.TAIL_RADIUS_MI) continue;
-        scored.push({ p, key: df });
+        cands.push({ p, prog: df });
       }
     }
-    scored.sort((x, y) => x.key - y.key);
-    const chosen = scored.slice(0, budget).map((x) => x.p);
+    let chosen;
+    if (toPos) {
+      // Order candidates by PROGRESS toward the appt, then — if there are more than fit
+      // — take an EVEN SPREAD across the leg (not the nearest cluster), so the rep works
+      // doors the whole way to the appt instead of a pile by the start.
+      cands.sort((x, y) => x.prog - y.prog);
+      chosen = cands.length <= budget
+        ? cands.map((c) => c.p)
+        : Array.from({ length: budget }, (_, i) => cands[Math.floor(i * cands.length / budget)].p);
+    } else {
+      cands.sort((x, y) => x.prog - y.prog);
+      chosen = cands.slice(0, budget).map((c) => c.p);
+    }
     chosen.forEach((p) => used.add(p.id));
     return orderStops(from, chosen);
   };
@@ -1722,8 +1733,10 @@ export default function CanvassMap() {
   async function planAroundAppts() {
     if ((!auth.rt && !testMode) || planningAppts) return;
     const startMs = hmToMsToday(planStartHM) || Date.now();
-    let endMs = hmToMsToday(planEndHM) || (startMs + 8 * 3600000);
-    if (endMs <= startMs) endMs = startMs + 3600000; // guard against end ≤ start
+    // End of day is fixed at 8 PM (not a rep input). Leaving earlier = a personal-note
+    // thing, handled separately — the plan always fills toward 8 PM.
+    let endMs = hmToMsToday("20:00");
+    if (endMs <= startMs) endMs = startMs + 3600000; // guard (started after 8 PM)
     setPlanningAppts(true);
     try {
       // Test harness uses the fake appts dropped on the map; otherwise pull today's from JN.
@@ -2273,7 +2286,7 @@ export default function CanvassMap() {
         {dayMode === null && !selecting && ((auth.rt && smartSchedEnabled) || testMode) && (
           <button type="button" onClick={openApptPlan}
             style={{ position: "absolute", left: 12, bottom: 112, zIndex: 600, background: "#7c3aed", color: "#fff", border: "none", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
-            🧠 Smart Scheduling
+            📅 Have an appt? Plan your day!
           </button>
         )}
         {/* Test harness: drop fake appts to see Smart Scheduling work; clear to reset. */}
@@ -2298,16 +2311,11 @@ export default function CanvassMap() {
         )}
         {showApptPlan && (
           <div style={{ position: "absolute", right: 10, bottom: 14, zIndex: 700, background: "#fff", borderRadius: 14, padding: "16px 18px", boxShadow: "0 4px 18px rgba(0,0,0,.2)", width: "min(340px, 90%)" }}>
-            <div style={{ fontSize: 16, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#0f172a", marginBottom: 4 }}>🧠 Smart Scheduling</div>
-            <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 12 }}>Your appts go in in order; we fill the gaps with doors that fit before each one, then more after — until your end time.</div>
-            <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
-              <label style={{ flex: 1, fontSize: 12, fontWeight: 700, color: "#475569" }}>Start now / at
-                <input type="time" value={planStartHM} onChange={(e) => setPlanStartHM(e.target.value)} style={{ marginTop: 4, width: "100%", boxSizing: "border-box", padding: "9px 10px", border: "1px solid #cbd5e1", borderRadius: 9, fontSize: 14, fontFamily: FONT }} />
-              </label>
-              <label style={{ flex: 1, fontSize: 12, fontWeight: 700, color: "#475569" }}>Done by
-                <input type="time" value={planEndHM} onChange={(e) => setPlanEndHM(e.target.value)} style={{ marginTop: 4, width: "100%", boxSizing: "border-box", padding: "9px 10px", border: "1px solid #cbd5e1", borderRadius: 9, fontSize: 14, fontFamily: FONT }} />
-              </label>
-            </div>
+            <div style={{ fontSize: 16, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#0f172a", marginBottom: 4 }}>📅 Plan your day</div>
+            <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 12 }}>Your appts go in in order; we fill the gaps with doors that fit before each one, then keep you knocking until <b>8:00 PM</b>.</div>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 12 }}>What time are you starting?
+              <input type="time" value={planStartHM} onChange={(e) => setPlanStartHM(e.target.value)} style={{ marginTop: 4, width: "100%", boxSizing: "border-box", padding: "10px 12px", border: "1px solid #cbd5e1", borderRadius: 9, fontSize: 15, fontFamily: FONT }} />
+            </label>
             <button type="button" onClick={planAroundAppts} disabled={planningAppts}
               style={{ width: "100%", background: "#7c3aed", color: "#fff", border: "none", borderRadius: 12, padding: "13px", fontSize: 15, fontWeight: 800, cursor: planningAppts ? "default" : "pointer", opacity: planningAppts ? 0.7 : 1, marginBottom: 8 }}>
               {planningAppts ? "Building your plan…" : "Build my plan"}
