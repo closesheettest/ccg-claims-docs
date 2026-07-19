@@ -181,6 +181,78 @@ async function roadOrder(start, stops) {
   } catch { return null; }
 }
 
+// ── Plan the day around fixed appointments ──────────────────────────────────
+// Weave door-knocking into the gaps around the rep's appts (each has a time +
+// location, pre-sorted): pins BEFORE the first appt, BETWEEN appts, and AFTER the
+// last. Every gap is SIZED BY THE CLOCK — only as many doors as fit before the next
+// appt (gap minutes − drive time − a 10-min buffer, ~8 min/door). Between appts the
+// initial plan assumes an appt runs ~2h; the live "Appt done" re-plan recomputes
+// from the ACTUAL time, so finishing early (or a quick no-sit) adds doors and running
+// long trims them. Pins are picked for being ON THE WAY (least detour to the next
+// appt) and ordered street-by-street. Returns pins + appt "anchor" stops interleaved.
+const APLAN = { MIN_PER_DOOR: 8, SPEED_MPH: 30, BUFFER_MIN: 10, WINDOW_MIN: 120, MAX_DETOUR_MI: 3, TAIL_CAP: 40, TAIL_RADIUS_MI: 12 };
+function apptAnchor(a) {
+  return { id: `appt_${a.jn_job_id}`, latitude: a.lat, longitude: a.lng, name: a.name, address: a.address, status: "appt_anchor", isAppt: true, _appt: { at_ms: a.at_ms, jn_job_id: a.jn_job_id } };
+}
+// nowMs = when the rep starts; endMs = when the day ends (e.g. 8 PM) — the tail after
+// the last appt is sized so they stop by end-of-day, not by a fixed door count.
+function buildApptPlan(start, nowMs, endMs, appts, pool) {
+  const used = new Set();
+  const rem = (pool || []).filter((p) => p && typeof p.latitude === "number" && typeof p.longitude === "number");
+  const travelMin = (a, b) => (feetBetween(a, b) / 5280) / APLAN.SPEED_MPH * 60;
+  const fill = (from, to, windowMin) => {
+    const toPos = to ? { lat: to.lat, lng: to.lng } : null;
+    // Doors that fit in the window: (minutes − drive − buffer) / min-per-door. The
+    // open tail uses the same clock math (window = time left until end-of-day),
+    // capped so a very long evening can't build an absurd route.
+    const raw = Math.floor((windowMin - (toPos ? travelMin(from, toPos) : 0) - APLAN.BUFFER_MIN) / APLAN.MIN_PER_DOOR);
+    const budget = toPos ? Math.max(0, raw) : Math.max(0, Math.min(raw, APLAN.TAIL_CAP));
+    if (budget <= 0) return [];
+    const base = toPos ? feetBetween(from, toPos) : 0;
+    const scored = [];
+    for (const p of rem) {
+      if (used.has(p.id)) continue;
+      const pc = { lat: p.latitude, lng: p.longitude };
+      const df = feetBetween(from, pc);
+      if (toPos) {
+        const detour = (df + feetBetween(pc, toPos) - base) / 5280;
+        if (detour > APLAN.MAX_DETOUR_MI) continue;
+        scored.push({ p, key: detour });
+      } else {
+        if (df / 5280 > APLAN.TAIL_RADIUS_MI) continue;
+        scored.push({ p, key: df });
+      }
+    }
+    scored.sort((x, y) => x.key - y.key);
+    const chosen = scored.slice(0, budget).map((x) => x.p);
+    chosen.forEach((p) => used.add(p.id));
+    return orderStops(from, chosen);
+  };
+  const out = [];
+  let curPos = { lat: start.lat, lng: start.lng };
+  let curTime = nowMs;
+  for (const a of (appts || [])) {
+    const windowMin = Math.max(0, (a.at_ms - curTime) / 60000);
+    for (const p of fill(curPos, a, windowMin)) out.push(p);
+    out.push(apptAnchor(a));
+    curPos = { lat: a.lat, lng: a.lng };
+    curTime = Math.max(a.at_ms, curTime) + APLAN.WINDOW_MIN * 60000;
+  }
+  // Tail: fill until the day ends. If the last appt runs past end-of-day (curTime >
+  // endMs) this is 0 — matches "a 7 PM appt means no more stops unless they finish early".
+  for (const p of fill(curPos, null, Math.max(0, (endMs - curTime) / 60000))) out.push(p);
+  return out;
+}
+// Appt time label, e.g. "11:00 AM".
+function apptTimeLabel(ms) { try { return new Date(ms).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }); } catch { return ""; } }
+// "HH:MM" (device-local = rep's ET) → today's epoch ms. Empty/bad → 0.
+function hmToMsToday(hm) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(hm || "").trim());
+  if (!m) return 0;
+  const d = new Date(); d.setHours(Number(m[1]) || 0, Number(m[2]) || 0, 0, 0);
+  return d.getTime();
+}
+
 // Short date / time for the pin's visit-history timeline (e.g. "7/18" · "2:14 PM").
 function fmtMD(iso) { try { return new Date(iso).toLocaleDateString("en-US", { month: "numeric", day: "numeric" }); } catch { return ""; } }
 function fmtTime(iso) { try { return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }); } catch { return ""; } }
@@ -537,6 +609,13 @@ export default function CanvassMap() {
   const [routeGeom, setRouteGeom] = useState(null);    // the route line SNAPPED to roads (OSRM), or null → straight fallback
   const routeGen = useRef(0);                          // bumps on every new base route; a stale road-order result won't apply
   const stopIdxRef = useRef(0);                        // current stop index, for the road-order guard (don't reshuffle after they've started)
+  const [planningAppts, setPlanningAppts] = useState(false); // loading today's appts
+  const [showApptPlan, setShowApptPlan] = useState(false);   // start/end time sheet before building the appt plan
+  const [planStartHM, setPlanStartHM] = useState("");        // "HH:MM" the day starts (default now)
+  const [planEndHM, setPlanEndHM] = useState("20:00");       // "HH:MM" the day ends (default 8 PM)
+  const apptPoolRef = useRef([]);                      // the pin pool the appt plan drew from (for re-planning on "Appt done")
+  const apptListRef = useRef([]);                      // today's appts (for re-planning)
+  const apptEndRef = useRef(0);                        // end-of-day ms, reused by the "Appt done" re-plan
   const [myLoc, setMyLoc] = useState(null);            // live GPS (always on while the map is open)
   const [selecting, setSelecting] = useState(false);   // drawing a box to route the doors inside it
   const [zoomHint, setZoomHint] = useState(false);     // tapped Start/Route while zoomed out (clusters, no pins)
@@ -1429,6 +1508,16 @@ export default function CanvassMap() {
     route.forEach((p, i) => {
       if (typeof p.latitude !== "number") return;
       const current = i === stopIdx, done = i < stopIdx;
+      // Appointment anchors stand out — purple 📅 pin instead of a numbered dot.
+      if (p.isAppt) {
+        const apptIcon = L.divIcon({
+          className: "harvest-route-appt",
+          html: `<div style="width:30px;height:30px;border-radius:50% 50% 50% 2px;transform:rotate(45deg);background:${done ? "#c4b5fd" : "#7c3aed"};border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.5)"><div style="transform:rotate(-45deg);color:#fff;font-size:14px;text-align:center;line-height:27px">📅</div></div>`,
+          iconSize: [30, 30], iconAnchor: [15, 15],
+        });
+        L.marker([p.latitude, p.longitude], { icon: apptIcon, zIndexOffset: 1500 }).addTo(lyr);
+        return;
+      }
       const bg = current ? "#16a34a" : done ? "#cbd5e1" : "#fff";
       const fg = current ? "#fff" : done ? "#64748b" : "#16a34a";
       const icon = L.divIcon({
@@ -1566,6 +1655,64 @@ export default function CanvassMap() {
     } else setFillOffer(null);
     if (map.current) map.current.setView([r[0].latitude, r[0].longitude], 15);
   }
+
+  // ── Plan the day around today's appointments ───────────────────────────────
+  // Open the little "start / end time" sheet, defaulting start to NOW and end to 8 PM.
+  function openApptPlan() {
+    if (!auth.rt) return;
+    const d = new Date();
+    setPlanStartHM(`${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`);
+    setShowApptPlan(true);
+  }
+  // Pull the rep's appts (time + location), then weave door-knocking into the gaps
+  // (buildApptPlan) between their chosen start and end times. Appts are anchor stops.
+  async function planAroundAppts() {
+    if (!auth.rt || planningAppts) return;
+    const startMs = hmToMsToday(planStartHM) || Date.now();
+    let endMs = hmToMsToday(planEndHM) || (startMs + 8 * 3600000);
+    if (endMs <= startMs) endMs = startMs + 3600000; // guard against end ≤ start
+    setPlanningAppts(true);
+    try {
+      const j = await (await fetch(`/.netlify/functions/harvest-today-appts?rt=${encodeURIComponent(auth.rt)}`)).json().catch(() => ({}));
+      const appts = (j.appts || [])
+        .filter((a) => typeof a.lat === "number" && typeof a.lng === "number" && a.at_ms >= startMs - 30 * 60000)
+        .sort((a, b) => a.at_ms - b.at_ms);
+      if (!appts.length) { setPlanningAppts(false); alert("No upcoming appointments for today (that we can place on the map). Book appts first, then plan around them."); return; }
+      const start = myLoc || { lat: appts[0].lat, lng: appts[0].lng };
+      // Load a generous box around the rep + every appt so the plan has pins to fill with.
+      const lats = [start.lat, ...appts.map((a) => a.lat)], lngs = [start.lng, ...appts.map((a) => a.lng)];
+      const R = 0.15;
+      const wide = { getNorth: () => Math.max(...lats) + R, getSouth: () => Math.min(...lats) - R, getEast: () => Math.max(...lngs) + R, getWest: () => Math.min(...lngs) - R };
+      const loaded = await load(wide);
+      const pool = (loaded.length ? loaded : (shownRef.current || [])).filter((p) => inFilter(p.status) && typeof p.latitude === "number"
+        && (!visKeys || visKeys.has(p.status)) && !nonRoutableStatuses.has(p.status) && !workedTodayET(p));
+      apptPoolRef.current = pool; apptListRef.current = appts; apptEndRef.current = endMs;
+      const route = buildApptPlan(start, startMs, endMs, appts, pool);
+      workingRef.current = new Set(route.filter((s) => !s.isAppt).map((s) => s.id));
+      setStartPt(start); setRoute(route); setStopIdx(0); setRound(1); setResolvedIds(new Set()); setDayMode("active"); setFillOffer(null); setShowApptPlan(false);
+      if (map.current && route[0]) map.current.setView([route[0].latitude, route[0].longitude], 15);
+    } catch { alert("Couldn't load your appointments — try again."); }
+    setPlanningAppts(false);
+  }
+  // "Appt done" — the rep is leaving an appointment. Keep everything up to & including
+  // it, then RE-PLAN the rest from HERE and NOW: the gap to the next appt is recomputed
+  // off the real clock, so ending early adds doors and running long trims them.
+  function completeAppt(stop) {
+    const i = route.findIndex((s) => s.id === stop.id);
+    const prefix = i >= 0 ? route.slice(0, i + 1) : route.slice();
+    const from = { lat: stop.latitude, lng: stop.longitude };
+    const restAppts = (apptListRef.current || []).filter((a) => a.at_ms > (stop._appt?.at_ms || 0));
+    const prefixIds = new Set(prefix.map((s) => s.id));
+    const pool = (apptPoolRef.current || []).filter((p) => !prefixIds.has(p.id) && !resolvedIds.has(p.id));
+    const endMs = apptEndRef.current || (Date.now() + 3600000);
+    const tail = buildApptPlan(from, Date.now(), endMs, restAppts, pool);
+    const next = [...prefix, ...tail];
+    workingRef.current = new Set(next.filter((s) => !s.isAppt).map((s) => s.id));
+    logActivity({ pin_id: null, kind: "appt_done", to_status: "appt" });
+    setRoute(next); setStopIdx(prefix.length);
+    if (map.current && next[prefix.length]) map.current.setView([next[prefix.length].latitude, next[prefix.length].longitude], 16);
+  }
+
   // No-sit-reschedule pins we could add to a short day (from the wide fill pool if
   // loaded, else whatever's on the map), visible + not already in the given route.
   function availableFill(routePins) {
@@ -2060,6 +2207,33 @@ export default function CanvassMap() {
             ▢ Route an area
           </button>
         )}
+        {/* Plan around my appts — reps only (appts are per-rep). */}
+        {dayMode === null && !selecting && auth.rt && (
+          <button type="button" onClick={openApptPlan}
+            style={{ position: "absolute", left: 12, bottom: 112, zIndex: 600, background: "#7c3aed", color: "#fff", border: "none", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
+            📅 Plan around my appts
+          </button>
+        )}
+        {showApptPlan && (
+          <div style={{ position: "absolute", right: 10, bottom: 14, zIndex: 700, background: "#fff", borderRadius: 14, padding: "16px 18px", boxShadow: "0 4px 18px rgba(0,0,0,.2)", width: "min(340px, 90%)" }}>
+            <div style={{ fontSize: 16, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#0f172a", marginBottom: 4 }}>📅 Plan around my appts</div>
+            <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 12 }}>Your appts go in in order; we fill the gaps with doors that fit before each one, then more after — until your end time.</div>
+            <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
+              <label style={{ flex: 1, fontSize: 12, fontWeight: 700, color: "#475569" }}>Start now / at
+                <input type="time" value={planStartHM} onChange={(e) => setPlanStartHM(e.target.value)} style={{ marginTop: 4, width: "100%", boxSizing: "border-box", padding: "9px 10px", border: "1px solid #cbd5e1", borderRadius: 9, fontSize: 14, fontFamily: FONT }} />
+              </label>
+              <label style={{ flex: 1, fontSize: 12, fontWeight: 700, color: "#475569" }}>Done by
+                <input type="time" value={planEndHM} onChange={(e) => setPlanEndHM(e.target.value)} style={{ marginTop: 4, width: "100%", boxSizing: "border-box", padding: "9px 10px", border: "1px solid #cbd5e1", borderRadius: 9, fontSize: 14, fontFamily: FONT }} />
+              </label>
+            </div>
+            <button type="button" onClick={planAroundAppts} disabled={planningAppts}
+              style={{ width: "100%", background: "#7c3aed", color: "#fff", border: "none", borderRadius: 12, padding: "13px", fontSize: 15, fontWeight: 800, cursor: planningAppts ? "default" : "pointer", opacity: planningAppts ? 0.7 : 1, marginBottom: 8 }}>
+              {planningAppts ? "Building your plan…" : "Build my plan"}
+            </button>
+            <button type="button" onClick={() => setShowApptPlan(false)}
+              style={{ width: "100%", background: "#fff", color: "#64748b", border: "1px solid #e5e7eb", borderRadius: 12, padding: "10px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Cancel</button>
+          </div>
+        )}
         {zoomHint && (
           <div style={{ position: "absolute", left: "50%", bottom: 120, transform: "translateX(-50%)", zIndex: 800, background: "#1e293b", color: "#fff", borderRadius: 10, padding: "10px 16px", fontSize: 13, fontWeight: 700, boxShadow: "0 3px 14px rgba(0,0,0,.35)", whiteSpace: "nowrap" }}>
             🔍 Zoom into your neighborhood first, then start
@@ -2244,6 +2418,28 @@ export default function CanvassMap() {
                     </>
                   )}
                 </div>
+              ) : stop.isAppt ? (
+                // An APPOINTMENT anchor — not a door to status. Directions + "Appt done".
+                <>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", color: "#7c3aed" }}>📅 Appointment</span>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, color: "#94a3b8" }}>Stop {stopIdx + 1} of {route.length}</span>
+                  </div>
+                  <div style={{ background: "#faf5ff", border: "1px solid #e9d5ff", borderRadius: 12, padding: "12px 14px" }}>
+                    <div style={{ fontSize: 17, fontWeight: 800, color: "#6d28d9" }}>{apptTimeLabel(stop._appt?.at_ms)}</div>
+                    {stop.name && <div style={{ fontSize: 15, fontWeight: 800, color: "#0f172a", marginTop: 2 }}>{stop.name}</div>}
+                    <div style={{ fontSize: 13, color: "#334155" }}>{stop.address}</div>
+                  </div>
+                  <a href={`https://www.google.com/maps/dir/?api=1&destination=${addrOf(stop)}`} target="_blank" rel="noreferrer"
+                    style={{ display: "block", textAlign: "center", width: "100%", boxSizing: "border-box", marginTop: 12, background: "#1d4ed8", color: "#fff", borderRadius: 12, padding: "12px", fontSize: 14.5, fontWeight: 800, textDecoration: "none" }}>
+                    🧭 Directions to the appointment
+                  </a>
+                  <button type="button" onClick={() => completeAppt(stop)}
+                    style={{ width: "100%", marginTop: 10, background: "#16a34a", color: "#fff", border: "none", borderRadius: 12, padding: "13px", fontSize: 14.5, fontWeight: 800, cursor: "pointer" }}>
+                    ✅ Appointment done — plan the rest of my day
+                  </button>
+                  <div style={{ fontSize: 11.5, color: "#94a3b8", textAlign: "center", marginTop: 7 }}>Tap when you leave — we re-fill your doors based on the time before your next appt.</div>
+                </>
               ) : (() => {
                 const distFt = myLoc ? feetBetween(myLoc, { lat: stop.latitude, lng: stop.longitude }) : null;
                 // Credit the fix's own uncertainty: a ±100m GPS reading that says
