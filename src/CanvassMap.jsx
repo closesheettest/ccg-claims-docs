@@ -181,6 +181,10 @@ async function roadOrder(start, stops) {
   } catch { return null; }
 }
 
+// Short date / time for the pin's visit-history timeline (e.g. "7/18" · "2:14 PM").
+function fmtMD(iso) { try { return new Date(iso).toLocaleDateString("en-US", { month: "numeric", day: "numeric" }); } catch { return ""; } }
+function fmtTime(iso) { try { return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }); } catch { return ""; } }
+
 // Fields the map needs per pin (status_log is left out — heavy + unused here).
 // LITE = everything needed to PLACE a pin + drive the route/actions (identity,
 // contact, geo, status). Deliberately drops the heavy fields — chiefly `extra`
@@ -481,6 +485,8 @@ export default function CanvassMap() {
   const [prospects, setProspects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
+  const [selActs, setSelActs] = useState(null);     // office/admin pin sheet: this pin's visit history (null=loading, "err", or rows[])
+  const [showStatusEdit, setShowStatusEdit] = useState(false); // admin: reveal the status-change buttons (hidden by default)
   const [noteDraft, setNoteDraft] = useState("");   // editable note on a self-gen pin
   const [savingNote, setSavingNote] = useState(false);
   // Status filter — a Set of selected pin-type keys. Empty = show All. Multi-select
@@ -1585,12 +1591,25 @@ export default function CanvassMap() {
       return merged;
     } catch { return { ...pin, _hydrated: true }; }
   }
+  // The office/admin pin sheet leads with the door's VISIT HISTORY — every knock,
+  // who did it, when — so a manager can see at a glance how many times it's been
+  // tried without anyone home. Reads canvass_activity for this one pin.
+  async function loadPinActivity(pinId) {
+    setSelActs(null); setShowStatusEdit(false);
+    try {
+      const { data, error } = await supabase.from("canvass_activity")
+        .select("rep_name, kind, to_status, from_status, created_at")
+        .eq("pin_id", pinId).order("created_at", { ascending: true }).limit(200);
+      setSelActs(error ? "err" : (data || []));
+    } catch { setSelActs("err"); }
+  }
   // Open a pin's detail sheet: show it instantly with the LITE data, then fill in
   // notes/extra/etc. once hydrated.
   function openPin(p) {
     setSelectedInstall(null);
     setSelectedVisit(null);
     setSelected(p);
+    if (seesAll) loadPinActivity(p.id); else setSelActs(null); // office/admin see the visit log
     hydratePin(p).then((full) => setSelected((s) => (s && s.id === p.id ? { ...s, ...full } : s)));
   }
   // Work the current stop right from the panel: log the visit, apply the outcome
@@ -2475,40 +2494,78 @@ export default function CanvassMap() {
               <div style={{ fontSize: 12.5, color: "#334155", marginTop: 4, lineHeight: 1.5 }}>To status it (signed, not interested, appt, …), tap <b>▶ Start my day</b> or <b>▢ Route an area</b>. It comes up in order with the <b>“How’d it go?”</b> buttons when you're at the door.</div>
             </div>
           ) : (() => {
-            // Behavior flow: offer only the outcomes this pin type allows. If the
-            // type defines none (terminal, or unconfigured), fall back to every
-            // type so a mis-set pin can still be corrected.
+            // Office/admin: lead with the door's VISIT HISTORY — every knock, who,
+            // when — so a manager sees at a glance how many times it's been tried
+            // with nobody home. Status-change buttons are tucked behind a toggle so
+            // the sheet isn't a wall of buttons.
             const cur = S[selected.status];
             const allowed = (cur?.outcomes || []).map((k) => S[k]).filter(Boolean);
             const options = allowed.length ? allowed : pinTypes;
+            const acts = Array.isArray(selActs) ? selActs.filter((a) => a.kind !== "arrival") : selActs;
+            const knocks = Array.isArray(selActs) ? selActs.filter((a) => a.kind === "visit").length : 0;
+            const actLabel = (a) => {
+              if (a.kind === "status") return { txt: `✏️ ${(S[a.to_status]?.label) || a.to_status}`, color: "#0f172a" };
+              if (a.kind === "manual_here") return { txt: "📍 Marked at door", color: "#b45309" };
+              if (a.to_status === "not_home") return { txt: "🏠 Not home", color: "#475569" };
+              return { txt: S[a.to_status]?.label ? `✓ ${S[a.to_status].label}` : "🚶 Visit", color: "#16a34a" };
+            };
             return (
               <>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#64748b", margin: "14px 0 8px" }}>
-                  {allowed.length ? "Outcome" : "Set status"}
+                <div style={{ marginTop: 14, borderTop: "1px solid #f1f5f9", paddingTop: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: 8 }}>
+                    🚪 Visit history{knocks ? ` · knocked ${knocks}×` : ""}
+                  </div>
+                  {selActs === null ? <div style={{ fontSize: 13, color: "#94a3b8" }}>Loading…</div>
+                    : selActs === "err" ? <div style={{ fontSize: 12.5, color: "#94a3b8" }}>Couldn't load activity.</div>
+                    : acts.length === 0 ? <div style={{ fontSize: 12.5, color: "#94a3b8" }}>No visits logged yet — nobody's worked this door.</div>
+                    : (
+                      <div style={{ display: "grid", gap: 4 }}>
+                        {acts.map((a, i) => {
+                          const lab = actLabel(a);
+                          return (
+                            <div key={i} style={{ display: "flex", gap: 8, alignItems: "baseline", fontSize: 12.5, background: "#f8fafc", borderRadius: 7, padding: "6px 9px" }}>
+                              <span style={{ color: "#64748b", fontWeight: 700, minWidth: 38, flexShrink: 0 }}>{fmtMD(a.created_at)}</span>
+                              <span style={{ fontWeight: 700, color: lab.color, flex: 1, minWidth: 0 }}>{lab.txt}</span>
+                              {a.rep_name ? <span style={{ color: "#334155", flexShrink: 0 }}>{a.rep_name}</span> : null}
+                              <span style={{ color: "#94a3b8", flexShrink: 0 }}>{fmtTime(a.created_at)}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                 </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                  {options.map((s) => {
-                    const on = selected.status === s.key;
-                    return (
-                      <button key={s.key} type="button"
-                        onClick={() => s.key === "appt" ? setApptPin(selected) : s.key === "insp_sold" ? signInspection(selected) : setStatus(selected, s.key)}
-                        style={{ padding: "9px 14px", borderRadius: 10, fontSize: 13.5, fontWeight: 700, cursor: "pointer",
-                          border: on ? `2px solid ${s.color}` : "1px solid #e5e7eb",
-                          background: on ? s.color : "#fff", color: on ? "#fff" : "#334155" }}>
-                        {s.key === "insp_sold" && !on ? "🖊️ Sign Inspection" : s.label}
+                {/* Status correction, hidden by default — not the old wall of buttons. */}
+                <button type="button" onClick={() => setShowStatusEdit((v) => !v)}
+                  style={{ marginTop: 12, background: "none", border: "none", padding: 0, fontSize: 12.5, fontWeight: 800, color: "#1d4ed8", cursor: "pointer" }}>
+                  {showStatusEdit ? "▲ Hide status change" : "✏️ Change status"}
+                </button>
+                {showStatusEdit && (
+                  <>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#64748b", margin: "10px 0 8px" }}>
+                      {allowed.length ? "Outcome" : "Set status"}
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {options.map((s) => {
+                        const on = selected.status === s.key;
+                        return (
+                          <button key={s.key} type="button"
+                            onClick={() => s.key === "appt" ? setApptPin(selected) : s.key === "insp_sold" ? signInspection(selected) : setStatus(selected, s.key)}
+                            style={{ padding: "9px 14px", borderRadius: 10, fontSize: 13.5, fontWeight: 700, cursor: "pointer",
+                              border: on ? `2px solid ${s.color}` : "1px solid #e5e7eb",
+                              background: on ? s.color : "#fff", color: on ? "#fff" : "#334155" }}>
+                            {s.key === "insp_sold" && !on ? "🖊️ Sign Inspection" : s.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {selected.status === "insp" && (
+                      <button type="button" onClick={() => setBtrPin(selected)}
+                        style={{ marginTop: 10, padding: "10px 16px", borderRadius: 10, fontSize: 13.5, fontWeight: 800, cursor: "pointer",
+                          border: "2px solid #b45309", background: "#fff7ed", color: "#b45309" }}>
+                        🏠 BTR appt — homeowner wants retail
                       </button>
-                    );
-                  })}
-                </div>
-                {/* Homeowner declined the inspection but wants a retail appt —
-                    book it here. Counts on the rep's pay like a sign-up; for
-                    William it books onto the zone manager's calendar. */}
-                {selected.status === "insp" && (
-                  <button type="button" onClick={() => setBtrPin(selected)}
-                    style={{ marginTop: 10, padding: "10px 16px", borderRadius: 10, fontSize: 13.5, fontWeight: 800, cursor: "pointer",
-                      border: "2px solid #b45309", background: "#fff7ed", color: "#b45309" }}>
-                    🏠 BTR appt — homeowner wants retail
-                  </button>
+                    )}
+                  </>
                 )}
               </>
             );
