@@ -34,6 +34,7 @@ const FALLBACK_TYPES = [
   { key: "insp_sold", label: "Inspection Sold", color: "#7c3aed", outcomes: [], is_terminal: true },
   { key: "new_roof", label: "New Roof", color: "#0891b2", outcomes: [], is_terminal: true },
   { key: "dead", label: "Dead / DNK", color: "#111827", outcomes: [], is_terminal: true },
+  { key: "lost", label: "Lost", color: "#991b1b", outcomes: [], is_terminal: true },
 ];
 const UNKNOWN_TYPE = { color: "#64748b", label: "—", outcomes: [] };
 // Statuses that RECORD an outcome but keep the door on the go-back list (not
