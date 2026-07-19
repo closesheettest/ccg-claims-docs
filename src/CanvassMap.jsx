@@ -1554,7 +1554,8 @@ export default function CanvassMap() {
       const homeIcon = L.divIcon({
         className: "harvest-route-home",
         html: `<div style="display:flex;flex-direction:column;align-items:center;transform:translateY(-4px)"><div style="background:#0f172a;color:#fff;font-size:9.5px;font-weight:800;padding:1px 6px;border-radius:8px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.4);margin-bottom:2px">end by 8pm</div><div style="width:24px;height:24px;border-radius:50%;background:#0f172a;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;font-size:13px">🏠</div></div>`,
-        iconSize: [1, 1], iconAnchor: [0, 12],
+        // Float it up so the last door number (drawn AT the point) peeks out below it.
+        iconSize: [1, 1], iconAnchor: [0, 40],
       });
       L.marker([planHome.lat, planHome.lng], { icon: homeIcon, zIndexOffset: 1050 }).addTo(lyr);
     }
@@ -1568,7 +1569,8 @@ export default function CanvassMap() {
         const apptIcon = L.divIcon({
           className: "harvest-route-appt",
           html: `<div style="display:flex;flex-direction:column;align-items:center;transform:translateY(-6px)"><div style="background:${done ? "#c4b5fd" : "#7c3aed"};color:#fff;font-size:10px;font-weight:800;padding:1px 7px;border-radius:8px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.4);margin-bottom:2px">📅 ${apptTimeLabel(p._appt?.at_ms)}</div><div style="width:28px;height:28px;border-radius:50% 50% 50% 2px;transform:rotate(45deg);background:${done ? "#c4b5fd" : "#7c3aed"};border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.5)"><div style="transform:rotate(-45deg);color:#fff;font-size:13px;text-align:center;line-height:25px">📅</div></div></div>`,
-          iconSize: [1, 1], iconAnchor: [0, 14],
+          // Float it up so the door that ends at the appt (drawn AT the point) peeks out below.
+          iconSize: [1, 1], iconAnchor: [0, 42],
         });
         L.marker([p.latitude, p.longitude], { icon: apptIcon, zIndexOffset: 1500 }).addTo(lyr);
         return;
