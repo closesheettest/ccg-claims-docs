@@ -67,7 +67,10 @@ export const handler = async (event) => {
   const zonePts = pts.filter((p) => inZone(zone, cache[p.id], p.lat));
 
   const clusters = balancedCluster(zonePts, k);
-  clusters.forEach((c, i) => { c.rep = included[i] || null; });
+  // Match each compact section to the rep whose HOME is nearest → least travel (so a
+  // Jacksonville rep gets the Jacksonville section, an Ocala rep the Leesburg one, etc.).
+  const perm = matchSectionsToReps(clusters, included);
+  clusters.forEach((c, i) => { c.rep = included[perm[i]] || null; });
   if (body.points) {
     const coord = {}; for (const p of zonePts) coord[p.id] = [Number(p.lat.toFixed(5)), Number(p.lng.toFixed(5))];
     for (const c of clusters) c.pts = c.pin_ids.map((id) => coord[id]).filter(Boolean);
@@ -123,6 +126,40 @@ function balancedCluster(points, k) {
   return groups.map((idxs, c) => { const pp = idxs.map((i) => points[i]); return { index: c, count: pp.length, centroid: centroidOf(pp), pin_ids: pp.map((p) => p.id) }; });
 }
 function centroidOf(pts) { if (!pts.length) return null; return { lat: pts.reduce((s, p) => s + p.lat, 0) / pts.length, lng: pts.reduce((s, p) => s + p.lng, 0) / pts.length }; }
+
+// Assign sections to reps to MINIMIZE total home-to-section distance. cost[i][j] =
+// (section i centroid → rep j home)². Returns perm[i] = rep index for section i.
+// Optimal via pruned brute force for small teams (k ≤ 9); greedy fallback above that.
+function matchSectionsToReps(clusters, reps) {
+  const BIG = 1e9;
+  const d2 = (a, b) => { const dx = a.lat - b.lat, dy = a.lng - b.lng; return dx * dx + dy * dy; };
+  const cost = clusters.map((c) => reps.map((r) => {
+    const lat = Number(r.lat), lng = Number(r.lng);
+    if (!c.centroid || !Number.isFinite(lat) || !Number.isFinite(lng)) return BIG;
+    return d2(c.centroid, { lat, lng });
+  }));
+  return minCostPerm(cost);
+}
+function minCostPerm(cost) {
+  const k = cost.length;
+  if (k === 0) return [];
+  if (k > 9) { // greedy: repeatedly take the globally-cheapest unused (section, rep) pair
+    const perm = new Array(k).fill(-1); const usedR = new Set(), usedS = new Set();
+    const pairs = [];
+    for (let i = 0; i < k; i++) for (let j = 0; j < k; j++) pairs.push([cost[i][j], i, j]);
+    pairs.sort((a, b) => a[0] - b[0]);
+    for (const [, i, j] of pairs) { if (usedS.has(i) || usedR.has(j)) continue; perm[i] = j; usedS.add(i); usedR.add(j); }
+    return perm;
+  }
+  let best = null, bestC = Infinity; const perm = new Array(k), used = new Array(k).fill(false);
+  const rec = (i, acc) => {
+    if (acc >= bestC) return;
+    if (i === k) { bestC = acc; best = perm.slice(); return; }
+    for (let j = 0; j < k; j++) { if (used[j]) continue; used[j] = true; perm[i] = j; rec(i + 1, acc + cost[i][j]); used[j] = false; }
+  };
+  rec(0, 0);
+  return best || cost.map((_, i) => i);
+}
 
 // ── Sr reps in zone (name + home coords + CCG harvest_token) ──────────────────
 async function srRepsInZone(zone) {
