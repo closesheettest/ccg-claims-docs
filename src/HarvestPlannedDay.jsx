@@ -119,8 +119,9 @@ export default function HarvestPlannedDay() {
                       {res.clusters.map((c, ci) => (
                         <div key={ci} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5 }}>
                           <span style={{ width: 12, height: 12, borderRadius: 3, background: colorMap[`${z}:${ci}`], flexShrink: 0 }} />
-                          <span style={{ fontWeight: 800 }}>Section {SECTION(ci)}</span>
-                          <span style={{ color: "#64748b", marginLeft: "auto" }}>{c.count} pins</span>
+                          <span style={{ fontWeight: 800, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.rep?.name || `Section ${SECTION(ci)}`}</span>
+                          <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>{SECTION(ci)}</span>
+                          <span style={{ color: "#64748b", marginLeft: "auto", whiteSpace: "nowrap" }}>{c.count} pins</span>
                         </div>
                       ))}
                     </div>
