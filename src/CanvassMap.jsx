@@ -816,6 +816,10 @@ export default function CanvassMap() {
       return { rt: q.get("rt") || "", admin: q.get("admin") || "" };
     } catch { return { rt: "", admin: "" }; }
   })();
+  // Spot-check = office opened a rep's link WITH the admin token: we render the rep's
+  // exact view but must NOT act as them — no live ping, no seat billing, no ended
+  // beacon (it's just watching, not the rep working).
+  const spotCheck = isAdminLink && !!auth.rt;
 
   // Tool-training gate: a REP must have passed the rep training before their map
   // unlocks. Office/admin links aren't gated. On any error (e.g. training not set up)
@@ -850,7 +854,10 @@ export default function CanvassMap() {
           if (pt?.length) setPinTypes(pt);
           authInfo.current = { rep: { name: "Practice", level: "admin" }, pin_types: pt || [] };
         } else {
-          const qs = auth.admin ? `admin=${encodeURIComponent(auth.admin)}` : `rt=${encodeURIComponent(auth.rt)}`;
+          // Spot-check: when a rep link is opened WITH the admin token (office doing a
+          // spot-check), resolve as the REP so we see their exact view — not office.
+          // Pure office map (admin token, no rt) still resolves as office.
+          const qs = auth.rt ? `rt=${encodeURIComponent(auth.rt)}` : `admin=${encodeURIComponent(auth.admin)}`;
           const r = await fetch(`/.netlify/functions/harvest-pins?${qs}&authonly=1`);
           const j = await r.json().catch(() => ({}));
           if (!r.ok || !j.ok) { setAuthError(j.error || "Couldn't load your Harvesting Map."); setLoading(false); return []; }
@@ -1176,6 +1183,7 @@ export default function CanvassMap() {
   async function deletePin() {
     if (!selected) return;
     if (demoMode) { alert("🧪 Practice mode — nothing is deleted here."); return; }
+    if (spotCheck) { alert("🔍 Spot-check — viewing only, nothing is deleted."); return; }
     if (!window.confirm(`Delete this self-generated door${selected.address ? ` — ${selected.address}` : ""}? This can't be undone.`)) return;
     const id = selected.id;
     try {
@@ -1194,6 +1202,7 @@ export default function CanvassMap() {
   }
 
   async function setStatus(p, newStatus) {
+    if (spotCheck) { alert("🔍 Spot-check — you're viewing this rep's map. Statusing is off so you don't change their doors."); return; }
     const nowIso = new Date().toISOString();
     const entry = { at: nowIso, from: p.status, to: newStatus, by: repName || "rep" };
     const log = Array.isArray(p.status_log) ? [...p.status_log, entry] : [entry];
@@ -1236,7 +1245,7 @@ export default function CanvassMap() {
   // exist and the insert would 400 — so on that error we retry WITHOUT them, keeping
   // basic reporting alive until the office runs the SQL.
   function logActivity(row) {
-    if (demoMode) return; // practice mode logs nothing
+    if (demoMode || spotCheck) return; // practice mode & spot-checks log nothing
     try {
       const full = { rep_name: repName || null, rep_token: auth.rt || null, round, ...row };
       supabase.from("canvass_activity").insert(full).then(({ error }) => {
@@ -1411,7 +1420,7 @@ export default function CanvassMap() {
   // Real reps post their location (~every 60s) so the office team view can trail
   // them. Admin/office links (no rt) don't ping — they only WATCH.
   useEffect(() => {
-    if (!myLoc || !auth.rt) return;
+    if (!myLoc || !auth.rt || spotCheck) return;
     const now = Date.now();
     if (now - lastPingRef.current < 10000) return;
     // Reject a bad GPS fix so it never lands on the map:
@@ -1435,7 +1444,7 @@ export default function CanvassMap() {
   // teardown (pagehide with persisted=false); a bfcache background (they may come
   // straight back) is left alone, and reopening just resumes normal pinging.
   useEffect(() => {
-    if (!auth.rt) return;
+    if (!auth.rt || spotCheck) return;
     const bye = (e) => {
       if (e && e.persisted) return;
       const p = lastPosRef.current; if (!p) return;
@@ -1449,7 +1458,7 @@ export default function CanvassMap() {
   }, [auth.rt]);
   // Bill it: once a real rep opens the map, stamp their access for the month.
   useEffect(() => {
-    if (accessLogged.current || !me || !auth.rt) return;
+    if (accessLogged.current || !me || !auth.rt || spotCheck) return;
     accessLogged.current = true;
     fetch("/.netlify/functions/harvest-access", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rt: auth.rt }) }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2055,6 +2064,7 @@ export default function CanvassMap() {
   function signInspection(stop, opts = {}) {
     if (!stop) return;
     if (demoMode) { alert("🧪 Practice mode — signing opens the real intake, so it's turned off here. Everything else you can try freely."); return; }
+    if (spotCheck) { alert("🔍 Spot-check — viewing this rep's map only; signing is off."); return; }
     const p = new URLSearchParams({ intake: "1", harvest_pin: String(stop.id) });
     if (stop.name) p.set("name", stop.name);
     if (stop.phone) p.set("phone", stop.phone);
@@ -2286,6 +2296,11 @@ export default function CanvassMap() {
       {demoMode && (
         <div style={{ background: "#7c3aed", color: "#fff", textAlign: "center", padding: "6px 12px", fontSize: 12.5, fontWeight: 800, letterSpacing: "0.02em" }}>
           🧪 PRACTICE MODE — try anything, nothing you do here is saved. Real pins, no real changes.
+        </div>
+      )}
+      {spotCheck && (
+        <div style={{ background: "#0f172a", color: "#fff", textAlign: "center", padding: "6px 12px", fontSize: 12.5, fontWeight: 800, letterSpacing: "0.02em" }}>
+          🔍 SPOT-CHECK — you're seeing {me?.name || "this rep"}'s map exactly as they do. Viewing only — nothing you tap changes their doors or logs as them.
         </div>
       )}
       {/* Header */}
