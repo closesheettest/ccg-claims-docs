@@ -16,10 +16,16 @@ export default function HarvestNositReport() {
   const [pick, setPick] = useState(null); // creator name filtered in the detail list
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [by, setBy] = useState("created"); // "created" = date_created, "appt" = appointment date (matches the map)
 
-  const load = (from, to) => {
+  const load = (from, to, byArg) => {
+    const dateBy = byArg || by;
     setLoading(true); setErr(""); setPick(null);
-    const qs = from && to ? `?start=${from}&end=${to}` : "";
+    const p = new URLSearchParams();
+    if (from) p.set("start", from);
+    if (to) p.set("end", to);
+    if (dateBy === "appt") p.set("by", "appt");
+    const qs = p.toString() ? `?${p.toString()}` : "";
     fetch(FN + qs).then((r) => r.json())
       .then((j) => { if (!j.ok) { setErr(j.error || "Could not load."); setData(null); } else setData(j); })
       .catch(() => setErr("Network error."))
@@ -49,17 +55,28 @@ export default function HarvestNositReport() {
           {data && <button type="button" onClick={downloadCsv} style={{ fontSize: 13, fontWeight: 700, padding: "8px 14px", borderRadius: 8, border: "1px solid #cbd5e1", background: "#fff", color: "#334155", cursor: "pointer" }}>⬇ CSV</button>}
         </div>
         <p style={{ color: "#475569", fontSize: 14.5, lineHeight: 1.5, marginTop: 4 }}>
-          Who <b>created</b> each “No Sit- Need to Reschedule” job in JobNimbus{data?.range?.start ? ", created in your date window" : ""}. {loading ? "" : <b>{data?.total || 0} jobs</b>}{data && data.all_total > (data.total || 0) ? ` of ${data.all_total}` : ""}.
+          Who <b>created</b> each “No Sit- Need to Reschedule” job in JobNimbus{data?.range?.start ? (by === "appt" ? ", by appointment date" : ", by created date") : ""}. {loading ? "" : <b>{data?.total || 0} jobs</b>}{data && data.all_total > (data.total || 0) ? ` of ${data.all_total}` : ""}.
         </p>
+        {/* Which date the window filters on. "Appointment date" matches the map's No-sit pin filter so the two counts reconcile. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: "#64748b" }}>Filter by:</span>
+          {[["created", "Created date"], ["appt", "Appointment date"]].map(([val, lbl]) => (
+            <button key={val} type="button" onClick={() => { setBy(val); load(fromDate, toDate, val); }}
+              style={{ fontSize: 12.5, fontWeight: 700, padding: "5px 12px", borderRadius: 999, cursor: "pointer",
+                border: "1px solid", borderColor: by === val ? "#4f46e5" : "#cbd5e1", background: by === val ? "#4f46e5" : "#fff", color: by === val ? "#fff" : "#475569" }}>{lbl}</button>
+          ))}
+          {by === "appt" && <span style={{ fontSize: 11.5, color: "#94a3b8" }}>← matches the map’s No-sit pins</span>}
+        </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
-          <span style={{ fontSize: 12.5, fontWeight: 700, color: "#64748b" }}>Created between:</span>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: "#64748b" }}>{by === "appt" ? "Appointment" : "Created"} between:</span>
           <input type="date" value={fromDate} max={toDate || undefined} onChange={(e) => setFromDate(e.target.value)} style={{ fontSize: 13, padding: "5px 8px", border: "1px solid #cbd5e1", borderRadius: 8 }} />
           <span style={{ color: "#94a3b8" }}>→</span>
           <input type="date" value={toDate} min={fromDate || undefined} onChange={(e) => setToDate(e.target.value)} style={{ fontSize: 13, padding: "5px 8px", border: "1px solid #cbd5e1", borderRadius: 8 }} />
-          <button type="button" disabled={!fromDate || !toDate || loading} onClick={() => load(fromDate, toDate)}
-            style={{ fontSize: 13, fontWeight: 700, padding: "6px 14px", borderRadius: 8, border: "none", background: (!fromDate || !toDate) ? "#cbd5e1" : "#4f46e5", color: "#fff", cursor: "pointer" }}>Go</button>
-          {(data?.range?.start || fromDate) && <button type="button" onClick={() => { setFromDate(""); setToDate(""); load(); }} style={{ fontSize: 12.5, fontWeight: 700, color: "#1d4ed8", background: "none", border: "none", cursor: "pointer" }}>All time</button>}
+          <button type="button" disabled={(!fromDate && !toDate) || loading} onClick={() => load(fromDate, toDate)}
+            style={{ fontSize: 13, fontWeight: 700, padding: "6px 14px", borderRadius: 8, border: "none", background: (!fromDate && !toDate) ? "#cbd5e1" : "#4f46e5", color: "#fff", cursor: "pointer" }}>Go</button>
+          {(data?.range?.start || fromDate || toDate) && <button type="button" onClick={() => { setFromDate(""); setToDate(""); load("", "", by); }} style={{ fontSize: 12.5, fontWeight: 700, color: "#1d4ed8", background: "none", border: "none", cursor: "pointer" }}>All time</button>}
         </div>
+        {by === "appt" && <p style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>Tip: leave the end date blank for “on or after” — same as the map’s No-sit pin filter.</p>}
 
         {loading && <p style={{ color: "#64748b", fontSize: 14, marginTop: 12 }}>Pulling no-sit jobs from JobNimbus… (a few seconds)</p>}
         {err && <p style={{ color: "#dc2626", fontSize: 14, marginTop: 12 }}>{err}</p>}

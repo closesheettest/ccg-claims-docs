@@ -17,15 +17,19 @@ export const handler = async (event) => {
   if (!JN_KEY) return json(500, { ok: false, error: "JOBNIMBUS_API_KEY not set" });
   const H = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
   const qp = (event && event.queryStringParameters) || {};
-  // Optional created-date window (YYYY-MM-DD). Filters by when the no-sit job was created.
+  // Optional date window (YYYY-MM-DD). `by` picks WHICH date the window filters on:
+  //   by=created (default) → date_created  (who created the job, and when)
+  //   by=appt              → date_start    (the appointment date — matches the map's No-sit pin filter)
+  const by = qp.by === "appt" ? "appt" : "created";
+  const dateField = by === "appt" ? "date_start" : "date_created";
   const fromMs = /^\d{4}-\d{2}-\d{2}$/.test(qp.start || "") ? Date.parse(qp.start + "T00:00:00") : null;
   const toMs = /^\d{4}-\d{2}-\d{2}$/.test(qp.end || "") ? Date.parse(qp.end + "T23:59:59") : null;
   try {
     const [allJobs, users] = await Promise.all([fetchJobsByStatus(H, NOSIT_STATUS), fetchUsers(H)]);
     const jobs = allJobs.filter((j) => {
-      const cms = j.date_created ? Number(j.date_created) * 1000 : null;
-      if (fromMs && (!cms || cms < fromMs)) return false;
-      if (toMs && (!cms || cms > toMs)) return false;
+      const v = j[dateField] ? Number(j[dateField]) * 1000 : null;
+      if (fromMs && (!v || v < fromMs)) return false;
+      if (toMs && (!v || v > toMs)) return false;
       return true;
     });
     const nameById = {};
@@ -46,7 +50,7 @@ export const handler = async (event) => {
     }).sort((a, b) => (b.created_ms || 0) - (a.created_ms || 0));
 
     const creators = Object.entries(byCreator).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
-    return json(200, { ok: true, status: NOSIT_STATUS, total: jobs.length, all_total: allJobs.length, range: { start: qp.start || null, end: qp.end || null }, creators, jobs: rows });
+    return json(200, { ok: true, status: NOSIT_STATUS, total: jobs.length, all_total: allJobs.length, by, range: { start: qp.start || null, end: qp.end || null }, creators, jobs: rows });
   } catch (e) { return json(500, { ok: false, error: String((e && e.message) || e) }); }
 };
 
