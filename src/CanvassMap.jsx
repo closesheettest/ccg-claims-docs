@@ -384,11 +384,11 @@ const ARRIVE_FT = 400; // must be within this many feet of the stop to status it
 // centroid or parcel corner a few hundred feet off the actual door — plus everyday
 // phone-GPS drift. GPS accuracy is credited on top, and there's a manual override.
 // "Start my day" routes the most efficient N stops. IQ canvassing is denser work
-// (30 doors); inspection go-backs cover more ground per rep (100).
-// Only inspection-lead days (juniors — huge volume) route 100 stops. Every other
-// kind of day (IQ, No-sit, mixed) routes 30, so it stays local instead of
-// sprawling across the metro.
-const ROUTE_CAP_DEFAULT = 30, ROUTE_CAP_INSP = 100;
+// (default 30 doors, the "Sr" cap); inspection go-backs cover more ground per rep
+// (default 100, the "Jr" cap). Both are ADMIN-TUNABLE on the Pin Types page
+// (app_settings.harvest_route_cap_sr / _jr) — loaded on mount and written into
+// these module vars so the office can massage them for the sweet spot.
+let ROUTE_CAP_DEFAULT = 30, ROUTE_CAP_INSP = 100;
 const MAX_ROUTE_MI = 25; // never route a stop more than 25 mi from the start point
 const routeCap = (pins) => {
   if (!pins || !pins.length) return ROUTE_CAP_DEFAULT;
@@ -653,6 +653,7 @@ export default function CanvassMap() {
   const [selectedVisit, setSelectedVisit] = useState(null);
   const [gobackCard, setGobackCard] = useState(false); // "Today's go-backs" list open
   const [gobackRadiusMi, setGobackRadiusMi] = useState(5); // admin-tunable (app_settings.harvest_goback_radius_mi)
+  const [, setCapsV] = useState(0); // bump to re-render when admin route caps load
   const [visitToken, setVisitToken] = useState("");    // token to drive the visit-action endpoints
   const visitsLayer = useRef(null);
   const visitsLoaded = useRef(false);
@@ -2199,6 +2200,17 @@ export default function CanvassMap() {
     supabase.from("app_settings").select("value").eq("key", "harvest_smart_scheduling_enabled").maybeSingle()
       .then(({ data }) => { if (data) setSmartSchedEnabled(String(data.value) !== "false"); })
       .catch(() => { /* keep default on */ });
+    // Admin-tunable daily pin caps (Sr = IQ/no-sit days, Jr = inspection days).
+    supabase.from("app_settings").select("key,value").in("key", ["harvest_route_cap_sr", "harvest_route_cap_jr"])
+      .then(({ data }) => {
+        let changed = false;
+        for (const row of data || []) {
+          const n = Number(row.value);
+          if (Number.isFinite(n) && n > 0) { if (row.key === "harvest_route_cap_sr") ROUTE_CAP_DEFAULT = n; else ROUTE_CAP_INSP = n; changed = true; }
+        }
+        if (changed) setCapsV((v) => v + 1); // re-render so "next N" labels reflect
+      })
+      .catch(() => { /* keep defaults 30 / 100 */ });
   }, []);
   // Test link ?test=sr|jr → preview at that rep level.
   useEffect(() => { if (testLevel) setViewAs(testLevel); }, [testLevel]);

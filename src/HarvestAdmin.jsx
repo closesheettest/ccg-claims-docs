@@ -18,6 +18,9 @@ export default function HarvestAdmin() {
   const [newType, setNewType] = useState({ key: "", label: "", color: "#2563eb" });
   const [radius, setRadius] = useState(5);        // go-back route radius (miles)
   const [radiusBusy, setRadiusBusy] = useState(false);
+  const [capSr, setCapSr] = useState(30);         // daily pins — Sr (IQ / no-sit days)
+  const [capJr, setCapJr] = useState(100);        // daily pins — Jr (inspection days)
+  const [capsBusy, setCapsBusy] = useState(false);
   const [smartSched, setSmartSched] = useState(false); // Smart Scheduling on/off (default OFF until turned on)
   const [smartBusy, setSmartBusy] = useState(false);
 
@@ -32,7 +35,18 @@ export default function HarvestAdmin() {
       .then(({ data }) => { const n = Number(data?.value); if (Number.isFinite(n) && n > 0) setRadius(n); });
     supabase.from("app_settings").select("value").eq("key", "harvest_smart_scheduling_enabled").maybeSingle()
       .then(({ data }) => { if (data) setSmartSched(String(data.value) !== "false"); });
+    supabase.from("app_settings").select("key,value").in("key", ["harvest_route_cap_sr", "harvest_route_cap_jr"])
+      .then(({ data }) => { for (const r of data || []) { const n = Number(r.value); if (Number.isFinite(n) && n > 0) { if (r.key === "harvest_route_cap_sr") setCapSr(n); else setCapJr(n); } } });
   }, []);
+  const saveCaps = async () => {
+    setCapsBusy(true); setMsg(null);
+    const { error } = await supabase.from("app_settings").upsert([
+      { key: "harvest_route_cap_sr", value: String(capSr) },
+      { key: "harvest_route_cap_jr", value: String(capJr) },
+    ], { onConflict: "key" });
+    setCapsBusy(false);
+    setMsg(error ? { err: error.message } : { ok: `Daily pins set — Sr ${capSr}, Jr ${capJr}.` });
+  };
   const saveSmartSched = async (next) => {
     setSmartSched(next); setSmartBusy(true); setMsg(null);
     const { error } = await supabase.from("app_settings").upsert({ key: "harvest_smart_scheduling_enabled", value: next ? "true" : "false" }, { onConflict: "key" });
@@ -90,6 +104,28 @@ export default function HarvestAdmin() {
       </div>
 
       {msg && <div style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 10, fontSize: 13.5, fontWeight: 600, background: msg.err ? "#fef2f2" : "#ecfdf5", color: msg.err ? "#b91c1c" : "#065f46", border: `1px solid ${msg.err ? "#fecaca" : "#a7f3d0"}` }}>{msg.err || msg.ok}</div>}
+
+      {/* Daily pins per day — the "Start my day" route cap, per rep level. Tune it
+          as we learn time-at-door to find the sweet spot. */}
+      <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, marginBottom: 16, background: "#fff" }}>
+        <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 4 }}>🎯 Daily pins per rep</div>
+        <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 14 }}>
+          How many doors <b>“Start my day”</b> routes at once. <b>Sr</b> = IQ / No-sit days (denser, closer work); <b>Jr</b> = inspection-lead days (more ground). Adjust anytime as we dial in time-at-door.
+        </div>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 20, flexWrap: "wrap" }}>
+          <label style={{ fontSize: 13, fontWeight: 700, color: "#334155" }}>
+            <div style={{ marginBottom: 4 }}>Sr (IQ / No-sit)</div>
+            <input type="number" min={1} max={500} value={capSr} onChange={(e) => setCapSr(Math.max(1, Number(e.target.value) || 0))}
+              style={{ width: 100, fontSize: 18, fontWeight: 800, fontFamily: OSWALD, padding: "8px 10px", border: "1px solid #cbd5e1", borderRadius: 8 }} />
+          </label>
+          <label style={{ fontSize: 13, fontWeight: 700, color: "#334155" }}>
+            <div style={{ marginBottom: 4 }}>Jr (Inspection)</div>
+            <input type="number" min={1} max={500} value={capJr} onChange={(e) => setCapJr(Math.max(1, Number(e.target.value) || 0))}
+              style={{ width: 100, fontSize: 18, fontWeight: 800, fontFamily: OSWALD, padding: "8px 10px", border: "1px solid #cbd5e1", borderRadius: 8 }} />
+          </label>
+          <button type="button" onClick={saveCaps} disabled={capsBusy} style={{ fontSize: 13, fontWeight: 700, padding: "9px 18px", borderRadius: 8, border: "none", background: "#16a34a", color: "#fff", cursor: "pointer", opacity: capsBusy ? 0.6 : 1 }}>{capsBusy ? "Saving…" : "Save"}</button>
+        </div>
+      </div>
 
       {/* Go-back route radius — how near a stop a go-back must be to get folded in. */}
       <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, marginBottom: 16, background: "#fff" }}>

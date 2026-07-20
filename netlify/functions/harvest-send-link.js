@@ -40,7 +40,7 @@ exports.handler = async (event) => {
     try {
       const r = await fetch(`${base}/.netlify/functions/ghl-sms`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: rep.phone, name: rep.name || "Rep", message: `Hi ${first}, here's your U.S. Shingle Harvesting Map link — open it to see your doors and start your day: ${link}` }),
+        body: JSON.stringify({ to: rep.phone, name: rep.name || "Rep", message: `Hi ${first}, here's your U.S. Shingle Harvesting Map link — open it to see your doors and start your day: ${link}\n\nAdd it to your home screen so it's one tap every morning:\niPhone (Safari): tap Share ⬆️ → "Add to Home Screen".\nAndroid (Chrome): tap ⋮ → "Add to Home screen".` }),
       });
       sent_sms = r.ok;
     } catch { /* email may still land */ }
@@ -50,7 +50,12 @@ exports.handler = async (event) => {
       const html = `<p>Hi ${esc(first)},</p>
 <p>Here's your personal <b>Harvesting Map</b> link. Open it on your phone to see your doors, start your day, and log every knock.</p>
 <p><a href="${esc(link)}" style="display:inline-block;background:#16a34a;color:#fff;font-weight:bold;padding:12px 20px;border-radius:8px;text-decoration:none">Open my Harvesting Map</a></p>
-<p style="color:#666;font-size:13px">This link is yours — don't share it. Bookmark it so it's one tap every morning.</p>
+<p style="color:#666;font-size:13px">This link is yours — don't share it.</p>
+<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;margin:14px 0">
+  <div style="font-weight:bold;font-size:14px;margin-bottom:8px">📲 Save it to your home screen — one tap every morning</div>
+  <div style="font-size:13.5px;color:#334155;margin-bottom:6px"><b>iPhone (Safari):</b> open the link, tap the <b>Share</b> button (the square with an ↑), then <b>“Add to Home Screen”</b>.</div>
+  <div style="font-size:13.5px;color:#334155"><b>Android (Chrome):</b> open the link, tap the <b>⋮</b> menu (top-right), then <b>“Add to Home screen”</b> (or “Install app”).</div>
+</div>
 <p style="color:#666;font-size:12px;word-break:break-all">${esc(link)}</p>`;
       const r = await fetch(`${base}/.netlify/functions/send-email`, {
         method: "POST", headers: { "Content-Type": "application/json" },
