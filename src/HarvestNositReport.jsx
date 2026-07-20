@@ -14,15 +14,18 @@ export default function HarvestNositReport() {
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(true);
   const [pick, setPick] = useState(null); // creator name filtered in the detail list
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
 
-  useEffect(() => {
-    let live = true;
-    fetch(FN).then((r) => r.json())
-      .then((j) => { if (!live) return; if (!j.ok) { setErr(j.error || "Could not load."); } else setData(j); })
-      .catch(() => { if (live) setErr("Network error."); })
-      .finally(() => { if (live) setLoading(false); });
-    return () => { live = false; };
-  }, []);
+  const load = (from, to) => {
+    setLoading(true); setErr(""); setPick(null);
+    const qs = from && to ? `?start=${from}&end=${to}` : "";
+    fetch(FN + qs).then((r) => r.json())
+      .then((j) => { if (!j.ok) { setErr(j.error || "Could not load."); setData(null); } else setData(j); })
+      .catch(() => setErr("Network error."))
+      .finally(() => setLoading(false));
+  };
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const max = data?.creators?.[0]?.count || 1;
   const jobs = useMemo(() => (data?.jobs || []).filter((j) => !pick || j.creator === pick), [data, pick]);
@@ -46,8 +49,17 @@ export default function HarvestNositReport() {
           {data && <button type="button" onClick={downloadCsv} style={{ fontSize: 13, fontWeight: 700, padding: "8px 14px", borderRadius: 8, border: "1px solid #cbd5e1", background: "#fff", color: "#334155", cursor: "pointer" }}>⬇ CSV</button>}
         </div>
         <p style={{ color: "#475569", fontSize: 14.5, lineHeight: 1.5, marginTop: 4 }}>
-          Who <b>created</b> each “No Sit- Need to Reschedule” job in JobNimbus. {loading ? "" : <b>{data?.total || 0} jobs</b>} total.
+          Who <b>created</b> each “No Sit- Need to Reschedule” job in JobNimbus{data?.range?.start ? ", created in your date window" : ""}. {loading ? "" : <b>{data?.total || 0} jobs</b>}{data && data.all_total > (data.total || 0) ? ` of ${data.all_total}` : ""}.
         </p>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: "#64748b" }}>Created between:</span>
+          <input type="date" value={fromDate} max={toDate || undefined} onChange={(e) => setFromDate(e.target.value)} style={{ fontSize: 13, padding: "5px 8px", border: "1px solid #cbd5e1", borderRadius: 8 }} />
+          <span style={{ color: "#94a3b8" }}>→</span>
+          <input type="date" value={toDate} min={fromDate || undefined} onChange={(e) => setToDate(e.target.value)} style={{ fontSize: 13, padding: "5px 8px", border: "1px solid #cbd5e1", borderRadius: 8 }} />
+          <button type="button" disabled={!fromDate || !toDate || loading} onClick={() => load(fromDate, toDate)}
+            style={{ fontSize: 13, fontWeight: 700, padding: "6px 14px", borderRadius: 8, border: "none", background: (!fromDate || !toDate) ? "#cbd5e1" : "#4f46e5", color: "#fff", cursor: "pointer" }}>Go</button>
+          {(data?.range?.start || fromDate) && <button type="button" onClick={() => { setFromDate(""); setToDate(""); load(); }} style={{ fontSize: 12.5, fontWeight: 700, color: "#1d4ed8", background: "none", border: "none", cursor: "pointer" }}>All time</button>}
+        </div>
 
         {loading && <p style={{ color: "#64748b", fontSize: 14, marginTop: 12 }}>Pulling no-sit jobs from JobNimbus… (a few seconds)</p>}
         {err && <p style={{ color: "#dc2626", fontSize: 14, marginTop: 12 }}>{err}</p>}

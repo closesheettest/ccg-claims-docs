@@ -13,11 +13,21 @@ const JN_BASE = "https://app.jobnimbus.com/api1";
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const NOSIT_STATUS = "No Sit- Need to Reschedule";
 
-export const handler = async () => {
+export const handler = async (event) => {
   if (!JN_KEY) return json(500, { ok: false, error: "JOBNIMBUS_API_KEY not set" });
   const H = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
+  const qp = (event && event.queryStringParameters) || {};
+  // Optional created-date window (YYYY-MM-DD). Filters by when the no-sit job was created.
+  const fromMs = /^\d{4}-\d{2}-\d{2}$/.test(qp.start || "") ? Date.parse(qp.start + "T00:00:00") : null;
+  const toMs = /^\d{4}-\d{2}-\d{2}$/.test(qp.end || "") ? Date.parse(qp.end + "T23:59:59") : null;
   try {
-    const [jobs, users] = await Promise.all([fetchJobsByStatus(H, NOSIT_STATUS), fetchUsers(H)]);
+    const [allJobs, users] = await Promise.all([fetchJobsByStatus(H, NOSIT_STATUS), fetchUsers(H)]);
+    const jobs = allJobs.filter((j) => {
+      const cms = j.date_created ? Number(j.date_created) * 1000 : null;
+      if (fromMs && (!cms || cms < fromMs)) return false;
+      if (toMs && (!cms || cms > toMs)) return false;
+      return true;
+    });
     const nameById = {};
     for (const u of users) nameById[u.id || u.jnid] = `${u.first_name || ""} ${u.last_name || ""}`.trim();
 
@@ -36,7 +46,7 @@ export const handler = async () => {
     }).sort((a, b) => (b.created_ms || 0) - (a.created_ms || 0));
 
     const creators = Object.entries(byCreator).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
-    return json(200, { ok: true, status: NOSIT_STATUS, total: jobs.length, creators, jobs: rows });
+    return json(200, { ok: true, status: NOSIT_STATUS, total: jobs.length, all_total: allJobs.length, range: { start: qp.start || null, end: qp.end || null }, creators, jobs: rows });
   } catch (e) { return json(500, { ok: false, error: String((e && e.message) || e) }); }
 };
 
