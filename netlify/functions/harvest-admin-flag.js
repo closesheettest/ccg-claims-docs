@@ -11,7 +11,7 @@
 const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 // key → default-when-unset (some flags default ON, some OFF).
-const DEFAULT_ON = { harvest_manager_map_enabled: true, harvest_smart_scheduling_enabled: false };
+const DEFAULT_ON = { harvest_manager_map_enabled: true, harvest_smart_scheduling_enabled: false, harvest_enhanced_planned_day_enabled: false };
 
 export const handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return cors(200, "");

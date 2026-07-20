@@ -21,6 +21,8 @@ export default function HarvestAdmin() {
   const [capSr, setCapSr] = useState(30);         // daily pins — Sr (IQ / no-sit days)
   const [capJr, setCapJr] = useState(100);        // daily pins — Jr (inspection days)
   const [capsBusy, setCapsBusy] = useState(false);
+  const [enhanced, setEnhanced] = useState(false); // Enhanced Planned Day (Sr assignment) on/off
+  const [enhancedBusy, setEnhancedBusy] = useState(false);
   const [smartSched, setSmartSched] = useState(false); // Smart Scheduling on/off (default OFF until turned on)
   const [smartBusy, setSmartBusy] = useState(false);
 
@@ -37,7 +39,15 @@ export default function HarvestAdmin() {
       .then(({ data }) => { if (data) setSmartSched(String(data.value) !== "false"); });
     supabase.from("app_settings").select("key,value").in("key", ["harvest_route_cap_sr", "harvest_route_cap_jr"])
       .then(({ data }) => { for (const r of data || []) { const n = Number(r.value); if (Number.isFinite(n) && n > 0) { if (r.key === "harvest_route_cap_sr") setCapSr(n); else setCapJr(n); } } });
+    supabase.from("app_settings").select("value").eq("key", "harvest_enhanced_planned_day_enabled").maybeSingle()
+      .then(({ data }) => { if (data) setEnhanced(String(data.value) === "true"); });
   }, []);
+  const saveEnhanced = async (next) => {
+    setEnhanced(next); setEnhancedBusy(true); setMsg(null);
+    const { error } = await supabase.from("app_settings").upsert({ key: "harvest_enhanced_planned_day_enabled", value: next ? "true" : "false" }, { onConflict: "key" });
+    setEnhancedBusy(false);
+    setMsg(error ? { err: error.message } : { ok: `Enhanced Planned Day turned ${next ? "ON" : "OFF"}.` });
+  };
   const saveCaps = async () => {
     setCapsBusy(true); setMsg(null);
     const { error } = await supabase.from("app_settings").upsert([
@@ -104,6 +114,21 @@ export default function HarvestAdmin() {
       </div>
 
       {msg && <div style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 10, fontSize: 13.5, fontWeight: 600, background: msg.err ? "#fef2f2" : "#ecfdf5", color: msg.err ? "#b91c1c" : "#065f46", border: `1px solid ${msg.err ? "#fecaca" : "#a7f3d0"}` }}>{msg.err || msg.ok}</div>}
+
+      {/* Enhanced Planned Day — company on/off. When on, managers get the section
+          planner on their dashboard and assign each Sr rep a cluster. */}
+      <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, marginBottom: 16, background: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 800 }}>🧭 Enhanced Planned Day <span style={{ fontSize: 11, fontWeight: 700, color: "#7c3aed", background: "#ede9fe", padding: "2px 7px", borderRadius: 8 }}>Sr only</span></div>
+          <div style={{ fontSize: 12.5, color: "#64748b", marginTop: 3 }}>
+            When on, each <b>manager</b> plans their team's day: the zone's <b>IQ + No-sit</b> pins auto-split into balanced sections (one per Sr rep), the manager assigns each section to a rep, and every Sr rep's <b>Start my day</b> loads their assignment. Off = the planner is hidden from all dashboards. Jr reps are unaffected (they use the daily pin cap below).
+          </div>
+        </div>
+        <button type="button" onClick={() => saveEnhanced(!enhanced)} disabled={enhancedBusy} title={enhanced ? "On — tap to turn off" : "Off — tap to turn on"}
+          style={{ flexShrink: 0, width: 62, height: 32, borderRadius: 999, border: "none", cursor: enhancedBusy ? "default" : "pointer", background: enhanced ? "#7c3aed" : "#cbd5e1", position: "relative", opacity: enhancedBusy ? 0.6 : 1, transition: "background .15s" }}>
+          <span style={{ position: "absolute", top: 3, left: enhanced ? 33 : 3, width: 26, height: 26, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,.3)", transition: "left .15s" }} />
+        </button>
+      </div>
 
       {/* Daily pins per day — the "Start my day" route cap, per rep level. Tune it
           as we learn time-at-door to find the sweet spot. */}
