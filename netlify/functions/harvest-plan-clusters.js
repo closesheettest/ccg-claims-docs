@@ -59,26 +59,20 @@ export const handler = async (event) => {
 };
 
 // ── rep-anchored assignment ──────────────────────────────────────────────────
-// Assign each door to the NEAREST Sr rep, capacity-balanced so no rep gets far more
-// than n/k. Returns clusters ALIGNED to the srReps order (cluster i ↔ srReps[i]), so a
-// rep's section is the doors closest to where they actually are. Reps without a
-// location get an empty section. Closest pins claim their rep first; overflow spills to
-// the next-nearest rep with room.
+// Give each door to its NEAREST Sr rep (pure Voronoi — no forced balance). This keeps
+// tight, non-overlapping territories so a rep never crosses another's area: Jacksonville
+// reps get Jacksonville doors, a Tampa rep gets Tampa doors. Counts come out UNEVEN when
+// the leads aren't evenly spread — that's honest (it shows where the leads actually are);
+// the manager can reassign sections after. Clusters are ALIGNED to srReps (i ↔ srReps[i]).
 function assignToReps(points, srReps) {
   const centers = srReps.map((r, i) => ({ i, lat: Number(r.lat), lng: Number(r.lng) })).filter((c) => Number.isFinite(c.lat) && Number.isFinite(c.lng));
   const buckets = srReps.map(() => []); // aligned to srReps
   if (!centers.length || !points.length) return buildClusters(srReps, buckets, points);
   const d2 = (a, b) => { const dx = a.lat - b.lat, dy = a.lng - b.lng; return dx * dx + dy * dy; };
-  const cap = Math.ceil(points.length / centers.length);
-  // Each pin: its reps ranked nearest-first, plus its nearest distance (for ordering).
-  const prefs = points.map((p, pi) => {
-    const order = centers.map((c) => ({ i: c.i, d: d2(p, c) })).sort((a, b) => a.d - b.d);
-    return { pi, order, nearest: order[0].d };
-  }).sort((a, b) => a.nearest - b.nearest); // pins closest to a rep place first
-  for (const pr of prefs) {
-    let placed = false;
-    for (const o of pr.order) { if (buckets[o.i].length < cap) { buckets[o.i].push(pr.pi); placed = true; break; } }
-    if (!placed) buckets[pr.order[0].i].push(pr.pi); // safety (shouldn't happen: cap*k >= n)
+  for (let pi = 0; pi < points.length; pi++) {
+    let best = centers[0].i, bd = Infinity;
+    for (const c of centers) { const d = d2(points[pi], c); if (d < bd) { bd = d; best = c.i; } }
+    buckets[best].push(pi);
   }
   return buildClusters(srReps, buckets, points);
 }
