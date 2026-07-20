@@ -37,10 +37,25 @@ export const handler = async (event) => {
       || await sbGet(`sales_reps?select=id,name,jobnimbus_id,harvest_token,active,harvest_level&order=name`).catch(() =>
         sbGet(`sales_reps?select=id,name,jobnimbus_id,harvest_token,active&order=name`));
 
-    const [adminRow, rz] = await Promise.all([
+    const [adminRow, rz, trainResults] = await Promise.all([
       sbGet(`app_settings?key=eq.harvest_admin_token&select=value&limit=1`).catch(() => []),
       fetch(REP_ZONES_URL).then((r) => (r.ok ? r.json() : { reps: [] })).catch(() => ({ reps: [] })),
+      // Tool-training test results — so the office sees who passed next to each name.
+      // Reps key by their harvest_token (=user_key); managers took the manager link so
+      // they key by a TMS token, but they DO store their name — so we match name too.
+      sbGet(`harvest_training_results?select=user_key,name,track,score,passed,taken_at&order=taken_at.desc`).catch(() => []),
     ]);
+
+    // Latest result per person, indexed both by token (user_key) and by normalized name.
+    const normName = (v) => String(v || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const trainByToken = {}, trainByName = {};
+    for (const t of (trainResults || [])) {
+      const rec = { passed: !!t.passed, score: t.score, track: t.track, taken_at: t.taken_at };
+      if (t.user_key && !trainByToken[t.user_key]) trainByToken[t.user_key] = rec;      // desc order → first = latest
+      const nn = normName(t.name);
+      if (nn && !trainByName[nn]) trainByName[nn] = rec;
+    }
+    const trainingFor = (tok, name) => trainByToken[tok] || trainByName[normName(name)] || null;
 
     const infoByJn = {};
     for (const r of (rz.reps || [])) {
@@ -76,6 +91,7 @@ export const handler = async (event) => {
         phone: r.phone || null,
         email: r.email || null,
         sent_at: r.harvest_link_sent_at || null,
+        training: trainingFor(r.harvest_token, r.name),  // { passed, score, track, taken_at } | null
       });
     }
 

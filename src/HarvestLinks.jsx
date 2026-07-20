@@ -159,6 +159,10 @@ export default function HarvestLinks() {
   };
 
   const admins = data?.admins || [];
+  // Training completion across everyone with a link (for the summary chips).
+  const everyone = [...(data?.admins || []), ...(data?.trainees || []), ...(data?.reps || [])];
+  const passedCount = everyone.filter((c) => c.training?.passed).length;
+  const notTakenCount = everyone.filter((c) => !c.training).length;
   const reps = (data?.reps || []).filter((r) => !q.trim() || (r.name || "").toLowerCase().includes(q.toLowerCase()));
   // Assign picker: match anyone in the full roster (min 2 chars), cap the list.
   const cardedIds = new Set([...(data?.admins || []), ...(data?.trainees || []), ...(data?.reps || [])].map((c) => c.id));
@@ -170,7 +174,15 @@ export default function HarvestLinks() {
     <div style={{ maxWidth: 820, margin: "0 auto", padding: "20px 16px 60px", fontFamily: FONT }}>
       <HarvestNav active="links" />
       <div style={{ fontSize: 22, fontWeight: 800, fontFamily: OSWALD, marginBottom: 4 }}>🔗 Rep Links &amp; Access</div>
-      <div style={{ fontSize: 13.5, color: "#64748b", marginBottom: 16 }}>Each person opens their <b>personal link</b> to work the map. <b>Admins</b> see every pin (view-all); reps see only what their level (senior / junior) allows.</div>
+      <div style={{ fontSize: 13.5, color: "#64748b", marginBottom: 12 }}>Each person opens their <b>personal link</b> to work the map. <b>Admins</b> see every pin (view-all); reps see only what their level (senior / junior) allows.</div>
+
+      {/* Tool-training completion at a glance — passed / still-to-take. */}
+      {data && everyone.length > 0 && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 800, color: "#166534", background: "#dcfce7", border: "1px solid #86efac", borderRadius: 999, padding: "4px 12px" }}>✓ {passedCount} passed the test</span>
+          <span style={{ fontSize: 12.5, fontWeight: 800, color: "#64748b", background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 999, padding: "4px 12px" }}>○ {notTakenCount} not taken yet</span>
+        </div>
+      )}
 
       {err && <div style={{ color: "#b91c1c", fontSize: 13.5, marginBottom: 12 }}>{err}</div>}
       {note && <div style={{ color: note[0] === "✓" ? "#15803d" : "#b45309", fontSize: 13, marginBottom: 12, fontWeight: 700 }}>{note}</div>}
@@ -282,6 +294,7 @@ export default function HarvestLinks() {
                   <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", border: "1px solid #ddd6fe", borderRadius: 10, padding: "9px 12px", background: "#faf5ff" }}>
                     <span style={{ fontSize: 10.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.04em", background: "#7c3aed", color: "#fff", padding: "2px 8px", borderRadius: 10 }}>admin</span>
                     <span style={{ fontSize: 14, fontWeight: 700 }}>{r.name}</span>
+                    <TrainingBadge t={r.training} />
                     <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
                       <LevelSelect card={r} disabled={saving === r.id} onPick={(lv) => setLevel(r.id, lv, r.name)} />
                       <a href={spot(r.link)} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, fontWeight: 700, color: "#7c3aed", textDecoration: "none" }}>Open ↗</a>
@@ -303,6 +316,7 @@ export default function HarvestLinks() {
                   <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", border: "1px solid #fde68a", borderRadius: 10, padding: "9px 12px", background: "#fffbeb" }}>
                     <span style={{ fontSize: 10.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.04em", background: "#d97706", color: "#fff", padding: "2px 8px", borderRadius: 10 }}>trainee</span>
                     <span style={{ fontSize: 14, fontWeight: 700 }}>{r.name}</span>
+                    <TrainingBadge t={r.training} />
                     <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
                       <LevelSelect card={r} disabled={saving === r.id} onPick={(lv) => setLevel(r.id, lv, r.name)} />
                       <a href={spot(r.link)} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, fontWeight: 700, color: "#b45309", textDecoration: "none" }}>Open ↗</a>
@@ -329,6 +343,7 @@ export default function HarvestLinks() {
                 <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", border: "1px solid #e5e7eb", borderRadius: 10, padding: "9px 12px", background: "#fff" }}>
                 <span style={{ fontSize: 10.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.04em", background: r.level === "senior" ? "#16a34a" : "#334155", color: "#fff", padding: "2px 8px", borderRadius: 10 }}>{r.level}{r.override ? " ·set" : ""}</span>
                 <span style={{ fontSize: 14, fontWeight: 700 }}>{r.name}</span>
+                <TrainingBadge t={r.training} />
                 <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
                   <LevelSelect card={r} disabled={saving === r.id} onPick={(lv) => setLevel(r.id, lv, r.name)} />
                   <a href={spot(r.link)} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, fontWeight: 700, color: "#0e7490", textDecoration: "none" }}>Open ↗</a>
@@ -367,6 +382,15 @@ function LevelSelect({ card, disabled, onPick }) {
 }
 
 const btn = { fontSize: 12.5, fontWeight: 700, color: "#334155", background: "#fff", border: "1px solid #cbd5e1", borderRadius: 8, padding: "6px 12px", cursor: "pointer" };
+
+// Training test badge shown next to each name: passed / failed / not taken yet.
+function TrainingBadge({ t }) {
+  const base = { fontSize: 11, fontWeight: 800, borderRadius: 999, padding: "2px 9px", whiteSpace: "nowrap" };
+  if (!t) return <span title="Hasn't taken the tool-training test yet" style={{ ...base, color: "#94a3b8", background: "#f1f5f9", border: "1px solid #e2e8f0" }}>○ Not taken</span>;
+  const when = t.taken_at ? new Date(t.taken_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+  if (t.passed) return <span title={`Passed the ${t.track} test${when ? ` on ${when}` : ""}`} style={{ ...base, color: "#166534", background: "#dcfce7", border: "1px solid #86efac" }}>✓ Passed {t.score}%</span>;
+  return <span title={`Did not pass yet (${t.track} test${when ? `, ${when}` : ""})`} style={{ ...base, color: "#b45309", background: "#fffbeb", border: "1px solid #fde68a" }}>✗ {t.score}%</span>;
+}
 // "Jul 17" for the ✓ Sent flag.
 function fmtSent(iso) {
   try { return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" }); } catch { return ""; }
