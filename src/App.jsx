@@ -8410,6 +8410,13 @@ function InspectionLookup({ endpoint = "/.netlify/functions/inspection-lookup", 
           </div>
           <div style={{ fontSize: 13, color: "#6b7280", marginTop: 2 }}>{d.address} · Rep: {d.rep}{d.mobile ? ` · ${d.mobile}` : ""}</div>
           {d.stage_detail && <div style={{ fontSize: 13.5, color: "#374151", marginTop: 8, fontWeight: 600 }}>{d.stage_detail}</div>}
+          {d.pa_name && (
+            <div style={{ marginTop: 8, display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap", background: "#ecfeff", border: "1px solid #a5f3fc", borderRadius: 10, padding: "6px 12px", fontSize: 13 }}>
+              <span style={{ fontWeight: 800, color: "#0e7490" }}>🧑‍💼 PA: {d.pa_name}</span>
+              {d.pa_company && <span style={{ color: "#475569" }}>· {d.pa_company}</span>}
+              {d.pa_phone && <a href={`tel:${String(d.pa_phone).replace(/[^\d+]/g, "")}`} style={{ color: "#0e7490", fontWeight: 700, textDecoration: "none" }}>· 📞 {d.pa_phone}</a>}
+            </div>
+          )}
           {d.jn_status_stale && <div style={{ fontSize: 12.5, color: "#b45309", marginTop: 6, fontWeight: 700 }}>⚠ JobNimbus still says “{d.jn_status}” — stale (the deal was released).</div>}
           {d.timeline && d.timeline.length > 0 && (
             <div style={{ marginTop: 10, borderTop: "1px solid #e5e7eb", paddingTop: 10 }}>

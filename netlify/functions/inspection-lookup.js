@@ -50,14 +50,30 @@ exports.handler = async (event) => {
       } catch { /* best-effort */ }
     }));
 
-    const results = rows.map((r) => shape(r, jnById[r.jn_job_id]));
+    // Resolve which PA has each deal (pa_id → name / phone / company) so the card
+    // can say WHO has it, not just "assigned to a PA".
+    const paIds = [...new Set(rows.map((r) => r.pa_id).filter(Boolean))];
+    const paById = {};
+    if (paIds.length) {
+      const inList = paIds.map((id) => `"${id}"`).join(",");
+      const pas = await sbGet(`pas?id=in.(${encodeURIComponent(inList)})&select=id,name,phone,pa_company_id`);
+      const compIds = [...new Set(pas.map((p) => p.pa_company_id).filter(Boolean))];
+      const compById = {};
+      if (compIds.length) {
+        const cList = compIds.map((id) => `"${id}"`).join(",");
+        for (const c of await sbGet(`pa_companies?id=in.(${encodeURIComponent(cList)})&select=id,name`)) compById[c.id] = c.name;
+      }
+      for (const p of pas) paById[p.id] = { name: p.name || null, phone: p.phone || null, company: compById[p.pa_company_id] || null };
+    }
+
+    const results = rows.map((r) => shape(r, jnById[r.jn_job_id], paById[r.pa_id]));
     return cors(200, JSON.stringify({ ok: true, count: results.length, results }));
   } catch (e) {
     return cors(500, JSON.stringify({ ok: false, error: e.message || "error" }));
   }
 };
 
-function shape(r, jn) {
+function shape(r, jn, pa) {
   const notes = Array.isArray(r.pa_notes_log) ? r.pa_notes_log : [];
   const released = notes.some((n) => n.stage === "released" || /released back/i.test(n.text || ""));
   const jnStatus = (jn && jn.status_name) || r.jn_status || null;
@@ -118,6 +134,9 @@ function shape(r, jn) {
     jn_url: r.jn_job_id ? `https://app.jobnimbus.com/job/${r.jn_job_id}` : null,
     pa_id: r.pa_id || null,
     pa_stage: r.pa_stage || null,
+    pa_name: pa?.name || null,
+    pa_phone: pa?.phone || null,
+    pa_company: pa?.company || null,
     start_date: startSec ? ymdET(startSec) : null,
     sold_date: soldSec ? ymdET(soldSec) : null,
   };
