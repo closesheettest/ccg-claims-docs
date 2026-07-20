@@ -47,6 +47,8 @@ export default function HarvestPlannedDay() {
     const m = L.map(mapEl.current, { zoomControl: true }).setView([27.9, -81.7], 7);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "© OpenStreetMap" }).addTo(m);
     mapRef.current = m; layerRef.current = L.layerGroup().addTo(m);
+    // Container is often sized after init → tiles don't lay out until we nudge it.
+    setTimeout(() => { try { m.invalidateSize(); } catch { /* ignore */ } }, 150);
   }, []);
 
   useEffect(() => {
@@ -63,7 +65,7 @@ export default function HarvestPlannedDay() {
         }
       });
     }
-    if (bounds.length) try { m.fitBounds(bounds, { padding: [30, 30] }); } catch { /* ignore */ }
+    if (bounds.length) { try { m.invalidateSize(); m.fitBounds(bounds, { padding: [30, 30] }); } catch { /* ignore */ } }
   }, [zones, colorMap]);
 
   const grandTotal = ZONES.reduce((s, z) => s + (zones[z]?.total || 0), 0);
