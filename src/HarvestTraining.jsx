@@ -11,7 +11,7 @@ const FONT = "'Nunito', system-ui, sans-serif";
 const OSWALD = "'Oswald', sans-serif";
 const PASS_PCT = 80;
 
-export default function HarvestTraining({ track, userType, userKey, name, toolLabel = "the tool", onPass }) {
+export default function HarvestTraining({ track, userType, userKey, name, toolLabel = "the tool", onPass, preview = false }) {
   const [sections, setSections] = useState(null);
   const [questions, setQuestions] = useState([]);
   const [stage, setStage] = useState("lesson"); // lesson | test | result
@@ -30,7 +30,8 @@ export default function HarvestTraining({ track, userType, userKey, name, toolLa
       const secs = s.data || [];
       const qs = (q.data || []).filter((x) => (x.choices || []).length >= 2);
       // No content authored yet → don't lock anyone out; pass straight through.
-      if (!qs.length) { onPass && onPass(); return; }
+      // (In preview we still show whatever's authored so the office can see it.)
+      if (!qs.length && !preview) { onPass && onPass(); return; }
       setSections(secs); setQuestions(qs);
     })();
     // eslint-disable-next-line
@@ -45,9 +46,11 @@ export default function HarvestTraining({ track, userType, userKey, name, toolLa
     const passed = score >= PASS_PCT;
     const wrongSectionIds = [...new Set(wrong.map((q) => q.section_id).filter(Boolean))];
     setSaving(true);
-    try {
-      await supabase.from("harvest_training_results").insert({ user_type: userType, user_key: userKey, name: name || null, track, score, passed, wrong_section_ids: wrongSectionIds });
-    } catch { /* non-fatal */ }
+    if (!preview) {
+      try {
+        await supabase.from("harvest_training_results").insert({ user_type: userType, user_key: userKey, name: name || null, track, score, passed, wrong_section_ids: wrongSectionIds });
+      } catch { /* non-fatal */ }
+    }
     setSaving(false);
     setResult({ score, passed, wrong, wrongSectionIds });
     setReread({});
@@ -59,12 +62,12 @@ export default function HarvestTraining({ track, userType, userKey, name, toolLa
   const remediation = stage === "lesson" && result && !result.passed;
   const allReread = (result?.wrongSectionIds || []).every((id) => reread[id]);
 
-  if (sections === null) return <Screen><div style={{ color: "#94a3b8", padding: 40, textAlign: "center" }}>Loading your training…</div></Screen>;
+  if (sections === null) return <Screen preview={preview} onClose={onPass}><div style={{ color: "#94a3b8", padding: 40, textAlign: "center" }}>Loading your training…</div></Screen>;
 
   // ── RESULT ──────────────────────────────────────────────────────────────
   if (stage === "result") {
     return (
-      <Screen innerRef={topRef}>
+      <Screen innerRef={topRef} preview={preview} onClose={onPass}>
         <div style={{ textAlign: "center", padding: "10px 0 18px" }}>
           <div style={{ fontSize: 44 }}>{result.passed ? "🎉" : "📚"}</div>
           <div style={{ fontSize: 24, fontWeight: 800, fontFamily: OSWALD, color: result.passed ? "#16a34a" : "#b45309" }}>
@@ -92,7 +95,7 @@ export default function HarvestTraining({ track, userType, userKey, name, toolLa
         )}
 
         {result.passed ? (
-          <button type="button" onClick={() => onPass && onPass()} style={btn("#16a34a")}>✅ Enter {toolLabel}</button>
+          <button type="button" onClick={() => onPass && onPass()} style={btn("#16a34a")}>{preview ? "✅ Looks good — close preview" : `✅ Enter ${toolLabel}`}</button>
         ) : (
           <button type="button" onClick={() => { setStage("lesson"); scrollTop(); }} style={btn("#b45309")}>📖 Back to the lessons</button>
         )}
@@ -104,7 +107,7 @@ export default function HarvestTraining({ track, userType, userKey, name, toolLa
   if (stage === "test") {
     const answeredAll = questions.every((q) => answers[q.id] != null);
     return (
-      <Screen innerRef={topRef}>
+      <Screen innerRef={topRef} preview={preview} onClose={onPass}>
         <Header title={`${track === "manager" ? "Manager" : "Rep"} test`} sub={`${questions.length} questions · pass at ${PASS_PCT}%. Pick the best answer.`} />
         <div style={{ display: "grid", gap: 14 }}>
           {questions.map((q, i) => (
@@ -135,7 +138,7 @@ export default function HarvestTraining({ track, userType, userKey, name, toolLa
 
   // ── LESSON (first read, or remediation re-read) ──────────────────────────
   return (
-    <Screen innerRef={topRef}>
+    <Screen innerRef={topRef} preview={preview} onClose={onPass}>
       <Header title={`${track === "manager" ? "Regional Manager" : "Rep"} training`}
         sub={remediation ? "Re-read the highlighted sections below, then retake the test." : "Read through, then take a short test to unlock your tools."} />
       {remediation && (
@@ -169,17 +172,23 @@ export default function HarvestTraining({ track, userType, userKey, name, toolLa
           );
         })}
       </div>
-      <button type="button" onClick={() => { setStage("test"); setAnswers({}); scrollTop(); }} disabled={remediation && !allReread}
-        style={{ ...btn(!remediation || allReread ? "#16a34a" : "#cbd5e1"), cursor: !remediation || allReread ? "pointer" : "not-allowed" }}>
-        {remediation ? (allReread ? "🔁 Retake the test" : "Re-read the highlighted sections first") : "I'm ready — start the test →"}
+      <button type="button" onClick={() => { setStage("test"); setAnswers({}); scrollTop(); }} disabled={(remediation && !allReread) || questions.length === 0}
+        style={{ ...btn((questions.length === 0) ? "#cbd5e1" : (!remediation || allReread ? "#16a34a" : "#cbd5e1")), cursor: questions.length && (!remediation || allReread) ? "pointer" : "not-allowed" }}>
+        {questions.length === 0 ? "No test questions authored for this track yet" : remediation ? (allReread ? "🔁 Retake the test" : "Re-read the highlighted sections first") : "I'm ready — start the test →"}
       </button>
     </Screen>
   );
 }
 
-function Screen({ children, innerRef }) {
+function Screen({ children, innerRef, preview, onClose }) {
   return (
     <div ref={innerRef} style={{ position: "fixed", inset: 0, overflowY: "auto", background: "#f1f5f9", fontFamily: FONT }}>
+      {preview && (
+        <div style={{ position: "sticky", top: 0, zIndex: 5, background: "#7c3aed", color: "#fff", fontSize: 13, fontWeight: 800, padding: "9px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", fontFamily: OSWALD, letterSpacing: "0.02em" }}>
+          <span>👁 PREVIEW — this is exactly what they see. Nothing is recorded.</span>
+          {onClose && <button type="button" onClick={onClose} style={{ background: "rgba(255,255,255,.2)", color: "#fff", border: "none", borderRadius: 8, padding: "5px 12px", fontSize: 12.5, fontWeight: 800, cursor: "pointer" }}>✕ Close preview</button>}
+        </div>
+      )}
       <div style={{ maxWidth: 720, margin: "0 auto", padding: "22px 16px 60px" }}>
         <div style={{ fontSize: 20, fontWeight: 800, fontFamily: OSWALD, marginBottom: 14 }}>🌾 Harvesting — Tool Training</div>
         {children}

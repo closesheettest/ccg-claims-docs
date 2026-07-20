@@ -6,6 +6,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "./lib/supabase";
 import HarvestNav from "./HarvestNav";
+import HarvestTraining from "./HarvestTraining";
 
 const FONT = "'Nunito', system-ui, sans-serif";
 const OSWALD = "'Oswald', sans-serif";
@@ -18,6 +19,7 @@ export default function HarvestTrainingAdmin() {
   const [questions, setQuestions] = useState([]);
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState("");
+  const [preview, setPreview] = useState(false); // full-screen "see it as they do" overlay
 
   const load = async () => {
     const [s, q] = await Promise.all([
@@ -112,11 +114,15 @@ export default function HarvestTrainingAdmin() {
       <div style={{ fontSize: 22, fontWeight: 800, fontFamily: OSWALD, marginBottom: 4 }}>🎓 Tool Training — Content</div>
       <div style={{ fontSize: 13.5, color: "#64748b", marginBottom: 14 }}>Write the lessons (text + a screenshot per section) and the test questions. Reps and managers must pass at <b>{PASS_PCT}%</b> before the tool unlocks.</div>
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
         {TRACKS.map((t) => (
           <button key={t.key} type="button" onClick={() => setTrack(t.key)}
             style={{ fontSize: 14, fontWeight: 800, padding: "9px 16px", borderRadius: 10, cursor: "pointer", border: track === t.key ? "2px solid #0a0a0a" : "1px solid #cbd5e1", background: track === t.key ? "#0a0a0a" : "#fff", color: track === t.key ? "#fff" : "#475569" }}>{t.label}</button>
         ))}
+        <button type="button" onClick={() => setPreview(true)}
+          style={{ marginLeft: "auto", fontSize: 13.5, fontWeight: 800, padding: "9px 16px", borderRadius: 10, cursor: "pointer", border: "2px solid #7c3aed", background: "#faf5ff", color: "#7c3aed" }}>
+          👁 Preview as {track === "manager" ? "manager" : "rep"}
+        </button>
       </div>
 
       {msg && <div style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 10, fontSize: 13.5, fontWeight: 600, background: msg.err ? "#fef2f2" : "#ecfdf5", color: msg.err ? "#b91c1c" : "#065f46", border: `1px solid ${msg.err ? "#fecaca" : "#a7f3d0"}` }}>{msg.err || msg.ok}</div>}
@@ -188,6 +194,12 @@ export default function HarvestTrainingAdmin() {
           </div>
           <button type="button" onClick={addQ} style={{ marginTop: 12, fontSize: 14, fontWeight: 700, padding: "10px 18px", borderRadius: 10, border: "2px solid #7c3aed", background: "#fff", color: "#7c3aed", cursor: "pointer" }}>+ Add question</button>
         </>
+      )}
+
+      {/* Preview overlay — the exact rep/manager take-it flow, nothing recorded. Re-mounts per open + track. */}
+      {preview && (
+        <HarvestTraining key={"preview-" + track} track={track} userType={track} userKey="preview"
+          toolLabel="the Harvesting tools" preview onPass={() => setPreview(false)} />
       )}
     </div>
   );
