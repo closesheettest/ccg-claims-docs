@@ -133,6 +133,10 @@ export default function HarvestLinks() {
     try { navigator.clipboard.writeText(text); setCopied(id); setTimeout(() => setCopied(""), 1500); }
     catch { window.prompt("Copy this link:", text); }
   };
+  // Office "Open" = a spot-check link: appends the admin token (adminTok, above) so it
+  // bypasses the rep training gate and shows the rep's actual map. "Copy link" stays the
+  // plain rep link (what you hand the rep — still gated by their training).
+  const spot = (link) => (adminTok && link ? `${link}${link.includes("?") ? "&" : "?"}admin=${encodeURIComponent(adminTok)}` : link);
 
   // Set (or clear) a person's harvest level, then refresh the roster.
   const setLevel = async (repId, level, name) => {
@@ -280,7 +284,7 @@ export default function HarvestLinks() {
                     <span style={{ fontSize: 14, fontWeight: 700 }}>{r.name}</span>
                     <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
                       <LevelSelect card={r} disabled={saving === r.id} onPick={(lv) => setLevel(r.id, lv, r.name)} />
-                      <a href={r.link} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, fontWeight: 700, color: "#7c3aed", textDecoration: "none" }}>Open ↗</a>
+                      <a href={spot(r.link)} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, fontWeight: 700, color: "#7c3aed", textDecoration: "none" }}>Open ↗</a>
                       <button type="button" onClick={() => copy(r.link, r.link)} style={btn}>{copied === r.link ? "✓ Copied" : "Copy link"}</button>
                       {sendCell(r)}
                     </div>
@@ -301,7 +305,7 @@ export default function HarvestLinks() {
                     <span style={{ fontSize: 14, fontWeight: 700 }}>{r.name}</span>
                     <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
                       <LevelSelect card={r} disabled={saving === r.id} onPick={(lv) => setLevel(r.id, lv, r.name)} />
-                      <a href={r.link} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, fontWeight: 700, color: "#b45309", textDecoration: "none" }}>Open ↗</a>
+                      <a href={spot(r.link)} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, fontWeight: 700, color: "#b45309", textDecoration: "none" }}>Open ↗</a>
                       <button type="button" onClick={() => copy(r.link, r.link)} style={btn}>{copied === r.link ? "✓ Copied" : "Copy link"}</button>
                       {sendCell(r)}
                     </div>
@@ -327,7 +331,7 @@ export default function HarvestLinks() {
                 <span style={{ fontSize: 14, fontWeight: 700 }}>{r.name}</span>
                 <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
                   <LevelSelect card={r} disabled={saving === r.id} onPick={(lv) => setLevel(r.id, lv, r.name)} />
-                  <a href={r.link} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, fontWeight: 700, color: "#0e7490", textDecoration: "none" }}>Open ↗</a>
+                  <a href={spot(r.link)} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, fontWeight: 700, color: "#0e7490", textDecoration: "none" }}>Open ↗</a>
                   <button type="button" onClick={() => copy(r.link, r.link)} style={btn}>{copied === r.link ? "✓ Copied" : "Copy link"}</button>
                       {sendCell(r)}
                 </div>

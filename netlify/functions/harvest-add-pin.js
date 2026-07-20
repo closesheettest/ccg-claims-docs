@@ -54,7 +54,9 @@ export const handler = async (event) => {
     zip: String(body.zip || "").trim() || null,
     latitude: lat, longitude: lng,
     geocode_status: "ok",
-    status: "insp",                 // Inspection Lead → Sign / BTR / Pending all apply
+    // Owner-occupied → "insp" (Sign / BTR / Pending all apply). Non-owner-occupied
+    // (rental) → "non_owner": an X on the map so no rep re-knocks it.
+    status: body.status === "non_owner" ? "non_owner" : "insp",
     status_by: rep.name || null,
     assigned_rep_id: rep.id,
     assigned_rep_name: rep.name || null,
@@ -66,6 +68,11 @@ export const handler = async (event) => {
       homestead: body.homestead === true,
       occupancy: String(body.verdict || "").trim() || null,
       parcel_id: String(body.parcel_id || "").trim() || null,
+      // Owner's mailing address (from the parcel) — kept for possible internal
+      // marketing of non-owner-occupied properties. Phone is NOT in parcel data.
+      mailing: body.mailing && typeof body.mailing === "object"
+        ? { line1: body.mailing.line1 || null, city: body.mailing.city || null, state: body.mailing.state || null, zip: body.mailing.zip || null }
+        : null,
     },
   };
 

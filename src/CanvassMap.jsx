@@ -35,6 +35,7 @@ const FALLBACK_TYPES = [
   { key: "new_roof", label: "New Roof", color: "#0891b2", outcomes: [], is_terminal: true },
   { key: "dead", label: "Dead / DNK", color: "#111827", outcomes: [], is_terminal: true },
   { key: "lost", label: "Lost", color: "#991b1b", outcomes: [], is_terminal: true },
+  { key: "non_owner", label: "Non owner-occupied", color: "#991b1b", outcomes: [], is_terminal: true },
 ];
 const UNKNOWN_TYPE = { color: "#64748b", label: "—", outcomes: [] };
 // Statuses that RECORD an outcome but keep the door on the go-back list (not
@@ -409,12 +410,23 @@ function dotIcon(color) {
     iconAnchor: [9, 9],
   });
 }
+// Non-owner-occupied (rental) door marked by a rep — an X so nobody wastes a trip.
+function xIcon(color) {
+  return L.divIcon({
+    className: "harvest-x",
+    html: `<div style="width:20px;height:20px;display:flex;align-items:center;justify-content:center;color:${color || "#991b1b"};font-weight:900;font-size:20px;line-height:1;text-shadow:0 1px 2px #fff,0 0 3px #fff,1px 0 2px #fff">✕</div>`,
+    iconSize: [20, 20],
+    iconAnchor: [10, 10],
+  });
+}
 // Below this zoom the map shows SERVER-side cluster bubbles (aggregated counts)
 // instead of downloading thousands of individual pins; at/above it, real pins.
 const CLUSTER_ZOOM = 13;
 // Seniors work these TWO together — the filter is locked to both (they can't
 // narrow to just one).
 const SENIOR_STATUSES = ["iq", "no_sit_reschedule"];
+// Juniors work these TWO together — inspection leads + IQ Not-Interested (BTR).
+const JUNIOR_STATUSES = ["insp", "iq_ni"];
 
 // ── Team-trail helpers (office view) ────────────────────────────────────────
 function trailMi(a, b) {
@@ -626,9 +638,10 @@ export default function CanvassMap() {
   const toggleSel = (key) => setSel((prev) => {
     const n = new Set(prev);
     n.has(key) ? n.delete(key) : n.add(key);
-    // Seniors work IQ + No-sit as their base — those two stay on no matter what they
-    // add, so toggling other types never accidentally drops the core work.
+    // Each rep level has TWO base statuses that stay on no matter what they add, so
+    // toggling other types never accidentally drops their core work.
     if (effLevel === "senior") SENIOR_STATUSES.forEach((k) => n.add(k));
+    else if (effLevel === "junior") JUNIOR_STATUSES.forEach((k) => n.add(k));
     return n;
   });
   const [pinTypes, setPinTypes] = useState(FALLBACK_TYPES);
@@ -643,7 +656,7 @@ export default function CanvassMap() {
   const dropPinRef = useRef(null);              // latest drop handler for the map click
   const newPinLayer = useRef(null);             // temp layer for the pin being placed
   const [installs, setInstalls] = useState([]);        // read-only star layer (jr + sr)
-  const [showInstalls, setShowInstalls] = useState(true);
+  const [showInstalls, setShowInstalls] = useState(false); // installed-roof stars off by default (opt-in)
   const [workedPins, setWorkedPins] = useState([]);    // doors worked TODAY (baby blue, not routable)
   const [showWorked, setShowWorked] = useState(true);
   const workedLayer = useRef(null);
@@ -768,8 +781,9 @@ export default function CanvassMap() {
   // Seniors always have IQ + No-sit ON (their base work) but CAN add other types on
   // top — e.g. peek at Inspection Leads or a Pending-signature door. Only the two base
   // types are pinned/uncheckable; everything else toggles freely.
-  const selLocked = effLevel === "senior";
-  const isPinned = (key) => selLocked && SENIOR_STATUSES.includes(key);
+  const lockedStatuses = effLevel === "senior" ? SENIOR_STATUSES : effLevel === "junior" ? JUNIOR_STATUSES : [];
+  const selLocked = lockedStatuses.length > 0;
+  const isPinned = (key) => lockedStatuses.includes(key);
   const visKeys = useMemo(() => {
     if (seesAll) return null;
     const canSee = (t) => !((t.visible_levels) || []).length || ((t.visible_levels) || []).includes(effLevel);
@@ -922,7 +936,7 @@ export default function CanvassMap() {
     regionRef.current = null; setRegion(null);
     // Seniors work IQ + No-sit TOGETHER — not one or the other (filter locked below).
     if (effLevel === "senior") setSel(new Set(SENIOR_STATUSES));
-    else if (effLevel === "junior") setSel(new Set(["insp"]));
+    else if (effLevel === "junior") setSel(new Set(JUNIOR_STATUSES));
     else setSel(new Set());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effLevel, me, viewAs]);
@@ -1071,7 +1085,7 @@ export default function CanvassMap() {
       // outcome from the next rep. Re-knock protection doesn't need the colour: the
       // route builder already skips doors worked today (see shownRef below).
       const color = (S[p.status] || UNKNOWN_TYPE).color;
-      const marker = L.marker([p.latitude, p.longitude], { icon: isSelfGen ? selfGenIcon(true) : dotIcon(color) });
+      const marker = L.marker([p.latitude, p.longitude], { icon: p.status === "non_owner" ? xIcon(color) : isSelfGen ? selfGenIcon(true) : dotIcon(color) });
       marker.on("click", () => openPin(p));
       markers.push(marker);
       pts.push([p.latitude, p.longitude]);
@@ -2115,6 +2129,10 @@ export default function CanvassMap() {
           rt: auth.rt, lat: newPin.lat, lng: newPin.lng,
           address: c.address?.line1 || "", city: c.address?.city || "", state: c.address?.state || "FL", zip: c.address?.zip || "",
           owner: c.owner || "", homestead: !!c.homestead, verdict: c.verdict || "", parcel_id: c.parcel_id || "",
+          // Non-owner-occupied (rental) → mark it with an X so no rep re-knocks it, and
+          // keep the owner's mailing address for possible internal marketing.
+          status: action === "non_owner" ? "non_owner" : undefined,
+          mailing: c.mailing || null,
         }),
       });
       const d = await r.json();
@@ -2246,7 +2264,7 @@ export default function CanvassMap() {
 
   // Rep hasn't passed the tool training yet → send them through it first. (Skips
   // itself if no training content is authored, so it never locks reps out.)
-  if (auth.rt && !authError && repTrainingOk === false) {
+  if (auth.rt && !authError && repTrainingOk === false && !isAdminLink) { // admin link bypasses the gate for spot-checks
     return <HarvestTraining track="rep" userType="rep" userKey={auth.rt} name={me?.name} toolLabel="your Harvesting Map" onPass={() => setRepTrainingOk(true)} />;
   }
 
@@ -2949,8 +2967,13 @@ export default function CanvassMap() {
                       style={{ padding: "13px", borderRadius: 12, border: "2px solid #ca8a04", background: "#fefce8", color: "#a16207", fontSize: 14.5, fontWeight: 800, cursor: "pointer", opacity: newPin.saving ? 0.6 : 1 }}>⏳ Pending (come back)</button>
                   </div>
                 ) : (
-                  <button type="button" disabled={newPin.saving} onClick={() => commitSelfGen("pending")}
-                    style={{ marginTop: 12, width: "100%", padding: "12px", borderRadius: 10, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", fontSize: 13.5, fontWeight: 700, cursor: "pointer", opacity: newPin.saving ? 0.6 : 1 }}>Save as pending anyway</button>
+                  <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+                    <button type="button" disabled={newPin.saving} onClick={() => commitSelfGen("non_owner")}
+                      style={{ padding: "13px", borderRadius: 12, border: "none", background: "#991b1b", color: "#fff", fontSize: 14.5, fontWeight: 800, cursor: "pointer", opacity: newPin.saving ? 0.6 : 1 }}>✕ Mark non owner-occupied</button>
+                    <div style={{ fontSize: 11.5, color: "#64748b", textAlign: "center" }}>Drops an <b>X</b> here so no one re-knocks it, and saves the owner's info.</div>
+                    <button type="button" disabled={newPin.saving} onClick={() => commitSelfGen("pending")}
+                      style={{ padding: "11px", borderRadius: 10, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", fontSize: 13.5, fontWeight: 700, cursor: "pointer", opacity: newPin.saving ? 0.6 : 1 }}>Save as pending anyway</button>
+                  </div>
                 )}
                 {newPin.saving && <div style={{ marginTop: 8, fontSize: 12.5, color: "#7c3aed", fontWeight: 700, textAlign: "center" }}>Saving…</div>}
               </div>
