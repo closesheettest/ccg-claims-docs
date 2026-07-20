@@ -14,6 +14,18 @@ const ZONES = ["Zone 1", "Zone 2", "Zone 3", "Zone 4"];
 const TEAM = { "Zone 1": "SQUAD", "Zone 2": "SitSold", "Zone 3": "SHARKS", "Zone 4": "HURRICANE" };
 const PALETTE = ["#dc2626", "#2563eb", "#16a34a", "#d97706", "#7c3aed", "#0891b2", "#db2777", "#65a30d", "#ea580c", "#0d9488", "#4f46e5", "#b45309"];
 const SECTION = (i) => String.fromCharCode(65 + i); // A, B, C…
+// Convex hull (Andrew's monotone chain) to outline each section's territory.
+function convexHull(pts) {
+  if (!pts || pts.length < 3) return pts || [];
+  const p = pts.map(([lat, lng]) => [lng, lat]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower = [];
+  for (const q of p) { while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop(); lower.push(q); }
+  const upper = [];
+  for (let i = p.length - 1; i >= 0; i--) { const q = p[i]; while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], q) <= 0) upper.pop(); upper.push(q); }
+  lower.pop(); upper.pop();
+  return lower.concat(upper).map(([lng, lat]) => [lat, lng]);
+}
 
 export default function HarvestPlannedDay() {
   const mapEl = useRef(null), mapRef = useRef(null), layerRef = useRef(null);
@@ -58,6 +70,8 @@ export default function HarvestPlannedDay() {
       const res = zones[z]; if (!res) continue;
       res.clusters.forEach((c, ci) => {
         const color = colorMap[`${z}:${ci}`];
+        const hull = convexHull(c.pts || []);
+        if (hull.length >= 3) L.polygon(hull, { color, weight: 1.5, fillColor: color, fillOpacity: 0.08 }).addTo(lyr);
         (c.pts || []).forEach(([lat, lng]) => { L.circleMarker([lat, lng], { radius: 4, color: "#fff", weight: 1, fillColor: color, fillOpacity: 0.9 }).addTo(lyr); });
         if (c.centroid) {
           L.marker([c.centroid.lat, c.centroid.lng], { icon: L.divIcon({ className: "", html: `<div style="background:${color};color:#fff;font-weight:800;font-size:11px;padding:2px 7px;border-radius:8px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);white-space:nowrap">${z.replace("Zone ", "Z")}·${SECTION(ci)} · ${c.count}</div>`, iconAnchor: [22, 11] }), zIndexOffset: 1000 }).addTo(lyr);
