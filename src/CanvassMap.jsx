@@ -2158,6 +2158,9 @@ export default function CanvassMap() {
       if (action === "sign") signInspection(pin, { selfGen: true });
       else if (action === "retail") setBtrPin(pin);
       else if (action === "pending") await setStatus(pin, "insp_callback");
+      // Owner-occupied but the homeowner isn't interested — log it terminal so
+      // no rep re-knocks this door.
+      else if (action === "not_interested") await setStatus(pin, "insp_ni");
     } catch {
       alert("Couldn't save the pin — try again.");
       setNewPin((n) => (n ? { ...n, saving: false } : n));
@@ -2980,6 +2983,8 @@ export default function CanvassMap() {
                       style={{ padding: "13px", borderRadius: 12, border: "2px solid #b45309", background: "#fff7ed", color: "#b45309", fontSize: 14.5, fontWeight: 800, cursor: "pointer", opacity: newPin.saving ? 0.6 : 1 }}>🏠 Retail Appointment</button>
                     <button type="button" disabled={newPin.saving} onClick={() => commitSelfGen("pending")}
                       style={{ padding: "13px", borderRadius: 12, border: "2px solid #ca8a04", background: "#fefce8", color: "#a16207", fontSize: 14.5, fontWeight: 800, cursor: "pointer", opacity: newPin.saving ? 0.6 : 1 }}>⏳ Pending (come back)</button>
+                    <button type="button" disabled={newPin.saving} onClick={() => commitSelfGen("not_interested")}
+                      style={{ padding: "13px", borderRadius: 12, border: "2px solid #78716c", background: "#fff", color: "#57534e", fontSize: 14.5, fontWeight: 800, cursor: "pointer", opacity: newPin.saving ? 0.6 : 1 }}>🚫 Not Interested</button>
                   </div>
                 ) : (
                   <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
