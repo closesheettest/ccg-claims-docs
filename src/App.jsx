@@ -9337,8 +9337,10 @@ export default function App() {
     // /?manager=<token>; tapping it opens this view instead of the
     // rep intake homepage. Token is validated server-side in the
     // manager-records-api function.
+    // NOTE: the tool-training page also passes ?manager=<token> (mode=harvesttraining)
+    // — don't hijack that into the records view (it 401s the TMS token here).
     const managerToken = params.get("manager");
-    if (managerToken && managerToken.trim()) {
+    if (managerToken && managerToken.trim() && params.get("mode") !== "harvesttraining") {
       return <ManagerRecordsView token={managerToken.trim()} />;
     }
     // ?post_job=<token> — standalone pressure-wash route page (sent to Mark).
