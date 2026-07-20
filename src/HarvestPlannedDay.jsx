@@ -31,6 +31,8 @@ export default function HarvestPlannedDay() {
   const mapEl = useRef(null), mapRef = useRef(null), layerRef = useRef(null);
   const [zones, setZones] = useState({});
   const [loading, setLoading] = useState(true);
+  const [fs, setFs] = useState(false); // full-screen map
+  useEffect(() => { const m = mapRef.current; if (m) { const t = setTimeout(() => { try { m.invalidateSize(); } catch { /* ignore */ } }, 90); return () => clearTimeout(t); } }, [fs]);
 
   useEffect(() => {
     let live = true;
@@ -93,7 +95,15 @@ export default function HarvestPlannedDay() {
           Every zone's <b>IQ + No-sit</b> pins auto-split into balanced <b>sections</b>, one per Sr rep on that team. These are the chunks to be assigned — each manager assigns their zone's sections to their reps. {loading ? "" : <b>{grandTotal} pins</b>} across the company.
         </p>
 
-        <div ref={mapEl} style={{ height: 480, borderRadius: 12, overflow: "hidden", border: "1px solid #e2e8f0", marginTop: 12, background: "#e5e7eb" }} />
+        <div style={{ position: "relative", marginTop: 12 }}>
+          <div ref={mapEl} style={fs
+            ? { position: "fixed", inset: 0, zIndex: 9999, height: "100vh", width: "100vw", background: "#e5e7eb" }
+            : { height: 480, borderRadius: 12, overflow: "hidden", border: "1px solid #e2e8f0", background: "#e5e7eb" }} />
+          <button type="button" onClick={() => setFs((f) => !f)}
+            style={{ position: fs ? "fixed" : "absolute", top: fs ? 12 : 10, right: fs ? 12 : 10, zIndex: 10000, background: "#0f172a", color: "#fff", border: "none", borderRadius: 8, padding: "7px 12px", fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,.3)" }}>
+            {fs ? "✕ Exit full screen" : "⛶ Full screen"}
+          </button>
+        </div>
         {loading && <p style={{ color: "#64748b", fontSize: 14, marginTop: 10 }}>Building clusters for all zones…</p>}
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 12, marginTop: 16 }}>
