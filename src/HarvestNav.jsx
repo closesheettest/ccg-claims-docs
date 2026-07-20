@@ -11,7 +11,6 @@ const TABS = [
   { key: "jnsync", label: "🔄 JN Sync", href: "/?mode=harvestjnsync" },
   { key: "report", label: "📊 Reports", href: "/?mode=harvestreport" },
   { key: "training", label: "🎓 Training", href: "/?mode=harvesttrainingadmin" },
-  { key: "repcard", label: "🧹 RepCard", href: "/?mode=harvestrepcardimport" },
   { key: "plannedday", label: "🧭 Planned Day", href: "/?mode=harvestplannedday" },
   { key: "skiptrace", label: "📇 Skip-Trace", href: "/?mode=harvestskiptrace" },
   { key: "nosit", label: "🔄 No-Sits", href: "/?mode=harvestnositreport" },

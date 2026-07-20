@@ -53,7 +53,7 @@ export default function HarvestRepcardImport() {
 
   return (
     <div style={{ fontFamily: FONT, background: "#f1f5f9", minHeight: "100vh" }}>
-      <HarvestNav active="repcard" />
+      <HarvestNav active="upload" />
       <div style={{ maxWidth: 860, margin: "0 auto", padding: "18px 16px 60px" }}>
         <h1 style={{ fontFamily: OSWALD, fontSize: 24, fontWeight: 800, margin: "6px 0 2px" }}>🧹 RepCard Status Import</h1>
         <p style={{ color: "#475569", fontSize: 14.5, lineHeight: 1.5, marginTop: 4 }}>

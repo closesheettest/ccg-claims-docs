@@ -45,7 +45,17 @@ export default function HarvestUpload() {
       <div style={{ fontSize: 22, fontWeight: 800, fontFamily: OSWALD, marginBottom: 4 }}>📥 Load Leads</div>
       <div style={{ fontSize: 13.5, color: "#64748b", marginBottom: 16 }}>Office-only — reps never see this. Upload leads and mark what type of pin they are.</div>
 
-      {msg && <div style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 10, fontSize: 13.5, fontWeight: 600, background: msg.err ? "#fef2f2" : "#ecfdf5", color: msg.err ? "#b91c1c" : "#065f46", border: `1px solid ${msg.err ? "#fecaca" : "#a7f3d0"}` }}>{msg.err || msg.ok}</div>}
+      {/* RepCard status scrub — lives here because it's another way to load/update lead statuses. */}
+      <a href="/?mode=harvestrepcardimport" style={{ display: "flex", alignItems: "center", gap: 12, textDecoration: "none", border: "1px solid #e5e7eb", borderRadius: 12, padding: "12px 16px", background: "#fff", marginBottom: 16 }}>
+        <span style={{ fontSize: 22 }}>🧹</span>
+        <span style={{ flex: 1 }}>
+          <span style={{ display: "block", fontSize: 14.5, fontWeight: 800, color: "#0f172a", fontFamily: OSWALD }}>Import RepCard statuses</span>
+          <span style={{ display: "block", fontSize: 12.5, color: "#64748b" }}>Upload RepCard CSVs (Pending / NI / NQ / Dead / No Sale) to scrub map pin statuses so reps don’t re-knock worked doors.</span>
+        </span>
+        <span style={{ fontSize: 13, fontWeight: 800, color: "#4f46e5" }}>Open →</span>
+      </a>
+
+      {msg &&<div style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 10, fontSize: 13.5, fontWeight: 600, background: msg.err ? "#fef2f2" : "#ecfdf5", color: msg.err ? "#b91c1c" : "#065f46", border: `1px solid ${msg.err ? "#fecaca" : "#a7f3d0"}` }}>{msg.err || msg.ok}</div>}
 
       <UploadForm types={types} onDone={() => { loadUploads(); }} />
 
