@@ -23,6 +23,7 @@ import HarvestLinks from "./HarvestLinks";
 import HarvestReport from "./HarvestReport";
 import HarvestTrainingAdmin from "./HarvestTrainingAdmin";
 import HarvestRepcardImport from "./HarvestRepcardImport";
+import HarvestPlannedDay from "./HarvestPlannedDay";
 import HarvestTrainingPage from "./HarvestTrainingPage";
 import HarvestJnSync from "./HarvestJnSync";
 
@@ -9453,6 +9454,10 @@ export default function App() {
     // flip matching IQ/FB/AI map pins to their terminal status (map-only).
     if (portalMode === "harvestrepcardimport") {
       return <HarvestRepcardImport />;
+    }
+    // ?mode=harvestplannedday — company overview of Enhanced Planned Day clusters (all zones).
+    if (portalMode === "harvestplannedday") {
+      return <HarvestPlannedDay />;
     }
     // ?mode=harvestjnsync — office page to configure the JobNimbus → Map sync
     // filters (IQ pins by created date, No-sit pins by appointment date).

@@ -12,6 +12,7 @@ const TABS = [
   { key: "report", label: "📊 Reports", href: "/?mode=harvestreport" },
   { key: "training", label: "🎓 Training", href: "/?mode=harvesttrainingadmin" },
   { key: "repcard", label: "🧹 RepCard", href: "/?mode=harvestrepcardimport" },
+  { key: "plannedday", label: "🧭 Planned Day", href: "/?mode=harvestplannedday" },
 ];
 
 export default function HarvestNav({ active }) {

@@ -46,6 +46,11 @@ export const handler = async (event) => {
   const pts = pins.map((p) => ({ id: p.id, lat: Number(p.latitude), lng: Number(p.longitude) })).filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
 
   const clusters = balancedCluster(pts, k);
+  // For the map overview, optionally hand back each cluster's point coords.
+  if (body.points) {
+    const coord = {}; for (const p of pts) coord[p.id] = [Number(p.lat.toFixed(5)), Number(p.lng.toFixed(5))];
+    for (const c of clusters) c.pts = c.pin_ids.map((id) => coord[id]).filter(Boolean);
+  }
   return cors(200, { ok: true, zone, k, total: pts.length, bbox: box, srReps, clusters });
 };
 
