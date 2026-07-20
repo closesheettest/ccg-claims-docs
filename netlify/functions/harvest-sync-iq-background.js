@@ -41,12 +41,25 @@ exports.handler = async (event) => {
   const filters = (await readSetting("harvest_jn_filters")) || {};
 
   const anyEnabled = keys.some((k) => (filters[k] || {}).enabled === true);
-  // Which contacts already own a job (built once, shared) — only if we need it.
+  // Which contacts already own a job (built once, shared). We ALSO capture the
+  // job's status so a mapped lead that progressed (appt booked, sold, …) gets its
+  // map pin RESTATUSED from the job — the reverse sync — instead of just dropping
+  // off. jobStatusByContact keeps the "heaviest" status when a contact has several.
   const withJob = new Set();
+  const jobStatusByContact = {};   // jn_contact_id -> mapped pin status (from its job)
+  const noteJob = (cid, name) => {
+    if (!cid) return;
+    withJob.add(cid);
+    const st = jobPinStatus(name);
+    if (!st) return;
+    const cur = jobStatusByContact[cid];
+    if (!cur || PIN_RANK[st] > PIN_RANK[cur]) jobStatusByContact[cid] = st;
+  };
   if (anyEnabled) {
     await sharded(`${JN_BASE}/jobs`, H, [], START, NOW, (job) => {
-      if (job.primary && job.primary.id) withJob.add(job.primary.id);
-      for (const r of job.related || []) if (r && r.id && (r.type === "contact" || !r.type)) withJob.add(r.id);
+      const name = job.status_name;
+      if (job.primary && job.primary.id) noteJob(job.primary.id, name);
+      for (const r of job.related || []) if (r && r.id && (r.type === "contact" || !r.type)) noteJob(r.id, name);
     });
   }
   const geocache = (await readSetting(GEOCACHE_KEY)) || {};
@@ -64,9 +77,11 @@ exports.handler = async (event) => {
       // Keying "existing" only on status=iq before was the duplicate bug.
       const existingRaw = {};             // jn_contact_id -> pin id (still raw source status)
       const workedContacts = new Set();   // jn_contact_id whose pin is already worked (leave alone)
+      const pinByContact = {};            // jn_contact_id -> { id, status } (any status; for reverse sync)
       for (const p of await sbGetAll(`canvass_prospects?list_name=eq.${encodeURIComponent(def.list)}&select=id,extra,status`)) {
         const cid = p.extra && p.extra.jn_contact_id;
         if (!cid) continue;
+        pinByContact[cid] = { id: p.id, status: p.status };
         if (p.status === def.status) existingRaw[cid] = p.id;
         else workedContacts.add(cid);
       }
@@ -136,13 +151,29 @@ exports.handler = async (event) => {
         const r = await fetch(`${SB_URL}/rest/v1/canvass_prospects`, { method: "POST", headers: { ...sbHeaders, Prefer: "return=minimal" }, body: JSON.stringify(batch) });
         if (r.ok) inserted += batch.length;
       }
-      // Reconcile only RAW pins (worked pins are never auto-removed — the map owns them).
-      const stale = Object.entries(existingRaw).filter(([cid]) => !shouldBe.has(cid)).map(([, id]) => id);
+      // REVERSE SYNC: a mapped lead that gained a job → set its pin to the job's
+      // status (appt / insp_sold / new_roof / no_sit / lost / iq_ni). Overrides raw
+      // AND worked pins — a real JobNimbus job is the heaviest authority.
+      const rev = [];
+      for (const [cid, target] of Object.entries(jobStatusByContact)) {
+        const pin = pinByContact[cid];
+        if (!pin || pin.status === target) continue;
+        rev.push(fetch(`${SB_URL}/rest/v1/canvass_prospects?id=eq.${pin.id}`, {
+          method: "PATCH", headers: { ...sbHeaders, Prefer: "return=minimal" },
+          body: JSON.stringify({ status: target, status_by: "JN job status", status_updated_at: nowIso }),
+        }).then((r) => r.ok));
+      }
+      const restatused = (await Promise.all(rev)).filter(Boolean).length;
+
+      // Reconcile only RAW pins (worked pins are never auto-removed — the map owns
+      // them). A raw pin whose contact gained a job is left to the reverse sync
+      // above (restatused, not deleted), so exclude jobStatusByContact here.
+      const stale = Object.entries(existingRaw).filter(([cid]) => !shouldBe.has(cid) && !jobStatusByContact[cid]).map(([, id]) => id);
       let removed = 0; if (stale.length) { if (await del(stale)) removed = stale.length; }
 
       await writeSetting(`harvest_leadsync_${key}`, {
         ok: true, enabled: true, source: def.source, created_on_or_after: cfg.created_after || null,
-        candidates: cands.length, inserted, updated, removed, preserved_worked: preserved, geocoded, skipped_ungeocoded: skipped,
+        candidates: cands.length, inserted, updated, removed, preserved_worked: preserved, restatused_from_job: restatused, geocoded, skipped_ungeocoded: skipped,
         started, finished: new Date().toISOString(),
       });
     } catch (e) {
@@ -154,6 +185,21 @@ exports.handler = async (event) => {
 };
 
 // ── helpers ──────────────────────────────────────────────────────────────────
+// Map a JobNimbus JOB status_name → the map pin status (reverse sync). null = leave
+// the pin alone (e.g. a bare "Lead" job with no meaningful stage yet).
+const PIN_RANK = { insp_sold: 6, new_roof: 5, appt: 4, no_sit_reschedule: 3, lost: 2, iq_ni: 1 };
+function jobPinStatus(name) {
+  const s = String(name || "").toLowerCase();
+  if (!s) return null;
+  if (s.includes("sold") || s.includes("signed")) return "insp_sold";      // Sit Sold Insp, Sit - Sold, Sitsold PA
+  if (s.includes("new roof")) return "new_roof";
+  if (s.includes("refused")) return "iq_ni";                                // "Refused Appointment" — before the appt check
+  if (s.includes("no sit") || s.includes("no show") || s.includes("reschedul")) return "no_sit_reschedule";
+  if (s.includes("appointment") || s.includes("pending")) return "appt";    // Appointment Scheduled, Sit - Pending
+  if (s.includes("lost") || s.includes("no sale") || s === "dq" || s.includes("disqualif")) return "lost";
+  if (s.includes("btr") || s.includes("stale") || s.includes("credit denial") || s.includes("no info") || s.includes("no response")) return "iq_ni";
+  return null;
+}
 const sbHeaders = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
 const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) && Math.abs(n) <= 180 ? n : null; };
 async function del(ids) {
