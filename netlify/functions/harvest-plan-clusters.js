@@ -140,25 +140,19 @@ function matchSectionsToReps(clusters, reps) {
   }));
   return minCostPerm(cost);
 }
+// Greedy "closest pair wins": repeatedly lock in the (section, rep) pair with the
+// smallest home-to-section distance, then remove both. Gives each rep their own nearest
+// section (the rep closest to a section claims it) rather than sacrificing one rep to
+// shave the group total — which is what a manager expects.
 function minCostPerm(cost) {
   const k = cost.length;
   if (k === 0) return [];
-  if (k > 9) { // greedy: repeatedly take the globally-cheapest unused (section, rep) pair
-    const perm = new Array(k).fill(-1); const usedR = new Set(), usedS = new Set();
-    const pairs = [];
-    for (let i = 0; i < k; i++) for (let j = 0; j < k; j++) pairs.push([cost[i][j], i, j]);
-    pairs.sort((a, b) => a[0] - b[0]);
-    for (const [, i, j] of pairs) { if (usedS.has(i) || usedR.has(j)) continue; perm[i] = j; usedS.add(i); usedR.add(j); }
-    return perm;
-  }
-  let best = null, bestC = Infinity; const perm = new Array(k), used = new Array(k).fill(false);
-  const rec = (i, acc) => {
-    if (acc >= bestC) return;
-    if (i === k) { bestC = acc; best = perm.slice(); return; }
-    for (let j = 0; j < k; j++) { if (used[j]) continue; used[j] = true; perm[i] = j; rec(i + 1, acc + cost[i][j]); used[j] = false; }
-  };
-  rec(0, 0);
-  return best || cost.map((_, i) => i);
+  const perm = new Array(k).fill(-1); const usedR = new Set(), usedS = new Set();
+  const pairs = [];
+  for (let i = 0; i < k; i++) for (let j = 0; j < k; j++) pairs.push([cost[i][j], i, j]);
+  pairs.sort((a, b) => a[0] - b[0]);
+  for (const [, i, j] of pairs) { if (usedS.has(i) || usedR.has(j)) continue; perm[i] = j; usedS.add(i); usedR.add(j); }
+  return perm;
 }
 
 // ── Sr reps in zone (name + home coords + CCG harvest_token) ──────────────────
