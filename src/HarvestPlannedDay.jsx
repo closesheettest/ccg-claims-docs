@@ -32,7 +32,14 @@ export default function HarvestPlannedDay() {
   const [zones, setZones] = useState({});
   const [loading, setLoading] = useState(true);
   const [fs, setFs] = useState(false); // full-screen map
-  useEffect(() => { const m = mapRef.current; if (m) { const t = setTimeout(() => { try { m.invalidateSize(); } catch { /* ignore */ } }, 90); return () => clearTimeout(t); } }, [fs]);
+  // Recompute the map's size after the container grows/shrinks — a few times so it
+  // catches the layout settling in BOTH directions (enter and exit full screen).
+  useEffect(() => {
+    const m = mapRef.current; if (!m) return;
+    const fix = () => { try { m.invalidateSize(); } catch { /* ignore */ } };
+    const ids = [40, 180, 420].map((d) => setTimeout(fix, d));
+    return () => ids.forEach(clearTimeout);
+  }, [fs]);
 
   useEffect(() => {
     let live = true;
