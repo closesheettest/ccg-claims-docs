@@ -45,16 +45,51 @@ export const handler = async (event) => {
   const pins = (await sbGet(path).catch(() => [])) || [];
   const pts = pins.map((p) => ({ id: p.id, lat: Number(p.latitude), lng: Number(p.longitude) })).filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
 
-  const clusters = balancedCluster(pts, k);
+  // Rep-anchored assignment: give each door to the NEAREST Sr rep (capacity-balanced),
+  // so every rep works the doors near THEM — Jacksonville reps get Jacksonville doors,
+  // etc. Falls back to plain geo k-means only if we don't have usable rep locations.
+  const repsHaveCoords = srReps.filter((r) => Number.isFinite(r.lat) && Number.isFinite(r.lng)).length;
+  const clusters = repsHaveCoords >= 2 ? assignToReps(pts, srReps) : balancedCluster(pts, k);
   // For the map overview, optionally hand back each cluster's point coords.
   if (body.points) {
     const coord = {}; for (const p of pts) coord[p.id] = [Number(p.lat.toFixed(5)), Number(p.lng.toFixed(5))];
     for (const c of clusters) c.pts = c.pin_ids.map((id) => coord[id]).filter(Boolean);
   }
-  return cors(200, { ok: true, zone, k, total: pts.length, bbox: box, srReps, clusters });
+  return cors(200, { ok: true, zone, k: clusters.length, total: pts.length, bbox: box, srReps, clusters });
 };
 
-// ── balanced geographic clustering ───────────────────────────────────────────
+// ── rep-anchored assignment ──────────────────────────────────────────────────
+// Assign each door to the NEAREST Sr rep, capacity-balanced so no rep gets far more
+// than n/k. Returns clusters ALIGNED to the srReps order (cluster i ↔ srReps[i]), so a
+// rep's section is the doors closest to where they actually are. Reps without a
+// location get an empty section. Closest pins claim their rep first; overflow spills to
+// the next-nearest rep with room.
+function assignToReps(points, srReps) {
+  const centers = srReps.map((r, i) => ({ i, lat: Number(r.lat), lng: Number(r.lng) })).filter((c) => Number.isFinite(c.lat) && Number.isFinite(c.lng));
+  const buckets = srReps.map(() => []); // aligned to srReps
+  if (!centers.length || !points.length) return buildClusters(srReps, buckets, points);
+  const d2 = (a, b) => { const dx = a.lat - b.lat, dy = a.lng - b.lng; return dx * dx + dy * dy; };
+  const cap = Math.ceil(points.length / centers.length);
+  // Each pin: its reps ranked nearest-first, plus its nearest distance (for ordering).
+  const prefs = points.map((p, pi) => {
+    const order = centers.map((c) => ({ i: c.i, d: d2(p, c) })).sort((a, b) => a.d - b.d);
+    return { pi, order, nearest: order[0].d };
+  }).sort((a, b) => a.nearest - b.nearest); // pins closest to a rep place first
+  for (const pr of prefs) {
+    let placed = false;
+    for (const o of pr.order) { if (buckets[o.i].length < cap) { buckets[o.i].push(pr.pi); placed = true; break; } }
+    if (!placed) buckets[pr.order[0].i].push(pr.pi); // safety (shouldn't happen: cap*k >= n)
+  }
+  return buildClusters(srReps, buckets, points);
+}
+function buildClusters(srReps, buckets, points) {
+  return srReps.map((r, i) => {
+    const pinPts = (buckets[i] || []).map((pi) => points[pi]);
+    return { index: i, count: pinPts.length, centroid: centroidOf(pinPts), pin_ids: pinPts.map((p) => p.id) };
+  });
+}
+
+// ── balanced geographic clustering (fallback when reps have no locations) ─────
 // Farthest-point seeding → Lloyd's k-means for compactness → capacity rebalance so
 // each cluster is within ±1 of n/k (even workload). Squared lat/lng distance is fine
 // at metro scale. Deterministic (no RNG) so the same pins always split the same way.
