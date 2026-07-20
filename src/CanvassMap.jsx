@@ -2597,10 +2597,10 @@ export default function CanvassMap() {
           if (!needs.length) return null;
           const hot = needs.some((x) => x.w === "overdue" || (x.age || 0) >= 14);
           return (
-            <div style={{ position: "absolute", top: 12, left: isDesktop ? "calc((100% - 300px) / 2)" : "50%", transform: "translateX(-50%)", zIndex: 650, width: "min(370px, 92%)" }}>
+            <div style={{ position: "absolute", top: 12, left: isDesktop ? "calc((100% - 300px) / 2)" : "50%", transform: "translateX(-50%)", zIndex: 650, width: gobackCard ? "min(370px, 92%)" : "auto", maxWidth: "min(370px, 92%)" }}>
               <button type="button" onClick={() => setGobackCard((o) => !o)}
-                style={{ width: "100%", background: hot ? "#7f1d1d" : "#0f172a", color: "#fff", border: "none", borderRadius: gobackCard ? "12px 12px 0 0" : 12, padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", boxShadow: "0 3px 14px rgba(0,0,0,.3)" }}>
-                <span style={{ fontSize: 13.5, fontWeight: 800 }}>{hot ? "⚠️" : "🗓️"} {needs.length} go-back{needs.length > 1 ? "s" : ""} to work</span>
+                style={{ width: "100%", background: hot ? "#7f1d1d" : "#0f172a", color: "#fff", border: "none", borderRadius: gobackCard ? "12px 12px 0 0" : 999, padding: "8px 14px", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, cursor: "pointer", boxShadow: "0 3px 14px rgba(0,0,0,.3)", whiteSpace: "nowrap" }}>
+                <span style={{ fontSize: 13, fontWeight: 800 }}>{hot ? "⚠️" : "🗓️"} {needs.length} go-back{needs.length > 1 ? "s" : ""}</span>
                 <span style={{ fontSize: 11, opacity: 0.85 }}>{gobackCard ? "▲ hide" : "▼ show"}</span>
               </button>
               {gobackCard && (

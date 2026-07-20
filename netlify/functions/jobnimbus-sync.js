@@ -553,6 +553,30 @@ exports.handler = async (event) => {
 
     if (!contactId) throw new Error("No contact ID after create/find step");
 
+    // ── Put the signing rep on the CONTACT too ────────────────────────────
+    // JN hides a contact's phone/email from a rep who doesn't OWN it, so a
+    // job-only assignment (what we used to do) left reps locked out of their
+    // own signed clients — the office had to hand-assign each contact. Setting
+    // sales_rep at contact-CREATE time throws a Couchbase key error, but a
+    // post-create UPDATE is fine. Best-effort: never block the signing sync.
+    // Owners is the field that controls visibility, so if the combined write is
+    // rejected we retry with owners alone.
+    if (salesRepId && !isTest) {
+      try {
+        const rc = await fetch(`${JN_BASE}/contacts/${contactId}`, {
+          method: "PUT", headers: jnHeaders(apiKey),
+          body: JSON.stringify({ owners: [{ id: salesRepId }], sales_rep: salesRepId }),
+        });
+        console.log("Contact rep-assign status:", rc.status);
+        if (!rc.ok) {
+          await fetch(`${JN_BASE}/contacts/${contactId}`, {
+            method: "PUT", headers: jnHeaders(apiKey),
+            body: JSON.stringify({ owners: [{ id: salesRepId }] }),
+          }).then((r2) => console.log("Contact owners-only retry:", r2.status));
+        }
+      } catch (e) { console.warn("Contact rep-assign failed (non-fatal):", e.message); }
+    }
+
     // ── Location hardcoded — ID 3 = U.S. SHINGLE - Insurance ──────────────
     const locationId = 3;
 
