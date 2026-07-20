@@ -13,6 +13,7 @@ const TABS = [
   { key: "training", label: "🎓 Training", href: "/?mode=harvesttrainingadmin" },
   { key: "repcard", label: "🧹 RepCard", href: "/?mode=harvestrepcardimport" },
   { key: "plannedday", label: "🧭 Planned Day", href: "/?mode=harvestplannedday" },
+  { key: "skiptrace", label: "📇 Skip-Trace", href: "/?mode=harvestskiptrace" },
 ];
 
 export default function HarvestNav({ active }) {

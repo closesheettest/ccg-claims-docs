@@ -24,6 +24,7 @@ import HarvestReport from "./HarvestReport";
 import HarvestTrainingAdmin from "./HarvestTrainingAdmin";
 import HarvestRepcardImport from "./HarvestRepcardImport";
 import HarvestPlannedDay from "./HarvestPlannedDay";
+import HarvestSkipTrace from "./HarvestSkipTrace";
 import HarvestTrainingPage from "./HarvestTrainingPage";
 import HarvestJnSync from "./HarvestJnSync";
 
@@ -9458,6 +9459,10 @@ export default function App() {
     // ?mode=harvestplannedday — company overview of Enhanced Planned Day clusters (all zones).
     if (portalMode === "harvestplannedday") {
       return <HarvestPlannedDay />;
+    }
+    // ?mode=harvestskiptrace — office skip-trace control panel for non-owner-occupied doors.
+    if (portalMode === "harvestskiptrace") {
+      return <HarvestSkipTrace />;
     }
     // ?mode=harvestjnsync — office page to configure the JobNimbus → Map sync
     // filters (IQ pins by created date, No-sit pins by appointment date).
