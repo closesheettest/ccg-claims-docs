@@ -1268,7 +1268,21 @@ export default function CanvassMap() {
     // Scheduled for a future day → drop it from the rest of today's route.
     setResolvedIds((s) => new Set(s).add(stop.id));
     setCbSaving(false); setCallbackFor(null); setCbNote(""); setCbDate("");
-    advanceStop();
+    // Only advance the route when this WAS the current stop (a re-status from the
+    // pin sheet shouldn't skip the rep past their next real stop).
+    if (route[stopIdx]?.id === stop.id) advanceStop(); else setSelected(null);
+  }
+  // Re-status a door from its pin sheet WHILE on a route (e.g. marked "not home",
+  // then they came out). Same at-the-door gate as a route stop; does not advance
+  // the route. Sign / appt / come-back open their own flows.
+  async function restatusPin(pin, outcome) {
+    if (spotCheck) { alert("🔍 Spot-check — statusing is off."); return; }
+    if (outcome === "insp_sold") { signInspection(pin); return; }
+    if (outcome === "insp_callback") { setCallbackFor(pin.id); setCbDate(ymdPlus(7)); setCbNote(pin.notes || ""); return; }
+    if (outcome === "appt" && pin.status !== "test" && !demoMode) { setApptPin(await hydratePin(pin)); return; }
+    logActivity({ pin_id: pin.id, kind: "visit", to_status: outcome === "nothome" ? "not_home" : outcome, ...locAudit(pin) });
+    if (outcome !== "nothome") { const ok = await setStatus(pin, outcome); if (ok === false) return; }
+    setSelected(null);
   }
   // Where the rep physically was when they logged an action, and how trustworthy the
   // GPS was. Feeds the office report so couch-canvassing (a whole route statused from
@@ -3150,14 +3164,60 @@ export default function CanvassMap() {
               <div style={{ fontSize: 13.5, fontWeight: 800, color: "#334155", marginTop: 2 }}>This pin belongs to {pinOwnerName(selected)}</div>
               <div style={{ fontSize: 12.5, color: "#64748b", marginTop: 3 }}>They self-generated this door — only {pinOwnerName(selected)} can work it.</div>
             </div>
-          ) : auth.rt ? (
-            // Reps STATUS a door only by working it on a route — so every knock is
-            // logged in order, at the door (distance-gated). No off-route statusing.
+          ) : auth.rt && !dayMode ? (
+            // NOT on a route: statusing stays gated to route work, so every knock is
+            // logged in order, at the door. Start a route to work / re-status doors.
             <div style={{ marginTop: 14, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 12, padding: "14px 16px", textAlign: "center" }}>
               <div style={{ fontSize: 13.5, fontWeight: 800, color: "#1e3a8a" }}>Work this door on a route</div>
               <div style={{ fontSize: 12.5, color: "#334155", marginTop: 4, lineHeight: 1.5 }}>To status it (signed, not interested, appt, …), tap <b>▶ Start my day</b> or <b>▢ Route an area</b>. It comes up in order with the <b>“How’d it go?”</b> buttons when you're at the door.</div>
             </div>
-          ) : (() => {
+          ) : auth.rt ? (() => {
+            // ON a route: let the rep RE-STATUS any door from its pin sheet — e.g.
+            // they marked "not home" and then the homeowner came out. Same at-the-door
+            // gate (proximity + "I'm here" override) so it stays honest; no re-route.
+            const distFt = myLoc ? feetBetween(myLoc, { lat: selected.latitude, lng: selected.longitude }) : null;
+            const accFt = myLoc?.acc != null ? Math.min(myLoc.acc * 3.28084, 400) : 0;
+            const effFt = distFt != null ? Math.max(0, distFt - accFt) : null;
+            const near = ignoreDist || demoMode || (effFt != null && effFt <= ARRIVE_FT) || manualHere === selected.id;
+            const outs = ((S[selected.status]?.outcomes) || []).map((k) => S[k]).filter(Boolean);
+            const opts = outs.length ? outs : ["insp_sold", "insp_ni", "insp_callback", "dead"].map((k) => S[k]).filter(Boolean);
+            const rBtn = (key, label, color) => (
+              <button key={key} type="button" disabled={!near} onClick={() => restatusPin(selected, key)}
+                style={{ flex: "1 1 44%", minWidth: 92, padding: "11px 8px", borderRadius: 11, fontSize: 13.5, fontWeight: 800, cursor: near ? "pointer" : "not-allowed",
+                  border: `1px solid ${near ? color : "#e5e7eb"}`, background: near ? color : "#fff", color: near ? "#fff" : "#cbd5e1" }}>{label}</button>
+            );
+            return (
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>Re-status this door</div>
+                {!near && (
+                  <div style={{ fontSize: 12, color: "#b45309", marginBottom: 8, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 9, padding: "8px 10px" }}>
+                    {distFt != null ? `~${Math.round(distFt).toLocaleString()} ft away — get within ${ARRIVE_FT} ft, or ` : "GPS is off — "}
+                    <button type="button" onClick={() => setManualHere(selected.id)} style={{ background: "none", border: "none", padding: 0, color: "#1d4ed8", fontWeight: 800, fontSize: 12, cursor: "pointer", textDecoration: "underline" }}>I'm at the door</button>
+                  </div>
+                )}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+                  {opts.map((o) => o.key === "insp_sold"
+                    ? <button key={o.key} type="button" disabled={!near} onClick={() => signInspection(selected)} style={{ flex: "1 1 44%", minWidth: 92, padding: "11px 8px", borderRadius: 11, fontSize: 13.5, fontWeight: 800, cursor: near ? "pointer" : "not-allowed", border: `1px solid ${near ? "#7c3aed" : "#e5e7eb"}`, background: near ? "#7c3aed" : "#fff", color: near ? "#fff" : "#cbd5e1" }}>🖊️ Sign Inspection</button>
+                    : rBtn(o.key, o.label, o.color))}
+                  {rBtn("nothome", "🏠 Not home", "#475569")}
+                </div>
+                {callbackFor === selected.id && (
+                  <div style={{ marginTop: 10, background: "#fefce8", border: "1px solid #fde047", borderRadius: 12, padding: "12px 14px" }}>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: "#854d0e", marginBottom: 8 }}>📅 Come back — when?</div>
+                    <input type="date" value={cbDate} min={ymdPlus(0)} onChange={(e) => setCbDate(e.target.value)}
+                      style={{ width: "100%", boxSizing: "border-box", height: 44, padding: "0 12px", borderRadius: 10, border: "1px solid #d1d5db", fontSize: 16, background: "#fff", marginBottom: 8 }} />
+                    <textarea value={cbNote} onChange={(e) => setCbNote(e.target.value)} rows={2} placeholder="Note — e.g. medical emergency, still wants the roof"
+                      style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 10, border: "1px solid #d1d5db", fontSize: 14, fontFamily: "inherit", resize: "vertical", marginBottom: 8 }} />
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button type="button" disabled={cbSaving || !cbDate} onClick={() => saveCallback(selected)}
+                        style={{ flex: 1, background: "#ca8a04", color: "#fff", border: "none", borderRadius: 10, padding: "11px", fontSize: 13.5, fontWeight: 800, cursor: cbSaving ? "wait" : "pointer", opacity: cbDate ? 1 : 0.6 }}>{cbSaving ? "Saving…" : "📅 Schedule come-back"}</button>
+                      <button type="button" onClick={() => setCallbackFor(null)} style={{ background: "#fff", color: "#64748b", border: "1px solid #e5e7eb", borderRadius: 10, padding: "11px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })() : (() => {
             // Office/admin: lead with the door's VISIT HISTORY — every knock, who,
             // when — so a manager sees at a glance how many times it's been tried
             // with nobody home. Status-change buttons are tucked behind a toggle so
