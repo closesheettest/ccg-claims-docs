@@ -27,7 +27,11 @@ export const handler = async (event) => {
 
   // Replace this zone+day's plan wholesale (clean re-publish / reassignment).
   const delRes = await fetch(`${SB_URL}/rest/v1/harvest_assignments?zone=eq.${encodeURIComponent(zone)}&plan_date=eq.${planDate}`, { method: "DELETE", headers: { ...sb, Prefer: "return=minimal" } });
-  if (!delRes.ok) return cors(502, { ok: false, error: `clear ${delRes.status}: ${(await delRes.text()).slice(0, 200)}` });
+  if (!delRes.ok) {
+    const txt = (await delRes.text()).slice(0, 300);
+    const hint = /harvest_assignments/.test(txt) && /(does not exist|schema cache|PGRST205)/i.test(txt) ? "Run sql/harvest_assignments.sql in the CCG Supabase SQL editor first." : undefined;
+    return cors(502, { ok: false, error: `clear ${delRes.status}: ${txt}`, hint });
+  }
 
   const rows = assignments
     .filter((a) => a && a.rep_token && Array.isArray(a.pin_ids) && a.pin_ids.length)
