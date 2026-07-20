@@ -71,7 +71,7 @@ export default function HarvestPlannedDay() {
       res.clusters.forEach((c, ci) => {
         const color = colorMap[`${z}:${ci}`];
         const hull = convexHull(c.pts || []);
-        if (hull.length >= 3) L.polygon(hull, { color, weight: 1.5, fillColor: color, fillOpacity: 0.08 }).addTo(lyr);
+        if (hull.length >= 3) L.polygon(hull, { color, weight: 2.5, fillColor: color, fillOpacity: 0.1 }).addTo(lyr);
         (c.pts || []).forEach(([lat, lng]) => { L.circleMarker([lat, lng], { radius: 4, color: "#fff", weight: 1, fillColor: color, fillOpacity: 0.9 }).addTo(lyr); });
         if (c.centroid) {
           L.marker([c.centroid.lat, c.centroid.lng], { icon: L.divIcon({ className: "", html: `<div style="background:${color};color:#fff;font-weight:800;font-size:11px;padding:2px 7px;border-radius:8px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);white-space:nowrap">${z.replace("Zone ", "Z")}·${SECTION(ci)} · ${c.count}</div>`, iconAnchor: [22, 11] }), zIndexOffset: 1000 }).addTo(lyr);
