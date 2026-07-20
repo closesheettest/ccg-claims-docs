@@ -54,18 +54,18 @@ export default function HarvestPlannedDay() {
   useEffect(() => {
     const m = mapRef.current, lyr = layerRef.current; if (!m || !lyr) return;
     lyr.clearLayers();
-    const bounds = [];
     for (const z of ZONES) {
       const res = zones[z]; if (!res) continue;
       res.clusters.forEach((c, ci) => {
         const color = colorMap[`${z}:${ci}`];
-        (c.pts || []).forEach(([lat, lng]) => { L.circleMarker([lat, lng], { radius: 4, color: "#fff", weight: 1, fillColor: color, fillOpacity: 0.9 }).addTo(lyr); bounds.push([lat, lng]); });
+        (c.pts || []).forEach(([lat, lng]) => { L.circleMarker([lat, lng], { radius: 4, color: "#fff", weight: 1, fillColor: color, fillOpacity: 0.9 }).addTo(lyr); });
         if (c.centroid) {
           L.marker([c.centroid.lat, c.centroid.lng], { icon: L.divIcon({ className: "", html: `<div style="background:${color};color:#fff;font-weight:800;font-size:11px;padding:2px 7px;border-radius:8px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);white-space:nowrap">${z.replace("Zone ", "Z")}·${SECTION(ci)} · ${c.count}</div>`, iconAnchor: [22, 11] }), zIndexOffset: 1000 }).addTo(lyr);
         }
       });
     }
-    if (bounds.length) { try { m.invalidateSize(); m.fitBounds(bounds, { padding: [30, 30] }); } catch { /* ignore */ } }
+    // Keep the fixed Florida-wide view (all pins are in FL) — reliable, no fit-timing race.
+    try { m.invalidateSize(); } catch { /* ignore */ }
   }, [zones, colorMap]);
 
   const grandTotal = ZONES.reduce((s, z) => s + (zones[z]?.total || 0), 0);
