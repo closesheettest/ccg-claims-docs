@@ -25,6 +25,7 @@ import HarvestTrainingAdmin from "./HarvestTrainingAdmin";
 import HarvestRepcardImport from "./HarvestRepcardImport";
 import HarvestPlannedDay from "./HarvestPlannedDay";
 import HarvestSkipTrace from "./HarvestSkipTrace";
+import HarvestNositReport from "./HarvestNositReport";
 import HarvestTrainingPage from "./HarvestTrainingPage";
 import HarvestJnSync from "./HarvestJnSync";
 
@@ -9463,6 +9464,10 @@ export default function App() {
     // ?mode=harvestskiptrace — office skip-trace control panel for non-owner-occupied doors.
     if (portalMode === "harvestskiptrace") {
       return <HarvestSkipTrace />;
+    }
+    // ?mode=harvestnositreport — who created each No-Sit-Need-to-Reschedule job.
+    if (portalMode === "harvestnositreport") {
+      return <HarvestNositReport />;
     }
     // ?mode=harvestjnsync — office page to configure the JobNimbus → Map sync
     // filters (IQ pins by created date, No-sit pins by appointment date).
