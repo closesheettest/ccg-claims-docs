@@ -57,14 +57,22 @@ exports.handler = async (event) => {
     const cfg = filters[key] || {};
     const started = new Date().toISOString();
     try {
-      const existing = {};
-      for (const p of await sbGetAll(`canvass_prospects?list_name=eq.${encodeURIComponent(def.list)}&status=eq.${def.status}&select=id,extra`)) {
+      // Load EVERY pin for this list and split by status: RAW (still the
+      // source's status, e.g. "iq") vs WORKED (a rep/RepCard set a terminal or
+      // appt status). The map is the source of truth for worked pins — this sync
+      // must never overwrite one back to raw, nor re-insert a duplicate for it.
+      // Keying "existing" only on status=iq before was the duplicate bug.
+      const existingRaw = {};             // jn_contact_id -> pin id (still raw source status)
+      const workedContacts = new Set();   // jn_contact_id whose pin is already worked (leave alone)
+      for (const p of await sbGetAll(`canvass_prospects?list_name=eq.${encodeURIComponent(def.list)}&select=id,extra,status`)) {
         const cid = p.extra && p.extra.jn_contact_id;
-        if (cid) existing[cid] = p.id;
+        if (!cid) continue;
+        if (p.status === def.status) existingRaw[cid] = p.id;
+        else workedContacts.add(cid);
       }
 
       if (cfg.enabled !== true) {
-        const ids = Object.values(existing);
+        const ids = Object.values(existingRaw);
         let removed = 0; if (ids.length) { if (await del(ids)) removed = ids.length; }
         await writeSetting(`harvest_leadsync_${key}`, { ok: true, enabled: false, source: def.source, inserted: 0, updated: 0, removed, candidates: 0, started, finished: new Date().toISOString() });
         continue;
@@ -97,9 +105,13 @@ exports.handler = async (event) => {
 
       const nowIso = new Date().toISOString();
       const shouldBe = new Set();
-      const toInsert = []; const updates = []; let skipped = 0;
+      const toInsert = []; const updates = []; let skipped = 0, preserved = 0;
       for (const c of cands) {
         const id = c.jnid || c.id;
+        // Already worked on the map (rep/RepCard set a terminal/appt status) →
+        // the map owns it. Don't re-add it as a fresh raw lead (the dup bug) and
+        // don't let its raw twin, if any, survive reconcile below.
+        if (workedContacts.has(id)) { preserved++; continue; }
         const coord = coordOf(c);
         shouldBe.add(id);
         if (!coord) { skipped++; continue; }
@@ -113,8 +125,8 @@ exports.handler = async (event) => {
           status: def.status, status_by: `JN ${def.source} sync`, status_updated_at: nowIso, list_name: def.list,
           extra: { jn_contact_id: id, jn_source: def.source, jn_created_sec: Number(c.date_created) || null, synced_at: nowIso },
         };
-        if (existing[id]) {
-          updates.push(fetch(`${SB_URL}/rest/v1/canvass_prospects?id=eq.${existing[id]}`, { method: "PATCH", headers: { ...sbHeaders, Prefer: "return=minimal" }, body: JSON.stringify(row) }).then((r) => r.ok));
+        if (existingRaw[id]) {
+          updates.push(fetch(`${SB_URL}/rest/v1/canvass_prospects?id=eq.${existingRaw[id]}`, { method: "PATCH", headers: { ...sbHeaders, Prefer: "return=minimal" }, body: JSON.stringify(row) }).then((r) => r.ok));
         } else { toInsert.push(row); }
       }
       const updated = (await Promise.all(updates)).filter(Boolean).length;
@@ -124,12 +136,13 @@ exports.handler = async (event) => {
         const r = await fetch(`${SB_URL}/rest/v1/canvass_prospects`, { method: "POST", headers: { ...sbHeaders, Prefer: "return=minimal" }, body: JSON.stringify(batch) });
         if (r.ok) inserted += batch.length;
       }
-      const stale = Object.entries(existing).filter(([cid]) => !shouldBe.has(cid)).map(([, id]) => id);
+      // Reconcile only RAW pins (worked pins are never auto-removed — the map owns them).
+      const stale = Object.entries(existingRaw).filter(([cid]) => !shouldBe.has(cid)).map(([, id]) => id);
       let removed = 0; if (stale.length) { if (await del(stale)) removed = stale.length; }
 
       await writeSetting(`harvest_leadsync_${key}`, {
         ok: true, enabled: true, source: def.source, created_on_or_after: cfg.created_after || null,
-        candidates: cands.length, inserted, updated, removed, geocoded, skipped_ungeocoded: skipped,
+        candidates: cands.length, inserted, updated, removed, preserved_worked: preserved, geocoded, skipped_ungeocoded: skipped,
         started, finished: new Date().toISOString(),
       });
     } catch (e) {
