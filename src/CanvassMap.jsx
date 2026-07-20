@@ -2414,7 +2414,7 @@ export default function CanvassMap() {
         )}
         {/* Enhanced Planned Day — this rep's manager assigned them a section today. */}
         {dayMode === null && !selecting && assignedIds && assignedIds.size > 0 && (
-          <div style={{ position: "absolute", left: 12, right: 12, top: 12, zIndex: 600, background: "#7c3aed", color: "#fff", padding: "9px 14px", borderRadius: 10, fontSize: 13, fontWeight: 700, boxShadow: "0 2px 8px rgba(0,0,0,.25)", textAlign: "center" }}>
+          <div style={{ position: "absolute", left: 12, right: 12, top: 56, zIndex: 590, background: "#7c3aed", color: "#fff", padding: "9px 14px", borderRadius: 10, fontSize: 13, fontWeight: 700, boxShadow: "0 2px 8px rgba(0,0,0,.25)", textAlign: "center" }}>
             📋 Your day is planned by your manager — {assignedIds.size} doors. Tap <b>▶ Start my day</b>{smartSchedEnabled ? <> (or <b>Plan your day</b> if you have appointments)</> : null}.
           </div>
         )}
