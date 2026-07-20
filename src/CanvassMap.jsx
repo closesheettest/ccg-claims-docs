@@ -654,6 +654,7 @@ export default function CanvassMap() {
   const [gobackCard, setGobackCard] = useState(false); // "Today's go-backs" list open
   const [gobackRadiusMi, setGobackRadiusMi] = useState(5); // admin-tunable (app_settings.harvest_goback_radius_mi)
   const [, setCapsV] = useState(0); // bump to re-render when admin route caps load
+  const [assignedIds, setAssignedIds] = useState(null); // Enhanced Planned Day: the pin ids the manager assigned this rep today (null = no plan)
   const [visitToken, setVisitToken] = useState("");    // token to drive the visit-action endpoints
   const visitsLayer = useRef(null);
   const visitsLoaded = useRef(false);
@@ -1762,6 +1763,20 @@ export default function CanvassMap() {
   }
 
   async function startFrom(pt) {
+    // Enhanced Planned Day: this rep has a manager-assigned section → route exactly
+    // those doors (their whole section), efficient order from the start point.
+    if (assignedIds && assignedIds.size) {
+      const assigned = await sbFetchAll(() =>
+        supabase.from("canvass_prospects").select(PIN_FIELDS_LITE).in("id", [...assignedIds]), 5000).catch(() => []);
+      const pool = assigned.filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number" && !nonRoutableStatuses.has(p.status) && !workedTodayET(p));
+      const r = buildRoute(pt, pool, pool.length, true); // whole section, no radius cull
+      if (!r.length) { alert("Your assigned doors are all worked or couldn't be routed — check with your manager."); setDayMode(null); return; }
+      workingRef.current = new Set(r.map((p) => p.id));
+      setStartPt(pt); setRoute(r); setStopIdx(0); setRound(1); setResolvedIds(new Set()); setDayMode("active"); setFillOffer(null);
+      optimizeByRoad(pt, r);
+      if (map.current) map.current.setView([r[0].latitude, r[0].longitude], 15);
+      return;
+    }
     // Load a GENEROUS radius (~25 mi) around the start — not just the tight
     // on-screen box — so the route can actually reach the cap instead of only
     // routing whatever few pins happened to be loaded in view.
@@ -1840,7 +1855,8 @@ export default function CanvassMap() {
       const wide = { getNorth: () => Math.max(...lats) + R, getSouth: () => Math.min(...lats) - R, getEast: () => Math.max(...lngs) + R, getWest: () => Math.min(...lngs) - R };
       const loaded = await load(wide);
       const pool = (loaded.length ? loaded : (shownRef.current || [])).filter((p) => inFilter(p.status) && typeof p.latitude === "number"
-        && (!visKeys || visKeys.has(p.status)) && !nonRoutableStatuses.has(p.status) && !workedTodayET(p));
+        && (!visKeys || visKeys.has(p.status)) && !nonRoutableStatuses.has(p.status) && !workedTodayET(p)
+        && (!assignedIds || assignedIds.has(p.id))); // Enhanced Planned Day: stay within the assigned section
       // End the day back where they started (home, or a hotel like William's).
       const home = { lat: start.lat, lng: start.lng };
       apptPoolRef.current = pool; apptListRef.current = appts; apptEndRef.current = endMs; apptHomeRef.current = home;
@@ -2212,6 +2228,16 @@ export default function CanvassMap() {
       })
       .catch(() => { /* keep defaults 30 / 100 */ });
   }, []);
+  // Enhanced Planned Day — if this rep has a published assignment today, Start-my-day
+  // routes exactly those doors (and Route-an-area hides). Endpoint returns empty when
+  // Enhanced mode is off / no plan, so this quietly no-ops otherwise.
+  useEffect(() => {
+    if (!auth.rt) return;
+    fetch(`/.netlify/functions/harvest-my-plan?rt=${encodeURIComponent(auth.rt)}`)
+      .then((r) => r.json())
+      .then((j) => { if (j && j.ok && Array.isArray(j.pin_ids) && j.pin_ids.length) setAssignedIds(new Set(j.pin_ids)); })
+      .catch(() => { /* fall back to normal */ });
+  }, [auth.rt]);
   // Test link ?test=sr|jr → preview at that rep level.
   useEffect(() => { if (testLevel) setViewAs(testLevel); }, [testLevel]);
   useEffect(() => { addingTestApptRef.current = addingTestAppt; }, [addingTestAppt]);
@@ -2386,8 +2412,15 @@ export default function CanvassMap() {
             ▶ Start my day
           </button>
         )}
-        {/* Route an area — drag a box, route exactly the doors inside it. */}
-        {dayMode === null && !selecting && (prospects.length > 0 || clusters.length > 0) && (
+        {/* Enhanced Planned Day — this rep's manager assigned them a section today. */}
+        {dayMode === null && !selecting && assignedIds && assignedIds.size > 0 && (
+          <div style={{ position: "absolute", left: 12, right: 12, top: 12, zIndex: 600, background: "#7c3aed", color: "#fff", padding: "9px 14px", borderRadius: 10, fontSize: 13, fontWeight: 700, boxShadow: "0 2px 8px rgba(0,0,0,.25)", textAlign: "center" }}>
+            📋 Your day is planned by your manager — {assignedIds.size} doors. Tap <b>▶ Start my day</b>{smartSchedEnabled ? <> (or <b>Plan your day</b> if you have appointments)</> : null}.
+          </div>
+        )}
+        {/* Route an area — drag a box, route exactly the doors inside it. Hidden when
+            the rep's day is manager-assigned (they work their section, not a free area). */}
+        {dayMode === null && !selecting && !(assignedIds && assignedIds.size > 0) && (prospects.length > 0 || clusters.length > 0) && (
           <button type="button" onClick={startSelecting}
             style={{ position: "absolute", left: 12, bottom: 68, zIndex: 600, background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
             ▢ Route an area
