@@ -97,33 +97,26 @@ async function countyFor(lat, lng) {
   } catch { return null; }
 }
 
-// ── even, compact split (balanced k-means) ───────────────────────────────────
+// ── compact, near-even split (recursive spatial median split) ────────────────
+// Carve the zone into k COMPACT, NON-OVERLAPPING territories of near-equal size by
+// repeatedly cutting the point set in half along its wider axis at the median. Unlike
+// forced-balance k-means, territories never stretch across each other → no criss-cross.
 function balancedCluster(points, k) {
-  const n = points.length;
-  if (k <= 1 || n === 0) return [{ index: 0, count: n, centroid: centroidOf(points), pin_ids: points.map((p) => p.id) }];
-  if (n <= k) return Array.from({ length: k }, (_, i) => ({ index: i, count: points[i] ? 1 : 0, centroid: points[i] ? { lat: points[i].lat, lng: points[i].lng } : null, pin_ids: points[i] ? [points[i].id] : [] }));
-  const d2 = (a, b) => { const dx = a.lat - b.lat, dy = a.lng - b.lng; return dx * dx + dy * dy; };
-  const start = points.reduce((m, p) => (p.lng < m.lng ? p : m), points[0]);
-  const seeds = [{ lat: start.lat, lng: start.lng }];
-  while (seeds.length < k) { let best = null, bd = -1; for (const p of points) { let m = Infinity; for (const s of seeds) m = Math.min(m, d2(p, s)); if (m > bd) { bd = m; best = p; } } seeds.push({ lat: best.lat, lng: best.lng }); }
-  let cent = seeds, assign = new Array(n).fill(0);
-  for (let it = 0; it < 14; it++) {
-    for (let i = 0; i < n; i++) { let bi = 0, bd = Infinity; for (let c = 0; c < k; c++) { const d = d2(points[i], cent[c]); if (d < bd) { bd = d; bi = c; } } assign[i] = bi; }
-    const s = Array.from({ length: k }, () => ({ lat: 0, lng: 0, n: 0 }));
-    for (let i = 0; i < n; i++) { const c = assign[i]; s[c].lat += points[i].lat; s[c].lng += points[i].lng; s[c].n++; }
-    cent = cent.map((c, i) => (s[i].n ? { lat: s[i].lat / s[i].n, lng: s[i].lng / s[i].n } : c));
-  }
-  const cap = Math.ceil(n / k);
-  const groups = Array.from({ length: k }, () => []);
-  points.forEach((p, i) => groups[assign[i]].push(i));
-  for (let g = 0; g < n * 2; g++) {
-    const over = groups.findIndex((x) => x.length > cap); if (over < 0) break;
-    groups[over].sort((a, b) => d2(points[b], cent[over]) - d2(points[a], cent[over]));
-    const mv = groups[over][0]; let t = -1, td = Infinity;
-    for (let c = 0; c < k; c++) { if (c === over || groups[c].length >= cap) continue; const d = d2(points[mv], cent[c]); if (d < td) { td = d; t = c; } }
-    if (t < 0) break; groups[over].shift(); groups[t].push(mv);
-  }
-  return groups.map((idxs, c) => { const pp = idxs.map((i) => points[i]); return { index: c, count: pp.length, centroid: centroidOf(pp), pin_ids: pp.map((p) => p.id) }; });
+  const groups = medianSplit(points, Math.max(1, k));
+  return groups.map((g, i) => ({ index: i, count: g.length, centroid: centroidOf(g), pin_ids: g.map((p) => p.id) }));
+}
+function medianSplit(points, k) {
+  if (k <= 1) return [points];
+  if (!points.length) return Array.from({ length: k }, () => []);
+  const kL = Math.floor(k / 2), kR = k - kL;
+  const nL = Math.round(points.length * kL / k);
+  const lats = points.map((p) => p.lat), lngs = points.map((p) => p.lng);
+  const avgLat = lats.reduce((a, b) => a + b, 0) / lats.length;
+  const latSpread = Math.max(...lats) - Math.min(...lats);
+  const lngSpread = (Math.max(...lngs) - Math.min(...lngs)) * Math.cos(avgLat * Math.PI / 180); // lng→miles scale at this lat
+  const byLat = latSpread >= lngSpread;
+  const sorted = points.slice().sort((a, b) => (byLat ? a.lat - b.lat : a.lng - b.lng));
+  return [...medianSplit(sorted.slice(0, nL), kL), ...medianSplit(sorted.slice(nL), kR)];
 }
 function centroidOf(pts) { if (!pts.length) return null; return { lat: pts.reduce((s, p) => s + p.lat, 0) / pts.length, lng: pts.reduce((s, p) => s + p.lng, 0) / pts.length }; }
 
