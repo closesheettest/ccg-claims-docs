@@ -42,6 +42,18 @@ const UNKNOWN_TYPE = { color: "#64748b", label: "—", outcomes: [] };
 // "resolved") — so a rep can mark it and still return to it later the same day.
 const KEEP_ROUTABLE = new Set(["insp_callback"]);
 
+// "YYYY-MM-DD" (ET) N days from now — the default come-back date (next week).
+function ymdPlus(days) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(Date.now() + days * 864e5));
+}
+// Friendly "Tue, Jul 28" from a YYYY-MM-DD come-back date.
+function cbLabel(ymd) {
+  if (!ymd) return "";
+  const [y, m, d] = String(ymd).split("-").map(Number);
+  if (!y) return ymd;
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" });
+}
+
 // The street a stop is on, for street-by-street routing. "123 N Main St, Tampa"
 // → "n main st". A stop with no parseable street becomes its own micro-group
 // (keyed by rounded lat/lng) so it's still routed, just not merged with others.
@@ -631,10 +643,19 @@ export default function CanvassMap() {
   const [showStatusEdit, setShowStatusEdit] = useState(false); // admin: reveal the status-change buttons (hidden by default)
   const [noteDraft, setNoteDraft] = useState("");   // editable note on a self-gen pin
   const [savingNote, setSavingNote] = useState(false);
+  // "Come back" scheduler — set a return date + note on a door (e.g. medical
+  // emergency, wants the roof). callbackFor = the stop id whose form is open.
+  const [callbackFor, setCallbackFor] = useState(null);
+  const [cbDate, setCbDate] = useState("");
+  const [cbNote, setCbNote] = useState("");
+  const [cbSaving, setCbSaving] = useState(false);
   // Status filter — a Set of selected pin-type keys. Empty = show All. Multi-select
   // so a rep can, e.g., work IQ + No-sit-reschedule together.
   const [sel, setSel] = useState(() => new Set());
   const inFilter = (status) => sel.size === 0 || sel.has(status);
+  // A door scheduled for a come-back on a FUTURE day is held out of the route
+  // until that day arrives (it still shows on the map, just not routed early).
+  const futureCallback = (p) => { const d = p?.extra?.callback?.date; return !!(d && d > ymdPlus(0)); };
   const toggleSel = (key) => setSel((prev) => {
     const n = new Set(prev);
     n.has(key) ? n.delete(key) : n.add(key);
@@ -1224,6 +1245,31 @@ export default function CanvassMap() {
     return true;
   }
 
+  // Schedule a come-back on a door: status it "Pending (come back)" and stamp the
+  // return date + note into `extra.callback` (and mirror the note to `notes`). It
+  // stays on the map; when the date arrives it resurfaces as a due come-back.
+  async function saveCallback(stop) {
+    if (!stop || !cbDate) { alert("Pick a come-back date."); return; }
+    if (spotCheck) { alert("🔍 Spot-check — statusing is off."); return; }
+    setCbSaving(true);
+    const nowIso = new Date().toISOString();
+    const note = cbNote.trim();
+    const extra = { ...(stop.extra && typeof stop.extra === "object" ? stop.extra : {}), callback: { date: cbDate, note, by: repName || "rep", at: nowIso } };
+    const entry = { at: nowIso, from: stop.status, to: "insp_callback", by: repName || "rep", callback_date: cbDate, note: note || undefined };
+    const log = Array.isArray(stop.status_log) ? [...stop.status_log, entry] : [entry];
+    const patch = { status: "insp_callback", status_updated_at: nowIso, status_by: repName || null, status_log: log, extra, notes: note || stop.notes || null };
+    if (!demoMode) {
+      const { error } = await supabase.from("canvass_prospects").update(patch).eq("id", stop.id);
+      if (error) { alert(error.message); setCbSaving(false); return; }
+      logActivity({ pin_id: stop.id, kind: "status", from_status: stop.status, to_status: "insp_callback", ...locAudit(stop) });
+    }
+    setProspects((list) => list.map((x) => (x.id === stop.id ? { ...x, ...patch } : x)));
+    setSelected((s) => (s && s.id === stop.id ? { ...s, ...patch } : s));
+    // Scheduled for a future day → drop it from the rest of today's route.
+    setResolvedIds((s) => new Set(s).add(stop.id));
+    setCbSaving(false); setCallbackFor(null); setCbNote(""); setCbDate("");
+    advanceStop();
+  }
   // Where the rep physically was when they logged an action, and how trustworthy the
   // GPS was. Feeds the office report so couch-canvassing (a whole route statused from
   // one spot) is obvious. loc_flag: 'verified' = at the door; 'gps_off' = phone had no
@@ -1694,7 +1740,7 @@ export default function CanvassMap() {
   }, [testAppts, dayMode]);
 
   function buildRoute(start, pins, cap, skipRadius) {
-    const routable = pins.filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number" && !nonRoutableStatuses.has(p.status)
+    const routable = pins.filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number" && !nonRoutableStatuses.has(p.status) && !futureCallback(p)
       && (skipRadius || feetBetween(start, { lat: p.latitude, lng: p.longitude }) / 5280 <= MAX_ROUTE_MI)); // within 25 mi of the start (unless the box already bounded them)
     const max = cap || routeCap(routable);
     // PRIORITY: a No-sit (already an appointment) outranks an IQ (qualified lead),
@@ -2780,6 +2826,9 @@ export default function CanvassMap() {
                   {stop.status === "no_sit_reschedule" && origApptLabel(stop) && (
                     <div style={{ fontSize: 12.5, fontWeight: 800, color: "#c2410c", marginTop: 4 }}>🔄 No-sit · original appt was {origApptLabel(stop)}</div>
                   )}
+                  {stop.extra?.callback?.date && (
+                    <div style={{ fontSize: 12.5, fontWeight: 800, color: "#854d0e", marginTop: 4 }}>📅 Come back {cbLabel(stop.extra.callback.date)}{stop.extra.callback.note ? ` — ${stop.extra.callback.note}` : ""}</div>
+                  )}
                   {/* Thin red box right above Directions — reps couldn't find the old
                       faint text link. Confirms first so a mis-tap can't wipe the route. */}
                   <button type="button"
@@ -2832,9 +2881,35 @@ export default function CanvassMap() {
                           🖊️ Sign Inspection
                         </button>
                       )
+                      : o.key === "insp_callback"
+                      ? (
+                        <button key={o.key} type="button" disabled={!near} onClick={() => { setCallbackFor(stop.id); setCbDate(ymdPlus(7)); setCbNote(stop.notes || ""); }}
+                          style={{ flex: "1 1 44%", minWidth: 92, padding: "11px 8px", borderRadius: 11, fontSize: 13.5, fontWeight: 800, cursor: near ? "pointer" : "not-allowed",
+                            border: `1px solid ${near ? o.color : "#e5e7eb"}`, background: near ? o.color : "#fff", color: near ? "#fff" : "#cbd5e1" }}>
+                          {o.label}
+                        </button>
+                      )
                       : oBtn(o.key, o.label, o.color))}
                     {oBtn("nothome", "🏠 Not home", "#475569")}
                   </div>
+                  {/* Come-back scheduler — pick a return day + note. */}
+                  {callbackFor === stop.id && (
+                    <div style={{ marginTop: 10, background: "#fefce8", border: "1px solid #fde047", borderRadius: 12, padding: "12px 14px" }}>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: "#854d0e", marginBottom: 8 }}>📅 Come back — when?</div>
+                      <input type="date" value={cbDate} min={ymdPlus(0)} onChange={(e) => setCbDate(e.target.value)}
+                        style={{ width: "100%", boxSizing: "border-box", height: 44, padding: "0 12px", borderRadius: 10, border: "1px solid #d1d5db", fontSize: 16, background: "#fff", marginBottom: 8 }} />
+                      <textarea value={cbNote} onChange={(e) => setCbNote(e.target.value)} rows={2} placeholder="Note — e.g. medical emergency, still wants the roof"
+                        style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 10, border: "1px solid #d1d5db", fontSize: 14, fontFamily: "inherit", resize: "vertical", marginBottom: 8 }} />
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button type="button" disabled={cbSaving || !cbDate} onClick={() => saveCallback(stop)}
+                          style={{ flex: 1, background: "#ca8a04", color: "#fff", border: "none", borderRadius: 10, padding: "11px", fontSize: 13.5, fontWeight: 800, cursor: cbSaving ? "wait" : "pointer", opacity: cbDate ? 1 : 0.6 }}>
+                          {cbSaving ? "Saving…" : "📅 Schedule come-back"}
+                        </button>
+                        <button type="button" onClick={() => setCallbackFor(null)}
+                          style={{ background: "#fff", color: "#64748b", border: "1px solid #e5e7eb", borderRadius: 10, padding: "11px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Cancel</button>
+                      </div>
+                    </div>
+                  )}
                   {/* Homeowner declined the inspection but wants a retail appt —
                       book it right from the route stop (same as the pin sheet). */}
                   {stop.status === "insp" && (
@@ -3026,6 +3101,12 @@ export default function CanvassMap() {
                 {(S[selected.status] || UNKNOWN_TYPE).label}
                 {selected.status_by ? <span style={{ color: "#94a3b8", fontWeight: 600 }}> · by {selected.status_by}</span> : null}
               </div>
+              {selected.extra?.callback?.date && (
+                <div style={{ marginTop: 6, background: "#fefce8", border: "1px solid #fde047", borderRadius: 10, padding: "7px 10px" }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 800, color: "#854d0e" }}>📅 Come back {cbLabel(selected.extra.callback.date)}</div>
+                  {selected.extra.callback.note && <div style={{ fontSize: 12.5, color: "#713f12", marginTop: 2 }}>{selected.extra.callback.note}</div>}
+                </div>
+              )}
             </div>
             <button type="button" onClick={() => setSelected(null)} style={{ background: "none", border: "none", fontSize: 22, color: "#94a3b8", cursor: "pointer", lineHeight: 1 }}>×</button>
           </div>
