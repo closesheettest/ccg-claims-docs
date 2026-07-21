@@ -18,6 +18,18 @@ const GOOGLE_BASE = "https://maps.googleapis.com/maps/api/geocode/json";
 const MAX_ROWS = 400;       // cap per call to stay under the function timeout
 const CONCURRENCY = 8;      // parallel geocode requests
 
+// Normalized street key so the same house dedups across sources/spelling despite
+// geocode drift ("12735 NEWTON PL" == "12735 Newton Place"). Matches the JN sync.
+const ADDR_SUF = { street: "st", st: "st", avenue: "ave", ave: "ave", av: "ave", place: "pl", pl: "pl", drive: "dr", dr: "dr", lane: "ln", ln: "ln", court: "ct", ct: "ct", terrace: "ter", terr: "ter", ter: "ter", boulevard: "blvd", blvd: "blvd", road: "rd", rd: "rd", circle: "cir", cir: "cir", trail: "trl", trl: "trl", parkway: "pkwy", pkwy: "pkwy", highway: "hwy", hwy: "hwy", cove: "cv", cv: "cv", point: "pt", pt: "pt", square: "sq", sq: "sq" };
+const ADDR_DIR = { north: "n", n: "n", south: "s", s: "s", east: "e", e: "e", west: "w", w: "w", northeast: "ne", ne: "ne", northwest: "nw", nw: "nw", southeast: "se", se: "se", southwest: "sw", sw: "sw" };
+function streetKey(address) {
+  const s = String(address || "").split(",")[0].toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+  if (!s || !/^\d/.test(s)) return null;
+  return s.split(" ").map((t) => ADDR_SUF[t] || ADDR_DIR[t] || t).join(" ");
+}
+function zip5(z) { return String(z || "").replace(/\D/g, "").slice(0, 5); }
+function addrKey(address, zip) { const sk = streetKey(address); return sk ? sk + "|" + zip5(zip) : null; }
+
 export const handler = async (event) => {
   if (event.httpMethod !== "POST") return json(405, { ok: false, error: "Method not allowed" });
 
@@ -125,10 +137,12 @@ export const handler = async (event) => {
   //   • existing is IQ and the incoming type isn't → keep IQ ("IQ always wins").
   //   • otherwise → the incoming pin type replaces the existing one.
   const coordKey = (lat, lng) => `${(+lat).toFixed(4)},${(+lng).toFixed(4)}`; // ~11 m
-  const existing = {};
+  const existing = {};   // coordKey -> pin
+  const byAddr = {};     // normalized addr -> pin (drift-proof, catches the ~90 m case)
   try {
-    for (const p of await sbGet(`${SB_URL}/rest/v1/canvass_prospects?select=id,latitude,longitude,status,status_log&latitude=not.is.null&limit=20000`, sbH)) {
+    for (const p of await sbGet(`${SB_URL}/rest/v1/canvass_prospects?select=id,latitude,longitude,status,status_log,address,zip&latitude=not.is.null&limit=50000`, sbH)) {
       existing[coordKey(p.latitude, p.longitude)] = p;
+      const ak = addrKey(p.address, p.zip); if (ak && !byAddr[ak]) byAddr[ak] = p;
     }
   } catch { /* if we can't read, just insert all below */ }
 
@@ -137,8 +151,14 @@ export const handler = async (event) => {
   let updated = 0, skipped = 0;
   const nowIso = new Date().toISOString();
   const updates = [];
+  const seenAddr = new Set();  // dedup the SAME address appearing twice within one upload
   for (const row of out) {
-    const hit = (row.latitude != null) ? existing[coordKey(row.latitude, row.longitude)] : null;
+    const ak = addrKey(row.address, row.zip);
+    if (ak && seenAddr.has(ak)) { skipped++; continue; } // already handled this house in this upload
+    if (ak) seenAddr.add(ak);
+    // Match an existing pin by coordinate OR normalized address (address catches the
+    // ~90 m geocode drift the coordinate key misses).
+    const hit = (row.latitude != null ? existing[coordKey(row.latitude, row.longitude)] : null) || (ak ? byAddr[ak] : null);
     if (!hit) { toInsert.push(row); continue; }
     const newType = row.status;
     const keep = terminalKeys.has(hit.status)              // protected win
