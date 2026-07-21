@@ -28,12 +28,18 @@ async function jnFetch(key, path, opts = {}, tries = 3) {
     "Content-Type": "application/json",
     ...(opts.headers || {}),
   };
+  // 500 is only unsafe to retry on POST (a create might have partially applied →
+  // retrying could duplicate). PUT / GET / DELETE are idempotent: the same call
+  // yields the same result, so a transient JN 500 there is safe to retry — which
+  // is what was surfacing as a scary "500 Internal Server Error" on reschedules.
+  const method = (opts.method || "GET").toUpperCase();
+  const retryStatus = method === "POST" ? JN_RETRY_STATUS : new Set([...JN_RETRY_STATUS, 500]);
   let last;
   for (let i = 0; i < tries; i++) {
     try {
       const r = await fetch(`${JN_BASE}/${path}`, { ...opts, headers });
       // Success, or a non-transient error the caller will report itself.
-      if (r.ok || !JN_RETRY_STATUS.has(r.status)) return r;
+      if (r.ok || !retryStatus.has(r.status)) return r;
       last = new Error(`JN ${path} ${r.status}`);
     } catch (e) {
       last = e; // network error / timeout — retry
