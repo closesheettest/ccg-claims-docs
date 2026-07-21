@@ -40,18 +40,26 @@ export const handler = async (event) => {
       ({ start, end } = period === "month" ? monthRange() : period === "lastmonth" ? lastMonthRange() : period === "lastweek" ? lastWeekRange() : period === "last30" ? last30Range() : weekRange());
     }
 
-    // Appointment bookings from the harvest map in the window.
+    // HARVEST = an IQ / Facebook / AI / No-sit pin turned into an appointment.
+    // Filter by the pin's ORIGIN (from_status) so this counts only harvested
+    // leads — a retail/BTR appt booked off an inspection pin (from_status=insp)
+    // is NOT harvest and is excluded. We don't filter on `kind`: a booking logs
+    // both a server row (kind=status) and a client row (kind=visit), so we dedupe
+    // by pin_id below to count each booked house once.
     const acts = await sbGet(
-      `canvass_activity?kind=eq.status&to_status=eq.appt` +
+      `canvass_activity?to_status=eq.appt&from_status=in.(iq,fb,ai,no_sit_reschedule)` +
       `&created_at=gte.${encodeURIComponent(start.toISOString())}&created_at=lte.${encodeURIComponent(end.toISOString())}` +
-      `&select=rep_name,created_at&limit=20000`
+      `&select=rep_name,pin_id,from_status,created_at&order=created_at.asc&limit=20000`
     );
     const zoneOf = await fetchZoneResolver();
 
-    // zone → { count, byRep:{ name → count } }
+    // zone → { count, byRep:{ name → count } }. Dedupe by pin so the server+client
+    // rows for one booking (and a same-period re-book of the same house) count once.
     const agg = {};
     let unattributed = 0;
+    const seenPins = new Set();
     for (const a of acts) {
+      if (a.pin_id) { if (seenPins.has(a.pin_id)) continue; seenPins.add(a.pin_id); }
       const zone = zoneOf(a.rep_name);
       if (!zone) { unattributed++; continue; }
       const z = agg[zone] || (agg[zone] = { count: 0, byRep: {} });

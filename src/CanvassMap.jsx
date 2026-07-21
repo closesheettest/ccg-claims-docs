@@ -3556,11 +3556,11 @@ export default function CanvassMap() {
             setProspects((list) => list.map((x) => (x.id === apptPin.id ? { ...x, ...patch } : x)));
             setSelected((s) => (s && s.id === apptPin.id ? { ...s, ...patch } : s));
             setResolvedIds((s) => new Set(s).add(apptPin.id)); // booked → statused → drops from later rounds
-            // If this was the current route stop, log the visit + move on.
-            if (dayMode === "active" && route[stopIdx] && route[stopIdx].id === apptPin.id) {
-              logActivity({ pin_id: apptPin.id, kind: "visit", to_status: "appt", ...locAudit(apptPin) });
-              advanceStop();
-            }
+            // Log the booking with its ORIGIN (from_status) so the harvest leaderboard
+            // can credit IQ/No-sit→appt work. Always logged (not only on a route stop);
+            // the server also logs it and the leaderboard dedupes by pin.
+            logActivity({ pin_id: apptPin.id, kind: "visit", from_status: apptPin.status, to_status: "appt", ...locAudit(apptPin) });
+            if (dayMode === "active" && route[stopIdx] && route[stopIdx].id === apptPin.id) advanceStop();
             setApptPin(null);
           }}
         />
@@ -3574,10 +3574,10 @@ export default function CanvassMap() {
             setProspects((list) => list.map((x) => (x.id === btrPin.id ? { ...x, ...patch } : x)));
             setSelected((s) => (s && s.id === btrPin.id ? { ...s, ...patch } : s));
             setResolvedIds((s) => new Set(s).add(btrPin.id));
-            if (dayMode === "active" && route[stopIdx] && route[stopIdx].id === btrPin.id) {
-              logActivity({ pin_id: btrPin.id, kind: "visit", to_status: "appt", ...locAudit(btrPin) });
-              advanceStop();
-            }
+            // BTR = retail appt off an inspection pin; logged with from_status=insp so
+            // the harvest leaderboard EXCLUDES it (harvest = IQ/No-sit origins only).
+            logActivity({ pin_id: btrPin.id, kind: "visit", from_status: btrPin.status, to_status: "appt", ...locAudit(btrPin) });
+            if (dayMode === "active" && route[stopIdx] && route[stopIdx].id === btrPin.id) advanceStop();
             setBtrPin(null);
           }}
         />
