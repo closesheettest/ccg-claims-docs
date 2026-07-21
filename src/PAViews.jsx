@@ -2561,7 +2561,10 @@ function PAJobList({ me, onOpenJob, wide }) {
     // active that isn't parked in another stage; new files (untouched) still
     // split out for the top prioritized dashboard.
     const inStage = (s) => (j) => j.pa_stage === s;
-    const activeWorking = nonSigned.filter((j) => !["no_contact", "waiting_docs", "rescheduling"].includes(j.pa_stage));
+    // "Can't reach" (no_contact) is no longer its own category — those deals fold
+    // into Working. If a PA truly can't reach a homeowner they send it back to
+    // retail (BTR) instead of parking it.
+    const activeWorking = nonSigned.filter((j) => !["waiting_docs", "rescheduling"].includes(j.pa_stage));
     const isWorking = (j) => !!j.pa_opened_at || (Array.isArray(j.pa_notes_log) && j.pa_notes_log.length > 0);
     return {
       mineNeeds: sorted(activeWorking.filter((j) => !isWorking(j))),
@@ -2686,7 +2689,6 @@ function PAJobList({ me, onOpenJob, wide }) {
             { key: "resched", flag: "🔄", title: "Rescheduling", color: "#9a3412", items: mineRescheduling },
             { key: "waiting", flag: "📄", title: "Waiting on Docs", color: "#3730a3", items: mineWaiting },
             { key: "signed", flag: "✅", title: "Signed", color: "#047857", items: mineSigned },
-            { key: "nocontact", flag: "📵", title: "Can't reach", color: "#475569", items: mineNoContact },
           ].map((c) => (
             <div key={c.key}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, fontFamily: "'Oswald', sans-serif", fontWeight: 800, fontSize: 16, color: c.color }}>
