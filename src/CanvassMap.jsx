@@ -709,6 +709,8 @@ export default function CanvassMap() {
   const [, setCapsV] = useState(0); // bump to re-render when admin route caps load
   const [assignedIds, setAssignedIds] = useState(null); // Enhanced Planned Day: the pin ids the manager assigned this rep today (null = no plan)
   const [hasApptsToday, setHasApptsToday] = useState(false); // rep has ≥1 JN appointment today → they Plan-your-day, not Start-my-day
+  const [todayAppts, setTodayAppts] = useState([]);          // today's JN appts (for the auto-detect "you have an appt" banner)
+  const [apptBannerDismissed, setApptBannerDismissed] = useState(false); // rep closed the "you have an appt" prompt this session
   const [visitToken, setVisitToken] = useState("");    // token to drive the visit-action endpoints
   const visitsLayer = useRef(null);
   const visitsLoaded = useRef(false);
@@ -2389,17 +2391,19 @@ export default function CanvassMap() {
     fetch(`/.netlify/functions/harvest-my-plan?rt=${encodeURIComponent(auth.rt)}`)
       .then((r) => r.json())
       .then((j) => {
-        if (j && j.ok && Array.isArray(j.pin_ids) && j.pin_ids.length) {
-          setAssignedIds(new Set(j.pin_ids));
-          // "Start my day" (which runs the pre-planned section) only makes sense when
-          // the rep has NO appointment today — with an appt they Plan-your-day instead.
-          // So check for appts once, up front, to decide whether to show the button.
-          fetch(`/.netlify/functions/harvest-today-appts?rt=${encodeURIComponent(auth.rt)}`)
-            .then((r) => r.json()).then((a) => setHasApptsToday(!!(a && Array.isArray(a.appts) && a.appts.length)))
-            .catch(() => { /* assume none */ });
-        }
+        if (j && j.ok && Array.isArray(j.pin_ids) && j.pin_ids.length) setAssignedIds(new Set(j.pin_ids));
       })
       .catch(() => { /* fall back to normal */ });
+  }, [auth.rt]);
+  // Today's appointments — fetched for EVERY rep (not just manager-assigned ones), so a
+  // rep who has an appt sees a prompt the moment the map opens instead of having to know
+  // to tap "Plan your day". Drives both the auto-detect banner and the Start-my-day gate.
+  useEffect(() => {
+    if (!auth.rt) return;
+    fetch(`/.netlify/functions/harvest-today-appts?rt=${encodeURIComponent(auth.rt)}`)
+      .then((r) => r.json())
+      .then((a) => { const list = (a && Array.isArray(a.appts)) ? a.appts : []; setTodayAppts(list); setHasApptsToday(list.length > 0); })
+      .catch(() => { /* assume none */ });
   }, [auth.rt]);
   // Test link ?test=sr|jr → preview at that rep level.
   useEffect(() => { if (testLevel) setViewAs(testLevel); }, [testLevel]);
@@ -2587,6 +2591,25 @@ export default function CanvassMap() {
         {dayMode === null && !selecting && assignedIds && assignedIds.size > 0 && (
           <div style={{ position: "absolute", left: 12, right: 12, top: 56, zIndex: 590, background: "#7c3aed", color: "#fff", padding: "9px 14px", borderRadius: 10, fontSize: 13, fontWeight: 700, boxShadow: "0 2px 8px rgba(0,0,0,.25)", textAlign: "center" }}>
             📋 Your day is planned by your manager — {assignedIds.size} doors. {hasApptsToday ? <>You have an appointment today — tap <b>📅 Plan your day</b> to weave your doors around it.</> : <>Tap <b>▶ Start my day</b>.</>}
+          </div>
+        )}
+        {/* Auto-detect "you have an appointment" — shows the moment the map opens for a
+            rep who has a JN appt today but ISN'T on a manager-assigned day (those reps
+            get the purple banner above). No need to know to tap the button first. */}
+        {dayMode === null && !selecting && !(assignedIds && assignedIds.size > 0) && todayAppts.length > 0 && !apptBannerDismissed && ((auth.rt && smartSchedEnabled) || testMode) && (
+          <div style={{ position: "absolute", left: 12, right: 12, top: 56, zIndex: 595, background: "#7c3aed", color: "#fff", padding: "11px 14px", borderRadius: 12, boxShadow: "0 3px 12px rgba(0,0,0,.28)", display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ flex: 1, fontSize: 13.5, fontWeight: 700, lineHeight: 1.3 }}>
+              📅 You have {todayAppts.length} appointment{todayAppts.length > 1 ? "s" : ""} today — first at{" "}
+              <b>{new Date(todayAppts[0].at_ms).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })}</b>. Plan your doors around it?
+            </div>
+            <button type="button" onClick={openApptPlan}
+              style={{ background: "#fff", color: "#6d28d9", border: "none", borderRadius: 999, padding: "9px 15px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", cursor: "pointer", whiteSpace: "nowrap" }}>
+              Plan my day →
+            </button>
+            <button type="button" onClick={() => setApptBannerDismissed(true)} aria-label="Dismiss"
+              style={{ background: "transparent", color: "#fff", border: "none", fontSize: 18, fontWeight: 800, cursor: "pointer", lineHeight: 1, padding: "0 2px" }}>
+              ✕
+            </button>
           </div>
         )}
         {/* Route an area — drag a box, route exactly the doors inside it. Hidden when
