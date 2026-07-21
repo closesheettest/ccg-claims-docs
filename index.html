@@ -20,6 +20,31 @@
     <meta name="twitter:image" content="https://free-roof-inspections.netlify.app/uss-header.png" />
 
     <link rel="icon" href="/uss-header.png" type="image/png" />
+
+    <!-- Installable app (PWA): home-screen icon on phone + desktop -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#13294b" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="U.S. Shingle" />
+
+    <!-- Launched from the installed icon → jump straight to this user's saved
+         link (their token), so reps land on their own tools already signed in.
+         Runs before React to avoid a flash of the homeowner page. -->
+    <script>
+      (function () {
+        try {
+          var params = new URLSearchParams(location.search);
+          var standalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+          var launched = standalone || params.get("app") === "1";
+          var home = localStorage.getItem("pwa_home");
+          var bare = location.pathname === "/" && !params.get("mode") && !params.get("rt") && !params.get("admin") && !params.get("manager") && !params.get("pa");
+          if (launched && home && bare) location.replace(home);
+        } catch (e) {}
+      })();
+    </script>
   </head>
 
   <body>
