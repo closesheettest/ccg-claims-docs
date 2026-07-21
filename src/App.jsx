@@ -12575,6 +12575,26 @@ const renderSmsTemplate = (key, vars) => {
           alert("A street address is required before signing. Go back and pick the full street address (with house number) from the dropdown.");
           return;
         }
+        // Render + VALIDATE the signed agreement BEFORE writing anything. A silent
+        // empty render used to insert a "signed" record and sync it to JobNimbus
+        // with NO agreement PDF anywhere and no warning to the rep (John Collins
+        // 7/20). This is the same 20KB guard the submitInspection path got after
+        // Kevin Brown — the sibling path never received it. Block here, save
+        // nothing, so an unrecoverable orphan can never be created.
+        let inspBase64Content;
+        try {
+          const inspBlob = await generatePDF("#inspection-printable", documentFilename("insp"));
+          if (!inspBlob || inspBlob.size < 20000) throw new Error("empty render");
+          const inspBase64 = await blobToBase64(inspBlob);
+          inspBase64Content = String(inspBase64).split(",")[1];
+          if (!inspBase64Content) throw new Error("empty encode");
+        } catch (e) {
+          console.warn("Inspection agreement PDF failed:", e?.message);
+          setIsSubmitting(false);
+          setPendingSend(false);
+          alert("⚠️ The signed agreement didn't generate (the file came out empty). NOTHING was saved.\n\nTap Submit again. If it keeps failing, have the homeowner sign once more before moving on.");
+          return;
+        }
         // Save to inspections table
         const { data: insertedInsp, error: inspInsertErr } = await supabase.from("inspections").insert([{
           client_name: [data.homeowner1, data.homeowner2].filter(Boolean).join(" & "),
@@ -12624,19 +12644,12 @@ const renderSmsTemplate = (key, vars) => {
           }).catch((e) => console.warn("Geocode trigger failed (non-fatal):", e?.message));
         }
 
-        try {
-          const inspBlob = await generatePDF(
-            "#inspection-printable",
-            documentFilename("insp")
-          );
-          const inspBase64 = await blobToBase64(inspBlob);
-          attachments.push({
-            filename: documentFilename("insp"),
-            content: String(inspBase64).split(",")[1],
-          });
-        } catch (e) {
-          console.warn("Inspection PDF failed:", e);
-        }
+        // Use the agreement PDF we already rendered + validated above (no second
+        // render) so the archived/attached copy is the exact one we verified.
+        attachments.push({
+          filename: documentFilename("insp"),
+          content: inspBase64Content,
+        });
       }
 
       if (selectedDocs.includes("lor")) {
