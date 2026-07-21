@@ -80,6 +80,21 @@ export default function HarvestAdmin() {
     patch(key, { [field]: has ? t[field].filter((v) => v !== val) : [...(t[field] || []), val] });
   };
 
+  // Whether a rep LEVEL currently sees this pin. Legacy empty array = everyone,
+  // so treat empty as "both levels on" for display.
+  const seesLevel = (t, lv) => { const a = t.visible_levels || []; return a.length === 0 || a.includes(lv); };
+  // Flip one level on/off WITHOUT the empty-array trap: an empty visible_levels
+  // reads as "everyone" on the map, so when no rep level is left we store the
+  // "admin" sentinel = hidden from all reps (office still sees it).
+  const setVis = (key, lv, on) => {
+    const t = types.find((x) => x.key === key);
+    const cur = t.visible_levels || [];
+    const s = new Set(cur.length === 0 ? LEVELS : cur.filter((v) => LEVELS.includes(v)));
+    if (on) s.add(lv); else s.delete(lv);
+    const arr = [...s];
+    patch(key, { visible_levels: arr.length ? arr : ["admin"] });
+  };
+
   const save = async (t) => {
     setBusy(t.key); setMsg(null);
     const { error } = await supabase.from("harvest_pin_types")
@@ -110,7 +125,7 @@ export default function HarvestAdmin() {
       <HarvestNav active="types" />
       <div style={{ fontSize: 22, fontWeight: 800, fontFamily: OSWALD, marginBottom: 4 }}>🎛️ Pin Types</div>
       <div style={{ fontSize: 13.5, color: "#64748b", marginBottom: 16 }}>
-        Each pin type: its color, <b>who can see it</b> (rep level), and the <b>outcomes</b> a rep may switch it to. The map and reports read this.
+        Each pin type: its color, <b>which reps see it</b> (tap ✓/✕ per level), and the <b>outcomes</b> a rep may switch it to. Turn off both levels to hide a pin from reps entirely — <b>the office always sees every pin</b> regardless. The map and reports read this.
       </div>
 
       {msg && <div style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 10, fontSize: 13.5, fontWeight: 600, background: msg.err ? "#fef2f2" : "#ecfdf5", color: msg.err ? "#b91c1c" : "#065f46", border: `1px solid ${msg.err ? "#fecaca" : "#a7f3d0"}` }}>{msg.err || msg.ok}</div>}
@@ -196,13 +211,19 @@ export default function HarvestAdmin() {
 
             <div style={{ display: "flex", gap: 24, flexWrap: "wrap", marginTop: 12 }}>
               <div>
-                <div style={{ fontSize: 11.5, fontWeight: 700, color: "#64748b", marginBottom: 5 }}>VISIBLE TO</div>
-                <div style={{ display: "flex", gap: 6 }}>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: "#64748b", marginBottom: 5 }}>REPS WHO SEE THIS PIN</div>
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                   {LEVELS.map((lv) => {
-                    const on = (t.visible_levels || []).includes(lv);
-                    return <button key={lv} type="button" onClick={() => toggleArr(t.key, "visible_levels", lv)} style={pill(on, "#0e7490")}>{lv}</button>;
+                    const on = seesLevel(t, lv);
+                    return (
+                      <button key={lv} type="button" onClick={() => setVis(t.key, lv, !on)} title={on ? `${lv} reps see it — tap to hide` : `Hidden from ${lv} reps — tap to show`} style={pill(on, "#0e7490")}>
+                        {on ? "✓ " : "✕ "}{lv}
+                      </button>
+                    );
                   })}
-                  <span style={{ fontSize: 11, color: "#94a3b8", alignSelf: "center" }}>{(t.visible_levels || []).length ? "" : "everyone"}</span>
+                  {!seesLevel(t, "senior") && !seesLevel(t, "junior") && (
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#b45309", background: "#fffbeb", border: "1px solid #fde68a", padding: "3px 8px", borderRadius: 8, alignSelf: "center" }}>🔒 Hidden from all reps (office only)</span>
+                  )}
                 </div>
               </div>
               <div>
