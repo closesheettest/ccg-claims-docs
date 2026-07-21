@@ -65,6 +65,23 @@ exports.handler = async (event) => {
   const geocache = (await readSetting(GEOCACHE_KEY)) || {};
   let geocacheDirty = false;
 
+  // Global address index — every pin on the map, keyed by normalized street, so no
+  // source ever drops a SECOND pin on a house another source already pinned (the
+  // RepCard-vs-JN-IQ duplicate bug). Per house we remember the heaviest occupant:
+  //   workedId (appt/sold/NI/…) → a new lead is SKIPPED (worked owns the house)
+  //   rawId (another raw JN lead) → SKIPPED (dedupe)
+  //   inspId (an unworked RepCard "insp") → the incoming IQ CONVERTS it in place
+  //                                          (your "IQ beats inspection-needed")
+  const streetIdx = new Map();    // streetKey -> [{ id, status, zip }]
+  const claimedKeys = new Set();  // "street|zip" handled this run (converted or freshly inserted)
+  try {
+    for (const p of await sbGetAll(`canvass_prospects?latitude=not.is.null&select=id,address,status,zip`)) {
+      const sk = streetKey(p.address); if (!sk) continue;
+      let arr = streetIdx.get(sk); if (!arr) { arr = []; streetIdx.set(sk, arr); }
+      arr.push({ id: p.id, status: p.status, zip: zip5(p.zip) });
+    }
+  } catch { /* if the index can't load, fall back to contact-only dedup (no crash) */ }
+
   for (const key of keys) {
     const def = SOURCES[key];
     const cfg = filters[key] || {};
@@ -120,7 +137,7 @@ exports.handler = async (event) => {
 
       const nowIso = new Date().toISOString();
       const shouldBe = new Set();
-      const toInsert = []; const updates = []; let skipped = 0, preserved = 0;
+      const toInsert = []; const updates = []; let skipped = 0, preserved = 0, dupSkipped = 0, converted = 0;
       for (const c of cands) {
         const id = c.jnid || c.id;
         // Already worked on the map (rep/RepCard set a terminal/appt status) →
@@ -142,7 +159,30 @@ exports.handler = async (event) => {
         };
         if (existingRaw[id]) {
           updates.push(fetch(`${SB_URL}/rest/v1/canvass_prospects?id=eq.${existingRaw[id]}`, { method: "PATCH", headers: { ...sbHeaders, Prefer: "return=minimal" }, body: JSON.stringify(row) }).then((r) => r.ok));
-        } else { toInsert.push(row); }
+        } else {
+          // ── Address dedup before creating a NEW pin ─────────────────────────
+          const sk = streetKey(c.address_line1);
+          if (sk) {
+            const cz = zip5(c.zip);
+            const ck = sk + "|" + cz;
+            if (claimedKeys.has(ck)) { dupSkipped++; continue; }   // already handled this house this run
+            // Same street; zips must agree when BOTH are present (so a missing zip
+            // still matches — that's the ~90m-drift case — but different cities don't).
+            const here = (streetIdx.get(sk) || []).filter((p) => !cz || !p.zip || p.zip === cz);
+            const worked = here.find((p) => !RAW_SET.has(p.status));
+            const rawTwin = here.find((p) => p.status !== "insp"); // another raw JN lead already here
+            const insp = here.find((p) => p.status === "insp");
+            if (worked || rawTwin) { dupSkipped++; continue; }     // a worked/raw pin already owns this house
+            if (insp) {                                            // RepCard "insp" here → IQ takes over the pin (no dup)
+              claimedKeys.add(ck);
+              updates.push(fetch(`${SB_URL}/rest/v1/canvass_prospects?id=eq.${insp.id}`, { method: "PATCH", headers: { ...sbHeaders, Prefer: "return=minimal" }, body: JSON.stringify(row) }).then((r) => r.ok));
+              converted++;
+              continue;
+            }
+            claimedKeys.add(ck);   // claim the house for the pin we're about to insert
+          }
+          toInsert.push(row);
+        }
       }
       const updated = (await Promise.all(updates)).filter(Boolean).length;
       let inserted = 0;
@@ -173,7 +213,7 @@ exports.handler = async (event) => {
 
       await writeSetting(`harvest_leadsync_${key}`, {
         ok: true, enabled: true, source: def.source, created_on_or_after: cfg.created_after || null,
-        candidates: cands.length, inserted, updated, removed, preserved_worked: preserved, restatused_from_job: restatused, geocoded, skipped_ungeocoded: skipped,
+        candidates: cands.length, inserted, updated, removed, preserved_worked: preserved, restatused_from_job: restatused, geocoded, skipped_ungeocoded: skipped, dup_skipped: dupSkipped, converted_from_insp: converted,
         started, finished: new Date().toISOString(),
       });
     } catch (e) {
@@ -204,6 +244,19 @@ function jobPinStatus(name) {
   if (s.includes("btr") || s.includes("stale") || s.includes("credit denial") || s.includes("no info") || s.includes("no response")) return "iq_ni";
   return null;
 }
+// Unworked "lead" statuses — a pin in one of these is still fair game. Anything
+// else (appt / insp_sold / iq_ni / dead / lost / …) is WORKED and owns its house.
+const RAW_SET = new Set(["iq", "fb", "ai", "insp", "no_sit_reschedule"]);
+// Normalized street key so the same house collapses across sources despite
+// geocode drift + spelling ("12735 NEWTON PL" == "12735 Newton Place").
+const ADDR_SUF = { street: "st", st: "st", avenue: "ave", ave: "ave", av: "ave", place: "pl", pl: "pl", drive: "dr", dr: "dr", lane: "ln", ln: "ln", court: "ct", ct: "ct", terrace: "ter", terr: "ter", ter: "ter", boulevard: "blvd", blvd: "blvd", road: "rd", rd: "rd", circle: "cir", cir: "cir", trail: "trl", trl: "trl", parkway: "pkwy", pkwy: "pkwy", highway: "hwy", hwy: "hwy", cove: "cv", cv: "cv", point: "pt", pt: "pt", square: "sq", sq: "sq" };
+const ADDR_DIR = { north: "n", n: "n", south: "s", s: "s", east: "e", e: "e", west: "w", w: "w", northeast: "ne", ne: "ne", northwest: "nw", nw: "nw", southeast: "se", se: "se", southwest: "sw", sw: "sw" };
+function streetKey(address) {
+  const s = String(address || "").split(",")[0].toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+  if (!s || !/^\d/.test(s)) return null;
+  return s.split(" ").map((t) => ADDR_SUF[t] || ADDR_DIR[t] || t).join(" ");
+}
+function zip5(z) { return String(z || "").replace(/\D/g, "").slice(0, 5); }
 const sbHeaders = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
 const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) && Math.abs(n) <= 180 ? n : null; };
 async function del(ids) {
@@ -211,7 +264,7 @@ async function del(ids) {
 }
 async function sbGetAll(path) {
   const out = [];
-  for (let from = 0; from < 100000; from += 1000) {
+  for (let from = 0; from < 400000; from += 1000) {
     const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: { ...sbHeaders, "Range-Unit": "items", Range: `${from}-${from + 999}` } });
     if (!r.ok) break; const b = await r.json().catch(() => []); if (!Array.isArray(b) || !b.length) break; out.push(...b); if (b.length < 1000) break;
   }
