@@ -68,15 +68,18 @@ export const handler = async (event) => {
     if (existingJobId) {
       // The rebooking rep takes it over — both owner AND sales_rep become this rep.
       const jobCore = { date_start: apptSec, ...(owner ? { owners: [{ id: owner }], sales_rep: owner } : {}) };
-      // Also flip the job to the retail "Appointment Scheduled" status — BUT that
-      // status only lives in the retail Lead workflow. On a No-Sit whose job is a
-      // different record type (e.g. insurance/damage) JN rejects it with a 500,
-      // which was killing the whole reschedule. Try with the status, and if it's
-      // rejected fall back to the core update so the reschedule still lands.
+      // Flip the job back to "Appointment Scheduled". JN status IDs are per-workflow,
+      // so the numeric id (531) may not be the one in THIS job's workflow → JN 500s
+      // (that was killing the whole reschedule). Escalate gracefully: numeric+name →
+      // name only (let JN map the id in the job's own workflow) → date+owner only.
       try {
         await jnPut(`jobs/${existingJobId}`, { status: APPT_STATUS, status_name: APPT_STATUS_NAME, ...jobCore });
       } catch {
-        await jnPut(`jobs/${existingJobId}`, jobCore);
+        try {
+          await jnPut(`jobs/${existingJobId}`, { status_name: APPT_STATUS_NAME, ...jobCore });
+        } catch {
+          await jnPut(`jobs/${existingJobId}`, jobCore);
+        }
       }
       // A No-Sit reschedule goes into JN as a "Reset Appointment": close every
       // existing appointment task on the job, then create one fresh Reset Appointment.
