@@ -940,7 +940,13 @@ export default function CanvassMap() {
       // selection (office "All") = everything the level can see. No region gate —
       // clustering keeps the zoomed-out view cheap; the viewport scopes the rest.
       const effStatuses = showNone ? [] : (sel.size ? [...sel].filter((k) => baseKeys.includes(k)) : baseKeys);
-      if (!effStatuses.length) { setProspects([]); setInstalls([]); setClusters([]); setCapped(false); setLoading(false); return []; }
+      if (!effStatuses.length) {
+        // Office defaults to "show nothing" — but we must still mark the map FITTED,
+        // else the reload effects (gated on fitted.current) never fire when the
+        // office picks a lead type, and pins never load. (The whole admin-map bug.)
+        if (!bounds && !fitted.current) { fitted.current = true; if (map.current) { try { map.current.invalidateSize(); } catch { /* ignore */ } } }
+        setProspects([]); setInstalls([]); setClusters([]); setCapped(false); setLoading(false); return [];
+      }
 
       // 2) Pins + installs, straight from Supabase (range-paginated → no payload cap).
       const showAll = showAllRef.current;
