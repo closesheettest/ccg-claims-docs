@@ -201,3 +201,11 @@
 # Pause via auto_sms key 'pa_stale_alert'. 8 AM EDT. exports.config mirrors.
 [functions."cron-pa-company-stale"]
   schedule = "0 12 * * *"
+
+# Scheduled function: auto-run the harvest lead sync so NEW JobNimbus leads
+# (Instant Quote / Facebook / AI Bot) land on the Harvesting Map same-day
+# instead of only when someone manually clicks "sync". Every 2 hours ~7 AM–9 PM
+# ET. Thin wrapper — fires the -background sync and returns. The file also
+# declares this via exports.config.schedule; this toml entry keeps it visible.
+[functions."cron-harvest-leadsync"]
+  schedule = "0 11,13,15,17,19,21,23,1 * * *"
