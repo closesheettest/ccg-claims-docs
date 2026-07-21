@@ -71,6 +71,15 @@ export default function HarvestAdmin() {
   };
 
   const allKeys = useMemo(() => (types || []).map((t) => t.key), [types]);
+  const [openKeys, setOpenKeys] = useState(() => new Set()); // collapsed by default
+  const toggleOpen = (key) => setOpenKeys((s) => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  const visSummary = (t) => {
+    const s = seesLevel(t, "senior"), j = seesLevel(t, "junior");
+    if (s && j) return { text: "All reps", off: false };
+    if (s) return { text: "Senior only", off: false };
+    if (j) return { text: "Junior only", off: false };
+    return { text: "Off map · office only", off: true };
+  };
 
   const patch = (key, fields) => setTypes((list) => list.map((t) => (t.key === key ? { ...t, ...fields } : t)));
 
@@ -195,53 +204,72 @@ export default function HarvestAdmin() {
       </div>
 
       <div style={{ display: "grid", gap: 12 }}>
-        {types.map((t) => (
-          <div key={t.key} style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 14, background: t.active ? "#fff" : "#f8fafc", opacity: t.active ? 1 : 0.7 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              <input type="color" value={t.color} onChange={(e) => patch(t.key, { color: e.target.value })} style={{ width: 34, height: 34, border: "none", background: "none", cursor: "pointer" }} />
-              <input value={t.label} onChange={(e) => patch(t.key, { label: e.target.value })} style={{ fontSize: 15, fontWeight: 700, padding: "6px 10px", borderRadius: 8, border: "1px solid #cbd5e1", minWidth: 180 }} />
-              <code style={{ fontSize: 12, color: "#94a3b8" }}>{t.key}</code>
-              <label style={{ fontSize: 12.5, color: "#475569", display: "flex", alignItems: "center", gap: 5, marginLeft: "auto" }}>
-                <input type="checkbox" checked={!!t.is_terminal} onChange={(e) => patch(t.key, { is_terminal: e.target.checked })} /> finished (terminal)
-              </label>
-              <label style={{ fontSize: 12.5, color: "#475569", display: "flex", alignItems: "center", gap: 5 }}>
-                <input type="checkbox" checked={t.active !== false} onChange={(e) => patch(t.key, { active: e.target.checked })} /> active
-              </label>
-            </div>
+        {types.map((t) => {
+          const open = openKeys.has(t.key);
+          const vs = visSummary(t);
+          return (
+          <div key={t.key} style={{ border: "1px solid #e5e7eb", borderRadius: 12, background: t.active ? "#fff" : "#f8fafc", opacity: t.active ? 1 : 0.7, overflow: "hidden" }}>
+            {/* Collapsed header — tap to expand. Shows the color, name, and who sees it. */}
+            <button type="button" onClick={() => toggleOpen(t.key)}
+              style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}>
+              <span style={{ width: 18, height: 18, borderRadius: "50%", background: t.color, flexShrink: 0, boxShadow: "0 0 0 1px rgba(0,0,0,.1)" }} />
+              <span style={{ fontSize: 15, fontWeight: 700, color: "#0f172a" }}>{t.label}</span>
+              {t.active === false && <span style={{ fontSize: 10.5, fontWeight: 800, color: "#64748b", background: "#e2e8f0", padding: "2px 7px", borderRadius: 8 }}>inactive</span>}
+              <span style={{ marginLeft: "auto", fontSize: 11.5, fontWeight: 700, color: vs.off ? "#b45309" : "#0e7490", background: vs.off ? "#fffbeb" : "#ecfeff", border: `1px solid ${vs.off ? "#fde68a" : "#a5f3fc"}`, padding: "3px 9px", borderRadius: 8 }}>{vs.off ? "🔒 " : ""}{vs.text}</span>
+              <span style={{ fontSize: 15, color: "#94a3b8", transform: open ? "rotate(90deg)" : "none", transition: "transform .12s" }}>▸</span>
+            </button>
 
-            <div style={{ display: "flex", gap: 24, flexWrap: "wrap", marginTop: 12 }}>
-              <div>
-                <div style={{ fontSize: 11.5, fontWeight: 700, color: "#64748b", marginBottom: 5 }}>ON THE MAP FOR</div>
-                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  {LEVELS.map((lv) => {
-                    const on = seesLevel(t, lv);
-                    return (
-                      <button key={lv} type="button" onClick={() => setVis(t.key, lv, !on)} title={on ? `${lv}: on the map — tap to take OFF` : `${lv}: off the map — tap to put ON`} style={pill(on, "#0e7490")}>
-                        {lv} · {on ? "on map" : "off map"}
-                      </button>
-                    );
-                  })}
-                  {!seesLevel(t, "senior") && !seesLevel(t, "junior") && (
-                    <span style={{ fontSize: 11, fontWeight: 700, color: "#b45309", background: "#fffbeb", border: "1px solid #fde68a", padding: "3px 8px", borderRadius: 8, alignSelf: "center" }}>🔒 Off the map for all reps (office only)</span>
-                  )}
+            {/* Expanded body — full editor. */}
+            {open && (
+            <div style={{ padding: "0 14px 14px", borderTop: "1px solid #f1f5f9" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 12 }}>
+                <input type="color" value={t.color} onChange={(e) => patch(t.key, { color: e.target.value })} style={{ width: 34, height: 34, border: "none", background: "none", cursor: "pointer" }} />
+                <input value={t.label} onChange={(e) => patch(t.key, { label: e.target.value })} style={{ fontSize: 15, fontWeight: 700, padding: "6px 10px", borderRadius: 8, border: "1px solid #cbd5e1", minWidth: 180 }} />
+                <code style={{ fontSize: 12, color: "#94a3b8" }}>{t.key}</code>
+                <label style={{ fontSize: 12.5, color: "#475569", display: "flex", alignItems: "center", gap: 5, marginLeft: "auto" }}>
+                  <input type="checkbox" checked={!!t.is_terminal} onChange={(e) => patch(t.key, { is_terminal: e.target.checked })} /> finished (terminal)
+                </label>
+                <label style={{ fontSize: 12.5, color: "#475569", display: "flex", alignItems: "center", gap: 5 }}>
+                  <input type="checkbox" checked={t.active !== false} onChange={(e) => patch(t.key, { active: e.target.checked })} /> active
+                </label>
+              </div>
+
+              <div style={{ display: "flex", gap: 24, flexWrap: "wrap", marginTop: 12 }}>
+                <div>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: "#64748b", marginBottom: 5 }}>ON THE MAP FOR</div>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    {LEVELS.map((lv) => {
+                      const on = seesLevel(t, lv);
+                      return (
+                        <button key={lv} type="button" onClick={() => setVis(t.key, lv, !on)} title={on ? `${lv}: on the map — tap to take OFF` : `${lv}: off the map — tap to put ON`} style={pill(on, "#0e7490")}>
+                          {lv} · {on ? "on map" : "off map"}
+                        </button>
+                      );
+                    })}
+                    {!seesLevel(t, "senior") && !seesLevel(t, "junior") && (
+                      <span style={{ fontSize: 11, fontWeight: 700, color: "#b45309", background: "#fffbeb", border: "1px solid #fde68a", padding: "3px 8px", borderRadius: 8, alignSelf: "center" }}>🔒 Off the map for all reps (office only)</span>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: "#64748b", marginBottom: 5 }}>CAN BECOME (outcomes)</div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {allKeys.filter((k) => k !== t.key).map((k) => {
+                      const on = (t.outcomes || []).includes(k);
+                      return <button key={k} type="button" onClick={() => toggleArr(t.key, "outcomes", k)} style={pill(on, "#7c3aed")}>{S(types, k)}</button>;
+                    })}
+                  </div>
                 </div>
               </div>
-              <div>
-                <div style={{ fontSize: 11.5, fontWeight: 700, color: "#64748b", marginBottom: 5 }}>CAN BECOME (outcomes)</div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {allKeys.filter((k) => k !== t.key).map((k) => {
-                    const on = (t.outcomes || []).includes(k);
-                    return <button key={k} type="button" onClick={() => toggleArr(t.key, "outcomes", k)} style={pill(on, "#7c3aed")}>{S(types, k)}</button>;
-                  })}
-                </div>
+
+              <div style={{ marginTop: 12, textAlign: "right" }}>
+                <button type="button" onClick={() => save(t)} disabled={busy === t.key} style={{ fontSize: 13, fontWeight: 700, padding: "8px 16px", borderRadius: 8, border: "none", background: "#16a34a", color: "#fff", cursor: "pointer", opacity: busy === t.key ? 0.6 : 1 }}>{busy === t.key ? "Saving…" : "Save"}</button>
               </div>
             </div>
-
-            <div style={{ marginTop: 12, textAlign: "right" }}>
-              <button type="button" onClick={() => save(t)} disabled={busy === t.key} style={{ fontSize: 13, fontWeight: 700, padding: "8px 16px", borderRadius: 8, border: "none", background: "#16a34a", color: "#fff", cursor: "pointer", opacity: busy === t.key ? 0.6 : 1 }}>{busy === t.key ? "Saving…" : "Save"}</button>
-            </div>
+            )}
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {adding ? (

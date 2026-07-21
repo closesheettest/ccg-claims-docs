@@ -838,7 +838,19 @@ export default function CanvassMap() {
     const canSee = (t) => !((t.visible_levels) || []).length || ((t.visible_levels) || []).includes(effLevel);
     return new Set(pinTypes.filter(canSee).map((t) => t.key));
   }, [seesAll, effLevel, pinTypes]);
-  const visTypes = useMemo(() => (visKeys ? pinTypes.filter((t) => visKeys.has(t.key)) : pinTypes), [visKeys, pinTypes]);
+  // "worked_today" is a managed pin type in the admin, but it's a synthetic OVERLAY
+  // (doors touched today), not a real status — so it never renders as a normal
+  // status chip. Its row only carries the color + per-level on/off-map visibility.
+  const visTypes = useMemo(() => (visKeys ? pinTypes.filter((t) => visKeys.has(t.key)) : pinTypes).filter((t) => t.key !== "worked_today"), [visKeys, pinTypes]);
+  const workedType = useMemo(() => pinTypes.find((t) => t.key === "worked_today"), [pinTypes]);
+  const workedColor = workedType?.color || BABY_BLUE;
+  const workedVisible = useMemo(() => {
+    if (!workedType) return true;                 // legacy (no row) → available as before
+    if (workedType.active === false) return false;
+    if (seesAll) return true;                     // office/admin always
+    const lv = workedType.visible_levels || [];
+    return lv.length === 0 || lv.includes(effLevel);
+  }, [workedType, seesAll, effLevel]);
   // Statuses that are NOT a door to knock, so "Start my day" and every later round
   // skip them: anything terminal (Inspection Sold, Dead) plus "Pending signature"
   // (the link's already out — waiting on the homeowner, not a stop to re-work).
@@ -1180,12 +1192,12 @@ export default function CanvassMap() {
   useEffect(() => {
     const lyr = workedLayer.current; if (!lyr) return;
     lyr.clearLayers();
-    if (!showWorked) return;
+    if (!showWorked || !workedVisible) return;
     const shownIds = new Set(mapped.map((p) => p.id));
     for (const p of workedPins) {
       if (shownIds.has(p.id)) continue;
       if (typeof p.latitude !== "number" || typeof p.longitude !== "number") continue;
-      const marker = L.marker([p.latitude, p.longitude], { icon: dotIcon(BABY_BLUE) });
+      const marker = L.marker([p.latitude, p.longitude], { icon: dotIcon(workedColor) });
       marker.on("click", () => openPin(p));
       lyr.addLayer(marker);
     }
@@ -2527,8 +2539,8 @@ export default function CanvassMap() {
           {installs.length > 0 && (
             <Chip active={showInstalls} onClick={() => setShowInstalls((v) => !v)} color={INSTALL_COLOR} label={`⭐ Installs (${installs.length})`} />
           )}
-          {workedPins.length > 0 && (
-            <Chip active={showWorked} onClick={() => setShowWorked((v) => !v)} color={BABY_BLUE} label={`🔵 Worked today (${workedPins.length})`} />
+          {workedPins.length > 0 && workedVisible && (
+            <Chip active={showWorked} onClick={() => setShowWorked((v) => !v)} color={workedColor} label={`🔵 ${workedType?.label || "Worked today"} (${workedPins.length})`} />
           )}
         </div>
       )}
@@ -2560,8 +2572,8 @@ export default function CanvassMap() {
               <StatusCard color={INSTALL_COLOR} label="⭐ Installs" count={installs.length}
                 active={showInstalls} onClick={() => setShowInstalls((v) => !v)} />
             )}
-            {workedPins.length > 0 && (
-              <StatusCard color={BABY_BLUE} label="🔵 Worked today" count={workedPins.length}
+            {workedPins.length > 0 && workedVisible && (
+              <StatusCard color={workedColor} label={`🔵 ${workedType?.label || "Worked today"}`} count={workedPins.length}
                 active={showWorked} onClick={() => setShowWorked((v) => !v)} />
             )}
             {me?.level === "admin" && !demoMode && (
