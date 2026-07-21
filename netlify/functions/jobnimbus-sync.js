@@ -390,6 +390,16 @@ async function uploadFileToJob(apiKey, jobId, filename, base64Content) {
   }
 }
 
+// Normalized street key so a signed address matches its map pin despite geocode
+// drift + spelling ("365 Cowry Road" == "365 COWRY RD"). Mirrors the harvest dedup.
+const PIN_SUF = { street: "st", st: "st", avenue: "ave", ave: "ave", av: "ave", place: "pl", pl: "pl", drive: "dr", dr: "dr", lane: "ln", ln: "ln", court: "ct", ct: "ct", terrace: "ter", terr: "ter", ter: "ter", boulevard: "blvd", blvd: "blvd", road: "rd", rd: "rd", circle: "cir", cir: "cir", trail: "trl", trl: "trl", parkway: "pkwy", pkwy: "pkwy", highway: "hwy", hwy: "hwy", cove: "cv", cv: "cv", point: "pt", pt: "pt", square: "sq", sq: "sq" };
+const PIN_DIR = { north: "n", n: "n", south: "s", s: "s", east: "e", e: "e", west: "w", w: "w", northeast: "ne", ne: "ne", northwest: "nw", nw: "nw", southeast: "se", se: "se", southwest: "sw", sw: "sw" };
+function pinStreetKey(address) {
+  const s = String(address || "").split(",")[0].toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+  if (!s || !/^\d/.test(s)) return null;
+  return s.split(" ").map((t) => PIN_SUF[t] || PIN_DIR[t] || t).join(" ");
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: JSON.stringify({ error: "Method not allowed" }) };
@@ -778,6 +788,34 @@ exports.handler = async (event) => {
         console.warn("Supabase env missing — skipping server-side write-back");
       }
     }
+
+    // ── Flip the matching Harvesting-Map pin to SOLD (server-side, reliable) ──
+    // The intake's client-side flip can miss (tab closed, no map link, or an
+    // off-map signing), leaving the door stuck at "needs inspection" so reps
+    // re-knock a signed house. Match the signed address to its map pin and mark
+    // it insp_sold here — every signed inspection flips its pin, no exceptions.
+    try {
+      const SBU = process.env.VITE_SUPABASE_URL, SBK = process.env.VITE_SUPABASE_ANON_KEY;
+      const sk = pinStreetKey(address);
+      if (SBU && SBK && sk) {
+        const sbh = { apikey: SBK, Authorization: `Bearer ${SBK}`, "Content-Type": "application/json" };
+        const houseNum = (String(address).trim().match(/^\d+/) || [""])[0];
+        const firstWord = sk.split(" ")[1] || "";
+        const z = String(zip || "").replace(/\D/g, "").slice(0, 5);
+        const like = encodeURIComponent(`${houseNum}%${firstWord}%`);
+        const pins = await fetch(`${SBU}/rest/v1/canvass_prospects?address=ilike.${like}&select=id,address,zip,status,status_log&limit=50`, { headers: sbh }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+        const zipOk = (pz) => { const p = String(pz || "").replace(/\D/g, "").slice(0, 5); return !z || !p || p === z; };
+        const hit = (pins || []).find((p) => pinStreetKey(p.address) === sk && zipOk(p.zip) && p.status !== "insp_sold");
+        if (hit) {
+          const nowIso = new Date().toISOString();
+          const log = Array.isArray(hit.status_log) ? [...hit.status_log] : [];
+          log.push({ at: nowIso, from: hit.status, to: "insp_sold", by: salesRepName || "rep", via: "signing sync" });
+          await fetch(`${SBU}/rest/v1/canvass_prospects?id=eq.${hit.id}`, { method: "PATCH", headers: { ...sbh, Prefer: "return=minimal" }, body: JSON.stringify({ status: "insp_sold", status_updated_at: nowIso, status_by: salesRepName || null, jn_job_id: jobId, status_log: log }) });
+          await fetch(`${SBU}/rest/v1/canvass_activity`, { method: "POST", headers: { ...sbh, Prefer: "return=minimal" }, body: JSON.stringify({ pin_id: hit.id, rep_name: salesRepName || null, kind: "status", from_status: hit.status, to_status: "insp_sold" }) }).catch(() => {});
+          console.log("Harvest pin flipped to sold (server-side):", hit.id, hit.address);
+        }
+      }
+    } catch (e) { console.warn("Harvest pin flip failed (non-fatal):", e.message); }
 
     console.log("=== JN Sync Complete ===");
     console.log("Contact:", contactId, contactAction, "| Job:", jobId, "| Status:", status, "| File:", fileResult, "| Agreement uploaded:", agreementUploaded, "| Linked existing:", linkedExisting, "| DB linked:", dbLinked);
