@@ -70,7 +70,7 @@ export const handler = async (event) => {
       // Push the reschedule to JobNimbus. If JN refuses the write entirely (a locked
       // or broken job that 500s on everything), DON'T block the rep — we reschedule
       // the pin below regardless and flag it for a manual JN fix.
-      let jnFailed = false, jnErr = null;
+      let jnFailed = false, jnErr = null, startDateSet = false;
       try {
         const jh = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
         // A job PUT that reads back JN's real error body (so a failure isn't an opaque
@@ -117,6 +117,17 @@ export const handler = async (event) => {
           note: `🔄 Harvesting appointment RESET by ${rep.name || "rep"} for ${new Date(apptMs).toLocaleString("en-US", { timeZone: "America/New_York" })} — reassigned to ${rep.name || "rep"}`,
           primary: { id: existingJobId, type: "job" }, related: [{ id: existingJobId, type: "job" }], is_status_change: false,
         }).catch(() => {});
+        // FINAL, best-effort — now that the job is OUT of the no-sit status, set the
+        // job's Start Date (JN's conversion/weekly reports bucket by Start Date). This
+        // 500s while the job is still in "No Sit- Need to Reschedule", so we try it last,
+        // after the status flip. If JN still refuses, the reschedule is already fully
+        // synced (status + Reset Appointment task) — we just note Start Date didn't set.
+        try {
+          await rawJobPut({ date_start: apptSec }, "start-date");
+          startDateSet = true;
+        } catch (e2) {
+          console.warn(`Reschedule: Start Date still refused after status change on ${existingJobId}. ${e2 && e2.message}`);
+        }
       } catch (e) {
         jnFailed = true; jnErr = (e && e.message) || String(e);
         console.warn(`Reschedule: JobNimbus refused writes on job ${existingJobId} — pin rescheduled anyway. ${jnErr}`);
@@ -133,7 +144,7 @@ export const handler = async (event) => {
 
       logActivity({ pin_id: pinId, rep_name: rep.name, rep_token: rt, kind: "status", from_status: pin.status, to_status: "appt", ...(jnFailed ? { note: "JN sync failed — reset in JobNimbus manually" } : {}) });
       return json(200, {
-        ok: true, job_id: existingJobId, reset: true, jn_synced: !jnFailed,
+        ok: true, job_id: existingJobId, reset: true, jn_synced: !jnFailed, start_date_set: startDateSet,
         ...(jnFailed ? { warning: "Rescheduled on your map — but JobNimbus wouldn't update this job. It needs to be reset in JobNimbus manually.", jn_error: jnErr } : {}),
       });
     }
