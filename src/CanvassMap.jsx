@@ -932,7 +932,7 @@ export default function CanvassMap() {
       const lvl = rep && rep.level;
       // The pin-type keys this rep's LEVEL may see (same rule the function used).
       const baseKeys = (pin_types || [])
-        .filter((t) => lvl === "admin" || !((t.visible_levels) || []).length || ((t.visible_levels) || []).includes(lvl))
+        .filter((t) => seesAll || lvl === "admin" || !((t.visible_levels) || []).length || ((t.visible_levels) || []).includes(lvl))
         .map((t) => t.key);
       if (!baseKeys.length) { setProspects([]); setInstalls([]); setCapped(false); setLoading(false); return []; }
 
@@ -1039,7 +1039,7 @@ export default function CanvassMap() {
       const { rep, pin_types } = info;
       const lvl = rep && rep.level;
       const baseKeys = (pin_types || [])
-        .filter((t) => lvl === "admin" || !((t.visible_levels) || []).length || ((t.visible_levels) || []).includes(lvl))
+        .filter((t) => seesAll || lvl === "admin" || !((t.visible_levels) || []).length || ((t.visible_levels) || []).includes(lvl))
         .map((t) => t.key);
       if (!baseKeys.length) return false;
       if (showNone) { setClusters([]); setProspects([]); return true; } // office default: show nothing until a type is picked
