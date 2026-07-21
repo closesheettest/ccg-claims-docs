@@ -26,17 +26,28 @@ export default function HarvestReport() {
       setRows(null); setErr(""); setOpenRep(null);
       const RICH = "rep_name, pin_id, kind, from_status, to_status, round, created_at, dist_ft, loc_flag, lat, lng";
       const BASIC = "rep_name, pin_id, kind, from_status, to_status, round, created_at";
-      const build = (cols) => {
-        let q = supabase.from("canvass_activity").select(cols).order("created_at", { ascending: false }).limit(50000);
-        if (period === "today") { const d = new Date(); d.setHours(0, 0, 0, 0); q = q.gte("created_at", d.toISOString()); }
-        else if (period === "7d") { q = q.gte("created_at", new Date(Date.now() - 7 * 86400000).toISOString()); }
-        return q;
+      // PAGE through every row — a single `.limit()` is silently capped at 1000 by
+      // the server, which (ordered newest-first) drops older reps entirely. At 80
+      // reps a day easily clears 1000 actions, so we must page to stay accurate.
+      const PAGE = 1000;
+      const fetchAll = async (cols) => {
+        const all = [];
+        for (let from = 0; from < 500000; from += PAGE) {
+          let q = supabase.from("canvass_activity").select(cols).order("created_at", { ascending: false }).range(from, from + PAGE - 1);
+          if (period === "today") { const d = new Date(); d.setHours(0, 0, 0, 0); q = q.gte("created_at", d.toISOString()); }
+          else if (period === "7d") { q = q.gte("created_at", new Date(Date.now() - 7 * 86400000).toISOString()); }
+          const { data, error } = await q;
+          if (error) return { data: all, error };
+          all.push(...(data || []));
+          if (!data || data.length < PAGE) break;
+        }
+        return { data: all, error: null };
       };
       // Try the location-aware columns; if the migration hasn't run yet, fall back to
       // the basic report rather than erroring the whole page.
-      let { data, error } = await build(RICH);
+      let { data, error } = await fetchAll(RICH);
       let off = false;
-      if (error && /loc_flag|dist_ft|\blat\b|\blng\b|column/i.test(error.message || "")) { off = true; ({ data, error } = await build(BASIC)); }
+      if (error && /loc_flag|dist_ft|\blat\b|\blng\b|column/i.test(error.message || "")) { off = true; ({ data, error } = await fetchAll(BASIC)); }
       setAuditOff(off);
       if (error) { setErr(error.message.includes("canvass_activity") ? "Run sql/canvass_activity.sql in Supabase to turn on reporting." : error.message); return; }
       setRows(data || []);

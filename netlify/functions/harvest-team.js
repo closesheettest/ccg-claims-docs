@@ -29,11 +29,14 @@ export const handler = async (event) => {
   // cap would drop the NEWEST rows (the reps' current spots), not the oldest.
   // `ended` may not be migrated yet → fall back to the column-less select so the
   // team view never breaks (a missing `ended` just reads as not-ended = still live).
-  const pingSel = (cols) => sbGet(`harvest_rep_pings?at=gte.${encodeURIComponent(since)}&select=${cols}&order=at.asc&limit=20000`, sb);
+  // PAGE the pings — a single `limit=` is capped at 1000 by the server, and with
+  // order=at.asc that drops the NEWEST rows (reps' current spots) once the live
+  // window clears 1000 pings (≈ 20+ reps). Range paging returns them all.
+  const pingSel = (cols) => sbGetAll(`harvest_rep_pings?at=gte.${encodeURIComponent(since)}&select=${cols}&order=at.asc`, sb);
   let pings = await pingSel("rep_id,rep_name,lat,lng,at,ended").catch(() => null);
   if (pings === null) pings = await pingSel("rep_id,rep_name,lat,lng,at").catch(() => []);
   // Latest canvass action per rep (what they're doing) — pull recent, keep newest per rep.
-  const acts = await sbGet(`canvass_activity?created_at=gte.${encodeURIComponent(since)}&select=rep_name,kind,to_status,created_at&order=created_at.desc&limit=2000`, sb).catch(() => []);
+  const acts = await sbGetAll(`canvass_activity?created_at=gte.${encodeURIComponent(since)}&select=rep_name,kind,to_status,created_at&order=created_at.desc`, sb).catch(() => []);
   const lastByName = {};
   for (const a of acts) { const n = (a.rep_name || "").toLowerCase(); if (n && !lastByName[n]) lastByName[n] = a; }
 
@@ -64,6 +67,19 @@ async function sbGet(path, sb) {
   const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: sb });
   if (!r.ok) throw new Error(await r.text().catch(() => "err"));
   return r.json().catch(() => []);
+}
+// Range-paged fetch — gets EVERY row past the server's 1000-row cap.
+async function sbGetAll(path, sb) {
+  const out = [];
+  for (let from = 0; from < 500000; from += 1000) {
+    const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: { ...sb, "Range-Unit": "items", Range: `${from}-${from + 999}` } });
+    if (!r.ok) { if (from === 0) throw new Error(await r.text().catch(() => "err")); break; }
+    const b = await r.json().catch(() => []);
+    if (!Array.isArray(b) || !b.length) break;
+    out.push(...b);
+    if (b.length < 1000) break;
+  }
+  return out;
 }
 function json(statusCode, obj) {
   return { statusCode, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" }, body: JSON.stringify(obj) };

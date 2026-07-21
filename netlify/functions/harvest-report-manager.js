@@ -37,11 +37,13 @@ export const handler = async (event) => {
   const allow = new Set(teamReps.map((r) => normalizeName(r.name)).filter(Boolean));
 
   const since = period === "all" ? null : new Date(Date.now() - (period === "today" ? sinceMidnightMs() : period === "7d" ? 7 * 864e5 : 30 * 864e5)).toISOString();
-  let path = "canvass_activity?select=rep_name,pin_id,kind,from_status,to_status,round,created_at,dist_ft,loc_flag&order=created_at.desc&limit=50000";
+  // PAGE through all activity — a single `limit=` is capped at 1000 by the server,
+  // which drops reps once a zone clears 1000 actions (≈ a busy day at scale).
+  let path = "canvass_activity?select=rep_name,pin_id,kind,from_status,to_status,round,created_at,dist_ft,loc_flag&order=created_at.desc";
   if (since) path += `&created_at=gte.${encodeURIComponent(since)}`;
-  let rows = await sbGet(path, sb).catch(() => null);
+  let rows = await sbGetAll(path, sb).catch(() => null);
   // dist_ft/loc_flag not migrated yet → retry without them.
-  if (rows === null) rows = await sbGet(path.replace(",dist_ft,loc_flag", ""), sb).catch(() => []);
+  if (rows === null) rows = await sbGetAll(path.replace(",dist_ft,loc_flag", ""), sb).catch(() => []);
   const acts = (rows || []).filter((a) => allow.has(normalizeName(a.rep_name)));
 
   const byName = new Map();
@@ -93,6 +95,19 @@ async function sbGet(path, sb) {
   const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: sb });
   if (!r.ok) throw new Error(await r.text().catch(() => "err"));
   return r.json();
+}
+// Range-paged fetch — gets EVERY row past the server's 1000-row cap.
+async function sbGetAll(path, sb) {
+  const out = [];
+  for (let from = 0; from < 500000; from += 1000) {
+    const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: { ...sb, "Range-Unit": "items", Range: `${from}-${from + 999}` } });
+    if (!r.ok) { if (from === 0) throw new Error(await r.text().catch(() => "err")); break; }
+    const b = await r.json().catch(() => []);
+    if (!Array.isArray(b) || !b.length) break;
+    out.push(...b);
+    if (b.length < 1000) break;
+  }
+  return out;
 }
 function cors(status, body) {
   return { statusCode: status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" }, body: typeof body === "string" ? body : JSON.stringify(body) };

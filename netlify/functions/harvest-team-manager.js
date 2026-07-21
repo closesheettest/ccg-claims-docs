@@ -55,10 +55,10 @@ export const handler = async (event) => {
   const since = new Date(Date.now() - mins * 60000).toISOString();
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   // `ended` may not be migrated yet → fall back to the column-less ping select.
-  const pingSel = (cols) => sbGet(`harvest_rep_pings?at=gte.${encodeURIComponent(since)}&select=${cols}&order=at.asc&limit=20000`, sb);
+  const pingSel = (cols) => sbGetAll(`harvest_rep_pings?at=gte.${encodeURIComponent(since)}&select=${cols}&order=at.asc`, sb);
   const [pingsRaw, actsAll] = await Promise.all([
     pingSel("rep_id,rep_name,lat,lng,at,ended").catch(() => null),
-    sbGet(`canvass_activity?created_at=gte.${encodeURIComponent(todayStart.toISOString())}&select=rep_name,kind,to_status,created_at&order=created_at.desc&limit=10000`, sb).catch(() => []),
+    sbGetAll(`canvass_activity?created_at=gte.${encodeURIComponent(todayStart.toISOString())}&select=rep_name,kind,to_status,created_at&order=created_at.desc`, sb).catch(() => []),
   ]);
   const pingsAll = pingsRaw !== null ? pingsRaw : await pingSel("rep_id,rep_name,lat,lng,at").catch(() => []);
   const pings = pingsAll.filter((pg) => allow.has(normalizeName(pg.rep_name)));
@@ -140,6 +140,19 @@ async function sbGet(path, sb) {
   const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: sb });
   if (!r.ok) throw new Error(await r.text().catch(() => "err"));
   return r.json();
+}
+// Range-paged fetch — gets EVERY row past the server's 1000-row cap.
+async function sbGetAll(path, sb) {
+  const out = [];
+  for (let from = 0; from < 500000; from += 1000) {
+    const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: { ...sb, "Range-Unit": "items", Range: `${from}-${from + 999}` } });
+    if (!r.ok) { if (from === 0) throw new Error(await r.text().catch(() => "err")); break; }
+    const b = await r.json().catch(() => []);
+    if (!Array.isArray(b) || !b.length) break;
+    out.push(...b);
+    if (b.length < 1000) break;
+  }
+  return out;
 }
 function cors(status, body) {
   return {
