@@ -26,6 +26,7 @@ const APPT_STATUS = 531, APPT_STATUS_NAME = "Appointment Scheduled";
 const LEAD_RT = 45, LEAD_RT_NAME = "Lead";
 const APPT_TASK_RT = 4;  // "Initial Appointment" (fresh booking)
 const RESET_APPT_RT = 12; // "Reset Appointment" — a No-Sit reschedule goes into JN as this
+const RESCHEDULED_STATUS_NAME = "No Sit - Rescheduled"; // job status a reschedule sets (not "Appointment Scheduled")
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const handler = async (event) => {
@@ -73,17 +74,15 @@ export const handler = async (event) => {
       try {
         // The rebooking rep takes it over — both owner AND sales_rep become this rep.
         const jobCore = { date_start: apptSec, ...(owner ? { owners: [{ id: owner }], sales_rep: owner } : {}) };
-        // Flip the job back to "Appointment Scheduled". JN status IDs are per-workflow,
-        // so the numeric id (531) may not be the one in THIS job's workflow → try
-        // numeric+name → name only (JN maps it) → date+owner only.
+        // A rescheduled No-Sit goes to the "No Sit - Rescheduled" status — NOT
+        // "Appointment Scheduled". Forcing "Appointment Scheduled" while we create a
+        // Reset Appointment task is the mismatch JN was rejecting (the 500). Set it by
+        // name so JN maps the id in the job's own workflow; fall back to date+owner
+        // only if the status is somehow still rejected.
         try {
-          await jnPut(`jobs/${existingJobId}`, { status: APPT_STATUS, status_name: APPT_STATUS_NAME, ...jobCore });
+          await jnPut(`jobs/${existingJobId}`, { status_name: RESCHEDULED_STATUS_NAME, ...jobCore });
         } catch {
-          try {
-            await jnPut(`jobs/${existingJobId}`, { status_name: APPT_STATUS_NAME, ...jobCore });
-          } catch {
-            await jnPut(`jobs/${existingJobId}`, jobCore);
-          }
+          await jnPut(`jobs/${existingJobId}`, jobCore);
         }
         // A No-Sit reschedule goes into JN as a "Reset Appointment": close every
         // existing appointment task on the job, then create one fresh Reset Appointment.
