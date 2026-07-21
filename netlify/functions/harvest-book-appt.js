@@ -84,14 +84,11 @@ export const handler = async (event) => {
         // jobs) works but this one 500s. Reassign owner + sales_rep before touching
         // anything else so the job is "ours" for the edits that follow.
         if (owner) await rawJobPut({ owners: [{ id: owner }], sales_rep: owner }, "reassign");
-        // STEP 2 — now that it's ours, set the new appointment date + the reschedule
-        // status ("No Sit - Rescheduled", NOT "Appointment Scheduled"). Fall back to
-        // date-only if the status name is somehow still rejected.
-        try {
-          await rawJobPut({ date_start: apptSec, status_name: RESCHEDULED_STATUS_NAME }, "status+date");
-        } catch {
-          await rawJobPut({ date_start: apptSec }, "date-only");
-        }
+        // STEP 2 — now that it's ours, set the reschedule status ("No Sit -
+        // Rescheduled", NOT "Appointment Scheduled"). We do NOT touch the job's own
+        // date_start — setting it 500s on these jobs, and the appointment date belongs
+        // on the Reset Appointment task we create below, not on the job.
+        await rawJobPut({ status_name: RESCHEDULED_STATUS_NAME }, "status");
         // A No-Sit reschedule goes into JN as a "Reset Appointment": close every
         // existing appointment task on the job, then create one fresh Reset Appointment.
         const tFilter = encodeURIComponent(JSON.stringify({ must: [{ term: { "related.id": existingJobId } }] }));
