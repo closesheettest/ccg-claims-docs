@@ -70,7 +70,7 @@ export const handler = async (event) => {
       // Push the reschedule to JobNimbus. If JN refuses the write entirely (a locked
       // or broken job that 500s on everything), DON'T block the rep — we reschedule
       // the pin below regardless and flag it for a manual JN fix.
-      let jnFailed = false;
+      let jnFailed = false, jnErr = null;
       try {
         // The rebooking rep takes it over — both owner AND sales_rep become this rep.
         const jobCore = { date_start: apptSec, ...(owner ? { owners: [{ id: owner }], sales_rep: owner } : {}) };
@@ -79,10 +79,16 @@ export const handler = async (event) => {
         // Reset Appointment task is the mismatch JN was rejecting (the 500). Set it by
         // name so JN maps the id in the job's own workflow; fall back to date+owner
         // only if the status is somehow still rejected.
+        const jh = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
+        const rawJobPut = async (payload) => {
+          const r = await fetch(`https://app.jobnimbus.com/api1/jobs/${existingJobId}`, { method: "PUT", headers: jh, body: JSON.stringify(payload) });
+          const txt = await r.text();
+          if (!r.ok) throw new Error(`jobPUT ${r.status} keys=${Object.keys(payload).join(",")}: ${txt.slice(0, 300)}`);
+        };
         try {
-          await jnPut(`jobs/${existingJobId}`, { status_name: RESCHEDULED_STATUS_NAME, ...jobCore });
+          await rawJobPut({ status_name: RESCHEDULED_STATUS_NAME, ...jobCore });
         } catch {
-          await jnPut(`jobs/${existingJobId}`, jobCore);
+          await rawJobPut(jobCore);
         }
         // A No-Sit reschedule goes into JN as a "Reset Appointment": close every
         // existing appointment task on the job, then create one fresh Reset Appointment.
@@ -104,8 +110,8 @@ export const handler = async (event) => {
           primary: { id: existingJobId, type: "job" }, related: [{ id: existingJobId, type: "job" }], is_status_change: false,
         }).catch(() => {});
       } catch (e) {
-        jnFailed = true;
-        console.warn(`Reschedule: JobNimbus refused writes on job ${existingJobId} — pin rescheduled anyway. ${e && e.message || e}`);
+        jnFailed = true; jnErr = (e && e.message) || String(e);
+        console.warn(`Reschedule: JobNimbus refused writes on job ${existingJobId} — pin rescheduled anyway. ${jnErr}`);
       }
 
       // Always reschedule the PIN so a bad JN job never leaves the rep stuck.
@@ -120,7 +126,7 @@ export const handler = async (event) => {
       logActivity({ pin_id: pinId, rep_name: rep.name, rep_token: rt, kind: "status", from_status: pin.status, to_status: "appt", ...(jnFailed ? { note: "JN sync failed — reset in JobNimbus manually" } : {}) });
       return json(200, {
         ok: true, job_id: existingJobId, reset: true, jn_synced: !jnFailed,
-        ...(jnFailed ? { warning: "Rescheduled on your map — but JobNimbus wouldn't update this job. It needs to be reset in JobNimbus manually." } : {}),
+        ...(jnFailed ? { warning: "Rescheduled on your map — but JobNimbus wouldn't update this job. It needs to be reset in JobNimbus manually.", jn_error: jnErr } : {}),
       });
     }
 
