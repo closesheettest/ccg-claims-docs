@@ -24,7 +24,8 @@ const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": 
 const RETAIL_LOCATION = 1;
 const APPT_STATUS = 531, APPT_STATUS_NAME = "Appointment Scheduled";
 const LEAD_RT = 45, LEAD_RT_NAME = "Lead";
-const APPT_TASK_RT = 4; // "Initial Appointment"
+const APPT_TASK_RT = 4;  // "Initial Appointment" (fresh booking)
+const RESET_APPT_RT = 12; // "Reset Appointment" — a No-Sit reschedule goes into JN as this
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const handler = async (event) => {
@@ -65,35 +66,32 @@ export const handler = async (event) => {
     // rep who rebooked becomes the sole owner/assigned (the old assignee, if
     // different, is dropped). Then the pin goes back to 'appt'.
     if (existingJobId) {
-      await jnPut(`jobs/${existingJobId}`, {
-        status: APPT_STATUS, status_name: APPT_STATUS_NAME,
-        date_start: apptSec,
-        // The rebooking rep takes it over — both the assigned owner AND the
-        // sales rep become this rep (JN tracks them as separate fields).
-        ...(owner ? { owners: [{ id: owner }], sales_rep: owner } : {}),
-      });
-      // Reset the Initial Appointment task(s): move the first to the new time +
-      // owner, and close out any extras so there's exactly one live appointment.
+      // The rebooking rep takes it over — both owner AND sales_rep become this rep.
+      const jobCore = { date_start: apptSec, ...(owner ? { owners: [{ id: owner }], sales_rep: owner } : {}) };
+      // Also flip the job to the retail "Appointment Scheduled" status — BUT that
+      // status only lives in the retail Lead workflow. On a No-Sit whose job is a
+      // different record type (e.g. insurance/damage) JN rejects it with a 500,
+      // which was killing the whole reschedule. Try with the status, and if it's
+      // rejected fall back to the core update so the reschedule still lands.
+      try {
+        await jnPut(`jobs/${existingJobId}`, { status: APPT_STATUS, status_name: APPT_STATUS_NAME, ...jobCore });
+      } catch {
+        await jnPut(`jobs/${existingJobId}`, jobCore);
+      }
+      // A No-Sit reschedule goes into JN as a "Reset Appointment": close every
+      // existing appointment task on the job, then create one fresh Reset Appointment.
       const tFilter = encodeURIComponent(JSON.stringify({ must: [{ term: { "related.id": existingJobId } }] }));
       const tResp = await jnGet(`tasks?size=50&filter=${tFilter}`);
       const appts = (tResp.results || tResp.tasks || tResp.data || [])
-        .filter((t) => t.record_type === APPT_TASK_RT || /appointment/i.test(t.record_type_name || ""));
-      if (appts.length) {
-        const t0 = appts[0];
-        await jnPut(`tasks/${t0.jnid || t0.id}`, {
-          date_start: apptSec, date_end: 0, is_completed: false,
-          ...(owner ? { owners: [{ id: owner }] } : {}),
-        });
-        for (const extra of appts.slice(1)) {
-          await jnPut(`tasks/${extra.jnid || extra.id}`, { is_completed: true }).catch(() => {});
-        }
-      } else {
-        await jnPost("tasks", {
-          record_type: APPT_TASK_RT, record_type_name: "Initial Appointment", type: "task",
-          title: `Initial Appointment — ${nm}`, date_start: apptSec, date_end: 0,
-          related: [{ id: existingJobId, type: "job" }], ...(owner ? { owners: [{ id: owner }] } : {}),
-        });
+        .filter((t) => t.record_type === APPT_TASK_RT || t.record_type === RESET_APPT_RT || /appointment/i.test(t.record_type_name || ""));
+      for (const t of appts) {
+        await jnPut(`tasks/${t.jnid || t.id}`, { is_completed: true }).catch(() => {});
       }
+      await jnPost("tasks", {
+        record_type: RESET_APPT_RT, record_type_name: "Reset Appointment", type: "task",
+        title: `Reset Appointment — ${nm}`, date_start: apptSec, date_end: 0,
+        related: [{ id: existingJobId, type: "job" }], ...(owner ? { owners: [{ id: owner }] } : {}),
+      });
       await jnPost("activities", {
         record_type_name: "Note",
         note: `🔄 Harvesting appointment RESET by ${rep.name || "rep"} for ${new Date(apptMs).toLocaleString("en-US", { timeZone: "America/New_York" })} — reassigned to ${rep.name || "rep"}`,
