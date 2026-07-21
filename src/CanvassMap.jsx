@@ -129,9 +129,14 @@ function orderStops(start, stops) {
   // recomputing the full length per trial is cheap.
   const head = (e) => co(e.rev ? e.seg[e.seg.length - 1] : e.seg[0]);
   const tail = (e) => co(e.rev ? e.seg[0] : e.seg[e.seg.length - 1]);
+  // Closed loop: include the leg BACK to the start so the tour circles the
+  // neighborhood and finishes near where the rep began — that's what keeps the
+  // last stop close to the first, so starting the next round back at pin 1 is a
+  // short hop instead of a trek across the whole area.
   const total = (arr) => {
     let t = feetBetween(start, head(arr[0]));
     for (let i = 0; i < arr.length - 1; i++) t += feetBetween(tail(arr[i]), head(arr[i + 1]));
+    t += feetBetween(tail(arr[arr.length - 1]), start);
     return t;
   };
   let best = total(entries), improved = true, pass = 0;
@@ -186,9 +191,12 @@ async function roadOrder(start, stops) {
       improved = false; pass++;
       for (let i = 1; i < seq.length - 1; i++) {
         for (let k = i + 1; k < seq.length; k++) {
-          const A = seq[i - 1], B = seq[i], C = seq[k], E = k + 1 < seq.length ? seq[k + 1] : null;
-          const before = val(A, B) + (E != null ? val(C, E) : 0);
-          const after = val(A, C) + (E != null ? val(B, E) : 0);
+          // Closed loop: the node after the last stop is the START (index 0), so the
+          // tour returns near where it began (short hop into the next round). Was an
+          // open path (no return leg), which let the route end far from the start.
+          const A = seq[i - 1], B = seq[i], C = seq[k], E = k + 1 < seq.length ? seq[k + 1] : 0;
+          const before = val(A, B) + val(C, E);
+          const after = val(A, C) + val(B, E);
           if (after + 1e-6 < before) { let lo = i, hi = k; while (lo < hi) { const t = seq[lo]; seq[lo] = seq[hi]; seq[hi] = t; lo++; hi--; } improved = true; }
         }
       }
@@ -2073,11 +2081,21 @@ export default function CanvassMap() {
   function nextRound() {
     const left = dayPoolPins().filter((p) => workingRef.current.has(p.id) && !resolvedIds.has(p.id));
     if (!left.length) return; // all statused — the done panel shows "all worked"
-    const from = myLoc || (route.length ? { lat: route[route.length - 1].latitude, lng: route[route.length - 1].longitude } : startPt);
-    const r = buildRoute(from, left, routeCap(left));
-    setStartPt(from); setRoute(r); setStopIdx(0); setRound((n) => n + 1); setDayMode("active"); setFillOffer(null);
-    if (map.current) map.current.setView([r[0].latitude, r[0].longitude], 15);
-    optimizeByRoad(from, r); // refine to real driving order in the background
+    // REUSE round 1's order, just drop the doors already statused. This restarts
+    // the round back at the FIRST pin and re-walks the same loop in the same
+    // direction — so the door he just left (no-answer) stays LAST, not first.
+    // (Re-sorting from his current GPS put that just-left pin first — the "reversing
+    // backwards" bug.) Because round 1 is now a closed loop, he's already near pin 1
+    // when the round ends, so heading back to it is a short hop.
+    const leftById = new Map(left.map((p) => [p.id, p]));
+    const ordered = [];
+    for (const s of route) { const p = leftById.get(s.id); if (p) { ordered.push(p); leftById.delete(s.id); } }
+    // Any leftovers added mid-day (e.g. go-backs) not in the prior order → tuck on the end.
+    if (leftById.size) ordered.push(...buildRoute(startPt || { lat: ordered[0]?.latitude, lng: ordered[0]?.longitude }, [...leftById.values()], routeCap([...leftById.values()])));
+    if (!ordered.length) return;
+    const from = startPt || { lat: ordered[0].latitude, lng: ordered[0].longitude };
+    setStartPt(from); setRoute(ordered); setStopIdx(0); setRound((n) => n + 1); setDayMode("active"); setFillOffer(null);
+    if (map.current) map.current.setView([ordered[0].latitude, ordered[0].longitude], 15);
   }
   // "Re-route from here" — the rep has drifted and the remaining order no longer
   // matches where they're standing. Take every door still left to work today and
