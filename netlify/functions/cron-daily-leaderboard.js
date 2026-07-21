@@ -107,9 +107,10 @@ export const handler = async (event) => {
 function buildMessage(zones, dayName) {
   const top = zones[0];
   const runner = zones[1];
-  const dash = DASHBOARD_URL.replace(/^https?:\/\//, ""); // bare domain, still tappable, far less spam-flaggy
+  // No link — reps know where the dashboard is, and a URL is the single biggest
+  // carrier spam trigger. Plain standings text delivers everywhere.
   if (!top || top.count === 0) {
-    return `US Shingle standings (${dayName}): no signings yet this week — first team to sign takes the lead. Board: ${dash}`;
+    return `US Shingle standings (${dayName}): no signings yet this week — first team to sign takes the lead.`;
   }
   let msg = `US Shingle standings (${dayName}): ${top.team} leads with ${top.count}`;
   if (runner && runner.count > 0) {
@@ -118,7 +119,7 @@ function buildMessage(zones, dayName) {
   } else if (runner) {
     msg += `, ${runner.team} ${top.count} behind`;
   }
-  return `${msg}. Board: ${dash}`;
+  return `${msg}.`;
 }
 
 // ── auto_sms registry helpers (fail-open) ───────────────────────────

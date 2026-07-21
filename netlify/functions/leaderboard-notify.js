@@ -156,19 +156,18 @@ const LEAD_EMOJI = { SHARKS: '🦈', SQUAD: '💥', HURRICANE: '🌀', SitSold: 
 // Full https:// so phones reliably turn it into a tappable link.
 const DASHBOARD_URL = 'https://us-shingle-rep-dashboard.netlify.app'
 
-// Carrier-safe: one line, no emoji, plain words, one bare-domain link, <160 chars
-// (see cron-daily-leaderboard for why emoji-dense multi-line texts get filtered).
-const DASH = DASHBOARD_URL.replace(/^https?:\/\//, '')
+// Carrier-safe: one line, no emoji, plain words, NO link (a URL is the biggest
+// spam trigger and reps know the dashboard), <160 chars.
 function buildMessage(top, runner) {
   let msg = `US Shingle: ${top.team} just took 1st with ${top.count} signed this week`
   if (runner && runner.count > 0) msg += `, ${runner.team} right behind at ${runner.count}`
-  return `${msg}. Board: ${DASH}`
+  return `${msg}.`
 }
 
 function buildTieMessage(tiedTeams, count, word) {
   const names = tiedTeams.map((z) => z.team)
   const who = names.length === 2 ? names.join(' & ') : names.slice(0, -1).join(', ') + ' & ' + names[names.length - 1]
-  return `US Shingle: tie for 1st — ${who} even at ${count} ${word} this week. Board: ${DASH}`
+  return `US Shingle: tie for 1st — ${who} even at ${count} ${word} this week.`
 }
 
 // ── Leaderboard state in Supabase (id-keyed single rows) ─────────────
