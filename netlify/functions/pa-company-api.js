@@ -387,13 +387,17 @@ exports.handler = async (event) => {
   // (pa_company_id) PLUS every deal currently assigned to one of their PAs.
   // Booking (rep Damage visit or PA self-schedule) sets pa_company_id=null, so
   // without the pa_id pass those booked deals would vanish from the company view.
+  // result=eq.damage: a deal that's been converted back to RETAIL (rep marked it
+  // Not Interested / BTR, so result flips to "retail") must leave the PA pool —
+  // otherwise it keeps re-surfacing in the company's "Needs assigning" even after
+  // they DQ it (the Ariel Alvarez bug). PA work is only ever on damage claims.
   const sel = `select=id,client_name,address,city,state,zip,county,signed_at,mobile,email,jn_job_id,latitude,longitude,pa_id,pa_company_id,pa_stage,pa_opened_at,pa_notes_log,correction_needed,pa_company_at,spanish_only,cancelled_at`;
   const dealMap = {};
-  for (const d of (await get(`${SB_URL}/rest/v1/inspections?pa_company_id=eq.${company.id}&${sel}&order=signed_at.desc&limit=500`, sb)) || []) dealMap[d.id] = d;
+  for (const d of (await get(`${SB_URL}/rest/v1/inspections?result=eq.damage&pa_company_id=eq.${company.id}&${sel}&order=signed_at.desc&limit=500`, sb)) || []) dealMap[d.id] = d;
   const paIdList = pas.map((p) => p.id);
   if (paIdList.length) {
     const inList = `(${paIdList.map((id) => `"${id}"`).join(",")})`;
-    for (const d of (await get(`${SB_URL}/rest/v1/inspections?pa_id=in.${encodeURIComponent(inList)}&${sel}&order=signed_at.desc&limit=500`, sb)) || []) dealMap[d.id] = d;
+    for (const d of (await get(`${SB_URL}/rest/v1/inspections?result=eq.damage&pa_id=in.${encodeURIComponent(inList)}&${sel}&order=signed_at.desc&limit=500`, sb)) || []) dealMap[d.id] = d;
   }
   // Drop cancelled + dead, then newest-signed first.
   const deals = Object.values(dealMap)
