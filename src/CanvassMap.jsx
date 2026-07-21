@@ -698,7 +698,7 @@ export default function CanvassMap() {
   const [installs, setInstalls] = useState([]);        // read-only star layer (jr + sr)
   const [showInstalls, setShowInstalls] = useState(false); // installed-roof stars off by default (opt-in)
   const [workedPins, setWorkedPins] = useState([]);    // doors worked TODAY (baby blue, not routable)
-  const [showWorked, setShowWorked] = useState(true);
+  const [showWorked, setShowWorked] = useState(false); // OFF by default — reps opt in via the "🔵 Worked today" chip; not a default view
   const workedLayer = useRef(null);
   const [selectedInstall, setSelectedInstall] = useState(null);
   const [visits, setVisits] = useState([]);            // rep's post-inspection go-backs (damage/no_damage/retail)
