@@ -649,6 +649,10 @@ export default function CanvassMap() {
   const [cbDate, setCbDate] = useState("");
   const [cbNote, setCbNote] = useState("");
   const [cbSaving, setCbSaving] = useState(false);
+  // Non-owner-occupied override: the rep has the owner (who lives elsewhere) and a
+  // phone number, and wants to work THIS house as a live self-gen deal.
+  const [ownerOverride, setOwnerOverride] = useState(false);
+  const [overridePhone, setOverridePhone] = useState("");
   // Status filter — a Set of selected pin-type keys. Empty = show All. Multi-select
   // so a rep can, e.g., work IQ + No-sit-reschedule together.
   const [sel, setSel] = useState(() => new Set());
@@ -2160,12 +2164,13 @@ export default function CanvassMap() {
 
   // ── Add-a-house (rep self-gen) ──────────────────────────────────────────
   // Arm tap-to-place: the next map tap drops a self-gen pin there.
-  function startAddHouse() { setSelected(null); setSelectedInstall(null); setNewPin(null); setAdding(true); }
-  function cancelAdd() { setAdding(false); setNewPin(null); }
+  function startAddHouse() { setSelected(null); setSelectedInstall(null); setNewPin(null); setOwnerOverride(false); setOverridePhone(""); setAdding(true); }
+  function cancelAdd() { setAdding(false); setNewPin(null); setOwnerOverride(false); setOverridePhone(""); }
   // The rep tapped a roof — place the pin and open its sheet (owner check runs
   // when they press "Owner occupied?").
   function dropPin({ lat, lng }) {
     setAdding(false);
+    setOwnerOverride(false); setOverridePhone("");
     setNewPin({ lat, lng, checking: true, check: null, saving: false });
     map.current?.panTo([lat, lng]);
     runOwnerCheck(lat, lng);   // pull the address + owner right away
@@ -2203,6 +2208,10 @@ export default function CanvassMap() {
           // keep the owner's mailing address for possible internal marketing.
           status: action === "non_owner" ? "non_owner" : undefined,
           mailing: c.mailing || null,
+          // Override: rep captured the owner's phone and is working this house as a
+          // live deal even though the cadastral said non-owner-occupied.
+          phone: ownerOverride ? overridePhone.trim() : undefined,
+          override: ownerOverride || undefined,
         }),
       });
       const d = await r.json();
@@ -3075,11 +3084,32 @@ export default function CanvassMap() {
                     <button type="button" disabled={newPin.saving} onClick={() => commitSelfGen("not_interested")}
                       style={{ padding: "13px", borderRadius: 12, border: "2px solid #78716c", background: "#fff", color: "#57534e", fontSize: 14.5, fontWeight: 800, cursor: "pointer", opacity: newPin.saving ? 0.6 : 1 }}>🚫 Not Interested</button>
                   </div>
-                ) : (
+                ) : ownerOverride ? (() => {
+                  const phoneOk = overridePhone.replace(/\D/g, "").length >= 10;
+                  const dis = newPin.saving || !phoneOk;
+                  return (
+                    <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+                      <div style={{ fontSize: 12.5, color: "#166534", fontWeight: 700 }}>✅ Override — the owner (across the street) wants a quote on this house. Enter their phone, then it becomes a live self-generated lead.</div>
+                      <input type="tel" inputMode="tel" value={overridePhone} onChange={(e) => setOverridePhone(e.target.value)} placeholder="Owner's phone number"
+                        style={{ width: "100%", boxSizing: "border-box", height: 46, padding: "0 12px", borderRadius: 12, border: "1px solid #d1d5db", fontSize: 16, background: "#fff" }} />
+                      <button type="button" disabled={dis} onClick={() => commitSelfGen("sign")}
+                        style={{ padding: "13px", borderRadius: 12, border: "none", background: "#7c3aed", color: "#fff", fontSize: 14.5, fontWeight: 800, cursor: dis ? "not-allowed" : "pointer", opacity: dis ? 0.5 : 1 }}>🖊️ Sign Inspection</button>
+                      <button type="button" disabled={dis} onClick={() => commitSelfGen("retail")}
+                        style={{ padding: "13px", borderRadius: 12, border: "2px solid #b45309", background: "#fff7ed", color: "#b45309", fontSize: 14.5, fontWeight: 800, cursor: dis ? "not-allowed" : "pointer", opacity: dis ? 0.5 : 1 }}>🏠 Retail Appointment</button>
+                      <button type="button" disabled={dis} onClick={() => commitSelfGen("pending")}
+                        style={{ padding: "13px", borderRadius: 12, border: "2px solid #ca8a04", background: "#fefce8", color: "#a16207", fontSize: 14.5, fontWeight: 800, cursor: dis ? "not-allowed" : "pointer", opacity: dis ? 0.5 : 1 }}>⏳ Pending (come back)</button>
+                      {!phoneOk && <div style={{ fontSize: 11.5, color: "#94a3b8", textAlign: "center" }}>Enter a valid phone number to continue.</div>}
+                      <button type="button" onClick={() => { setOwnerOverride(false); setOverridePhone(""); }}
+                        style={{ padding: "9px", borderRadius: 10, border: "none", background: "none", color: "#64748b", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>← Back</button>
+                    </div>
+                  );
+                })() : (
                   <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
                     <button type="button" disabled={newPin.saving} onClick={() => commitSelfGen("non_owner")}
                       style={{ padding: "13px", borderRadius: 12, border: "none", background: "#991b1b", color: "#fff", fontSize: 14.5, fontWeight: 800, cursor: "pointer", opacity: newPin.saving ? 0.6 : 1 }}>✕ Mark non owner-occupied</button>
                     <div style={{ fontSize: 11.5, color: "#64748b", textAlign: "center" }}>Drops an <b>X</b> here so no one re-knocks it, and saves the owner's info.</div>
+                    <button type="button" disabled={newPin.saving} onClick={() => { setOwnerOverride(true); setOverridePhone(""); }}
+                      style={{ padding: "12px", borderRadius: 11, border: "2px solid #16a34a", background: "#f0fdf4", color: "#166534", fontSize: 13.5, fontWeight: 800, cursor: "pointer" }}>✅ Override — owner's here &amp; wants a quote</button>
                     <button type="button" disabled={newPin.saving} onClick={() => commitSelfGen("pending")}
                       style={{ padding: "11px", borderRadius: 10, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", fontSize: 13.5, fontWeight: 700, cursor: "pointer", opacity: newPin.saving ? 0.6 : 1 }}>Save as pending anyway</button>
                   </div>

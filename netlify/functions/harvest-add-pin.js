@@ -52,6 +52,11 @@ export const handler = async (event) => {
     city: String(body.city || "").trim() || null,
     state: String(body.state || "FL").trim() || "FL",
     zip: String(body.zip || "").trim() || null,
+    // Phone the rep captured at the door — the only way a self-gen door has one
+    // (parcel data has no phone). Required when overriding a non-owner-occupied
+    // house into a live deal.
+    phone: String(body.phone || "").trim() || null,
+    email: String(body.email || "").trim() || null,
     latitude: lat, longitude: lng,
     geocode_status: "ok",
     // Owner-occupied → "insp" (Sign / BTR / Pending all apply). Non-owner-occupied
@@ -62,6 +67,9 @@ export const handler = async (event) => {
     assigned_rep_name: rep.name || null,
     extra: {
       self_generated: true,
+      // Rep overrode a "non owner-occupied" cadastral result into a live deal
+      // (e.g. the owner across the street wants a quote on this one).
+      owner_override: body.override === true || undefined,
       created_by: rep.name || null,
       created_by_jn: rep.jobnimbus_id || null,   // stable owner id for the "belongs to X" gate
       owner: String(body.owner || "").trim() || null,
