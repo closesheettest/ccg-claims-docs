@@ -20,8 +20,10 @@ const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
 
 // The pin lists this scrub is allowed to touch (JN contact–sourced leads).
-const LISTS = ["JN Instant Quote", "JN Facebook", "JN AI Bot"];
-const RAW_STATUSES = new Set(["iq", "fb", "ai"]); // only flip a still-raw pin
+// Includes No-Sits: a "No Sit- Need to Reschedule" door the homeowner already
+// killed in RepCard is just as dead as an IQ one — reps shouldn't re-drive it.
+const LISTS = ["JN Instant Quote", "JN Facebook", "JN AI Bot", "JN No-Sits"];
+const RAW_STATUSES = new Set(["iq", "fb", "ai", "no_sit_reschedule"]); // only flip a still-raw pin
 const MATCH_M = 60;
 
 // RepCard "Contact Status" → map pin status. null = leave the pin alone.
