@@ -42,15 +42,18 @@ export const handler = async (event) => {
   const toSec = dayStartSec + 24 * 3600;
 
   const jnHeaders = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
+  // Filter by DATE ONLY — JobNimbus's task search does NOT honor a nested
+  // { term: { "owners.id" } } filter (it silently returns nothing), which is why
+  // reps' real appts weren't detected. We fetch the day's appts and match the
+  // owner in code below (same approach as harvest-zone-appts, which works).
   const filter = encodeURIComponent(JSON.stringify({ must: [
     { range: { date_start: { gte: fromSec, lte: toSec } } },
-    { term: { "owners.id": jn } },
   ] }));
 
   // 1) Today's appt tasks → { jobId, at_ms, title }.
   const rows = [];
   try {
-    for (let page = 0; page < 3; page++) {
+    for (let page = 0; page < 8; page++) {
       const r = await fetch(`${JN_BASE}/tasks?size=100&from=${page * 100}&filter=${filter}`, { headers: jnHeaders });
       if (!r.ok) break;
       const d = await r.json().catch(() => ({}));
