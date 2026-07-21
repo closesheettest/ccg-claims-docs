@@ -760,6 +760,7 @@ export default function CanvassMap() {
   const workingRef = useRef(new Set(savedDay?.working || []));          // the ORIGINAL round-1 routed pin ids — later rounds only recycle these, minus statused
   const arrivedRef = useRef(null);                     // { key } — already logged arrival at this stop
   const [panelPos, setPanelPos] = useState(null);      // {left,top} px if dragged, else default bottom-right
+  const [panelMin, setPanelMin] = useState(false);     // route-stop card collapsed to a pill so the rep can see the map
   const [ignoreDist, setIgnoreDist] = useState(false); // admin test toggle: skip the distance gate
   const [manualHere, setManualHere] = useState(null);  // stop id the rep confirmed "I'm at the door" (GPS/geocode wrong)
   const [capped, setCapped] = useState(false);         // more pins in view than the cap → "zoom in"
@@ -2824,13 +2825,35 @@ export default function CanvassMap() {
             : { right: 10, bottom: 14 };
           const left = done ? remainingCount() : 0;
           const leftPins = done ? dayPoolPins().filter((p) => workingRef.current.has(p.id) && !resolvedIds.has(p.id)) : [];
+          // Compact-pill summary (shown when the card is minimized so the rep can see the map).
+          const sumLabel = done ? (left > 0 ? `Round ${round} · ${left} left` : "Route complete")
+            : stop.isAppt ? "📅 Appointment"
+            : `${round > 1 ? `Round ${round} · ` : ""}${doorTotal ? `Door ${doorNo} of ${doorTotal}` : `Stop ${stopIdx + 1} of ${route.length}`}`;
+          const sumName = done ? "" : (stop.name || stop.address || "");
           return (
-            <div data-daypanel style={{ position: "absolute", ...posStyle, zIndex: 600, background: "#fff", borderRadius: 14, boxShadow: "0 4px 18px rgba(0,0,0,.2)", width: "min(340px, 88%)", overflow: "hidden" }}>
-              {/* Drag handle so it never blocks the map */}
-              <div onPointerDown={panelPointerDown} onPointerMove={panelPointerMove} onPointerUp={panelPointerUp}
-                style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "5px 0 3px", cursor: "grab", touchAction: "none", color: "#cbd5e1", fontSize: 13, letterSpacing: 2, userSelect: "none" }}>
-                ⠿ <span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", letterSpacing: "0.03em" }}>drag</span>
+            <div data-daypanel style={{ position: "absolute", ...posStyle, zIndex: 600, background: "#fff", borderRadius: 14, boxShadow: "0 4px 18px rgba(0,0,0,.2)", width: panelMin ? "min(250px, 74%)" : "min(340px, 88%)", overflow: "hidden" }}>
+              {/* Header: drag handle (move it) + minimize toggle (collapse to a pill so
+                  the rep can see the map, then expand to status the next door). */}
+              <div style={{ display: "flex", alignItems: "center", padding: "3px 6px 2px" }}>
+                <div onPointerDown={panelPointerDown} onPointerMove={panelPointerMove} onPointerUp={panelPointerUp}
+                  style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, cursor: "grab", touchAction: "none", color: "#cbd5e1", fontSize: 13, letterSpacing: 2, userSelect: "none", padding: "3px 0" }}>
+                  ⠿ <span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", letterSpacing: "0.03em" }}>drag</span>
+                </div>
+                <button type="button" onClick={() => setPanelMin((v) => !v)} aria-label={panelMin ? "Expand" : "Minimize"}
+                  style={{ background: "#f1f5f9", border: "none", borderRadius: 8, cursor: "pointer", color: "#475569", fontSize: 15, fontWeight: 900, lineHeight: 1, padding: "4px 9px" }}>
+                  {panelMin ? "▢" : "—"}
+                </button>
               </div>
+              {/* Minimized: a compact pill — current door + one tap to expand & status. */}
+              {panelMin && (
+                <button type="button" onClick={() => setPanelMin(false)}
+                  style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: "0 14px 12px" }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: "#16a34a", textTransform: "uppercase", letterSpacing: "0.04em" }}>{sumLabel}</div>
+                  {sumName && <div style={{ fontSize: 14.5, fontWeight: 800, color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sumName}</div>}
+                  <div style={{ fontSize: 11.5, fontWeight: 800, color: "#1d4ed8", marginTop: 4 }}>▲ Tap to status / next door</div>
+                </button>
+              )}
+              {!panelMin && (
               <div style={{ padding: "4px 16px 14px" }}>
               {done ? (
                 <div style={{ textAlign: "center" }}>
@@ -3062,6 +3085,7 @@ export default function CanvassMap() {
                 );
               })()}
               </div>
+              )}
             </div>
           );
         })()}
