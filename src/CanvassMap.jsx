@@ -3771,6 +3771,9 @@ function AppointmentModal({ pin, rt, onClose, onBooked, variant }) {
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) { setErr(j.error || "Couldn't book — try again."); setBusy(false); return; }
+      // Booked on the map even if JobNimbus refused this one job — tell the rep so
+      // someone resets it in JN manually (the map + JN are briefly out of sync).
+      if (j.warning) { try { window.alert("⚠️ " + j.warning); } catch { /* ignore */ } }
       onBooked({ status: "appt", jn_job_id: j.job_id, status_updated_at: new Date().toISOString() });
     } catch (e) { setErr(e.message || "Network error"); setBusy(false); }
   }

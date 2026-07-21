@@ -66,51 +66,63 @@ export const handler = async (event) => {
     // rep who rebooked becomes the sole owner/assigned (the old assignee, if
     // different, is dropped). Then the pin goes back to 'appt'.
     if (existingJobId) {
-      // The rebooking rep takes it over — both owner AND sales_rep become this rep.
-      const jobCore = { date_start: apptSec, ...(owner ? { owners: [{ id: owner }], sales_rep: owner } : {}) };
-      // Flip the job back to "Appointment Scheduled". JN status IDs are per-workflow,
-      // so the numeric id (531) may not be the one in THIS job's workflow → JN 500s
-      // (that was killing the whole reschedule). Escalate gracefully: numeric+name →
-      // name only (let JN map the id in the job's own workflow) → date+owner only.
+      // Push the reschedule to JobNimbus. If JN refuses the write entirely (a locked
+      // or broken job that 500s on everything), DON'T block the rep — we reschedule
+      // the pin below regardless and flag it for a manual JN fix.
+      let jnFailed = false;
       try {
-        await jnPut(`jobs/${existingJobId}`, { status: APPT_STATUS, status_name: APPT_STATUS_NAME, ...jobCore });
-      } catch {
+        // The rebooking rep takes it over — both owner AND sales_rep become this rep.
+        const jobCore = { date_start: apptSec, ...(owner ? { owners: [{ id: owner }], sales_rep: owner } : {}) };
+        // Flip the job back to "Appointment Scheduled". JN status IDs are per-workflow,
+        // so the numeric id (531) may not be the one in THIS job's workflow → try
+        // numeric+name → name only (JN maps it) → date+owner only.
         try {
-          await jnPut(`jobs/${existingJobId}`, { status_name: APPT_STATUS_NAME, ...jobCore });
+          await jnPut(`jobs/${existingJobId}`, { status: APPT_STATUS, status_name: APPT_STATUS_NAME, ...jobCore });
         } catch {
-          await jnPut(`jobs/${existingJobId}`, jobCore);
+          try {
+            await jnPut(`jobs/${existingJobId}`, { status_name: APPT_STATUS_NAME, ...jobCore });
+          } catch {
+            await jnPut(`jobs/${existingJobId}`, jobCore);
+          }
         }
+        // A No-Sit reschedule goes into JN as a "Reset Appointment": close every
+        // existing appointment task on the job, then create one fresh Reset Appointment.
+        const tFilter = encodeURIComponent(JSON.stringify({ must: [{ term: { "related.id": existingJobId } }] }));
+        const tResp = await jnGet(`tasks?size=50&filter=${tFilter}`);
+        const appts = (tResp.results || tResp.tasks || tResp.data || [])
+          .filter((t) => t.record_type === APPT_TASK_RT || t.record_type === RESET_APPT_RT || /appointment/i.test(t.record_type_name || ""));
+        for (const t of appts) {
+          await jnPut(`tasks/${t.jnid || t.id}`, { is_completed: true }).catch(() => {});
+        }
+        await jnPost("tasks", {
+          record_type: RESET_APPT_RT, record_type_name: "Reset Appointment", type: "task",
+          title: `Reset Appointment — ${nm}`, date_start: apptSec, date_end: 0,
+          related: [{ id: existingJobId, type: "job" }], ...(owner ? { owners: [{ id: owner }] } : {}),
+        });
+        await jnPost("activities", {
+          record_type_name: "Note",
+          note: `🔄 Harvesting appointment RESET by ${rep.name || "rep"} for ${new Date(apptMs).toLocaleString("en-US", { timeZone: "America/New_York" })} — reassigned to ${rep.name || "rep"}`,
+          primary: { id: existingJobId, type: "job" }, related: [{ id: existingJobId, type: "job" }], is_status_change: false,
+        }).catch(() => {});
+      } catch (e) {
+        jnFailed = true;
+        console.warn(`Reschedule: JobNimbus refused writes on job ${existingJobId} — pin rescheduled anyway. ${e && e.message || e}`);
       }
-      // A No-Sit reschedule goes into JN as a "Reset Appointment": close every
-      // existing appointment task on the job, then create one fresh Reset Appointment.
-      const tFilter = encodeURIComponent(JSON.stringify({ must: [{ term: { "related.id": existingJobId } }] }));
-      const tResp = await jnGet(`tasks?size=50&filter=${tFilter}`);
-      const appts = (tResp.results || tResp.tasks || tResp.data || [])
-        .filter((t) => t.record_type === APPT_TASK_RT || t.record_type === RESET_APPT_RT || /appointment/i.test(t.record_type_name || ""));
-      for (const t of appts) {
-        await jnPut(`tasks/${t.jnid || t.id}`, { is_completed: true }).catch(() => {});
-      }
-      await jnPost("tasks", {
-        record_type: RESET_APPT_RT, record_type_name: "Reset Appointment", type: "task",
-        title: `Reset Appointment — ${nm}`, date_start: apptSec, date_end: 0,
-        related: [{ id: existingJobId, type: "job" }], ...(owner ? { owners: [{ id: owner }] } : {}),
-      });
-      await jnPost("activities", {
-        record_type_name: "Note",
-        note: `🔄 Harvesting appointment RESET by ${rep.name || "rep"} for ${new Date(apptMs).toLocaleString("en-US", { timeZone: "America/New_York" })} — reassigned to ${rep.name || "rep"}`,
-        primary: { id: existingJobId, type: "job" }, related: [{ id: existingJobId, type: "job" }], is_status_change: false,
-      }).catch(() => {});
 
+      // Always reschedule the PIN so a bad JN job never leaves the rep stuck.
       const nowIso = new Date().toISOString();
       const log = Array.isArray(pin.status_log) ? [...pin.status_log] : [];
-      log.push({ at: nowIso, from: pin.status, to: "appt", by: rep.name || "rep", appt_at: apptIso, jn_job_id: existingJobId, reset: true });
+      log.push({ at: nowIso, from: pin.status, to: "appt", by: rep.name || "rep", appt_at: apptIso, jn_job_id: existingJobId, reset: true, ...(jnFailed ? { jn_sync_failed: true } : {}) });
       await fetch(`${SB_URL}/rest/v1/canvass_prospects?id=eq.${encodeURIComponent(pinId)}`, {
         method: "PATCH", headers: { ...sb, Prefer: "return=minimal" },
         body: JSON.stringify({ status: "appt", status_updated_at: nowIso, status_by: rep.name || null, jn_job_id: existingJobId, status_log: log }),
       }).catch(() => {});
 
-      logActivity({ pin_id: pinId, rep_name: rep.name, rep_token: rt, kind: "status", from_status: pin.status, to_status: "appt" });
-      return json(200, { ok: true, job_id: existingJobId, reset: true });
+      logActivity({ pin_id: pinId, rep_name: rep.name, rep_token: rt, kind: "status", from_status: pin.status, to_status: "appt", ...(jnFailed ? { note: "JN sync failed — reset in JobNimbus manually" } : {}) });
+      return json(200, {
+        ok: true, job_id: existingJobId, reset: true, jn_synced: !jnFailed,
+        ...(jnFailed ? { warning: "Rescheduled on your map — but JobNimbus wouldn't update this job. It needs to be reset in JobNimbus manually." } : {}),
+      });
     }
 
     // ── FRESH BOOKING ─────────────────────────────────────────────────────
