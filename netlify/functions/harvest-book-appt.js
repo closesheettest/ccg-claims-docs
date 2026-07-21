@@ -72,23 +72,25 @@ export const handler = async (event) => {
       // the pin below regardless and flag it for a manual JN fix.
       let jnFailed = false, jnErr = null;
       try {
-        // The rebooking rep takes it over — both owner AND sales_rep become this rep.
-        const jobCore = { date_start: apptSec, ...(owner ? { owners: [{ id: owner }], sales_rep: owner } : {}) };
-        // A rescheduled No-Sit goes to the "No Sit - Rescheduled" status — NOT
-        // "Appointment Scheduled". Forcing "Appointment Scheduled" while we create a
-        // Reset Appointment task is the mismatch JN was rejecting (the 500). Set it by
-        // name so JN maps the id in the job's own workflow; fall back to date+owner
-        // only if the status is somehow still rejected.
         const jh = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
-        const rawJobPut = async (payload) => {
+        const rawJobPut = async (payload, step) => {
           const r = await fetch(`https://app.jobnimbus.com/api1/jobs/${existingJobId}`, { method: "PUT", headers: jh, body: JSON.stringify(payload) });
           const txt = await r.text();
-          if (!r.ok) throw new Error(`jobPUT ${r.status} keys=${Object.keys(payload).join(",")}: ${txt.slice(0, 300)}`);
+          if (!r.ok) throw new Error(`${step} ${r.status}: ${txt.slice(0, 300)}`);
         };
+        // STEP 1 — hand the job to the rebooking rep FIRST, on its own. These No-Sit
+        // jobs still belong to the ORIGINAL rep, and JobNimbus blocks edits to a file
+        // you don't own — that's why every other change we make (on fresh, unowned
+        // jobs) works but this one 500s. Reassign owner + sales_rep before touching
+        // anything else so the job is "ours" for the edits that follow.
+        if (owner) await rawJobPut({ owners: [{ id: owner }], sales_rep: owner }, "reassign");
+        // STEP 2 — now that it's ours, set the new appointment date + the reschedule
+        // status ("No Sit - Rescheduled", NOT "Appointment Scheduled"). Fall back to
+        // date-only if the status name is somehow still rejected.
         try {
-          await rawJobPut({ status_name: RESCHEDULED_STATUS_NAME, ...jobCore });
+          await rawJobPut({ date_start: apptSec, status_name: RESCHEDULED_STATUS_NAME }, "status+date");
         } catch {
-          await rawJobPut(jobCore);
+          await rawJobPut({ date_start: apptSec }, "date-only");
         }
         // A No-Sit reschedule goes into JN as a "Reset Appointment": close every
         // existing appointment task on the job, then create one fresh Reset Appointment.
