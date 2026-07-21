@@ -191,7 +191,11 @@ const PIN_RANK = { insp_sold: 6, new_roof: 5, appt: 4, no_sit_reschedule: 3, los
 function jobPinStatus(name) {
   const s = String(name || "").toLowerCase();
   if (!s) return null;
-  if (s.includes("sold") || s.includes("signed")) return "insp_sold";      // Sit Sold Insp, Sit - Sold, Sitsold PA
+  // SOLD splits by path: a roof-INSPECTION sale (Sit Sold Insp / Sit Sold PA) →
+  // insp_sold. A RETAIL sale (Sit - Sold, Signed Contract, …) → appt — it's an
+  // active deal, and the install-pin sync converts it to an installed pin once
+  // the roof is on, so we don't terminal-ize it as an inspection sold.
+  if (s.includes("sold") || s.includes("signed")) return (s.includes("insp") || /\bpa\b/.test(s)) ? "insp_sold" : "appt";
   if (s.includes("new roof")) return "new_roof";
   if (s.includes("refused")) return "iq_ni";                                // "Refused Appointment" — before the appt check
   if (s.includes("no sit") || s.includes("no show") || s.includes("reschedul")) return "no_sit_reschedule";
