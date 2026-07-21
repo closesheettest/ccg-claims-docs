@@ -63,16 +63,36 @@ async function lookupParcel(lat, lng) {
   return a;
 }
 
-// "MCCONNELL, JAMES H" → "James H Mcconnell"; leaves company names alone-ish.
+// The FL DOR statewide cadastral stores OWN_NAME LAST-NAME-FIRST — both
+// "MCCONNELL, JAMES H" (comma) and, far more commonly, "RISING BRIAN" /
+// "SMITH JOHN A" (no comma). We reorder to natural "First [Middle] Last" so a
+// self-gen pin/contact isn't created backwards (which spawned dup JN contacts
+// like "Rising Brian"). Company/trust/joint names have no personal first/last
+// order, so those are left title-cased in place.
 function prettyOwner(raw) {
   const s = String(raw || "").trim();
   if (!s) return "";
-  const title = (w) => w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w;
+  const title = (w) => (w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w);
+  const cased = (str) => str.split(/\s+/).filter(Boolean).map(title).join(" ");
+  // Explicit "LAST, FIRST M" → "First M Last".
   if (s.includes(",")) {
     const [last, rest] = s.split(",");
-    return `${rest.trim().split(/\s+/).map(title).join(" ")} ${last.trim().split(/\s+/).map(title).join(" ")}`.trim();
+    return `${cased(rest)} ${cased(last)}`.trim();
   }
-  return s.split(/\s+/).map(title).join(" ");
+  const parts = s.split(/\s+/).filter(Boolean);
+  // Businesses/trusts/joint owners (& ) have no first/last order, and a name we
+  // can't confidently parse (1 token, or 4+) we leave alone — reordering those
+  // risks mangling a correct name.
+  const isEntity =
+    /\b(LLC|INC|CORP|LP|LLP|LTD|CO|TRUST|TR|EST|ESTATE|ASSOC|BANK|CHURCH|HOA|PROPERTIES|PROPERTY|HOLDINGS|HOMES|GROUP|PARTNERS|FUND|REV|LIV|LIVING|FAMILY|ENTERPRISES|INVESTMENTS)\b/i.test(s) ||
+    s.includes("&") ||
+    parts.length < 2 ||
+    parts.length > 3;
+  if (isEntity) return cased(s);
+  // Personal name stored last-first: move the last-name token to the end.
+  // "RISING BRIAN" → "Brian Rising"; "SMITH JOHN A" → "John A Smith".
+  const [lastName, ...restName] = parts;
+  return cased([...restName, lastName].join(" "));
 }
 
 export const handler = async (event) => {
