@@ -47,19 +47,28 @@ exports.handler = async (event) => {
   // off. jobStatusByContact keeps the "heaviest" status when a contact has several.
   const withJob = new Set();
   const jobStatusByContact = {};   // jn_contact_id -> mapped pin status (from its job)
+  const jobByAddr = {};            // streetKey -> { st, zip } — heaviest job status at an ADDRESS
   const noteJob = (cid, name) => {
     if (!cid) return;
     withJob.add(cid);
     const st = jobPinStatus(name);
     if (!st) return;
     const cur = jobStatusByContact[cid];
-    if (!cur || PIN_RANK[st] > PIN_RANK[cur]) jobStatusByContact[cid] = st;
+    if (!cur || (PIN_RANK[st] || 0) > (PIN_RANK[cur] || 0)) jobStatusByContact[cid] = st;
   };
   if (anyEnabled) {
     await sharded(`${JN_BASE}/jobs`, H, [], START, NOW, (job) => {
       const name = job.status_name;
       if (job.primary && job.primary.id) noteJob(job.primary.id, name);
       for (const r of job.related || []) if (r && r.id && (r.type === "contact" || !r.type)) noteJob(r.id, name);
+      // ADDRESS index: a JN job at an address (any contact/name) can restatus the
+      // pin there — catches manually-created deals + contact/name mismatches that
+      // the contact match above can't see (e.g. "Bart Natali" vs "Bartolomeo Natoli").
+      const sk = streetKey(job.address_line1);
+      if (sk) {
+        const st = jobPinStatus(name);
+        if (st) { const cur = jobByAddr[sk]; if (!cur || (PIN_RANK[st] || 0) > (PIN_RANK[cur.st] || 0)) jobByAddr[sk] = { st, zip: zip5(job.zip) }; }
+      }
     });
   }
   const geocache = (await readSetting(GEOCACHE_KEY)) || {};
@@ -220,6 +229,33 @@ exports.handler = async (event) => {
       await writeSetting(`harvest_leadsync_${key}`, { ok: false, source: def.source, error: String(e && e.message || e), started, finished: new Date().toISOString() });
     }
   }
+
+  // ── ADDRESS-BASED REVERSE SYNC ─────────────────────────────────────────────
+  // A JN job at a pin's ADDRESS overrides the pin's status when the job is heavier
+  // (an appointment/sold beats a raw lead or a stale "not interested"). This is the
+  // net that catches deals created manually in JobNimbus and same-house/different-
+  // contact name mismatches — which the contact-based sync above cannot reach.
+  try {
+    const addrRev = [];
+    let addrRestatused = 0;
+    const nowIso = new Date().toISOString();
+    for (const [sk, arr] of streetIdx) {
+      const job = jobByAddr[sk]; if (!job) continue;
+      const tgtRank = PIN_RANK[job.st] || 0;
+      for (const p of arr) {
+        if (p.status === job.st) continue;
+        if ((PIN_RANK[p.status] || 0) >= tgtRank) continue;           // don't downgrade a heavier pin
+        if (job.zip && p.zip && job.zip !== p.zip) continue;          // same street, different city → skip
+        addrRev.push(fetch(`${SB_URL}/rest/v1/canvass_prospects?id=eq.${p.id}`, {
+          method: "PATCH", headers: { ...sbHeaders, Prefer: "return=minimal" },
+          body: JSON.stringify({ status: job.st, status_by: "JN job (address match)", status_updated_at: nowIso }),
+        }).then((r) => r.ok));
+      }
+    }
+    addrRestatused = (await Promise.all(addrRev)).filter(Boolean).length;
+    await writeSetting("harvest_addr_reverse_sync", { ok: true, restatused: addrRestatused, jobs_by_addr: Object.keys(jobByAddr).length, finished: nowIso });
+  } catch (e) { console.warn("address reverse sync failed (non-fatal):", e.message); }
+
   if (geocacheDirty) await writeSetting(GEOCACHE_KEY, geocache);
   return { statusCode: 202, body: "" };
 };
@@ -227,7 +263,7 @@ exports.handler = async (event) => {
 // ── helpers ──────────────────────────────────────────────────────────────────
 // Map a JobNimbus JOB status_name → the map pin status (reverse sync). null = leave
 // the pin alone (e.g. a bare "Lead" job with no meaningful stage yet).
-const PIN_RANK = { insp_sold: 6, new_roof: 5, appt: 4, no_sit_reschedule: 3, lost: 2, iq_ni: 1 };
+const PIN_RANK = { insp_sold: 6, new_roof: 5, appt: 4, retail: 4, no_sit_reschedule: 3, dead: 2, lost: 2, iq_ni: 1, insp_ni: 1 };
 function jobPinStatus(name) {
   const s = String(name || "").toLowerCase();
   if (!s) return null;
