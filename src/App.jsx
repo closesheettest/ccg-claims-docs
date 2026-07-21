@@ -6897,6 +6897,15 @@ function PACompanyAdminPage({ token }) {
   const unassignedHidden = unassignedAll.length - unassigned.length;
   const assigned = sortDist(allDeals.filter((d) => d.pa_id));
   const stale = allDeals.filter((d) => !d.touched && (d.stale_hours ?? 0) >= 48);
+  // Dashboard buckets — one per deal (the API tags each with `category`).
+  const byCat = (c) => sortDist(allDeals.filter((d) => d.category === c));
+  const catUntouched = byCat("untouched");
+  const catAssigned = byCat("assigned");         // assigned & being worked
+  const catResched = byCat("rescheduling");
+  const catWaiting = byCat("waiting_docs");
+  const catSigned = byCat("signed");
+  const dqCount = data.counts?.dq ?? 0;           // DQ'd — count only (not listed)
+  const lorCount = data.counts?.lor ?? 0;         // LOR Cancelled — count only
 
   // Group "Needs assigning" by county; within each county, nearest first
   // when a distance reference is active (office / PA / GPS), else newest
@@ -7238,13 +7247,26 @@ function PACompanyAdminPage({ token }) {
           </div>
         )}
 
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-          {[["Needs assigning", unassigned.length, "#92400e"], ["Assigned", assigned.length, "#1e40af"], ["⚠ Untouched 48h+", stale.length, "#b91c1c"], ["Total", allDeals.length, "#374151"]].map(([t, n, c]) => (
-            <div key={t} style={{ flex: "1 1 150px", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "10px 14px" }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+          {[
+            ["Needs assigning", unassigned.length, "#92400e"],
+            ["Assigned", catAssigned.length, "#1e40af"],
+            ["Untouched", catUntouched.length, "#b91c1c"],
+            ["Rescheduling", catResched.length, "#9a3412"],
+            ["Waiting on Docs", catWaiting.length, "#3730a3"],
+            ["Signed", catSigned.length, "#047857"],
+          ].map(([t, n, c]) => (
+            <div key={t} style={{ flex: "1 1 130px", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "10px 14px" }}>
               <div style={{ fontSize: 24, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: c }}>{n}</div>
               <div style={{ fontSize: 12, color: "#6b7280" }}>{t}</div>
             </div>
           ))}
+        </div>
+        {/* DQ'd + LOR Cancelled — running counts only, no list section. */}
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 16, fontSize: 12.5, color: "#6b7280" }}>
+          <span>🗂 <b style={{ color: "#b91c1c" }}>{dqCount}</b> DQ'd</span>
+          <span>📄 <b style={{ color: "#7c3aed" }}>{lorCount}</b> LOR Cancelled</span>
+          <span style={{ color: "#94a3b8" }}>· {allDeals.length} open total</span>
         </div>
 
         {/* Homeowner appointment-confirmation — company writes the message the
@@ -7339,8 +7361,21 @@ function PACompanyAdminPage({ token }) {
             </div>
           </>
         )}
-        <div style={{ fontSize: 14, fontWeight: 800, color: "#1e40af", margin: "6px 0 8px" }}>✅ Assigned ({assigned.length})</div>
-        <div style={{ display: "grid", gap: 8 }}>{assigned.length ? assigned.map(row) : <div style={{ fontSize: 13, color: "#6b7280" }}>Nothing assigned yet.</div>}</div>
+        {/* The rest of the pipeline, one section per category. */}
+        {[
+          ["Assigned (working)", "✅", "#1e40af", catAssigned],
+          ["Untouched", "🕗", "#b91c1c", catUntouched],
+          ["Rescheduling", "🔄", "#9a3412", catResched],
+          ["Waiting on Docs", "📄", "#3730a3", catWaiting],
+          ["Signed", "🖊️", "#047857", catSigned],
+        ].map(([title, emoji, color, jobs]) => (
+          <div key={title} style={{ marginTop: 14 }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color, margin: "6px 0 8px" }}>{emoji} {title} ({jobs.length})</div>
+            {jobs.length
+              ? <div style={{ display: "grid", gap: 8 }}>{jobs.map(row)}</div>
+              : <div style={{ fontSize: 13, color: "#9ca3af" }}>None.</div>}
+          </div>
+        ))}
       </div>
     </div>
   );

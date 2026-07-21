@@ -391,7 +391,7 @@ exports.handler = async (event) => {
   // Not Interested / BTR, so result flips to "retail") must leave the PA pool —
   // otherwise it keeps re-surfacing in the company's "Needs assigning" even after
   // they DQ it (the Ariel Alvarez bug). PA work is only ever on damage claims.
-  const sel = `select=id,client_name,address,city,state,zip,county,signed_at,mobile,email,jn_job_id,latitude,longitude,pa_id,pa_company_id,pa_stage,pa_opened_at,pa_notes_log,correction_needed,pa_company_at,spanish_only,cancelled_at`;
+  const sel = `select=id,client_name,address,city,state,zip,county,signed_at,mobile,email,jn_job_id,latitude,longitude,pa_id,pa_company_id,pa_stage,pa_opened_at,pa_notes_log,correction_needed,pa_company_at,spanish_only,cancelled_at,pa_signed_at,pa_fields`;
   const dealMap = {};
   for (const d of (await get(`${SB_URL}/rest/v1/inspections?result=eq.damage&pa_company_id=eq.${company.id}&${sel}&order=signed_at.desc&limit=500`, sb)) || []) dealMap[d.id] = d;
   const paIdList = pas.map((p) => p.id);
@@ -425,7 +425,20 @@ exports.handler = async (event) => {
     if (d.pa_stage === "no_contact") status = "no_contact";
     else if (d.pa_id && touched) status = "working";
     else if (d.pa_id) status = "assigned";
+    // Dashboard category — one bucket per deal (Five Star pipeline). Precedence:
+    // no PA → needs assigning; then signed / rescheduling / waiting-docs; an
+    // assigned-but-never-worked deal is "untouched"; everything else is assigned.
+    const signed = d.pa_fields?.pa_signup === "Signed" || !!d.pa_signed_at;
+    let category;
+    if (!d.pa_id) category = "needs_assigning";
+    else if (signed) category = "signed";
+    else if (d.pa_stage === "rescheduling") category = "rescheduling";
+    else if (d.pa_stage === "waiting_docs") category = "waiting_docs";
+    else if (!touched) category = "untouched";
+    else category = "assigned";
     return {
+      category,
+      signed,
       id: d.id,
       name: d.client_name || "(no name)",
       address: [d.address, d.city, d.state, d.zip].filter(Boolean).join(", "),
@@ -450,8 +463,26 @@ exports.handler = async (event) => {
     };
   });
 
+  // DQ'd / LOR-Cancelled — shown as COUNTS only (not in the list). These are the
+  // dead deals (dropped from `deals` above); DQ vs LOR is told apart by the marker
+  // their button left in the notes log.
+  let dqCount = 0, lorCount = 0;
+  {
+    const deadMap = {};
+    for (const d of (await get(`${SB_URL}/rest/v1/inspections?result=eq.damage&pa_stage=eq.dead&pa_company_id=eq.${company.id}&select=id,pa_notes_log&limit=500`, sb)) || []) deadMap[d.id] = d;
+    if (paIdList.length) {
+      const inList = `(${paIdList.map((id) => `"${id}"`).join(",")})`;
+      for (const d of (await get(`${SB_URL}/rest/v1/inspections?result=eq.damage&pa_stage=eq.dead&pa_id=in.${encodeURIComponent(inList)}&select=id,pa_notes_log&limit=500`, sb)) || []) deadMap[d.id] = d;
+    }
+    for (const d of Object.values(deadMap)) {
+      const txt = (Array.isArray(d.pa_notes_log) ? d.pa_notes_log : []).map((n) => (n && n.text) || "").join(" ");
+      if (/LOR Cancel/i.test(txt)) lorCount++; else dqCount++;
+    }
+  }
+
   return cors(200, JSON.stringify({
     ok: true,
+    counts: { dq: dqCount, lor: lorCount },
     company: {
       name: company.name,
       address: company.address || null,
