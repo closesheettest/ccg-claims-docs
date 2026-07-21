@@ -156,30 +156,19 @@ const LEAD_EMOJI = { SHARKS: '🦈', SQUAD: '💥', HURRICANE: '🌀', SitSold: 
 // Full https:// so phones reliably turn it into a tappable link.
 const DASHBOARD_URL = 'https://us-shingle-rep-dashboard.netlify.app'
 
+// Carrier-safe: one line, no emoji, plain words, one bare-domain link, <160 chars
+// (see cron-daily-leaderboard for why emoji-dense multi-line texts get filtered).
+const DASH = DASHBOARD_URL.replace(/^https?:\/\//, '')
 function buildMessage(top, runner) {
-  const lead = LEAD_EMOJI[top.team] || '🏆'
-  const lines = [
-    `${lead} ${top.team} just took 1st place — ${top.count} signed this week!`,
-  ]
-  if (runner && runner.count > 0) {
-    lines.push(`🥈 ${runner.team} right behind at ${runner.count}.`)
-  }
-  lines.push('Who’s next?!')
-  lines.push(`👉 Click here for the full details: ${DASHBOARD_URL}`)
-  return lines.join('\n')
+  let msg = `US Shingle: ${top.team} just took 1st with ${top.count} signed this week`
+  if (runner && runner.count > 0) msg += `, ${runner.team} right behind at ${runner.count}`
+  return `${msg}. Board: ${DASH}`
 }
 
 function buildTieMessage(tiedTeams, count, word) {
-  const names = tiedTeams.map((z) => (LEAD_EMOJI[z.team] ? LEAD_EMOJI[z.team] + ' ' : '') + z.team)
-  const who = names.length === 2
-    ? names.join(' & ')
-    : names.slice(0, -1).join(', ') + ' & ' + names[names.length - 1]
-  return [
-    `🤝 IT’S A TIE FOR 1ST!`,
-    `${who} — dead even at ${count} ${word} this week.`,
-    `Who’s going to break it?`,
-    `👉 Click here for the full details: ${DASHBOARD_URL}`,
-  ].join('\n')
+  const names = tiedTeams.map((z) => z.team)
+  const who = names.length === 2 ? names.join(' & ') : names.slice(0, -1).join(', ') + ' & ' + names[names.length - 1]
+  return `US Shingle: tie for 1st — ${who} even at ${count} ${word} this week. Board: ${DASH}`
 }
 
 // ── Leaderboard state in Supabase (id-keyed single rows) ─────────────

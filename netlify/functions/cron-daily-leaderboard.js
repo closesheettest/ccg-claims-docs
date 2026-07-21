@@ -100,28 +100,25 @@ export const handler = async (event) => {
   return json(200, { ok: true, fired: true, message, blast_triggered: blastOk, blast: blastResult });
 };
 
+// Carrier-safe: one line, no emoji, plain words, a single bare-domain link, and
+// under ~160 chars. Emoji-dense multi-line texts with "Press here 👉" + a full
+// https URL get content-filtered by carriers for some recipient segments (the
+// message silently never arrives). Keep it lean so it delivers everywhere.
 function buildMessage(zones, dayName) {
   const top = zones[0];
   const runner = zones[1];
+  const dash = DASHBOARD_URL.replace(/^https?:\/\//, ""); // bare domain, still tappable, far less spam-flaggy
   if (!top || top.count === 0) {
-    return [
-      `📊 ${dayName} kickoff — no signings on the board yet this week.`,
-      `First team to sign takes the lead! Who's it gonna be?`,
-      `👉 Press here for full details: ${DASHBOARD_URL}`,
-    ].join("\n");
+    return `US Shingle standings (${dayName}): no signings yet this week — first team to sign takes the lead. Board: ${dash}`;
   }
-  const lead = LEAD_EMOJI[top.team] || "🏆";
-  const lines = [`📊 Starting ${dayName}: ${lead} ${top.team} is in the lead with ${top.count}.`];
+  let msg = `US Shingle standings (${dayName}): ${top.team} leads with ${top.count}`;
   if (runner && runner.count > 0) {
     const gap = top.count - runner.count;
-    const rEmoji = LEAD_EMOJI[runner.team] || "🥈";
-    if (gap === 0) lines.push(`${rEmoji} ${runner.team} is tied at ${runner.count} — it's anyone's week!`);
-    else lines.push(`${rEmoji} ${runner.team} is ${gap} away from taking the lead.`);
+    msg += gap === 0 ? `, tied by ${runner.team} at ${runner.count}` : `, ${runner.team} ${gap} behind`;
   } else if (runner) {
-    lines.push(`${runner.team} is ${top.count} away from taking the lead.`);
+    msg += `, ${runner.team} ${top.count} behind`;
   }
-  lines.push(`👉 Press here for full details: ${DASHBOARD_URL}`);
-  return lines.join("\n");
+  return `${msg}. Board: ${dash}`;
 }
 
 // ── auto_sms registry helpers (fail-open) ───────────────────────────
