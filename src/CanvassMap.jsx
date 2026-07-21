@@ -664,11 +664,18 @@ export default function CanvassMap() {
   // Status filter — a Set of selected pin-type keys. Empty = show All. Multi-select
   // so a rep can, e.g., work IQ + No-sit-reschedule together.
   const [sel, setSel] = useState(() => new Set());
-  const inFilter = (status) => sel.size === 0 || sel.has(status);
+  // The OFFICE view-all link (?admin, no &rt) opens with NOTHING selected so the map
+  // isn't a wall of every pin — the office picks what to look at. Reps + spot-checks
+  // keep the normal "empty = All" default. Cleared the moment any filter is touched.
+  const [showNone, setShowNone] = useState(() => {
+    try { const q = new URLSearchParams(window.location.search); return !!q.get("admin") && !q.get("rt"); } catch { return false; }
+  });
+  const inFilter = (status) => (showNone ? false : (sel.size === 0 || sel.has(status)));
   // A door scheduled for a come-back on a FUTURE day is held out of the route
   // until that day arrives (it still shows on the map, just not routed early).
   const futureCallback = (p) => { const d = p?.extra?.callback?.date; return !!(d && d > ymdPlus(0)); };
   const toggleSel = (key) => setSel((prev) => {
+    setShowNone(false); // touching any type filter exits the office "show nothing" default
     const n = new Set(prev);
     n.has(key) ? n.delete(key) : n.add(key);
     // Each rep level has TWO base statuses that stay on no matter what they add, so
@@ -701,6 +708,7 @@ export default function CanvassMap() {
   const [gobackRadiusMi, setGobackRadiusMi] = useState(5); // admin-tunable (app_settings.harvest_goback_radius_mi)
   const [, setCapsV] = useState(0); // bump to re-render when admin route caps load
   const [assignedIds, setAssignedIds] = useState(null); // Enhanced Planned Day: the pin ids the manager assigned this rep today (null = no plan)
+  const [hasApptsToday, setHasApptsToday] = useState(false); // rep has ≥1 JN appointment today → they Plan-your-day, not Start-my-day
   const [visitToken, setVisitToken] = useState("");    // token to drive the visit-action endpoints
   const visitsLayer = useRef(null);
   const visitsLoaded = useRef(false);
@@ -911,7 +919,7 @@ export default function CanvassMap() {
       // Load ONLY the selected statuses ("only load what's picked"). Empty
       // selection (office "All") = everything the level can see. No region gate —
       // clustering keeps the zoomed-out view cheap; the viewport scopes the rest.
-      const effStatuses = sel.size ? [...sel].filter((k) => baseKeys.includes(k)) : baseKeys;
+      const effStatuses = showNone ? [] : (sel.size ? [...sel].filter((k) => baseKeys.includes(k)) : baseKeys);
       if (!effStatuses.length) { setProspects([]); setInstalls([]); setClusters([]); setCapped(false); setLoading(false); return []; }
 
       // 2) Pins + installs, straight from Supabase (range-paginated → no payload cap).
@@ -987,7 +995,7 @@ export default function CanvassMap() {
     if (firstSelRun.current) { firstSelRun.current = false; return; }
     if (fitted.current && loadRef.current) loadRef.current(map.current ? map.current.getBounds() : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sel]);
+  }, [sel, showNone]);
 
   // Zoomed-out view: fetch SERVER-aggregated cluster cells for the current box
   // (one grouped query) instead of downloading thousands of pins. Returns true
@@ -1004,6 +1012,7 @@ export default function CanvassMap() {
         .filter((t) => lvl === "admin" || !((t.visible_levels) || []).length || ((t.visible_levels) || []).includes(lvl))
         .map((t) => t.key);
       if (!baseKeys.length) return false;
+      if (showNone) { setClusters([]); setProspects([]); return true; } // office default: show nothing until a type is picked
       const selArr = [...sel].filter((k) => baseKeys.includes(k));
       const statuses = selArr.length ? selArr : baseKeys;
       const { data, error } = await supabase.rpc("canvass_clusters", {
@@ -2379,7 +2388,17 @@ export default function CanvassMap() {
     if (!auth.rt) return;
     fetch(`/.netlify/functions/harvest-my-plan?rt=${encodeURIComponent(auth.rt)}`)
       .then((r) => r.json())
-      .then((j) => { if (j && j.ok && Array.isArray(j.pin_ids) && j.pin_ids.length) setAssignedIds(new Set(j.pin_ids)); })
+      .then((j) => {
+        if (j && j.ok && Array.isArray(j.pin_ids) && j.pin_ids.length) {
+          setAssignedIds(new Set(j.pin_ids));
+          // "Start my day" (which runs the pre-planned section) only makes sense when
+          // the rep has NO appointment today — with an appt they Plan-your-day instead.
+          // So check for appts once, up front, to decide whether to show the button.
+          fetch(`/.netlify/functions/harvest-today-appts?rt=${encodeURIComponent(auth.rt)}`)
+            .then((r) => r.json()).then((a) => setHasApptsToday(!!(a && Array.isArray(a.appts) && a.appts.length)))
+            .catch(() => { /* assume none */ });
+        }
+      })
       .catch(() => { /* fall back to normal */ });
   }, [auth.rt]);
   // Test link ?test=sr|jr → preview at that rep level.
@@ -2481,7 +2500,7 @@ export default function CanvassMap() {
           right column (see below). Seniors' filter is locked to IQ + No-sit. */}
       {!isDesktop && (
         <div style={{ display: "flex", gap: 6, overflowX: "auto", padding: "8px 12px", background: "#fff", borderBottom: "1px solid #e5e7eb" }}>
-          {!selLocked && <Chip active={sel.size === 0} onClick={() => setSel(new Set())} color="#334155" label={`All (${dbCounts ? Object.entries(dbCounts).reduce((sum, [k, n]) => sum + ((!visKeys || visKeys.has(k)) ? n : 0), 0) : (visKeys ? prospects.filter((p) => visKeys.has(p.status)).length : prospects.length)})`} />}
+          {!selLocked && <Chip active={!showNone && sel.size === 0} onClick={() => { setShowNone(false); setSel(new Set()); }} color="#334155" label={`All (${dbCounts ? Object.entries(dbCounts).reduce((sum, [k, n]) => sum + ((!visKeys || visKeys.has(k)) ? n : 0), 0) : (visKeys ? prospects.filter((p) => visKeys.has(p.status)).length : prospects.length)})`} />}
           {visTypes.map((s) => (
             <Chip key={s.key} active={sel.has(s.key)} check onClick={() => isPinned(s.key) ? null : toggleSel(s.key)} color={s.color} label={`${isPinned(s.key) ? "🔒 " : ""}${s.label} (${counts[s.key] || 0})`} />
           ))}
@@ -2511,7 +2530,7 @@ export default function CanvassMap() {
             {!selLocked && (
               <StatusCard color="#334155" label="All pins"
                 count={dbCounts ? Object.entries(dbCounts).reduce((sum, [k, n]) => sum + ((!visKeys || visKeys.has(k)) ? n : 0), 0) : (visKeys ? prospects.filter((p) => visKeys.has(p.status)).length : prospects.length)}
-                active={sel.size === 0} onClick={() => setSel(new Set())} />
+                active={!showNone && sel.size === 0} onClick={() => { setShowNone(false); setSel(new Set()); }} />
             )}
             {visTypes.map((s) => (
               <StatusCard key={s.key} color={s.color} label={`${isPinned(s.key) ? "🔒 " : ""}${s.label}`} count={counts[s.key] || 0}
@@ -2554,8 +2573,11 @@ export default function CanvassMap() {
           </div>
         )}
 
-        {/* ── Start my day ── (stays visible in cluster view; nudges to zoom in) */}
-        {dayMode === null && !selecting && (prospects.length > 0 || clusters.length > 0) && (
+        {/* ── Start my day ── Hidden by default (reps prefer Route-an-area / Plan-your-day,
+            and it had bugs). Kept in code, shown ONLY for an Enhanced Planned Day (to run
+            the manager's pre-planned section) AND only when the rep has no appointment
+            today — with an appt they Plan-your-day instead. */}
+        {dayMode === null && !selecting && assignedIds && assignedIds.size > 0 && !hasApptsToday && (prospects.length > 0 || clusters.length > 0) && (
           <button type="button" onClick={() => (prospects.length ? setDayMode("choosing") : nudgeZoom())}
             style={{ position: "absolute", left: 12, bottom: 16, zIndex: 600, background: "#16a34a", color: "#fff", border: "none", borderRadius: 999, padding: "13px 20px", fontSize: 15, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer", opacity: prospects.length ? 1 : 0.85 }}>
             ▶ Start my day
@@ -2564,7 +2586,7 @@ export default function CanvassMap() {
         {/* Enhanced Planned Day — this rep's manager assigned them a section today. */}
         {dayMode === null && !selecting && assignedIds && assignedIds.size > 0 && (
           <div style={{ position: "absolute", left: 12, right: 12, top: 56, zIndex: 590, background: "#7c3aed", color: "#fff", padding: "9px 14px", borderRadius: 10, fontSize: 13, fontWeight: 700, boxShadow: "0 2px 8px rgba(0,0,0,.25)", textAlign: "center" }}>
-            📋 Your day is planned by your manager — {assignedIds.size} doors. Tap <b>▶ Start my day</b>{smartSchedEnabled ? <> (or <b>Plan your day</b> if you have appointments)</> : null}.
+            📋 Your day is planned by your manager — {assignedIds.size} doors. {hasApptsToday ? <>You have an appointment today — tap <b>📅 Plan your day</b> to weave your doors around it.</> : <>Tap <b>▶ Start my day</b>.</>}
           </div>
         )}
         {/* Route an area — drag a box, route exactly the doors inside it. Hidden when
