@@ -55,29 +55,51 @@ export const handler = async (event) => {
     const target = targetFor(r[6]);
     if (target === null) { if (String(r[6] || "").toLowerCase().startsWith("pending")) counts.pending++; else counts.unknown_status++; continue; }
     const lat = parseFloat(r[14]), lng = parseFloat(r[15]);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) { counts.no_coords++; continue; }
-    leads.push({ target, rc: (r[6] || "").trim(), lat, lng, addr: (r[9] || "").trim(), city: (r[11] || "").trim(), zip: (r[13] || "").trim() });
+    const addr = (r[9] || "").trim();
+    // Address match needs no coords; only skip if we have NEITHER a usable address
+    // NOR coordinates (nothing to match on).
+    if (!streetKey(addr) && !(Number.isFinite(lat) && Number.isFinite(lng))) { counts.no_coords++; continue; }
+    leads.push({ target, rc: (r[6] || "").trim(), lat, lng, addr, city: (r[11] || "").trim(), zip: (r[13] || "").trim() });
   }
 
   // Load the candidate pins (small set) and build a spatial grid.
   const inList = LISTS.map((l) => `"${l}"`).join(",");
-  const pins = await sbGetAll(`canvass_prospects?list_name=in.(${encodeURIComponent(inList)})&latitude=not.is.null&select=id,status,latitude,longitude,address`);
+  const pins = await sbGetAll(`canvass_prospects?list_name=in.(${encodeURIComponent(inList)})&latitude=not.is.null&select=id,status,latitude,longitude,address,zip`);
   const CELL = 0.002;
   const grid = new Map();
   const gk = (lat, lng) => `${Math.round(lat / CELL)},${Math.round(lng / CELL)}`;
-  for (const p of pins) { const k = gk(p.latitude, p.longitude); if (!grid.has(k)) grid.set(k, []); grid.get(k).push(p); }
+  const byStreet = new Map(); // normalized street key -> [pins] (primary match, drift-proof)
+  for (const p of pins) {
+    const k = gk(p.latitude, p.longitude); if (!grid.has(k)) grid.set(k, []); grid.get(k).push(p);
+    const sk = streetKey(p.address); if (sk) { if (!byStreet.has(sk)) byStreet.set(sk, []); byStreet.get(sk).push(p); }
+  }
 
   const changes = []; // {id, from, to}
-  const summary = { matched: 0, already_worked: 0, no_match: 0, byTarget: {}, byBucket: {} };
+  const summary = { matched: 0, matched_addr: 0, matched_loc: 0, already_worked: 0, no_match: 0, byTarget: {}, byBucket: {} };
   for (const l of leads) {
-    const [gx, gy] = gk(l.lat, l.lng).split(",").map(Number);
-    let best = null, bestD = Infinity;
-    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
-      const cell = grid.get(`${gx + dx},${gy + dy}`); if (!cell) continue;
-      for (const p of cell) { const d = distM(l.lat, l.lng, p.latitude, p.longitude); if (d < bestD) { bestD = d; best = p; } }
+    // 1) ADDRESS match — same normalized street, zip agrees (or missing on either
+    //    side). This is what catches the ~90 m geocode drift that the old
+    //    location-only match missed (Lombardo / Reisler / Raffoul).
+    let best = null;
+    const sk = streetKey(l.addr);
+    if (sk && byStreet.has(sk)) {
+      const z = zip5(l.zip);
+      const cands = byStreet.get(sk);
+      best = cands.find((p) => { const pz = zip5(p.zip); return !z || !pz || pz === z; }) || null;
+      if (best) summary.matched_addr++;
     }
-    const sameHouse = best && houseNum(l.addr) && houseNum(best.address) === houseNum(l.addr);
-    if (!best || bestD > MATCH_M || !(sameHouse || bestD <= 20)) { summary.no_match++; continue; }
+    // 2) LOCATION fallback — nearest pin within 60 m + same house number.
+    if (!best) {
+      const [gx, gy] = gk(l.lat, l.lng).split(",").map(Number);
+      let cand = null, bestD = Infinity;
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+        const cell = grid.get(`${gx + dx},${gy + dy}`); if (!cell) continue;
+        for (const p of cell) { const d = distM(l.lat, l.lng, p.latitude, p.longitude); if (d < bestD) { bestD = d; cand = p; } }
+      }
+      const sameHouse = cand && houseNum(l.addr) && houseNum(cand.address) === houseNum(l.addr);
+      if (cand && bestD <= MATCH_M && (sameHouse || bestD <= 20)) { best = cand; summary.matched_loc++; }
+    }
+    if (!best) { summary.no_match++; continue; }
     summary.matched++;
     if (!RAW_STATUSES.has(best.status)) { summary.already_worked++; continue; } // idempotent: don't touch worked pins
     if (best.status === l.target) { summary.already_worked++; continue; }
@@ -102,6 +124,7 @@ export const handler = async (event) => {
 
   return json(200, {
     ok: true, apply, leads_in_file: counts.total, candidates_scanned: pins.length,
+    matched: { total: summary.matched, by_address: summary.matched_addr, by_location: summary.matched_loc },
     skipped: { pending: counts.pending, unknown_status: counts.unknown_status, no_coords: counts.no_coords, already_worked: summary.already_worked, no_match: summary.no_match },
     would_change: changes.length, applied,
     by_target: summary.byTarget, by_bucket: summary.byBucket,
@@ -124,6 +147,16 @@ function parseCSV(text) {
   return rows;
 }
 function houseNum(a) { return (String(a || "").trim().match(/^\d+/) || [""])[0]; }
+// Normalized street key so the same house matches across sources despite geocode
+// drift + spelling ("12735 NEWTON PL" == "12735 Newton Place"). null if no house #.
+const SUF = { street: "st", st: "st", avenue: "ave", ave: "ave", av: "ave", place: "pl", pl: "pl", drive: "dr", dr: "dr", lane: "ln", ln: "ln", court: "ct", ct: "ct", terrace: "ter", terr: "ter", ter: "ter", boulevard: "blvd", blvd: "blvd", road: "rd", rd: "rd", circle: "cir", cir: "cir", trail: "trl", trl: "trl", parkway: "pkwy", pkwy: "pkwy", highway: "hwy", hwy: "hwy", cove: "cv", cv: "cv", point: "pt", pt: "pt", square: "sq", sq: "sq" };
+const DIR = { north: "n", n: "n", south: "s", s: "s", east: "e", e: "e", west: "w", w: "w", northeast: "ne", ne: "ne", northwest: "nw", nw: "nw", southeast: "se", se: "se", southwest: "sw", sw: "sw" };
+function streetKey(address) {
+  const s = String(address || "").split(",")[0].toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+  if (!s || !/^\d/.test(s)) return null;
+  return s.split(" ").map((t) => SUF[t] || DIR[t] || t).join(" ");
+}
+function zip5(z) { return String(z || "").replace(/\D/g, "").slice(0, 5); }
 function distM(aLat, aLng, bLat, bLng) {
   const R = 6371000, toR = Math.PI / 180;
   const dLat = (bLat - aLat) * toR, dLng = (bLng - aLng) * toR;
