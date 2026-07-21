@@ -17,6 +17,14 @@ const TABS = [
 ];
 
 export default function HarvestNav({ active }) {
+  // Back to the Manager/Admin console. The harvest admin pages open in a fresh
+  // tab (no shared session), so a cold /?mode=manager or /?mode=admin would hit
+  // the PIN gate. Set the same single-use handoff token the admin hub uses, then
+  // go to /?mode=manager — it consumes the token on load and lands UNLOCKED.
+  const backToAdmin = () => {
+    try { localStorage.setItem("adminHubHandoff", JSON.stringify({ section: "home", ts: Date.now() })); } catch { /* ignore */ }
+    window.location.href = "/?mode=manager";
+  };
   const openMap = async () => {
     try {
       const { data } = await supabase.from("app_settings").select("value").eq("key", "harvest_admin_token").maybeSingle();
@@ -32,10 +40,10 @@ export default function HarvestNav({ active }) {
   });
   return (
     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", borderBottom: "2px solid #e5e7eb", paddingBottom: 12, marginBottom: 16 }}>
-      <a href="/?mode=admin" title="Back to the main Admin dashboard"
-        style={{ fontSize: 13, fontWeight: 700, fontFamily: "'Oswald', sans-serif", letterSpacing: "0.02em", textDecoration: "none", cursor: "pointer", padding: "8px 14px", borderRadius: 10, border: "2px solid #cbd5e1", background: "#f8fafc", color: "#334155", alignSelf: "center" }}>
+      <button type="button" onClick={backToAdmin} title="Back to the Manager / Admin console"
+        style={{ fontSize: 13, fontWeight: 700, fontFamily: "'Oswald', sans-serif", letterSpacing: "0.02em", cursor: "pointer", padding: "8px 14px", borderRadius: 10, border: "2px solid #cbd5e1", background: "#f8fafc", color: "#334155", alignSelf: "center" }}>
         ← Admin
-      </a>
+      </button>
       <span style={{ fontSize: 18, fontWeight: 800, fontFamily: "'Oswald', sans-serif", alignSelf: "center", marginRight: 6 }}>🌾 Harvesting</span>
       {TABS.map((t) => (t.office
         ? <button key={t.key} type="button" onClick={openMap} style={style(false)}>{t.label} ↗</button>
