@@ -117,13 +117,14 @@ export const handler = async (event) => {
           note: `🔄 Harvesting appointment RESET by ${rep.name || "rep"} for ${new Date(apptMs).toLocaleString("en-US", { timeZone: "America/New_York" })} — reassigned to ${rep.name || "rep"}`,
           primary: { id: existingJobId, type: "job" }, related: [{ id: existingJobId, type: "job" }], is_status_change: false,
         }).catch(() => {});
-        // FINAL, best-effort — now that the job is OUT of the no-sit status, set the
-        // job's Start Date (JN's conversion/weekly reports bucket by Start Date). This
-        // 500s while the job is still in "No Sit- Need to Reschedule", so we try it last,
-        // after the status flip. If JN still refuses, the reschedule is already fully
-        // synced (status + Reset Appointment task) — we just note Start Date didn't set.
+        // FINAL, best-effort — set the job's Start Date to the new appointment (JN's
+        // conversion/weekly reports bucket by Start Date). We MUST send date_end too:
+        // these no-sit jobs already carry an old End date, and pushing Start past a
+        // stale End is invalid → JN 500s. Setting both to the appt day keeps Start<=End.
+        // If JN still refuses, the reschedule is already fully synced (status + Reset
+        // Appointment task) — we just note Start Date didn't set.
         try {
-          await rawJobPut({ date_start: apptSec }, "start-date");
+          await rawJobPut({ date_start: apptSec, date_end: apptSec }, "start-date");
           startDateSet = true;
         } catch (e2) {
           console.warn(`Reschedule: Start Date still refused after status change on ${existingJobId}. ${e2 && e2.message}`);
