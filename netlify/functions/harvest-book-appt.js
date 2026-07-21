@@ -73,10 +73,19 @@ export const handler = async (event) => {
       let jnFailed = false, jnErr = null;
       try {
         const jh = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
+        // A job PUT that reads back JN's real error body (so a failure isn't an opaque
+        // 500) while still retrying transient blips (429/502/503/504) 3x like _jn.js.
         const rawJobPut = async (payload, step) => {
-          const r = await fetch(`https://app.jobnimbus.com/api1/jobs/${existingJobId}`, { method: "PUT", headers: jh, body: JSON.stringify(payload) });
-          const txt = await r.text();
-          if (!r.ok) throw new Error(`${step} ${r.status}: ${txt.slice(0, 300)}`);
+          let last;
+          for (let i = 0; i < 3; i++) {
+            const r = await fetch(`https://app.jobnimbus.com/api1/jobs/${existingJobId}`, { method: "PUT", headers: jh, body: JSON.stringify(payload) });
+            if (r.ok) return;
+            const txt = await r.text();
+            last = new Error(`${step} ${r.status}: ${txt.slice(0, 300)}`);
+            if (![429, 502, 503, 504].includes(r.status)) break; // real error — don't retry
+            await new Promise((res) => setTimeout(res, 350 * (i + 1)));
+          }
+          throw last;
         };
         // STEP 1 — hand the job to the rebooking rep FIRST, on its own. These No-Sit
         // jobs still belong to the ORIGINAL rep, and JobNimbus blocks edits to a file
