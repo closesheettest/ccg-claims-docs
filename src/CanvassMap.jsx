@@ -13,6 +13,7 @@ import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 import { supabase } from "./lib/supabase";
 import VisitActions from "./VisitActions";
 import HarvestTraining from "./HarvestTraining";
+import { AddressAutocomplete } from "./lib/AddressAutocomplete";
 
 // Fallback used only if the harvest_pin_types config table can't be reached.
 // The live pin types (label, color, allowed outcomes, who sees them) are loaded
@@ -653,6 +654,13 @@ export default function CanvassMap() {
   // phone number, and wants to work THIS house as a live self-gen deal.
   const [ownerOverride, setOwnerOverride] = useState(false);
   const [overridePhone, setOverridePhone] = useState("");
+  // "Owner owns another property" — from a door's card, add more addresses the same
+  // owner owns as live self-generated leads, without dropping a pin at each one.
+  const [addProp, setAddProp] = useState(null);   // { owner, phone } context, or null
+  const [addPropPlace, setAddPropPlace] = useState(null); // selected {address,city,state,zip,lat,lng}
+  const [addPropText, setAddPropText] = useState("");     // the address input's text
+  const [addPropSaving, setAddPropSaving] = useState(false);
+  const [addPropCount, setAddPropCount] = useState(0);    // how many added this session (feedback)
   // Status filter — a Set of selected pin-type keys. Empty = show All. Multi-select
   // so a rep can, e.g., work IQ + No-sit-reschedule together.
   const [sel, setSel] = useState(() => new Set());
@@ -1192,6 +1200,8 @@ export default function CanvassMap() {
 
   // Keep the note editor in sync with whichever self-gen pin is open.
   useEffect(() => { setNoteDraft(selected && typeof selected.notes === "string" ? selected.notes : ""); }, [selected?.id, selected?.notes]);
+  // Switching to a different door closes any open "owner owns another property" form.
+  useEffect(() => { setAddProp(null); setAddPropPlace(null); setAddPropText(""); }, [selected?.id]);
   // Save a note onto a self-gen pin (only its creator / admin can, gated in the UI).
   async function saveNote() {
     if (!selected) return;
@@ -2234,6 +2244,40 @@ export default function CanvassMap() {
       alert("Couldn't save the pin — try again.");
       setNewPin((n) => (n ? { ...n, saving: false } : n));
     }
+  }
+
+  // "Owner owns another property" — create a live Self-Generated pin at a typed
+  // address (geocoded by the autocomplete), then route into Sign / Retail / Pending.
+  // Repeatable: the address clears but the owner/phone stay so a rep can add house
+  // after house the same owner owns.
+  async function addOwnerProperty(action) {
+    if (!addProp || !addPropPlace || addPropSaving) return;
+    if (spotCheck) { alert("🔍 Spot-check — statusing is off."); return; }
+    const pl = addPropPlace;
+    if (typeof pl.lat !== "number" || typeof pl.lng !== "number") { alert("Pick the address from the dropdown so we can place it on the map."); return; }
+    setAddPropSaving(true);
+    try {
+      const r = await fetch("/.netlify/functions/harvest-add-pin", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rt: auth.rt, lat: pl.lat, lng: pl.lng,
+          address: pl.address || "", city: pl.city || "", state: pl.state || "FL", zip: pl.zip || "",
+          owner: addProp.owner || "", phone: (addProp.phone || "").trim() || undefined,
+          override: true, verdict: "owner_owns_multiple",
+        }),
+      });
+      const d = await r.json();
+      if (d.duplicate) { alert(`There's already a pin at ${pl.address || "that address"}.`); setAddPropSaving(false); return; }
+      if (!d.ok || !d.pin) { alert(d.error || "Couldn't add the property."); setAddPropSaving(false); return; }
+      const pin = d.pin;
+      setProspects((list) => [...list, pin]);
+      setAddPropCount((n) => n + 1);
+      setAddPropPlace(null);   // clear the address; keep owner/phone for the next one
+      setAddPropSaving(false);
+      if (action === "sign") signInspection(pin, { selfGen: true });
+      else if (action === "retail") setBtrPin(pin);
+      else if (action === "pending") await setStatus(pin, "insp_callback");
+    } catch { alert("Couldn't add the property — try again."); setAddPropSaving(false); }
   }
 
   function startOver() { routeGen.current++; setOptimizing(false); navLayer.current?.clearLayers(); setDayMode(null); setStartPt(null); setRoute([]); setStopIdx(0); setRound(1); setResolvedIds(new Set()); workingRef.current = new Set(); setPanelPos(null); setSigningStop(null); setFillOffer(null); setEditingRoute(false); setPlanHome(null); }
@@ -3348,6 +3392,48 @@ export default function CanvassMap() {
                 style={{ marginTop: 8, width: "100%", padding: "9px", borderRadius: 10, border: "1px solid #fecaca", background: "#fff", color: "#dc2626", fontSize: 12.5, fontWeight: 800, cursor: "pointer" }}>
                 🗑 Delete this pin
               </button>
+            </div>
+          )}
+
+          {/* Owner owns another property — add more addresses the same owner owns
+              as live self-generated leads, no pin-drop needed. Unlimited. */}
+          {!spotCheck && (
+            <div style={{ marginTop: 16, borderTop: "1px solid #f1f5f9", paddingTop: 12 }}>
+              {!addProp ? (
+                <button type="button" onClick={() => { setAddProp({ owner: selected.name || "", phone: selected.phone || "" }); setAddPropPlace(null); setAddPropText(""); setAddPropCount(0); }}
+                  style={{ width: "100%", padding: "12px", borderRadius: 11, border: "2px solid #0e7490", background: "#ecfeff", color: "#0e7490", fontSize: 13.5, fontWeight: 800, cursor: "pointer" }}>
+                  🏠 Owner owns another property
+                </button>
+              ) : (
+                <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 12 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 800, color: "#0f172a", marginBottom: 8 }}>Same owner, another house — sign it up. It drops on the map as a self-generated lead.</div>
+                  <input value={addProp.owner} onChange={(e) => setAddProp((a) => ({ ...a, owner: e.target.value }))} placeholder="Owner name"
+                    style={{ width: "100%", boxSizing: "border-box", height: 44, padding: "0 12px", borderRadius: 10, border: "1px solid #d1d5db", fontSize: 15, background: "#fff", marginBottom: 8 }} />
+                  <input type="tel" inputMode="tel" value={addProp.phone} onChange={(e) => setAddProp((a) => ({ ...a, phone: e.target.value }))} placeholder="Owner phone"
+                    style={{ width: "100%", boxSizing: "border-box", height: 44, padding: "0 12px", borderRadius: 10, border: "1px solid #d1d5db", fontSize: 15, background: "#fff", marginBottom: 8 }} />
+                  <AddressAutocomplete value={addPropText} onChange={(v) => { setAddPropText(v); setAddPropPlace(null); }}
+                    onPlaceSelected={(pl) => { setAddPropPlace(pl); setAddPropText(pl.formatted || pl.address || ""); }}
+                    placeholder="Property address" style={{ height: 44, borderRadius: 10, fontSize: 15 }} />
+                  {(() => {
+                    const ready = addPropPlace && typeof addPropPlace.lat === "number" && !addPropSaving;
+                    const b = (bg, bd, fg, label, act) => (
+                      <button type="button" disabled={!ready} onClick={() => addOwnerProperty(act)}
+                        style={{ flex: "1 1 30%", minWidth: 90, padding: "11px 6px", borderRadius: 10, fontSize: 13, fontWeight: 800, cursor: ready ? "pointer" : "not-allowed", border: `1px solid ${bd}`, background: ready ? bg : "#fff", color: ready ? fg : "#cbd5e1" }}>{label}</button>
+                    );
+                    return (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginTop: 8 }}>
+                        {b("#7c3aed", "#7c3aed", "#fff", "🖊️ Sign", "sign")}
+                        {b("#fff7ed", "#b45309", "#b45309", "🏠 Retail", "retail")}
+                        {b("#fefce8", "#ca8a04", "#a16207", "⏳ Pending", "pending")}
+                      </div>
+                    );
+                  })()}
+                  {!addPropPlace && addPropText && <div style={{ fontSize: 11.5, color: "#94a3b8", marginTop: 6 }}>Pick the address from the dropdown so it lands in the right spot.</div>}
+                  {addPropCount > 0 && <div style={{ fontSize: 12, color: "#166534", fontWeight: 700, marginTop: 8 }}>✓ {addPropCount} propert{addPropCount === 1 ? "y" : "ies"} added — add another or close.</div>}
+                  <button type="button" onClick={() => { setAddProp(null); setAddPropPlace(null); setAddPropText(""); }}
+                    style={{ marginTop: 8, width: "100%", padding: "9px", borderRadius: 10, border: "none", background: "none", color: "#64748b", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Done</button>
+                </div>
+              )}
             </div>
           )}
 
