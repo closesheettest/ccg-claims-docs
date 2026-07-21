@@ -40,14 +40,13 @@ export const handler = async (event) => {
       ({ start, end } = period === "month" ? monthRange() : period === "lastmonth" ? lastMonthRange() : period === "lastweek" ? lastWeekRange() : period === "last30" ? last30Range() : weekRange());
     }
 
-    // HARVEST = an IQ / Facebook / AI / No-sit pin turned into an appointment.
-    // Filter by the pin's ORIGIN (from_status) so this counts only harvested
-    // leads — a retail/BTR appt booked off an inspection pin (from_status=insp)
-    // is NOT harvest and is excluded. We don't filter on `kind`: a booking logs
-    // both a server row (kind=status) and a client row (kind=visit), so we dedupe
-    // by pin_id below to count each booked house once.
+    // HARVEST = an IQ or No-sit pin turned into an appointment (only those two —
+    // not Facebook/AI/marketing, not a retail/BTR appt off an inspection pin).
+    // Filter by the pin's ORIGIN (from_status). We don't filter on `kind`: a
+    // booking logs both a server row (kind=status) and a client row (kind=visit),
+    // so we dedupe by pin_id below to count each booked house once.
     const acts = await sbGet(
-      `canvass_activity?to_status=eq.appt&from_status=in.(iq,fb,ai,no_sit_reschedule)` +
+      `canvass_activity?to_status=eq.appt&from_status=in.(iq,no_sit_reschedule)` +
       `&created_at=gte.${encodeURIComponent(start.toISOString())}&created_at=lte.${encodeURIComponent(end.toISOString())}` +
       `&select=rep_name,pin_id,from_status,created_at&order=created_at.asc&limit=20000`
     );
