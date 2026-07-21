@@ -25,7 +25,7 @@ async function findOrCreateContact(phone, name) {
   if (searchRes.ok) {
     const data = await searchRes.json();
     const contacts = data.contacts || [];
-    if (contacts.length > 0) return contacts[0].id;
+    if (contacts.length > 0) return { id: contacts[0].id, dnd: contacts[0].dnd === true };
   }
   const nameParts = (name || "Unknown").split(" ");
   const createRes = await fetch("https://services.leadconnectorhq.com/contacts/", {
@@ -46,7 +46,7 @@ async function findOrCreateContact(phone, name) {
   const createData = await createRes.json();
   const contactId = createData.contact?.id;
   if (!contactId) throw new Error("No contactId from GHL");
-  return contactId;
+  return { id: contactId, dnd: false }; // brand-new contact can't be opted out yet
 }
 
 async function getOrCreateConversation(contactId) {
@@ -91,7 +91,15 @@ exports.handler = async (event) => {
   }
 
   try {
-    const contactId = await findOrCreateContact(to, name);
+    const contact = await findOrCreateContact(to, name);
+    // Skip anyone opted out (replied STOP → GHL sets dnd). Sending would just
+    // bounce and drive up the account's failure/opt-out rate. Return 200 skipped
+    // (not an error) so callers don't log it as a failure.
+    if (contact.dnd) {
+      console.log("GHL SMS skipped — contact opted out (DND):", normalizePhone(to));
+      return { statusCode: 200, body: JSON.stringify({ success: true, skipped: true, reason: "opted_out" }) };
+    }
+    const contactId = contact.id;
     const conversationId = await getOrCreateConversation(contactId);
     const sendRes = await fetch("https://services.leadconnectorhq.com/conversations/messages", {
       method: "POST",
