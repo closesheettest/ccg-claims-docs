@@ -40,7 +40,7 @@ exports.handler = async (event) => {
     try {
       const r = await fetch(`${base}/.netlify/functions/ghl-sms`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: rep.phone, name: rep.name || "Rep", message: `Hi ${first}, here's your U.S. Shingle Harvesting Map link — open it to see your doors and start your day: ${link}\n\nAdd it to your home screen so it's one tap every morning:\niPhone (Safari): tap Share ⬆️ → "Add to Home Screen".\nAndroid (Chrome): tap ⋮ → "Add to Home screen".` }),
+        body: JSON.stringify({ to: rep.phone, name: rep.name || "Rep", message: `Hi ${first}, here's your U.S. Shingle Harvesting Map — open it to see your doors and start your day: ${link}\n\nWhen it opens, tap the "Install" button at the bottom to add it to your phone — then it's one tap every morning. (iPhone: tap "Install" and it shows you the quick steps.)` }),
       });
       sent_sms = r.ok;
     } catch { /* email may still land */ }
@@ -52,9 +52,10 @@ exports.handler = async (event) => {
 <p><a href="${esc(link)}" style="display:inline-block;background:#16a34a;color:#fff;font-weight:bold;padding:12px 20px;border-radius:8px;text-decoration:none">Open my Harvesting Map</a></p>
 <p style="color:#666;font-size:13px">This link is yours — don't share it.</p>
 <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;margin:14px 0">
-  <div style="font-weight:bold;font-size:14px;margin-bottom:8px">📲 Save it to your home screen — one tap every morning</div>
-  <div style="font-size:13.5px;color:#334155;margin-bottom:6px"><b>iPhone (Safari):</b> open the link, tap the <b>Share</b> button (the square with an ↑), then <b>“Add to Home Screen”</b>.</div>
-  <div style="font-size:13.5px;color:#334155"><b>Android (Chrome):</b> open the link, tap the <b>⋮</b> menu (top-right), then <b>“Add to Home screen”</b> (or “Install app”).</div>
+  <div style="font-weight:bold;font-size:14px;margin-bottom:8px">📲 Add it to your phone — one tap every morning</div>
+  <div style="font-size:13.5px;color:#334155;margin-bottom:6px">When you open the link, look for the <b>“Install”</b> button at the bottom and tap it.</div>
+  <div style="font-size:13.5px;color:#334155;margin-bottom:4px"><b>Android / computer:</b> tap <b>Install</b> — done, the icon lands on your screen.</div>
+  <div style="font-size:13.5px;color:#334155"><b>iPhone:</b> tap <b>“Install,”</b> then follow the quick <b>Share → “Add to Home Screen”</b> steps it shows you.</div>
 </div>
 <p style="color:#666;font-size:12px;word-break:break-all">${esc(link)}</p>`;
       const r = await fetch(`${base}/.netlify/functions/send-email`, {
