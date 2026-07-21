@@ -796,6 +796,11 @@ export default function CanvassMap() {
   // falling back to name. Non-self-gen pins are workable by anyone as before.
   // Detectable on the LIGHT load (no `extra`) via the reserved list name.
   const isSelfGenPin = (p) => !!(p && (p.list_name === "Self-Generated" || (p.extra && typeof p.extra === "object" && p.extra.self_generated)));
+  // A rep always sees the appointments THEY booked, even though the "Appointment"
+  // pin type is off their map (so they can find their own appt without every
+  // teammate's appt cluttering the view). Booking writes status_by = the rep's
+  // name, so match on that. Office/admin see all appts via the normal filter.
+  const isMyAppt = (p) => !!(p && p.status === "appt" && repName && p.status_by === repName);
   const ownsPin = (p) => {
     if (!isSelfGenPin(p)) return true;
     if (!auth.rt || me?.level === "admin") return true; // office / admin see & work all
@@ -937,6 +942,16 @@ export default function CanvassMap() {
       const pins = await sbFetchAll(() => box(
         supabase.from("canvass_prospects").select(PIN_FIELDS_LITE).not("latitude", "is", null).in("status", effStatuses),
       ), CAP);
+      // A rep always sees the appointments THEY booked, even when "Appointment"
+      // is off their map (not in effStatuses). Pull their own appt pins and merge
+      // in — office/admin already load all appts through the normal query.
+      const myName = (authInfo.current.rep && authInfo.current.rep.name) || repName;
+      if (myName && lvl !== "admin" && !effStatuses.includes("appt")) {
+        const mine = await sbFetchAll(() => box(
+          supabase.from("canvass_prospects").select(PIN_FIELDS_LITE).not("latitude", "is", null).eq("status", "appt").eq("status_by", myName),
+        ), CAP).catch(() => []);
+        for (const m of mine) if (!pins.some((p) => p.id === m.id)) pins.push(m);
+      }
       const installs = await sbFetchAll(() => box(
         supabase.from("installs").select("id,jnid,address_line,city,product_type,color,latitude,longitude").not("latitude", "is", null),
       ).order("id"), CAP);
@@ -1123,7 +1138,7 @@ export default function CanvassMap() {
     // Self-generated doors ALWAYS show — even after the status moves off the
     // active filter (e.g. tapping Pending → insp_callback), so a rep's own leads
     // never vanish. (Routing still skips terminal statuses.)
-    const shown = mapped.filter((p) => isSelfGenPin(p) || (inFilter(p.status) && (!visKeys || visKeys.has(p.status))));
+    const shown = mapped.filter((p) => isSelfGenPin(p) || isMyAppt(p) || (inFilter(p.status) && (!visKeys || visKeys.has(p.status))));
     // Routing skips doors already worked TODAY — no rep gets re-routed to a door
     // another rep (or they) already handled today.
     shownRef.current = shown.filter((p) => !workedTodayET(p));
