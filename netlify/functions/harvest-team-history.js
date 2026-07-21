@@ -33,12 +33,21 @@ exports.handler = async (event) => {
   const nd = new Date(Date.UTC(y, m - 1, d + 1));
   const to = `${nd.getUTCFullYear()}-${String(nd.getUTCMonth() + 1).padStart(2, "0")}-${String(nd.getUTCDate()).padStart(2, "0")}T00:00:00-04:00`;
 
-  // High cap: at a 10s ping rate a full 8h day is ~2880 pings/rep, so a busy day
-  // across many reps can be large. order=at.asc + too small a cap would drop the
-  // END of the day, not the start.
-  let q = `harvest_rep_pings?at=gte.${encodeURIComponent(from)}&at=lt.${encodeURIComponent(to)}&select=rep_id,rep_name,lat,lng,at&order=at.asc&limit=150000`;
-  if (p.rep_id) q += `&rep_id=eq.${encodeURIComponent(String(p.rep_id))}`;
-  const pings = await sbGet(q);
+  // Page through EVERY ping for the day. A single big `limit=` is silently capped
+  // by PostgREST's max-rows (1000), and with order=at.asc that drops whoever worked
+  // LATEST in the day — e.g. a rep who started mid-afternoon vanished from the
+  // replay entirely. Range paging gets the whole day no matter how busy.
+  let baseQ = `harvest_rep_pings?at=gte.${encodeURIComponent(from)}&at=lt.${encodeURIComponent(to)}&select=rep_id,rep_name,lat,lng,at&order=at.asc`;
+  if (p.rep_id) baseQ += `&rep_id=eq.${encodeURIComponent(String(p.rep_id))}`;
+  const pings = [];
+  for (let row = 0; row < 500000; row += 1000) {
+    const r = await fetch(`${SB_URL}/rest/v1/${baseQ}`, { headers: { ...sb, "Range-Unit": "items", Range: `${row}-${row + 999}` } });
+    if (!r.ok) break;
+    const b = await r.json().catch(() => []);
+    if (!Array.isArray(b) || !b.length) break;
+    pings.push(...b);
+    if (b.length < 1000) break;
+  }
 
   const byRep = new Map();
   for (const pg of pings) {
