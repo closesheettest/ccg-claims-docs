@@ -153,6 +153,13 @@ exports.handler = async (event) => {
         `&cancelled_at=is.null` +
         `&signed_at=gte.${encodeURIComponent(since)}` +
         `&signed_pdfs->>insp=is.null` +
+        // Only flag rows that were actually a SIGNING. Self-generated retail/pending
+        // appointments booked off the harvest map (Sign/Retail/Pending → Retail) land
+        // in `inspections` with a signed_at stamp but docs_signed="false" — nothing was
+        // ever signed, so there's no agreement to be missing. A real signing always
+        // carries docs_signed containing "insp" (written atomically with jn_job_id).
+        // Without this, every self-gen retail appt tripped a false "agreement MISSING".
+        `&docs_signed=ilike.*insp*` +
         `&order=signed_at.asc` +
         `&limit=20`;
       const sbRes = await fetch(`${SB_URL_2}/rest/v1/inspections?${q}`, {

@@ -3799,9 +3799,11 @@ export default function CanvassMap() {
             setProspects((list) => list.map((x) => (x.id === btrPin.id ? { ...x, ...patch } : x)));
             setSelected((s) => (s && s.id === btrPin.id ? { ...s, ...patch } : s));
             setResolvedIds((s) => new Set(s).add(btrPin.id));
-            // BTR = retail appt off an inspection pin; logged with from_status=insp so
-            // the harvest leaderboard EXCLUDES it (harvest = IQ/No-sit origins only).
-            logActivity({ pin_id: btrPin.id, kind: "visit", from_status: btrPin.status, to_status: "appt", ...locAudit(btrPin) });
+            // Origin drives the harvest leaderboard. A SELF-GENERATED retail appt is
+            // harvest work (the rep found the damaged roof) → tag it "self_gen" so it's
+            // counted. A real BTR (retail off an inspection pin) keeps its status (insp)
+            // and stays EXCLUDED — that's post-inspection, not lead-gen.
+            logActivity({ pin_id: btrPin.id, kind: "visit", from_status: isSelfGenPin(btrPin) ? "self_gen" : btrPin.status, to_status: "appt", ...locAudit(btrPin) });
             if (dayMode === "active" && route[stopIdx] && route[stopIdx].id === btrPin.id) advanceStop();
             setBtrPin(null);
           }}

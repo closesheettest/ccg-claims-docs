@@ -40,14 +40,14 @@ export const handler = async (event) => {
       ({ start, end } = period === "month" ? monthRange() : period === "lastmonth" ? lastMonthRange() : period === "lastweek" ? lastWeekRange() : period === "last30" ? last30Range() : weekRange());
     }
 
-    // HARVEST = an inbound lead (IQ / Facebook / AI) or a No-sit reschedule pin
-    // turned into an appointment. NOT a retail/BTR appt booked off an inspection
-    // pin (from_status=insp) — that's excluded. Filter by the pin's ORIGIN
-    // (from_status). We don't filter on `kind`: a booking logs both a server row
-    // (kind=status) and a client row (kind=visit), so we dedupe by pin_id below
-    // to count each booked house once.
+    // HARVEST = an inbound lead (IQ / Facebook / AI), a No-sit reschedule pin, or a
+    // rep's own SELF-GENERATED door (self_gen) turned into an appointment. NOT a
+    // retail/BTR appt booked off an existing inspection pin (from_status=insp) —
+    // that's post-inspection, excluded. Filter by the pin's ORIGIN (from_status).
+    // We don't filter on `kind`: a booking logs both a server row (kind=status) and
+    // a client row (kind=visit), so we dedupe by pin_id below to count each house once.
     const acts = await sbGet(
-      `canvass_activity?to_status=eq.appt&from_status=in.(iq,fb,ai,no_sit_reschedule)` +
+      `canvass_activity?to_status=eq.appt&from_status=in.(iq,fb,ai,no_sit_reschedule,self_gen)` +
       `&created_at=gte.${encodeURIComponent(start.toISOString())}&created_at=lte.${encodeURIComponent(end.toISOString())}` +
       `&select=rep_name,pin_id,from_status,created_at&order=created_at.asc&limit=20000`
     );

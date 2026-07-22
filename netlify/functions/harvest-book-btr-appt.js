@@ -170,7 +170,11 @@ export const handler = async (event) => {
       body: JSON.stringify({ status: "appt", status_updated_at: nowIso, status_by: rep.name || null, jn_job_id: jobId, status_log: log }),
     }).catch(() => {});
 
-    logActivity({ pin_id: pinId, rep_name: rep.name, rep_token: rt, kind: "status", from_status: pin.status, to_status: "appt" });
+    // Origin for the harvest leaderboard: a SELF-GENERATED retail appt is harvest
+    // work (rep found the damaged roof) → tag it "self_gen" so the leaderboard counts
+    // it. A real BTR (retail off an existing inspection pin) keeps pin.status (=insp)
+    // and stays EXCLUDED — that's post-inspection, not lead-gen.
+    logActivity({ pin_id: pinId, rep_name: rep.name, rep_token: rt, kind: "status", from_status: selfGen ? "self_gen" : pin.status, to_status: "appt" });
     return json(200, { ok: true, job_id: jobId, contact_id: contactId, assigned, credited_rep: rep.name || null });
   } catch (e) {
     return json(502, { ok: false, error: `JobNimbus: ${e.message || "failed"}` });
