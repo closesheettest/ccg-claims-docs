@@ -81,13 +81,13 @@ exports.handler = async (event) => {
   //   rawId (another raw JN lead) → SKIPPED (dedupe)
   //   inspId (an unworked RepCard "insp") → the incoming IQ CONVERTS it in place
   //                                          (your "IQ beats inspection-needed")
-  const streetIdx = new Map();    // streetKey -> [{ id, status, zip }]
+  const streetIdx = new Map();    // streetKey -> [{ id, status, zip, status_by, status_updated_at }]
   const claimedKeys = new Set();  // "street|zip" handled this run (converted or freshly inserted)
   try {
-    for (const p of await sbGetAll(`canvass_prospects?latitude=not.is.null&select=id,address,status,zip`)) {
+    for (const p of await sbGetAll(`canvass_prospects?latitude=not.is.null&select=id,address,status,zip,status_by,status_updated_at`)) {
       const sk = streetKey(p.address); if (!sk) continue;
       let arr = streetIdx.get(sk); if (!arr) { arr = []; streetIdx.set(sk, arr); }
-      arr.push({ id: p.id, status: p.status, zip: zip5(p.zip) });
+      arr.push({ id: p.id, status: p.status, zip: zip5(p.zip), status_by: p.status_by, status_updated_at: p.status_updated_at });
     }
   } catch { /* if the index can't load, fall back to contact-only dedup (no crash) */ }
 
@@ -239,11 +239,24 @@ exports.handler = async (event) => {
     const addrRev = [];
     let addrRestatused = 0;
     const nowIso = new Date().toISOString();
+    // A REP's fresh field call wins over an address-match guess (Neal): if a human rep
+    // statused this door in the last 7 days, leave it — don't let a (possibly stale or
+    // same-street-different-house) JN job overwrite it (the Rayner Carballo case: Sam
+    // marked it dead, the old no-sit appt at the address flipped it back to "appt").
+    // Sync-set statuses (status_by "JN …") and anything older stay eligible for override.
+    const REP_PROTECT_MS = 7 * 24 * 60 * 60 * 1000;
+    const repProtected = (p) => {
+      const by = String(p.status_by || "");
+      if (!by || /^JN\b/i.test(by)) return false;             // sync-set or unknown → not a rep
+      const t = Date.parse(p.status_updated_at || "");
+      return Number.isFinite(t) && (Date.now() - t) < REP_PROTECT_MS;
+    };
     for (const [sk, arr] of streetIdx) {
       const job = jobByAddr[sk]; if (!job) continue;
       const tgtRank = PIN_RANK[job.st] || 0;
       for (const p of arr) {
         if (p.status === job.st) continue;
+        if (repProtected(p)) continue;                                // rep worked it recently → their call sticks
         if ((PIN_RANK[p.status] || 0) >= tgtRank) continue;           // don't downgrade a heavier pin
         if (job.zip && p.zip && job.zip !== p.zip) continue;          // same street, different city → skip
         addrRev.push(fetch(`${SB_URL}/rest/v1/canvass_prospects?id=eq.${p.id}`, {
