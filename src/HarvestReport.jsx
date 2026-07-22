@@ -79,6 +79,10 @@ export default function HarvestReport() {
       cur.acts.push(r);
       if (r.kind === "visit") { cur.visits += 1; if (r.pin_id) cur.pins.add(r.pin_id); if (r.to_status === "not_home") cur.notHome += 1; }
       if (r.kind === "status" && r.to_status) cur.outcomes[r.to_status] = (cur.outcomes[r.to_status] || 0) + 1;
+      // Appts are logged as a "visit" (or appt_done), NOT a "status" row — so counting
+      // only status rows left the APPTS column at 0. Count them here (rows are already
+      // deduped, so one per door).
+      else if (r.to_status === "appt") cur.outcomes.appt = (cur.outcomes.appt || 0) + 1;
       if (typeof r.round === "number") cur.rounds = Math.max(cur.rounds, r.round);
       if (!cur.last || new Date(r.created_at) > new Date(cur.last)) cur.last = r.created_at;
       // Location audit: count off-the-door actions, and gather coords for the
@@ -140,7 +144,18 @@ export default function HarvestReport() {
   const fmt = (iso) => { try { return new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch { return "—"; } };
   const fmtT = (iso) => { try { return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }); } catch { return ""; } };
   const fmtDur = (s) => { if (s == null) return "—"; const m = Math.floor(s / 60), sec = Math.round(s % 60); return m ? `${m}m ${sec}s` : `${sec}s`; };
-  const ACT_LABEL = (r) => r.kind === "arrival" ? "📍 Arrived" : r.kind === "status" ? `✏️ ${OUTCOME_LABELS[r.to_status] || r.to_status}` : r.to_status === "not_home" ? "🏠 Not home" : "🚶 Visit";
+  const ACT_LABEL = (r) => {
+    if (r.kind === "arrival") return "📍 Arrived";
+    if (r.kind === "status") return `✏️ ${OUTCOME_LABELS[r.to_status] || r.to_status}`;
+    if (r.to_status === "not_home") return "🏠 Not home";
+    // Appts log as a visit — show them as a CONVERSION, with what the door was (e.g.
+    // "📅 Appt (from No-sit)") so the log makes the reschedule/booking visible.
+    if (r.to_status === "appt") {
+      const from = r.from_status && r.from_status !== "appt" ? ` (from ${OUTCOME_LABELS[r.from_status] || r.from_status})` : "";
+      return `📅 Appt${from}`;
+    }
+    return "🚶 Visit";
+  };
   // Location tag shown on each stop in the detail view.
   const LOC_TAG = (r) => {
     if (r.loc_flag === "far") return { txt: `⚠️ ${r.dist_ft != null ? `${r.dist_ft.toLocaleString()} ft away` : "far from door"}`, color: "#b91c1c" };
@@ -249,8 +264,10 @@ export default function HarvestReport() {
                         {[...r.acts].reverse()
                           // A statused stop logs both a "visit" and the "status" row —
                           // hide the redundant visit; the status line is the outcome.
-                          // A not-home stop's visit IS its outcome, so keep that.
-                          .filter((a) => !(a.kind === "visit" && a.to_status !== "not_home"))
+                          // KEEP visits that ARE the outcome: not-home, and appt (a
+                          // booking/reschedule logs only a visit, no status row — hiding
+                          // it is why conversions like Dorothy's no-sit→appt vanished).
+                          .filter((a) => !(a.kind === "visit" && a.to_status !== "not_home" && a.to_status !== "appt"))
                           .map((a, i) => {
                           const pin = pinMap[a.pin_id] || {};
                           const tag = a.kind !== "arrival" ? LOC_TAG(a) : null;
