@@ -61,8 +61,19 @@ export default function HarvestReport() {
   }, [period]);
 
   const byRep = useMemo(() => {
+    // Collapse duplicate rows first — the app was logging the same door + kind +
+    // outcome several times (double-tap / GPS re-fire while approaching), which both
+    // inflated the counts and spammed the stop-by-stop list. Keep ONE per rep + door +
+    // kind + outcome + round (a genuine round-2 re-knock still counts); pinless rows kept.
+    const seen = new Set();
+    const deduped = (rows || []).filter((r) => {
+      if (!r.pin_id) return true;
+      const k = `${r.rep_name || ""}|${r.pin_id}|${r.kind}|${r.to_status || ""}|${r.round ?? ""}`;
+      if (seen.has(k)) return false;
+      seen.add(k); return true;
+    });
     const m = new Map();
-    for (const r of (rows || [])) {
+    for (const r of deduped) {
       const name = r.rep_name || "(unknown)";
       const cur = m.get(name) || { name, visits: 0, pins: new Set(), rounds: 0, last: null, outcomes: {}, notHome: 0, acts: [], offSpot: 0, farCount: 0, gpsOff: 0, coords: [] };
       cur.acts.push(r);
