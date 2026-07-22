@@ -98,14 +98,20 @@ export default function HarvestReport() {
     const m = new Map();
     for (const r of deduped) {
       const name = r.rep_name || "(unknown)";
-      const cur = m.get(name) || { name, visits: 0, pins: new Set(), rounds: 0, last: null, outcomes: {}, notHome: 0, acts: [], offSpot: 0, farCount: 0, gpsOff: 0, coords: [] };
+      const cur = m.get(name) || { name, visits: 0, pins: new Set(), rounds: 0, last: null, outcomes: {}, apptSrc: {}, notHome: 0, acts: [], offSpot: 0, farCount: 0, gpsOff: 0, coords: [] };
       cur.acts.push(r);
       if (r.kind === "visit") { cur.visits += 1; if (r.pin_id) cur.pins.add(r.pin_id); if (r.to_status === "not_home") cur.notHome += 1; }
       if (r.kind === "status" && r.to_status) cur.outcomes[r.to_status] = (cur.outcomes[r.to_status] || 0) + 1;
-      // Appts are logged as a "visit" (or appt_done), NOT a "status" row — so counting
-      // only status rows left the APPTS column at 0. Count them here (rows are already
-      // deduped, so one per door).
-      else if (r.to_status === "appt") cur.outcomes.appt = (cur.outcomes.appt || 0) + 1;
+      // An APPT is a CONVERSION — logged as a "visit" (a booking/reschedule), never a
+      // "status" row. Count ONLY those. The pre-existing "appt_done" rows (the rep's own
+      // scheduled appts he was routed around) are NOT conversions and must not count —
+      // that's why Sam read 6 when he really made 4. Also track what each converted FROM
+      // (no-sit vs iq); that split is how we'll later prove going back to no-sits pays off.
+      else if (r.kind === "visit" && r.to_status === "appt") {
+        cur.outcomes.appt = (cur.outcomes.appt || 0) + 1;
+        const src = r.from_status === "no_sit_reschedule" ? "no_sit" : "iq";
+        cur.apptSrc[src] = (cur.apptSrc[src] || 0) + 1;
+      }
       if (typeof r.round === "number") cur.rounds = Math.max(cur.rounds, r.round);
       if (!cur.last || new Date(r.created_at) > new Date(cur.last)) cur.last = r.created_at;
       // Location audit: count off-the-door actions, and gather coords for the
@@ -258,7 +264,7 @@ export default function HarvestReport() {
             <thead>
               <tr style={{ textAlign: "left", color: "#64748b", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>
                 <th style={{ padding: "8px 10px" }}>Rep</th>
-                <th style={{ padding: "8px 10px" }}>Pins visited</th>
+                <th style={{ padding: "8px 10px" }}>Visits</th>
                 <th style={{ padding: "8px 10px" }}>Avg at spot</th>
                 <th style={{ padding: "8px 10px" }}>Rounds</th>
                 {OUTCOMES.map((o) => <th key={o} style={{ padding: "8px 10px" }}>{OUTCOME_LABELS[o]}</th>)}
@@ -275,10 +281,20 @@ export default function HarvestReport() {
                 <React.Fragment key={r.name}>
                 <tr onClick={() => setOpenRep(open ? null : r.name)} style={{ borderTop: "1px solid #e5e7eb", cursor: "pointer", background: r.flagged ? "#fff7f7" : open ? "#f8fafc" : "#fff" }}>
                   <td style={{ padding: "9px 10px", fontWeight: 700 }}><span style={{ color: "#94a3b8", marginRight: 5 }}>{open ? "▾" : "▸"}</span>{r.flagged ? <span title="Location check — see the banner above">🚩 </span> : null}{r.name}</td>
-                  <td style={{ padding: "9px 10px" }}>{r.pinsVisited}{r.visits !== r.pinsVisited ? <span style={{ color: "#94a3b8" }}> ({r.visits} taps)</span> : null}</td>
+                  {/* Visits = every door-action tapped (this equals the outcome columns added across). */}
+                  <td style={{ padding: "9px 10px" }} title={`${r.pinsVisited} distinct doors`}>{r.visits}</td>
                   <td style={{ padding: "9px 10px", fontWeight: r.avgSpot != null ? 700 : 400, color: r.avgSpot != null ? "#0f172a" : "#cbd5e1" }}>{fmtDur(r.avgSpot)}</td>
                   <td style={{ padding: "9px 10px" }}>{r.rounds || "—"}</td>
-                  {OUTCOMES.map((o) => <td key={o} style={{ padding: "9px 10px", fontWeight: r.outcomes[o] ? 700 : 400, color: r.outcomes[o] ? "#0f172a" : "#cbd5e1" }}>{r.outcomes[o] || 0}</td>)}
+                  {OUTCOMES.map((o) => {
+                    const v = r.outcomes[o] || 0;
+                    const ns = o === "appt" ? (r.apptSrc?.no_sit || 0) : 0, iq = o === "appt" ? (r.apptSrc?.iq || 0) : 0;
+                    return (
+                      <td key={o} title={o === "appt" && v ? `${iq} from IQ · ${ns} from No-sit` : undefined}
+                        style={{ padding: "9px 10px", fontWeight: v ? 700 : 400, color: v ? "#0f172a" : "#cbd5e1", whiteSpace: "nowrap" }}>
+                        {v}{o === "appt" && ns ? <span style={{ color: "#dc2626", fontWeight: 700, fontSize: 11 }}> ·{ns} NS</span> : null}
+                      </td>
+                    );
+                  })}
                   <td style={{ padding: "9px 10px", fontWeight: r.notHome ? 700 : 400, color: r.notHome ? "#0f172a" : "#cbd5e1" }}>{r.notHome || 0}</td>
                   {!auditOff && (
                     <td style={{ padding: "9px 10px", fontWeight: r.offSpot ? 800 : 400, color: r.farCount ? "#b91c1c" : r.offSpot ? "#b45309" : "#cbd5e1", whiteSpace: "nowrap" }}
