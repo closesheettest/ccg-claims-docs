@@ -861,6 +861,15 @@ export default function CanvassMap() {
     return false;
   };
   const pinOwnerName = (p) => (p && p.extra && p.extra.created_by) || "another rep";
+  // Homeowner PII (name, phone, email, owner) shows only when the office/admin views it,
+  // the rep OWNS the pin (their own self-gen door), or the pin is part of the rep's ACTIVE
+  // planned route. Reps can't just tap pins to read off homeowner names — the details come
+  // up in the flow of working the route. (Neal)
+  const piiVisible = (p) => {
+    if (!auth.rt || me?.level === "admin") return true;                 // office / admin
+    if (isSelfGenPin(p) && ownsPin(p)) return true;                     // their own door
+    return dayMode === "active" && (route || []).some((s) => s.id === p.id);
+  };
 
   // "View as" — the office can preview exactly what a junior/senior rep sees.
   // effLevel is the level we're rendering as (own level, or the previewed one).
@@ -3536,7 +3545,9 @@ export default function CanvassMap() {
         <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: "#fff", borderTopLeftRadius: 18, borderTopRightRadius: 18, boxShadow: "0 -4px 20px rgba(0,0,0,.18)", padding: "16px 18px 22px", zIndex: 1000, maxHeight: "62vh", overflowY: "auto" }}>
           <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
             <div style={{ flex: 1 }}>
-              {selected.name && <div style={{ fontWeight: 800, fontSize: 16 }}>{selected.name}</div>}
+              {piiVisible(selected)
+                ? (selected.name && <div style={{ fontWeight: 800, fontSize: 16 }}>{selected.name}</div>)
+                : <div style={{ fontWeight: 800, fontSize: 13.5, color: "#94a3b8" }}>🔒 Homeowner shown once it's on your route</div>}
               <div style={{ fontSize: 14, color: "#334155", fontWeight: 600 }}>{selected.address}</div>
               <div style={{ fontSize: 13, color: "#64748b" }}>{[selected.city, selected.state, selected.zip].filter(Boolean).join(", ")}</div>
               {selected.status === "no_sit_reschedule" && origApptLabel(selected) && (
@@ -3562,7 +3573,7 @@ export default function CanvassMap() {
               metadata (Date Contact, List, RepCard user, Synced at, Updated, IDs,
               Country Code, Verified Pin, …). Show a short ALLOWLIST from extra and
               hide the rest — nothing is deleted, just not displayed. */}
-          {(() => {
+          {piiVisible(selected) && (() => {
             const rows = [];
             if (selected.phone) rows.push(["Phone", selected.phone]);
             if (selected.email) rows.push(["Email", selected.email]);
