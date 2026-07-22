@@ -6,6 +6,7 @@
 // v1 just records the status on the pin — no JobNimbus write yet.
 import React, { useEffect, useRef, useState, useMemo } from "react";
 import L from "leaflet";
+import "leaflet-rotate"; // adds map rotation (two-finger turn + heading-up); patches L.Map
 import "leaflet/dist/leaflet.css";
 import "leaflet.markercluster";
 import "leaflet.markercluster/dist/MarkerCluster.css";
@@ -759,6 +760,9 @@ export default function CanvassMap() {
   const testApptRef = useRef(null);
   const testApptLayer = useRef(null);
   const [myLoc, setMyLoc] = useState(null);            // live GPS (always on while the map is open)
+  const [headingUp, setHeadingUp] = useState(false);   // map rotates to the rep's direction of travel (compass)
+  const headingRef = useRef(0);                        // smoothed compass heading (deg)
+  const orientHandlerRef = useRef(null);               // deviceorientation listener while heading-up is on
   const [selecting, setSelecting] = useState(false);   // drawing a box to route the doors inside it
   const [zoomHint, setZoomHint] = useState(false);     // tapped Start/Route while zoomed out (clusters, no pins)
   const [round, setRound] = useState(savedDay?.round || 1);             // 1st round, 2nd round, …
@@ -1085,7 +1089,9 @@ export default function CanvassMap() {
   // Init the Leaflet map once.
   useEffect(() => {
     if (map.current || !mapEl.current) return;
-    const m = L.map(mapEl.current, { zoomControl: true }).setView([27.7, -81.6], 7); // Florida-wide default
+    // rotate: enable map rotation; touchRotate: two-finger turn; bearing 0 = north-up
+    // to start. rotateControl off (we drive the bearing from the compass / our own button).
+    const m = L.map(mapEl.current, { zoomControl: true, rotate: true, touchRotate: true, rotateControl: false, bearing: 0 }).setView([27.7, -81.6], 7); // Florida-wide default
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19, attribution: "&copy; OpenStreetMap",
     }).addTo(m);
@@ -2169,6 +2175,52 @@ export default function CanvassMap() {
     } else fallback();
   }
   startFromRef.current = startFrom;
+
+  // ── Heading-up (map turns to the direction the rep is moving) ─────────────
+  // Reads the phone compass and rotates the map (leaflet-rotate) so the way the rep
+  // is facing is always UP — like a car GPS. Two-finger turn still works to nudge it.
+  function smoothHeading(raw) {
+    const prev = headingRef.current;
+    const diff = ((raw - prev + 540) % 360) - 180; // shortest signed turn, handles the 360→0 wrap
+    const next = (prev + diff * 0.25 + 360) % 360;  // low-pass so it doesn't jitter
+    headingRef.current = next;
+    return next;
+  }
+  function onOrient(e) {
+    let h = null;
+    if (typeof e.webkitCompassHeading === "number") h = e.webkitCompassHeading;   // iOS: true compass, 0=N clockwise
+    else if (typeof e.alpha === "number") h = (360 - e.alpha) % 360;              // Android: derive from alpha
+    if (h == null || isNaN(h)) return;
+    const sm = smoothHeading(h);
+    try { if (map.current?.setBearing) map.current.setBearing(-sm); } catch { /* ignore */ }
+  }
+  async function enableHeadingUp() {
+    try {
+      if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
+        const res = await DeviceOrientationEvent.requestPermission(); // iOS 13+ needs this on a tap
+        if (res !== "granted") { alert("To use heading-up, allow Motion & Orientation access when your phone asks."); return; }
+      }
+    } catch { /* older browsers don't need permission */ }
+    const handler = (ev) => onOrient(ev);
+    orientHandlerRef.current = handler;
+    window.addEventListener("deviceorientationabsolute", handler, true);
+    window.addEventListener("deviceorientation", handler, true);
+    setHeadingUp(true);
+    if (myLoc && map.current) map.current.panTo([myLoc.lat, myLoc.lng]);
+  }
+  function disableHeadingUp() {
+    const h = orientHandlerRef.current;
+    if (h) { window.removeEventListener("deviceorientationabsolute", h, true); window.removeEventListener("deviceorientation", h, true); orientHandlerRef.current = null; }
+    headingRef.current = 0;
+    try { if (map.current?.setBearing) map.current.setBearing(0); } catch { /* ignore */ }
+    setHeadingUp(false);
+  }
+  function toggleHeadingUp() { headingUp ? disableHeadingUp() : enableHeadingUp(); }
+  // Stop listening if the component unmounts while heading-up is on.
+  useEffect(() => () => { const h = orientHandlerRef.current; if (h) { window.removeEventListener("deviceorientationabsolute", h, true); window.removeEventListener("deviceorientation", h, true); } }, []);
+  // While heading-up, keep the rep centered (follow-me), so the map turns around them.
+  useEffect(() => { if (headingUp && myLoc && map.current) { try { map.current.panTo([myLoc.lat, myLoc.lng], { animate: true, duration: 0.4 }); } catch { /* ignore */ } } }, [myLoc, headingUp]);
+
   function useMyLocation() {
     if (!navigator.geolocation) { alert("Location isn't available on this device — tap the map to pick a start point."); return; }
     navigator.geolocation.getCurrentPosition(
@@ -2771,6 +2823,13 @@ export default function CanvassMap() {
           <button type="button" onClick={startAddHouse} title="Add a house"
             style={{ position: "absolute", right: isDesktop ? 312 : 12, top: (myLoc && !selecting) ? 64 : 12, zIndex: 600, background: "#7c3aed", color: "#fff", border: "2px solid #fff", borderRadius: 999, width: 44, height: 44, fontSize: 19, boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>
             🏠
+          </button>
+        )}
+        {/* Heading-up toggle: rotates the map to the rep's direction of travel (compass). */}
+        {auth.rt && !selecting && !adding && !newPin && (
+          <button type="button" onClick={toggleHeadingUp} title={headingUp ? "Heading-up ON — tap for North-up" : "Heading-up: turn the map to face where you're walking"}
+            style={{ position: "absolute", right: isDesktop ? 312 : 12, top: (myLoc && !selecting) ? 116 : 64, zIndex: 600, background: headingUp ? "#16a34a" : "#fff", color: headingUp ? "#fff" : "#334155", border: "2px solid #fff", borderRadius: 999, width: 44, height: 44, fontSize: 20, boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>
+            🧭
           </button>
         )}
         {adding && (

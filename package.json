@@ -13,6 +13,7 @@
     "date-fns": "^4.4.0",
     "html2pdf.js": "^0.10.3",
     "leaflet": "^1.9.4",
+    "leaflet-rotate": "^0.2.8",
     "leaflet.markercluster": "^1.5.3",
     "lucide-react": "^0.379.0",
     "pdf-lib": "^1.17.1",
