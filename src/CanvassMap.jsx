@@ -6,7 +6,6 @@
 // v1 just records the status on the pin — no JobNimbus write yet.
 import React, { useEffect, useRef, useState, useMemo } from "react";
 import L from "leaflet";
-import "leaflet-rotate"; // adds map rotation (two-finger turn + heading-up); patches L.Map
 import "leaflet/dist/leaflet.css";
 import "leaflet.markercluster";
 import "leaflet.markercluster/dist/MarkerCluster.css";
@@ -1089,9 +1088,7 @@ export default function CanvassMap() {
   // Init the Leaflet map once.
   useEffect(() => {
     if (map.current || !mapEl.current) return;
-    // rotate: enable map rotation; touchRotate: two-finger turn; bearing 0 = north-up
-    // to start. rotateControl off (we drive the bearing from the compass / our own button).
-    const m = L.map(mapEl.current, { zoomControl: true, rotate: true, touchRotate: true, rotateControl: false, bearing: 0 }).setView([27.7, -81.6], 7); // Florida-wide default
+    const m = L.map(mapEl.current, { zoomControl: true }).setView([27.7, -81.6], 7); // Florida-wide default
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19, attribution: "&copy; OpenStreetMap",
     }).addTo(m);
@@ -2825,13 +2822,9 @@ export default function CanvassMap() {
             🏠
           </button>
         )}
-        {/* Heading-up toggle: rotates the map to the rep's direction of travel (compass). */}
-        {auth.rt && !selecting && !adding && !newPin && (
-          <button type="button" onClick={toggleHeadingUp} title={headingUp ? "Heading-up ON — tap for North-up" : "Heading-up: turn the map to face where you're walking"}
-            style={{ position: "absolute", right: isDesktop ? 312 : 12, top: (myLoc && !selecting) ? 116 : 64, zIndex: 600, background: headingUp ? "#16a34a" : "#fff", color: headingUp ? "#fff" : "#334155", border: "2px solid #fff", borderRadius: 999, width: 44, height: 44, fontSize: 20, boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>
-            🧭
-          </button>
-        )}
+        {/* Heading-up compass toggle temporarily removed — leaflet-rotate broke admin
+            pin-loading (it overrides getBounds); revisiting rotation with a method that
+            doesn't touch the map projection. */}
         {adding && (
           <div style={{ position: "absolute", left: "50%", top: 12, transform: "translateX(-50%)", zIndex: 750, background: "#7c3aed", color: "#fff", borderRadius: 12, padding: "10px 14px", boxShadow: "0 3px 14px rgba(0,0,0,.3)", display: "flex", alignItems: "center", gap: 12, whiteSpace: "nowrap" }}>
             <span style={{ fontSize: 13.5, fontWeight: 700 }}>🏠 Tap the roof of the house</span>
