@@ -46,16 +46,25 @@ export const handler = async (event) => {
   if (rows === null) rows = await sbGetAll(path.replace(",dist_ft,loc_flag", ""), sb).catch(() => []);
   const acts = (rows || []).filter((a) => allow.has(normalizeName(a.rep_name)));
 
+  // Appts and no-sit reschedules log as visit/appt_done/manual_here — NOT "status" —
+  // so tallying outcomes only from kind==="status" silently dropped them (APPTS/NO-SITS
+  // always read 0). Count THOSE two by distinct DOOR across any kind (a booking logs
+  // more than one row), and keep every other outcome exactly as before (status-row
+  // count) so the familiar IQ-NI / DEAD / etc. numbers don't shift.
+  const NOSTATUS = new Set(["appt", "no_sit_reschedule"]);
   const byName = new Map();
   const newRoofSrc = {}; let newRoofTotal = 0;
   for (const a of acts) {
     const n = normalizeName(a.rep_name); if (!n) continue;
-    const cur = byName.get(n) || { name: a.rep_name, knocks: 0, pins: new Set(), notHome: 0, outcomes: {}, offSpot: 0, farCount: 0, lastActive: null };
+    const cur = byName.get(n) || { name: a.rep_name, knocks: 0, pins: new Set(), notHome: 0, outcomes: {}, outcomePins: {}, offSpot: 0, farCount: 0, lastActive: null };
     cur.name = a.rep_name;
     if (a.kind === "visit") { cur.knocks += 1; if (a.pin_id) cur.pins.add(a.pin_id); if (a.to_status === "not_home") cur.notHome += 1; }
-    if (a.kind === "status" && a.to_status) {
+    if (a.kind === "status" && a.to_status && !NOSTATUS.has(a.to_status)) {
       cur.outcomes[a.to_status] = (cur.outcomes[a.to_status] || 0) + 1;
       if (a.to_status === "new_roof") { const s = a.from_status || "(unknown)"; newRoofSrc[s] = (newRoofSrc[s] || 0) + 1; newRoofTotal += 1; }
+    }
+    if (a.to_status && NOSTATUS.has(a.to_status)) {
+      (cur.outcomePins[a.to_status] = cur.outcomePins[a.to_status] || new Set()).add(a.pin_id || `${a.kind}:${a.created_at}`);
     }
     if (a.kind !== "arrival") { if (a.loc_flag === "far") { cur.farCount += 1; cur.offSpot += 1; } else if (a.loc_flag === "gps_off") cur.offSpot += 1; }
     if (!cur.lastActive || new Date(a.created_at) > new Date(cur.lastActive)) cur.lastActive = a.created_at;
@@ -63,7 +72,7 @@ export const handler = async (event) => {
   }
 
   const reps = [...byName.values()]
-    .map((r) => ({ name: r.name, knocks: r.knocks, pins: r.pins.size, notHome: r.notHome, outcomes: r.outcomes, offSpot: r.offSpot, farCount: r.farCount, lastActive: r.lastActive }))
+    .map((r) => ({ name: r.name, knocks: r.knocks, pins: r.pins.size, notHome: r.notHome, outcomes: { ...r.outcomes, ...Object.fromEntries(Object.entries(r.outcomePins).map(([k, s]) => [k, s.size])) }, offSpot: r.offSpot, farCount: r.farCount, lastActive: r.lastActive }))
     .sort((a, b) => new Date(b.lastActive || 0) - new Date(a.lastActive || 0));
   const newRoof = { total: newRoofTotal, bySrc: Object.entries(newRoofSrc).sort((a, b) => b[1] - a[1]) };
   return cors(200, { ...base, outcomes: OUTCOMES, reps, newRoof });
