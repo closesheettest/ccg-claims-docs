@@ -1395,7 +1395,12 @@ export default function CanvassMap() {
       recentLogRef.current.set(key, now);
     }
     try {
-      const full = { rep_name: repName || null, rep_token: auth.rt || null, round, ...row };
+      // Prefer the token-resolved name (authInfo) as a fallback: the GPS 'arrival' can
+      // fire before the `me` state finishes loading, and repName ("") would orphan the
+      // row with a null rep_name — leaving it unattributed on the report. authInfo.current
+      // is set once from the token and is usually ready first.
+      const repNm = repName || (authInfo.current && authInfo.current.rep && authInfo.current.rep.name) || null;
+      const full = { rep_name: repNm, rep_token: auth.rt || null, round, ...row };
       supabase.from("canvass_activity").insert(full).then(({ error }) => {
         if (error && /lat|lng|acc_m|dist_ft|loc_flag|column/i.test(error.message || "")) {
           const { lat, lng, acc_m, dist_ft, loc_flag, ...basic } = full; // eslint-disable-line no-unused-vars

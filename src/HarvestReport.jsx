@@ -87,12 +87,30 @@ export default function HarvestReport() {
   }, [period, fromDate, toDate]);
 
   const byRep = useMemo(() => {
+    // Adopt orphaned arrivals. The GPS 'arrival' auto-fires the instant a rep nears a
+    // routed stop — which can be BEFORE their rep record finishes loading, so those rows
+    // land with rep_name = null. The manual status/not-home tap moments later carries the
+    // name. If left null, the arrival falls into "(unknown)" and the stop-by-stop shows
+    // "No arrived logged" even though the rep clearly arrived. Stamp each null-rep arrival
+    // with the rep of the nearest same-door visit/status (closest in time).
+    const rowsAll = rows || [];
+    const namedAtPin = rowsAll.filter((r) => r.pin_id && r.rep_name && r.kind !== "arrival");
+    const src = rowsAll.map((r) => {
+      if (r.kind !== "arrival" || r.rep_name || !r.pin_id) return r;
+      let best = null, bestDt = Infinity;
+      for (const o of namedAtPin) {
+        if (o.pin_id !== r.pin_id) continue;
+        const dt = Math.abs(new Date(o.created_at) - new Date(r.created_at));
+        if (dt < bestDt) { bestDt = dt; best = o; }
+      }
+      return best ? { ...r, rep_name: best.rep_name } : r;
+    });
     // Collapse duplicate rows first — the app was logging the same door + kind +
     // outcome several times (double-tap / GPS re-fire while approaching), which both
     // inflated the counts and spammed the stop-by-stop list. Keep ONE per rep + door +
     // kind + outcome + round (a genuine round-2 re-knock still counts); pinless rows kept.
     const seen = new Set();
-    const deduped = (rows || []).filter((r) => {
+    const deduped = src.filter((r) => {
       if (!r.pin_id) return true;
       const k = `${r.rep_name || ""}|${r.pin_id}|${r.kind}|${r.to_status || ""}|${r.round ?? ""}`;
       if (seen.has(k)) return false;
