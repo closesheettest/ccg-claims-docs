@@ -20,7 +20,7 @@
 //
 // Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, JOBNIMBUS_API_KEY
 
-import { jnFetch } from "./_jn.js";
+import { jnFetch, assignContactOwner } from "./_jn.js";
 import { resolveManager } from "./_zone-manager.js";
 
 const SB_URL = process.env.VITE_SUPABASE_URL;
@@ -126,6 +126,9 @@ export const handler = async (event) => {
       }
     }
     if (!jobId) throw new Error("job create failed");
+    // Assign the rep to the CONTACT too, not just the job — otherwise JobNimbus hides
+    // the homeowner's phone/email and the rep can't call to confirm the appointment.
+    if (ownerJn) await assignContactOwner(JN_KEY, contactId, ownerJn);
 
     // 3. Initial Appointment task on the runner's calendar.
     await jnPost("tasks", {

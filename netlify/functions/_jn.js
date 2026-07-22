@@ -49,4 +49,19 @@ async function jnFetch(key, path, opts = {}, tries = 3) {
   throw last;
 }
 
-export { JN_BASE, JN_RETRY_STATUS, jnFetch };
+// Assign a rep to a CONTACT (not just the job). JobNimbus only shows a contact's
+// phone/email to reps who OWN the contact — so if we set the rep on the job but not
+// the contact, the rep sees the deal on their board but can't call the homeowner.
+// Setting sales_rep at the contact level sometimes throws a Couchbase key error, so
+// we try owners+sales_rep first, then fall back to owners alone. Best-effort: never
+// throws (a failed contact-assign must not sink the booking/signing it rides along).
+async function assignContactOwner(key, contactId, ownerId) {
+  if (!contactId || !ownerId) return false;
+  try {
+    let r = await jnFetch(key, `contacts/${contactId}`, { method: "PUT", body: JSON.stringify({ owners: [{ id: ownerId }], sales_rep: ownerId }) });
+    if (!r.ok) r = await jnFetch(key, `contacts/${contactId}`, { method: "PUT", body: JSON.stringify({ owners: [{ id: ownerId }] }) });
+    return r.ok;
+  } catch { return false; }
+}
+
+export { JN_BASE, JN_RETRY_STATUS, jnFetch, assignContactOwner };

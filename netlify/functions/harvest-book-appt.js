@@ -15,7 +15,7 @@
 //
 // Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, JOBNIMBUS_API_KEY
 
-import { jnFetch } from "./_jn.js";
+import { jnFetch, assignContactOwner } from "./_jn.js";
 
 const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
@@ -93,6 +93,15 @@ export const handler = async (event) => {
         // jobs) works but this one 500s. Reassign owner + sales_rep before touching
         // anything else so the job is "ours" for the edits that follow.
         if (owner) await rawJobPut({ owners: [{ id: owner }], sales_rep: owner }, "reassign");
+        // Assign the rep to the CONTACT too (not just the job) so they can actually
+        // see the homeowner's phone/email in JobNimbus. Pull the job's primary contact.
+        if (owner) {
+          try {
+            const jobObj = await jnGet(`jobs/${existingJobId}`);
+            const cid = jobObj?.primary?.id || (Array.isArray(jobObj?.primary) ? jobObj.primary[0]?.id : null);
+            if (cid) await assignContactOwner(JN_KEY, cid, owner);
+          } catch { /* best-effort — never block the reschedule */ }
+        }
         // STEP 2 — now that it's ours, set the reschedule status ("No Sit -
         // Rescheduled", NOT "Appointment Scheduled"). We do NOT touch the job's own
         // date_start — setting it 500s on these jobs, and the appointment date belongs
@@ -195,6 +204,9 @@ export const handler = async (event) => {
       }
     }
     if (!jobId) throw new Error("job create failed");
+    // Assign the rep to the CONTACT too, not just the job — otherwise JobNimbus hides
+    // the homeowner's phone/email from them and they can't call to confirm the appt.
+    if (owner) await assignContactOwner(JN_KEY, contactId, owner);
 
     const task = await jnPost("tasks", {
       record_type: APPT_TASK_RT, record_type_name: "Initial Appointment", type: "task",
