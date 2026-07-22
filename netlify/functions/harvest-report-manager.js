@@ -78,7 +78,12 @@ export const handler = async (event) => {
       if (a.to_status === "new_roof") { const s = a.from_status || "(unknown)"; newRoofSrc[s] = (newRoofSrc[s] || 0) + 1; newRoofTotal += 1; }
     }
     if (a.to_status && NOSTATUS.has(a.to_status)) {
-      (cur.outcomePins[a.to_status] = cur.outcomePins[a.to_status] || new Set()).add(a.pin_id || `${a.kind}:${a.created_at}`);
+      // An APPT only counts as a real CONVERSION (a "visit" booking/reschedule) — the
+      // pre-existing "appt_done" rows the rep was routed around are NOT conversions
+      // (that's why Sam read 6 when he made 4). no_sit_reschedule counts any kind.
+      if (!(a.to_status === "appt" && a.kind !== "visit")) {
+        (cur.outcomePins[a.to_status] = cur.outcomePins[a.to_status] || new Set()).add(a.pin_id || `${a.kind}:${a.created_at}`);
+      }
     }
     if (a.kind !== "arrival") { if (a.loc_flag === "far") { cur.farCount += 1; cur.offSpot += 1; } else if (a.loc_flag === "gps_off") cur.offSpot += 1; }
     if (!cur.lastActive || new Date(a.created_at) > new Date(cur.lastActive)) cur.lastActive = a.created_at;

@@ -18,6 +18,10 @@ const GOOGLE_KEY = process.env.GOOGLE_MAPS_API_KEY;
 const JN_BASE = "https://app.jobnimbus.com/api1";
 const GOOGLE_GEOCODE = "https://maps.googleapis.com/maps/api/geocode/json";
 const APPT_TASK_TYPES = new Set(["Initial Appointment", "Reset Appointment", "Appointment"]);
+// Match by record_type NUMBER too, in case JN returns a slightly different name for
+// the type — 4 = Initial Appointment, 12 = Reset Appointment (a no-sit reschedule),
+// 17 = Appointment. This is what makes a rep's rescheduled no-sits show on their map.
+const APPT_TASK_RTS = new Set([4, 12, 17]);
 const GEOCACHE_KEY = "appt_pin_geocache"; // jnid -> { lat, lng }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -59,7 +63,7 @@ export const handler = async (event) => {
       const d = await r.json().catch(() => ({}));
       const results = d.results || d.tasks || d.data || [];
       for (const t of results) {
-        if (!APPT_TASK_TYPES.has(t.record_type_name)) continue;
+        if (!APPT_TASK_TYPES.has(t.record_type_name) && !APPT_TASK_RTS.has(Number(t.record_type))) continue;
         if (!(t.owners || []).some((o) => String(o.id) === String(jn))) continue;
         const sec = Number(t.date_start) || 0; if (!sec) continue;
         const rel = (t.related || []).find((x) => x.type === "job") || (t.primary && t.primary.type === "job" ? t.primary : null);
