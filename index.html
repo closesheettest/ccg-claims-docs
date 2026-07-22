@@ -39,13 +39,19 @@
           var params = new URLSearchParams(location.search);
           var standalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
           var launched = standalone || params.get("app") === "1";
+          // The MAP icon (separate manifest) launches with go=harvest → send it to the
+          // map's OWN saved home, so it never lands on the Field Visit app by mistake.
+          if (launched && params.get("go") === "harvest") {
+            var mapHome = localStorage.getItem("harvest_home");
+            if (mapHome) { location.replace(mapHome); return; }
+          }
           var home = localStorage.getItem("pwa_home");
           // Only redirect a PLAIN icon launch (no destination params). ANY param —
           // intake, crew, a signing token, etc. — means the user is intentionally
           // going somewhere, so we must NOT hijack it back to their saved home.
           // (This is what sent reps' "Sign Inspection" tab back to the map.)
           var keys = [];
-          params.forEach(function (v, k) { if (k !== "app") keys.push(k); });
+          params.forEach(function (v, k) { if (k !== "app" && k !== "go") keys.push(k); });
           var bare = location.pathname === "/" && keys.length === 0;
           if (launched && home && bare) location.replace(home);
         } catch (e) {}
