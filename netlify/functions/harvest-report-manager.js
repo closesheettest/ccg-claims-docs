@@ -77,16 +77,21 @@ export const handler = async (event) => {
   const newRoofSrc = {}; let newRoofTotal = 0;
   for (const a of acts) {
     const n = normalizeName(a.rep_name); if (!n) continue;
-    const cur = byName.get(n) || { name: a.rep_name, knocks: 0, pins: new Set(), notHome: 0, outcomes: {}, outcomePins: {}, offSpot: 0, farCount: 0, lastActive: null };
+    const cur = byName.get(n) || { name: a.rep_name, knocks: 0, pins: new Set(), notHome: 0, outcomes: {}, outcomePins: {}, apptSrc: {}, offSpot: 0, farCount: 0, lastActive: null };
     cur.name = a.rep_name;
     if (a.kind === "visit") { cur.knocks += 1; if (a.pin_id) cur.pins.add(a.pin_id); if (a.to_status === "not_home") cur.notHome += 1; }
     if (a.kind === "status" && a.to_status && a.to_status !== "appt" && a.to_status !== "no_sit_reschedule") {
       cur.outcomes[a.to_status] = (cur.outcomes[a.to_status] || 0) + 1;
       if (a.to_status === "new_roof") { const s = a.from_status || "(unknown)"; newRoofSrc[s] = (newRoofSrc[s] || 0) + 1; newRoofTotal += 1; }
     }
+    // APPTS = every appt CONVERSION (a "visit" → appt), same as the rep-activity report.
+    // Track the source (no-sit vs iq) for the "·N NS" annotation. Counting all under
+    // APPTS (not a separate No-sit column) keeps it matching the rep report AND makes the
+    // columns add up to KNOCKS (a no-sit that became an appt is ONE knock → ONE column).
     if (a.kind === "visit" && a.to_status === "appt") {
-      const col = a.from_status === "no_sit_reschedule" ? "no_sit_reschedule" : "appt"; // reschedule → NO-SITS, else APPTS
-      (cur.outcomePins[col] = cur.outcomePins[col] || new Set()).add(a.pin_id || `${a.created_at}`);
+      (cur.outcomePins.appt = cur.outcomePins.appt || new Set()).add(a.pin_id || `${a.created_at}`);
+      const src = a.from_status === "no_sit_reschedule" ? "no_sit" : "iq";
+      cur.apptSrc[src] = (cur.apptSrc[src] || 0) + 1;
     }
     if (a.kind !== "arrival") { if (a.loc_flag === "far") { cur.farCount += 1; cur.offSpot += 1; } else if (a.loc_flag === "gps_off") cur.offSpot += 1; }
     if (!cur.lastActive || new Date(a.created_at) > new Date(cur.lastActive)) cur.lastActive = a.created_at;
@@ -94,7 +99,7 @@ export const handler = async (event) => {
   }
 
   const reps = [...byName.values()]
-    .map((r) => ({ name: r.name, knocks: r.knocks, pins: r.pins.size, notHome: r.notHome, outcomes: { ...r.outcomes, ...Object.fromEntries(Object.entries(r.outcomePins).map(([k, s]) => [k, s.size])) }, offSpot: r.offSpot, farCount: r.farCount, lastActive: r.lastActive }))
+    .map((r) => ({ name: r.name, knocks: r.knocks, pins: r.pins.size, notHome: r.notHome, outcomes: { ...r.outcomes, ...Object.fromEntries(Object.entries(r.outcomePins).map(([k, s]) => [k, s.size])) }, apptSrc: r.apptSrc, offSpot: r.offSpot, farCount: r.farCount, lastActive: r.lastActive }))
     .sort((a, b) => new Date(b.lastActive || 0) - new Date(a.lastActive || 0));
   const newRoof = { total: newRoofTotal, bySrc: Object.entries(newRoofSrc).sort((a, b) => b[1] - a[1]) };
   return cors(200, { ...base, outcomes: OUTCOMES, reps, newRoof });
