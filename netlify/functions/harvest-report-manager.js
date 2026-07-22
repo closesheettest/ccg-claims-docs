@@ -77,7 +77,7 @@ export const handler = async (event) => {
   const newRoofSrc = {}; let newRoofTotal = 0;
   for (const a of acts) {
     const n = normalizeName(a.rep_name); if (!n) continue;
-    const cur = byName.get(n) || { name: a.rep_name, knocks: 0, pins: new Set(), notHome: 0, outcomes: {}, outcomePins: {}, apptSrc: {}, offSpot: 0, farCount: 0, lastActive: null };
+    const cur = byName.get(n) || { name: a.rep_name, knocks: 0, pins: new Set(), notHome: 0, outcomes: {}, outcomePins: {}, apptSrc: {}, offSpot: 0, farCount: 0, farDoors: new Set(), gpsOffDoors: new Set(), lastActive: null };
     cur.name = a.rep_name;
     if (a.kind === "visit") { cur.knocks += 1; if (a.pin_id) cur.pins.add(a.pin_id); if (a.to_status === "not_home") cur.notHome += 1; }
     if (a.kind === "status" && a.to_status && a.to_status !== "appt" && a.to_status !== "no_sit_reschedule") {
@@ -93,13 +93,20 @@ export const handler = async (event) => {
       const src = a.from_status === "no_sit_reschedule" ? "no_sit" : "iq";
       cur.apptSrc[src] = (cur.apptSrc[src] || 0) + 1;
     }
-    if (a.kind !== "arrival") { if (a.loc_flag === "far") { cur.farCount += 1; cur.offSpot += 1; } else if (a.loc_flag === "gps_off") cur.offSpot += 1; }
+    // Off-spot = distinct DOORS worked far, not rows — one far door logs the GPS override
+    // (manual_here) + the visit + the status, all far, which over-counted. Count each
+    // door once from the outcome rows only (visit/status). Sizes resolved after the loop.
+    if ((a.kind === "visit" || a.kind === "status") && a.pin_id) {
+      const dk = `${a.pin_id}|${a.round ?? ""}`;
+      if (a.loc_flag === "far") cur.farDoors.add(dk);
+      else if (a.loc_flag === "gps_off") cur.gpsOffDoors.add(dk);
+    }
     if (!cur.lastActive || new Date(a.created_at) > new Date(cur.lastActive)) cur.lastActive = a.created_at;
     byName.set(n, cur);
   }
 
   const reps = [...byName.values()]
-    .map((r) => ({ name: r.name, knocks: r.knocks, pins: r.pins.size, notHome: r.notHome, outcomes: { ...r.outcomes, ...Object.fromEntries(Object.entries(r.outcomePins).map(([k, s]) => [k, s.size])) }, apptSrc: r.apptSrc, offSpot: r.offSpot, farCount: r.farCount, lastActive: r.lastActive }))
+    .map((r) => ({ name: r.name, knocks: r.knocks, pins: r.pins.size, notHome: r.notHome, outcomes: { ...r.outcomes, ...Object.fromEntries(Object.entries(r.outcomePins).map(([k, s]) => [k, s.size])) }, apptSrc: r.apptSrc, offSpot: new Set([...r.farDoors, ...r.gpsOffDoors]).size, farCount: r.farDoors.size, lastActive: r.lastActive }))
     .sort((a, b) => new Date(b.lastActive || 0) - new Date(a.lastActive || 0));
   const newRoof = { total: newRoofTotal, bySrc: Object.entries(newRoofSrc).sort((a, b) => b[1] - a[1]) };
   return cors(200, { ...base, outcomes: OUTCOMES, reps, newRoof });
