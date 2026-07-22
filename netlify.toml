@@ -132,6 +132,18 @@
 [functions."cron-retry-missing-certs"]
   schedule = "20 * * * *"
 
+# Scheduled function: self-healing safety net for the signed AGREEMENT PDF —
+# the one doc that can't be regenerated (the homeowner's signature lives only
+# inside it). The signing flow now stores the signed bytes on the inspection
+# row (pending_pdf_b64) at insert time, so a signed record can never exist
+# without its PDF. This cron pushes those bytes to their durable homes: the
+# Storage archive (recoverable forever) + the JobNimbus job's Documents tab
+# (the gap that stranded Mchenry / Williams — job existed, doc upload had
+# silently failed, nothing re-tried it). Clears the row once safe. Every 15
+# min; exports.config.schedule mirrors this. No-op on clean runs.
+[functions."cron-heal-signed-pdfs"]
+  schedule = "*/15 * * * *"
+
 # cron-reconcile-jn-photos: daily safety net for the inspector-app photo gap.
 # Inspector photos upload one-by-one from the phone; if the app closes early
 # some never reach JN's Photos tab. This walks recent inspections, compares

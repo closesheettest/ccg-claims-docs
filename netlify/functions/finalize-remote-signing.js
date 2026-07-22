@@ -69,6 +69,10 @@ export const handler = async (event) => {
     original_sales_rep_id: p.sales_rep_id || "", original_sales_rep_name: p.sales_rep_name || "",
     roof_type: p.roof_type || "Shingle", lead_source: p.lead_source || "Inspection", spanish_only: !!p.spanish_only,
     signed_at: signedAt,
+    // Durable signed-PDF safety net (mirrors submitInspection). The signature lives
+    // only inside this PDF; ride the bytes along on the insert so a signed record can
+    // never exist without them. Cleared once archived; cron-heal-signed-pdfs recovers.
+    pending_pdf_b64: { insp: { filename: "Free-Roof-Inspection-Agreement.pdf", base64: pdfBase64 } },
     ...(p.review_availability ? { review_availability: p.review_availability } : {}),
     ...(classifyResult ? { result: classifyResult, result_at: signedAt } : {}),
   };
@@ -106,6 +110,13 @@ export const handler = async (event) => {
       archived = ar.ok && (ab.ok === true || (ab.uploaded || 0) > 0);
     } catch { /* retry */ }
     if (!archived && i < 2) await new Promise((r) => setTimeout(r, 1200));
+  }
+  // Safely in Storage → drop the in-row copy. If archive failed, leave it for the
+  // heal cron (the signed bytes stay safe on the row until Storage accepts them).
+  if (archived) {
+    await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(inspectionId)}`, {
+      method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify({ pending_pdf_b64: null }),
+    }).catch(() => {});
   }
 
   // 3. JobNimbus sync (creates contact/job, uploads PDF, writes jn_job_id back).

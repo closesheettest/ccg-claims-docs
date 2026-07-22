@@ -12171,6 +12171,14 @@ const renderSmsTemplate = (key, vars) => {
         roof_type: inspData.roof_type || "Shingle",
         lead_source: data.leadSource || "Inspection",
         spanish_only: !!data.spanish_only, language: data.language || "english",
+        // DURABLE SIGNED-PDF SAFETY NET. The homeowner's signature lives ONLY inside
+        // this PDF. Until now the bytes existed solely in browser memory until the
+        // storage-archive + JN pushes below — if BOTH failed (bad field signal), the
+        // signed agreement was gone for good (Mchenry, Williams). Riding the bytes along
+        // on THIS insert — the one durable step that we already know succeeded, since the
+        // row itself saved — guarantees a signed record can never exist without its PDF.
+        // cron-heal-signed-pdfs re-pushes it to Storage+JN; it's cleared once archived.
+        pending_pdf_b64: { insp: { filename: "Free-Roof-Inspection-Agreement.pdf", base64: base64Content } },
         // Obvious damage at the door → classify now (no separate inspector visit).
         // The JN-side fan-out fires below once the JN job id is saved.
         ...(classifyResult ? { result: classifyResult, result_at: new Date().toISOString() } : {}),
@@ -12292,9 +12300,13 @@ const renderSmsTemplate = (key, vars) => {
         }
         if (archiveOk) {
           console.log("📁 Inspection PDF archived");
+          // Safely in Storage now — drop the durable in-row copy to keep the table lean.
+          supabase.from("inspections").update({ pending_pdf_b64: null }).eq("id", newInspId)
+            .then(({ error }) => { if (error) console.warn("pending_pdf_b64 clear skipped:", error.message); });
         } else {
-          console.warn("Archive failed after retry");
-          alert("⚠️ The record saved, but the signed agreement did NOT store. It may be missing from JobNimbus.\n\nHave the homeowner sign once more (or re-send the signing link) so we have the signed copy.");
+          // NOT lost anymore — the signed bytes are safe in pending_pdf_b64 on the row,
+          // and cron-heal-signed-pdfs will push them to Storage + JN within ~15 min.
+          console.warn("Archive failed after retry — held in pending_pdf_b64 for the heal cron");
         }
       }
 
@@ -12648,6 +12660,11 @@ const renderSmsTemplate = (key, vars) => {
           original_sales_rep_name: data.salesRepName || "",
           lead_source: data.leadSource || "Inspection",
           spanish_only: !!data.spanish_only, language: data.language || "english",
+          // Durable signed-PDF safety net (see submitInspection). Guarantee the
+          // irreplaceable signed agreement bytes on this insert; the full doc set
+          // (lor/pac) is merged in just before archive below. cron-heal-signed-pdfs
+          // re-pushes to Storage+JN and clears this once safely archived.
+          pending_pdf_b64: { insp: { filename: documentFilename("insp"), base64: inspBase64Content } },
         }]).select("id").single();
         if (inspInsertErr) {
           console.error("Inspection insert error:", inspInsertErr);
@@ -12789,9 +12806,16 @@ const renderSmsTemplate = (key, vars) => {
           else if (fn.includes("welcome"))             key = "welcome";
           pdfsToArchive[key] = { filename: att.filename, base64: att.content };
         });
+        // Upgrade the durable in-row copy to the FULL signed set (insp + lor/pac)
+        // before the risky archive push, so every signature-bearing PDF — not just
+        // the agreement stamped on the insert — survives a failed archive for the
+        // heal cron to recover. Welcome is regenerable, but harmless to carry.
+        await supabase.from("inspections").update({ pending_pdf_b64: pdfsToArchive }).eq("id", archiveInspectionId)
+          .then(({ error }) => { if (error) console.warn("pending_pdf_b64 upgrade skipped:", error.message); });
         // AWAITED + verified (was fire-and-forget) — same durability fix as
         // the inspection path: a silent archive failure must not pass as a
-        // clean signing. Retry once, then warn loudly.
+        // clean signing. Retry once; no longer needs to warn — the bytes are
+        // safe in pending_pdf_b64 and cron-heal-signed-pdfs finishes the job.
         let archiveOk = false;
         for (let attempt = 1; attempt <= 2 && !archiveOk; attempt++) {
           try {
@@ -12807,10 +12831,12 @@ const renderSmsTemplate = (key, vars) => {
           }
           if (!archiveOk && attempt < 2) await new Promise((r) => setTimeout(r, 1500));
         }
-        if (archiveOk) console.log("📁 Signed docs archived to storage");
-        else {
-          console.warn("Archive failed after retry");
-          alert("⚠️ Docs signed, but the signed PDFs did NOT store. They may be missing from JobNimbus — have the homeowner re-sign or re-send the link.");
+        if (archiveOk) {
+          console.log("📁 Signed docs archived to storage");
+          supabase.from("inspections").update({ pending_pdf_b64: null }).eq("id", archiveInspectionId)
+            .then(({ error }) => { if (error) console.warn("pending_pdf_b64 clear skipped:", error.message); });
+        } else {
+          console.warn("Archive failed after retry — held in pending_pdf_b64 for the heal cron");
         }
       }
 
