@@ -1772,7 +1772,6 @@ export default function CanvassMap() {
       if (!chunkRes.some((r) => r.snapped)) { console.warn("[route-line] no chunk snapped → straight fallback"); setRouteGeom(null); return; }
       const all = [];
       for (const r of chunkRes) for (const p of r.pts) all.push(p);
-      console.info(`[route-line] snapped ${chunkRes.filter((r) => r.snapped).length}/${chunkRes.length} chunks → ${all.length} points`);
       setRouteGeom(all.length > 1 ? all : null);
     }).catch((e) => { console.warn("[route-line] snap error:", e && e.message); if (routeGeomGen.current === gen) setRouteGeom(null); });
     }, 350);
