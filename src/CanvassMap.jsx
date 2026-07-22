@@ -3945,13 +3945,17 @@ function StatusCard({ color, label, count, active, onClick, locked }) {
 // Fixed appointment windows: Mon–Thu 11/2/5/7, Fri 9/12/3, Sat 9/12 (day-of-week
 // 1–4 / 5 / 6). Built in the rep's local time (reps are in ET).
 const APPT_HOURS = { 1: [11, 14, 17, 19], 2: [11, 14, 17, 19], 3: [11, 14, 17, 19], 4: [11, 14, 17, 19], 5: [9, 12, 15], 6: [9, 12] };
-function genSlots(days = 14) {
-  const out = []; const b = new Date();
-  // Start at d=1 (tomorrow) — no same-day appointments.
-  for (let d = 1; d <= days; d++) {
+function genSlots(days = 14, includeToday = false) {
+  const out = []; const b = new Date(); const nowMs = b.getTime();
+  // Default starts at d=1 (tomorrow) — no same-day. includeToday (no-sit reschedules,
+  // where the rep is at the door and wants to re-book for later today) starts at d=0
+  // but only offers hours still AHEAD of right now.
+  for (let d = includeToday ? 0 : 1; d <= days; d++) {
     const day = new Date(b.getFullYear(), b.getMonth(), b.getDate() + d);
     for (const h of (APPT_HOURS[day.getDay()] || [])) {
-      out.push({ iso: new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, 0, 0).toISOString(), dt: new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, 0, 0) });
+      const dt = new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, 0, 0);
+      if (d === 0 && dt.getTime() <= nowMs) continue; // today: skip hours already past
+      out.push({ iso: dt.toISOString(), dt });
     }
   }
   return out;
@@ -4014,8 +4018,11 @@ function AppointmentModal({ pin, rt, onClose, onBooked, variant }) {
     return () => { live = false; };
   }, [rt, isBtr, pin.id]);
 
+  // Same-day booking is allowed for a NO-SIT reschedule (rep's at the door, wants to
+  // re-book today) — Neal. Every other appt type stays tomorrow-onward.
+  const allowSameDay = pin.status === "no_sit_reschedule";
   const bookedKeys = useMemo(() => new Set((booked || []).map((ms) => slotKey(new Date(ms)))), [booked]);
-  const slots = useMemo(() => genSlots(14).filter((s) => !bookedKeys.has(slotKey(s.dt))), [bookedKeys]);
+  const slots = useMemo(() => genSlots(14, allowSameDay).filter((s) => !bookedKeys.has(slotKey(s.dt))), [bookedKeys, allowSameDay]);
   const byDay = {};
   for (const s of slots) (byDay[dayKey(s.dt)] = byDay[dayKey(s.dt)] || []).push(s);
 
