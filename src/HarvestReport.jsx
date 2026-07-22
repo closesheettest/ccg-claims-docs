@@ -43,6 +43,7 @@ export default function HarvestReport() {
   const [toDate, setToDate] = useState("");     // YYYY-MM-DD, custom range
   const [pinMap, setPinMap] = useState({});    // pin_id → { name, address }
   const [openRep, setOpenRep] = useState(null); // expanded rep row
+  const [openStop, setOpenStop] = useState(null); // expanded stop-by-stop line (shows arrived + status sub-events)
   const [auditOff, setAuditOff] = useState(false); // location columns not migrated yet
 
   useEffect(() => {
@@ -173,7 +174,7 @@ export default function HarvestReport() {
   const flaggedReps = useMemo(() => byRep.filter((r) => r.flagged), [byRep]);
 
   const fmt = (iso) => { try { return new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch { return "—"; } };
-  const fmtT = (iso) => { try { return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }); } catch { return ""; } };
+  const fmtT = (iso) => { try { return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" }); } catch { return ""; } };
   const fmtDur = (s) => { if (s == null) return "—"; const m = Math.floor(s / 60), sec = Math.round(s % 60); return m ? `${m}m ${sec}s` : `${sec}s`; };
   const ACT_LABEL = (r) => {
     if (r.kind === "arrival") return "📍 Arrived";
@@ -327,13 +328,49 @@ export default function HarvestReport() {
                             && !(a.kind === "visit" && !a.to_status))
                           .map((a, i) => {
                           const pin = pinMap[a.pin_id] || {};
-                          const tag = a.kind !== "arrival" ? LOC_TAG(a) : null;
+                          const tag = LOC_TAG(a);
+                          const key = `${r.name}|${a.pin_id}|${a.kind}|${a.to_status || ""}|${a.created_at}`;
+                          const open = openStop === key;
+                          // Click a stop → drill in: find its ARRIVAL (the closest arrival at
+                          // the same door, on/before this outcome) so you can see arrived-time,
+                          // status-time (with seconds), and how long they were there.
+                          let arr = null;
+                          if (open && a.pin_id) {
+                            for (const x of r.acts) {
+                              if (x.kind === "arrival" && x.pin_id === a.pin_id && new Date(x.created_at) <= new Date(a.created_at)) {
+                                if (!arr || new Date(x.created_at) > new Date(arr.created_at)) arr = x;
+                              }
+                            }
+                          }
+                          const arrTag = arr ? LOC_TAG(arr) : null;
+                          const dwell = arr ? (new Date(a.created_at) - new Date(arr.created_at)) / 1000 : null;
                           return (
-                            <div key={i} style={{ display: "flex", gap: 10, alignItems: "baseline", fontSize: 12.5, color: "#334155", padding: "3px 8px", background: a.kind === "arrival" ? "transparent" : "#fff", borderRadius: 6, border: a.kind === "arrival" ? "none" : "1px solid #eef2f7" }}>
-                              <span style={{ color: "#94a3b8", minWidth: 62, flexShrink: 0 }}>{fmtT(a.created_at)}</span>
-                              <span style={{ fontWeight: 700, minWidth: 96, flexShrink: 0 }}>{ACT_LABEL(a)}</span>
-                              <span style={{ color: "#475569", flex: 1, minWidth: 0 }}>{pin.name || pin.address || (a.pin_id ? "(pin)" : "")}{pin.name && pin.address ? ` · ${pin.address}` : ""}{a.round > 1 ? ` · round ${a.round}` : ""}</span>
-                              {tag && <span style={{ color: tag.color, fontWeight: 700, fontSize: 11.5, whiteSpace: "nowrap", flexShrink: 0 }}>{tag.txt}</span>}
+                            <div key={i}>
+                              <div onClick={() => setOpenStop(open ? null : key)} title="Tap for arrived + status detail"
+                                style={{ display: "flex", gap: 10, alignItems: "baseline", fontSize: 12.5, color: "#334155", padding: "4px 8px", background: open ? "#f1f5f9" : "#fff", borderRadius: 6, border: "1px solid #eef2f7", cursor: "pointer" }}>
+                                <span style={{ color: "#94a3b8", minWidth: 82, flexShrink: 0 }}>{fmtT(a.created_at)}</span>
+                                <span style={{ fontWeight: 700, minWidth: 96, flexShrink: 0 }}>{ACT_LABEL(a)}</span>
+                                <span style={{ color: "#475569", flex: 1, minWidth: 0 }}>{pin.name || pin.address || (a.pin_id ? "(pin)" : "")}{pin.name && pin.address ? ` · ${pin.address}` : ""}{a.round > 1 ? ` · round ${a.round}` : ""}</span>
+                                <span style={{ color: "#94a3b8", fontSize: 11, flexShrink: 0 }}>{open ? "▾" : "▸"}</span>
+                                {tag && <span style={{ color: tag.color, fontWeight: 700, fontSize: 11.5, whiteSpace: "nowrap", flexShrink: 0 }}>{tag.txt}</span>}
+                              </div>
+                              {open && (
+                                <div style={{ margin: "3px 0 5px 14px", padding: "6px 10px", borderLeft: "2px solid #cbd5e1", display: "grid", gap: 4, fontSize: 11.5 }}>
+                                  {arr ? (
+                                    <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+                                      <span style={{ minWidth: 88, color: "#94a3b8", flexShrink: 0 }}>{fmtT(arr.created_at)}</span>
+                                      <span style={{ fontWeight: 700, color: "#334155" }}>📍 Arrived at pin</span>
+                                      {arrTag && <span style={{ color: arrTag.color, fontWeight: 700, marginLeft: "auto", whiteSpace: "nowrap" }}>{arrTag.txt}</span>}
+                                    </div>
+                                  ) : <div style={{ color: "#94a3b8" }}>No “arrived” logged for this door.</div>}
+                                  <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+                                    <span style={{ minWidth: 88, color: "#94a3b8", flexShrink: 0 }}>{fmtT(a.created_at)}</span>
+                                    <span style={{ fontWeight: 700, color: "#334155" }}>Status pin — {ACT_LABEL(a)}</span>
+                                    {tag && <span style={{ color: tag.color, fontWeight: 700, marginLeft: "auto", whiteSpace: "nowrap" }}>{tag.txt}</span>}
+                                  </div>
+                                  {dwell != null && dwell >= 0 && dwell < 3600 && <div style={{ color: "#64748b" }}>⏱️ {fmtDur(dwell)} from arriving to statusing</div>}
+                                </div>
+                              )}
                             </div>
                           );
                         }); })()}
