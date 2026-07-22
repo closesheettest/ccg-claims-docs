@@ -17,6 +17,7 @@ const JN_BASE = "https://app.jobnimbus.com/api1";
 const GOOGLE_GEOCODE = "https://maps.googleapis.com/maps/api/geocode/json";
 const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones";
 const APPT_TASK_TYPES = new Set(["Initial Appointment", "Reset Appointment", "Appointment"]);
+const APPT_TASK_RTS = new Set([4, 12, 17]); // match by number too (12 = Reset Appointment) in case JN's name differs
 const GEOCACHE_KEY = "appt_pin_geocache";
 const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
 
@@ -46,7 +47,7 @@ export const handler = async (event) => {
       const d = await r.json().catch(() => ({}));
       const results = d.results || d.tasks || d.data || [];
       for (const t of results) {
-        if (!APPT_TASK_TYPES.has(t.record_type_name)) continue;
+        if (!APPT_TASK_TYPES.has(t.record_type_name) && !APPT_TASK_RTS.has(Number(t.record_type))) continue;
         const owner = (t.owners || []).map((o) => String(o.id)).find((id) => byJn[id]);
         if (!owner) continue;
         const sec = Number(t.date_start) || 0; if (!sec) continue;

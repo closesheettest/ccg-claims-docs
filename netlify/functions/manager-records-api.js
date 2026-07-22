@@ -624,7 +624,7 @@ async function assignAppointment(manager, body) {
       const tr = await fetch(`${JN_BASE}/tasks?size=25&filter=${tf}`, { headers: jnHeaders })
       const td = tr.ok ? await tr.json().catch(() => ({})) : {}
       for (const t of (td.results || td.tasks || td.data || [])) {
-        if (APPT_TASK_NAMES.has(t.record_type_name)) taskIds.add(t.jnid || t.id)
+        if (APPT_TASK_NAMES.has(t.record_type_name) || [4, 12, 17].includes(Number(t.record_type))) taskIds.add(t.jnid || t.id)
       }
     } catch { /* task lookup best-effort */ }
     for (const tid of taskIds) {

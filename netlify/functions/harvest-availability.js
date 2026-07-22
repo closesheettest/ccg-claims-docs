@@ -13,6 +13,7 @@ const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const APPT_TASK_TYPES = new Set(["Initial Appointment", "Reset Appointment", "Appointment"]);
+const APPT_TASK_RTS = new Set([4, 12, 17]); // match by number too (12 = Reset Appointment) in case JN's name differs
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const handler = async (event) => {
@@ -42,7 +43,7 @@ export const handler = async (event) => {
       const d = await r.json().catch(() => ({}));
       const rows = d.results || d.tasks || d.data || [];
       for (const t of rows) {
-        if (!APPT_TASK_TYPES.has(t.record_type_name)) continue;
+        if (!APPT_TASK_TYPES.has(t.record_type_name) && !APPT_TASK_RTS.has(Number(t.record_type))) continue;
         // Confirm it's this rep's (in case the owner filter is lenient).
         const owns = (t.owners || []).some((o) => String(o.id) === String(jn));
         if (!owns) continue;
