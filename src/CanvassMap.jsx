@@ -93,42 +93,35 @@ function streetSegments(stops) {
   }
   return segs;
 }
-// Order the day's stops as a clean BOUSTROPHEDON ("ox-plough" snake): work one
-// street fully, step to the adjacent street, walk it back the other way, and so on —
-// so the rep never criss-crosses the neighborhood or backtracks. We group houses into
-// street segments, figure out which way the streets stack (N–S rows of E–W streets,
-// or the reverse), order the rows across that axis, and walk each row entering at the
-// end nearest where the last one finished. This beats a distance-minimizing 2-opt,
-// which on a real 2-D grid found "shorter" tours that visually wander/criss-cross.
+// Order the day's stops street by street with minimal backtracking: GREEDY nearest
+// STREET. Group houses into whole street segments, then from where we are, always walk
+// to the NEAREST unvisited street, entering it at the closer end, and walk it fully.
+// On a compact grid this makes a clean serpentine (each next street is the adjacent
+// one). On a spread-out selection (route-an-area across far-apart subdivisions) it
+// stays LOCAL — it finishes one cluster before hopping to the nearest next — instead
+// of the axis-sorted boustrophedon, which sorted ALL streets by one axis globally and
+// zig-zagged across the whole city when the doors were far apart. No 2-opt (that
+// minimized total distance and visually criss-crossed); pure nearest is what reps read
+// as sensible.
 function orderStops(start, stops) {
   const segs = streetSegments(stops);
   if (segs.length <= 1) return segs.flat();
-  const clat = (s) => s.reduce((t, p) => t + p.latitude, 0) / s.length;
-  const clng = (s) => s.reduce((t, p) => t + p.longitude, 0) / s.length;
-  const lats = segs.map(clat), lngs = segs.map(clng);
-  const latSpread = Math.max(...lats) - Math.min(...lats);
-  const lngSpread = Math.max(...lngs) - Math.min(...lngs);
-  // If the street centroids spread more N–S, the streets run E–W and stack vertically
-  // → order the rows by latitude and walk each one along longitude. Otherwise flip.
-  const crossByLat = latSpread >= lngSpread;
-  const rowKey = (s) => (crossByLat ? clat(s) : clng(s));           // across-streets axis (which street)
-  const alongKey = (p) => (crossByLat ? p.longitude : p.latitude);  // along-a-street axis (which house)
-  const rows = segs.map((seg) => ({ seg })).sort((a, b) => rowKey(a.seg) - rowKey(b.seg));
-  // Start the snake from the row nearest the rep so the first stop is close.
-  const startRow = crossByLat ? start.lat : start.lng;
-  if (rows.length > 1 && Math.abs(startRow - rowKey(rows[rows.length - 1].seg)) < Math.abs(startRow - rowKey(rows[0].seg))) rows.reverse();
-  const startAlong = crossByLat ? start.lng : start.lat;
+  const co = (p) => ({ lat: p.latitude, lng: p.longitude });
+  const remaining = segs.slice();
   const out = [];
-  let prevExit = null;
-  for (const { seg } of rows) {
-    const houses = seg.slice().sort((a, b) => alongKey(a) - alongKey(b));
-    const lo = alongKey(houses[0]), hi = alongKey(houses[houses.length - 1]);
-    // Enter each street at whichever end is nearest where we just finished (or, for
-    // the first street, nearest the rep) — that's what makes it snake, not zig-zag.
-    const anchor = prevExit != null ? prevExit : startAlong;
-    if (Math.abs(hi - anchor) < Math.abs(lo - anchor)) houses.reverse();
-    for (const p of houses) out.push(p);
-    prevExit = alongKey(houses[houses.length - 1]);
+  let cur = { lat: start.lat, lng: start.lng };
+  while (remaining.length) {
+    let bi = 0, bd = Infinity, rev = false;
+    for (let i = 0; i < remaining.length; i++) {
+      const s = remaining[i];
+      const dLo = feetBetween(cur, co(s[0])), dHi = feetBetween(cur, co(s[s.length - 1]));
+      if (dLo < bd) { bd = dLo; bi = i; rev = false; }
+      if (dHi < bd) { bd = dHi; bi = i; rev = true; }  // enter at whichever end is closer
+    }
+    const s = remaining.splice(bi, 1)[0];
+    const walk = rev ? s.slice().reverse() : s;
+    for (const p of walk) out.push(p);
+    cur = co(walk[walk.length - 1]);
   }
   return out;
 }
