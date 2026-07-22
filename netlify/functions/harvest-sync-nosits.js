@@ -165,10 +165,17 @@ exports.handler = async (event) => {
     if (r.ok) inserted = toInsert.length;
   }
 
-  // Reconcile: drop JN-sourced no-sit pins that are no longer no-sits in JN
-  // (re-booked elsewhere). Only delete ones whose jnid we DID see in this pull's
-  // full job set but that are no longer no-sit — i.e. we have proof they moved.
-  const seenAnyStatus = new Set(jobs.map(jnidOf));
+  // Reconcile: drop map no-sit pins that are no longer a live no-sit in JN — the
+  // homeowner got rescheduled / went No Response / was Lost, all IN JobNimbus (e.g.
+  // Yehudah moving "No Sit- Need to Reschedule" → "No Sit - Rescheduled" → "No Response").
+  // The no-sit pull CAN'T contain a job that moved OFF the status, so those pins used to
+  // linger forever. Fix: also pull recently-updated jobs across ALL statuses — a job that
+  // changed status shows up there, giving us PROOF it moved. Only delete pins whose jnid
+  // we actually saw (in the no-sit pull OR the recent-any-status pull) but that isn't a
+  // live no-sit now; a job the API never returned is left alone, so a partial/failed JN
+  // fetch can never wipe the map.
+  const recent = await fetchRecentJobs(jnHeaders, Math.floor(Date.now() / 1000) - 120 * 86400);
+  const seenAnyStatus = new Set([...jobs, ...recent].map(jnidOf));
   const stale = Object.entries(existing)
     .filter(([jnid]) => seenAnyStatus.has(jnid) && !liveIds.has(jnid))
     .map(([, id]) => id);
