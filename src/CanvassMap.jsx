@@ -1060,13 +1060,11 @@ export default function CanvassMap() {
       if (showNone) { setClusters([]); setProspects([]); return true; } // office default: show nothing until a type is picked
       const selArr = [...sel].filter((k) => baseKeys.includes(k));
       const statuses = selArr.length ? selArr : baseKeys;
-      console.log("[dbg clusters] entering RPC", { baseKeys: baseKeys.length, statuses: statuses.length, bounds: !!bounds, clusterRpcOk: clusterRpcOk.current });
       const { data, error } = await supabase.rpc("canvass_clusters", {
         min_lat: bounds.getSouth(), min_lng: bounds.getWest(),
         max_lat: bounds.getNorth(), max_lng: bounds.getEast(),
         cells: 48, statuses,
       });
-      console.log("[dbg clusters] RPC result", { error: error?.message || error?.code || null, dataLen: Array.isArray(data) ? data.length : `not-array(${typeof data})` });
       if (error || !Array.isArray(data)) { clusterRpcOk.current = false; return false; } // RPC not created → fall back to pins for the session
       clusterRpcOk.current = true;
       setProspects([]);   // no individual pins at this zoom
@@ -1083,7 +1081,6 @@ export default function CanvassMap() {
   // Re-cluster when the chip filter changes while zoomed out.
   useEffect(() => {
     const m = map.current;
-    console.log("[dbg sel effect]", { hasMap: !!m, fitted: fitted.current, showAll: showAllRef.current, zoom: m?.getZoom(), CLUSTER_ZOOM, selSize: sel.size });
     if (m && fitted.current && !showAllRef.current && m.getZoom() < CLUSTER_ZOOM) loadClusters(m.getBounds());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sel]);
