@@ -129,14 +129,12 @@ function orderStops(start, stops) {
   // recomputing the full length per trial is cheap.
   const head = (e) => co(e.rev ? e.seg[e.seg.length - 1] : e.seg[0]);
   const tail = (e) => co(e.rev ? e.seg[0] : e.seg[e.seg.length - 1]);
-  // Closed loop: include the leg BACK to the start so the tour circles the
-  // neighborhood and finishes near where the rep began — that's what keeps the
-  // last stop close to the first, so starting the next round back at pin 1 is a
-  // short hop instead of a trek across the whole area.
+  // Open path (serpentine): a rep works the neighborhood street by street, they
+  // don't drive back to the start. Closing the loop made the optimizer hug the
+  // perimeter (spiral) instead of snaking through the interior streets.
   const total = (arr) => {
     let t = feetBetween(start, head(arr[0]));
     for (let i = 0; i < arr.length - 1; i++) t += feetBetween(tail(arr[i]), head(arr[i + 1]));
-    t += feetBetween(tail(arr[arr.length - 1]), start);
     return t;
   };
   let best = total(entries), improved = true, pass = 0;
@@ -156,52 +154,73 @@ function orderStops(start, stops) {
   return out;
 }
 
-// Order stops by REAL DRIVING distance (the road network), not straight line. This
-// is what makes a single-entrance subdivision get worked in ONE pass: by air its
-// streets sit near each other and near the outside, so a crow-flies route hops in and
-// out of it; by ROAD every interior stop is far from the outside (you can only get in
-// one way) but close to its neighbours, so they cluster and stay together.
-// Uses OSRM's table service — the same public router the turn-by-turn line already
-// hits — to get an NxN driving-time matrix, then nearest-neighbour + 2-opt on it.
-// Returns null on ANY failure (server down, rate-limited, too many stops) so the
-// caller keeps the instant street-by-street order as a fallback.
+// Order the day by REAL DRIVING distance (the road network), not straight line —
+// but at the STREET level, never the individual house. We keep each street whole
+// (streetSegments) and only decide the ORDER of streets + which end to enter, so
+// the rep always finishes a street before moving on. Ordering individual houses by
+// road time (the old way) let a grid hop between parallel streets — a house one
+// street over is a short drive — which is exactly the cross-street zig-zag we don't
+// want. Driving distance still matters for street ORDER: in a single-entrance
+// subdivision the interior streets are far by road from the outside, so they
+// cluster and get worked in one pass instead of a crow-flies in-and-out.
+// Uses OSRM's table service over each segment's two endpoints. Returns null on any
+// failure so the caller keeps the instant straight-line street order as a fallback.
 async function roadOrder(start, stops) {
-  const n = stops.length;
-  if (n < 3 || n > 90) return null; // tiny routes don't need it; the table server caps ~100 coords
-  const pts = [start, ...stops.map((p) => ({ lat: p.latitude, lng: p.longitude }))];
-  const coords = pts.map((p) => `${p.lng},${p.lat}`).join(";");
+  const segs = streetSegments(stops);
+  if (segs.length < 2 || segs.length > 46) return null; // nothing to reorder / too many for the coord cap
+  const co = (p) => ({ lat: p.latitude, lng: p.longitude });
+  // Node 0 = start; then each segment contributes its two endpoints (a = low end,
+  // b = high end). We enter a segment at whichever end is closer by road.
+  const nodes = [start];
+  const S = segs.map((seg) => {
+    const aIdx = nodes.length; nodes.push(co(seg[0]));
+    const bIdx = nodes.length; nodes.push(co(seg[seg.length - 1]));
+    return { seg, aIdx, bIdx };
+  });
+  if (nodes.length > 95) return null; // OSRM table caps ~100 coords
+  const coords = nodes.map((p) => `${p.lng},${p.lat}`).join(";");
   try {
     const res = await fetch(`https://router.project-osrm.org/table/v1/driving/${coords}?annotations=duration`);
     const j = await res.json();
     if (j.code !== "Ok" || !Array.isArray(j.durations)) return null;
-    const D = j.durations, N = pts.length;
+    const D = j.durations;
     const val = (a, b) => (D[a] && D[a][b] != null ? D[a][b] : Infinity);
-    // Nearest-neighbour from the start point (index 0).
-    const used = new Array(N).fill(false); used[0] = true;
-    let cur = 0; const seq = [0];
-    for (let k = 1; k < N; k++) {
-      let best = -1, bd = Infinity;
-      for (let j2 = 1; j2 < N; j2++) if (!used[j2] && val(cur, j2) < bd) { bd = val(cur, j2); best = j2; }
-      if (best < 0) for (let j2 = 1; j2 < N; j2++) if (!used[j2]) { best = j2; break; } // unreachable → append
-      used[best] = true; seq.push(best); cur = best;
+    // Nearest-segment-first from the start, choosing the closer entry end (rev = enter at b, walk b→a).
+    const remaining = S.slice();
+    const order = [];
+    let cur = 0;
+    while (remaining.length) {
+      let bi = 0, bd = Infinity, rev = false;
+      for (let i = 0; i < remaining.length; i++) {
+        const s = remaining[i];
+        const dA = val(cur, s.aIdx), dB = val(cur, s.bIdx);
+        if (dA < bd) { bd = dA; bi = i; rev = false; }
+        if (dB < bd) { bd = dB; bi = i; rev = true; }
+      }
+      const s = remaining.splice(bi, 1)[0];
+      order.push({ ...s, rev });
+      cur = rev ? s.aIdx : s.bIdx; // exit end
     }
-    // 2-opt on the driving matrix to iron out the remaining crossings.
-    let improved = true, pass = 0;
-    while (improved && pass < 10) {
+    // Segment-level 2-opt (open path): reversing entries[i..k] flips their order AND
+    // each segment's entry direction. Streets stay atomic — a street can't be split.
+    const head = (e) => (e.rev ? e.bIdx : e.aIdx);
+    const tail = (e) => (e.rev ? e.aIdx : e.bIdx);
+    const totalCost = (arr) => { let t = val(0, head(arr[0])); for (let i = 0; i < arr.length - 1; i++) t += val(tail(arr[i]), head(arr[i + 1])); return t; };
+    let best = totalCost(order), improved = true, pass = 0;
+    while (improved && pass < 8) {
       improved = false; pass++;
-      for (let i = 1; i < seq.length - 1; i++) {
-        for (let k = i + 1; k < seq.length; k++) {
-          // Closed loop: the node after the last stop is the START (index 0), so the
-          // tour returns near where it began (short hop into the next round). Was an
-          // open path (no return leg), which let the route end far from the start.
-          const A = seq[i - 1], B = seq[i], C = seq[k], E = k + 1 < seq.length ? seq[k + 1] : 0;
-          const before = val(A, B) + val(C, E);
-          const after = val(A, C) + val(B, E);
-          if (after + 1e-6 < before) { let lo = i, hi = k; while (lo < hi) { const t = seq[lo]; seq[lo] = seq[hi]; seq[hi] = t; lo++; hi--; } improved = true; }
+      for (let i = 0; i < order.length - 1; i++) {
+        for (let k = i + 1; k < order.length; k++) {
+          const block = order.slice(i, k + 1).reverse().map((e) => ({ ...e, rev: !e.rev }));
+          const cand = order.slice(0, i).concat(block, order.slice(k + 1));
+          const t = totalCost(cand);
+          if (t + 1e-6 < best) { order.splice(0, order.length, ...cand); best = t; improved = true; }
         }
       }
     }
-    return seq.slice(1).map((idx) => stops[idx - 1]);
+    const out = [];
+    for (const e of order) { const walk = e.rev ? e.seg.slice().reverse() : e.seg; for (const p of walk) out.push(p); }
+    return out;
   } catch { return null; }
 }
 
