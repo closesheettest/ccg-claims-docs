@@ -11,7 +11,7 @@ const OSWALD = "'Oswald', sans-serif";
 const OUTCOMES = ["appt", "iq_ni", "insp_ni", "insp_sold", "no_sit_reschedule", "new_roof", "dead"];
 const OUTCOME_LABELS = { appt: "Appts", iq_ni: "IQ not int.", insp_ni: "Not interested", insp_sold: "Sold", no_sit_reschedule: "No-sit", new_roof: "New Roof", dead: "Dead",
   // Not columns — just friendly names so the stop-by-stop doesn't show the raw code.
-  insp_callback: "⏳ Come-back", insp_pending: "Pending sig", not_home: "Not home", lost: "Lost", non_owner: "Non owner-occ" };
+  insp_callback: "⏳ Pending come back", insp_pending: "Pending sig", not_home: "Not home", lost: "Lost", non_owner: "Non owner-occ" };
 // Friendly names for a pin's ORIGINAL status (for the New-Roof breakdown).
 const STATUS_LABEL = { iq: "IQ", iq_ni: "IQ – Not Interested", no_sit_reschedule: "No-sit – need to reschedule", insp: "Inspection Lead", appt: "Appointment", insp_pending: "Pending signature", insp_sold: "Inspection Sold" };
 
