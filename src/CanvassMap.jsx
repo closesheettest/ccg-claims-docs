@@ -93,36 +93,59 @@ function streetSegments(stops) {
   }
   return segs;
 }
-// Order the day's stops street by street with minimal backtracking: GREEDY nearest
-// STREET. Group houses into whole street segments, then from where we are, always walk
-// to the NEAREST unvisited street, entering it at the closer end, and walk it fully.
-// On a compact grid this makes a clean serpentine (each next street is the adjacent
-// one). On a spread-out selection (route-an-area across far-apart subdivisions) it
-// stays LOCAL — it finishes one cluster before hopping to the nearest next — instead
-// of the axis-sorted boustrophedon, which sorted ALL streets by one axis globally and
-// zig-zagged across the whole city when the doors were far apart. No 2-opt (that
-// minimized total distance and visually criss-crossed); pure nearest is what reps read
-// as sensible.
+// Order the day's stops street by street with minimal backtracking. Group houses into
+// whole street segments, greedily walk to the NEAREST unvisited street (entering at the
+// closer end), THEN run a segment-level 2-opt to pull out the crossings/backtracks a
+// pure nearest-neighbour always leaves behind once it runs out of nearby streets.
+//
+// Why 2-opt is safe here (it wasn't before): the 2-opt is at the STREET level — whole
+// streets stay atomic, we only reorder streets + flip which end we enter — and it uses
+// STRAIGHT-LINE distance. For straight-line distance 2-opt provably removes every path
+// crossing (a crossing always means a cheaper uncrossed order exists), so it CLEANS the
+// route instead of the house-level/road-time 2-opt that used to zig-zag. This matters
+// at scale: roadOrder (the OSRM refinement) bails past ~46 segments, so a big day (e.g.
+// William's 54 doors) used to keep the raw greedy order — a spaghetti of long jumps.
 function orderStops(start, stops) {
   const segs = streetSegments(stops);
   if (segs.length <= 1) return segs.flat();
   const co = (p) => ({ lat: p.latitude, lng: p.longitude });
-  const remaining = segs.slice();
-  const out = [];
-  let cur = { lat: start.lat, lng: start.lng };
+  const startPt = { lat: start.lat, lng: start.lng };
+  const S = segs.map((seg) => ({ seg, a: co(seg[0]), b: co(seg[seg.length - 1]) }));
+  // 1) Greedy nearest street, entering at the closer end.
+  const remaining = S.slice();
+  const order = [];
+  let cur = startPt;
   while (remaining.length) {
     let bi = 0, bd = Infinity, rev = false;
     for (let i = 0; i < remaining.length; i++) {
       const s = remaining[i];
-      const dLo = feetBetween(cur, co(s[0])), dHi = feetBetween(cur, co(s[s.length - 1]));
-      if (dLo < bd) { bd = dLo; bi = i; rev = false; }
-      if (dHi < bd) { bd = dHi; bi = i; rev = true; }  // enter at whichever end is closer
+      const dA = feetBetween(cur, s.a), dB = feetBetween(cur, s.b);
+      if (dA < bd) { bd = dA; bi = i; rev = false; }
+      if (dB < bd) { bd = dB; bi = i; rev = true; }
     }
     const s = remaining.splice(bi, 1)[0];
-    const walk = rev ? s.slice().reverse() : s;
-    for (const p of walk) out.push(p);
-    cur = co(walk[walk.length - 1]);
+    order.push({ ...s, rev });
+    cur = rev ? s.a : s.b; // exit end
   }
+  // 2) Segment-level 2-opt on straight-line distance — reversing a block flips both its
+  //    street order AND each street's entry direction, streets never split.
+  const head = (e) => (e.rev ? e.b : e.a);
+  const tail = (e) => (e.rev ? e.a : e.b);
+  const cost = (arr) => { let t = feetBetween(startPt, head(arr[0])); for (let i = 0; i < arr.length - 1; i++) t += feetBetween(tail(arr[i]), head(arr[i + 1])); return t; };
+  let best = cost(order), improved = true, pass = 0;
+  while (improved && pass < 12) {
+    improved = false; pass++;
+    for (let i = 0; i < order.length - 1; i++) {
+      for (let k = i + 1; k < order.length; k++) {
+        const block = order.slice(i, k + 1).reverse().map((e) => ({ ...e, rev: !e.rev }));
+        const cand = order.slice(0, i).concat(block, order.slice(k + 1));
+        const t = cost(cand);
+        if (t + 1e-6 < best) { order.splice(0, order.length, ...cand); best = t; improved = true; }
+      }
+    }
+  }
+  const out = [];
+  for (const e of order) { const walk = e.rev ? e.seg.slice().reverse() : e.seg; for (const p of walk) out.push(p); }
   return out;
 }
 
