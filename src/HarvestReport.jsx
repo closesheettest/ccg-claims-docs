@@ -233,6 +233,15 @@ export default function HarvestReport() {
     return { total, bySrc: Object.entries(bySrc).sort((a, b) => b[1] - a[1]) };
   }, [viewRows]);
 
+  // Distinct doors worked in the current view — the denominator for the
+  // Inspection header ("148 pins visited and 28 new roofs we shouldn't have
+  // mailed"), so the wasted-mail count reads as a share of what we knocked.
+  const viewPinsVisited = useMemo(() => {
+    const s = new Set();
+    for (const r of (viewRows || [])) if (r.kind === "visit" && r.pin_id) s.add(r.pin_id);
+    return s.size;
+  }, [viewRows]);
+
   const flaggedReps = useMemo(() => byRep.filter((r) => r.flagged), [byRep]);
 
   const fmt = (iso) => { try { return new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch { return "—"; } };
@@ -301,7 +310,7 @@ export default function HarvestReport() {
           // Inspection leads come from paid direct mail. A door we MAILED that
           // already had a new roof is money we spent on stale list data.
           <div style={{ background: "#fff7ed", border: "1px solid #fdba74", borderRadius: 12, padding: "14px 16px", marginBottom: 18 }}>
-            <div style={{ fontSize: 14.5, fontWeight: 800, color: "#c2410c", fontFamily: OSWALD }}>📬 Roofs we mailed that already had a new roof — {newRoof.total}</div>
+            <div style={{ fontSize: 14.5, fontWeight: 800, color: "#c2410c", fontFamily: OSWALD }}>📬 {viewPinsVisited.toLocaleString()} pins visited and {newRoof.total.toLocaleString()} new roofs we shouldn't have mailed</div>
             <div style={{ fontSize: 12.5, color: "#9a3412", margin: "3px 0 10px" }}>We spent mail money on these doors, but a competitor had already re-roofed them — wasted spend from stale list data. Broken down by what the lead <b>was</b>:</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {newRoof.bySrc.map(([src, n]) => (
