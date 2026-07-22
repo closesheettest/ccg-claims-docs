@@ -44,7 +44,21 @@ export const handler = async (event) => {
   let rows = await sbGetAll(path, sb).catch(() => null);
   // dist_ft/loc_flag not migrated yet → retry without them.
   if (rows === null) rows = await sbGetAll(path.replace(",dist_ft,loc_flag", ""), sb).catch(() => []);
-  const acts = (rows || []).filter((a) => allow.has(normalizeName(a.rep_name)));
+  const rawActs = (rows || []).filter((a) => allow.has(normalizeName(a.rep_name)));
+
+  // Collapse DUPLICATE rows before counting: the app was logging the same door + kind +
+  // outcome several times (a double-tap, a status button that re-fires, GPS-driven
+  // re-logs while approaching), which inflated every number. Keep ONE per rep+door+
+  // kind+outcome+round — so a genuine round-2 re-knock (different round) still counts,
+  // but 5 identical "Dead" rows become 1. Pinless rows (appt_done) keep each.
+  const seenAct = new Set();
+  const acts = rawActs.filter((a) => {
+    if (!a.pin_id) return true;
+    const k = `${normalizeName(a.rep_name)}|${a.pin_id}|${a.kind}|${a.to_status || ""}|${a.round ?? ""}`;
+    if (seenAct.has(k)) return false;
+    seenAct.add(k);
+    return true;
+  });
 
   // Appts and no-sit reschedules log as visit/appt_done/manual_here — NOT "status" —
   // so tallying outcomes only from kind==="status" silently dropped them (APPTS/NO-SITS

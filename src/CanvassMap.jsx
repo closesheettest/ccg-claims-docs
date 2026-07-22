@@ -1390,8 +1390,21 @@ export default function CanvassMap() {
   // that migration (sql/harvest_location_audit.sql) hasn't run yet those columns don't
   // exist and the insert would 400 — so on that error we retry WITHOUT them, keeping
   // basic reporting alive until the office runs the SQL.
+  const recentLogRef = useRef(new Map()); // `${pin}:${kind}:${to}` -> ms, to swallow rapid duplicate logs
   function logActivity(row) {
     if (demoMode || spotCheck) return; // practice mode & spot-checks log nothing
+    // Swallow DUPLICATE rows: the same door + kind + outcome firing again within 10
+    // minutes (a double-tap, a status button that re-fires, GPS-driven re-logs while
+    // approaching) was writing 4-5 identical rows and multiplying every number on the
+    // report. One row per action per door; a genuine round-2 re-knock hours later still
+    // logs. Only pin-keyed rows are deduped — pinless rows (e.g. appt_done) always log.
+    if (row.pin_id) {
+      const key = `${row.pin_id}:${row.kind || ""}:${row.to_status || ""}`;
+      const now = Date.now();
+      const prev = recentLogRef.current.get(key);
+      if (prev && now - prev < 10 * 60 * 1000) return;
+      recentLogRef.current.set(key, now);
+    }
     try {
       const full = { rep_name: repName || null, rep_token: auth.rt || null, round, ...row };
       supabase.from("canvass_activity").insert(full).then(({ error }) => {
