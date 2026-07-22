@@ -171,7 +171,7 @@ export default function HarvestReport() {
     const m = new Map();
     for (const r of deduped) {
       const name = r.rep_name || "(unknown)";
-      const cur = m.get(name) || { name, visits: 0, pins: new Set(), rounds: 0, last: null, outcomes: {}, apptSrc: {}, notHome: 0, acts: [], offSpot: 0, farCount: 0, gpsOff: 0, coords: [] };
+      const cur = m.get(name) || { name, visits: 0, pins: new Set(), rounds: 0, last: null, outcomes: {}, apptSrc: {}, notHome: 0, acts: [], offSpot: 0, farCount: 0, gpsOff: 0, farDoors: new Set(), gpsOffDoors: new Set(), coords: [] };
       cur.acts.push(r);
       if (r.kind === "visit") { cur.visits += 1; if (r.pin_id) cur.pins.add(r.pin_id); if (r.to_status === "not_home") cur.notHome += 1; }
       if (r.kind === "status" && r.to_status) cur.outcomes[r.to_status] = (cur.outcomes[r.to_status] || 0) + 1;
@@ -187,16 +187,20 @@ export default function HarvestReport() {
       }
       if (typeof r.round === "number") cur.rounds = Math.max(cur.rounds, r.round);
       if (!cur.last || new Date(r.created_at) > new Date(cur.last)) cur.last = r.created_at;
-      // Location audit: count off-the-door actions, and gather coords for the
-      // "all from one spot" (couch-canvassing) check. Only real work counts — an
-      // 'arrival' isn't an outcome, so skip it.
-      if (r.kind !== "arrival") {
-        const offSpot = r.loc_flag === "far" || r.loc_flag === "gps_off";
-        if (r.loc_flag === "far") { cur.farCount += 1; cur.offSpot += 1; }
-        else if (r.loc_flag === "gps_off") { cur.gpsOff += 1; cur.offSpot += 1; }
+      // Location audit: count off-the-door DOORS (not rows), and gather coords for the
+      // "all from one spot" (couch-canvassing) check. One far door logs several far rows
+      // — the GPS "status anyway" override (manual_here) PLUS the visit AND the status —
+      // so counting rows made Off-spot read 5 when only 2 doors were far. Count each
+      // door once, keyed by pin+round, and only from the actual outcome rows (skip
+      // 'arrival' and the 'manual_here' override, neither of which is a shown stop).
+      if ((r.kind === "visit" || r.kind === "status") && r.pin_id) {
+        const dk = `${r.pin_id}|${r.round ?? ""}`;
+        const off = r.loc_flag === "far" || r.loc_flag === "gps_off";
+        if (r.loc_flag === "far") cur.farDoors.add(dk);
+        else if (r.loc_flag === "gps_off") cur.gpsOffDoors.add(dk);
         // Only OFF-spot coords feed the cluster check — a pile of verified-at-door
         // actions near one spot (e.g. parking in the same lot) is legit and mustn't flag.
-        if (offSpot && typeof r.lat === "number" && typeof r.lng === "number") cur.coords.push([r.lat, r.lng]);
+        if (off && typeof r.lat === "number" && typeof r.lng === "number") cur.coords.push([r.lat, r.lng]);
       }
       m.set(name, cur);
     }
@@ -213,6 +217,11 @@ export default function HarvestReport() {
         }
       }
       cur.avgSpot = n ? sum / n : null;
+      // Off-spot = distinct DOORS worked far (not the row count), so it matches the far
+      // stops in the stop-by-stop. A door flagged both far and gps_off counts once.
+      cur.farCount = cur.farDoors.size;
+      cur.gpsOff = cur.gpsOffDoors.size;
+      cur.offSpot = new Set([...cur.farDoors, ...cur.gpsOffDoors]).size;
       // Biggest group of actions logged from the SAME ~180ft spot. A rep working the
       // street moves; a rep statusing a route from their couch doesn't — so a large
       // single-spot cluster is the tell.
