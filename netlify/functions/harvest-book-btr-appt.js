@@ -117,12 +117,12 @@ export const handler = async (event) => {
       if (!/duplicate/i.test(e.message || "")) throw e;
       const existing = await findRecentJobForContact(contactId);
       if (existing) {
-        // Reusing an existing job (dup-name) must still re-tag a SELF-GENERATED
-        // booking's source — otherwise a rep who self-gens a homeowner who was
-        // already an Instant Quote / other lead leaves the old source in place
-        // (the "Peter McDonald shows Instant Quote instead of Self Generated" bug).
-        // Only override for self-gen; don't clobber a real BTR's existing source.
-        await jnPut(`jobs/${existing}`, { status: APPT_STATUS, status_name: APPT_STATUS_NAME, date_start: apptSec, ...(selfGen ? { source_name: jnSource } : {}), ...(ownerJn ? { owners: [{ id: ownerJn }], sales_rep: ownerJn } : {}) });
+        // Homeowner ALREADY existed in JobNimbus → reuse their job and leave it as it
+        // was. We do NOT rewrite source_name here: an existing record keeps its true
+        // origin (e.g. an old Instant Quote lead stays Instant Quote). Only a brand-new
+        // job created for a rep-dropped pin gets source "Self Generated" (the create
+        // path above). Per Neal: leave everything that already existed the same.
+        await jnPut(`jobs/${existing}`, { status: APPT_STATUS, status_name: APPT_STATUS_NAME, date_start: apptSec, ...(ownerJn ? { owners: [{ id: ownerJn }], sales_rep: ownerJn } : {}) });
         jobId = existing;
       } else {
         const suffix = phone.replace(/\D/g, "").slice(-4) || String(apptSec).slice(-4);
