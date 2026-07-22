@@ -1865,6 +1865,14 @@ export default function CanvassMap() {
   // applies if no newer route replaced this one (routeGen) AND they haven't started
   // working yet (still on stop 1). Same pins, just a smarter order — ids unchanged.
   async function optimizeByRoad(start, baseStops) {
+    // DISABLED (Neal, Jul 2026): the driving-time re-order reshuffled whole streets
+    // out of geographic order, which read as backtracking. The instant street-by-street
+    // serpentine (buildRoute → orderStops) is what the reps want — tight, one street at
+    // a time, minimal backtracking — so we keep that and don't override it. Kept as a
+    // no-op so every call site still works; re-enable the body if we ever need road
+    // ordering for a single-entrance subdivision.
+    return;
+    /* eslint-disable no-unreachable */
     if (!start || !baseStops || baseStops.length < 3) return;
     const gen = ++routeGen.current;
     setOptimizing(true);
@@ -1873,6 +1881,7 @@ export default function CanvassMap() {
     if (!better || routeGen.current !== gen || stopIdxRef.current !== 0) return;
     setRoute(better);
     if (map.current && better[0]) map.current.setView([better[0].latitude, better[0].longitude], Math.max(map.current.getZoom(), 15));
+    /* eslint-enable no-unreachable */
   }
 
   // Tapped Start/Route while zoomed out (only clusters loaded, no pins to route) —
