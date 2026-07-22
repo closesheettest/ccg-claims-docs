@@ -122,6 +122,20 @@ exports.handler = async (event) => {
   for (const p of await sbGet(`canvass_prospects?jn_job_id=not.is.null&status=eq.no_sit_reschedule&select=id,jn_job_id`)) {
     if (p.jn_job_id) existing[p.jn_job_id] = p.id;
   }
+  // Jobs whose door a REP already worked to a NON-no-sit outcome (dead / new roof / appt /
+  // lost / …). Marking a no-sit on the map doesn't change the JN job's status, so the job
+  // still reads "No Sit- Need to Reschedule" — which used to make this sync INSERT a second,
+  // duplicate no-sit pin right next to the one the rep worked (Patrick Smith, Edward Ashley,
+  // Sue Alagic). The rep's field status is the truth: collect those jnids and skip them
+  // below (no duplicate, no reset). Bounded to the jobs we're syncing this run.
+  const workedByRep = new Set();
+  const wantJnids = [...new Set(withAddr.map(jnidOf).filter(Boolean))];
+  for (let i = 0; i < wantJnids.length; i += 100) {
+    const chunk = wantJnids.slice(i, i + 100).map(encodeURIComponent).join(",");
+    for (const p of await sbGet(`canvass_prospects?jn_job_id=in.(${chunk})&status=neq.no_sit_reschedule&select=jn_job_id`)) {
+      if (p.jn_job_id) workedByRep.add(p.jn_job_id);
+    }
+  }
 
   const nowIso = new Date().toISOString();
   const liveIds = new Set();
@@ -133,6 +147,7 @@ exports.handler = async (event) => {
     const jnid = jnidOf(j);
     const geo = geocache[jnid];
     if (!geo) { skipped++; continue; } // not geocoded yet — picks up on a later run
+    if (workedByRep.has(jnid)) { skipped++; continue; } // rep already worked this door — leave their status
     liveIds.add(jnid);
     const street = (j.address_line1 || "").split(",")[0].trim();
     const row = {
