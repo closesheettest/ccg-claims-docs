@@ -84,7 +84,7 @@ export default function HarvestReport() {
         // list_name + extra let us classify each door's LEAD SOURCE for the
         // Retail vs Inspection split (self-gen carries status "insp" but
         // list_name "Self-Generated", so status alone can't tell them apart).
-        const { data: pins } = await supabase.from("canvass_prospects").select("id, name, address, list_name, extra").in("id", ids);
+        const { data: pins } = await supabase.from("canvass_prospects").select("id, name, address, list_name, status, extra").in("id", ids);
         setPinMap(Object.fromEntries((pins || []).map((p) => [p.id, {
           ...p,
           self_generated: !!(p.list_name === "Self-Generated" || (p.extra && typeof p.extra === "object" && p.extra.self_generated === true)),
@@ -97,10 +97,19 @@ export default function HarvestReport() {
   // Classify each DOOR (pin) by its lead SOURCE, then scope the whole report to
   // the selected view. RETAIL = harvest lead-gen we book as retail appts: IQ,
   // No-sit reschedules, and rep Self-Generated pins. INSPECTION = the mailer-
-  // driven inspection leads (money we spent on mail). A pin's status can't tell
-  // self-gen from a real inspection lead (both sit at "insp"), so self-gen is
-  // read from the pin record; iq/no-sit show up as an origin status on activity.
+  // driven inspection leads (money we spent on mail).
+  //
+  // The origin must come from the PIN RECORD (list_name + status), NOT the
+  // activity: tapping Not-Home/Dead/etc. logs the outcome with a null
+  // from_status, so an IQ door marked "not home" carries no retail signal in
+  // its activity and would wrongly fall through to Inspection. list_name is the
+  // source list ("JN Instant Quote", "JN No-Sits", "Self-Generated" = retail);
+  // for a mixed list like "RC Contacts" the pin's own status disambiguates
+  // (no_sit_reschedule/iq = retail; insp = a real inspection lead). Activity
+  // statuses are only a last-resort fallback (they do catch appt bookings).
   const RETAIL_ORIGIN = new Set(["iq", "iq_ni", "no_sit_reschedule", "self_gen", "fb", "ai"]);
+  const RETAIL_LISTS = new Set(["JN Instant Quote", "JN No-Sits", "Self-Generated"]);
+  const RETAIL_STATUS = new Set(["iq", "iq_ni", "no_sit_reschedule"]);
   const pinBucket = useMemo(() => {
     const sig = {}; // pin_id → Set of every from/to status seen on its activity
     for (const r of (rows || [])) {
@@ -112,9 +121,10 @@ export default function HarvestReport() {
     const map = {};
     for (const pid of Object.keys(sig)) {
       const pin = pinMap[pid] || {};
-      if (pin.self_generated) { map[pid] = "retail"; continue; }
-      let retail = false;
-      for (const st of sig[pid]) if (RETAIL_ORIGIN.has(st)) { retail = true; break; }
+      const retail = pin.self_generated
+        || RETAIL_LISTS.has(pin.list_name)
+        || RETAIL_STATUS.has(pin.status)
+        || [...sig[pid]].some((st) => RETAIL_ORIGIN.has(st));
       map[pid] = retail ? "retail" : "inspection"; // mailer inspection leads are the default
     }
     return map;
@@ -310,8 +320,8 @@ export default function HarvestReport() {
           // Inspection leads come from paid direct mail. A door we MAILED that
           // already had a new roof is money we spent on stale list data.
           <div style={{ background: "#fff7ed", border: "1px solid #fdba74", borderRadius: 12, padding: "14px 16px", marginBottom: 18 }}>
-            <div style={{ fontSize: 14.5, fontWeight: 800, color: "#c2410c", fontFamily: OSWALD }}>📬 {viewPinsVisited.toLocaleString()} pins visited and {newRoof.total.toLocaleString()} new roofs we shouldn't have mailed</div>
-            <div style={{ fontSize: 12.5, color: "#9a3412", margin: "3px 0 10px" }}>We spent mail money on these doors, but a competitor had already re-roofed them — wasted spend from stale list data. Broken down by what the lead <b>was</b>:</div>
+            <div style={{ fontSize: 14.5, fontWeight: 800, color: "#c2410c", fontFamily: OSWALD }}>📬 People we mailed — {viewPinsVisited > 0 ? Math.round((newRoof.total / viewPinsVisited) * 100) : 0}% had a new roof</div>
+            <div style={{ fontSize: 12.5, color: "#9a3412", margin: "3px 0 10px" }}>{newRoof.total.toLocaleString()} of {viewPinsVisited.toLocaleString()} inspection doors worked were already re-roofed by a competitor — wasted mail spend from stale list data. Broken down by what the lead <b>was</b>:</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {newRoof.bySrc.map(([src, n]) => (
                 <div key={src} style={{ background: "#fff", border: "1px solid #fed7aa", borderRadius: 10, padding: "8px 12px" }}>
