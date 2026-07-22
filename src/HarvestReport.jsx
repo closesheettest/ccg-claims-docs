@@ -293,13 +293,20 @@ export default function HarvestReport() {
                     <td colSpan={colSpan} style={{ padding: "4px 10px 14px", background: "#f8fafc" }}>
                       <div style={{ fontSize: 11, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", margin: "6px 0 6px" }}>Stop-by-stop</div>
                       <div style={{ display: "grid", gap: 3 }}>
-                        {[...r.acts].reverse()
-                          // A statused stop logs both a "visit" and the "status" row —
-                          // hide the redundant visit; the status line is the outcome.
-                          // KEEP visits that ARE the outcome: not-home, and appt (a
-                          // booking/reschedule logs only a visit, no status row — hiding
-                          // it is why conversions like Dorothy's no-sit→appt vanished).
-                          .filter((a) => !(a.kind === "visit" && a.to_status !== "not_home" && a.to_status !== "appt"))
+                        {(() => {
+                        // ONE clean line per door — the OUTCOME. Drop the redundant
+                        // lead-up rows: "arrived", "I'm here" taps, and the plain "visit"
+                        // that pairs with a status row (dead/iq — the status IS the
+                        // outcome). Also drop the pre-existing "appt_done" rows (the rep's
+                        // own scheduled appts he was routed around — logged with no door,
+                        // so no homeowner to show). KEEP real outcomes: statuses, not-home,
+                        // and appt conversions (visit→appt, which carry the door + name).
+                        const statusedKeys = new Set();
+                        for (const a of r.acts) if (a.kind === "status" && a.to_status) statusedKeys.add(`${a.pin_id}:${a.to_status}`);
+                        return [...r.acts].reverse()
+                          .filter((a) => a.kind !== "arrival" && a.kind !== "manual_here" && a.kind !== "appt_done"
+                            && !(a.kind === "visit" && statusedKeys.has(`${a.pin_id}:${a.to_status}`))
+                            && !(a.kind === "visit" && !a.to_status))
                           .map((a, i) => {
                           const pin = pinMap[a.pin_id] || {};
                           const tag = a.kind !== "arrival" ? LOC_TAG(a) : null;
@@ -311,7 +318,7 @@ export default function HarvestReport() {
                               {tag && <span style={{ color: tag.color, fontWeight: 700, fontSize: 11.5, whiteSpace: "nowrap", flexShrink: 0 }}>{tag.txt}</span>}
                             </div>
                           );
-                        })}
+                        }); })()}
                       </div>
                     </td>
                   </tr>
