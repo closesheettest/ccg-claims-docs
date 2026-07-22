@@ -93,64 +93,43 @@ function streetSegments(stops) {
   }
   return segs;
 }
-// Order the day's stops so the rep FINISHES a street before leaving it, and never
-// walks away only to come back. We route whole street segments (never individual
-// houses): nearest-segment-first to build a sane order, then a segment-level 2-opt
-// that reverses runs of whole streets whenever that shortens the drive. Because the
-// 2-opt moves whole segments (never splitting one), a street can never get chopped
-// across the route — the old stop-level 2-opt COULD split a street mid-run, which
-// is exactly what sent reps back to a street they'd "already done". All distances
-// are true feet (haversine), so FL longitude isn't under-counted vs latitude.
+// Order the day's stops as a clean BOUSTROPHEDON ("ox-plough" snake): work one
+// street fully, step to the adjacent street, walk it back the other way, and so on —
+// so the rep never criss-crosses the neighborhood or backtracks. We group houses into
+// street segments, figure out which way the streets stack (N–S rows of E–W streets,
+// or the reverse), order the rows across that axis, and walk each row entering at the
+// end nearest where the last one finished. This beats a distance-minimizing 2-opt,
+// which on a real 2-D grid found "shorter" tours that visually wander/criss-cross.
 function orderStops(start, stops) {
   const segs = streetSegments(stops);
   if (segs.length <= 1) return segs.flat();
-  const co = (p) => ({ lat: p.latitude, lng: p.longitude });
-  // Nearest-segment-first construction. Each pick also chooses which END of the
-  // segment to enter from (rev = walk it high→low), whichever endpoint is closer.
-  const remaining = segs.slice();
-  const entries = [];
-  let cur = { lat: start.lat, lng: start.lng };
-  while (remaining.length) {
-    let bi = 0, bd = Infinity, rev = false;
-    for (let i = 0; i < remaining.length; i++) {
-      const s = remaining[i];
-      const dF = feetBetween(cur, co(s[0])), dL = feetBetween(cur, co(s[s.length - 1]));
-      if (dF < bd) { bd = dF; bi = i; rev = false; }
-      if (dL < bd) { bd = dL; bi = i; rev = true; }
-    }
-    const s = remaining.splice(bi, 1)[0];
-    entries.push({ seg: s, rev });
-    const tail = rev ? s[0] : s[s.length - 1];
-    cur = co(tail);
-  }
-  // Segment-level 2-opt: reversing entries[i..k] flips both their ORDER and each
-  // segment's internal direction (you'd traverse that block backwards). Whole
-  // streets stay atomic. n = segment count (small — a day is tens of streets), so
-  // recomputing the full length per trial is cheap.
-  const head = (e) => co(e.rev ? e.seg[e.seg.length - 1] : e.seg[0]);
-  const tail = (e) => co(e.rev ? e.seg[0] : e.seg[e.seg.length - 1]);
-  // Open path (serpentine): a rep works the neighborhood street by street, they
-  // don't drive back to the start. Closing the loop made the optimizer hug the
-  // perimeter (spiral) instead of snaking through the interior streets.
-  const total = (arr) => {
-    let t = feetBetween(start, head(arr[0]));
-    for (let i = 0; i < arr.length - 1; i++) t += feetBetween(tail(arr[i]), head(arr[i + 1]));
-    return t;
-  };
-  let best = total(entries), improved = true, pass = 0;
-  while (improved && pass < 8) {
-    improved = false; pass++;
-    for (let i = 0; i < entries.length - 1; i++) {
-      for (let k = i + 1; k < entries.length; k++) {
-        const block = entries.slice(i, k + 1).reverse().map((e) => ({ seg: e.seg, rev: !e.rev }));
-        const cand = entries.slice(0, i).concat(block, entries.slice(k + 1));
-        const t = total(cand);
-        if (t + 1e-6 < best) { entries.splice(0, entries.length, ...cand); best = t; improved = true; }
-      }
-    }
-  }
+  const clat = (s) => s.reduce((t, p) => t + p.latitude, 0) / s.length;
+  const clng = (s) => s.reduce((t, p) => t + p.longitude, 0) / s.length;
+  const lats = segs.map(clat), lngs = segs.map(clng);
+  const latSpread = Math.max(...lats) - Math.min(...lats);
+  const lngSpread = Math.max(...lngs) - Math.min(...lngs);
+  // If the street centroids spread more N–S, the streets run E–W and stack vertically
+  // → order the rows by latitude and walk each one along longitude. Otherwise flip.
+  const crossByLat = latSpread >= lngSpread;
+  const rowKey = (s) => (crossByLat ? clat(s) : clng(s));           // across-streets axis (which street)
+  const alongKey = (p) => (crossByLat ? p.longitude : p.latitude);  // along-a-street axis (which house)
+  const rows = segs.map((seg) => ({ seg })).sort((a, b) => rowKey(a.seg) - rowKey(b.seg));
+  // Start the snake from the row nearest the rep so the first stop is close.
+  const startRow = crossByLat ? start.lat : start.lng;
+  if (rows.length > 1 && Math.abs(startRow - rowKey(rows[rows.length - 1].seg)) < Math.abs(startRow - rowKey(rows[0].seg))) rows.reverse();
+  const startAlong = crossByLat ? start.lng : start.lat;
   const out = [];
-  for (const e of entries) { const walk = e.rev ? e.seg.slice().reverse() : e.seg; for (const p of walk) out.push(p); }
+  let prevExit = null;
+  for (const { seg } of rows) {
+    const houses = seg.slice().sort((a, b) => alongKey(a) - alongKey(b));
+    const lo = alongKey(houses[0]), hi = alongKey(houses[houses.length - 1]);
+    // Enter each street at whichever end is nearest where we just finished (or, for
+    // the first street, nearest the rep) — that's what makes it snake, not zig-zag.
+    const anchor = prevExit != null ? prevExit : startAlong;
+    if (Math.abs(hi - anchor) < Math.abs(lo - anchor)) houses.reverse();
+    for (const p of houses) out.push(p);
+    prevExit = alongKey(houses[houses.length - 1]);
+  }
   return out;
 }
 
