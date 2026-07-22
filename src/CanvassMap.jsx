@@ -3545,11 +3545,15 @@ export default function CanvassMap() {
         <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: "#fff", borderTopLeftRadius: 18, borderTopRightRadius: 18, boxShadow: "0 -4px 20px rgba(0,0,0,.18)", padding: "16px 18px 22px", zIndex: 1000, maxHeight: "62vh", overflowY: "auto" }}>
           <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
             <div style={{ flex: 1 }}>
-              {piiVisible(selected)
-                ? (selected.name && <div style={{ fontWeight: 800, fontSize: 16 }}>{selected.name}</div>)
-                : <div style={{ fontWeight: 800, fontSize: 13.5, color: "#94a3b8" }}>🔒 Homeowner shown once it's on your route</div>}
-              <div style={{ fontSize: 14, color: "#334155", fontWeight: 600 }}>{selected.address}</div>
-              <div style={{ fontSize: 13, color: "#64748b" }}>{[selected.city, selected.state, selected.zip].filter(Boolean).join(", ")}</div>
+              {piiVisible(selected) ? (
+                <>
+                  {selected.name && <div style={{ fontWeight: 800, fontSize: 16 }}>{selected.name}</div>}
+                  <div style={{ fontSize: 14, color: "#334155", fontWeight: 600 }}>{selected.address}</div>
+                  <div style={{ fontSize: 13, color: "#64748b" }}>{[selected.city, selected.state, selected.zip].filter(Boolean).join(", ")}</div>
+                </>
+              ) : (
+                <div style={{ fontWeight: 800, fontSize: 14, color: "#94a3b8" }}>🔒 Homeowner &amp; address show once this door is on your route</div>
+              )}
               {selected.status === "no_sit_reschedule" && origApptLabel(selected) && (
                 <div style={{ fontSize: 12.5, fontWeight: 800, color: "#c2410c", marginTop: 4 }}>🔄 No-sit · original appt was {origApptLabel(selected)}</div>
               )}
@@ -3806,18 +3810,22 @@ export default function CanvassMap() {
             </div>
           )}
 
-          <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-            <a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent([selected.address, selected.city, selected.state, selected.zip].filter(Boolean).join(", "))}`}
-              target="_blank" rel="noreferrer"
-              style={{ flex: 1, textAlign: "center", padding: "12px", borderRadius: 12, background: "#1d4ed8", color: "#fff", fontWeight: 700, fontSize: 13.5, textDecoration: "none" }}>
-              🧭 Google Maps
-            </a>
-            <a href={`https://maps.apple.com/?daddr=${encodeURIComponent([selected.address, selected.city, selected.state, selected.zip].filter(Boolean).join(", "))}&dirflg=d`}
-              target="_blank" rel="noreferrer"
-              style={{ flex: 1, textAlign: "center", padding: "12px", borderRadius: 12, background: "#0f172a", color: "#fff", fontWeight: 700, fontSize: 13.5, textDecoration: "none" }}>
-              🍎 Apple Maps
-            </a>
-          </div>
+          {/* Directions reveal the address, so they're gated the same as the address
+              itself — only once the door is on the rep's route (office/admin always). */}
+          {piiVisible(selected) && (
+            <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+              <a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent([selected.address, selected.city, selected.state, selected.zip].filter(Boolean).join(", "))}`}
+                target="_blank" rel="noreferrer"
+                style={{ flex: 1, textAlign: "center", padding: "12px", borderRadius: 12, background: "#1d4ed8", color: "#fff", fontWeight: 700, fontSize: 13.5, textDecoration: "none" }}>
+                🧭 Google Maps
+              </a>
+              <a href={`https://maps.apple.com/?daddr=${encodeURIComponent([selected.address, selected.city, selected.state, selected.zip].filter(Boolean).join(", "))}&dirflg=d`}
+                target="_blank" rel="noreferrer"
+                style={{ flex: 1, textAlign: "center", padding: "12px", borderRadius: 12, background: "#0f172a", color: "#fff", fontWeight: 700, fontSize: 13.5, textDecoration: "none" }}>
+                🍎 Apple Maps
+              </a>
+            </div>
+          )}
         </div>
       )}
 
