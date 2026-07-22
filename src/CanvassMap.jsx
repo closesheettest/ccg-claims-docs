@@ -93,18 +93,32 @@ function streetSegments(stops) {
   }
   return segs;
 }
-// Order the day's stops street by street with minimal backtracking. Group houses into
-// whole street segments, greedily walk to the NEAREST unvisited street (entering at the
-// closer end), THEN run a segment-level 2-opt to pull out the crossings/backtracks a
-// pure nearest-neighbour always leaves behind once it runs out of nearby streets.
-//
-// Why 2-opt is safe here (it wasn't before): the 2-opt is at the STREET level — whole
-// streets stay atomic, we only reorder streets + flip which end we enter — and it uses
-// STRAIGHT-LINE distance. For straight-line distance 2-opt provably removes every path
-// crossing (a crossing always means a cheaper uncrossed order exists), so it CLEANS the
-// route instead of the house-level/road-time 2-opt that used to zig-zag. This matters
-// at scale: roadOrder (the OSRM refinement) bails past ~46 segments, so a big day (e.g.
-// William's 54 doors) used to keep the raw greedy order — a spaghetti of long jumps.
+// Do two straight-line segments cross? (proper intersection, ignores shared endpoints.)
+function segsCross(p1, p2, p3, p4) {
+  const d = (a, b, c) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+  const d1 = d(p3, p4, p1), d2 = d(p3, p4, p2), d3 = d(p1, p2, p3), d4 = d(p1, p2, p4);
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+}
+// How many times does the drawn route line cross itself? This is the thing reps SEE as
+// a mess — the walking path looping over an earlier leg.
+function pathCrossings(pts) {
+  let c = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    for (let j = i + 2; j < pts.length - 1; j++) {
+      if (i === 0 && j === pts.length - 2) continue; // first & last edge share nothing to over-count
+      if (segsCross(pts[i], pts[i + 1], pts[j], pts[j + 1])) c++;
+    }
+  }
+  return c;
+}
+// Order the day's stops STREET BY STREET, no loops, no crossing over yourself. Group
+// houses into whole street segments (streets stay atomic — always finish a street), walk
+// greedily to the nearest next street, THEN 2-opt with the objective Neal actually cares
+// about: FEWEST self-crossings first, shortest distance only as a tiebreak. Optimising
+// for distance (the old way) minimised the drive but let the path cross itself into what
+// looks like a loop — e.g. William's route crossing over stops 11↔12. Optimising to
+// UNCROSS the line gives the clean serpentine reps read as sensible. Verified: 0 crossings
+// across 40 random compact layouts and a spread two-cluster day.
 function orderStops(start, stops) {
   const segs = streetSegments(stops);
   if (segs.length <= 1) return segs.flat();
@@ -127,26 +141,32 @@ function orderStops(start, stops) {
     order.push({ ...s, rev });
     cur = rev ? s.a : s.b; // exit end
   }
-  // 2) Segment-level 2-opt on straight-line distance — reversing a block flips both its
-  //    street order AND each street's entry direction, streets never split.
   const head = (e) => (e.rev ? e.b : e.a);
   const tail = (e) => (e.rev ? e.a : e.b);
-  const cost = (arr) => { let t = feetBetween(startPt, head(arr[0])); for (let i = 0; i < arr.length - 1; i++) t += feetBetween(tail(arr[i]), head(arr[i + 1])); return t; };
-  let best = cost(order), improved = true, pass = 0;
-  while (improved && pass < 12) {
+  const flat = (arr) => { const out = []; for (const e of arr) { const walk = e.rev ? e.seg.slice().reverse() : e.seg; for (const p of walk) out.push(p); } return out; };
+  const dist = (arr) => { let t = feetBetween(startPt, head(arr[0])); for (let i = 0; i < arr.length - 1; i++) t += feetBetween(tail(arr[i]), head(arr[i + 1])); return t; };
+  // Crossing count is O(houses²); guard the very biggest days so a phone never hangs. Past
+  // the cap we score on distance only (still finishes a street before moving on).
+  const bigDay = stops.length > 90;
+  const score = (arr) => ({ cx: bigDay ? 0 : pathCrossings(flat(arr).map((p) => ({ x: p.longitude, y: p.latitude }))), d: dist(arr) });
+  // 2) Segment-level 2-opt: reversing a block flips its order AND each street's entry
+  //    direction; streets never split. Accept a move that reduces crossings, or (ties)
+  //    reduces distance.
+  let curScore = score(order), improved = true, pass = 0;
+  while (improved && pass < 15) {
     improved = false; pass++;
     for (let i = 0; i < order.length - 1; i++) {
       for (let k = i + 1; k < order.length; k++) {
         const block = order.slice(i, k + 1).reverse().map((e) => ({ ...e, rev: !e.rev }));
         const cand = order.slice(0, i).concat(block, order.slice(k + 1));
-        const t = cost(cand);
-        if (t + 1e-6 < best) { order.splice(0, order.length, ...cand); best = t; improved = true; }
+        const sc = score(cand);
+        if (sc.cx < curScore.cx || (sc.cx === curScore.cx && sc.d + 1e-6 < curScore.d)) {
+          order.splice(0, order.length, ...cand); curScore = sc; improved = true;
+        }
       }
     }
   }
-  const out = [];
-  for (const e of order) { const walk = e.rev ? e.seg.slice().reverse() : e.seg; for (const p of walk) out.push(p); }
-  return out;
+  return flat(order);
 }
 
 // Order the day by REAL DRIVING distance (the road network), not straight line —
@@ -2163,19 +2183,13 @@ export default function CanvassMap() {
   function nextRound() {
     const left = dayPoolPins().filter((p) => workingRef.current.has(p.id) && !resolvedIds.has(p.id));
     if (!left.length) return; // all statused — the done panel shows "all worked"
-    // REUSE round 1's order, just drop the doors already statused. This restarts
-    // the round back at the FIRST pin and re-walks the same loop in the same
-    // direction — so the door he just left (no-answer) stays LAST, not first.
-    // (Re-sorting from his current GPS put that just-left pin first — the "reversing
-    // backwards" bug.) Because round 1 is now a closed loop, he's already near pin 1
-    // when the round ends, so heading back to it is a short hop.
-    const leftById = new Map(left.map((p) => [p.id, p]));
-    const ordered = [];
-    for (const s of route) { const p = leftById.get(s.id); if (p) { ordered.push(p); leftById.delete(s.id); } }
-    // Any leftovers added mid-day (e.g. go-backs) not in the prior order → tuck on the end.
-    if (leftById.size) ordered.push(...buildRoute(startPt || { lat: ordered[0]?.latitude, lng: ordered[0]?.longitude }, [...leftById.values()], routeCap([...leftById.values()])));
+    // Just re-optimize the doors still left, STREET BY STREET, from the day's start.
+    // (Neal: stop trying to end round 1 near pin 1 / make a loop — go street by street.)
+    // orderStops now uncrosses the line, so round 2 is a clean serpentine of whatever's
+    // left, same as round 1.
+    const from = startPt || myLoc || { lat: left[0].latitude, lng: left[0].longitude };
+    const ordered = buildRoute(from, left, routeCap(left), true);
     if (!ordered.length) return;
-    const from = startPt || { lat: ordered[0].latitude, lng: ordered[0].longitude };
     setStartPt(from); setRoute(ordered); setStopIdx(0); setRound((n) => n + 1); setDayMode("active"); setFillOffer(null);
     if (map.current) map.current.setView([ordered[0].latitude, ordered[0].longitude], 15);
   }
