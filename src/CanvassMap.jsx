@@ -763,6 +763,9 @@ export default function CanvassMap() {
   const arrivedRef = useRef(null);                     // { key } — already logged arrival at this stop
   const [panelPos, setPanelPos] = useState(null);      // {left,top} px if dragged, else default bottom-right
   const [panelMin, setPanelMin] = useState(false);     // route-stop card collapsed to a pill so the rep can see the map
+  const [mapBearing, setMapBearing] = useState(0);     // DISPLAY rotation (deg), CSS-only — never touches Leaflet's projection / pin-loading
+  const bearingRef = useRef(0);
+  const twistRef = useRef(null);                       // { startAngle, startBearing } during a two-finger twist
   const [ignoreDist, setIgnoreDist] = useState(false); // admin test toggle: skip the distance gate
   const [manualHere, setManualHere] = useState(null);  // stop id the rep confirmed "I'm at the door" (GPS/geocode wrong)
   const [capped, setCapped] = useState(false);         // more pins in view than the cap → "zoom in"
@@ -1089,6 +1092,14 @@ export default function CanvassMap() {
       maxZoom: 19, attribution: "&copy; OpenStreetMap",
     }).addTo(m);
     map.current = m;
+    // Two-finger twist → rotate the VIEW (CSS only). Passive listeners so we never
+    // block Leaflet's pinch-zoom; we just read the finger angle on top of it.
+    if (mapEl.current) {
+      mapEl.current.addEventListener("touchstart", mapTouchStart, { passive: true });
+      mapEl.current.addEventListener("touchmove", mapTouchMove, { passive: true });
+      mapEl.current.addEventListener("touchend", mapTouchEnd, { passive: true });
+      mapEl.current.addEventListener("touchcancel", mapTouchEnd, { passive: true });
+    }
     // "Start my day": while choosing a start point, a map tap starts the route there.
     m.on("click", (e) => {
       if (addingTestApptRef.current && testApptRef.current) { testApptRef.current({ lat: e.latlng.lat, lng: e.latlng.lng }); return; }
@@ -2169,9 +2180,40 @@ export default function CanvassMap() {
   }
   startFromRef.current = startFrom;
 
-  // ── Heading-up (map turns to the direction the rep is moving) ─────────────
-  // Reads the phone compass and rotates the map (leaflet-rotate) so the way the rep
-  // is facing is always UP — like a car GPS. Two-finger turn still works to nudge it.
+  // ── Map rotation — DISPLAY ONLY (CSS transform on the map element) ─────────
+  // Rotates just the VIEW. It never touches Leaflet's projection or getBounds, so
+  // pin-loading is unaffected (that's what broke with the old plugin). Two-finger twist
+  // for manual turn, plus an optional compass "heading-up" that faces the way you walk.
+  // While rotated, tapping a pin can be slightly off — it's a "look around / follow me"
+  // mode; tap the compass to snap back to North (then taps are exact again).
+  function applyMapTransform(deg) {
+    bearingRef.current = deg;
+    const el = mapEl.current; if (!el) return;
+    if (!deg) { el.style.transform = ""; el.style.transformOrigin = ""; return; }
+    const rad = (deg * Math.PI) / 180;
+    const cover = Math.abs(Math.sin(rad)) + Math.abs(Math.cos(rad)); // scale just enough to fill the corners (1 at 0°, ~1.41 at 45°)
+    el.style.transformOrigin = "center center";
+    el.style.transform = `rotate(${deg}deg) scale(${cover})`;
+  }
+  const twoFingerAngle = (a, b) => (Math.atan2(b.clientY - a.clientY, b.clientX - a.clientX) * 180) / Math.PI;
+  function mapTouchStart(e) {
+    // Two fingers → begin a twist. (If heading-up is on, the compass just re-applies on
+    // the next tick, so a stray twist is harmless — no stale-state check needed.)
+    if (e.touches && e.touches.length === 2) twistRef.current = { startAngle: twoFingerAngle(e.touches[0], e.touches[1]), startBearing: bearingRef.current };
+    else twistRef.current = null;
+  }
+  function mapTouchMove(e) {
+    const t = twistRef.current; if (!t || !e.touches || e.touches.length !== 2) return;
+    const delta = twoFingerAngle(e.touches[0], e.touches[1]) - t.startAngle;
+    applyMapTransform(((((t.startBearing + delta) % 360) + 360) % 360));
+  }
+  function mapTouchEnd(e) {
+    if (twistRef.current && (!e.touches || e.touches.length < 2)) { twistRef.current = null; setMapBearing(Math.round(bearingRef.current)); }
+  }
+  function resetNorth() { if (headingUp) { disableHeadingUp(); return; } applyMapTransform(0); setMapBearing(0); }
+
+  // Compass "heading-up" — reads the phone compass and turns the map so the way you're
+  // facing is UP, like a car GPS.
   function smoothHeading(raw) {
     const prev = headingRef.current;
     const diff = ((raw - prev + 540) % 360) - 180; // shortest signed turn, handles the 360→0 wrap
@@ -2182,10 +2224,10 @@ export default function CanvassMap() {
   function onOrient(e) {
     let h = null;
     if (typeof e.webkitCompassHeading === "number") h = e.webkitCompassHeading;   // iOS: true compass, 0=N clockwise
-    else if (typeof e.alpha === "number") h = (360 - e.alpha) % 360;              // Android: derive from alpha
+    else if (typeof e.alpha === "number") h = (360 - e.alpha) % 360;              // Android
     if (h == null || isNaN(h)) return;
     const sm = smoothHeading(h);
-    try { if (map.current?.setBearing) map.current.setBearing(-sm); } catch { /* ignore */ }
+    applyMapTransform((360 - sm) % 360); setMapBearing(Math.round((360 - sm) % 360)); // heading to the top
   }
   async function enableHeadingUp() {
     try {
@@ -2204,9 +2246,7 @@ export default function CanvassMap() {
   function disableHeadingUp() {
     const h = orientHandlerRef.current;
     if (h) { window.removeEventListener("deviceorientationabsolute", h, true); window.removeEventListener("deviceorientation", h, true); orientHandlerRef.current = null; }
-    headingRef.current = 0;
-    try { if (map.current?.setBearing) map.current.setBearing(0); } catch { /* ignore */ }
-    setHeadingUp(false);
+    headingRef.current = 0; applyMapTransform(0); setMapBearing(0); setHeadingUp(false);
   }
   function toggleHeadingUp() { headingUp ? disableHeadingUp() : enableHeadingUp(); }
   // Stop listening if the component unmounts while heading-up is on.
@@ -2863,9 +2903,19 @@ export default function CanvassMap() {
             🏠
           </button>
         )}
-        {/* Heading-up compass toggle temporarily removed — leaflet-rotate broke admin
-            pin-loading (it overrides getBounds); revisiting rotation with a method that
-            doesn't touch the map projection. */}
+        {/* Compass — twist two fingers on the map to rotate it; this button shows which
+            way is North (needle) and taps back to North-up. Tap it (from North-up) to
+            turn on heading-up (map faces the way you're walking). Display-only rotation. */}
+        {(auth.rt || auth.admin) && !selecting && !adding && !newPin && (
+          <button type="button"
+            onClick={() => { (headingUp || mapBearing) ? resetNorth() : toggleHeadingUp(); }}
+            title={headingUp ? "Heading-up ON — tap for North-up" : mapBearing ? "Rotated — tap to reset North (or twist two fingers)" : "Twist two fingers to rotate · tap for heading-up"}
+            style={{ position: "absolute", right: isDesktop ? 312 : 12, top: (myLoc && !selecting) ? (auth.rt ? 116 : 64) : (auth.rt ? 64 : 12), zIndex: 600, background: headingUp ? "#16a34a" : "#fff", color: headingUp ? "#fff" : "#334155", border: "2px solid #fff", borderRadius: 999, width: 44, height: 44, boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>
+            <span style={{ display: "inline-block", transform: `rotate(${-mapBearing}deg)`, transition: "transform .12s", fontSize: 15, fontWeight: 900 }}>
+              <span style={{ color: "#dc2626" }}>▲</span><span style={{ display: "block", fontSize: 9, marginTop: -3, color: headingUp ? "#fff" : "#334155" }}>N</span>
+            </span>
+          </button>
+        )}
         {adding && (
           <div style={{ position: "absolute", left: "50%", top: 12, transform: "translateX(-50%)", zIndex: 750, background: "#7c3aed", color: "#fff", borderRadius: 12, padding: "10px 14px", boxShadow: "0 3px 14px rgba(0,0,0,.3)", display: "flex", alignItems: "center", gap: 12, whiteSpace: "nowrap" }}>
             <span style={{ fontSize: 13.5, fontWeight: 700 }}>🏠 Tap the roof of the house</span>
