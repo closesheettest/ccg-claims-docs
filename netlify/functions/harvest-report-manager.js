@@ -67,12 +67,12 @@ export const handler = async (event) => {
     return true;
   });
 
-  // Appts and no-sit reschedules log as visit/appt_done/manual_here — NOT "status" —
-  // so tallying outcomes only from kind==="status" silently dropped them (APPTS/NO-SITS
-  // always read 0). Count THOSE two by distinct DOOR across any kind (a booking logs
-  // more than one row), and keep every other outcome exactly as before (status-row
-  // count) so the familiar IQ-NI / DEAD / etc. numbers don't shift.
-  const NOSTATUS = new Set(["appt", "no_sit_reschedule"]);
+  // APPTS and NO-SITS are both appt CONVERSIONS — a door worked into an appointment,
+  // logged as a "visit" → appt (NOT a "status" row). We split them by what the door WAS
+  // so the columns are DISJOINT and add up to KNOCKS: NO-SITS = a rescheduled no-sit that
+  // became an appt, APPTS = a fresh appt (IQ / self-gen). The pre-existing "appt_done"
+  // rows (scheduled appts the rep was routed around) are not conversions and don't count.
+  // Every other outcome stays a status-row count so IQ-NI / DEAD etc. don't shift.
   const byName = new Map();
   const newRoofSrc = {}; let newRoofTotal = 0;
   for (const a of acts) {
@@ -80,17 +80,13 @@ export const handler = async (event) => {
     const cur = byName.get(n) || { name: a.rep_name, knocks: 0, pins: new Set(), notHome: 0, outcomes: {}, outcomePins: {}, offSpot: 0, farCount: 0, lastActive: null };
     cur.name = a.rep_name;
     if (a.kind === "visit") { cur.knocks += 1; if (a.pin_id) cur.pins.add(a.pin_id); if (a.to_status === "not_home") cur.notHome += 1; }
-    if (a.kind === "status" && a.to_status && !NOSTATUS.has(a.to_status)) {
+    if (a.kind === "status" && a.to_status && a.to_status !== "appt" && a.to_status !== "no_sit_reschedule") {
       cur.outcomes[a.to_status] = (cur.outcomes[a.to_status] || 0) + 1;
       if (a.to_status === "new_roof") { const s = a.from_status || "(unknown)"; newRoofSrc[s] = (newRoofSrc[s] || 0) + 1; newRoofTotal += 1; }
     }
-    if (a.to_status && NOSTATUS.has(a.to_status)) {
-      // An APPT only counts as a real CONVERSION (a "visit" booking/reschedule) — the
-      // pre-existing "appt_done" rows the rep was routed around are NOT conversions
-      // (that's why Sam read 6 when he made 4). no_sit_reschedule counts any kind.
-      if (!(a.to_status === "appt" && a.kind !== "visit")) {
-        (cur.outcomePins[a.to_status] = cur.outcomePins[a.to_status] || new Set()).add(a.pin_id || `${a.kind}:${a.created_at}`);
-      }
+    if (a.kind === "visit" && a.to_status === "appt") {
+      const col = a.from_status === "no_sit_reschedule" ? "no_sit_reschedule" : "appt"; // reschedule → NO-SITS, else APPTS
+      (cur.outcomePins[col] = cur.outcomePins[col] || new Set()).add(a.pin_id || `${a.created_at}`);
     }
     if (a.kind !== "arrival") { if (a.loc_flag === "far") { cur.farCount += 1; cur.offSpot += 1; } else if (a.loc_flag === "gps_off") cur.offSpot += 1; }
     if (!cur.lastActive || new Date(a.created_at) > new Date(cur.lastActive)) cur.lastActive = a.created_at;
