@@ -13,10 +13,32 @@ const OUTCOME_LABELS = { appt: "Appts", iq_ni: "IQ not int.", insp_ni: "Not inte
 // Friendly names for a pin's ORIGINAL status (for the New-Roof breakdown).
 const STATUS_LABEL = { iq: "IQ", iq_ni: "IQ – Not Interested", no_sit_reschedule: "No-sit – need to reschedule", insp: "Inspection Lead", appt: "Appointment", insp_pending: "Pending signature", insp_sold: "Inspection Sold" };
 
+// The date window for a report period. Weeks start Monday. Returns { gte, lt } Date
+// bounds (lt is exclusive); null bound = open-ended. Custom uses the two date inputs.
+function periodRange(period, fromDate, toDate) {
+  const startOfDay = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+  const today0 = startOfDay(new Date());
+  const DAY = 86400000;
+  const mondayOf = (d) => startOfDay(new Date(d.getTime() - ((d.getDay() + 6) % 7) * DAY));
+  if (period === "today") return { gte: today0, lt: null };
+  if (period === "yesterday") return { gte: startOfDay(new Date(today0.getTime() - DAY)), lt: today0 };
+  if (period === "this_week") return { gte: mondayOf(today0), lt: null };
+  if (period === "last_week") { const thisMon = mondayOf(today0); return { gte: new Date(thisMon.getTime() - 7 * DAY), lt: thisMon }; }
+  if (period === "custom") {
+    return {
+      gte: fromDate ? startOfDay(new Date(`${fromDate}T00:00:00`)) : null,
+      lt: toDate ? new Date(startOfDay(new Date(`${toDate}T00:00:00`)).getTime() + DAY) : null, // inclusive of the "to" day
+    };
+  }
+  return { gte: null, lt: null }; // all time
+}
+
 export default function HarvestReport() {
   const [rows, setRows] = useState(null);
   const [err, setErr] = useState("");
-  const [period, setPeriod] = useState("all"); // today | 7d | all
+  const [period, setPeriod] = useState("today"); // today | yesterday | this_week | last_week | custom | all
+  const [fromDate, setFromDate] = useState(""); // YYYY-MM-DD, custom range
+  const [toDate, setToDate] = useState("");     // YYYY-MM-DD, custom range
   const [pinMap, setPinMap] = useState({});    // pin_id → { name, address }
   const [openRep, setOpenRep] = useState(null); // expanded rep row
   const [auditOff, setAuditOff] = useState(false); // location columns not migrated yet
@@ -34,8 +56,9 @@ export default function HarvestReport() {
         const all = [];
         for (let from = 0; from < 500000; from += PAGE) {
           let q = supabase.from("canvass_activity").select(cols).order("created_at", { ascending: false }).range(from, from + PAGE - 1);
-          if (period === "today") { const d = new Date(); d.setHours(0, 0, 0, 0); q = q.gte("created_at", d.toISOString()); }
-          else if (period === "7d") { q = q.gte("created_at", new Date(Date.now() - 7 * 86400000).toISOString()); }
+          const { gte, lt } = periodRange(period, fromDate, toDate);
+          if (gte) q = q.gte("created_at", gte.toISOString());
+          if (lt) q = q.lt("created_at", lt.toISOString());
           const { data, error } = await q;
           if (error) return { data: all, error };
           all.push(...(data || []));
@@ -58,7 +81,7 @@ export default function HarvestReport() {
         setPinMap(Object.fromEntries((pins || []).map((p) => [p.id, p])));
       } else setPinMap({});
     })();
-  }, [period]);
+  }, [period, fromDate, toDate]);
 
   const byRep = useMemo(() => {
     // Collapse duplicate rows first — the app was logging the same door + kind +
@@ -169,11 +192,20 @@ export default function HarvestReport() {
       <HarvestNav active="report" />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 6 }}>
         <div style={{ fontSize: 22, fontWeight: 800, fontFamily: OSWALD }}>📊 Rep Activity</div>
-        <div style={{ display: "flex", gap: 6 }}>
-          {[["today", "Today"], ["7d", "7 days"], ["all", "All time"]].map(([k, l]) => (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+          {[["today", "Today"], ["yesterday", "Yesterday"], ["this_week", "This week"], ["last_week", "Last week"], ["custom", "From–To"], ["all", "All time"]].map(([k, l]) => (
             <button key={k} type="button" onClick={() => setPeriod(k)}
               style={{ fontSize: 12.5, fontWeight: 700, padding: "6px 12px", borderRadius: 8, cursor: "pointer", border: period === k ? "2px solid #0a0a0a" : "1px solid #cbd5e1", background: period === k ? "#0a0a0a" : "#fff", color: period === k ? "#fff" : "#475569" }}>{l}</button>
           ))}
+          {period === "custom" && (
+            <span style={{ display: "inline-flex", gap: 6, alignItems: "center", fontSize: 12.5, color: "#475569" }}>
+              <input type="date" value={fromDate} max={toDate || undefined} onChange={(e) => setFromDate(e.target.value)}
+                style={{ fontSize: 12.5, padding: "5px 8px", borderRadius: 8, border: "1px solid #cbd5e1" }} />
+              <span>to</span>
+              <input type="date" value={toDate} min={fromDate || undefined} onChange={(e) => setToDate(e.target.value)}
+                style={{ fontSize: 12.5, padding: "5px 8px", borderRadius: 8, border: "1px solid #cbd5e1" }} />
+            </span>
+          )}
         </div>
       </div>
       <div style={{ fontSize: 13, color: "#64748b", marginBottom: 16 }}>Each door a rep works (within 200 ft) is a visit; the outcome they tap fills in the columns. <b>Avg at spot</b> = time from arriving to tapping the outcome. <b>Tap a rep's row</b> for a stop-by-stop breakdown.</div>
