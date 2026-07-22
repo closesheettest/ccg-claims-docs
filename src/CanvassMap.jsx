@@ -1742,16 +1742,30 @@ export default function CanvassMap() {
     const stops = route.filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number");
     const pts = startPt ? [{ lat: startPt.lat, lng: startPt.lng }, ...stops.map((p) => ({ lat: p.latitude, lng: p.longitude }))]
       : stops.map((p) => ({ lat: p.latitude, lng: p.longitude }));
-    if (pts.length < 2 || pts.length > 90) { setRouteGeom(null); return; } // OSRM route waypoint ceiling
-    const coords = pts.map((p) => `${p.lng},${p.lat}`).join(";");
-    fetch(`https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`)
-      .then((r) => r.json())
-      .then((j) => {
-        if (routeGeomGen.current !== gen) return; // a newer route replaced this one
+    if (pts.length < 2) { setRouteGeom(null); return; }
+    // OSRM caps ~100 waypoints per request, and a full day can be 100+ doors — so we
+    // snap the line to the roads in CHUNKS of ~90 (sharing the seam point so the
+    // segments join) and stitch them. A chunk that fails just uses its straight
+    // waypoints, so a long route still follows the streets instead of crow-flying.
+    const CHUNK = 90;
+    const chunks = [];
+    for (let i = 0; i < pts.length - 1; i += CHUNK - 1) chunks.push(pts.slice(i, i + CHUNK));
+    if (chunks.length > 8) { setRouteGeom(null); return; } // absurdly long → don't hammer the router
+    Promise.all(chunks.map(async (c) => {
+      const coords = c.map((p) => `${p.lng},${p.lat}`).join(";");
+      try {
+        const j = await (await fetch(`https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`)).json();
         const g = j.routes?.[0]?.geometry?.coordinates;
-        setRouteGeom(g && g.length ? g.map(([lng, lat]) => [lat, lng]) : null);
-      })
-      .catch(() => { if (routeGeomGen.current === gen) setRouteGeom(null); });
+        if (g && g.length) return { snapped: true, pts: g.map(([lng, lat]) => [lat, lng]) };
+      } catch { /* fall through to straight */ }
+      return { snapped: false, pts: c.map((p) => [p.lat, p.lng]) };
+    })).then((chunkRes) => {
+      if (routeGeomGen.current !== gen) return; // a newer route replaced this one
+      if (!chunkRes.some((r) => r.snapped)) { setRouteGeom(null); return; } // nothing snapped → straight fallback
+      const all = [];
+      for (const r of chunkRes) for (const p of r.pts) all.push(p);
+      setRouteGeom(all.length > 1 ? all : null);
+    }).catch(() => { if (routeGeomGen.current === gen) setRouteGeom(null); });
   }, [route, startPt, dayMode]);
 
   // Draw the route ON the map — a line through the stops in order + numbered
