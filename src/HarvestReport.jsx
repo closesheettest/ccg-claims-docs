@@ -39,6 +39,7 @@ export default function HarvestReport() {
   const [rows, setRows] = useState(null);
   const [err, setErr] = useState("");
   const [period, setPeriod] = useState("today"); // today | yesterday | this_week | last_week | custom | all
+  const [view, setView] = useState("retail"); // retail | inspection — split the report by lead source
   const [fromDate, setFromDate] = useState(""); // YYYY-MM-DD, custom range
   const [toDate, setToDate] = useState("");     // YYYY-MM-DD, custom range
   const [pinMap, setPinMap] = useState({});    // pin_id → { name, address }
@@ -80,11 +81,52 @@ export default function HarvestReport() {
       // Pull the addresses for the pins referenced (for the click-in detail).
       const ids = [...new Set((data || []).map((r) => r.pin_id).filter(Boolean))].slice(0, 3000);
       if (ids.length) {
-        const { data: pins } = await supabase.from("canvass_prospects").select("id, name, address").in("id", ids);
-        setPinMap(Object.fromEntries((pins || []).map((p) => [p.id, p])));
+        // list_name + extra let us classify each door's LEAD SOURCE for the
+        // Retail vs Inspection split (self-gen carries status "insp" but
+        // list_name "Self-Generated", so status alone can't tell them apart).
+        const { data: pins } = await supabase.from("canvass_prospects").select("id, name, address, list_name, extra").in("id", ids);
+        setPinMap(Object.fromEntries((pins || []).map((p) => [p.id, {
+          ...p,
+          self_generated: !!(p.list_name === "Self-Generated" || (p.extra && typeof p.extra === "object" && p.extra.self_generated === true)),
+        }])));
       } else setPinMap({});
     })();
   }, [period, fromDate, toDate]);
+
+  // ── Retail vs Inspection split ────────────────────────────────────────────
+  // Classify each DOOR (pin) by its lead SOURCE, then scope the whole report to
+  // the selected view. RETAIL = harvest lead-gen we book as retail appts: IQ,
+  // No-sit reschedules, and rep Self-Generated pins. INSPECTION = the mailer-
+  // driven inspection leads (money we spent on mail). A pin's status can't tell
+  // self-gen from a real inspection lead (both sit at "insp"), so self-gen is
+  // read from the pin record; iq/no-sit show up as an origin status on activity.
+  const RETAIL_ORIGIN = new Set(["iq", "iq_ni", "no_sit_reschedule", "self_gen", "fb", "ai"]);
+  const pinBucket = useMemo(() => {
+    const sig = {}; // pin_id → Set of every from/to status seen on its activity
+    for (const r of (rows || [])) {
+      if (!r.pin_id) continue;
+      const s = sig[r.pin_id] || (sig[r.pin_id] = new Set());
+      if (r.from_status) s.add(r.from_status);
+      if (r.to_status) s.add(r.to_status);
+    }
+    const map = {};
+    for (const pid of Object.keys(sig)) {
+      const pin = pinMap[pid] || {};
+      if (pin.self_generated) { map[pid] = "retail"; continue; }
+      let retail = false;
+      for (const st of sig[pid]) if (RETAIL_ORIGIN.has(st)) { retail = true; break; }
+      map[pid] = retail ? "retail" : "inspection"; // mailer inspection leads are the default
+    }
+    return map;
+  }, [rows, pinMap]);
+
+  // Rows scoped to the active view. Pinless rows (e.g. appt_done) aren't door
+  // work and belong to neither bucket. Everything downstream (byRep, newRoof)
+  // runs on this so both tabs show the same rep with DIFFERENT numbers.
+  const viewRows = useMemo(() => {
+    if (!rows) return rows;
+    return rows.filter((r) => r.pin_id && (pinBucket[r.pin_id] || "inspection") === view);
+  }, [rows, pinBucket, view]);
 
   const byRep = useMemo(() => {
     // Adopt orphaned arrivals. The GPS 'arrival' auto-fires the instant a rep nears a
@@ -93,7 +135,7 @@ export default function HarvestReport() {
     // name. If left null, the arrival falls into "(unknown)" and the stop-by-stop shows
     // "No arrived logged" even though the rep clearly arrived. Stamp each null-rep arrival
     // with the rep of the nearest same-door visit/status (closest in time).
-    const rowsAll = rows || [];
+    const rowsAll = viewRows || [];
     const namedAtPin = rowsAll.filter((r) => r.pin_id && r.rep_name && r.kind !== "arrival");
     const src = rowsAll.map((r) => {
       if (r.kind !== "arrival" || r.rep_name || !r.pin_id) return r;
@@ -173,21 +215,23 @@ export default function HarvestReport() {
     }
     return [...m.values()].map((r) => ({ ...r, pinsVisited: r.pins.size }))
       .sort((a, b) => new Date(b.last) - new Date(a.last));
-  }, [rows]);
+  }, [viewRows]);
 
   // "Dropping the ball" data point: doors we found already had a NEW ROOF
   // (a competitor got it), broken down by what the pin WAS — e.g. how many of
-  // our no-sits we lost because we didn't stay on them.
+  // our no-sits we lost because we didn't stay on them. Scoped to the view:
+  // in Retail these are lost retail leads; in Inspection they're doors we
+  // MAILED that already had a new roof — i.e. wasted mail spend on stale data.
   const newRoof = useMemo(() => {
     const bySrc = {}; let total = 0;
-    for (const r of (rows || [])) {
+    for (const r of (viewRows || [])) {
       if (r.kind === "status" && r.to_status === "new_roof") {
         const src = r.from_status || "(unknown)";
         bySrc[src] = (bySrc[src] || 0) + 1; total++;
       }
     }
     return { total, bySrc: Object.entries(bySrc).sort((a, b) => b[1] - a[1]) };
-  }, [rows]);
+  }, [viewRows]);
 
   const flaggedReps = useMemo(() => byRep.filter((r) => r.flagged), [byRep]);
 
@@ -235,21 +279,53 @@ export default function HarvestReport() {
           )}
         </div>
       </div>
+
+      {/* Retail vs Inspection — split the whole report by lead source. A rep can
+          appear in both with different numbers (their retail door-work vs their
+          inspection door-work). */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 12, marginTop: 4 }}>
+        {[["retail", "🏷️ Retail", "IQ · No-sit · Self-generated"], ["inspection", "🔍 Inspection", "Mailer inspection leads"]].map(([k, l, sub]) => (
+          <button key={k} type="button" onClick={() => { setView(k); setOpenRep(null); }}
+            style={{ flex: 1, textAlign: "left", padding: "10px 14px", borderRadius: 10, cursor: "pointer",
+              border: view === k ? "2px solid #0a0a0a" : "1px solid #cbd5e1", background: view === k ? "#0a0a0a" : "#fff" }}>
+            <div style={{ fontSize: 14.5, fontWeight: 800, fontFamily: OSWALD, color: view === k ? "#fff" : "#0f172a" }}>{l}</div>
+            <div style={{ fontSize: 11.5, color: view === k ? "#cbd5e1" : "#94a3b8" }}>{sub}</div>
+          </button>
+        ))}
+      </div>
+
       <div style={{ fontSize: 13, color: "#64748b", marginBottom: 16 }}>Each door a rep works (within 200 ft) is a visit; the outcome they tap fills in the columns. <b>Avg at spot</b> = time from arriving to tapping the outcome. <b>Tap a rep's row</b> for a stop-by-stop breakdown.</div>
 
       {newRoof.total > 0 && (
-        <div style={{ background: "#ecfeff", border: "1px solid #67e8f9", borderRadius: 12, padding: "14px 16px", marginBottom: 18 }}>
-          <div style={{ fontSize: 14.5, fontWeight: 800, color: "#0e7490", fontFamily: OSWALD }}>🚩 New Roofs we lost — {newRoof.total}</div>
-          <div style={{ fontSize: 12.5, color: "#155e75", margin: "3px 0 10px" }}>Doors that already had a new roof (a competitor got it) — i.e. deals we let slip. Broken down by what the lead <b>was</b>:</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            {newRoof.bySrc.map(([src, n]) => (
-              <div key={src} style={{ background: "#fff", border: "1px solid #cffafe", borderRadius: 10, padding: "8px 12px" }}>
-                <span style={{ fontSize: 17, fontWeight: 800, color: "#0891b2" }}>{n}</span>
-                <span style={{ fontSize: 12.5, color: "#475569", marginLeft: 6 }}>{STATUS_LABEL[src] || src}</span>
-              </div>
-            ))}
+        view === "inspection" ? (
+          // Inspection leads come from paid direct mail. A door we MAILED that
+          // already had a new roof is money we spent on stale list data.
+          <div style={{ background: "#fff7ed", border: "1px solid #fdba74", borderRadius: 12, padding: "14px 16px", marginBottom: 18 }}>
+            <div style={{ fontSize: 14.5, fontWeight: 800, color: "#c2410c", fontFamily: OSWALD }}>📬 Roofs we mailed that already had a new roof — {newRoof.total}</div>
+            <div style={{ fontSize: 12.5, color: "#9a3412", margin: "3px 0 10px" }}>We spent mail money on these doors, but a competitor had already re-roofed them — wasted spend from stale list data. Broken down by what the lead <b>was</b>:</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {newRoof.bySrc.map(([src, n]) => (
+                <div key={src} style={{ background: "#fff", border: "1px solid #fed7aa", borderRadius: 10, padding: "8px 12px" }}>
+                  <span style={{ fontSize: 17, fontWeight: 800, color: "#ea580c" }}>{n}</span>
+                  <span style={{ fontSize: 12.5, color: "#475569", marginLeft: 6 }}>{STATUS_LABEL[src] || src}</span>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        ) : (
+          <div style={{ background: "#ecfeff", border: "1px solid #67e8f9", borderRadius: 12, padding: "14px 16px", marginBottom: 18 }}>
+            <div style={{ fontSize: 14.5, fontWeight: 800, color: "#0e7490", fontFamily: OSWALD }}>🚩 New Roofs we lost — {newRoof.total}</div>
+            <div style={{ fontSize: 12.5, color: "#155e75", margin: "3px 0 10px" }}>Retail doors that already had a new roof (a competitor got it) — i.e. deals we let slip. Broken down by what the lead <b>was</b>:</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {newRoof.bySrc.map(([src, n]) => (
+                <div key={src} style={{ background: "#fff", border: "1px solid #cffafe", borderRadius: 10, padding: "8px 12px" }}>
+                  <span style={{ fontSize: 17, fontWeight: 800, color: "#0891b2" }}>{n}</span>
+                  <span style={{ fontSize: 12.5, color: "#475569", marginLeft: 6 }}>{STATUS_LABEL[src] || src}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
       )}
 
       {auditOff && rows && (
