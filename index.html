@@ -37,13 +37,24 @@
       (function () {
         try {
           var params = new URLSearchParams(location.search);
+          // On the harvest MAP, point the page at the map's OWN manifest AS EARLY AS
+          // POSSIBLE (before the phone reads it at "Add to Home Screen" time) and stash
+          // the map's home. Done here in the <head> — not in the JS bundle, which loads
+          // too late for the phone to see the swap.
+          if (params.get("mode") === "harvest") {
+            var ml = document.querySelector('link[rel="manifest"]');
+            if (ml) ml.setAttribute("href", "/manifest-harvest.webmanifest");
+            if (params.get("rt") || params.get("admin") || params.get("manager")) {
+              localStorage.setItem("harvest_home", location.href);
+            }
+          }
           var standalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
           var launched = standalone || params.get("app") === "1";
-          // The MAP icon (separate manifest) launches with go=harvest → send it to the
-          // map's OWN saved home, so it never lands on the Field Visit app by mistake.
+          // The MAP icon (separate manifest) launches with go=harvest → ALWAYS open the
+          // map, never the Field Visit home. Falls back to the map URL if no saved home.
           if (launched && params.get("go") === "harvest") {
-            var mapHome = localStorage.getItem("harvest_home");
-            if (mapHome) { location.replace(mapHome); return; }
+            location.replace(localStorage.getItem("harvest_home") || "/?mode=harvest");
+            return;
           }
           var home = localStorage.getItem("pwa_home");
           // Only redirect a PLAIN icon launch (no destination params). ANY param —
