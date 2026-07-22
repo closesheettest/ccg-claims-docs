@@ -74,6 +74,27 @@ export const handler = async (event) => {
     const text = await pr.text();
     if (!pr.ok) return cors(502, JSON.stringify({ ok: false, error: `JN update ${pr.status}: ${text.slice(0, 200)}` }));
 
+    // Move the CONTACT to the same rep too — the job PUT above only reassigns the JOB,
+    // and JobNimbus hides a contact's phone/email from reps who don't OWN the contact.
+    // Without this the newly-assigned rep sees the deal on their board but can't call
+    // the homeowner. Owner = whoever will work it (assignee, else the sales rep);
+    // sales_rep on the contact is set to match the job. Best-effort (sales_rep at the
+    // contact level can throw a Couchbase key error → retry owners-only); never blocks
+    // the reassignment or the SMS below.
+    try {
+      const contactId = job?.primary?.id || (Array.isArray(job?.primary) ? job.primary[0]?.id : null);
+      if (contactId) {
+        const cOwners = [];
+        if (assigneeId) cOwners.push({ id: assigneeId });
+        if (salesRepId && salesRepId !== assigneeId) cOwners.push({ id: salesRepId });
+        if (cOwners.length) {
+          const cPatch = { owners: cOwners, ...(salesRepId ? { sales_rep: salesRepId } : {}) };
+          const cr = await jnFetch(JN_KEY, `contacts/${encodeURIComponent(contactId)}`, { method: "PUT", body: JSON.stringify(cPatch) });
+          if (!cr.ok) await jnFetch(JN_KEY, `contacts/${encodeURIComponent(contactId)}`, { method: "PUT", body: JSON.stringify({ owners: cOwners }) }).catch(() => {});
+        }
+      }
+    } catch { /* contact reassignment is best-effort — the job move already succeeded */ }
+
     // Keep our Supabase inspections row in sync so the back-to-retail / no-damage
     // reports (which group by inspections.sales_rep_name) re-group this deal
     // under the NEW sales rep — moving it out of the departed-rep section into
