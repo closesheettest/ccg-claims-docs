@@ -321,7 +321,7 @@ export default function HarvestReport() {
           // already had a new roof is money we spent on stale list data.
           <div style={{ background: "#fff7ed", border: "1px solid #fdba74", borderRadius: 12, padding: "14px 16px", marginBottom: 18 }}>
             <div style={{ fontSize: 14.5, fontWeight: 800, color: "#c2410c", fontFamily: OSWALD }}>📬 People we mailed — {viewPinsVisited > 0 ? Math.round((newRoof.total / viewPinsVisited) * 100) : 0}% had a new roof</div>
-            <div style={{ fontSize: 12.5, color: "#9a3412", margin: "3px 0 10px" }}>{newRoof.total.toLocaleString()} of {viewPinsVisited.toLocaleString()} inspection doors worked were already re-roofed by a competitor — wasted mail spend from stale list data. Broken down by what the lead <b>was</b>:</div>
+            <div style={{ fontSize: 12.5, color: "#9a3412", margin: "3px 0 10px" }}>{newRoof.total.toLocaleString()} of {viewPinsVisited.toLocaleString()} inspection doors worked had new roofs. Broken down by what the lead <b>was</b>:</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {newRoof.bySrc.map(([src, n]) => (
                 <div key={src} style={{ background: "#fff", border: "1px solid #fed7aa", borderRadius: 10, padding: "8px 12px" }}>
