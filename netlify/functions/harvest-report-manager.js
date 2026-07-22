@@ -19,7 +19,7 @@ export const handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return cors(200, "");
   if (!SB_URL || !SB_KEY) return cors(500, { ok: false, error: "env missing" });
   const p = event.queryStringParameters || {};
-  const period = ["today", "7d", "30d", "all"].includes(p.period) ? p.period : "7d";
+  const period = ["today", "yesterday", "7d", "30d", "all"].includes(p.period) ? p.period : "7d";
   const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` };
 
   let zone = String(p.zone || "").trim();
@@ -36,11 +36,18 @@ export const handler = async (event) => {
   if (!teamReps.length) return cors(200, { ...base, reps: [], newRoof: { total: 0, bySrc: [] } });
   const allow = new Set(teamReps.map((r) => normalizeName(r.name)).filter(Boolean));
 
-  const since = period === "all" ? null : new Date(Date.now() - (period === "today" ? sinceMidnightMs() : period === "7d" ? 7 * 864e5 : 30 * 864e5)).toISOString();
+  const todayMidnightMs = Date.now() - sinceMidnightMs(); // ET midnight today
+  let sinceMs = null, untilMs = null; // untilMs exclusive
+  if (period === "today") sinceMs = todayMidnightMs;
+  else if (period === "yesterday") { sinceMs = todayMidnightMs - 864e5; untilMs = todayMidnightMs; }
+  else if (period === "7d") sinceMs = Date.now() - 7 * 864e5;
+  else if (period === "30d") sinceMs = Date.now() - 30 * 864e5;
+  // "all" → no bounds
   // PAGE through all activity — a single `limit=` is capped at 1000 by the server,
   // which drops reps once a zone clears 1000 actions (≈ a busy day at scale).
   let path = "canvass_activity?select=rep_name,pin_id,kind,from_status,to_status,round,created_at,dist_ft,loc_flag&order=created_at.desc";
-  if (since) path += `&created_at=gte.${encodeURIComponent(since)}`;
+  if (sinceMs != null) path += `&created_at=gte.${encodeURIComponent(new Date(sinceMs).toISOString())}`;
+  if (untilMs != null) path += `&created_at=lt.${encodeURIComponent(new Date(untilMs).toISOString())}`;
   let rows = await sbGetAll(path, sb).catch(() => null);
   // dist_ft/loc_flag not migrated yet → retry without them.
   if (rows === null) rows = await sbGetAll(path.replace(",dist_ft,loc_flag", ""), sb).catch(() => []);
