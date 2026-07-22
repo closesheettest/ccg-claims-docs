@@ -781,6 +781,9 @@ export default function CanvassMap() {
   const authInfo = useRef(null);                       // {rep, pin_types} resolved once from the token
   const [fillOffer, setFillOffer] = useState(null);    // {available, need} when an IQ day is under a full 30 stops
   const [editingRoute, setEditingRoute] = useState(false); // route-trim sheet open
+  const [dragOverIdx, setDragOverIdx] = useState(null);    // route-reorder: row the drag is hovering over
+  const dragFromRef = useRef(null);                        // index being dragged
+  const dragOverRef = useRef(null);                        // latest hovered index (for pointerup)
   const [signingStop, setSigningStop] = useState(null); // pin being signed in the intake tab
   const signingStopRef = useRef(null);                 // for the cross-tab 'signed' listener
   const completeSignRef = useRef(null);                // latest completeSign() for the listeners
@@ -2440,6 +2443,51 @@ export default function CanvassMap() {
     const ni = next.findIndex((p) => p.id === curId);
     setStopIdx(ni >= 0 ? ni : Math.min(stopIdx, Math.max(0, next.length - 1)));
   }
+  // ── Drag-to-reorder the day's stops (Google-Maps-style waypoint reorder) ──────
+  // The rep planned the efficient route; this lets them hand-order it by importance.
+  // Pointer events so it works with a thumb on a phone AND a mouse in the office.
+  function reorderRoute(fromIdx, toIdx) {
+    if (fromIdx == null || toIdx == null || fromIdx === toIdx) return;
+    const curId = route[stopIdx]?.id;
+    const next = route.slice();
+    const [moved] = next.splice(fromIdx, 1);
+    next.splice(toIdx > fromIdx ? toIdx - 1 : toIdx, 0, moved);
+    setRoute(next);
+    const ni = next.findIndex((p) => p.id === curId);      // keep "you're here" on the same door
+    if (ni >= 0) setStopIdx(ni);
+    routeGen.current++;                                     // a hand-order shouldn't get auto-reshuffled
+  }
+  function rowDragStart(e, i) {
+    dragFromRef.current = i; dragOverRef.current = i; setDragOverIdx(i);
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    window.addEventListener("pointermove", rowDragMove);
+    window.addEventListener("pointerup", rowDragEnd, { once: true });
+    e.preventDefault();
+  }
+  function rowDragMove(e) {
+    if (dragFromRef.current == null) return;
+    const rows = document.querySelectorAll("[data-routerow]");
+    let over = rows.length; // past the last row = drop at end
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i].getBoundingClientRect();
+      if (e.clientY < r.top + r.height / 2) { over = i; break; }
+    }
+    dragOverRef.current = over; setDragOverIdx(over);
+  }
+  function rowDragEnd() {
+    window.removeEventListener("pointermove", rowDragMove);
+    const from = dragFromRef.current, to = dragOverRef.current;
+    dragFromRef.current = null; dragOverRef.current = null; setDragOverIdx(null);
+    reorderRoute(from, to);
+  }
+  // Snap the hand-ordered route back to the efficient nearest-street order.
+  function reoptimizeRoute() {
+    if (route.length < 2) return;
+    const from = startPt || (route[stopIdx] ? { lat: route[stopIdx].latitude, lng: route[stopIdx].longitude } : null);
+    if (!from) return;
+    const ordered = orderStops(from, route.filter((p) => typeof p.latitude === "number"));
+    setRoute(ordered); setStopIdx(0);
+  }
   // Drag the route panel so it never blocks the map (pointer events = mouse + touch).
   function panelPointerDown(e) {
     const el = e.currentTarget.closest("[data-daypanel]"); if (!el) return;
@@ -3236,15 +3284,22 @@ export default function CanvassMap() {
         <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: "#fff", borderTopLeftRadius: 18, borderTopRightRadius: 18, boxShadow: "0 -4px 20px rgba(0,0,0,.18)", padding: "14px 16px 20px", zIndex: 1100, maxHeight: "72vh", overflowY: "auto" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
             <div style={{ fontSize: 16, fontWeight: 800, fontFamily: "'Oswald', sans-serif" }}>Edit today's route</div>
-            <button type="button" onClick={() => setEditingRoute(false)} style={{ background: "#0f172a", color: "#fff", border: "none", borderRadius: 9, padding: "7px 15px", fontSize: 13, fontWeight: 800, cursor: "pointer" }}>Done</button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="button" onClick={reoptimizeRoute} disabled={route.length < 2} title="Snap back to the most efficient order"
+                style={{ background: "#fff", color: "#1d4ed8", border: "1px solid #bfdbfe", borderRadius: 9, padding: "7px 12px", fontSize: 12.5, fontWeight: 800, cursor: route.length < 2 ? "not-allowed" : "pointer" }}>🛣️ Re-optimize</button>
+              <button type="button" onClick={() => setEditingRoute(false)} style={{ background: "#0f172a", color: "#fff", border: "none", borderRadius: 9, padding: "7px 15px", fontSize: 13, fontWeight: 800, cursor: "pointer" }}>Done</button>
+            </div>
           </div>
-          <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 10 }}>Remove any stop you don't want to drive to — miles are straight-line from your start. {route.length} stop{route.length === 1 ? "" : "s"} in the route.</div>
-          <div style={{ display: "grid", gap: 6 }}>
+          <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 10 }}>Drag <b>☰</b> to reorder by importance, or Remove a stop you're skipping. The route line + numbers update as you go. {route.length} stop{route.length === 1 ? "" : "s"}.</div>
+          <div style={{ display: "grid", gap: 6 }} data-routelist>
             {route.map((p, i) => {
               const mi = startPt ? feetBetween(startPt, { lat: p.latitude, lng: p.longitude }) / 5280 : null;
               const far = mi != null && mi >= 8;
+              const dragging = dragOverIdx != null && dragFromRef.current === i;
               return (
-                <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 10, border: "1px solid #eef2f7", background: i === stopIdx ? "#f0fdf4" : "#fff" }}>
+                <div key={p.id} data-routerow style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 10, border: "1px solid #eef2f7", background: dragging ? "#eff6ff" : i === stopIdx ? "#f0fdf4" : "#fff", borderTop: dragOverIdx === i ? "3px solid #1d4ed8" : "1px solid #eef2f7", opacity: dragging ? 0.6 : 1 }}>
+                  <span onPointerDown={(e) => rowDragStart(e, i)} title="Drag to reorder"
+                    style={{ cursor: "grab", color: "#94a3b8", fontSize: 18, padding: "0 2px", flexShrink: 0, touchAction: "none", userSelect: "none" }}>☰</span>
                   <span style={{ minWidth: 22, height: 22, borderRadius: 11, background: i === stopIdx ? "#16a34a" : "#e2e8f0", color: i === stopIdx ? "#fff" : "#475569", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{i + 1}</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name || p.address}</div>
@@ -3255,6 +3310,8 @@ export default function CanvassMap() {
                 </div>
               );
             })}
+            {/* drop-at-end indicator */}
+            {dragOverIdx === route.length && <div style={{ height: 3, background: "#1d4ed8", borderRadius: 2 }} />}
           </div>
         </div>
       )}
