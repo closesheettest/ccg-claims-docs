@@ -102,33 +102,38 @@ exports.handler = async (event) => {
       // first rep to status a door claims it via the map).
       const sellerName = String(j.sales_rep_name || "").trim() || null;
       const sellerId = j.sales_rep || null;
-      // ONE batched query finds which of these addresses already have a pin
-      // (30 sequential lookups was what threatened the 10s budget).
+      // Doors that ALREADY have a pin are matched by HOUSE NUMBER + PROXIMITY,
+      // never address text — cadastral writes "1002 BROWARD ST W" where the map
+      // pin says "1002 W Broward St", so text matching silently missed every one
+      // (that's how the first sync dropped clover on top of IQ/inspection doors).
+      // One bbox query pulls every pin near the install; each candidate door is
+      // checked against it in memory.
+      const pad = 0.004; // ~440 m — comfortably covers the 250 m radius
+      const nearby = await sbGet(`canvass_prospects?and=(latitude.gte.${geo.lat - pad},latitude.lte.${geo.lat + pad},longitude.gte.${geo.lng - pad * 1.25},longitude.lte.${geo.lng + pad * 1.25})&select=id,address,status,latitude,longitude,list_name,extra&limit=1000`);
       const cand = neighbors.slice(0, MAX_DOORS)
         .map((n) => ({ n, street: (n.address || "").split(",")[0].trim() }))
         .filter((x) => x.street);
-      const orExpr = cand.map((x) => `address.ilike."${x.street.replace(/"/g, "")}"`).join(",");
-      const dups = cand.length
-        ? await sbGet(`canvass_prospects?or=${encodeURIComponent(`(${orExpr})`)}&select=id,address,extra&limit=200`)
-        : [];
-      const taken = new Set(dups.map((d) => String(d.address || "").toUpperCase().trim()));
-      // A door that ALREADY has a pin still COUNTS as part of the cloverleaf —
-      // but keeps its own status + color (per Neal: an IQ door must stay IQ so a
-      // Jr rep doesn't pitch inspection where they're already retail-interested).
-      // Tag it clover_zone_jnid (NOT clover_jnid — that key would make cleanup
-      // delete it when the install wraps).
-      for (const d of dups.slice(0, 25)) {
-        const ex = (d.extra && typeof d.extra === "object") ? d.extra : {};
-        if (ex.clover_zone_jnid || ex.clover_jnid || ex.blitz_jnid) { report.existing_counted += 1; continue; }
-        const r = await fetch(`${SB_URL}/rest/v1/canvass_prospects?id=eq.${d.id}`, {
-          method: "PATCH", headers: { ...sbHeaders, Prefer: "return=minimal" },
-          body: JSON.stringify({ extra: { ...ex, clover_zone_jnid: jnid, clover_zone_install: addr } }),
-        });
-        if (r.ok) report.existing_counted += 1;
-      }
       const rows = [];
+      let tagBudget = 25; // cap the per-run PATCH fan-out (10s function budget)
       for (const { n, street } of cand) {
-        if (taken.has(street.toUpperCase().trim())) continue; // counted above, keeps its own pin
+        const match = findExistingPin(nearby, street, n.lat, n.lng);
+        if (match) {
+          // The door COUNTS as part of the cloverleaf but KEEPS its own pin,
+          // status + color (per Neal: an IQ door must stay IQ so a Jr rep
+          // doesn't pitch inspection where they're already retail-interested).
+          // Tag clover_zone_jnid (NOT clover_jnid — that key would make the
+          // wrap-up cleanup delete it).
+          const ex = (match.extra && typeof match.extra === "object") ? match.extra : {};
+          if (match.list_name === LIST_NAME || ex.clover_jnid || ex.blitz_jnid) continue; // already a clover pin — plain dup guard
+          if (ex.clover_zone_jnid || tagBudget <= 0) { report.existing_counted += 1; continue; }
+          tagBudget -= 1;
+          const r = await fetch(`${SB_URL}/rest/v1/canvass_prospects?id=eq.${match.id}`, {
+            method: "PATCH", headers: { ...sbHeaders, Prefer: "return=minimal" },
+            body: JSON.stringify({ extra: { ...ex, clover_zone_jnid: jnid, clover_zone_install: addr } }),
+          });
+          if (r.ok) report.existing_counted += 1;
+          continue;
+        }
         rows.push({
           name: n.owner || "Homeowner",
           address: street, city: n.city || j.city || null, state: "FL", zip: n.zip || null,
@@ -307,6 +312,32 @@ async function cadastralNeighbors(center, installLine1) {
     out.sort((a, b) => a.dist - b.dist);
     return out;
   } catch { return []; }
+}
+
+// Same-house matcher: cadastral and Google write the same door differently
+// ("1002 BROWARD ST W" vs "1002 W Broward St"), so a door counts as already
+// pinned when an existing pin has the SAME HOUSE NUMBER, shares a street-name
+// word, and sits within 60 m — or is within 15 m regardless (same rooftop).
+function findExistingPin(nearby, street, lat, lng) {
+  const norm = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9 ]/g, " ");
+  const mine = norm(street);
+  const num = mine.match(/^\s*(\d+)/);
+  const toks = new Set(mine.split(/\s+/).filter((t) => t.length >= 3 && !/^\d+$/.test(t)));
+  for (const p of nearby) {
+    if (typeof p.latitude !== "number" || typeof p.longitude !== "number") continue;
+    const dM = metersBetween(lat, lng, p.latitude, p.longitude);
+    if (dM > 60) continue;
+    const pa = norm((p.address || "").split(",")[0]);
+    const pNum = pa.match(/^\s*(\d+)/);
+    if (num && pNum && num[1] === pNum[1] && pa.split(/\s+/).some((t) => toks.has(t))) return p;
+    if (dM <= 15) return p;
+  }
+  return null;
+}
+function metersBetween(aLat, aLng, bLat, bLng) {
+  const R = 6371000, toRad = (d) => (d * Math.PI) / 180;
+  const h = Math.sin(toRad(bLat - aLat) / 2) ** 2 + Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * Math.sin(toRad(bLng - aLng) / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
 }
 
 // FL DOR stores OWN_NAME last-first; flip simple two-token people, leave entities.
