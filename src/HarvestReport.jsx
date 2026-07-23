@@ -168,13 +168,23 @@ export default function HarvestReport() {
       if (seen.has(k)) return false;
       seen.add(k); return true;
     });
+    // Visit rows keyed rep|pin|round|outcome — the route's "How'd it go?" buttons log a
+    // visit AND a status for the same outcome (a pair = 1 visit, 1 column). A status with
+    // NO matching visit (statused from the pin card instead) is still a worked door, so
+    // it earns a synthetic visit below — that keeps the outcome columns ADDING UP to
+    // VISITS (Chad read 11 visits but 12 outcomes: one card-statused Dead had no visit).
+    const visitKeys = new Set();
+    for (const r of deduped) if (r.kind === "visit" && r.pin_id) visitKeys.add(`${r.rep_name || ""}|${r.pin_id}|${r.round ?? ""}|${r.to_status || ""}`);
     const m = new Map();
     for (const r of deduped) {
       const name = r.rep_name || "(unknown)";
       const cur = m.get(name) || { name, visits: 0, pins: new Set(), rounds: 0, last: null, outcomes: {}, apptSrc: {}, notHome: 0, acts: [], offSpot: 0, farCount: 0, gpsOff: 0, farDoors: new Set(), gpsOffDoors: new Set(), coords: [] };
       cur.acts.push(r);
       if (r.kind === "visit") { cur.visits += 1; if (r.pin_id) cur.pins.add(r.pin_id); if (r.to_status === "not_home") cur.notHome += 1; }
-      if (r.kind === "status" && r.to_status) cur.outcomes[r.to_status] = (cur.outcomes[r.to_status] || 0) + 1;
+      if (r.kind === "status" && r.to_status) {
+        cur.outcomes[r.to_status] = (cur.outcomes[r.to_status] || 0) + 1;
+        if (r.pin_id && !visitKeys.has(`${r.rep_name || ""}|${r.pin_id}|${r.round ?? ""}|${r.to_status}`)) { cur.visits += 1; cur.pins.add(r.pin_id); }
+      }
       // An APPT is a CONVERSION — logged as a "visit" (a booking/reschedule), never a
       // "status" row. Count ONLY those. The pre-existing "appt_done" rows (the rep's own
       // scheduled appts he was routed around) are NOT conversions and must not count —

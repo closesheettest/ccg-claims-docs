@@ -73,6 +73,12 @@ export const handler = async (event) => {
   // became an appt, APPTS = a fresh appt (IQ / self-gen). The pre-existing "appt_done"
   // rows (scheduled appts the rep was routed around) are not conversions and don't count.
   // Every other outcome stays a status-row count so IQ-NI / DEAD etc. don't shift.
+  // Visit rows keyed rep|pin|round|outcome — a status with NO matching visit row (the
+  // rep statused from the pin card, not the route's "How'd it go?" buttons) is still a
+  // worked door: it earns a synthetic knock below so the columns keep adding up to
+  // KNOCKS (mirrors the rep-activity report fix — Chad's 11 knocks / 12 outcomes).
+  const visitKeys = new Set();
+  for (const a of acts) if (a.kind === "visit" && a.pin_id) visitKeys.add(`${normalizeName(a.rep_name)}|${a.pin_id}|${a.round ?? ""}|${a.to_status || ""}`);
   const byName = new Map();
   const newRoofSrc = {}; let newRoofTotal = 0;
   for (const a of acts) {
@@ -82,6 +88,7 @@ export const handler = async (event) => {
     if (a.kind === "visit") { cur.knocks += 1; if (a.pin_id) cur.pins.add(a.pin_id); if (a.to_status === "not_home") cur.notHome += 1; }
     if (a.kind === "status" && a.to_status && a.to_status !== "appt" && a.to_status !== "no_sit_reschedule") {
       cur.outcomes[a.to_status] = (cur.outcomes[a.to_status] || 0) + 1;
+      if (a.pin_id && !visitKeys.has(`${n}|${a.pin_id}|${a.round ?? ""}|${a.to_status}`)) { cur.knocks += 1; cur.pins.add(a.pin_id); }
       if (a.to_status === "new_roof") { const s = a.from_status || "(unknown)"; newRoofSrc[s] = (newRoofSrc[s] || 0) + 1; newRoofTotal += 1; }
     }
     // APPTS = every appt CONVERSION (a "visit" → appt), same as the rep-activity report.
