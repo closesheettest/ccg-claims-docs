@@ -31,6 +31,19 @@ export default function SetterPortal({ Address }) {
   // who-are-you screen is skipped and the booking is credited to them. Doesn't
   // touch the saved setter_name, so a real setter's device keeps its identity.
   const fromRep = (() => { try { return new URLSearchParams(window.location.search).get("as") || ""; } catch { return ""; } })();
+  // ?pickrep=1 — opened from the REP DASHBOARD tile (static site, no identity):
+  // the who-are-you screen becomes a searchable ACTIVE-REP picker instead of the
+  // setter list, so we always know who's booking.
+  const pickRep = (() => { try { return new URLSearchParams(window.location.search).get("pickrep") === "1"; } catch { return false; } })();
+  const [repList, setRepList] = useState(null);
+  const [repSearch, setRepSearch] = useState("");
+  useEffect(() => {
+    if (!pickRep) return;
+    fetch("https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones")
+      .then((r) => r.json())
+      .then((j) => setRepList([...new Set((j.reps || []).map((r) => r.name).filter(Boolean))].sort()))
+      .catch(() => setRepList([]));
+  }, [pickRep]);
   const [token, setToken] = useState("");
   const [setter, setSetter] = useState(() => fromRep || localStorage.getItem("setter_name") || "");
   const [stage, setStage] = useState("search"); // search | schedule | done
@@ -159,12 +172,29 @@ export default function SetterPortal({ Address }) {
   );
 
   // ── Pick who you are ──────────────────────────────────────────────────────
+  // Two flavors: the setter list (Viviana & co, the default), or — when opened
+  // from the REP DASHBOARD's "Schedule a Retail Appt" tile (?pickrep=1) — a
+  // searchable picker of ACTIVE FIELD REPS, so we always know exactly who's
+  // booking before the flow starts. The pick is remembered on their device.
   if (!setter) return (
     <div style={wrap}>
-      <div style={{ fontWeight: 900, fontSize: 20, color: "#1a2e5a", marginBottom: 14 }}>📞 Appointment Setter</div>
+      <div style={{ fontWeight: 900, fontSize: 20, color: "#1a2e5a", marginBottom: 14 }}>📞 {pickRep ? "Schedule a Retail Appt" : "Appointment Setter"}</div>
       <div style={C.card}>
         <div style={C.h}>Who are you?</div>
-        {SETTERS.map((s) => (
+        {pickRep ? (
+          repList === null ? <div style={{ color: "#64748b", fontSize: 14 }}>Loading reps…</div> : (
+            <>
+              <input value={repSearch} onChange={(e) => setRepSearch(e.target.value)} placeholder="Type your name…" style={{ ...C.input, marginBottom: 10 }} autoFocus />
+              {repList
+                .filter((n) => n.toLowerCase().includes(repSearch.trim().toLowerCase()))
+                .slice(0, 12)
+                .map((n) => (
+                  <button key={n} onClick={() => setSetter(n)} style={{ ...C.btn, width: "100%", background: "#1a2e5a", color: "#fff", marginBottom: 8 }}>{n}</button>
+                ))}
+              {repList.length === 0 && <div style={{ color: "#b91c1c", fontSize: 13.5 }}>Couldn't load the rep list — check your connection and refresh.</div>}
+            </>
+          )
+        ) : SETTERS.map((s) => (
           <button key={s} onClick={() => setSetter(s)} style={{ ...C.btn, width: "100%", background: "#1a2e5a", color: "#fff", marginBottom: 8 }}>{s}</button>
         ))}
       </div>
