@@ -50,12 +50,19 @@ exports.handler = async (event) => {
 
   try {
     const all = await fetchReps();
+    // REP MODE (rep_name set — the dashboard tile / hub handoff): the rep is
+    // booking THEIR OWN appointment, so offer ONLY their free times (Neal: "it
+    // needs to show that reps availability only"). No radius/senior gate — it's
+    // their run. Falls through to the normal pool if the name doesn't resolve.
+    const repName = String(body.rep_name || "").trim().toLowerCase();
+    const self = repName ? all.find((r) => r.active && r.jobnimbus_id && String(r.name || "").trim().toLowerCase() === repName) : null;
     // Active, SENIOR (qualified for company appointments — juniors don't get them)
     // reps in the zone with a home geocode, within the radius.
-    const near = all.filter((r) => r.active && r.jobnimbus_id && String(r.rep_level || "").toLowerCase() === "senior" && zones.includes(r.zone) && r.latitude != null && r.longitude != null)
-      .map((r) => ({ ...r, distance_mi: Math.round(haversineMi(lat, lng, r.latitude, r.longitude) * 10) / 10 }))
-      .filter((r) => r.distance_mi <= RADIUS_MI)
-      .sort((a, b) => a.distance_mi - b.distance_mi);
+    const near = self ? [{ ...self, distance_mi: 0 }]
+      : all.filter((r) => r.active && r.jobnimbus_id && String(r.rep_level || "").toLowerCase() === "senior" && zones.includes(r.zone) && r.latitude != null && r.longitude != null)
+        .map((r) => ({ ...r, distance_mi: Math.round(haversineMi(lat, lng, r.latitude, r.longitude) * 10) / 10 }))
+        .filter((r) => r.distance_mi <= RADIUS_MI)
+        .sort((a, b) => a.distance_mi - b.distance_mi);
     const now = Date.now();
 
     // No qualified rep in range — the setter can still book; offer generic slots

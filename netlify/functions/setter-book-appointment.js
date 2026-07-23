@@ -133,12 +133,19 @@ exports.handler = async (event) => {
   const spanishTag = body.spanish_only ? " - SPANISH ONLY" : ""; // appended to the JN job name
   const lat = Number(body.lat), lng = Number(body.lng);
 
-  // The setter never picks a rep. Every booking is assigned to the ZONE's
+  // The setter never picks a rep. Every SETTER booking is assigned to the ZONE's
   // REGIONAL MANAGER (JN owner) with NO sales rep — the manager then assigns a
-  // rep from his dashboard. Availability still drives which slots get offered.
+  // rep from his dashboard. But a REP booking (rep_booked — the dashboard tile /
+  // hub handoff) is the rep booking THEIR OWN appointment: availability showed
+  // only their free times, so the appt lands on THEIR calendar — owner + sales
+  // rep = them (falls back to the manager flow if the name doesn't resolve).
   const mgr = await resolveManager(lat, lng, body.county);
-  const owner = mgr.id || VIVIANA_ID;   // Viviana only if no manager maps to the zone
-  const repId = null, repName = "";     // no sales rep at booking time
+  let owner = mgr.id || VIVIANA_ID;     // Viviana only if no manager maps to the zone
+  let repId = null, repName = "";       // no sales rep at booking time (setter flow)
+  if (body.rep_booked && setter) {
+    const self = (await fetchReps()).find((r) => r.active && r.jobnimbus_id && String(r.name || "").trim().toLowerCase() === setter.toLowerCase());
+    if (self) { owner = self.jobnimbus_id; repId = self.jobnimbus_id; repName = self.name; }
+  }
 
   let c = body.contact || {};
   let contactId = String(body.contact_id || "").trim();
@@ -254,7 +261,9 @@ exports.handler = async (event) => {
     // 4. Who-set-it note.
     await jnPost("activities", {
       record_type_name: "Note",
-      note: `📞 ${isReset ? "Reset appointment (No-Sit reschedule)" : "Appointment"} set by ${setter} · source: ${source} · 👤 assigned to ${mgr.name || "Viviana"}${mgr.zone ? ` (${mgr.zone})` : ""} — manager to assign a rep${mgr.repInRange ? "" : " · ⚠️ no rep within 50 mi"}`,
+      note: repName
+        ? `📞 ${isReset ? "Reset appointment (No-Sit reschedule)" : "Appointment"} booked by ${repName} for THEMSELF · source: ${source} · 🌾 Sales Rep Harvested`
+        : `📞 ${isReset ? "Reset appointment (No-Sit reschedule)" : "Appointment"} set by ${setter} · source: ${source} · 👤 assigned to ${mgr.name || "Viviana"}${mgr.zone ? ` (${mgr.zone})` : ""} — manager to assign a rep${mgr.repInRange ? "" : " · ⚠️ no rep within 50 mi"}`,
       primary: { id: jobId, type: "job" }, related: [{ id: jobId, type: "job" }], is_status_change: false,
     }).catch(() => {});
   } catch (e) {
@@ -268,7 +277,7 @@ exports.handler = async (event) => {
     await sbInsert("setter_appointments", {
       setter_name: setter, homeowner_name: homeowner, phone: c.mobile || body.phone || null, address,
       appt_at: new Date(apptMs).toISOString(), source,
-      rep_name: null, rep_jobnimbus_id: null,                    // no sales rep yet — manager assigns
+      rep_name: repName || null, rep_jobnimbus_id: repId || null, // rep-booked = theirs; setter flow = manager assigns
       zone: mgr.zone || null,
       manager_jobnimbus_id: mgr.id || owner,
       manager_name: mgr.name || (mgr.id ? null : "Viviana"),
@@ -291,7 +300,7 @@ exports.handler = async (event) => {
   // No zone manager mapped → it fell to Viviana. Alert the admin so someone
   // re-owns it in JN. (Normal bookings now land on the regional manager, who
   // assigns a rep from his dashboard — no per-booking alert needed.)
-  if (!mgr.id && !test && jnOk && process.env.ADMIN_ALERT_PHONE) {
+  if (!mgr.id && !repName && !test && jnOk && process.env.ADMIN_ALERT_PHONE) {
     const base = process.env.URL || "https://free-roof-inspections.netlify.app";
     const whenEt = new Date(apptMs).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" });
     await fetch(`${base}/.netlify/functions/ghl-sms`, {
@@ -300,7 +309,7 @@ exports.handler = async (event) => {
     }).catch(() => {});
   }
 
-  return cors(200, JSON.stringify({ ok: true, jn_ok: jnOk, jn_error: jnOk ? undefined : jnErr, out_of_range: !mgr.repInRange, reset: isReset, contact_id: contactId || null, job_id: jobId, task_id: taskId, assigned: mgr.name || "Viviana (no zone manager)", zone: mgr.zone || null }));
+  return cors(200, JSON.stringify({ ok: true, jn_ok: jnOk, jn_error: jnOk ? undefined : jnErr, out_of_range: !mgr.repInRange, reset: isReset, contact_id: contactId || null, job_id: jobId, task_id: taskId, assigned: repName || mgr.name || "Viviana (no zone manager)", zone: mgr.zone || null }));
 };
 
 function nameOf(c, body) { return (`${c.first_name || ""} ${c.last_name || ""}`).trim() || String(body.homeowner_name || "").trim() || "Homeowner"; }

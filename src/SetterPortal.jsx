@@ -119,7 +119,10 @@ export default function SetterPortal({ Address }) {
   async function loadAvail(p) {
     setStage("schedule"); setLoadingAvail(true); setAvail(null); setChosen(null); setWeekIdx(0);
     try {
-      const r = await fetch(`${FN}/setter-availability`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, lat: p.lat, lng: p.lng, county: p.county, days: 14 }) });
+      // Rep mode (?as= / ?pickrep): the REP is booking their own appointment, so
+      // the slots are THEIR free times only — not the zone pool's (Neal).
+      const repMode = fromRep || (pickRep && setter) ? setter : "";
+      const r = await fetch(`${FN}/setter-availability`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, lat: p.lat, lng: p.lng, county: p.county, days: 14, rep_name: repMode || undefined }) });
       setAvail(await r.json());
     } catch { setAvail({ ok: false, error: "Could not load availability" }); }
     setLoadingAvail(false);
