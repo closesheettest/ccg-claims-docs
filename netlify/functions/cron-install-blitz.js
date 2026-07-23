@@ -39,6 +39,7 @@ const TRIGGER_STATUS = "Roof Started";
 const LIST_NAME = "Clover Leaf";
 const RADIUS_M = 250;        // ~820 ft around the install
 const MAX_DOORS = 30;        // nearest owner-occupied neighbors per install
+const MAX_INSTALLS_PER_RUN = 3; // stay inside the 10s function budget — the 2h cron (or another Sync-now tap) picks up the rest
 const REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones";
 const CADASTRAL =
   "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0/query";
@@ -67,8 +68,9 @@ exports.handler = async (event) => {
 
   const report = { ok: true, enabled: true, committed: commit, roof_started: jobs.length, new_installs: 0, pins_created: 0, skipped_existing_addr: 0, claims_released: 0, installs: [] };
 
-  // 3. Clover-leaf each NEW install.
+  // 3. Clover-leaf each NEW install (a few per run — see MAX_INSTALLS_PER_RUN).
   for (const j of jobs) {
+    if (report.new_installs >= MAX_INSTALLS_PER_RUN) { report.note = "More installs waiting — next sync picks them up."; break; }
     const jnid = jnidOf(j);
     if (cloveredJnids.has(jnid)) continue;
     const addr = [j.address_line1, j.city, j.state_text, j.zip].filter(Boolean).join(", ");
@@ -87,13 +89,19 @@ exports.handler = async (event) => {
       // The cloverleaf belongs to the rep who SOLD this roof — born claimed by them.
       const sellerName = String(j.sales_rep_name || "").trim() || null;
       const sellerId = j.sales_rep || null;
+      // ONE batched query finds which of these addresses already have a pin
+      // (30 sequential lookups was what threatened the 10s budget).
+      const cand = neighbors.slice(0, MAX_DOORS)
+        .map((n) => ({ n, street: (n.address || "").split(",")[0].trim() }))
+        .filter((x) => x.street);
+      const orExpr = cand.map((x) => `address.ilike."${x.street.replace(/"/g, "")}"`).join(",");
+      const dups = cand.length
+        ? await sbGet(`canvass_prospects?or=${encodeURIComponent(`(${orExpr})`)}&select=address&limit=200`)
+        : [];
+      const taken = new Set(dups.map((d) => String(d.address || "").toUpperCase().trim()));
       const rows = [];
-      for (const n of neighbors.slice(0, MAX_DOORS)) {
-        const street = (n.address || "").split(",")[0].trim();
-        if (!street) continue;
-        // Skip doors that already have ANY pin at that address (don't stack pins).
-        const dup = await sbGet(`canvass_prospects?address=ilike.${encodeURIComponent(street)}&select=id&limit=1`);
-        if (dup.length) { report.skipped_existing_addr += 1; continue; }
+      for (const { n, street } of cand) {
+        if (taken.has(street.toUpperCase().trim())) { report.skipped_existing_addr += 1; continue; }
         rows.push({
           name: n.owner || "Homeowner",
           address: street, city: n.city || j.city || null, state: "FL", zip: n.zip || null,
@@ -126,14 +134,19 @@ exports.handler = async (event) => {
     const KEEP_STATUSES = new Set(["damage_observed", "appt", "insp_sold", "insp_callback", "insp_pending"]);
     try {
       const liveJnids = new Set(jobs.map(jnidOf));
-      const recent = await fetchRecentJobs(Math.floor(Date.now() / 1000) - 45 * 86400);
+      // Only fetch the (expensive) recent-jobs proof when there are actual
+      // candidates: non-keeper clover pins whose install isn't Roof Started now.
+      const candidates = existingClover.filter((p) => {
+        if (KEEP_STATUSES.has(p.status)) return false;
+        const bj = p.extra && (p.extra.clover_jnid || p.extra.blitz_jnid);
+        return bj && !liveJnids.has(bj);
+      });
+      const recent = candidates.length ? await fetchRecentJobs(Math.floor(Date.now() / 1000) - 45 * 86400) : [];
       const seen = new Set([...jobs, ...recent].map(jnidOf));
       const stale = [];
-      for (const p of existingClover) {
-        if (KEEP_STATUSES.has(p.status)) continue;
+      for (const p of candidates) {
         const bj = p.extra && (p.extra.clover_jnid || p.extra.blitz_jnid);
-        if (!bj) continue;
-        if (seen.has(bj) && !liveJnids.has(bj)) stale.push(p.id); // install moved on → clear the leftovers
+        if (seen.has(bj)) stale.push(p.id); // proof the install moved on → clear the leftovers
       }
       for (let i = 0; i < stale.length; i += 100) {
         const chunk = stale.slice(i, i + 100);
@@ -148,7 +161,7 @@ exports.handler = async (event) => {
   // 5. Release claims whose rep is NO LONGER ACTIVE — the door (e.g. Damage
   //    observed) opens back up for everyone. Guarded: if the active-rep feed
   //    fails or looks empty, release nothing.
-  if (commit) {
+  if (commit && existingClover.some((p) => p.extra && p.extra.claimed_by)) {
     try {
       const rz = await fetch(REP_ZONES_URL);
       const zj = rz.ok ? await rz.json().catch(() => null) : null;

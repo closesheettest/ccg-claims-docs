@@ -50,7 +50,22 @@ export default function HarvestAdmin() {
     setBlitz(next); setBlitzBusy(true); setMsg(null);
     const { error } = await supabase.from("app_settings").upsert({ key: "harvest_blitz_enabled", value: next ? "true" : "false" }, { onConflict: "key" });
     setBlitzBusy(false);
-    setMsg(error ? { err: error.message } : { ok: `Clover Leaf turned ${next ? "ON — neighbors will pin on the next sync after a roof starts" : "OFF"}.` });
+    setMsg(error ? { err: error.message } : { ok: `Clover Leaf turned ${next ? "ON — tap ⚡ Sync now to pin the current Roof-Started installs" : "OFF"}.` });
+  };
+  // Manual clover sync — first-time (or impatient) runs without waiting for the
+  // 2-hour cron. Processes a few installs per tap (10s function budget); the
+  // result says when more are waiting — just tap again.
+  const [blitzSyncing, setBlitzSyncing] = useState(false);
+  const runBlitzSync = async () => {
+    setBlitzSyncing(true); setMsg(null);
+    try {
+      const r = await fetch("/.netlify/functions/cron-install-blitz?commit=1");
+      const j = await r.json().catch(() => ({}));
+      if (j.ok === false || !r.ok) setMsg({ err: j.error || j.note || `Sync failed (${r.status})` });
+      else if (j.enabled === false) setMsg({ err: "Clover Leaf is OFF — flip the toggle on first." });
+      else setMsg({ ok: `🍀 Sync: ${j.roof_started} roofs started · ${j.new_installs} new this run · ${j.pins_created} pins dropped${j.skipped_existing_addr ? ` · ${j.skipped_existing_addr} already pinned` : ""}${j.note ? ` — ${j.note} Tap Sync again.` : "."}` });
+    } catch (e) { setMsg({ err: e.message || "Sync failed" }); }
+    setBlitzSyncing(false);
   };
   const saveEnhanced = async (next) => {
     setEnhanced(next); setEnhancedBusy(true); setMsg(null);
@@ -174,10 +189,18 @@ export default function HarvestAdmin() {
             When a JobNimbus job hits <b>“Roof Started”</b>, the map auto-drops the ~30 nearest <b>owner-occupied</b> neighbors as 🍀 clover pins — knocked “we're doing your neighbor's roof <i>right now</i>” while the crew is visibly on it. <b>The cloverleaf belongs to the rep who SOLD that roof</b> — only they see the pins; if they go inactive, the doors open up for the reps in that area. At the door: <b>Roof looks fine · Damage observed · Not home · Book appt / Sign · Not interested</b>. <b>Damage-observed doors stay forever</b>; the rest clear when the install wraps. Syncs every 2 hours, 7 AM–9 PM.
           </div>
         </div>
-        <button type="button" onClick={() => saveBlitz(!blitz)} disabled={blitzBusy} title={blitz ? "On — tap to turn off" : "Off — tap to turn on"}
-          style={{ flexShrink: 0, width: 62, height: 32, borderRadius: 999, border: "none", cursor: blitzBusy ? "default" : "pointer", background: blitz ? "#f97316" : "#cbd5e1", position: "relative", opacity: blitzBusy ? 0.6 : 1, transition: "background .15s" }}>
-          <span style={{ position: "absolute", top: 3, left: blitz ? 33 : 3, width: 26, height: 26, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,.3)", transition: "left .15s" }} />
-        </button>
+        <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+          <button type="button" onClick={() => saveBlitz(!blitz)} disabled={blitzBusy} title={blitz ? "On — tap to turn off" : "Off — tap to turn on"}
+            style={{ width: 62, height: 32, borderRadius: 999, border: "none", cursor: blitzBusy ? "default" : "pointer", background: blitz ? "#f97316" : "#cbd5e1", position: "relative", opacity: blitzBusy ? 0.6 : 1, transition: "background .15s" }}>
+            <span style={{ position: "absolute", top: 3, left: blitz ? 33 : 3, width: 26, height: 26, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,.3)", transition: "left .15s" }} />
+          </button>
+          {blitz && (
+            <button type="button" onClick={runBlitzSync} disabled={blitzSyncing}
+              style={{ border: "none", borderRadius: 9, padding: "7px 12px", fontSize: 12.5, fontWeight: 800, cursor: blitzSyncing ? "default" : "pointer", background: "#15803d", color: "#fff", opacity: blitzSyncing ? 0.6 : 1, whiteSpace: "nowrap" }}>
+              {blitzSyncing ? "Syncing…" : "⚡ Sync now"}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Daily pins per day — the "Start my day" route cap, per rep level. Tune it
