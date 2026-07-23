@@ -21,6 +21,7 @@ import HarvestAdmin from "./HarvestAdmin";
 import HarvestUpload from "./HarvestUpload";
 import HarvestLinks from "./HarvestLinks";
 import HarvestReport from "./HarvestReport";
+import HarvestHowTo from "./HarvestHowTo";
 import HarvestTrainingAdmin from "./HarvestTrainingAdmin";
 import HarvestRepcardImport from "./HarvestRepcardImport";
 import HarvestPlannedDay from "./HarvestPlannedDay";
@@ -9485,6 +9486,12 @@ export default function App() {
     // ?mode=harvestreport — office rep-activity report (visits, rounds, outcomes).
     if (portalMode === "harvestreport") {
       return <HarvestReport />;
+    }
+    // ?mode=harvesthowto — collapsible scenario playbook ("a house has damage and
+    // isn't a pin → here's what you do"). Reps reach it from the ❓ on their map;
+    // the office via the nav tab (&nav=1 shows the admin nav).
+    if (portalMode === "harvesthowto") {
+      return <HarvestHowTo />;
     }
     // ?mode=harvesttrainingadmin — office authoring for the tool-training lessons/tests.
     if (portalMode === "harvesttrainingadmin") {

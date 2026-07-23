@@ -2971,6 +2971,14 @@ export default function CanvassMap() {
             </span>
           </button>
         )}
+        {/* ❓ How-To — the scenario playbook page ("a house has damage and isn't a
+            pin → what do I do"). Reps only; the office reaches it from the nav tab. */}
+        {auth.rt && !selecting && !adding && !newPin && (
+          <a href="/?mode=harvesthowto" target="_blank" rel="noreferrer" title="How-To — what do I do when…"
+            style={{ position: "absolute", right: isDesktop ? 312 : 12, top: (myLoc && !selecting) ? 168 : 116, zIndex: 600, background: "#fff", color: "#334155", border: "2px solid #fff", borderRadius: 999, width: 44, height: 44, fontSize: 19, fontWeight: 800, boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, textDecoration: "none" }}>
+            ❓
+          </a>
+        )}
         {adding && (
           <div style={{ position: "absolute", left: "50%", top: 12, transform: "translateX(-50%)", zIndex: 750, background: "#7c3aed", color: "#fff", borderRadius: 12, padding: "10px 14px", boxShadow: "0 3px 14px rgba(0,0,0,.3)", display: "flex", alignItems: "center", gap: 12, whiteSpace: "nowrap" }}>
             <span style={{ fontSize: 13.5, fontWeight: 700 }}>🏠 Tap the roof of the house</span>

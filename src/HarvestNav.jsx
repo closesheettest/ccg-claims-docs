@@ -10,6 +10,7 @@ const TABS = [
   { key: "types", label: "🎛️ Pin Types", href: "/?mode=harvestadmin" },
   { key: "jnsync", label: "🔄 JN Sync", href: "/?mode=harvestjnsync" },
   { key: "report", label: "📊 Reports", href: "/?mode=harvestreport" },
+  { key: "howto", label: "📖 How-To", href: "/?mode=harvesthowto&nav=1" },
   { key: "training", label: "🎓 Training", href: "/?mode=harvesttrainingadmin" },
   { key: "plannedday", label: "🧭 Planned Day", href: "/?mode=harvestplannedday" },
   { key: "skiptrace", label: "📇 Skip-Trace", href: "/?mode=harvestskiptrace" },
