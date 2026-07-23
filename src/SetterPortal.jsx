@@ -139,7 +139,10 @@ export default function SetterPortal({ Address }) {
   async function book(confirm) {
     if (!chosen) { setErr("Pick a time first."); return; }
     setBooking(true); setErr("");
-    const payload = { token, setter_name: setter, appt_iso: chosen.iso, source, spanish_only: spanishOnly, lat: picked.lat, lng: picked.lng, county: picked.county, homeowner_name: client.name, address: picked.formatted || [picked.address, picked.city, picked.state, picked.zip].filter(Boolean).join(", "), phone: client.contact?.mobile || undefined };
+    // rep_booked: a SALES REP is booking (dashboard tile ?pickrep / hub handoff ?as)
+    // — the server flags the JN job "Sales Rep Harvested" = Yes so it lands on the
+    // harvest leaderboard automatically. Setter bookings (Viviana & co) stay unflagged.
+    const payload = { token, setter_name: setter, rep_booked: !!(fromRep || pickRep), appt_iso: chosen.iso, source, spanish_only: spanishOnly, lat: picked.lat, lng: picked.lng, county: picked.county, homeowner_name: client.name, address: picked.formatted || [picked.address, picked.city, picked.state, picked.zip].filter(Boolean).join(", "), phone: client.contact?.mobile || undefined };
     if (client.contact_id) payload.contact_id = client.contact_id; else payload.contact = client.contact;
     if (confirm) payload.confirm = confirm;
     try {
@@ -185,12 +188,16 @@ export default function SetterPortal({ Address }) {
           repList === null ? <div style={{ color: "#64748b", fontSize: 14 }}>Loading reps…</div> : (
             <>
               <input value={repSearch} onChange={(e) => setRepSearch(e.target.value)} placeholder="Type your name…" style={{ ...C.input, marginBottom: 10 }} autoFocus />
-              {repList
-                .filter((n) => n.toLowerCase().includes(repSearch.trim().toLowerCase()))
-                .slice(0, 12)
-                .map((n) => (
-                  <button key={n} onClick={() => setSetter(n)} style={{ ...C.btn, width: "100%", background: "#1a2e5a", color: "#fff", marginBottom: 8 }}>{n}</button>
-                ))}
+              {/* No list until they type — a wall of every rep's name read as "pick
+                  anyone" and confused people. Matches appear as they type. */}
+              {repSearch.trim()
+                ? repList
+                    .filter((n) => n.toLowerCase().includes(repSearch.trim().toLowerCase()))
+                    .slice(0, 12)
+                    .map((n) => (
+                      <button key={n} onClick={() => setSetter(n)} style={{ ...C.btn, width: "100%", background: "#1a2e5a", color: "#fff", marginBottom: 8 }}>{n}</button>
+                    ))
+                : <div style={{ color: "#94a3b8", fontSize: 13.5, textAlign: "center", padding: "6px 0 2px" }}>Start typing your name — matches will appear.</div>}
               {repList.length === 0 && <div style={{ color: "#b91c1c", fontSize: 13.5 }}>Couldn't load the rep list — check your connection and refresh.</div>}
             </>
           )

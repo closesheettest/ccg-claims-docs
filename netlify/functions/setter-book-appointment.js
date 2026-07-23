@@ -125,6 +125,11 @@ exports.handler = async (event) => {
   // match the existing dialer convention (e.g. "Dustin H.").
   const setterShort = (() => { const p = setter.split(/\s+/).filter(Boolean); return p.length >= 2 ? `${p[0]} ${p[1][0]}.` : setter; })();
   const test = !!body.test;
+  // A SALES REP booking (dashboard "Schedule a Retail Appt" tile / rep-hub handoff
+  // sends rep_booked:true) → flag the JN job "Sales Rep Harvested" (cf_string_35)
+  // = Yes, so it lands on the harvest leaderboard automatically. Setter bookings
+  // (Viviana & co) stay unflagged — that's office-set only.
+  const harvestFlag = body.rep_booked ? { cf_string_35: "Yes" } : {};
   const spanishTag = body.spanish_only ? " - SPANISH ONLY" : ""; // appended to the JN job name
   const lat = Number(body.lat), lng = Number(body.lng);
 
@@ -201,7 +206,7 @@ exports.handler = async (event) => {
     }
     // 2. Job — RESET the existing No-Sit deal in place, or create a new retail Lead.
     if (isReset && jobId) {
-      await jnPut(`jobs/${jobId}`, { status: APPT_STATUS, status_name: APPT_STATUS_NAME, sales_rep: repId || undefined, owners: [{ id: owner }], cf_string_8: setterShort });
+      await jnPut(`jobs/${jobId}`, { status: APPT_STATUS, status_name: APPT_STATUS_NAME, sales_rep: repId || undefined, owners: [{ id: owner }], cf_string_8: setterShort, ...harvestFlag });
     } else {
       const jobPayload = {
         name: `${test ? "[TEST] " : ""}${fullName}${c.address ? ` - ${c.address}` : ""}${spanishTag}`.trim(),
@@ -213,6 +218,7 @@ exports.handler = async (event) => {
         sales_rep: repId || undefined,
         owners: [{ id: owner }],
         cf_string_8: setterShort,
+        ...harvestFlag,
       };
       try {
         const job = await jnPost("jobs", jobPayload);
@@ -225,7 +231,7 @@ exports.handler = async (event) => {
         if (!/duplicate/i.test(e.message || "")) throw e;
         const existing = contactId ? await findRecentJobForContact(contactId) : null;
         if (existing) {
-          await jnPut(`jobs/${existing}`, { status: APPT_STATUS, status_name: APPT_STATUS_NAME, sales_rep: repId || undefined, owners: [{ id: owner }], cf_string_8: setterShort, source_name: source });
+          await jnPut(`jobs/${existing}`, { status: APPT_STATUS, status_name: APPT_STATUS_NAME, sales_rep: repId || undefined, owners: [{ id: owner }], cf_string_8: setterShort, source_name: source, ...harvestFlag });
           jobId = existing;
         } else {
           const suffix = String(c.mobile || "").replace(/\D/g, "").slice(-4) || String(apptMs).slice(-4);
