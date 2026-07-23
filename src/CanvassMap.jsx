@@ -866,7 +866,11 @@ export default function CanvassMap() {
   // planned route. Reps can't just tap pins to read off homeowner names — the details come
   // up in the flow of working the route. (Neal)
   const piiVisible = (p) => {
-    if (!auth.rt || me?.level === "admin") return true;                 // office / admin
+    // Practice mode with ?test=sr|jr mimics the REAL rep experience — lock included —
+    // so training videos and rep practice show exactly what reps see. Plain demo
+    // (no ?test=, managers exploring) and office/admin still see everything.
+    const repView = auth.rt ? me?.level !== "admin" : (demoMode && !!testLevel);
+    if (!repView) return true;                                          // office / admin
     if (isSelfGenPin(p) && ownsPin(p)) return true;                     // their own door
     return dayMode === "active" && (route || []).some((s) => s.id === p.id);
   };
