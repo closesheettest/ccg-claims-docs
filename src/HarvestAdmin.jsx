@@ -171,7 +171,7 @@ export default function HarvestAdmin() {
         <div>
           <div style={{ fontSize: 15, fontWeight: 800 }}>🍀 Clover Leaf</div>
           <div style={{ fontSize: 12.5, color: "#64748b", marginTop: 3 }}>
-            When a JobNimbus job hits <b>“Roof Started”</b>, the map auto-drops the ~30 nearest <b>owner-occupied</b> neighbors as 🍀 clover pins — reps knock “we're doing your neighbor's roof <i>right now</i>” while the crew is visibly on it. At the door: <b>Roof looks fine · Damage observed · Not home · Book appt / Sign · Not interested</b>. The first rep to work a door owns it (claims release if they go inactive). <b>Damage-observed doors stay forever</b>; the rest clear when the install wraps. Syncs every 2 hours, 7 AM–9 PM.
+            When a JobNimbus job hits <b>“Roof Started”</b>, the map auto-drops the ~30 nearest <b>owner-occupied</b> neighbors as 🍀 clover pins — knocked “we're doing your neighbor's roof <i>right now</i>” while the crew is visibly on it. <b>The cloverleaf belongs to the rep who SOLD that roof</b> — only they see the pins; if they go inactive, the doors open up for the reps in that area. At the door: <b>Roof looks fine · Damage observed · Not home · Book appt / Sign · Not interested</b>. <b>Damage-observed doors stay forever</b>; the rest clear when the install wraps. Syncs every 2 hours, 7 AM–9 PM.
           </div>
         </div>
         <button type="button" onClick={() => saveBlitz(!blitz)} disabled={blitzBusy} title={blitz ? "On — tap to turn off" : "Off — tap to turn on"}

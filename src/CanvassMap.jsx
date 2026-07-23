@@ -1247,7 +1247,13 @@ export default function CanvassMap() {
     // Self-generated doors ALWAYS show — even after the status moves off the
     // active filter (e.g. tapping Pending → insp_callback), so a rep's own leads
     // never vanish. (Routing still skips terminal statuses.)
-    const shown = mapped.filter((p) => isSelfGenPin(p) || isMyAppt(p) || (inFilter(p.status) && (!visKeys || visKeys.has(p.status))));
+    const shown = mapped.filter((p) => {
+      // 🍀 Clover doors belong to the rep who SOLD the install — other reps don't
+      // even see them. Released claims (rep went inactive) show for whoever works
+      // the area; office/admin sees everything (ownsPin handles all of that).
+      if (isCloverPin(p) && !ownsPin(p)) return false;
+      return isSelfGenPin(p) || isMyAppt(p) || (inFilter(p.status) && (!visKeys || visKeys.has(p.status)));
+    });
     // Routing skips doors already worked TODAY — no rep gets re-routed to a door
     // another rep (or they) already handled today.
     shownRef.current = shown.filter((p) => !workedTodayET(p));

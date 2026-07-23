@@ -21,10 +21,11 @@
 //     the rest — unworked clover, roof-looks-fine, not-interested, dead,
 //     new-roof — clear once the job LEAVES "Roof Started" (proof-guarded, same
 //     as the no-sit reconcile, so a partial JN fetch can't wipe pins).
-//   • Ownership: the first rep to STATUS a clover door claims it (map-side,
-//     extra.claimed_by). This cron also releases claims whose rep is no longer
-//     active — so a departed rep's "Damage observed" doors open back up for
-//     everyone.
+//   • Ownership (per Neal): clover doors belong to the SALES REP WHO SOLD the
+//     install — pins are born claimed by the job's sales_rep and only THEY see
+//     them on the map. If that rep is no longer active, this cron releases the
+//     claim and the doors open up for the reps working that region. A job with
+//     no sales rep creates unclaimed (open) pins.
 //
 // GET = dry-run report · ?commit=1 = write · scheduled runs auto-commit.
 
@@ -83,6 +84,9 @@ exports.handler = async (event) => {
 
     if (commit && neighbors.length) {
       const nowIso = new Date().toISOString();
+      // The cloverleaf belongs to the rep who SOLD this roof — born claimed by them.
+      const sellerName = String(j.sales_rep_name || "").trim() || null;
+      const sellerId = j.sales_rep || null;
       const rows = [];
       for (const n of neighbors.slice(0, MAX_DOORS)) {
         const street = (n.address || "").split(",")[0].trim();
@@ -100,6 +104,7 @@ exports.handler = async (event) => {
             clover_jnid: jnid, install_address: addr,
             owner: n.owner || null, homestead: true, occupancy: "owner_occupied",
             parcel_id: n.parcel_id || null, synced_at: nowIso,
+            ...(sellerName ? { claimed_by: sellerName, claimed_by_jn: sellerId } : {}),
           },
         });
       }
