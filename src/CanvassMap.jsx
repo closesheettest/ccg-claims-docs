@@ -391,10 +391,11 @@ const PIN_FIELDS_LITE = "id,name,address,city,state,zip,phone,email,latitude,lon
 // "Worked today" doors show baby blue so other reps see them handled and skip them.
 const BABY_BLUE = "#7dd3fc";
 // A door counts as worked today only if a REP touched it today — status_by is a
-// rep's name, NOT a "JN … sync" (the sync stamps status_updated_at on every synced
-// door, which would otherwise baby-blue hundreds of untouched pins).
+// rep's name, NOT a "JN … sync" or the Clover Leaf cron (system stamps hit every
+// synced door at once, which would otherwise baby-blue / un-route hundreds of
+// untouched pins — a fresh clover cluster was unroutable the day it dropped).
 function workedTodayET(p) {
-  if (!p || !p.status_updated_at || !p.status_by || /^JN\b/i.test(p.status_by)) return false;
+  if (!p || !p.status_updated_at || !p.status_by || /^JN\b/i.test(p.status_by) || /^clover leaf$/i.test(p.status_by)) return false;
   const d = new Date(p.status_updated_at);
   if (isNaN(d)) return false;
   const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
@@ -734,7 +735,7 @@ export default function CanvassMap() {
   const [showNone, setShowNone] = useState(() => {
     try { const q = new URLSearchParams(window.location.search); return !!q.get("admin") && !q.get("rt"); } catch { return false; }
   });
-  const inFilter = (status) => (showNone ? false : (sel.size === 0 || sel.has(status)));
+  const inFilter = (status) => { if (showNone) return false; const k = status === "install_home" ? "clover" : status; return sel.size === 0 || sel.has(k); };
   // A door scheduled for a come-back on a FUTURE day is held out of the route
   // until that day arrives (it still shows on the map, just not routed early).
   const futureCallback = (p) => { const d = p?.extra?.callback?.date; return !!(d && d > ymdPlus(0)); };
@@ -941,7 +942,10 @@ export default function CanvassMap() {
   // "worked_today" is a managed pin type in the admin, but it's a synthetic OVERLAY
   // (doors touched today), not a real status — so it never renders as a normal
   // status chip. Its row only carries the color + per-level on/off-map visibility.
-  const visTypes = useMemo(() => (visKeys ? pinTypes.filter((t) => visKeys.has(t.key)) : pinTypes).filter((t) => t.key !== "worked_today"), [visKeys, pinTypes]);
+  // install_home never gets its own chip — the 🚧 install marker rides along with
+  // the 🍀 Clover Leaf selection automatically (Neal: "does not need to be a pin
+  // selection"). inFilter aliases it to "clover"; the clover count includes it.
+  const visTypes = useMemo(() => (visKeys ? pinTypes.filter((t) => visKeys.has(t.key)) : pinTypes).filter((t) => t.key !== "worked_today" && t.key !== "install_home"), [visKeys, pinTypes]);
   const workedType = useMemo(() => pinTypes.find((t) => t.key === "worked_today"), [pinTypes]);
   const workedColor = workedType?.color || BABY_BLUE;
   const workedVisible = useMemo(() => {
@@ -1039,7 +1043,12 @@ export default function CanvassMap() {
       // Load ONLY the selected statuses ("only load what's picked"). Empty
       // selection (office "All") = everything the level can see. No region gate —
       // clustering keeps the zoomed-out view cheap; the viewport scopes the rest.
-      const effStatuses = showNone ? [] : (sel.size ? [...sel].filter((k) => baseKeys.includes(k)) : baseKeys);
+      let effStatuses = showNone ? [] : (sel.size ? [...sel].filter((k) => baseKeys.includes(k)) : baseKeys);
+      // Picking 🍀 Clover Leaf automatically brings the 🚧 install markers along
+      // (install_home has no chip of its own).
+      if (effStatuses.includes("clover") && !effStatuses.includes("install_home") && baseKeys.includes("install_home")) {
+        effStatuses = [...effStatuses, "install_home"];
+      }
       if (!effStatuses.length) {
         // Office defaults to "show nothing" — but we must still mark the map FITTED,
         // else the reload effects (gated on fitted.current) never fire when the
@@ -1150,7 +1159,9 @@ export default function CanvassMap() {
       if (!baseKeys.length) return false;
       if (showNone) { setClusters([]); setProspects([]); return true; } // office default: show nothing until a type is picked
       const selArr = [...sel].filter((k) => baseKeys.includes(k));
-      const statuses = selArr.length ? selArr : baseKeys;
+      let statuses = selArr.length ? selArr : baseKeys;
+      // 🚧 markers ride with the 🍀 selection in the zoomed-out clusters too.
+      if (statuses.includes("clover") && !statuses.includes("install_home") && baseKeys.includes("install_home")) statuses = [...statuses, "install_home"];
       const { data, error } = await supabase.rpc("canvass_clusters", {
         min_lat: bounds.getSouth(), min_lng: bounds.getWest(),
         max_lat: bounds.getNorth(), max_lng: bounds.getEast(),
@@ -2737,6 +2748,8 @@ export default function CanvassMap() {
   useEffect(() => { if (testLevel) setViewAs(testLevel); }, [testLevel]);
   useEffect(() => { addingTestApptRef.current = addingTestAppt; }, [addingTestAppt]);
   const counts = dbCounts || loadedCounts;
+  // 🚧 install markers ride with the 🍀 chip — fold their count in.
+  const countFor = (k) => (k === "clover" ? (counts.clover || 0) + (counts.install_home || 0) : (counts[k] || 0));
   const notMapped = prospects.length - mapped.length;
 
   // Rep hasn't passed the tool training yet → send them through it first. (Skips
@@ -2834,7 +2847,7 @@ export default function CanvassMap() {
         <div style={{ display: "flex", gap: 6, overflowX: "auto", padding: "8px 12px", background: "#fff", borderBottom: "1px solid #e5e7eb" }}>
           {!selLocked && <Chip active={!showNone && sel.size === 0} onClick={() => { setShowNone(false); setSel(new Set()); }} color="#334155" label={`All (${dbCounts ? Object.entries(dbCounts).reduce((sum, [k, n]) => sum + ((!visKeys || visKeys.has(k)) ? n : 0), 0) : (visKeys ? prospects.filter((p) => visKeys.has(p.status)).length : prospects.length)})`} />}
           {visTypes.map((s) => (
-            <Chip key={s.key} active={sel.has(s.key)} check onClick={() => isPinned(s.key) ? null : toggleSel(s.key)} color={s.color} label={`${isPinned(s.key) ? "🔒 " : ""}${s.label} (${counts[s.key] || 0})`} />
+            <Chip key={s.key} active={sel.has(s.key)} check onClick={() => isPinned(s.key) ? null : toggleSel(s.key)} color={s.color} label={`${isPinned(s.key) ? "🔒 " : ""}${s.label} (${countFor(s.key)})`} />
           ))}
           {installs.length > 0 && (
             <Chip active={showInstalls} onClick={() => setShowInstalls((v) => !v)} color={INSTALL_COLOR} label={`⭐ Installs (${installs.length})`} />
@@ -2865,7 +2878,7 @@ export default function CanvassMap() {
                 active={!showNone && sel.size === 0} onClick={() => { setShowNone(false); setSel(new Set()); }} />
             )}
             {visTypes.map((s) => (
-              <StatusCard key={s.key} color={s.color} label={`${isPinned(s.key) ? "🔒 " : ""}${s.label}`} count={counts[s.key] || 0}
+              <StatusCard key={s.key} color={s.color} label={`${isPinned(s.key) ? "🔒 " : ""}${s.label}`} count={countFor(s.key)}
                 active={sel.has(s.key)} locked={isPinned(s.key)} onClick={() => isPinned(s.key) ? null : toggleSel(s.key)} />
             ))}
             {installs.length > 0 && (
