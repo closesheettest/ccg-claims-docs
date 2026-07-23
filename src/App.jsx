@@ -149,7 +149,7 @@ const REP_FIXED = {
 
 const INSPECTION_COMPANY = {
   name: "U.S. Shingle & Metal LLC",
-  address: "12910 Automobile Blvd Suite A • Clearwater, FL 33782",
+  address: "12910 Automobile Blvd Suite A • Clearwater, FL 33762",
   phone: "727.761.5200",
   email: "info@shingleusa.com",
   license: "CCC1331960",
@@ -14438,7 +14438,7 @@ if (!hasDamage) {
                   <div><strong>License:</strong> CCC1331960</div>
                   <div><strong>Phone:</strong> {ussContactPhone}</div>
                   <div><strong>Email:</strong> {ussContactEmail}</div>
-                  <div><strong>Address:</strong> 12910 Automobile Blvd Suite A, Clearwater, FL 33782</div>
+                  <div><strong>Address:</strong> 12910 Automobile Blvd Suite A, Clearwater, FL 33762</div>
                 </div>
               </div>
 
@@ -14475,7 +14475,7 @@ if (!hasDamage) {
 
               {/* Footer */}
               <div style={{ marginTop: 28, borderTop: "2px solid #0a0a0a", paddingTop: 14, fontSize: 11, color: "#6b7280", textAlign: "center" }}>
-                U.S. Shingle & Metal LLC • License No: CCC1331960 • {ussContactEmail} • {ussContactPhone} • 12910 Automobile Blvd Suite A, Clearwater, FL 33782
+                U.S. Shingle & Metal LLC • License No: CCC1331960 • {ussContactEmail} • {ussContactPhone} • 12910 Automobile Blvd Suite A, Clearwater, FL 33762
               </div>
             </div>
           </div>
@@ -16663,7 +16663,7 @@ if (!hasDamage) {
                     <div>
                       <Label>Zip</Label>
                       <input type="text" value={inspData.zip} onChange={e => updateInsp("zip", e.target.value)}
-                        placeholder="33782"
+                        placeholder="33762"
                         style={{ width: "100%", height: 44, borderRadius: 14, border: "1px solid #d1d5db", padding: "0 12px", fontSize: 14, boxSizing: "border-box" }} />
                     </div>
                     <div>

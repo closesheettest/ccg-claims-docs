@@ -40,7 +40,7 @@ const REP_FIXED = {
 
 const INSPECTION_COMPANY = {
   name: "U.S. Shingle & Metal LLC",
-  address: "12910 Automobile Blvd Suite A \u2022 Clearwater, FL 33782",
+  address: "12910 Automobile Blvd Suite A \u2022 Clearwater, FL 33762",
   phone: "727.761.5200",
   email: "info@shingleusa.com",
   license: "CCC1331960",
