@@ -26,8 +26,13 @@ const C = {
 };
 
 export default function SetterPortal({ Address }) {
+  // Rep handoff (?as=<rep name>) — the rep dashboard's "Schedule a retail appt"
+  // button opens this portal with the rep's identity carried along: the
+  // who-are-you screen is skipped and the booking is credited to them. Doesn't
+  // touch the saved setter_name, so a real setter's device keeps its identity.
+  const fromRep = (() => { try { return new URLSearchParams(window.location.search).get("as") || ""; } catch { return ""; } })();
   const [token, setToken] = useState("");
-  const [setter, setSetter] = useState(() => localStorage.getItem("setter_name") || "");
+  const [setter, setSetter] = useState(() => fromRep || localStorage.getItem("setter_name") || "");
   const [stage, setStage] = useState("search"); // search | schedule | done
   const [picked, setPicked] = useState(null);    // the Google-validated address
   const [matches, setMatches] = useState(null);   // JN search results (null=not run)
@@ -81,7 +86,7 @@ export default function SetterPortal({ Address }) {
   }
 
   useEffect(() => { supabase.from("app_settings").select("value").eq("key", "visit_token").maybeSingle().then(({ data }) => setToken(data?.value || "")); }, []);
-  useEffect(() => { if (setter) localStorage.setItem("setter_name", setter); }, [setter]);
+  useEffect(() => { if (setter && !fromRep) localStorage.setItem("setter_name", setter); }, [setter, fromRep]);
 
   function reset() { setStage("search"); setPicked(null); setMatches(null); setShowNew(false); setForm({ first: "", last: "", mobile: "", email: "" }); setClient(null); setAvail(null); setChosen(null); setResult(null); setErr(""); setConfirmDouble(null); }
 

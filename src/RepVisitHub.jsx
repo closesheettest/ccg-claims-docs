@@ -322,6 +322,12 @@ function Choose({ rep, onNew, onType, onReferrals, onApptsBooked, onIssues, onPa
       <p style={{ fontSize: 14, color: "#6b7280", margin: "0 0 14px" }}>Hi {rep.name.split(" ")[0]} — what are you here to do?</p>
       {!isWilliam && <Btn color="#0e7490" emoji="📅" label="My calendar" sub="Your appointments + set when you're available" onClick={onCalendar} />}
       <Btn color={NAVY} emoji="📝" label="New inspection" sub="Sign a new free roof inspection" onClick={onNew} />
+      {/* Book a retail appointment — hands off to the Appointment-Setter flow with
+          this rep's identity carried along (?as=), so the booking is credited to
+          them and then follows the setter flow exactly (address → homeowner →
+          qualified rep in zone → time → JobNimbus). */}
+      <Btn color="#7c3aed" emoji="📅" label="Schedule a retail appt" sub="Book a retail appointment for a homeowner"
+        onClick={() => { window.location.href = `/?mode=setter&as=${encodeURIComponent(rep.name || "")}`; }} />
       {!isWilliam && <Btn color="#b8324f" emoji="🏚️" label="Damage visit" sub="Set the PA appointment to start their claim" onClick={() => onType("damage")} count={counts?.damage} />}
       {!isWilliam && <Btn color="#16a34a" emoji="✅" label="No-Damage visit" sub="Get referrals + send their certificate" onClick={() => onType("no_damage")} count={counts?.no_damage} />}
       {!isWilliam && <Btn color="#d97706" emoji="🏠" label="Retail visit" sub="Schedule a retail options appointment" onClick={() => onType("retail")} count={counts?.retail} />}
