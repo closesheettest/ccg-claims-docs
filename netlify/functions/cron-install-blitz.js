@@ -21,11 +21,16 @@
 //     the rest — unworked clover, roof-looks-fine, not-interested, dead,
 //     new-roof — clear once the job LEAVES "Roof Started" (proof-guarded, same
 //     as the no-sit reconcile, so a partial JN fetch can't wipe pins).
-//   • Ownership (per Neal): clover doors belong to the SALES REP WHO SOLD the
-//     install — pins are born claimed by the job's sales_rep and only THEY see
-//     them on the map. If that rep is no longer active, this cron releases the
-//     claim and the doors open up for the reps working that region. A job with
-//     no sales rep creates unclaimed (open) pins.
+//   • Ownership (per Neal, final): clover doors are born OPEN — any rep sees and
+//     can work them ("lets make it available to anyone") — but the FIRST rep to
+//     status one owns it from then on ("who ever statuses it owns it"; the claim
+//     is stamped by the map's setStatus, not here). extra.sold_by records whose
+//     install seeded the cluster — info only. If a claiming rep goes inactive,
+//     this cron releases their claims so the doors reopen.
+//   • Each cluster also gets ONE 🚧 "install_home" pin at the install itself so
+//     reps see exactly where the crew is working (pulsing marker, info-only).
+//   • Concurrency: an app_settings lock (clover_sync_lock) stops the Sync-now
+//     button and the cron from double-pinning the same install.
 //
 // GET = dry-run report · ?commit=1 = write · scheduled runs auto-commit.
 
@@ -40,6 +45,7 @@ const LIST_NAME = "Clover Leaf";
 const RADIUS_M = 250;        // ~820 ft around the install
 const MAX_DOORS = 30;        // nearest owner-occupied neighbors per install
 const MAX_INSTALLS_PER_RUN = 3; // stay inside the 10s function budget — the 2h cron (or another Sync-now tap) picks up the rest
+const LOCK_MS = 2 * 60 * 1000;  // a run older than this is presumed dead — steal its lock
 const REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones";
 const CADASTRAL =
   "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0/query";
@@ -57,6 +63,12 @@ exports.handler = async (event) => {
   const enabled = String((await readSetting("harvest_blitz_enabled")) || "false") === "true";
   if (!enabled) return json(200, { ok: true, enabled: false, note: "Clover Leaf is OFF (harvest_blitz_enabled). Nothing done." });
 
+  // Lock: a Sync-now tap racing the cron (or a second tap) must not double-pin
+  // the same install — that's exactly what happened on the first live run.
+  if (commit && !(await acquireLock())) {
+    return json(200, { ok: true, enabled: true, locked: true, note: "Another sync is already running — give it a minute, then tap again." });
+  }
+
   // 1. Every job currently in "Roof Started".
   const jobs = await fetchJobsByStatus(TRIGGER_STATUS);
   const jnidOf = (j) => j.jnid || j.id;
@@ -66,7 +78,7 @@ exports.handler = async (event) => {
   const existingClover = await sbGetAll(`canvass_prospects?list_name=eq.${encodeURIComponent(LIST_NAME)}&select=id,status,extra`);
   for (const p of existingClover) { const j = p.extra && (p.extra.clover_jnid || p.extra.blitz_jnid); if (j) cloveredJnids.add(j); }
 
-  const report = { ok: true, enabled: true, committed: commit, roof_started: jobs.length, new_installs: 0, pins_created: 0, skipped_existing_addr: 0, claims_released: 0, installs: [] };
+  const report = { ok: true, enabled: true, committed: commit, roof_started: jobs.length, new_installs: 0, pins_created: 0, existing_counted: 0, claims_released: 0, installs: [] };
 
   // 3. Clover-leaf each NEW install (a few per run — see MAX_INSTALLS_PER_RUN).
   for (const j of jobs) {
@@ -86,7 +98,8 @@ exports.handler = async (event) => {
 
     if (commit && neighbors.length) {
       const nowIso = new Date().toISOString();
-      // The cloverleaf belongs to the rep who SOLD this roof — born claimed by them.
+      // Whose install seeded this cluster — INFO ONLY (pins are born open; the
+      // first rep to status a door claims it via the map).
       const sellerName = String(j.sales_rep_name || "").trim() || null;
       const sellerId = j.sales_rep || null;
       // ONE batched query finds which of these addresses already have a pin
@@ -96,12 +109,26 @@ exports.handler = async (event) => {
         .filter((x) => x.street);
       const orExpr = cand.map((x) => `address.ilike."${x.street.replace(/"/g, "")}"`).join(",");
       const dups = cand.length
-        ? await sbGet(`canvass_prospects?or=${encodeURIComponent(`(${orExpr})`)}&select=address&limit=200`)
+        ? await sbGet(`canvass_prospects?or=${encodeURIComponent(`(${orExpr})`)}&select=id,address,extra&limit=200`)
         : [];
       const taken = new Set(dups.map((d) => String(d.address || "").toUpperCase().trim()));
+      // A door that ALREADY has a pin still COUNTS as part of the cloverleaf —
+      // but keeps its own status + color (per Neal: an IQ door must stay IQ so a
+      // Jr rep doesn't pitch inspection where they're already retail-interested).
+      // Tag it clover_zone_jnid (NOT clover_jnid — that key would make cleanup
+      // delete it when the install wraps).
+      for (const d of dups.slice(0, 25)) {
+        const ex = (d.extra && typeof d.extra === "object") ? d.extra : {};
+        if (ex.clover_zone_jnid || ex.clover_jnid || ex.blitz_jnid) { report.existing_counted += 1; continue; }
+        const r = await fetch(`${SB_URL}/rest/v1/canvass_prospects?id=eq.${d.id}`, {
+          method: "PATCH", headers: { ...sbHeaders, Prefer: "return=minimal" },
+          body: JSON.stringify({ extra: { ...ex, clover_zone_jnid: jnid, clover_zone_install: addr } }),
+        });
+        if (r.ok) report.existing_counted += 1;
+      }
       const rows = [];
       for (const { n, street } of cand) {
-        if (taken.has(street.toUpperCase().trim())) { report.skipped_existing_addr += 1; continue; }
+        if (taken.has(street.toUpperCase().trim())) continue; // counted above, keeps its own pin
         rows.push({
           name: n.owner || "Homeowner",
           address: street, city: n.city || j.city || null, state: "FL", zip: n.zip || null,
@@ -112,10 +139,20 @@ exports.handler = async (event) => {
             clover_jnid: jnid, install_address: addr,
             owner: n.owner || null, homestead: true, occupancy: "owner_occupied",
             parcel_id: n.parcel_id || null, synced_at: nowIso,
-            ...(sellerName ? { claimed_by: sellerName, claimed_by_jn: sellerId } : {}),
+            ...(sellerName ? { sold_by: sellerName, sold_by_jn: sellerId } : {}),
           },
         });
       }
+      // ONE 🚧 pin at the install itself — "the crew is on THAT roof right there"
+      // (Neal: "it should highlight where the install is").
+      rows.push({
+        name: "🚧 Roof being installed",
+        address: j.address_line1, city: j.city || null, state: "FL", zip: j.zip || null,
+        latitude: geo.lat, longitude: geo.lng, geocode_status: "ok",
+        status: "install_home", status_by: "Clover leaf", status_updated_at: nowIso,
+        list_name: LIST_NAME,
+        extra: { clover_jnid: jnid, install_home: true, install_address: addr, synced_at: nowIso, ...(sellerName ? { sold_by: sellerName, sold_by_jn: sellerId } : {}) },
+      });
       if (rows.length) {
         const r = await fetch(`${SB_URL}/rest/v1/canvass_prospects`, {
           method: "POST", headers: { ...sbHeaders, Prefer: "return=minimal" }, body: JSON.stringify(rows),
@@ -125,6 +162,47 @@ exports.handler = async (event) => {
       }
     }
     report.installs.push(entry);
+  }
+
+  // 3b. Backfill the 🚧 install-home marker for installs clovered BEFORE this
+  //     feature existed. (New installs get theirs in the loop above; those jnids
+  //     aren't in cloveredJnids yet, so this can't double-create them.)
+  if (commit) {
+    try {
+      const haveHome = new Set();
+      for (const p of existingClover) {
+        if (p.status !== "install_home") continue;
+        const bj = p.extra && (p.extra.clover_jnid || p.extra.blitz_jnid);
+        if (bj) haveHome.add(bj);
+      }
+      const homeRows = [];
+      const nowIso = new Date().toISOString();
+      for (const j of jobs) {
+        const jnid = jnidOf(j);
+        if (!cloveredJnids.has(jnid) || haveHome.has(jnid) || !j.address_line1) continue;
+        if (homeRows.length >= 10) break; // plenty per run; cron catches the rest
+        const addr = [j.address_line1, j.city, j.state_text, j.zip].filter(Boolean).join(", ");
+        const geo = (Number(j.geo && j.geo.lat) && Number(j.geo && j.geo.lon))
+          ? { lat: Number(j.geo.lat), lng: Number(j.geo.lon) }
+          : await geocode(addr);
+        if (!geo) continue;
+        const sellerName = String(j.sales_rep_name || "").trim() || null;
+        homeRows.push({
+          name: "🚧 Roof being installed",
+          address: j.address_line1, city: j.city || null, state: "FL", zip: j.zip || null,
+          latitude: geo.lat, longitude: geo.lng, geocode_status: "ok",
+          status: "install_home", status_by: "Clover leaf", status_updated_at: nowIso,
+          list_name: LIST_NAME,
+          extra: { clover_jnid: jnid, install_home: true, install_address: addr, synced_at: nowIso, ...(sellerName ? { sold_by: sellerName, sold_by_jn: j.sales_rep || null } : {}) },
+        });
+      }
+      if (homeRows.length) {
+        const r = await fetch(`${SB_URL}/rest/v1/canvass_prospects`, {
+          method: "POST", headers: { ...sbHeaders, Prefer: "return=minimal" }, body: JSON.stringify(homeRows),
+        });
+        if (r.ok) report.install_homes_backfilled = homeRows.length;
+      }
+    } catch { /* best-effort */ }
   }
 
   // 4. Cleanup when an install WRAPS: the job left "Roof Started" (proof = we saw
@@ -184,6 +262,7 @@ exports.handler = async (event) => {
     } catch { /* best-effort */ }
   }
 
+  if (commit) await releaseLock();
   return json(200, report);
 };
 
@@ -294,6 +373,38 @@ async function sbGetAll(path) {
     if (rows.length < 1000) break;
   }
   return all;
+}
+// ── Sync lock (app_settings.clover_sync_lock = ISO timestamp of the running sync).
+// ISO strings compare lexicographically, so PostgREST's value=lt.<cutoff> is an
+// atomic "steal only if stale" — two racers can't both win the PATCH.
+async function acquireLock() {
+  const nowIso = new Date().toISOString();
+  const cutoff = new Date(Date.now() - LOCK_MS).toISOString();
+  try {
+    const r = await fetch(`${SB_URL}/rest/v1/app_settings?key=eq.clover_sync_lock&value=lt.${encodeURIComponent(cutoff)}`, {
+      method: "PATCH", headers: { ...sbHeaders, Prefer: "return=representation" }, body: JSON.stringify({ value: nowIso }),
+    });
+    const rows = r.ok ? await r.json().catch(() => []) : [];
+    if (rows.length) return true;          // stale (or released) lock stolen — we own it
+    const cur = await readSetting("clover_sync_lock");
+    if (cur && cur >= cutoff) return false; // someone else is mid-run
+    if (!cur) {                             // first ever run — create the row
+      const c = await fetch(`${SB_URL}/rest/v1/app_settings`, {
+        method: "POST", headers: { ...sbHeaders, Prefer: "return=minimal" },
+        body: JSON.stringify({ key: "clover_sync_lock", value: nowIso }),
+      });
+      return c.ok;
+    }
+    return false;
+  } catch { return true; } // never let a lock hiccup block the cron entirely
+}
+async function releaseLock() {
+  try {
+    await fetch(`${SB_URL}/rest/v1/app_settings?key=eq.clover_sync_lock`, {
+      method: "PATCH", headers: { ...sbHeaders, Prefer: "return=minimal" },
+      body: JSON.stringify({ value: "1970-01-01T00:00:00.000Z" }),
+    });
+  } catch { /* it expires on its own in LOCK_MS anyway */ }
 }
 async function readSetting(key) {
   try {

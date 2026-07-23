@@ -39,9 +39,10 @@ const SCENARIOS = [
     key: "clover", icon: "🍀", role: "all",
     q: "Green 🍀 clover pins showed up around a job we're installing",
     steps: [
-      "That's a Clover Leaf — when a roof YOU SOLD starts, the map auto-pins the owner-occupied neighbors so you can knock while the crew is visibly on it: “we're doing your neighbor's roof right now.”",
-      "The cloverleaf is YOURS — you sold that roof, so only you see those pins. (If a rep leaves, their clover doors open up for whoever works the area.)",
+      "That's a Clover Leaf — the moment a roof we sold starts installing, the map auto-pins the owner-occupied neighbors so you can knock while the crew is visibly on it: “we're doing your neighbor's roof right now.” The pulsing 🚧 marker is the install itself.",
+      "Clover doors are open to ANY rep — but the FIRST rep to status one owns it from then on, like a self-gen. Get there first.",
       "At each clover door, tap the result: ✅ Roof looks fine · 🏚️ Damage observed · 🏠 Not home · 📅 Book an appt / ✍️ Sign the inspection · 🚫 Not interested.",
+      "A door in the cluster that already has a pin (like a blue IQ) KEEPS that pin — work it by ITS color, not the clover pitch: an IQ door already wants a roof.",
       "🏚️ Damage-observed doors stay on the map for good (an old roof with damage is a lead). The rest clear once the install wraps.",
     ],
     note: "These are pre-checked against county records — every clover door is owner-occupied, so you're always talking to the decision-maker.",

@@ -63,7 +63,8 @@ export default function HarvestAdmin() {
       const j = await r.json().catch(() => ({}));
       if (j.ok === false || !r.ok) setMsg({ err: j.error || j.note || `Sync failed (${r.status})` });
       else if (j.enabled === false) setMsg({ err: "Clover Leaf is OFF — flip the toggle on first." });
-      else setMsg({ ok: `🍀 Sync: ${j.roof_started} roofs started · ${j.new_installs} new this run · ${j.pins_created} pins dropped${j.skipped_existing_addr ? ` · ${j.skipped_existing_addr} already pinned` : ""}${j.note ? ` — ${j.note} Tap Sync again.` : "."}` });
+      else if (j.locked) setMsg({ err: j.note || "Another sync is already running — give it a minute." });
+      else setMsg({ ok: `🍀 Sync: ${j.roof_started} roofs started · ${j.new_installs} new this run · ${j.pins_created} pins added${j.existing_counted ? ` · ${j.existing_counted} doors already pinned (counted — kept their status)` : ""}${j.note ? ` — ${j.note} Tap Sync again.` : "."}` });
     } catch (e) { setMsg({ err: e.message || "Sync failed" }); }
     setBlitzSyncing(false);
   };
@@ -186,7 +187,7 @@ export default function HarvestAdmin() {
         <div>
           <div style={{ fontSize: 15, fontWeight: 800 }}>🍀 Clover Leaf</div>
           <div style={{ fontSize: 12.5, color: "#64748b", marginTop: 3 }}>
-            When a JobNimbus job hits <b>“Roof Started”</b>, the map auto-drops the ~30 nearest <b>owner-occupied</b> neighbors as 🍀 clover pins — knocked “we're doing your neighbor's roof <i>right now</i>” while the crew is visibly on it. <b>The cloverleaf belongs to the rep who SOLD that roof</b> — only they see the pins; if they go inactive, the doors open up for the reps in that area. At the door: <b>Roof looks fine · Damage observed · Not home · Book appt / Sign · Not interested</b>. <b>Damage-observed doors stay forever</b>; the rest clear when the install wraps. Syncs every 2 hours, 7 AM–9 PM.
+            When a JobNimbus job hits <b>“Roof Started”</b>, the map auto-drops the ~30 nearest <b>owner-occupied</b> neighbors as 🍀 clover pins around a pulsing 🚧 marker on the install itself — knocked “we're doing your neighbor's roof <i>right now</i>” while the crew is visibly on it. <b>Clover doors are open to ANY rep — but whoever statuses a door first owns it</b> (like a self-gen; if they go inactive it reopens). At the door: <b>Roof looks fine · Damage observed · Not home · Book appt / Sign · Not interested</b>. <b>Damage-observed doors stay forever</b>; the rest clear when the install wraps. Syncs every 2 hours, 7 AM–9 PM.
           </div>
         </div>
         <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>

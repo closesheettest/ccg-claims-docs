@@ -31,6 +31,10 @@ const FALLBACK_TYPES = [
   // door: roof looks fine / damage observed / book appt / sign / not interested.
   // Damage-observed doors persist forever and belong to the rep who found them.
   { key: "clover", label: "🍀 Clover Leaf", color: "#15803d", outcomes: ["damage_observed", "roof_fine", "insp_sold", "appt", "insp_ni"] },
+  // The INSTALL ITSELF — a pulsing 🚧 marker at the center of each clover cluster
+  // so reps see exactly where the crew is working ("we're doing THAT roof right
+  // there"). Info-only: no outcomes, nothing to status.
+  { key: "install_home", label: "🚧 Roof being installed", color: "#f97316", outcomes: [], is_terminal: true },
   { key: "damage_observed", label: "🏚️ Damage observed", color: "#b91c1c", outcomes: ["insp_sold", "appt", "insp_callback", "insp_ni", "dead"] },
   { key: "roof_fine", label: "✅ Roof looks fine", color: "#94a3b8", outcomes: [], is_terminal: true },
   // "Pending (come back)" — statuses the door but KEEPS it on the go-back list
@@ -462,6 +466,17 @@ const routeCap = (pins) => {
   return insp >= pins.length / 2 ? ROUTE_CAP_INSP : ROUTE_CAP_DEFAULT;
 };
 
+// 🚧 The install at the center of a Clover Leaf cluster — bigger + pulsing so it
+// pops out from the surrounding clover dots ("the crew is on THAT roof").
+const INSTALL_HOME_ICON = L.divIcon({
+  className: "harvest-install-home",
+  html: `<div style="position:relative;width:34px;height:34px">
+    <div style="position:absolute;inset:2px;border-radius:50%;background:#f97316;border:2.5px solid #fff;animation:hpulse2 1.8s ease-out infinite;display:flex;align-items:center;justify-content:center;font-size:15px;line-height:1">🚧</div>
+  </div>`,
+  iconSize: [34, 34],
+  iconAnchor: [17, 17],
+});
+
 // Colored dot as an L.Marker (divIcon) so it clusters — markerClusterGroup only
 // clusters L.Marker, not L.circleMarker.
 function dotIcon(color) {
@@ -859,9 +874,11 @@ export default function CanvassMap() {
   // teammate's appt cluttering the view). Booking writes status_by = the rep's
   // name, so match on that. Office/admin see all appts via the normal filter.
   const isMyAppt = (p) => !!(p && p.status === "appt" && repName && p.status_by === repName);
-  // 🍀 Clover Leaf doors: the FIRST rep to status one claims it (extra.claimed_by,
-  // stamped in setStatus) — after that it's theirs, like a self-gen. Claims release
-  // when the rep goes inactive (cron-install-blitz), reopening the door for everyone.
+  // 🍀 Clover Leaf doors (per Neal): visible + workable by ANY rep — but the
+  // FIRST rep to status one OWNS it ("who ever statuses it owns it"), like a
+  // self-gen. Everyone still SEES a claimed pin (its color shows the outcome so
+  // nobody re-knocks); only the owner can keep working it. extra.sold_by is
+  // info-only (whose install seeded the cluster).
   const isCloverPin = (p) => !!(p && (p.list_name === "Clover Leaf" || (p.extra && typeof p.extra === "object" && (p.extra.clover_jnid || p.extra.blitz_jnid))));
   const ownsPin = (p) => {
     if (isCloverPin(p)) {
@@ -1247,13 +1264,10 @@ export default function CanvassMap() {
     // Self-generated doors ALWAYS show — even after the status moves off the
     // active filter (e.g. tapping Pending → insp_callback), so a rep's own leads
     // never vanish. (Routing still skips terminal statuses.)
-    const shown = mapped.filter((p) => {
-      // 🍀 Clover doors belong to the rep who SOLD the install — other reps don't
-      // even see them. Released claims (rep went inactive) show for whoever works
-      // the area; office/admin sees everything (ownsPin handles all of that).
-      if (isCloverPin(p) && !ownsPin(p)) return false;
-      return isSelfGenPin(p) || isMyAppt(p) || (inFilter(p.status) && (!visKeys || visKeys.has(p.status)));
-    });
+    const shown = mapped.filter((p) =>
+      // 🍀 Clover doors show for EVERY rep (Neal: "make it available to anyone").
+      isSelfGenPin(p) || isMyAppt(p) || (inFilter(p.status) && (!visKeys || visKeys.has(p.status)))
+    );
     // Routing skips doors already worked TODAY — no rep gets re-routed to a door
     // another rep (or they) already handled today.
     shownRef.current = shown.filter((p) => !workedTodayET(p));
@@ -1267,7 +1281,10 @@ export default function CanvassMap() {
       // outcome from the next rep. Re-knock protection doesn't need the colour: the
       // route builder already skips doors worked today (see shownRef below).
       const color = (S[p.status] || UNKNOWN_TYPE).color;
-      const marker = L.marker([p.latitude, p.longitude], { icon: p.status === "non_owner" ? xIcon(color) : isSelfGen ? selfGenIcon(true) : dotIcon(color) });
+      const marker = L.marker([p.latitude, p.longitude], {
+        icon: p.status === "install_home" ? INSTALL_HOME_ICON : p.status === "non_owner" ? xIcon(color) : isSelfGen ? selfGenIcon(true) : dotIcon(color),
+        ...(p.status === "install_home" ? { zIndexOffset: 900 } : {}),
+      });
       marker.on("click", () => openPin(p));
       markers.push(marker);
       pts.push([p.latitude, p.longitude]);
@@ -1384,8 +1401,8 @@ export default function CanvassMap() {
     const entry = { at: nowIso, from: p.status, to: newStatus, by: repName || "rep" };
     const log = Array.isArray(p.status_log) ? [...p.status_log, entry] : [entry];
     const patch = { status: newStatus, status_updated_at: nowIso, status_by: repName || null, status_log: log };
-    // First rep to work a 🍀 clover door CLAIMS it — the pin becomes theirs (other
-    // reps see "belongs to …"). Released by the cron if they go inactive.
+    // First rep to status a 🍀 clover door OWNS it from then on ("who ever
+    // statuses it owns it" — Neal). Everyone still sees it; only they work it.
     if (isCloverPin(p) && auth.rt && repName && !(p.extra && p.extra.claimed_by)) {
       patch.extra = { ...(p.extra && typeof p.extra === "object" ? p.extra : {}), claimed_by: repName, claimed_by_jn: me?.jn_id || null };
     }
@@ -2831,7 +2848,7 @@ export default function CanvassMap() {
       {/* Map */}
       <div style={{ position: "relative", flex: 1 }}>
         <div ref={mapEl} style={{ position: "absolute", inset: 0, right: isDesktop ? 300 : 0 }} />
-        <style>{`@keyframes hpulse{0%{box-shadow:0 1px 5px rgba(0,0,0,.5),0 0 0 0 rgba(124,58,237,.5)}70%{box-shadow:0 1px 5px rgba(0,0,0,.5),0 0 0 14px rgba(124,58,237,0)}100%{box-shadow:0 1px 5px rgba(0,0,0,.5),0 0 0 0 rgba(124,58,237,0)}}`}</style>
+        <style>{`@keyframes hpulse{0%{box-shadow:0 1px 5px rgba(0,0,0,.5),0 0 0 0 rgba(124,58,237,.5)}70%{box-shadow:0 1px 5px rgba(0,0,0,.5),0 0 0 14px rgba(124,58,237,0)}100%{box-shadow:0 1px 5px rgba(0,0,0,.5),0 0 0 0 rgba(124,58,237,0)}}@keyframes hpulse2{0%{box-shadow:0 1px 4px rgba(0,0,0,.5),0 0 0 0 rgba(249,115,22,.55)}70%{box-shadow:0 1px 4px rgba(0,0,0,.5),0 0 0 16px rgba(249,115,22,0)}100%{box-shadow:0 1px 4px rgba(0,0,0,.5),0 0 0 0 rgba(249,115,22,0)}}`}</style>
 
         {/* ── Web (desktop) right column: status cards + upload / JN sync ── */}
         {isDesktop && (
@@ -3334,7 +3351,7 @@ export default function CanvassMap() {
                     <div style={{ marginTop: 14, background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 12, padding: "14px 16px", textAlign: "center" }}>
                       <div style={{ fontSize: 22 }}>🔒</div>
                       <div style={{ fontSize: 13.5, fontWeight: 800, color: "#334155", marginTop: 2 }}>This pin belongs to {pinOwnerName(stop)}</div>
-                      <div style={{ fontSize: 12.5, color: "#64748b", marginTop: 3 }}>Only {pinOwnerName(stop)} can work their self-generated door.</div>
+                      <div style={{ fontSize: 12.5, color: "#64748b", marginTop: 3 }}>{isCloverPin(stop) ? `They worked this clover door first — only ${pinOwnerName(stop)} can keep working it.` : `Only ${pinOwnerName(stop)} can work their self-generated door.`}</div>
                     </div>
                   ) : (<>
                   <div style={{ fontSize: 11, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", margin: "13px 0 6px" }}>How'd it go?</div>
@@ -3651,7 +3668,7 @@ export default function CanvassMap() {
             <div style={{ marginTop: 14, background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 12, padding: "14px 16px", textAlign: "center" }}>
               <div style={{ fontSize: 22 }}>🔒</div>
               <div style={{ fontSize: 13.5, fontWeight: 800, color: "#334155", marginTop: 2 }}>This pin belongs to {pinOwnerName(selected)}</div>
-              <div style={{ fontSize: 12.5, color: "#64748b", marginTop: 3 }}>They self-generated this door — only {pinOwnerName(selected)} can work it.</div>
+              <div style={{ fontSize: 12.5, color: "#64748b", marginTop: 3 }}>{isCloverPin(selected) ? `They worked this clover door first — only ${pinOwnerName(selected)} can keep working it.` : `They self-generated this door — only ${pinOwnerName(selected)} can work it.`}</div>
             </div>
           ) : auth.rt && !dayMode ? (
             // NOT on a route: statusing stays gated to route work, so every knock is
