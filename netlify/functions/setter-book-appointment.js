@@ -142,7 +142,9 @@ exports.handler = async (event) => {
   const mgr = await resolveManager(lat, lng, body.county);
   let owner = mgr.id || VIVIANA_ID;     // Viviana only if no manager maps to the zone
   let repId = null, repName = "";       // no sales rep at booking time (setter flow)
-  if (body.rep_booked && setter) {
+  // (Exception: William Hernandez, the trainer, doesn't run what he books — his
+  // bookings stay on the setter flow: zone manager owns, manager assigns.)
+  if (body.rep_booked && setter && setter.toLowerCase() !== "william hernandez") {
     const self = (await fetchReps()).find((r) => r.active && r.jobnimbus_id && String(r.name || "").trim().toLowerCase() === setter.toLowerCase());
     if (self) { owner = self.jobnimbus_id; repId = self.jobnimbus_id; repName = self.name; }
   }

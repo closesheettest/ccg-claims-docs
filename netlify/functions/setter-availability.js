@@ -54,8 +54,10 @@ exports.handler = async (event) => {
     // booking THEIR OWN appointment, so offer ONLY their free times (Neal: "it
     // needs to show that reps availability only"). No radius/senior gate — it's
     // their run. Falls through to the normal pool if the name doesn't resolve.
+    // EXCEPTION: William Hernandez (the trainer) doesn't run what he books — his
+    // bookings act like the appointment setter's (zone pool, manager assigns).
     const repName = String(body.rep_name || "").trim().toLowerCase();
-    const self = repName ? all.find((r) => r.active && r.jobnimbus_id && String(r.name || "").trim().toLowerCase() === repName) : null;
+    const self = repName && repName !== "william hernandez" ? all.find((r) => r.active && r.jobnimbus_id && String(r.name || "").trim().toLowerCase() === repName) : null;
     // Active, SENIOR (qualified for company appointments — juniors don't get them)
     // reps in the zone with a home geocode, within the radius.
     const near = self ? [{ ...self, distance_mi: 0 }]
