@@ -503,26 +503,31 @@ function etDayBounds(offsetDays) {
 
 // JN appointment tasks owned by any of the team's reps in [startSec, endSec],
 // enriched with each task's JOB so we get the OWNER + SALES REP + homeowner
-// (sales_rep lives on the job, not the appointment task). Per-rep `term` task
-// query + a batched job fetch, all parallel.
+// (sales_rep lives on the job, not the appointment task). ONE date-range task
+// sweep — JN silently ignores { term: { 'owners.id' } } (returns nothing), so
+// owners are matched in code — + a batched job fetch.
 async function jnTeamAppointments(ownerIds, startSec, endSec, nameByJn = {}, enrich = true) {
   if (!JN_KEY || !ownerIds.length) return []
   const headers = { Authorization: `bearer ${JN_KEY}` }
   const cleanName = (title) => title.replace(/^.*?appointment\s*[—-]\s*/i, '').trim() || title || 'Appointment'
-  const tasksFor = async (rid) => {
-    try {
-      const filter = encodeURIComponent(JSON.stringify({ must: [{ range: { date_start: { gte: startSec, lte: endSec } } }, { term: { 'owners.id': rid } }] }))
-      const r = await fetch(`${JN_BASE}/tasks?size=200&filter=${filter}`, { headers })
-      if (!r.ok) return []
+  const ownerSet = new Set(ownerIds.map(String))
+  const tasks = []
+  try {
+    const filter = encodeURIComponent(JSON.stringify({ must: [{ range: { date_start: { gte: startSec, lte: endSec } } }] }))
+    for (let page = 0; page < 10; page++) {
+      const r = await fetch(`${JN_BASE}/tasks?size=100&from=${page * 100}&filter=${filter}`, { headers })
+      if (!r.ok) break
       const d = await r.json().catch(() => ({}))
-      return d.results || d.tasks || d.data || []
-    } catch { return [] }
-  }
-  const tasks = (await Promise.all(ownerIds.map(tasksFor))).flat()
+      const rows = d.results || d.tasks || d.data || []
+      tasks.push(...rows)
+      if (rows.length < 100) break
+    }
+  } catch { /* return what we have */ }
   const seen = new Set(); const appts = []
   for (const t of tasks) {
     const tid = t.jnid || t.id
     if (!tid || seen.has(tid)) continue; seen.add(tid)
+    if (!(t.owners || []).some((o) => ownerSet.has(String(o.id)))) continue
     if (!/appoint/i.test(String(t.record_type_name || t.title || ''))) continue
     if (t.is_completed === true || t.is_active === false) continue // already done / deleted — not on the calendar
     const job = (t.related || []).find((x) => x.type === 'job') || {}

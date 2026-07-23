@@ -80,8 +80,10 @@ exports.handler = async (event) => {
 };
 
 // The rep's JN tasks/appointments in the window (owned by them, dated).
+// Date-range filter ONLY — JN silently ignores { term: { "owners.id" } }
+// (returns nothing); the owner is matched in code instead.
 async function fetchRepEvents(repJnid, startSec, endSec) {
-  const filter = encodeURIComponent(JSON.stringify({ must: [{ range: { date_start: { gte: startSec, lte: endSec } } }, { term: { "owners.id": repJnid } }] }));
+  const filter = encodeURIComponent(JSON.stringify({ must: [{ range: { date_start: { gte: startSec, lte: endSec } } }] }));
   const out = [];
   for (let page = 0; page < 10; page++) {
     const r = await fetch(`${JN_BASE}/tasks?size=100&from=${page * 100}&filter=${filter}`, { headers: jnH });
@@ -89,6 +91,7 @@ async function fetchRepEvents(repJnid, startSec, endSec) {
     const d = await r.json().catch(() => ({}));
     const rows = d.results || d.tasks || [];
     for (const t of rows) {
+      if (!(t.owners || []).some((o) => String(o.id) === String(repJnid))) continue;
       const ds = Number(t.date_start); if (!ds) continue;
       const de = Number(t.date_end) || ds + 3600;
       const job = (t.related || []).find((x) => x.type === "job");

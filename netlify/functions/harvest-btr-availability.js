@@ -53,14 +53,16 @@ export const handler = async (event) => {
 
   const nowSec = Math.floor(Date.now() / 1000);
   const endSec = nowSec + 15 * 86400;
+  // Date-range ONLY — JN silently ignores { term: { "owners.id" } } (returns
+  // nothing), which left `booked` empty and offered already-taken times. Owner
+  // matched in code below.
   const filter = encodeURIComponent(JSON.stringify({ must: [
     { range: { date_start: { gte: nowSec, lte: endSec } } },
-    { term: { "owners.id": ownerJn } },
   ] }));
 
   const booked = [];
   try {
-    for (let page = 0; page < 5; page++) {
+    for (let page = 0; page < 10; page++) {
       const r = await jnFetch(JN_KEY, `tasks?size=100&from=${page * 100}&filter=${filter}`);
       if (!r.ok) break;
       const d = await r.json().catch(() => ({}));

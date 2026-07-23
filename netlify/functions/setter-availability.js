@@ -70,11 +70,17 @@ exports.handler = async (event) => {
     const dateBlockRows = repIds.length ? await sbGet(`rep_date_blocks?rep_id=in.(${repIds.map((x) => `"${x}"`).join(",")})&select=rep_id,date,start_min&limit=10000`) : [];
     const blocksByRep = {}; for (const b of dateBlockRows) (blocksByRep[b.rep_id] = blocksByRep[b.rep_id] || new Set()).add(`${b.date}:${b.start_min}`);
 
+    // Everyone's upcoming appt tasks in ONE window fetch, owners matched in code
+    // — JN's task search does NOT honor { term: { "owners.id" } } (it silently
+    // returns nothing), which is why reps saw slots they were already booked on
+    // (Sam's bug). Same date-only + code-match approach as harvest-today-appts.
+    const bookedByRep = await allBookedSlots(now, days, new Set(jnids.map(String)));
+
     // Per-rep open slots + load (their upcoming-appt count → round-robin weight).
     const perRep = [];
     for (const r of near) {
       const blocked = blocksByRep[idByJn[r.jobnimbus_id]] || new Set();
-      const booked = await repBookedSlots(r.jobnimbus_id, now, days);
+      const booked = bookedByRep.get(String(r.jobnimbus_id)) || new Set();
       perRep.push({ id: r.jobnimbus_id, name: r.name, load: booked.size, dayList: buildDays(now, days, blocked, booked) });
     }
     // Aggregate across reps by date+hour — the setter sees TIME SLOTS, not reps.
@@ -100,16 +106,37 @@ exports.handler = async (event) => {
   }
 };
 
-// The day/hour slots a rep is already booked on (their future JN appointments).
-async function repBookedSlots(repJnid, nowMs, days) {
-  const booked = new Set();
+// Every rep's already-booked day/hour slots in the window: ONE date-range task
+// fetch (paged), owners matched in code. Only real appointment tasks block a
+// slot — Initial/Reset/Appointment — so a follow-up task at a go-back time
+// doesn't falsely close the hour.
+const APPT_TASK_TYPES = new Set(["Initial Appointment", "Reset Appointment", "Appointment"]);
+const APPT_TASK_RTS = new Set([4, 12, 17]);
+async function allBookedSlots(nowMs, days, jnidSet) {
+  const byRep = new Map();
   const startSec = Math.floor(nowMs / 1000), endSec = Math.floor((nowMs + (days + 1) * 864e5) / 1000);
-  const filter = encodeURIComponent(JSON.stringify({ must: [{ range: { date_start: { gte: startSec, lte: endSec } } }, { term: { "owners.id": repJnid } }] }));
+  const filter = encodeURIComponent(JSON.stringify({ must: [{ range: { date_start: { gte: startSec, lte: endSec } } }] }));
   try {
-    const r = await fetch(`${JN_BASE}/tasks?size=100&filter=${filter}`, { headers: jnH });
-    if (r.ok) { const d = await r.json(); for (const t of (d.results || [])) { const ds = Number(t.date_start); if (ds) booked.add(etSlotKey(ds * 1000)); } }
+    for (let page = 0; page < 10; page++) {
+      const r = await fetch(`${JN_BASE}/tasks?size=100&from=${page * 100}&filter=${filter}`, { headers: jnH });
+      if (!r.ok) break;
+      const d = await r.json().catch(() => ({}));
+      const results = d.results || d.tasks || [];
+      for (const t of results) {
+        if (t.is_completed) continue;
+        if (!APPT_TASK_TYPES.has(t.record_type_name) && !APPT_TASK_RTS.has(Number(t.record_type))) continue;
+        const ds = Number(t.date_start); if (!ds) continue;
+        for (const o of (t.owners || [])) {
+          const oid = String(o.id || "");
+          if (!jnidSet.has(oid)) continue;
+          if (!byRep.has(oid)) byRep.set(oid, new Set());
+          byRep.get(oid).add(etSlotKey(ds * 1000));
+        }
+      }
+      if (results.length < 100) break;
+    }
   } catch { /* ignore */ }
-  return booked;
+  return byRep;
 }
 
 // Build the per-day open-slot list (default retail hours minus blocked minus booked, future only).

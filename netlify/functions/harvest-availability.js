@@ -30,14 +30,17 @@ export const handler = async (event) => {
 
   const nowSec = Math.floor(Date.now() / 1000);
   const endSec = nowSec + 15 * 86400; // ~2 weeks out (matches the scheduler horizon)
+  // Date-range ONLY — JN's task search silently returns NOTHING for a nested
+  // { term: { "owners.id" } } filter, so with it in place `booked` was always
+  // empty and the scheduler offered times the rep already had appointments
+  // (Sam's bug). Owner is matched in code below instead.
   const filter = encodeURIComponent(JSON.stringify({ must: [
     { range: { date_start: { gte: nowSec, lte: endSec } } },
-    { term: { "owners.id": jn } },
   ] }));
 
   const booked = [];
   try {
-    for (let page = 0; page < 5; page++) {
+    for (let page = 0; page < 10; page++) {
       const r = await jnFetch(JN_KEY, `tasks?size=100&from=${page * 100}&filter=${filter}`);
       if (!r.ok) break;
       const d = await r.json().catch(() => ({}));
