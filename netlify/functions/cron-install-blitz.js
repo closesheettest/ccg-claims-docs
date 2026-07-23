@@ -1,25 +1,30 @@
 // netlify/functions/cron-install-blitz.js
 //
-// INSTALL-RADIUS BLITZ — the highest-converting knock in door-to-door, automated:
-// the moment a JobNimbus job hits "Roof Started", this pulls the OWNER-OCCUPIED
-// neighbors around that address from the free FL statewide cadastral and drops
-// them on the Harvesting Map as 🔥 blitz pins — so reps knock "we're doing your
-// neighbor's roof RIGHT NOW" while the crew is visibly on the roof.
+// 🍀 CLOVER LEAF — the classic knock-around-the-job play, automated: the moment
+// a JobNimbus job hits "Roof Started", this pulls the OWNER-OCCUPIED neighbors
+// around that address from the free FL statewide cadastral and drops them on the
+// Harvesting Map as 🍀 clover pins — reps knock "we're doing your neighbor's
+// roof RIGHT NOW" while the crew is visibly on it.
 //
 //   • Toggle: app_settings.harvest_blitz_enabled ("true"/"false", default OFF) —
 //     the office flips it on the Pin Types admin page. OFF → this cron no-ops.
-//   • Trigger: JN status_name "Roof Started" (exact match, same fetch pattern as
-//     the no-sit sync).
+//   • Trigger: JN status_name "Roof Started" (exact match).
 //   • Neighbors: cadastral parcels within RADIUS_M of the install, homesteaded
-//     (JV_HMSTD/AV_HMSTD > 0 = owner-occupied), nearest first, capped at MAX_DOORS.
+//     (JV_HMSTD/AV_HMSTD > 0 = owner-occupied), nearest first, capped MAX_DOORS.
 //     The install's own parcel and any address that already has a pin are skipped.
-//   • Pins: canvass_prospects status "blitz" (pin type seeded in harvest_pin_types,
-//     visible to juniors + seniors, outcomes mirror inspection doors), list_name
-//     "Install Blitz", extra { blitz_jnid, install_address, owner, … }.
-//   • Cleanup: when a job LEAVES "Roof Started" (or after MAX_AGE_DAYS), its
-//     UNWORKED blitz pins (still status=blitz) are removed — worked doors keep
-//     their status. Same "only delete what we have proof moved" guard as the
-//     no-sit sync, so a partial JN fetch can't wipe pins.
+//   • Pins: canvass_prospects status "clover" (pin type in harvest_pin_types; at
+//     the door the rep picks: Roof looks fine · Damage observed · Not home ·
+//     Book appt / Sign inspection · Not interested), list_name "Clover Leaf".
+//   • Persistence (per Neal): ONLY the doors worth keeping survive the install —
+//     "Damage observed" stays FOREVER (an old roof with damage = a lead), and
+//     live deal states (appt / sold / pending / come-back) are left alone. All
+//     the rest — unworked clover, roof-looks-fine, not-interested, dead,
+//     new-roof — clear once the job LEAVES "Roof Started" (proof-guarded, same
+//     as the no-sit reconcile, so a partial JN fetch can't wipe pins).
+//   • Ownership: the first rep to STATUS a clover door claims it (map-side,
+//     extra.claimed_by). This cron also releases claims whose rep is no longer
+//     active — so a departed rep's "Damage observed" doors open back up for
+//     everyone.
 //
 // GET = dry-run report · ?commit=1 = write · scheduled runs auto-commit.
 
@@ -29,10 +34,11 @@ const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const GOOGLE_KEY = process.env.GOOGLE_MAPS_API_KEY;
 
-const BLITZ_STATUS = "Roof Started";
+const TRIGGER_STATUS = "Roof Started";
+const LIST_NAME = "Clover Leaf";
 const RADIUS_M = 250;        // ~820 ft around the install
 const MAX_DOORS = 30;        // nearest owner-occupied neighbors per install
-const MAX_AGE_DAYS = 14;     // unworked blitz pins expire after this
+const REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones";
 const CADASTRAL =
   "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0/query";
 
@@ -47,24 +53,23 @@ exports.handler = async (event) => {
 
   // Toggle — default OFF until Neal flips it.
   const enabled = String((await readSetting("harvest_blitz_enabled")) || "false") === "true";
-  if (!enabled) return json(200, { ok: true, enabled: false, note: "Blitz is OFF (harvest_blitz_enabled). Nothing done." });
+  if (!enabled) return json(200, { ok: true, enabled: false, note: "Clover Leaf is OFF (harvest_blitz_enabled). Nothing done." });
 
   // 1. Every job currently in "Roof Started".
-  const jobs = await fetchJobsByStatus(BLITZ_STATUS);
+  const jobs = await fetchJobsByStatus(TRIGGER_STATUS);
   const jnidOf = (j) => j.jnid || j.id;
-  const liveJnids = new Set(jobs.map(jnidOf));
 
-  // 2. Which installs have we already blitzed? (any pin carrying that blitz_jnid)
-  const blitzedJnids = new Set();
-  const existingBlitz = await sbGetAll(`canvass_prospects?list_name=eq.${encodeURIComponent("Install Blitz")}&select=id,status,extra`);
-  for (const p of existingBlitz) { const j = p.extra && p.extra.blitz_jnid; if (j) blitzedJnids.add(j); }
+  // 2. Which installs have we already clover-leafed? (any pin carrying that jnid)
+  const cloveredJnids = new Set();
+  const existingClover = await sbGetAll(`canvass_prospects?list_name=eq.${encodeURIComponent(LIST_NAME)}&select=id,status,extra`);
+  for (const p of existingClover) { const j = p.extra && (p.extra.clover_jnid || p.extra.blitz_jnid); if (j) cloveredJnids.add(j); }
 
-  const report = { ok: true, enabled: true, committed: commit, roof_started: jobs.length, new_installs: 0, pins_created: 0, skipped_existing_addr: 0, removed_stale: 0, installs: [] };
+  const report = { ok: true, enabled: true, committed: commit, roof_started: jobs.length, new_installs: 0, pins_created: 0, skipped_existing_addr: 0, claims_released: 0, installs: [] };
 
-  // 3. Blitz each NEW install.
+  // 3. Clover-leaf each NEW install.
   for (const j of jobs) {
     const jnid = jnidOf(j);
-    if (blitzedJnids.has(jnid)) continue;
+    if (cloveredJnids.has(jnid)) continue;
     const addr = [j.address_line1, j.city, j.state_text, j.zip].filter(Boolean).join(", ");
     if (!j.address_line1) continue;
     const geo = (Number(j.geo && j.geo.lat) && Number(j.geo && j.geo.lon))
@@ -72,7 +77,6 @@ exports.handler = async (event) => {
       : await geocode(addr);
     if (!geo) { report.installs.push({ jnid, addr, error: "no geocode" }); continue; }
 
-    // Owner-occupied neighbors from the cadastral, nearest-first.
     const neighbors = await cadastralNeighbors(geo, j.address_line1);
     report.new_installs += 1;
     const entry = { jnid, addr, neighbors_found: neighbors.length, created: 0 };
@@ -81,19 +85,19 @@ exports.handler = async (event) => {
       const nowIso = new Date().toISOString();
       const rows = [];
       for (const n of neighbors.slice(0, MAX_DOORS)) {
-        // Skip doors that already have ANY pin at that address (don't stack pins).
         const street = (n.address || "").split(",")[0].trim();
         if (!street) continue;
+        // Skip doors that already have ANY pin at that address (don't stack pins).
         const dup = await sbGet(`canvass_prospects?address=ilike.${encodeURIComponent(street)}&select=id&limit=1`);
         if (dup.length) { report.skipped_existing_addr += 1; continue; }
         rows.push({
           name: n.owner || "Homeowner",
           address: street, city: n.city || j.city || null, state: "FL", zip: n.zip || null,
           latitude: n.lat, longitude: n.lng, geocode_status: "ok",
-          status: "blitz", status_by: "Install blitz", status_updated_at: nowIso,
-          list_name: "Install Blitz",
+          status: "clover", status_by: "Clover leaf", status_updated_at: nowIso,
+          list_name: LIST_NAME,
           extra: {
-            blitz_jnid: jnid, install_address: addr,
+            clover_jnid: jnid, install_address: addr,
             owner: n.owner || null, homestead: true, occupancy: "owner_occupied",
             parcel_id: n.parcel_id || null, synced_at: nowIso,
           },
@@ -110,27 +114,56 @@ exports.handler = async (event) => {
     report.installs.push(entry);
   }
 
-  // 4. Cleanup: unworked blitz pins whose install left "Roof Started" (with proof
-  //    from a recent any-status pull) or that aged out.
+  // 4. Cleanup when an install WRAPS: the job left "Roof Started" (proof = we saw
+  //    it in a recent any-status pull) → delete that install's clover pins EXCEPT
+  //    the keepers: Damage observed stays forever; live deal states are left alone.
   if (commit) {
-    const recent = await fetchRecentJobs(Math.floor(Date.now() / 1000) - 45 * 86400);
-    const seen = new Set([...jobs, ...recent].map(jnidOf));
-    const cutoff = Date.now() - MAX_AGE_DAYS * 86400 * 1000;
-    const stale = [];
-    for (const p of existingBlitz) {
-      if (p.status !== "blitz") continue; // worked doors keep their outcome
-      const bj = p.extra && p.extra.blitz_jnid;
-      const born = Date.parse((p.extra && p.extra.synced_at) || "") || 0;
-      const jobMoved = bj && seen.has(bj) && !liveJnids.has(bj);
-      if (jobMoved || (born && born < cutoff)) stale.push(p.id);
-    }
-    for (let i = 0; i < stale.length; i += 100) {
-      const chunk = stale.slice(i, i + 100);
-      const r = await fetch(`${SB_URL}/rest/v1/canvass_prospects?id=in.(${chunk.join(",")})`, {
-        method: "DELETE", headers: { ...sbHeaders, Prefer: "return=minimal" },
-      });
-      if (r.ok) report.removed_stale += chunk.length;
-    }
+    const KEEP_STATUSES = new Set(["damage_observed", "appt", "insp_sold", "insp_callback", "insp_pending"]);
+    try {
+      const liveJnids = new Set(jobs.map(jnidOf));
+      const recent = await fetchRecentJobs(Math.floor(Date.now() / 1000) - 45 * 86400);
+      const seen = new Set([...jobs, ...recent].map(jnidOf));
+      const stale = [];
+      for (const p of existingClover) {
+        if (KEEP_STATUSES.has(p.status)) continue;
+        const bj = p.extra && (p.extra.clover_jnid || p.extra.blitz_jnid);
+        if (!bj) continue;
+        if (seen.has(bj) && !liveJnids.has(bj)) stale.push(p.id); // install moved on → clear the leftovers
+      }
+      for (let i = 0; i < stale.length; i += 100) {
+        const chunk = stale.slice(i, i + 100);
+        const r = await fetch(`${SB_URL}/rest/v1/canvass_prospects?id=in.(${chunk.join(",")})`, {
+          method: "DELETE", headers: { ...sbHeaders, Prefer: "return=minimal" },
+        });
+        if (r.ok) report.removed_after_install = (report.removed_after_install || 0) + chunk.length;
+      }
+    } catch { /* best-effort */ }
+  }
+
+  // 5. Release claims whose rep is NO LONGER ACTIVE — the door (e.g. Damage
+  //    observed) opens back up for everyone. Guarded: if the active-rep feed
+  //    fails or looks empty, release nothing.
+  if (commit) {
+    try {
+      const rz = await fetch(REP_ZONES_URL);
+      const zj = rz.ok ? await rz.json().catch(() => null) : null;
+      const active = new Set(((zj && zj.reps) || []).map((r) => String(r.name || "").trim().toLowerCase()).filter(Boolean));
+      if (active.size >= 10) { // sanity: a broken feed must not mass-release
+        for (const p of existingClover) {
+          const claimed = p.extra && p.extra.claimed_by;
+          if (!claimed) continue;
+          if (active.has(String(claimed).trim().toLowerCase())) continue;
+          const nextExtra = { ...p.extra };
+          delete nextExtra.claimed_by; delete nextExtra.claimed_by_jn;
+          nextExtra.released_from = claimed; nextExtra.released_at = new Date().toISOString();
+          const r = await fetch(`${SB_URL}/rest/v1/canvass_prospects?id=eq.${p.id}`, {
+            method: "PATCH", headers: { ...sbHeaders, Prefer: "return=minimal" },
+            body: JSON.stringify({ extra: nextExtra }),
+          });
+          if (r.ok) report.claims_released += 1;
+        }
+      }
+    } catch { /* best-effort */ }
   }
 
   return json(200, report);
@@ -204,6 +237,7 @@ async function fetchJobsByStatus(status) {
   }
   return all;
 }
+
 async function fetchRecentJobs(sinceSec) {
   const all = [];
   for (let page = 0; page < 15; page++) {

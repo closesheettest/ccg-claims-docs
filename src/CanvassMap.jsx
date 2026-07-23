@@ -26,9 +26,13 @@ const FALLBACK_TYPES = [
   { key: "no_sit_reschedule", label: "No sit – need to reschedule", color: "#dc2626", outcomes: ["appt", "dead", "new_roof"] },
   { key: "iq_ni", label: "IQ – Not Interested", color: "#f59e0b", outcomes: ["insp_sold", "dead", "new_roof"] },
   { key: "insp", label: "Inspection Lead", color: "#0ea5e9", outcomes: ["insp_sold", "insp_ni", "insp_callback", "dead", "new_roof"] },
-  // Install-Radius Blitz — owner-occupied neighbors auto-pinned around a "Roof
-  // Started" job (cron-install-blitz) so reps knock while the crew is on the roof.
-  { key: "blitz", label: "🔥 Install Blitz", color: "#f97316", outcomes: ["insp_sold", "insp_ni", "insp_callback", "dead", "new_roof"] },
+  // 🍀 Clover Leaf — owner-occupied neighbors auto-pinned around a "Roof Started"
+  // job (cron-install-blitz) so reps knock while the crew is on the roof. At the
+  // door: roof looks fine / damage observed / book appt / sign / not interested.
+  // Damage-observed doors persist forever and belong to the rep who found them.
+  { key: "clover", label: "🍀 Clover Leaf", color: "#15803d", outcomes: ["damage_observed", "roof_fine", "insp_sold", "appt", "insp_ni"] },
+  { key: "damage_observed", label: "🏚️ Damage observed", color: "#b91c1c", outcomes: ["insp_sold", "appt", "insp_callback", "insp_ni", "dead"] },
+  { key: "roof_fine", label: "✅ Roof looks fine", color: "#94a3b8", outcomes: [], is_terminal: true },
   // "Pending (come back)" — statuses the door but KEEPS it on the go-back list
   // (see KEEP_ROUTABLE); a rep can note "talked to them, come back" without it
   // dropping off their route for the day.
@@ -855,7 +859,19 @@ export default function CanvassMap() {
   // teammate's appt cluttering the view). Booking writes status_by = the rep's
   // name, so match on that. Office/admin see all appts via the normal filter.
   const isMyAppt = (p) => !!(p && p.status === "appt" && repName && p.status_by === repName);
+  // 🍀 Clover Leaf doors: the FIRST rep to status one claims it (extra.claimed_by,
+  // stamped in setStatus) — after that it's theirs, like a self-gen. Claims release
+  // when the rep goes inactive (cron-install-blitz), reopening the door for everyone.
+  const isCloverPin = (p) => !!(p && (p.list_name === "Clover Leaf" || (p.extra && typeof p.extra === "object" && (p.extra.clover_jnid || p.extra.blitz_jnid))));
   const ownsPin = (p) => {
+    if (isCloverPin(p)) {
+      if (!auth.rt || me?.level === "admin") return true;          // office / admin
+      const cj = p.extra?.claimed_by_jn, cn = p.extra?.claimed_by;
+      if (!cj && !cn) return true;                                 // unclaimed — first worker claims it
+      if (cj && me?.jn_id) return String(cj) === String(me.jn_id);
+      if (cn && me?.name) return cn === me.name;
+      return false;
+    }
     if (!isSelfGenPin(p)) return true;
     if (!auth.rt || me?.level === "admin") return true; // office / admin see & work all
     const jn = p.extra?.created_by_jn, nm = p.extra?.created_by;
@@ -863,7 +879,7 @@ export default function CanvassMap() {
     if (nm && me?.name) return nm === me.name;
     return false;
   };
-  const pinOwnerName = (p) => (p && p.extra && p.extra.created_by) || "another rep";
+  const pinOwnerName = (p) => (p && p.extra && (p.extra.claimed_by || p.extra.created_by)) || "another rep";
   // Homeowner PII (name, phone, email, owner) shows only when the office/admin views it,
   // the rep OWNS the pin (their own self-gen door), or the pin is part of the rep's ACTIVE
   // planned route. Reps can't just tap pins to read off homeowner names — the details come
@@ -1362,6 +1378,11 @@ export default function CanvassMap() {
     const entry = { at: nowIso, from: p.status, to: newStatus, by: repName || "rep" };
     const log = Array.isArray(p.status_log) ? [...p.status_log, entry] : [entry];
     const patch = { status: newStatus, status_updated_at: nowIso, status_by: repName || null, status_log: log };
+    // First rep to work a 🍀 clover door CLAIMS it — the pin becomes theirs (other
+    // reps see "belongs to …"). Released by the cron if they go inactive.
+    if (isCloverPin(p) && auth.rt && repName && !(p.extra && p.extra.claimed_by)) {
+      patch.extra = { ...(p.extra && typeof p.extra === "object" ? p.extra : {}), claimed_by: repName, claimed_by_jn: me?.jn_id || null };
+    }
     // Practice mode: update the pin on-screen so they see the flow, but save nothing.
     if (demoMode) {
       setResolvedIds((s) => new Set(s).add(p.id));

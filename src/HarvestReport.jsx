@@ -11,9 +11,10 @@ const OSWALD = "'Oswald', sans-serif";
 const OUTCOMES = ["appt", "iq_ni", "insp_ni", "insp_sold", "no_sit_reschedule", "new_roof", "dead"];
 const OUTCOME_LABELS = { appt: "Appts", iq_ni: "IQ not int.", insp_ni: "Not interested", insp_sold: "Sold", no_sit_reschedule: "No-sit", new_roof: "New Roof", dead: "Dead",
   // Not columns — just friendly names so the stop-by-stop doesn't show the raw code.
-  insp_callback: "⏳ Pending come back", insp_pending: "Pending sig", not_home: "Not home", lost: "Lost", non_owner: "Non owner-occ" };
+  insp_callback: "⏳ Pending come back", insp_pending: "Pending sig", not_home: "Not home", lost: "Lost", non_owner: "Non owner-occ",
+  damage_observed: "🏚️ Damage observed", roof_fine: "✅ Roof looks fine" };
 // Friendly names for a pin's ORIGINAL status (for the New-Roof breakdown).
-const STATUS_LABEL = { iq: "IQ", iq_ni: "IQ – Not Interested", no_sit_reschedule: "No-sit – need to reschedule", insp: "Inspection Lead", appt: "Appointment", insp_pending: "Pending signature", insp_sold: "Inspection Sold" };
+const STATUS_LABEL = { iq: "IQ", iq_ni: "IQ – Not Interested", no_sit_reschedule: "No-sit – need to reschedule", insp: "Inspection Lead", appt: "Appointment", insp_pending: "Pending signature", insp_sold: "Inspection Sold", clover: "Clover Leaf", damage_observed: "Damage observed" };
 
 // The date window for a report period. Weeks start Monday. Returns { gte, lt } Date
 // bounds (lt is exclusive); null bound = open-ended. Custom uses the two date inputs.
@@ -108,7 +109,7 @@ export default function HarvestReport() {
   // (no_sit_reschedule/iq = retail; insp = a real inspection lead). Activity
   // statuses are only a last-resort fallback (they do catch appt bookings).
   const RETAIL_ORIGIN = new Set(["iq", "iq_ni", "no_sit_reschedule", "self_gen", "fb", "ai"]);
-  const RETAIL_LISTS = new Set(["JN Instant Quote", "JN No-Sits", "Self-Generated"]);
+  const RETAIL_LISTS = new Set(["JN Instant Quote", "JN No-Sits", "Self-Generated", "Clover Leaf"]);
   const RETAIL_STATUS = new Set(["iq", "iq_ni", "no_sit_reschedule"]);
   const pinBucket = useMemo(() => {
     const sig = {}; // pin_id → Set of every from/to status seen on its activity

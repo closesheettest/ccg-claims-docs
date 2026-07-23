@@ -50,7 +50,7 @@ export default function HarvestAdmin() {
     setBlitz(next); setBlitzBusy(true); setMsg(null);
     const { error } = await supabase.from("app_settings").upsert({ key: "harvest_blitz_enabled", value: next ? "true" : "false" }, { onConflict: "key" });
     setBlitzBusy(false);
-    setMsg(error ? { err: error.message } : { ok: `Install-Radius Blitz turned ${next ? "ON — neighbors will pin on the next sync after a roof starts" : "OFF"}.` });
+    setMsg(error ? { err: error.message } : { ok: `Clover Leaf turned ${next ? "ON — neighbors will pin on the next sync after a roof starts" : "OFF"}.` });
   };
   const saveEnhanced = async (next) => {
     setEnhanced(next); setEnhancedBusy(true); setMsg(null);
@@ -169,9 +169,9 @@ export default function HarvestAdmin() {
           crew is on the roof. */}
       <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, marginBottom: 16, background: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}>
         <div>
-          <div style={{ fontSize: 15, fontWeight: 800 }}>🔥 Install-Radius Blitz</div>
+          <div style={{ fontSize: 15, fontWeight: 800 }}>🍀 Clover Leaf</div>
           <div style={{ fontSize: 12.5, color: "#64748b", marginTop: 3 }}>
-            When a JobNimbus job hits <b>“Roof Started”</b>, the map auto-drops the ~30 nearest <b>owner-occupied</b> neighbors as 🔥 blitz pins — so reps knock “we're doing your neighbor's roof <i>right now</i>” while the crew is visibly on it. Checks county records (owner-occupied only), skips doors that already have a pin, and clears unworked blitz pins when the install wraps. Syncs every 2 hours, 7 AM–9 PM.
+            When a JobNimbus job hits <b>“Roof Started”</b>, the map auto-drops the ~30 nearest <b>owner-occupied</b> neighbors as 🍀 clover pins — reps knock “we're doing your neighbor's roof <i>right now</i>” while the crew is visibly on it. At the door: <b>Roof looks fine · Damage observed · Not home · Book appt / Sign · Not interested</b>. The first rep to work a door owns it (claims release if they go inactive). <b>Damage-observed doors stay forever</b>; the rest clear when the install wraps. Syncs every 2 hours, 7 AM–9 PM.
           </div>
         </div>
         <button type="button" onClick={() => saveBlitz(!blitz)} disabled={blitzBusy} title={blitz ? "On — tap to turn off" : "Off — tap to turn on"}
