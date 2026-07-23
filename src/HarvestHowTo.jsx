@@ -12,8 +12,9 @@
 //
 // Static content by design — update this file when a flow changes (same commit,
 // per the keep-docs-in-sync rule).
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import HarvestNav from "./HarvestNav";
+import { supabase } from "./lib/supabase";
 
 const OSWALD = "'Oswald', sans-serif";
 const FONT = "'Nunito', -apple-system, sans-serif";
@@ -24,7 +25,7 @@ const ROLE_COLOR = { all: "#475569", sr: "#b91c1c", jr: "#1d4ed8" };
 // ── The playbook ─────────────────────────────────────────────────────────────
 const SCENARIOS = [
   {
-    icon: "🏚️", role: "all",
+    key: "selfgen", icon: "🏚️", role: "all",
     q: "A house has storm damage — but it's NOT a pin",
     steps: [
       "Tap the purple 🏠 button (top-right of the map), then tap the roof of the house.",
@@ -35,7 +36,7 @@ const SCENARIOS = [
     note: "It logs as YOUR self-generated lead — JobNimbus source “Self Generated,” credited to you.",
   },
   {
-    icon: "🏘️", role: "sr",
+    key: "owner_more", icon: "🏘️", role: "sr",
     q: "That owner owns MORE properties",
     steps: [
       "On your self-gen pin's card, tap “Owner owns another property.”",
@@ -44,7 +45,7 @@ const SCENARIOS = [
     ],
   },
   {
-    icon: "📅", role: "sr",
+    key: "appt_day", icon: "📅", role: "sr",
     q: "I have an appointment today",
     steps: [
       "The map tells you the moment you open it — right at the top.",
@@ -54,7 +55,7 @@ const SCENARIOS = [
     ],
   },
   {
-    icon: "🟣", role: "sr",
+    key: "mgr_plan", icon: "🟣", role: "sr",
     q: "My manager planned my day",
     steps: [
       "You'll see a purple banner: “Your day is planned by your manager,” with your doors ready.",
@@ -63,23 +64,24 @@ const SCENARIOS = [
     ],
   },
   {
-    icon: "🗺️", role: "all",
+    key: "open_day", icon: "🗺️", role: "all",
     q: "Open day — nothing planned",
     steps: [
-      "▶ Start my day — routes the nearest doors from where you're standing, street by street.",
-      "Or ▢ Route an area — drag a box around the neighborhood you want; it routes every door inside it in clean street order.",
+      "Tap ▢ Route an area and drag a box around the neighborhood you want.",
+      "It routes every door inside the box in clean street order — no criss-crossing, no backtracking.",
+      "Have an appointment today? Use “📅 Plan your day” instead — it builds the day around it.",
     ],
   },
   {
-    icon: "🔒", role: "all",
+    key: "locked_pin", icon: "🔒", role: "all",
     q: "I tapped a pin and the homeowner info is locked",
     steps: [
       "Homeowner name + address only show once the door is ON your route — that keeps every knock an honest, routed knock.",
-      "Start your day or route the area — the moment that door is a stop, the details open up.",
+      "Route the area (or run your manager-planned day) — the moment that door is a stop, the details open up.",
     ],
   },
   {
-    icon: "🚪", role: "all",
+    key: "not_home", icon: "🚪", role: "all",
     q: "Nobody answered",
     steps: [
       "Tap 🏠 Not home and keep moving — it's saved, your manager sees it live.",
@@ -87,7 +89,7 @@ const SCENARIOS = [
     ],
   },
   {
-    icon: "🔁", role: "all",
+    key: "restatus", icon: "🔁", role: "all",
     q: "I statused a door… then the homeowner came out",
     steps: [
       "While you're on your route, just tap that pin again and change the status.",
@@ -95,7 +97,7 @@ const SCENARIOS = [
     ],
   },
   {
-    icon: "🔄", role: "sr",
+    key: "nosit_rebook", icon: "🔄", role: "sr",
     q: "A no-sit wants to re-book",
     steps: [
       "Tap the pin → “🔄 Reschedule appointment.” You'll see the original appointment that fell through.",
@@ -104,7 +106,7 @@ const SCENARIOS = [
     ],
   },
   {
-    icon: "✍️", role: "all",
+    key: "sign_now", icon: "✍️", role: "all",
     q: "They're ready to sign RIGHT NOW",
     steps: [
       "Tap “Sign Inspection” — the claim form opens already filled with their address.",
@@ -113,7 +115,7 @@ const SCENARIOS = [
     ],
   },
   {
-    icon: "🏠", role: "all",
+    key: "retail_btr", icon: "🏠", role: "all",
     q: "They declined the inspection — but want retail",
     steps: [
       "Tap “Retail (BTR) appointment” and pick a time.",
@@ -121,7 +123,7 @@ const SCENARIOS = [
     ],
   },
   {
-    icon: "⏳", role: "all",
+    key: "come_back", icon: "⏳", role: "all",
     q: "“Come back Tuesday”",
     steps: [
       "Tap “⏳ Pending (come back)” → set the date and a quick note.",
@@ -129,7 +131,7 @@ const SCENARIOS = [
     ],
   },
   {
-    icon: "📍", role: "all",
+    key: "gps_far", icon: "📍", role: "all",
     q: "GPS says I'm far away — but I'm AT the door",
     steps: [
       "Tap “Status anyway” and keep working.",
@@ -137,7 +139,7 @@ const SCENARIOS = [
     ],
   },
   {
-    icon: "🧭", role: "all",
+    key: "reroute", icon: "🧭", role: "all",
     q: "My route doesn't match where I'm standing anymore",
     steps: [
       "Tap “📍 Re-route from where I am.”",
@@ -145,14 +147,14 @@ const SCENARIOS = [
     ],
   },
   {
-    icon: "🔵", role: "all",
+    key: "baby_blue", icon: "🔵", role: "all",
     q: "A door is showing baby blue",
     steps: [
       "That door was already worked TODAY by another rep. Skip it — it's handled.",
     ],
   },
   {
-    icon: "📋", role: "all",
+    key: "gobacks", icon: "📋", role: "all",
     q: "Where do my follow-ups live?",
     steps: [
       "Open the “Today's go-backs” card — every damage, no-damage, and retail come-back, dated.",
@@ -160,7 +162,7 @@ const SCENARIOS = [
     ],
   },
   {
-    icon: "🧭", role: "all",
+    key: "rotate", icon: "🧭", role: "all",
     q: "Rotate the map like a car GPS",
     steps: [
       "Twist two fingers on the map to rotate it.",
@@ -173,7 +175,32 @@ const SCENARIOS = [
 export default function HarvestHowTo() {
   const showNav = useMemo(() => { try { return new URLSearchParams(window.location.search).get("nav") === "1"; } catch { return false; } }, []);
   const [role, setRole] = useState("everything"); // everything | sr | jr
-  const list = SCENARIOS.filter((s) => role === "everything" || s.role === "all" || s.role === role);
+  // OFFICE-EDITABLE audience per card — stored in app_settings.harvest_howto_roles
+  // as { cardKey: 'all'|'sr'|'jr' }, overriding the in-code defaults. Neal flips who
+  // sees a card right on the admin view (&nav=1), no deploy needed.
+  const [roleOverrides, setRoleOverrides] = useState({});
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase.from("app_settings").select("value").eq("key", "harvest_howto_roles").maybeSingle();
+        const v = data?.value;
+        const parsed = v ? (typeof v === "string" ? JSON.parse(v) : v) : {};
+        if (parsed && typeof parsed === "object") setRoleOverrides(parsed);
+      } catch { /* defaults stand */ }
+    })();
+  }, []);
+  const roleOf = (s) => roleOverrides[s.key] || s.role;
+  const saveRole = async (cardKey, newRole) => {
+    const next = { ...roleOverrides, [cardKey]: newRole };
+    setRoleOverrides(next);
+    try {
+      await supabase.from("app_settings").upsert(
+        { key: "harvest_howto_roles", value: JSON.stringify(next), updated_at: new Date().toISOString() },
+        { onConflict: "key" },
+      );
+    } catch { /* stays local this session */ }
+  };
+  const list = SCENARIOS.filter((s) => role === "everything" || roleOf(s) === "all" || roleOf(s) === role);
 
   return (
     <div style={{ maxWidth: 760, margin: "0 auto", padding: "18px 14px 60px", fontFamily: FONT }}>
@@ -199,7 +226,24 @@ export default function HarvestHowTo() {
             <summary style={{ listStyle: "none", cursor: "pointer", padding: "14px 16px", display: "flex", alignItems: "center", gap: 12, WebkitTapHighlightColor: "transparent" }}>
               <span style={{ fontSize: 22, flexShrink: 0 }}>{s.icon}</span>
               <span style={{ flex: 1, fontSize: 15, fontWeight: 800, color: "#0f172a", lineHeight: 1.3 }}>{s.q}</span>
-              <span style={{ fontSize: 10.5, fontWeight: 800, color: ROLE_COLOR[s.role], border: `1px solid ${ROLE_COLOR[s.role]}33`, background: `${ROLE_COLOR[s.role]}11`, borderRadius: 999, padding: "3px 9px", flexShrink: 0, letterSpacing: "0.03em", textTransform: "uppercase" }}>{ROLE_LABEL[s.role]}</span>
+              {showNav ? (
+                // Office view: the audience is EDITABLE — tap a chip to change who sees
+                // this card (saved instantly, applies to every rep's view).
+                <span style={{ display: "inline-flex", gap: 4, flexShrink: 0 }} onClick={(e) => e.preventDefault()}>
+                  {["all", "sr", "jr"].map((rk) => (
+                    <button key={rk} type="button"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); saveRole(s.key, rk); }}
+                      style={{ fontSize: 10.5, fontWeight: 800, cursor: "pointer", borderRadius: 999, padding: "3px 9px", letterSpacing: "0.03em", textTransform: "uppercase",
+                        color: roleOf(s) === rk ? "#fff" : ROLE_COLOR[rk],
+                        background: roleOf(s) === rk ? ROLE_COLOR[rk] : `${ROLE_COLOR[rk]}11`,
+                        border: `1px solid ${ROLE_COLOR[rk]}${roleOf(s) === rk ? "" : "33"}` }}>
+                      {ROLE_LABEL[rk]}
+                    </button>
+                  ))}
+                </span>
+              ) : (
+                <span style={{ fontSize: 10.5, fontWeight: 800, color: ROLE_COLOR[roleOf(s)], border: `1px solid ${ROLE_COLOR[roleOf(s)]}33`, background: `${ROLE_COLOR[roleOf(s)]}11`, borderRadius: 999, padding: "3px 9px", flexShrink: 0, letterSpacing: "0.03em", textTransform: "uppercase" }}>{ROLE_LABEL[roleOf(s)]}</span>
+              )}
               <span style={{ color: "#94a3b8", fontSize: 13, flexShrink: 0 }}>▾</span>
             </summary>
             <div style={{ padding: "0 16px 14px 50px" }}>

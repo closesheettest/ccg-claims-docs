@@ -3628,7 +3628,7 @@ export default function CanvassMap() {
             // logged in order, at the door. Start a route to work / re-status doors.
             <div style={{ marginTop: 14, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 12, padding: "14px 16px", textAlign: "center" }}>
               <div style={{ fontSize: 13.5, fontWeight: 800, color: "#1e3a8a" }}>Work this door on a route</div>
-              <div style={{ fontSize: 12.5, color: "#334155", marginTop: 4, lineHeight: 1.5 }}>To status it (signed, not interested, appt, …), tap <b>▶ Start my day</b> or <b>▢ Route an area</b>. It comes up in order with the <b>“How’d it go?”</b> buttons when you're at the door.</div>
+              <div style={{ fontSize: 12.5, color: "#334155", marginTop: 4, lineHeight: 1.5 }}>To status it (signed, not interested, appt, …), tap {assignedIds && assignedIds.size > 0 ? <><b>▶ Start my day</b> or </> : null}<b>▢ Route an area</b>. It comes up in order with the <b>“How’d it go?”</b> buttons when you're at the door.</div>
             </div>
           ) : auth.rt ? (() => {
             // ON a route: let the rep RE-STATUS any door from its pin sheet — e.g.
