@@ -94,6 +94,7 @@ export const handler = async (event) => {
     // pins' jn_job_id, and one credit per JOB. Best-effort: a JN hiccup never
     // breaks the board.
     let jnCounted = 0;
+    const payloadDebugJobs = [];
     try {
       if (JN_KEY) {
         // Jobs already credited from a map booking → skip on the JN side.
@@ -140,6 +141,11 @@ export const handler = async (event) => {
             }
             if (!job) continue;
             if (!isYes(fieldByLabel(job, "Sales Rep Harvested"))) continue;   // office didn't flag it harvested
+            // debug=2 — surface HOW the flag is keyed on real flagged jobs (label vs
+            // cf_*), so writers (setter-book-appointment auto-flag) use the right key.
+            if (qp.debug === "2") {
+              payloadDebugJobs.push({ name: job.name, keys: Object.entries(job).filter(([k, v]) => /arvest/i.test(k) || (typeof v === "string" && v === "Yes")).map(([k, v]) => `${k}=${v}`) });
+            }
             const rep = (job.sales_rep_name || "").trim();
             const zone = zoneOf(rep);
             if (!zone) { unattributed++; continue; }
@@ -167,7 +173,8 @@ export const handler = async (event) => {
       week: { start: start.toISOString(), end: end.toISOString() }, // back-compat
       total, zones,
     };
-    if (qp.debug === "1") { payload.scanned = acts.length; payload.unattributed = unattributed; payload.jn_harvested = jnCounted; }
+    if (qp.debug === "1" || qp.debug === "2") { payload.scanned = acts.length; payload.unattributed = unattributed; payload.jn_harvested = jnCounted; }
+    if (qp.debug === "2") payload.harvested_jobs = payloadDebugJobs;
     return cors(200, JSON.stringify(payload));
   } catch (e) {
     return cors(500, JSON.stringify({ ok: false, error: e.message || "Unknown error" }));
