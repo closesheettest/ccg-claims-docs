@@ -1,10 +1,14 @@
 // Public, read-only HARVEST leaderboard — the third team-standings strip
 // (alongside zone-leaderboard = inspections signed, zone-sales-leaderboard =
-// sales sold). This one counts APPOINTMENTS BOOKED FROM THE HARVESTING MAP:
-// every time a rep books (or reschedules) an appointment off a pin, both
-// harvest-book-appt.js and harvest-book-btr-appt.js log a canvass_activity
-// row { kind:'status', to_status:'appt' }. We tally those in the period,
-// ranked by zone with a per-rep drill-down.
+// sales sold). Counts TWO sources of harvested appointments:
+//   1. MAP bookings — a rep books (or reschedules) an appointment off a pin;
+//      harvest-book-appt.js / harvest-book-btr-appt.js log a canvass_activity
+//      row { to_status:'appt' } with a harvest origin (iq/fb/ai/no-sit/self_gen).
+//   2. JOBNIMBUS bookings (reverse direction, per Neal) — an appointment TASK
+//      created in the window whose job carries "Sales Rep Harvested" = Yes,
+//      credited to the job's sales rep. Deduped against map bookings by
+//      jn_job_id; one credit per job.
+// Tallied per period, ranked by zone with a per-rep drill-down.
 //
 //   GET /.netlify/functions/zone-harvest-leaderboard[?period=week|month|...]
 //   → { ok, period, range:{start,end}, week:{start,end}, total,
@@ -17,8 +21,21 @@
 
 const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
+const JN_KEY = process.env.JOBNIMBUS_API_KEY;
+const JN_BASE = "https://app.jobnimbus.com/api1";
 const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` };
+const jnHeaders = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
 const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones";
+
+// JN-side harvested appointments (see below): the appointment TASK types that
+// mean "an appointment got made", and the job flag that marks it harvest work.
+const APPT_TASK_TYPES = new Set(["Initial Appointment", "Reset Appointment", "Appointment"]);
+const isYes = (v) => v === true || v === "true" || v === "Yes" || v === "yes" || v === 1;
+function fieldByLabel(job, label) {
+  if (label in job) return job[label];
+  for (const [k, v] of Object.entries(job)) if (k.trim().replace(/^\*|\*$/g, "").trim() === label) return v;
+  return undefined;
+}
 
 const ZONE_TEAMS = { "Zone 1": "SQUAD", "Zone 2": "SitSold", "Zone 3": "SHARKS", "Zone 4": "HURRICANE" };
 const ZONE_ORDER = ["Zone 1", "Zone 2", "Zone 3", "Zone 4"];
@@ -68,6 +85,73 @@ export const handler = async (event) => {
       z.byRep[rep] = (z.byRep[rep] || 0) + 1;
     }
 
+    // ── JN-SIDE HARVESTED APPOINTMENTS (reverse direction, per Neal) ─────────
+    // Appointments made directly IN JobNimbus count too, when the job's
+    // "Sales Rep Harvested" field = Yes — credited to the job's sales rep. Same
+    // philosophy as the pin reverse-sync: work done in JN still lands on the
+    // board. Booking time = the appt TASK's created date in the window (matches
+    // how map bookings count). Deduped against map bookings via the booked
+    // pins' jn_job_id, and one credit per JOB. Best-effort: a JN hiccup never
+    // breaks the board.
+    let jnCounted = 0;
+    try {
+      if (JN_KEY) {
+        // Jobs already credited from a map booking → skip on the JN side.
+        const mapJobIds = new Set();
+        const pinIds = [...seenPins];
+        for (let i = 0; i < pinIds.length; i += 100) {
+          const rows = await sbGet(`canvass_prospects?id=in.(${pinIds.slice(i, i + 100).join(",")})&jn_job_id=not.is.null&select=jn_job_id`);
+          for (const p of rows) if (p.jn_job_id) mapJobIds.add(p.jn_job_id);
+        }
+        // Appointment tasks CREATED in the window → the jobs they hang on.
+        const startSec = Math.floor(start.getTime() / 1000), endSec = Math.floor(end.getTime() / 1000);
+        const taskFilter = encodeURIComponent(JSON.stringify({ must: [{ range: { date_created: { gte: startSec, lte: endSec } } }] }));
+        const taskJobs = new Set();
+        for (let page = 0; page < 30; page++) {
+          const r = await fetch(`${JN_BASE}/tasks?size=100&from=${page * 100}&filter=${taskFilter}`, { headers: jnHeaders });
+          if (!r.ok) break;
+          const d = await r.json().catch(() => ({}));
+          const rows = d.results || d.tasks || [];
+          for (const t of rows) {
+            if (!APPT_TASK_TYPES.has(t.record_type_name)) continue;
+            for (const rel of (t.related || [])) if (rel.type === "job" && rel.id && !mapJobIds.has(rel.id)) taskJobs.add(rel.id);
+          }
+          if (rows.length < 100) break;
+        }
+        if (taskJobs.size) {
+          // Job details: one recently-updated sweep (making an appt touches the
+          // job), individual fetch as a small fallback.
+          const byId = new Map();
+          const sinceSec = startSec - 7 * 86400;
+          for (let page = 0; page < 15; page++) {
+            const r = await fetch(`${JN_BASE}/jobs?size=100&from=${page * 100}&sort=-date_updated&date_updated_after=${sinceSec}`, { headers: jnHeaders });
+            if (!r.ok) break;
+            const d = await r.json().catch(() => ({}));
+            const rows = d.results || d.jobs || [];
+            for (const j of rows) byId.set(j.jnid || j.id, j);
+            if (rows.length < 100) break;
+          }
+          let individual = 0;
+          for (const id of taskJobs) {
+            let job = byId.get(id);
+            if (!job && individual < 25) {
+              individual++;
+              try { const r = await fetch(`${JN_BASE}/jobs/${id}`, { headers: jnHeaders }); if (r.ok) job = await r.json().catch(() => null); } catch { /* skip */ }
+            }
+            if (!job) continue;
+            if (!isYes(fieldByLabel(job, "Sales Rep Harvested"))) continue;   // office didn't flag it harvested
+            const rep = (job.sales_rep_name || "").trim();
+            const zone = zoneOf(rep);
+            if (!zone) { unattributed++; continue; }
+            const z = agg[zone] || (agg[zone] = { count: 0, byRep: {} });
+            z.count += 1;
+            z.byRep[rep || "—"] = (z.byRep[rep || "—"] || 0) + 1;
+            jnCounted += 1;
+          }
+        }
+      }
+    } catch { /* board still renders from map bookings alone */ }
+
     const zones = ZONE_ORDER.map((zone) => {
       const z = agg[zone] || { count: 0, byRep: {} };
       const reps = Object.entries(z.byRep).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
@@ -83,7 +167,7 @@ export const handler = async (event) => {
       week: { start: start.toISOString(), end: end.toISOString() }, // back-compat
       total, zones,
     };
-    if (qp.debug === "1") { payload.scanned = acts.length; payload.unattributed = unattributed; }
+    if (qp.debug === "1") { payload.scanned = acts.length; payload.unattributed = unattributed; payload.jn_harvested = jnCounted; }
     return cors(200, JSON.stringify(payload));
   } catch (e) {
     return cors(500, JSON.stringify({ ok: false, error: e.message || "Unknown error" }));
