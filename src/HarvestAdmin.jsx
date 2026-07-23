@@ -23,6 +23,8 @@ export default function HarvestAdmin() {
   const [capsBusy, setCapsBusy] = useState(false);
   const [enhanced, setEnhanced] = useState(false); // Enhanced Planned Day (Sr assignment) on/off
   const [enhancedBusy, setEnhancedBusy] = useState(false);
+  const [blitz, setBlitz] = useState(false); // Install-Radius Blitz on/off
+  const [blitzBusy, setBlitzBusy] = useState(false);
   const [smartSched, setSmartSched] = useState(false); // Smart Scheduling on/off (default OFF until turned on)
   const [smartBusy, setSmartBusy] = useState(false);
 
@@ -41,7 +43,15 @@ export default function HarvestAdmin() {
       .then(({ data }) => { for (const r of data || []) { const n = Number(r.value); if (Number.isFinite(n) && n > 0) { if (r.key === "harvest_route_cap_sr") setCapSr(n); else setCapJr(n); } } });
     supabase.from("app_settings").select("value").eq("key", "harvest_enhanced_planned_day_enabled").maybeSingle()
       .then(({ data }) => { if (data) setEnhanced(String(data.value) === "true"); });
+    supabase.from("app_settings").select("value").eq("key", "harvest_blitz_enabled").maybeSingle()
+      .then(({ data }) => { if (data) setBlitz(String(data.value) === "true"); });
   }, []);
+  const saveBlitz = async (next) => {
+    setBlitz(next); setBlitzBusy(true); setMsg(null);
+    const { error } = await supabase.from("app_settings").upsert({ key: "harvest_blitz_enabled", value: next ? "true" : "false" }, { onConflict: "key" });
+    setBlitzBusy(false);
+    setMsg(error ? { err: error.message } : { ok: `Install-Radius Blitz turned ${next ? "ON — neighbors will pin on the next sync after a roof starts" : "OFF"}.` });
+  };
   const saveEnhanced = async (next) => {
     setEnhanced(next); setEnhancedBusy(true); setMsg(null);
     const { error } = await supabase.from("app_settings").upsert({ key: "harvest_enhanced_planned_day_enabled", value: next ? "true" : "false" }, { onConflict: "key" });
@@ -151,6 +161,22 @@ export default function HarvestAdmin() {
         <button type="button" onClick={() => saveEnhanced(!enhanced)} disabled={enhancedBusy} title={enhanced ? "On — tap to turn off" : "Off — tap to turn on"}
           style={{ flexShrink: 0, width: 62, height: 32, borderRadius: 999, border: "none", cursor: enhancedBusy ? "default" : "pointer", background: enhanced ? "#7c3aed" : "#cbd5e1", position: "relative", opacity: enhancedBusy ? 0.6 : 1, transition: "background .15s" }}>
           <span style={{ position: "absolute", top: 3, left: enhanced ? 33 : 3, width: 26, height: 26, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,.3)", transition: "left .15s" }} />
+        </button>
+      </div>
+
+      {/* Install-Radius Blitz — when a JN job hits "Roof Started", the cron drops the
+          ~30 nearest OWNER-OCCUPIED neighbors as 🔥 blitz pins so reps knock while the
+          crew is on the roof. */}
+      <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, marginBottom: 16, background: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 800 }}>🔥 Install-Radius Blitz</div>
+          <div style={{ fontSize: 12.5, color: "#64748b", marginTop: 3 }}>
+            When a JobNimbus job hits <b>“Roof Started”</b>, the map auto-drops the ~30 nearest <b>owner-occupied</b> neighbors as 🔥 blitz pins — so reps knock “we're doing your neighbor's roof <i>right now</i>” while the crew is visibly on it. Checks county records (owner-occupied only), skips doors that already have a pin, and clears unworked blitz pins when the install wraps. Syncs every 2 hours, 7 AM–9 PM.
+          </div>
+        </div>
+        <button type="button" onClick={() => saveBlitz(!blitz)} disabled={blitzBusy} title={blitz ? "On — tap to turn off" : "Off — tap to turn on"}
+          style={{ flexShrink: 0, width: 62, height: 32, borderRadius: 999, border: "none", cursor: blitzBusy ? "default" : "pointer", background: blitz ? "#f97316" : "#cbd5e1", position: "relative", opacity: blitzBusy ? 0.6 : 1, transition: "background .15s" }}>
+          <span style={{ position: "absolute", top: 3, left: blitz ? 33 : 3, width: 26, height: 26, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,.3)", transition: "left .15s" }} />
         </button>
       </div>
 

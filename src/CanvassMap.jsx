@@ -26,6 +26,9 @@ const FALLBACK_TYPES = [
   { key: "no_sit_reschedule", label: "No sit – need to reschedule", color: "#dc2626", outcomes: ["appt", "dead", "new_roof"] },
   { key: "iq_ni", label: "IQ – Not Interested", color: "#f59e0b", outcomes: ["insp_sold", "dead", "new_roof"] },
   { key: "insp", label: "Inspection Lead", color: "#0ea5e9", outcomes: ["insp_sold", "insp_ni", "insp_callback", "dead", "new_roof"] },
+  // Install-Radius Blitz — owner-occupied neighbors auto-pinned around a "Roof
+  // Started" job (cron-install-blitz) so reps knock while the crew is on the roof.
+  { key: "blitz", label: "🔥 Install Blitz", color: "#f97316", outcomes: ["insp_sold", "insp_ni", "insp_callback", "dead", "new_roof"] },
   // "Pending (come back)" — statuses the door but KEEPS it on the go-back list
   // (see KEEP_ROUTABLE); a rep can note "talked to them, come back" without it
   // dropping off their route for the day.

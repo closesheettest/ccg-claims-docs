@@ -144,6 +144,16 @@
 [functions."cron-heal-signed-pdfs"]
   schedule = "*/15 * * * *"
 
+# Scheduled function: Install-Radius Blitz. When a JN job hits "Roof Started",
+# drop the ~30 nearest OWNER-OCCUPIED neighbors (FL cadastral, homestead check)
+# onto the Harvesting Map as 🔥 blitz pins — reps knock "we're doing your
+# neighbor's roof right now" while the crew is on it. Gated by the office toggle
+# app_settings.harvest_blitz_enabled (default OFF; Pin Types admin page).
+# Unworked blitz pins clear when the install leaves Roof Started or after 14d.
+# Every 2h during knocking hours (7 AM–9 PM ET); exports.config mirrors this.
+[functions."cron-install-blitz"]
+  schedule = "45 11,13,15,17,19,21,23,1 * * *"
+
 # cron-reconcile-jn-photos: daily safety net for the inspector-app photo gap.
 # Inspector photos upload one-by-one from the phone; if the app closes early
 # some never reach JN's Photos tab. This walks recent inspections, compares
