@@ -1,4 +1,4 @@
-// Harvesting Map — rep activity report (?mode=harvestreport). Office-only.
+// DoorDispatcher — rep activity report (?mode=harvestreport). Office-only.
 // Reads canvass_activity (logged on each Next-tap visit + status change) and
 // rolls it up per rep: pins visited, rounds run, outcome counts (appts, not-
 // interested, sold, dead, no-sit), and time of last activity.

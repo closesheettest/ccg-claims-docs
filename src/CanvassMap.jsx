@@ -1025,7 +1025,7 @@ export default function CanvassMap() {
           const qs = auth.rt ? `rt=${encodeURIComponent(auth.rt)}` : `admin=${encodeURIComponent(auth.admin)}`;
           const r = await fetch(`/.netlify/functions/harvest-pins?${qs}&authonly=1`);
           const j = await r.json().catch(() => ({}));
-          if (!r.ok || !j.ok) { setAuthError(j.error || "Couldn't load your Harvesting Map."); setLoading(false); return []; }
+          if (!r.ok || !j.ok) { setAuthError(j.error || "Couldn't load your DoorDispatcher."); setLoading(false); return []; }
           setAuthError("");
           setMe(j.rep || null);
           if (Array.isArray(j.pin_types) && j.pin_types.length) setPinTypes(j.pin_types);
@@ -2755,7 +2755,7 @@ export default function CanvassMap() {
   // Rep hasn't passed the tool training yet → send them through it first. (Skips
   // itself if no training content is authored, so it never locks reps out.)
   if (auth.rt && !authError && repTrainingOk === false && !isAdminLink) { // admin link bypasses the gate for spot-checks
-    return <HarvestTraining track="rep" userType="rep" userKey={auth.rt} name={me?.name} toolLabel="your Harvesting Map" onPass={() => setRepTrainingOk(true)} />;
+    return <HarvestTraining track="rep" userType="rep" userKey={auth.rt} name={me?.name} toolLabel="your DoorDispatcher" onPass={() => setRepTrainingOk(true)} />;
   }
 
   // Bad/missing link → don't show any pins, just tell them what to do.
@@ -2764,7 +2764,7 @@ export default function CanvassMap() {
       <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT, background: "#f1f5f9", padding: 24 }}>
         <div style={{ maxWidth: 360, textAlign: "center", background: "#fff", borderRadius: 16, padding: "28px 24px", boxShadow: "0 2px 12px rgba(0,0,0,.1)" }}>
           <div style={{ fontSize: 40, marginBottom: 10 }}>🔒</div>
-          <div style={{ fontSize: 17, fontWeight: 800, fontFamily: "'Oswald', sans-serif", marginBottom: 8 }}>Harvesting Map</div>
+          <div style={{ fontSize: 17, fontWeight: 800, fontFamily: "'Oswald', sans-serif", marginBottom: 8 }}>DoorDispatcher</div>
           <div style={{ fontSize: 14, color: "#475569", lineHeight: 1.5 }}>{authError}</div>
         </div>
       </div>
@@ -2785,7 +2785,7 @@ export default function CanvassMap() {
       )}
       {/* Header */}
       <div style={{ padding: "10px 14px", background: "#0f172a", color: "#fff", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <div style={{ fontWeight: 800, fontSize: 16, fontFamily: "'Oswald', sans-serif", letterSpacing: "0.02em" }}>🌾 Harvesting Map</div>
+        <div style={{ fontWeight: 800, fontSize: 16, fontFamily: "'Oswald', sans-serif", letterSpacing: "0.02em" }}>🧭 DoorDispatcher</div>
         <div style={{ fontSize: 12, opacity: 0.8 }}>{mapped.length} pins</div>
         {me?.level === "admin" && !demoMode && (
           <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>

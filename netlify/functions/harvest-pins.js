@@ -87,7 +87,7 @@ export const handler = async (event) => {
   } catch (e) {
     return json(500, { ok: false, error: e.message || "lookup failed" });
   }
-  if (!level) return json(401, { ok: false, error: "This link isn't valid. Ask your manager for your Harvesting Map link." });
+  if (!level) return json(401, { ok: false, error: "This link isn't valid. Ask your manager for your DoorDispatcher link." });
 
   const types = await sbGet(`harvest_pin_types?select=*&order=sort`).catch(() => []);
 

@@ -1,6 +1,6 @@
 // netlify/functions/harvest-repcard-import.js
 //
-// Import a RepCard status export (CSV) and scrub the Harvesting Map: leads a rep
+// Import a RepCard status export (CSV) and scrub the DoorDispatcher: leads a rep
 // already worked in RepCard (Not Interested / Dead / No Sale / Not Qualified) get
 // their map pin flipped to the matching terminal status, so reps stop re-knocking
 // doors that are already closed. MAP-ONLY — writes nothing to JobNimbus.

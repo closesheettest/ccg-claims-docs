@@ -456,7 +456,7 @@ exports.handler = async (event) => {
   if (isTest) console.log("🧪 TEST MODE — overrides:", testOverrideEmail, testOverridePhone);
   console.log("Lead:", leadSource, "| Docs:", docsSignedList);
   // JN lead source. Default "Inspection" (every signed roof inspection), but a
-  // caller can override — e.g. a rep-generated door on the Harvesting Map sends
+  // caller can override — e.g. a rep-generated door on the DoorDispatcher sends
   // "Self Generated" so JN's source reporting credits it as self-gen.
   const jnSource = (typeof sourceOverride === "string" && sourceOverride.trim()) ? sourceOverride.trim() : "Inspection";
   console.log("Name:", homeowner1, "| Address:", address, city, state, zip);

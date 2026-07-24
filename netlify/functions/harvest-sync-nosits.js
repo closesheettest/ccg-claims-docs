@@ -1,7 +1,7 @@
 // netlify/functions/harvest-sync-nosits.js
 //
 // Pull real "No Sit- Need to Reschedule" deals from JobNimbus onto the
-// Harvesting Map so a rep can drive to them and re-book on the spot.
+// DoorDispatcher so a rep can drive to them and re-book on the spot.
 //   • Fetches every job in JN status "No Sit- Need to Reschedule".
 //   • Geocodes new addresses (bounded per run, cached by jnid so we never
 //     pay to geocode the same one twice).

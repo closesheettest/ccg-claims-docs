@@ -1,4 +1,4 @@
-// Harvesting Map — JobNimbus → Map sync filters (?mode=harvestjnsync). Office.
+// DoorDispatcher — JobNimbus → Map sync filters (?mode=harvestjnsync). Office.
 // Configure which JN records flow onto the map and how far back:
 //   • Inbound-lead pins (IQ = Instant Quote, FB = Facebook, AI = AI Bot) —
 //     contacts with no job, by CREATED date. Same rule for each.
@@ -92,7 +92,7 @@ export default function HarvestJnSync() {
     <div style={{ maxWidth: 760, margin: "0 auto", padding: "20px 16px 60px", fontFamily: FONT }}>
       <HarvestNav active="jnsync" />
       <div style={{ fontSize: 22, fontWeight: 800, fontFamily: OSWALD, marginBottom: 4 }}>🔄 JN Sync</div>
-      <div style={{ fontSize: 13, color: "#64748b", marginBottom: 20 }}>Pick which JobNimbus records flow onto the Harvesting Map, and how far back. Changes save instantly; the crons use them, or hit <b>Sync now</b> to run it immediately. A lead's pin flips to an Appointment once a rep books it (which pushes everything to JobNimbus), and drops off once it gets a job.</div>
+      <div style={{ fontSize: 13, color: "#64748b", marginBottom: 20 }}>Pick which JobNimbus records flow onto the DoorDispatcher, and how far back. Changes save instantly; the crons use them, or hit <b>Sync now</b> to run it immediately. A lead's pin flips to an Appointment once a rep books it (which pushes everything to JobNimbus), and drops off once it gets a job.</div>
 
       {LEADS.map((L) => (
         <Card key={L.key}

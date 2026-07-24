@@ -1,6 +1,6 @@
 // netlify/functions/harvest-team.js
 //
-// Office "team view" for the Harvesting Map: where every rep is right now + a
+// Office "team view" for the DoorDispatcher: where every rep is right now + a
 // trailing breadcrumb of the last ~2 hours + what they last did. Admin only.
 //
 //   GET ?admin=<token>[&mins=120]

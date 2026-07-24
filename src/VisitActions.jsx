@@ -2,7 +2,7 @@
 //
 // The three post-inspection go-back action panels — Damage (set PA appt),
 // No-Damage (referrals + certificate), Retail (schedule / record outcome) —
-// extracted so BOTH the Rep Visit Hub and the Harvesting Map render the exact
+// extracted so BOTH the Rep Visit Hub and the DoorDispatcher render the exact
 // same flows against the same backend endpoints. Self-contained: it takes a
 // `deal`, a `rep` ({name, jobnimbus_id, email}), and an `api(fn, payload)` that
 // POSTs {token, ...payload} to /.netlify/functions/<fn>.

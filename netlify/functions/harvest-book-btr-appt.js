@@ -56,7 +56,7 @@ export const handler = async (event) => {
   const pin = (await sbGet(`canvass_prospects?id=eq.${encodeURIComponent(pinId)}&select=name,address,city,state,zip,phone,email,latitude,longitude,extra,status,status_log&limit=1`))[0];
   if (!pin) return json(404, { ok: false, error: "pin not found" });
 
-  // A rep-generated door (dropped on the Harvesting Map) reports to JN as
+  // A rep-generated door (dropped on the DoorDispatcher) reports to JN as
   // "Self Generated" instead of the default "Harvesting" source.
   const selfGen = !!(pin.extra && typeof pin.extra === "object" && pin.extra.self_generated === true);
   const jnSource = selfGen ? "Self Generated" : "Harvesting";

@@ -1,4 +1,4 @@
-// Harvesting Map — rep links & access (?mode=harvestlinks). Office-only.
+// DoorDispatcher — rep links & access (?mode=harvestlinks). Office-only.
 // The office's own "view all" map link, an Admins list (people with their own
 // view-all link), and every rep's personal link with their level. The office
 // can promote anyone to Admin (view-all) or set senior/junior from here.
@@ -76,11 +76,11 @@ export default function HarvestLinks() {
     if (!invoice) return;
     const rows = invoice.people.map((p, i) => `<tr><td style="padding:4px 10px;color:#64748b">${i + 1}</td><td style="padding:4px 10px">${esc(p.name)}</td><td style="padding:4px 10px;color:#64748b;text-transform:capitalize">${esc(p.level || "")}</td></tr>`).join("");
     const money = (n) => `$${Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    const html = `<!doctype html><html><head><title>Harvesting Map Invoice — ${esc(invoice.month)}</title><style>body{font-family:system-ui,sans-serif;color:#0f172a;max-width:680px;margin:32px auto;padding:0 20px}h1{font-size:22px;margin:0 0 2px}table{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:8px}th{text-align:left;color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:4px 10px;border-bottom:1px solid #e5e7eb}tr:nth-child(even){background:#f8fafc}</style></head><body>
-      <h1>🌾 Harvesting Map — Invoice</h1>
+    const html = `<!doctype html><html><head><title>DoorDispatcher Invoice — ${esc(invoice.month)}</title><style>body{font-family:system-ui,sans-serif;color:#0f172a;max-width:680px;margin:32px auto;padding:0 20px}h1{font-size:22px;margin:0 0 2px}table{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:8px}th{text-align:left;color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:4px 10px;border-bottom:1px solid #e5e7eb}tr:nth-child(even){background:#f8fafc}</style></head><body>
+      <h1>🧭 DoorDispatcher — Invoice</h1>
       <div style="color:#64748b;font-size:14px;margin-bottom:18px">Billing period: <b>${esc(invoice.month)}</b></div>
       <div style="border:1px solid #e5e7eb;border-radius:12px;padding:16px 18px;margin-bottom:18px">
-        <div style="display:flex;justify-content:space-between;font-size:15px"><span>Harvesting Map access — ${invoice.count} ${invoice.count === 1 ? "person" : "people"} × ${money(invoice.rate)}</span><b>${money(invoice.total)}</b></div>
+        <div style="display:flex;justify-content:space-between;font-size:15px"><span>DoorDispatcher access — ${invoice.count} ${invoice.count === 1 ? "person" : "people"} × ${money(invoice.rate)}</span><b>${money(invoice.total)}</b></div>
         <div style="border-top:2px solid #0f172a;margin-top:12px;padding-top:10px;display:flex;justify-content:space-between;font-size:18px;font-weight:800"><span>Total due</span><span>${money(invoice.total)}</span></div>
       </div>
       <div style="font-size:12px;color:#94a3b8;margin-bottom:6px">People with map access (${invoice.count}):</div>
@@ -216,7 +216,7 @@ export default function HarvestLinks() {
             <div style={{ marginTop: 12, background: "#fff", border: "1px solid #d1fae5", borderRadius: 10, padding: "14px 16px" }}>
               <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>Billing period: <b style={{ color: "#0f172a" }}>{invoice.month}</b></div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 14.5 }}>
-                <span>Harvesting Map access — <b>{invoice.count}</b> {invoice.count === 1 ? "person" : "people"} × {money(invoice.rate)}</span>
+                <span>DoorDispatcher access — <b>{invoice.count}</b> {invoice.count === 1 ? "person" : "people"} × {money(invoice.rate)}</span>
                 <span style={{ fontWeight: 800 }}>{money(invoice.total)}</span>
               </div>
               <div style={{ borderTop: "2px solid #0f172a", marginTop: 10, paddingTop: 8, display: "flex", justifyContent: "space-between", fontSize: 18, fontWeight: 800 }}>

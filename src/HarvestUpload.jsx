@@ -1,4 +1,4 @@
-// Harvesting Map — office lead upload (?mode=harvestupload). Its own page,
+// DoorDispatcher — office lead upload (?mode=harvestupload). Its own page,
 // separate from the pin-type config. Load a CSV/paste marked as a pin type, and
 // see every past upload with the ability to DELETE one (removes the pins it
 // added) — a safety net against a bad upload. Not shown to reps.

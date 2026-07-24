@@ -1,4 +1,4 @@
-// Harvesting Map — RepCard status import (?mode=harvestrepcardimport). Office
+// DoorDispatcher — RepCard status import (?mode=harvestrepcardimport). Office
 // uploads RepCard status exports (Not Interested / Dead / No Sale / Not Qualified)
 // and this scrubs the map: matching IQ/FB/AI pins get flipped to their terminal
 // status so reps stop re-knocking closed doors. MAP-ONLY (no JobNimbus writes).

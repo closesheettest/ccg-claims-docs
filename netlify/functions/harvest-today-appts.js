@@ -1,7 +1,7 @@
 // netlify/functions/harvest-today-appts.js
 //
 // TODAY's appointments for a rep (all sources — setter-booked AND map-booked), so
-// the Harvesting Map can "plan the day around your appts". Returns each appt's TIME
+// the DoorDispatcher can "plan the day around your appts". Returns each appt's TIME
 // and LOCATION. Location comes from the map's own appt pin when there is one
 // (canvass_prospects by jn_job_id — free, already geocoded), else the JN job's
 // address geocoded via Google (cached by jnid so we never pay twice).

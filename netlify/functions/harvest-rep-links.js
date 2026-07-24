@@ -1,6 +1,6 @@
 // netlify/functions/harvest-rep-links.js
 //
-// Office roster for the Harvesting Map. Returns everyone with a personal map
+// Office roster for the DoorDispatcher. Returns everyone with a personal map
 // link, split into two lists the office can hand out:
 //   • admins → view-all links (harvest_level='admin')
 //   • reps   → level links (senior/junior)

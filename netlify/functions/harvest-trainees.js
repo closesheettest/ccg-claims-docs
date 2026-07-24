@@ -67,17 +67,17 @@ export const handler = async (event) => {
     const first = (name || "there").split(/\s+/)[0];
     let sent = false, emailed = false;
     try {
-      const msg = `Hi ${first}, here's your U.S. Shingle Harvesting Map link for field training — open it to see your doors and knock: ${link}`;
+      const msg = `Hi ${first}, here's your U.S. Shingle DoorDispatcher link for field training — open it to see your doors and knock: ${link}`;
       const r = await fetch(`${base}/.netlify/functions/ghl-sms`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: phone, name: name || "Trainee", message: msg }) });
       sent = r.ok;
     } catch { /* link still returned so the office can copy it */ }
     if (repEmail) {
       try {
         const html = `<p>Hi ${first},</p>
-<p>Here's your <b>Harvesting Map</b> link for field training. Open it on your phone to see your doors and start knocking.</p>
-<p><a href="${link}" style="display:inline-block;background:#16a34a;color:#fff;font-weight:bold;padding:12px 20px;border-radius:8px;text-decoration:none">Open my Harvesting Map</a></p>
+<p>Here's your <b>DoorDispatcher</b> link for field training. Open it on your phone to see your doors and start knocking.</p>
+<p><a href="${link}" style="display:inline-block;background:#16a34a;color:#fff;font-weight:bold;padding:12px 20px;border-radius:8px;text-decoration:none">Open my DoorDispatcher</a></p>
 <p style="color:#666;font-size:12px;word-break:break-all">${link}</p>`;
-        const r = await fetch(`${base}/.netlify/functions/send-email`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: repEmail, subject: "Your Harvesting Map link", html }) });
+        const r = await fetch(`${base}/.netlify/functions/send-email`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: repEmail, subject: "Your DoorDispatcher link", html }) });
         emailed = r.ok;
       } catch { /* sms may have landed */ }
     }

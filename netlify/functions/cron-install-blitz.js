@@ -3,7 +3,7 @@
 // 🍀 CLOVER LEAF — the classic knock-around-the-job play, automated: the moment
 // a JobNimbus job hits "Roof Started", this pulls the OWNER-OCCUPIED neighbors
 // around that address from the free FL statewide cadastral and drops them on the
-// Harvesting Map as 🍀 clover pins — reps knock "we're doing your neighbor's
+// DoorDispatcher as 🍀 clover pins — reps knock "we're doing your neighbor's
 // roof RIGHT NOW" while the crew is visibly on it.
 //
 //   • Toggle: app_settings.harvest_blitz_enabled ("true"/"false", default OFF) —

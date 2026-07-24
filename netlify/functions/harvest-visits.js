@@ -1,6 +1,6 @@
 // netlify/functions/harvest-visits.js
 //
-// A rep's post-inspection GO-BACKS for the Harvesting Map, so scheduled follow-up
+// A rep's post-inspection GO-BACKS for the DoorDispatcher, so scheduled follow-up
 // visits show up right alongside fresh doors and can be worked into the day:
 //   • damage    → set the PA appointment
 //   • no_damage → referrals + send certificate

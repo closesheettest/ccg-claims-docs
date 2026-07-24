@@ -2,7 +2,7 @@
 //
 // Scheduled trigger for the harvest lead sync. Until now the sync
 // (harvest-sync-iq-background — pulls JobNimbus Instant Quote / Facebook / AI
-// Bot leads onto the Harvesting Map) ONLY ran when someone manually clicked
+// Bot leads onto the DoorDispatcher) ONLY ran when someone manually clicked
 // "sync" in the harvest admin, so a lead that came into JN after the last click
 // stayed invisible for hours (e.g. a 2 PM Instant Quote lead not showing because
 // the last manual sync was 10 AM). This thin cron fires that background sync

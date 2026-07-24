@@ -30,7 +30,7 @@ import HarvestNositReport from "./HarvestNositReport";
 import HarvestTrainingPage from "./HarvestTrainingPage";
 import HarvestJnSync from "./HarvestJnSync";
 
-// Open the Harvesting Map as the OFFICE (all pins) — fetches the view-all token
+// Open the DoorDispatcher as the OFFICE (all pins) — fetches the view-all token
 // so the office link isn't hardcoded. Reps use their own personal ?rt= links.
 async function openHarvestAdminMap() {
   try {
@@ -4421,7 +4421,7 @@ const MANAGER_TILES = [
   { group: "signing", key: "training", emoji: "🚗", label: "Training Report", desc: "Who rode with William for field training each day + confirmed hours. Get William's daily picker link here." },
 
   // ── Harvesting ── (these open standalone routes, hence `href`)
-  { group: "harvest", key: "harvest_map", emoji: "🗺️", label: "Harvesting Map", desc: "The door-knock map (office view — all pins). Reps use their own personal links.", href: "/?mode=harvestlinks" },
+  { group: "harvest", key: "harvest_map", emoji: "🗺️", label: "DoorDispatcher", desc: "The door-knock map (office view — all pins). Reps use their own personal links.", href: "/?mode=harvestlinks" },
   { group: "harvest", key: "harvest_upload", emoji: "📥", label: "Load Leads", desc: "Upload a CSV of leads (office-only), mark its pin type, and delete a bad upload.", href: "/?mode=harvestupload" },
   { group: "harvest", key: "harvest_links", emoji: "🔗", label: "Rep Links & Access", desc: "Each rep's personal map link + level (senior/junior), to hand out. Reps only see their allowed pins.", href: "/?mode=harvestlinks" },
   { group: "harvest", key: "harvest_types", emoji: "🎛️", label: "Pin Types", desc: "Create & edit pin types: color, who can see them, and each one's allowed outcomes.", href: "/?mode=harvestadmin" },
@@ -9464,7 +9464,7 @@ export default function App() {
     if (portalMode === "setter") {
       return <SetterPortal Address={AddressAutocomplete} />;
     }
-    // ?mode=harvest (alias: canvass) — the "Harvesting Map": uploaded prospect
+    // ?mode=harvest (alias: canvass) — the "DoorDispatcher": uploaded prospect
     // addresses show as pins colored by status; a rep taps a pin to update it
     // (IQ → Appt, Not Home, etc.). Self-contained, mobile-first.
     if (portalMode === "harvest" || portalMode === "canvass") {
@@ -9790,7 +9790,7 @@ export default function App() {
     try { return new URLSearchParams(window.location.search).get("harvest_pin") || ""; } catch { return ""; }
   })();
   // Optional JN lead-source override carried on the intake URL (e.g. a rep-
-  // generated door on the Harvesting Map opens the intake with source=Self%20Generated).
+  // generated door on the DoorDispatcher opens the intake with source=Self%20Generated).
   const harvestSource = (() => {
     if (typeof window === "undefined") return "";
     try { return new URLSearchParams(window.location.search).get("source") || ""; } catch { return ""; }

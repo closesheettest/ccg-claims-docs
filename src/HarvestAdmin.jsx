@@ -1,4 +1,4 @@
-// Harvesting Map — pin-type admin (?mode=harvestadmin).
+// DoorDispatcher — pin-type admin (?mode=harvestadmin).
 // Create/edit the pin types that drive the map: label, color, WHICH REP LEVELS
 // can see them, and the allowed OUTCOMES (behavior flow). Everything the map and
 // (later) the reports read comes from harvest_pin_types.

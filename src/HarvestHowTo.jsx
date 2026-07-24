@@ -1,4 +1,4 @@
-// Harvesting Map — HOW-TO / playbook page (?mode=harvesthowto).
+// DoorDispatcher — HOW-TO / playbook page (?mode=harvesthowto).
 //
 // A collapsible, scenario-based instruction page: "here's the situation → here's
 // exactly what you do." One card per real-world situation (a damaged roof with no
@@ -217,7 +217,7 @@ export default function HarvestHowTo() {
   return (
     <div style={{ maxWidth: 760, margin: "0 auto", padding: "18px 14px 60px", fontFamily: FONT }}>
       {showNav && <HarvestNav active="howto" />}
-      <div style={{ fontSize: 24, fontWeight: 800, fontFamily: OSWALD }}>📖 Harvesting Map — How-To</div>
+      <div style={{ fontSize: 24, fontWeight: 800, fontFamily: OSWALD }}>📖 DoorDispatcher — How-To</div>
       <div style={{ fontSize: 13.5, color: "#64748b", margin: "4px 0 14px" }}>
         Real situations, exact moves. Tap any card to open it.
       </div>

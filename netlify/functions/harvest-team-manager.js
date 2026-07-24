@@ -1,6 +1,6 @@
 // netlify/functions/harvest-team-manager.js
 //
-// Zone-scoped "team view" for the Harvesting Map — a REGIONAL MANAGER sees ONLY the
+// Zone-scoped "team view" for the DoorDispatcher — a REGIONAL MANAGER sees ONLY the
 // reps in THEIR zone: where each is right now, a trailing breadcrumb, what they last
 // did, and today's counts. Same shape as harvest-team.js but scoped by manager token
 // (not the company-wide admin token).

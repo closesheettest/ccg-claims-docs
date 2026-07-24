@@ -1,6 +1,6 @@
 // netlify/functions/harvest-sync-iq-background.js
 //
-// Sync inbound-lead JobNimbus contacts that have NO job onto the Harvesting Map,
+// Sync inbound-lead JobNimbus contacts that have NO job onto the DoorDispatcher,
 // per the office's JN Sync filters (app_settings.harvest_jn_filters):
 //   iq → "Instant Quote" → IQ pins   ·   fb → "Facebook" → FB pins
 //   ai → "AI Bot"       → AI pins
