@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 200" width="620" height="200" role="img" aria-label="DoorDispatcher — We send you where the money is">
+  <!-- pin -->
+  <g transform="translate(24 34) scale(1.02)">
+    <path d="M50 6 C28.5 6 11 23.5 11 45 C11 72.7 50 121 50 121 C50 121 89 72.7 89 45 C89 23.5 71.5 6 50 6 Z" fill="#4c8dff"/>
+    <path d="M38 64 L38 44 A12 12 0 0 1 62 44 L62 64 Z" fill="#fff"/>
+    <circle cx="57" cy="53.5" r="2.3" fill="#4c8dff"/>
+  </g>
+  <!-- wordmark -->
+  <text x="150" y="98" font-family="'Helvetica Neue',Arial,sans-serif" font-size="58" font-weight="800" letter-spacing="-1.5">
+    <tspan fill="#0d1a2c">Door</tspan><tspan fill="#4c8dff">Dispatcher</tspan>
+  </text>
+  <!-- multicolor tagline -->
+  <text x="152" y="132" font-family="'Helvetica Neue',Arial,sans-serif" font-size="18.5" font-weight="700" letter-spacing="3">
+    <tspan fill="#4c8dff">WE </tspan><tspan fill="#2fb765">SEND </tspan><tspan fill="#d99a12">YOU </tspan><tspan fill="#f0603f">WHERE </tspan><tspan fill="#4c8dff">THE </tspan><tspan fill="#2fb765">MONEY </tspan><tspan fill="#d99a12">IS</tspan>
+  </text>
+</svg>

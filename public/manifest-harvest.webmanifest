@@ -1,15 +1,14 @@
 {
-  "name": "U.S. Shingle Map",
-  "short_name": "Shingle Map",
-  "description": "U.S. Shingle & Metal — Harvesting door-knock map.",
+  "name": "DoorDispatcher",
+  "short_name": "DoorDispatcher",
+  "description": "DoorDispatcher — we send you where the money is.",
   "start_url": "/?app=1&go=harvest",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#13294b",
-  "theme_color": "#16a34a",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
   "icons": [
-    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    { "src": "/doordispatcher-tile.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/doordispatcher-tile.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
   ]
 }

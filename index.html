@@ -44,6 +44,10 @@
           if (params.get("mode") === "harvest") {
             var ml = document.querySelector('link[rel="manifest"]');
             if (ml) ml.setAttribute("href", "/manifest-harvest.webmanifest");
+            // DoorDispatcher branding on the map: swap the browser-tab favicon to
+            // the Doorpin (the rest of the app keeps the U.S. Shingle icon).
+            var fav = document.querySelector('link[rel="icon"]');
+            if (fav) { fav.setAttribute("href", "/doordispatcher-icon.svg"); fav.setAttribute("type", "image/svg+xml"); }
             if (params.get("rt") || params.get("admin") || params.get("manager")) {
               localStorage.setItem("harvest_home", location.href);
             }

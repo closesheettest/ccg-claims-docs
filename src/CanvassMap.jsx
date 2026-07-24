@@ -2785,7 +2785,14 @@ export default function CanvassMap() {
       )}
       {/* Header */}
       <div style={{ padding: "10px 14px", background: "#0f172a", color: "#fff", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <div style={{ fontWeight: 800, fontSize: 16, fontFamily: "'Oswald', sans-serif", letterSpacing: "0.02em" }}>🧭 DoorDispatcher</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <svg width="22" height="28" viewBox="0 0 100 128" style={{ display: "block", flexShrink: 0 }} aria-hidden="true">
+            <path d="M50 6 C28.5 6 11 23.5 11 45 C11 72.7 50 121 50 121 C50 121 89 72.7 89 45 C89 23.5 71.5 6 50 6 Z" fill="#4c8dff" />
+            <path d="M38 64 L38 44 A12 12 0 0 1 62 44 L62 64 Z" fill="#fff" />
+            <circle cx="57" cy="53.5" r="2.3" fill="#4c8dff" />
+          </svg>
+          <div style={{ fontWeight: 800, fontSize: 16, fontFamily: "'Oswald', sans-serif", letterSpacing: "0.01em" }}><span style={{ color: "#fff" }}>Door</span><span style={{ color: "#5b9bff" }}>Dispatcher</span></div>
+        </div>
         <div style={{ fontSize: 12, opacity: 0.8 }}>{mapped.length} pins</div>
         {me?.level === "admin" && !demoMode && (
           <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
