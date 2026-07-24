@@ -18,6 +18,7 @@ import RepVisitHub from "./RepVisitHub";
 import SetterPortal from "./SetterPortal";
 import CanvassMap from "./CanvassMap";
 import HarvestAdmin from "./HarvestAdmin";
+import ScheduleAdmin from "./ScheduleAdmin";
 import HarvestUpload from "./HarvestUpload";
 import HarvestLinks from "./HarvestLinks";
 import HarvestReport from "./HarvestReport";
@@ -4426,6 +4427,7 @@ const MANAGER_TILES = [
   { group: "harvest", key: "harvest_links", emoji: "🔗", label: "Rep Links & Access", desc: "Each rep's personal map link + level (senior/junior), to hand out. Reps only see their allowed pins.", href: "/?mode=harvestlinks" },
   { group: "harvest", key: "harvest_types", emoji: "🎛️", label: "Pin Types", desc: "Create & edit pin types: color, who can see them, and each one's allowed outcomes.", href: "/?mode=harvestadmin" },
   { group: "harvest", key: "harvest_report", emoji: "📊", label: "Rep Activity", desc: "Report of each rep's canvassing: pins visited, rounds, outcomes (appts / not-interested / dead), and last active.", href: "/?mode=harvestreport" },
+  { group: "harvest", key: "appt_schedule", emoji: "📅", label: "Appointment Scheduler", desc: "Set the standard appointment times + last time per day. Reps book these slots; after the last time they can enter a custom time.", href: "/?mode=scheduleadmin" },
   // ── Inspections ──
   { group: "inspections", key: "team_roles", emoji: "🧑‍🤝‍🧑", label: "Team Roles", desc: "One list of everyone — check Inspector and/or PA to set each person's role. Start here when setting someone up." },
   { group: "inspections", key: "inspectors", emoji: "🔍", label: "Inspectors", desc: "Roster — sync from JN, edit, activate/deactivate" },
@@ -9474,6 +9476,11 @@ export default function App() {
     // (color, who can see them, allowed outcomes). Reads/writes harvest_pin_types.
     if (portalMode === "harvestadmin") {
       return <HarvestAdmin />;
+    }
+    // ?mode=scheduleadmin — office sets the standard appointment times + last
+    // time per day (app_settings.appt_schedule); the booking engine reads it.
+    if (portalMode === "scheduleadmin") {
+      return <ScheduleAdmin />;
     }
     // ?mode=harvestupload — office lead upload page (CSV/paste + past uploads).
     if (portalMode === "harvestupload") {

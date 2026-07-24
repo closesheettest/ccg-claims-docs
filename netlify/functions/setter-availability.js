@@ -23,7 +23,32 @@ const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const jnH = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
 const REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1";
 const RADIUS_MI = 50;
-const SLOT_HOURS = { 1: [11, 14, 17, 19], 2: [11, 14, 17, 19], 3: [11, 14, 17, 19], 4: [11, 14, 17, 19], 5: [9, 12, 15], 6: [9, 12] };
+// Default standard appointment hours per weekday (0=Sun … 6=Sat). The office can
+// override these + a per-day "last time" on the Appointment Scheduler admin page
+// (app_settings.appt_schedule) — loaded per request into SLOT_HOURS / LAST_BY_WD.
+const SLOT_HOURS_DEFAULT = { 1: [11, 14, 17, 19], 2: [11, 14, 17, 19], 3: [11, 14, 17, 19], 4: [11, 14, 17, 19], 5: [9, 12, 15], 6: [9, 12] };
+let SLOT_HOURS = SLOT_HOURS_DEFAULT;   // reassigned per request from config (fallback = default)
+let LAST_BY_WD = {};                    // per-weekday last standard hour; after it = custom time in the UI
+
+// Read the office's saved schedule (app_settings.appt_schedule). Shape:
+//   { "1": { slots:[11,14,17,19], last:19 }, ... }  (weekday → hours + last time)
+async function loadSchedule() {
+  try {
+    const rows = await sbGet(`app_settings?key=eq.appt_schedule&select=value&limit=1`);
+    const raw = rows[0]?.value;
+    if (!raw) return;
+    const cfg = typeof raw === "string" ? JSON.parse(raw) : raw;
+    const hours = {}, last = {};
+    for (const wd of [0, 1, 2, 3, 4, 5, 6]) {
+      const d = cfg[wd] ?? cfg[String(wd)];
+      if (!d) continue;
+      const s = (d.slots || []).map(Number).filter((h) => Number.isFinite(h)).sort((a, b) => a - b);
+      if (s.length) hours[wd] = s;
+      if (Number.isFinite(Number(d.last))) last[wd] = Number(d.last);
+    }
+    if (Object.keys(hours).length) { SLOT_HOURS = hours; LAST_BY_WD = last; }
+  } catch { /* keep defaults */ }
+}
 
 const ZONE_COUNTIES = {
   "Zone 1": ["Nassau", "Duval", "Baker", "Union", "Bradford", "Clay", "St. Johns", "Putnam", "Flagler", "Alachua", "Levy", "Marion", "Sumter", "Lake", "Seminole", "Volusia", "Brevard", "Orange"],
@@ -66,10 +91,14 @@ exports.handler = async (event) => {
         .filter((r) => r.distance_mi <= RADIUS_MI)
         .sort((a, b) => a.distance_mi - b.distance_mi);
     const now = Date.now();
+    // Office-configured appointment times (falls back to defaults). Sets the
+    // module SLOT_HOURS / LAST_BY_WD that buildDays + the response below use.
+    SLOT_HOURS = SLOT_HOURS_DEFAULT; LAST_BY_WD = {};
+    await loadSchedule();
 
     // No qualified rep in range — the setter can still book; offer generic slots
     // (the appt is owned by the setter for a manager to assign).
-    if (!near.length) return cors(200, JSON.stringify({ ok: true, reps: [], out_of_radius: true, generic_days: buildDays(now, days, new Set(), new Set()) }));
+    if (!near.length) return cors(200, JSON.stringify({ ok: true, reps: [], out_of_radius: true, last_by_weekday: LAST_BY_WD, generic_days: buildDays(now, days, new Set(), new Set()) }));
 
     // Map JN ids → sales_reps.id for date blocks.
     const jnids = near.map((r) => r.jobnimbus_id);
@@ -109,7 +138,7 @@ exports.handler = async (event) => {
     }
     const daysOut = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date))
       .map((dd) => ({ date: dd.date, label: dd.label, slots: [...dd.slots.values()].sort((a, b) => a.hour - b.hour) }));
-    return cors(200, JSON.stringify({ ok: true, days: daysOut, out_of_radius: false }));
+    return cors(200, JSON.stringify({ ok: true, days: daysOut, out_of_radius: false, last_by_weekday: LAST_BY_WD }));
   } catch (e) {
     return cors(500, JSON.stringify({ ok: false, error: e.message || "error" }));
   }
