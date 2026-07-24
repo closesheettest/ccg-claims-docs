@@ -4404,7 +4404,7 @@ function GuidedIntakeFlow({
 // ───────────────────────────────────────────────────────────────────
 const MANAGER_TABS = [
   { key: "signing",     emoji: "🖊", label: "Signing & Sales" },
-  { key: "harvest",     emoji: "🌾", label: "Harvesting" },
+  { key: "harvest",     emoji: "🧭", label: "DoorDispatcher" },
   { key: "inspections", emoji: "🔍", label: "Inspections" },
   { key: "pa",          emoji: "🤝", label: "Public Adjuster" },
   { key: "settings",    emoji: "⚙️", label: "Settings" },
@@ -4428,6 +4428,7 @@ const MANAGER_TILES = [
   { group: "harvest", key: "harvest_types", emoji: "🎛️", label: "Pin Types", desc: "Create & edit pin types: color, who can see them, and each one's allowed outcomes.", href: "/?mode=harvestadmin" },
   { group: "harvest", key: "harvest_report", emoji: "📊", label: "Rep Activity", desc: "Report of each rep's canvassing: pins visited, rounds, outcomes (appts / not-interested / dead), and last active.", href: "/?mode=harvestreport" },
   { group: "harvest", key: "appt_schedule", emoji: "📅", label: "Appointment Scheduler", desc: "Set the standard appointment times + last time per day. Reps book these slots; after the last time they can enter a custom time.", href: "/?mode=scheduleadmin" },
+  { group: "harvest", key: "roof_installs", emoji: "🏗️", label: "Roof Installs", desc: "Track every roof install — jobsite foreman, material ordered, install & complete dates, needs-repair — the same way we track reps.", href: "/?mode=installs" },
   // ── Inspections ──
   { group: "inspections", key: "team_roles", emoji: "🧑‍🤝‍🧑", label: "Team Roles", desc: "One list of everyone — check Inspector and/or PA to set each person's role. Start here when setting someone up." },
   { group: "inspections", key: "inspectors", emoji: "🔍", label: "Inspectors", desc: "Roster — sync from JN, edit, activate/deactivate" },
