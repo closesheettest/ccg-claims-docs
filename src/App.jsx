@@ -19,6 +19,7 @@ import SetterPortal from "./SetterPortal";
 import CanvassMap from "./CanvassMap";
 import HarvestAdmin from "./HarvestAdmin";
 import ScheduleAdmin from "./ScheduleAdmin";
+import InstallsMap from "./InstallsMap";
 import HarvestUpload from "./HarvestUpload";
 import HarvestLinks from "./HarvestLinks";
 import HarvestReport from "./HarvestReport";
@@ -9485,6 +9486,10 @@ export default function App() {
     // time per day (app_settings.appt_schedule); the booking engine reads it.
     if (portalMode === "scheduleadmin") {
       return <ScheduleAdmin />;
+    }
+    // ?mode=installs — Installs Map: current roof installs colored by foreman.
+    if (portalMode === "installs") {
+      return <InstallsMap />;
     }
     // ?mode=harvestupload — office lead upload page (CSV/paste + past uploads).
     if (portalMode === "harvestupload") {
