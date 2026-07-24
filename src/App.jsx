@@ -4422,13 +4422,16 @@ const MANAGER_TILES = [
   { group: "signing", key: "training", emoji: "🚗", label: "Training Report", desc: "Who rode with William for field training each day + confirmed hours. Get William's daily picker link here." },
 
   // ── Harvesting ── (these open standalone routes, hence `href`)
-  { group: "harvest", key: "harvest_map", emoji: "🗺️", label: "DoorDispatcher", desc: "The door-knock map (office view — all pins). Reps use their own personal links.", href: "/?mode=harvestlinks" },
-  { group: "harvest", key: "harvest_upload", emoji: "📥", label: "Load Leads", desc: "Upload a CSV of leads (office-only), mark its pin type, and delete a bad upload.", href: "/?mode=harvestupload" },
-  { group: "harvest", key: "harvest_links", emoji: "🔗", label: "Rep Links & Access", desc: "Each rep's personal map link + level (senior/junior), to hand out. Reps only see their allowed pins.", href: "/?mode=harvestlinks" },
-  { group: "harvest", key: "harvest_types", emoji: "🎛️", label: "Pin Types", desc: "Create & edit pin types: color, who can see them, and each one's allowed outcomes.", href: "/?mode=harvestadmin" },
-  { group: "harvest", key: "harvest_report", emoji: "📊", label: "Rep Activity", desc: "Report of each rep's canvassing: pins visited, rounds, outcomes (appts / not-interested / dead), and last active.", href: "/?mode=harvestreport" },
-  { group: "harvest", key: "appt_schedule", emoji: "📅", label: "Appointment Scheduler", desc: "Set the standard appointment times + last time per day. Reps book these slots; after the last time they can enter a custom time.", href: "/?mode=scheduleadmin" },
-  { group: "harvest", key: "roof_installs", emoji: "🏗️", label: "Roof Installs", desc: "Track every roof install — jobsite foreman, material ordered, install & complete dates, needs-repair — the same way we track reps.", href: "/?mode=installs" },
+  // ── Sales module (door-knocking / DoorDispatcher) ──
+  { group: "harvest", module: "sales", key: "harvest_map", emoji: "🗺️", label: "DoorDispatcher", desc: "The door-knock map (office view — all pins). Reps use their own personal links.", href: "/?mode=harvestlinks" },
+  { group: "harvest", module: "sales", key: "harvest_upload", emoji: "📥", label: "Load Leads", desc: "Upload a CSV of leads (office-only), mark its pin type, and delete a bad upload.", href: "/?mode=harvestupload" },
+  { group: "harvest", module: "sales", key: "harvest_links", emoji: "🔗", label: "Rep Links & Access", desc: "Each rep's personal map link + level (senior/junior), to hand out. Reps only see their allowed pins.", href: "/?mode=harvestlinks" },
+  { group: "harvest", module: "sales", key: "harvest_types", emoji: "🎛️", label: "Pin Types", desc: "Create & edit pin types: color, who can see them, and each one's allowed outcomes.", href: "/?mode=harvestadmin" },
+  { group: "harvest", module: "sales", key: "harvest_report", emoji: "📊", label: "Rep Activity", desc: "Report of each rep's canvassing: pins visited, rounds, outcomes (appts / not-interested / dead), and last active.", href: "/?mode=harvestreport" },
+  { group: "harvest", module: "sales", key: "appt_schedule", emoji: "📅", label: "Appointment Scheduler", desc: "Set the standard appointment times + last time per day. Reps book these slots; after the last time they can enter a custom time.", href: "/?mode=scheduleadmin" },
+  // ── Installs module (production tracking) ──
+  { group: "harvest", module: "installs", key: "foreman_links", emoji: "🔗", label: "Jobsite Foreman Links", desc: "Each foreman's personal link — hand out so installs are tracked the same way we track reps.", href: "/?mode=foremanlinks" },
+  { group: "harvest", module: "installs", key: "installs_map", emoji: "🗺️", label: "Map", desc: "Live map of current installs, colored by jobsite foreman.", href: "/?mode=installs" },
   // ── Inspections ──
   { group: "inspections", key: "team_roles", emoji: "🧑‍🤝‍🧑", label: "Team Roles", desc: "One list of everyone — check Inspector and/or PA to set each person's role. Start here when setting someone up." },
   { group: "inspections", key: "inspectors", emoji: "🔍", label: "Inspectors", desc: "Roster — sync from JN, edit, activate/deactivate" },
@@ -9954,6 +9957,7 @@ export default function App() {
   });
   // Which side of the manager home the user is browsing: signing / inspections / pa / settings.
   const [managerTab, setManagerTab] = useState("signing");
+  const [managerModule, setManagerModule] = useState("sales"); // DoorDispatcher sub-module: sales | installs
 
   // ── Browse All Records — paginated full-list audit tool for managers ──
   // Shows every inspection in the system in chronological order. Each row
@@ -16990,7 +16994,10 @@ if (!hasDamage) {
                     (() => {
                       // MANAGER_TABS + MANAGER_TILES are hoisted to module scope
                       // (shared with the Admin Dashboard) — see top of file.
-                      const tiles = MANAGER_TILES.filter(t => t.group === managerTab);
+                      // DoorDispatcher (harvest) splits into Sales / Installs modules.
+                      const isHarvest = managerTab === "harvest";
+                      const MODULES = [{ key: "sales", emoji: "🚪", label: "Sales" }, { key: "installs", emoji: "🏗️", label: "Installs" }];
+                      const tiles = MANAGER_TILES.filter(t => t.group === managerTab && (!isHarvest || (t.module || "sales") === managerModule));
                       return (
                         <div style={{ marginTop: 8 }}>
                           {/* Tab bar — one row per side of the app */}
@@ -17005,7 +17012,21 @@ if (!hasDamage) {
                               );
                             })}
                           </div>
-                          {/* Tiles for the selected tab */}
+                          {/* DoorDispatcher module switcher — Sales vs Installs */}
+                          {isHarvest && (
+                            <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+                              {MODULES.map(m => {
+                                const on = managerModule === m.key;
+                                return (
+                                  <button key={m.key} type="button" onClick={() => setManagerModule(m.key)}
+                                    style={{ padding: "12px 22px", borderRadius: 14, border: on ? "2px solid #2563eb" : "2px solid #e5e7eb", background: on ? "#eff6ff" : "#fff", color: on ? "#1e3a8a" : "#374151", fontFamily: "'Oswald', sans-serif", fontWeight: 800, fontSize: 15, cursor: "pointer", letterSpacing: "0.02em", display: "flex", alignItems: "center", gap: 8 }}>
+                                    <span style={{ fontSize: 18 }}>{m.emoji}</span>{m.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                          {/* Tiles for the selected tab (+ module) */}
                           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
                             {tiles.map(item => (
                               <button key={item.key} type="button" onClick={() => item.key === "harvest_map" ? openHarvestAdminMap() : item.href ? window.open(item.href, "_blank", "noopener") : setManagerSection(item.key)}
