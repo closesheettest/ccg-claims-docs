@@ -395,6 +395,25 @@ export default function HarvestReport() {
       {rows && byRep.length === 0 && !err && <div style={{ color: "#64748b", fontSize: 13.5, background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 12, padding: "18px 16px" }}>No activity yet for this period. Reps' visits and status changes show up here as they work the map.</div>}
 
       {byRep.length > 0 && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+          <button type="button" onClick={() => {
+            const cols = ["Rep", "Visits", "Avg at spot (s)", "Rounds", ...OUTCOMES.map((o) => OUTCOME_LABELS[o] || o), "Not home", "Off-spot", "Far", "Last active"];
+            const esc = (c) => { const s = String(c ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+            const lines = [cols.map(esc).join(",")];
+            for (const r of byRep) {
+              lines.push([r.name, r.visits, r.avgSpot ?? "", r.rounds ?? "", ...OUTCOMES.map((o) => r.outcomes[o] || 0), r.notHome || 0, r.offSpot || 0, r.farCount || 0, r.last ? new Date(r.last).toLocaleString() : ""].map(esc).join(","));
+            }
+            const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = `doordispatcher-${view}-${period}-report.csv`;
+            document.body.appendChild(a); a.click(); a.remove();
+          }} style={{ border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", borderRadius: 10, padding: "8px 14px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", letterSpacing: "0.02em", cursor: "pointer" }}>
+            ⬇ Export CSV
+          </button>
+        </div>
+      )}
+      {byRep.length > 0 && (
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5 }}>
             <thead>

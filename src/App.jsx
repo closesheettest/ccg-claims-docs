@@ -20,6 +20,7 @@ import CanvassMap from "./CanvassMap";
 import HarvestAdmin from "./HarvestAdmin";
 import ScheduleAdmin from "./ScheduleAdmin";
 import InstallsMap from "./InstallsMap";
+import ForemanLinks from "./ForemanLinks";
 import HarvestUpload from "./HarvestUpload";
 import HarvestLinks from "./HarvestLinks";
 import HarvestReport from "./HarvestReport";
@@ -9490,6 +9491,10 @@ export default function App() {
     // ?mode=installs — Installs Map: current roof installs colored by foreman.
     if (portalMode === "installs") {
       return <InstallsMap />;
+    }
+    // ?mode=foremanlinks — Jobsite Foreman roster (install-side of Rep Links).
+    if (portalMode === "foremanlinks") {
+      return <ForemanLinks />;
     }
     // ?mode=harvestupload — office lead upload page (CSV/paste + past uploads).
     if (portalMode === "harvestupload") {
