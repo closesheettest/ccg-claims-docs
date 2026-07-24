@@ -17018,9 +17018,9 @@ if (!hasDamage) {
                                 <button key={tab.key} type="button" onClick={() => setManagerTab(tab.key)}
                                   style={{ padding: "10px 18px", borderRadius: 12, border: active ? "2px solid #0a0a0a" : "2px solid #e5e7eb", background: active ? "#0a0a0a" : "#fff", color: active ? "#fff" : "#374151", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.03em", display: "flex", alignItems: "center", gap: 7 }}>
                                   {tab.key === "harvest" ? (
-                                    <svg width="15" height="19" viewBox="0 0 100 128" style={{ display: "block" }} aria-hidden="true">
+                                    <svg width="17" height="21" viewBox="0 0 100 128" style={{ display: "block" }} aria-hidden="true">
                                       <path d="M50 6 C28.5 6 11 23.5 11 45 C11 72.7 50 121 50 121 C50 121 89 72.7 89 45 C89 23.5 71.5 6 50 6 Z" fill="#4c8dff" />
-                                      <path d="M38 64 L38 44 A12 12 0 0 1 62 44 L62 64 Z" fill="#fff" />
+                                      <path d="M34 74 L34 50 A16 16 0 0 1 66 50 L66 74 Z" fill="#fff" />
                                     </svg>
                                   ) : (
                                     <span style={{ fontSize: 16 }}>{tab.emoji}</span>
