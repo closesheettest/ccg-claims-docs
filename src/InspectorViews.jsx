@@ -5619,7 +5619,7 @@ export function ConfirmResultsPanel() {
                         onClick={() => togglePhotos(insp)}
                         style={{ ...secondaryBtn, fontSize: 11, marginTop: 8 }}
                       >
-                        {open ? "Hide photos" : `View ${photos.length} photo${photos.length === 1 ? "" : "s"}`}
+                        {open ? "Hide photos" : `View ${totalPhotos} photo${totalPhotos === 1 ? "" : "s"}${jnPhotoN > 0 && photos.length < totalPhotos ? ` (${jnPhotoN} in JN)` : ""}`}
                       </button>
                     )}
                   </div>
