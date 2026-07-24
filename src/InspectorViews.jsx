@@ -5402,6 +5402,16 @@ export function ConfirmResultsPanel() {
       // Number duplicate labels for display (e.g. "1st slope detail 1/2/3").
       const numbered = numberPhotoLabels(urls.map((u) => u.label));
       urls.forEach((u, i) => { u.label = numbered[i]; });
+      // Also show photos that live only in JobNimbus (older deals keep most of
+      // their roof photos there) — so the card shows ALL of them, not just the
+      // app-captured ones. Skipped silently if JN is unreachable.
+      if (insp.jn_job_id) {
+        try {
+          const r = await fetch("/.netlify/functions/jn-photo-urls", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jn_job_id: insp.jn_job_id }) });
+          const b = r.ok ? await r.json() : null;
+          for (const u of (b?.urls || [])) urls.push({ url: u, label: "JN" });
+        } catch { /* app photos still show */ }
+      }
       setPhotoUrls((m) => ({ ...m, [insp.id]: urls }));
     }
   }
