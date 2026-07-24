@@ -1434,11 +1434,23 @@ function PACompaniesPanel({ companies, pas, busy, onUpdate, onCreate }) {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <div style={{ fontWeight: 800, color: "#1e1b4b" }}>
                     {c.name} {!c.active && <span style={{ fontSize: 10, color: "#6b7280" }}>(inactive)</span>}
+                    {c.active && c.scheduling_paused && <span style={{ fontSize: 10, padding: "2px 8px", background: "#fef3c7", color: "#92400e", borderRadius: 999, fontWeight: 700, marginLeft: 6 }}>⏸ scheduling paused</span>}
                     <span style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", marginLeft: 8 }}>{activePaCount(c.id)}/{paCount(c.id)} active PAs</span>
                   </div>
-                  <button type="button" disabled={busy} onClick={() => onUpdate(c.id, { active: !c.active })} style={{ ...secondaryBtn, fontSize: 11 }}>
-                    {c.active ? "Deactivate" : "Activate"}
-                  </button>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {c.active && (
+                      <button type="button" disabled={busy} onClick={() => onUpdate(c.id, { scheduling_paused: !c.scheduling_paused })}
+                        title={c.scheduling_paused
+                          ? "Resume — start offering ALL of this company's PAs for new appointments again"
+                          : "Pause new appointments company-wide — none of this company's PAs are offered for new bookings (they stay active on existing deals)"}
+                        style={{ ...secondaryBtn, fontSize: 11, ...(c.scheduling_paused ? { background: "#fef3c7", borderColor: "#fcd34d", color: "#92400e" } : {}) }}>
+                        {c.scheduling_paused ? "▶ Resume scheduling" : "⏸ Pause scheduling"}
+                      </button>
+                    )}
+                    <button type="button" disabled={busy} onClick={() => onUpdate(c.id, { active: !c.active })} style={{ ...secondaryBtn, fontSize: 11 }}>
+                      {c.active ? "Deactivate" : "Activate"}
+                    </button>
+                  </div>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 8 }}>
                   <input defaultValue={c.admin_name || ""} placeholder="Admin name" style={inputStyle}
