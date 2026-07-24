@@ -404,8 +404,8 @@ async function book(body) {
   // yet), notify the admin, and reuse for the homeowner confirmation below.
   let co = null;
   if (pa.pa_company_id) {
-    const full = `pa_companies?id=eq.${encodeURIComponent(pa.pa_company_id)}&select=name,admin_name,admin_phone,email,homeowner_confirm_enabled,homeowner_confirm_sms,homeowner_confirm_email_subject,homeowner_confirm_email_body&limit=1`;
-    const basic = `pa_companies?id=eq.${encodeURIComponent(pa.pa_company_id)}&select=name,admin_name,admin_phone,email&limit=1`;
+    const full = `pa_companies?id=eq.${encodeURIComponent(pa.pa_company_id)}&select=name,admin_name,admin_phone,email,notify_cc,homeowner_confirm_enabled,homeowner_confirm_sms,homeowner_confirm_email_subject,homeowner_confirm_email_body&limit=1`;
+    const basic = `pa_companies?id=eq.${encodeURIComponent(pa.pa_company_id)}&select=name,admin_name,admin_phone,email,notify_cc&limit=1`;
     co = (await sbGet(full))[0] || (await sbGet(basic))[0] || null;
     if (co) {
       const coMsg = `📅 Appointment booked for ${pa.name}: ${homeowner || "a homeowner"}${fullAddress ? ` — ${fullAddress}` : ""} on ${when}.`;
@@ -422,7 +422,10 @@ async function book(body) {
         `Appointment: ${when}`,
       ].join("<br>");
       const coSubject = `New PA appointment - ${pa.name} - ${homeowner || "Homeowner"}`;
-      if (base && co.email) await email(base, co.email, coSubject, coEmailBody);
+      // Extra CC recipients the company set (e.g. Five Star's weather.report@) —
+      // comma/space separated on the company's Notification CC field.
+      const coCc = String(co.notify_cc || "").split(/[,;\s]+/).map((s) => s.trim()).filter((s) => s.includes("@"));
+      if (base && co.email) await email(base, co.email, coSubject, coEmailBody, coCc.length ? coCc : undefined);
     }
   }
 
@@ -488,8 +491,12 @@ function etStartLabel(startMs) {
 async function sms(base, to, name, message) {
   try { await fetch(`${base}/.netlify/functions/ghl-sms`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to, name, message }) }); } catch { /* best-effort */ }
 }
-async function email(base, to, subject, text) {
-  try { await fetch(`${base}/.netlify/functions/send-email`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to, subject, html: `<p>${text}</p>` }) }); } catch { /* best-effort */ }
+async function email(base, to, subject, text, cc) {
+  try {
+    const payload = { to, subject, html: `<p>${text}</p>` };
+    if (cc && cc.length) payload.cc = cc;
+    await fetch(`${base}/.netlify/functions/send-email`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  } catch { /* best-effort */ }
 }
 async function getSetting(key) {
   const rows = await sbGet(`app_settings?key=eq.${encodeURIComponent(key)}&select=value&limit=1`);

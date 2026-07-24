@@ -1474,6 +1474,11 @@ function PACompaniesPanel({ companies, pas, busy, onUpdate, onCreate }) {
                       onUpdate(c.id, patch);
                     }} />
                 </div>
+                <div style={{ marginTop: 6 }}>
+                  <input defaultValue={c.notify_cc || ""} placeholder="Notification CC — extra emails on new-appointment notices (comma-separated)" style={{ ...inputStyle, width: "100%" }}
+                    onBlur={(e) => { const v = e.target.value.trim(); if (v !== (c.notify_cc || "")) onUpdate(c.id, { notify_cc: v || null }); }} />
+                  <div style={{ fontSize: 11, marginTop: 3, color: "#94a3b8" }}>Anyone here is CC'd on every "New PA appointment" email (alongside the company email). Separate multiple with commas.</div>
+                </div>
                 {c.address && (
                   <div style={{ fontSize: 11, marginTop: 4, color: c.latitude != null ? "#16a34a" : "#b45309" }}>
                     {c.latitude != null ? "📍 Office geocoded — the company admin can sort homeowners from “🏢 My office.”" : "⚠ Office address not geocoded yet — re-enter the address to retry."}
