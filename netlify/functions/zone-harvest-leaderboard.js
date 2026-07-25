@@ -36,6 +36,23 @@ function fieldByLabel(job, label) {
   for (const [k, v] of Object.entries(job)) if (k.trim().replace(/^\*|\*$/g, "").trim() === label) return v;
   return undefined;
 }
+// A harvested appointment belongs to a period if any DURABLE job date — the
+// appointment itself (date_start) or when the harvest job was created
+// (date_created) — falls in the window. Both are unix seconds on the job and
+// never move when the appt task is completed or the deal advances to Sit/Sold,
+// so once credited a harvested appointment stays credited. (date_start shifts
+// only on a genuine reschedule, which correctly re-dates the appointment.)
+function harvestInWindow(job, startSec, endSec) {
+  for (const v of [job.date_start, job.date_created]) {
+    const n = Number(v);
+    if (Number.isFinite(n) && n >= startSec && n <= endSec) return true;
+  }
+  return false;
+}
+function harvestWhen(job) {
+  const n = Number(job.date_start) || Number(job.date_created) || 0;
+  return n ? new Date(n * 1000).toISOString() : null;
+}
 
 const ZONE_TEAMS = { "Zone 1": "SQUAD", "Zone 2": "SitSold", "Zone 3": "SHARKS", "Zone 4": "HURRICANE" };
 const ZONE_ORDER = ["Zone 1", "Zone 2", "Zone 3", "Zone 4"];
@@ -104,10 +121,36 @@ export const handler = async (event) => {
           const rows = await sbGet(`canvass_prospects?id=in.(${pinIds.slice(i, i + 100).join(",")})&jn_job_id=not.is.null&select=jn_job_id`);
           for (const p of rows) if (p.jn_job_id) mapJobIds.add(p.jn_job_id);
         }
-        // Appointment tasks CREATED in the window → the jobs they hang on.
+
+        // ── DURABLE harvest credit (was: transient appointment tasks) ──────────
+        // Credit reads the JOB's PERMANENT state, never an open appt task. The
+        // old approach counted jobs via appointment TASKS created in the window;
+        // when a rep SITS the appointment the office completes that task, and a
+        // completed task drops out of the /tasks search — so the harvested deal
+        // silently vanished from the board the moment the rep did the work (and
+        // again when it advanced to Sit/Sold). Now: a harvest-flagged job counts
+        // once as long as its appointment (date_start) or its creation
+        // (date_created) falls in the window — both persist through completion
+        // and every later status change, so credit only ever grows.
         const startSec = Math.floor(start.getTime() / 1000), endSec = Math.floor(end.getTime() / 1000);
+        const sinceSec = startSec - 8 * 86400; // any deal active this window was updated since ~a week prior
+
+        // Candidate jobs, deduped by id. (a) source = "Harvesting" is a small,
+        // server-filtered set (no 1,500-job cap). (b) jobs behind appointment
+        // tasks created this window catch any harvest job whose source isn't
+        // "Harvesting" — belt + suspenders, so we never count fewer than before.
+        const candidates = new Map();
+        const srcFilter = encodeURIComponent(JSON.stringify({ must: [{ match_phrase: { source_name: "Harvesting" } }] }));
+        for (let page = 0; page < 25; page++) {
+          const r = await fetch(`${JN_BASE}/jobs?size=100&from=${page * 100}&sort=-date_updated&date_updated_after=${sinceSec}&filter=${srcFilter}`, { headers: jnHeaders });
+          if (!r.ok) break;
+          const d = await r.json().catch(() => ({}));
+          const rows = d.results || d.jobs || [];
+          for (const j of rows) candidates.set(j.jnid || j.id, j);
+          if (rows.length < 100) break;
+        }
         const taskFilter = encodeURIComponent(JSON.stringify({ must: [{ range: { date_created: { gte: startSec, lte: endSec } } }] }));
-        const taskJobs = new Set();
+        const taskJobIds = new Set();
         for (let page = 0; page < 30; page++) {
           const r = await fetch(`${JN_BASE}/tasks?size=100&from=${page * 100}&filter=${taskFilter}`, { headers: jnHeaders });
           if (!r.ok) break;
@@ -115,45 +158,33 @@ export const handler = async (event) => {
           const rows = d.results || d.tasks || [];
           for (const t of rows) {
             if (!APPT_TASK_TYPES.has(t.record_type_name)) continue;
-            for (const rel of (t.related || [])) if (rel.type === "job" && rel.id && !mapJobIds.has(rel.id)) taskJobs.add(rel.id);
+            for (const rel of (t.related || [])) if (rel.type === "job" && rel.id) taskJobIds.add(rel.id);
           }
           if (rows.length < 100) break;
         }
-        if (taskJobs.size) {
-          // Job details: one recently-updated sweep (making an appt touches the
-          // job), individual fetch as a small fallback.
-          const byId = new Map();
-          const sinceSec = startSec - 7 * 86400;
-          for (let page = 0; page < 15; page++) {
-            const r = await fetch(`${JN_BASE}/jobs?size=100&from=${page * 100}&sort=-date_updated&date_updated_after=${sinceSec}`, { headers: jnHeaders });
-            if (!r.ok) break;
-            const d = await r.json().catch(() => ({}));
-            const rows = d.results || d.jobs || [];
-            for (const j of rows) byId.set(j.jnid || j.id, j);
-            if (rows.length < 100) break;
+        let individual = 0;
+        for (const id of taskJobIds) {
+          if (candidates.has(id) || individual >= 60) continue;
+          individual++;
+          try { const r = await fetch(`${JN_BASE}/jobs/${id}`, { headers: jnHeaders }); if (r.ok) { const job = await r.json().catch(() => null); if (job) candidates.set(id, job); } } catch { /* skip */ }
+        }
+
+        // Count each harvest job once, off durable dates — survives task
+        // completion and Sit/Sold advancement.
+        for (const [id, job] of candidates) {
+          if (!job || mapJobIds.has(id)) continue;
+          if (!isYes(fieldByLabel(job, "Sales Rep Harvested"))) continue;   // office didn't flag it harvested
+          if (!harvestInWindow(job, startSec, endSec)) continue;           // appt/booking not in this period
+          if (qp.debug === "2") {
+            payloadDebugJobs.push({ name: job.name, rep: job.sales_rep_name || null, status: job.status_name, when: harvestWhen(job) });
           }
-          let individual = 0;
-          for (const id of taskJobs) {
-            let job = byId.get(id);
-            if (!job && individual < 25) {
-              individual++;
-              try { const r = await fetch(`${JN_BASE}/jobs/${id}`, { headers: jnHeaders }); if (r.ok) job = await r.json().catch(() => null); } catch { /* skip */ }
-            }
-            if (!job) continue;
-            if (!isYes(fieldByLabel(job, "Sales Rep Harvested"))) continue;   // office didn't flag it harvested
-            // debug=2 — surface HOW the flag is keyed on real flagged jobs (label vs
-            // cf_*), so writers (setter-book-appointment auto-flag) use the right key.
-            if (qp.debug === "2") {
-              payloadDebugJobs.push({ name: job.name, keys: Object.entries(job).filter(([k, v]) => /arvest/i.test(k) || (typeof v === "string" && v === "Yes")).map(([k, v]) => `${k}=${v}`) });
-            }
-            const rep = (job.sales_rep_name || "").trim();
-            const zone = zoneOf(rep);
-            if (!zone) { unattributed++; continue; }
-            const z = agg[zone] || (agg[zone] = { count: 0, byRep: {} });
-            z.count += 1;
-            z.byRep[rep || "—"] = (z.byRep[rep || "—"] || 0) + 1;
-            jnCounted += 1;
-          }
+          const rep = (job.sales_rep_name || "").trim();
+          const zone = zoneOf(rep);
+          if (!zone) { unattributed++; continue; }
+          const z = agg[zone] || (agg[zone] = { count: 0, byRep: {} });
+          z.count += 1;
+          z.byRep[rep || "—"] = (z.byRep[rep || "—"] || 0) + 1;
+          jnCounted += 1;
         }
       }
     } catch { /* board still renders from map bookings alone */ }
