@@ -11,7 +11,8 @@
 //   result "no_damage"  → task "Inspection Result No Damage"      (record_type 23)
 //
 // review_availability formats seen: "Wed · 5 PM", "Thu, Fri, Sat · 2 PM",
-// "Any day · 2 PM". We schedule the SOONEST upcoming match (ET) at that hour.
+// "Any day · 2 PM". We schedule the soonest match (ET) at that hour, but NEVER
+// the same day as the inspection — the go-back always starts the NEXT day.
 //
 // Internal call (no token), like send-to-pa-ops-hub / process-retail-result.
 // POST { inspectionId } → { ok, created?, task_id?, when?, skipped? }
@@ -130,7 +131,7 @@ function nextGoBackMs(reviewAvail, busy = new Set(), blocked = new Set(), dateBl
   }
   const now = Date.now();
   const pick = (avoid) => {
-    for (let d = 0; d < 28; d++) {
+    for (let d = 1; d < 29; d++) { // start at d=1 (tomorrow) — never book the go-back same-day as the inspection
       const { y, mo, day, weekday } = etParts(now + d * 864e5);
       if (!days.includes(weekday)) continue;
       const dateStr = `${y}-${String(mo).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
