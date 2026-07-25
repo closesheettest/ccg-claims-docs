@@ -679,6 +679,7 @@ function visitNeedsWork(v) {
   const s = visitDueStatus(v);
   if (s === "overdue" || s === "today") return s;
   if (s === "later") return null;               // has a future scheduled date → not yet
+  if (s === "none") return "anytime";           // historical / no date ever captured → workable anytime, don't wait to age
   const age = visitAgeDays(v);
   return age != null && age >= GOBACK_AGING_DAYS ? "aging" : null;
 }
