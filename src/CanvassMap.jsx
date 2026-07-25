@@ -387,7 +387,12 @@ function fmtTime(iso) { try { return new Date(iso).toLocaleTimeString("en-US", {
 // contact, geo, status). Deliberately drops the heavy fields — chiefly `extra`
 // (the whole CSV row as JSON, ~340KB of a 790KB viewport) plus notes/metadata —
 // so a 6000-pin viewport ships ~260KB instead of ~790KB (≈3× faster to load).
-const PIN_FIELDS_LITE = "id,name,address,city,state,zip,phone,email,latitude,longitude,status,jn_job_id,list_name,status_updated_at,status_by";
+const PIN_FIELDS_LITE = "id,name,address,city,state,zip,phone,email,latitude,longitude,status,jn_job_id,list_name,status_updated_at,status_by,route_claim_by,route_claim_by_jn,route_claim_at";
+// A Clover Leaf grid a rep is actively routing is soft-locked to them; the
+// claim (route_claim_*) goes stale this many ms after the last heartbeat — i.e.
+// once their route is no longer active, the doors are back in play.
+const ROUTE_CLAIM_MS = 30 * 60 * 1000;
+const ROUTE_CLAIM_BEAT_MS = 8 * 60 * 1000; // refresh well inside the 30-min window while active
 // "Worked today" doors show baby blue so other reps see them handled and skip them.
 const BABY_BLUE = "#7dd3fc";
 // A door counts as worked today only if a REP touched it today — status_by is a
@@ -898,6 +903,29 @@ export default function CanvassMap() {
     return false;
   };
   const pinOwnerName = (p) => (p && p.extra && (p.extra.claimed_by || p.extra.created_by)) || "another rep";
+  // ── Clover route-lock ──────────────────────────────────────────────────
+  // When a rep routes a Clover Leaf grid the doors are soft-locked to them for
+  // their ACTIVE route (a heartbeat refreshes route_claim_at). A claim older
+  // than ROUTE_CLAIM_MS means the route is no longer active → the door is back
+  // in play. Office/admin ignore locks.
+  const routeClaimFresh = (p) => {
+    const at = p && p.route_claim_at;
+    if (!at) return null;
+    const t = new Date(at).getTime();
+    if (!(Number.isFinite(t) && Date.now() - t <= ROUTE_CLAIM_MS)) return null; // stale → reopened
+    return { by: p.route_claim_by, by_jn: p.route_claim_by_jn };
+  };
+  const routeClaimMine = (rc) => !!rc && (
+    (rc.by_jn && me?.jn_id && String(rc.by_jn) === String(me.jn_id)) ||
+    (rc.by && me?.name && rc.by === me.name)
+  );
+  // A clover door another rep is actively routing → this rep can't route/work it.
+  const routeLockedByOther = (p) => {
+    if (!isCloverPin(p) || !auth.rt || me?.level === "admin") return false;
+    const rc = routeClaimFresh(p);
+    return !!rc && !routeClaimMine(rc);
+  };
+  const routeLockName = (p) => (routeClaimFresh(p)?.by) || "another rep";
   // Homeowner PII (name, phone, email, owner) shows only when the office/admin views it,
   // the rep OWNS the pin (their own self-gen door), or the pin is part of the rep's ACTIVE
   // planned route. Reps can't just tap pins to read off homeowner names — the details come
@@ -1540,6 +1568,31 @@ export default function CanvassMap() {
       }
     } catch { /* private mode / quota — non-fatal */ }
   }, [dayMode, route, stopIdx, round, startPt, resolvedIds]);
+  // ── Clover route-lock heartbeat ────────────────────────────────────────
+  // While a rep's route is ACTIVE, stamp/refresh route_claim_* on the clover
+  // doors in it so other reps can't route them. Only their own workable clover
+  // doors are stamped (never one another rep already status- or route-claimed).
+  // When the day ends the interval clears → the claim lapses in 30 min and the
+  // grid reopens ("if it was active earlier and isn't now, it's back in play").
+  useEffect(() => {
+    if (dayMode !== "active" || !auth.rt || me?.level === "admin") return;
+    const ids = (route || []).filter((p) => isCloverPin(p) && ownsPin(p) && !routeLockedByOther(p)).map((p) => p.id).filter(Boolean);
+    if (!ids.length) return;
+    let cancelled = false;
+    const stamp = async () => {
+      try {
+        await supabase.from("canvass_prospects").update({
+          route_claim_by: me?.name || repName || null,
+          route_claim_by_jn: me?.jn_id != null ? String(me.jn_id) : null,
+          route_claim_at: new Date().toISOString(),
+        }).in("id", ids);
+      } catch { /* best-effort — a missed beat just lets the claim lapse early */ }
+    };
+    stamp();
+    const iv = setInterval(() => { if (!cancelled) stamp(); }, ROUTE_CLAIM_BEAT_MS);
+    return () => { cancelled = true; clearInterval(iv); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dayMode, route, auth.rt, me?.level, me?.jn_id, me?.name, repName]);
   // Restored a route (refresh / signal loss) → recenter the map on it so the rep
   // sees their stops instead of the whole state.
   useEffect(() => {
@@ -1986,6 +2039,7 @@ export default function CanvassMap() {
 
   function buildRoute(start, pins, cap, skipRadius) {
     const routable = pins.filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number" && !nonRoutableStatuses.has(p.status) && !futureCallback(p)
+      && !routeLockedByOther(p) // a clover grid another rep is actively routing is off-limits until their route lapses (30 min) or the day rolls over
       && (skipRadius || feetBetween(start, { lat: p.latitude, lng: p.longitude }) / 5280 <= MAX_ROUTE_MI)); // within 25 mi of the start (unless the box already bounded them)
     const max = cap || routeCap(routable);
     // PRIORITY: a No-sit (already an appointment) outranks an IQ (qualified lead),
@@ -3689,6 +3743,14 @@ export default function CanvassMap() {
               <div style={{ fontSize: 22 }}>🔒</div>
               <div style={{ fontSize: 13.5, fontWeight: 800, color: "#334155", marginTop: 2 }}>This pin belongs to {pinOwnerName(selected)}</div>
               <div style={{ fontSize: 12.5, color: "#64748b", marginTop: 3 }}>{isCloverPin(selected) ? `They worked this clover door first — only ${pinOwnerName(selected)} can keep working it.` : `They self-generated this door — only ${pinOwnerName(selected)} can work it.`}</div>
+            </div>
+          ) : routeLockedByOther(selected) ? (
+            // Another rep is actively routing this clover grid — locked to them
+            // until their route lapses (30 min without a heartbeat) or the day ends.
+            <div style={{ marginTop: 14, background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 12, padding: "14px 16px", textAlign: "center" }}>
+              <div style={{ fontSize: 22 }}>🔒</div>
+              <div style={{ fontSize: 13.5, fontWeight: 800, color: "#9a3412", marginTop: 2 }}>{routeLockName(selected)} is working this clover grid</div>
+              <div style={{ fontSize: 12.5, color: "#9a3412", marginTop: 3 }}>They routed it first. It reopens if they stop working it. Get to the next cluster before someone beats you there.</div>
             </div>
           ) : auth.rt && !dayMode ? (
             // NOT on a route: statusing stays gated to route work, so every knock is

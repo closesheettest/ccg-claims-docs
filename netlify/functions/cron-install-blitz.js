@@ -41,6 +41,16 @@ const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const GOOGLE_KEY = process.env.GOOGLE_MAPS_API_KEY;
 
 const TRIGGER_STATUS = "Roof Started";
+// Homeowner on the install job — the person whose roof the crew is putting on
+// right now. Stamped on neighbor pins so a rep can name-drop them at the door
+// ("we're roofing the Andersons' place right there"). Primary contact first,
+// then the first related contact.
+function installOwner(j) {
+  const n = (j.primary && j.primary.name)
+    || ((j.related || []).find((r) => r && r.type === "contact") || {}).name
+    || "";
+  return String(n).trim() || null;
+}
 const LIST_NAME = "Clover Leaf";
 const RADIUS_M = 250;        // ~820 ft around the install
 const MAX_DOORS = 30;        // nearest owner-occupied neighbors per install
@@ -102,6 +112,7 @@ exports.handler = async (event) => {
       // first rep to status a door claims it via the map).
       const sellerName = String(j.sales_rep_name || "").trim() || null;
       const sellerId = j.sales_rep || null;
+      const ownerName = installOwner(j);
       // Doors that ALREADY have a pin are matched by HOUSE NUMBER + PROXIMITY,
       // never address text — cadastral writes "1002 BROWARD ST W" where the map
       // pin says "1002 W Broward St", so text matching silently missed every one
@@ -129,7 +140,7 @@ exports.handler = async (event) => {
           tagBudget -= 1;
           const r = await fetch(`${SB_URL}/rest/v1/canvass_prospects?id=eq.${match.id}`, {
             method: "PATCH", headers: { ...sbHeaders, Prefer: "return=minimal" },
-            body: JSON.stringify({ extra: { ...ex, clover_zone_jnid: jnid, clover_zone_install: addr } }),
+            body: JSON.stringify({ extra: { ...ex, clover_zone_jnid: jnid, clover_zone_install: addr, ...(ownerName ? { install_owner: ownerName } : {}) } }),
           });
           if (r.ok) report.existing_counted += 1;
           continue;
@@ -144,6 +155,7 @@ exports.handler = async (event) => {
             clover_jnid: jnid, install_address: addr,
             owner: n.owner || null, homestead: true, occupancy: "owner_occupied",
             parcel_id: n.parcel_id || null, synced_at: nowIso,
+            ...(ownerName ? { install_owner: ownerName } : {}),
             ...(sellerName ? { sold_by: sellerName, sold_by_jn: sellerId } : {}),
           },
         });
@@ -156,7 +168,7 @@ exports.handler = async (event) => {
         latitude: geo.lat, longitude: geo.lng, geocode_status: "ok",
         status: "install_home", status_by: "Clover leaf", status_updated_at: nowIso,
         list_name: LIST_NAME,
-        extra: { clover_jnid: jnid, install_home: true, install_address: addr, synced_at: nowIso, ...(sellerName ? { sold_by: sellerName, sold_by_jn: sellerId } : {}) },
+        extra: { clover_jnid: jnid, install_home: true, install_address: addr, synced_at: nowIso, ...(ownerName ? { install_owner: ownerName } : {}), ...(sellerName ? { sold_by: sellerName, sold_by_jn: sellerId } : {}) },
       });
       if (rows.length) {
         const r = await fetch(`${SB_URL}/rest/v1/canvass_prospects`, {
@@ -192,13 +204,14 @@ exports.handler = async (event) => {
           : await geocode(addr);
         if (!geo) continue;
         const sellerName = String(j.sales_rep_name || "").trim() || null;
+        const ownerName = installOwner(j);
         homeRows.push({
           name: "🚧 Roof being installed",
           address: j.address_line1, city: j.city || null, state: "FL", zip: j.zip || null,
           latitude: geo.lat, longitude: geo.lng, geocode_status: "ok",
           status: "install_home", status_by: "Clover leaf", status_updated_at: nowIso,
           list_name: LIST_NAME,
-          extra: { clover_jnid: jnid, install_home: true, install_address: addr, synced_at: nowIso, ...(sellerName ? { sold_by: sellerName, sold_by_jn: j.sales_rep || null } : {}) },
+          extra: { clover_jnid: jnid, install_home: true, install_address: addr, synced_at: nowIso, ...(ownerName ? { install_owner: ownerName } : {}), ...(sellerName ? { sold_by: sellerName, sold_by_jn: j.sales_rep || null } : {}) },
         });
       }
       if (homeRows.length) {
@@ -206,6 +219,32 @@ exports.handler = async (event) => {
           method: "POST", headers: { ...sbHeaders, Prefer: "return=minimal" }, body: JSON.stringify(homeRows),
         });
         if (r.ok) report.install_homes_backfilled = homeRows.length;
+      }
+    } catch { /* best-effort */ }
+  }
+
+  // 3b. Backfill install_owner (the homeowner name) onto clover pins created
+  //     before we captured it, so reps see "we're roofing the Andersons' place"
+  //     on doors from installs that are still active. Bounded per run — the cron
+  //     catches the rest; installs cycle within days so coverage fills fast.
+  if (commit) {
+    try {
+      const ownerByJnid = {};
+      for (const j of jobs) { const o = installOwner(j); if (o) ownerByJnid[jnidOf(j)] = o; }
+      let ownerBudget = 40;
+      for (const p of existingClover) {
+        if (ownerBudget <= 0) break;
+        const ex = (p.extra && typeof p.extra === "object") ? p.extra : {};
+        if (ex.install_owner) continue;
+        const bj = ex.clover_jnid || ex.blitz_jnid || ex.clover_zone_jnid;
+        const owner = bj && ownerByJnid[bj];
+        if (!owner) continue;
+        ownerBudget -= 1;
+        const r = await fetch(`${SB_URL}/rest/v1/canvass_prospects?id=eq.${p.id}`, {
+          method: "PATCH", headers: { ...sbHeaders, Prefer: "return=minimal" },
+          body: JSON.stringify({ extra: { ...ex, install_owner: owner } }),
+        });
+        if (r.ok) report.owner_backfilled = (report.owner_backfilled || 0) + 1;
       }
     } catch { /* best-effort */ }
   }
