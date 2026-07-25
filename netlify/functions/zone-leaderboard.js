@@ -80,6 +80,7 @@ export const handler = async (event) => {
 
     const counts = {} // zone → count
     const repsByZone = {} // zone → Map(repName → count)
+    const dealsByZone = {} // zone → [{ rep, label }] — the houses behind each count
     for (const r of signed) {
       // Attribute the SIGN-UP to whoever originally signed it, not whoever the
       // deal was later reassigned to. A retail deal handed to a sales rep still
@@ -99,6 +100,7 @@ export const handler = async (event) => {
       const rep = (signerName || '—').trim() || '—'
       const m = repsByZone[zone] || (repsByZone[zone] = new Map())
       m.set(rep, (m.get(rep) || 0) + 1)
+      ;(dealsByZone[zone] = dealsByZone[zone] || []).push({ rep, label: titleAddr(r.address) || (r.client_name || '').trim() || 'Signed inspection' })
     }
 
     // Build a row for every known zone (zero included), then rank.
@@ -109,6 +111,7 @@ export const handler = async (event) => {
       reps: [...(repsByZone[zone] || new Map())]
         .map(([name, count]) => ({ name, count }))
         .sort((a, b) => b.count - a.count),
+      deals: dealsByZone[zone] || [],
     }))
     // Highest count first; tie-break by zone order (stable sort keeps it).
     zones.sort((a, b) => b.count - a.count)
@@ -276,6 +279,15 @@ async function fetchZoneMaps() {
 
 // Same normalization as manager-records-api.js / weekly report so name
 // variants ('James "Jimmy" Bates' → 'james bates') collapse identically.
+// Prettify an ALL-CAPS street address ("1071 LILLIAN ST") to Title Case for
+// display; leaves mixed-case input untouched.
+function titleAddr(s) {
+  const str = String(s || '').trim()
+  if (!str || str !== str.toUpperCase()) return str
+  return str.toLowerCase()
+    .replace(/\b([a-z])/g, (m) => m.toUpperCase())
+    .replace(/\b(N|S|E|W|Ne|Nw|Se|Sw)\b/g, (m) => m.toUpperCase())
+}
 function normalizeName(s) {
   return String(s || '')
     .toLowerCase()
