@@ -53,6 +53,24 @@ function harvestWhen(job) {
   const n = Number(job.date_start) || Number(job.date_created) || 0;
   return n ? new Date(n * 1000).toISOString() : null;
 }
+// The door a harvested job represents. JN job names embed the street address
+// with a " - <recid>" suffix ("1831 Natchez Trace Boulevard - 13326"); strip it.
+// Fall back to street fields, then the primary contact name.
+function jobAddress(job) {
+  const nm = String(job.name || "").replace(/\s*-\s*\d+\s*$/, "").trim();
+  if (nm) return nm;
+  const line = [job.address_line1, job.city].filter(Boolean).join(", ").trim();
+  if (line) return line;
+  return (job.primary && job.primary.name) || "Harvested lead";
+}
+// Prettify an ALL-CAPS address ("1071 LILLIAN ST") to Title Case for display,
+// leaving short directionals/suffixes uppercase. Leaves mixed-case input alone.
+function titleAddr(s) {
+  const str = String(s || "").trim();
+  if (!str || str !== str.toUpperCase()) return str;
+  return str.toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase())
+    .replace(/\b(N|S|E|W|Ne|Nw|Se|Sw)\b/g, (m) => m.toUpperCase());
+}
 
 const ZONE_TEAMS = { "Zone 1": "SQUAD", "Zone 2": "SitSold", "Zone 3": "SHARKS", "Zone 4": "HURRICANE" };
 const ZONE_ORDER = ["Zone 1", "Zone 2", "Zone 3", "Zone 4"];
@@ -89,18 +107,34 @@ export const handler = async (event) => {
 
     // zone → { count, byRep:{ name → count } }. Dedupe by pin so the server+client
     // rows for one booking (and a same-period re-book of the same house) count once.
+    // agg[zone] = { count, byRep:{name→count}, deals:[{rep,label}] } — `deals`
+    // is the per-house drill-down (which appointments account for the count),
+    // so a manager can tap a rep and see every door behind their number.
     const agg = {};
     let unattributed = 0;
     const seenPins = new Set();
+    const mapDealRefs = []; // { zone, rep, pin_id } — labels (addresses) filled in below
     for (const a of acts) {
       if (a.pin_id) { if (seenPins.has(a.pin_id)) continue; seenPins.add(a.pin_id); }
       const zone = zoneOf(a.rep_name);
       if (!zone) { unattributed++; continue; }
-      const z = agg[zone] || (agg[zone] = { count: 0, byRep: {} });
+      const z = agg[zone] || (agg[zone] = { count: 0, byRep: {}, deals: [] });
       z.count += 1;
       const rep = (a.rep_name || "—").trim() || "—";
       z.byRep[rep] = (z.byRep[rep] || 0) + 1;
+      mapDealRefs.push({ zone, rep, pin_id: a.pin_id });
     }
+    // Resolve pin → street address (and jn_job_id for JN-side dedup) once.
+    const pinAddr = {};
+    const mapJobIds = new Set();
+    {
+      const pinIds = [...seenPins];
+      for (let i = 0; i < pinIds.length; i += 100) {
+        const rows = await sbGet(`canvass_prospects?id=in.(${pinIds.slice(i, i + 100).join(",")})&select=id,address,city,jn_job_id`);
+        for (const p of rows) { if (p.address) pinAddr[p.id] = titleAddr(`${p.address}${p.city ? ", " + p.city : ""}`); if (p.jn_job_id) mapJobIds.add(p.jn_job_id); }
+      }
+    }
+    for (const d of mapDealRefs) { const z = agg[d.zone]; if (z) z.deals.push({ rep: d.rep, label: pinAddr[d.pin_id] || "Map lead" }); }
 
     // ── JN-SIDE HARVESTED APPOINTMENTS (reverse direction, per Neal) ─────────
     // Appointments made directly IN JobNimbus count too, when the job's
@@ -114,13 +148,7 @@ export const handler = async (event) => {
     const payloadDebugJobs = [];
     try {
       if (JN_KEY) {
-        // Jobs already credited from a map booking → skip on the JN side.
-        const mapJobIds = new Set();
-        const pinIds = [...seenPins];
-        for (let i = 0; i < pinIds.length; i += 100) {
-          const rows = await sbGet(`canvass_prospects?id=in.(${pinIds.slice(i, i + 100).join(",")})&jn_job_id=not.is.null&select=jn_job_id`);
-          for (const p of rows) if (p.jn_job_id) mapJobIds.add(p.jn_job_id);
-        }
+        // (mapJobIds — jobs already credited from a map booking — built above.)
 
         // ── DURABLE harvest credit (was: transient appointment tasks) ──────────
         // Credit reads the JOB's PERMANENT state, never an open appt task. The
@@ -181,18 +209,19 @@ export const handler = async (event) => {
           const rep = (job.sales_rep_name || "").trim();
           const zone = zoneOf(rep);
           if (!zone) { unattributed++; continue; }
-          const z = agg[zone] || (agg[zone] = { count: 0, byRep: {} });
+          const z = agg[zone] || (agg[zone] = { count: 0, byRep: {}, deals: [] });
           z.count += 1;
           z.byRep[rep || "—"] = (z.byRep[rep || "—"] || 0) + 1;
+          z.deals.push({ rep: rep || "—", label: titleAddr(jobAddress(job)) });
           jnCounted += 1;
         }
       }
     } catch { /* board still renders from map bookings alone */ }
 
     const zones = ZONE_ORDER.map((zone) => {
-      const z = agg[zone] || { count: 0, byRep: {} };
+      const z = agg[zone] || { count: 0, byRep: {}, deals: [] };
       const reps = Object.entries(z.byRep).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
-      return { zone, team: ZONE_TEAMS[zone] || zone, count: z.count, reps };
+      return { zone, team: ZONE_TEAMS[zone] || zone, count: z.count, reps, deals: z.deals || [] };
     });
     zones.sort((a, b) => b.count - a.count);
     zones.forEach((z, i) => { z.rank = i + 1; });
