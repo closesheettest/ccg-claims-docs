@@ -409,6 +409,8 @@ function workedTodayET(p) {
 // The rest, fetched for ONE pin on demand (click / before an action) so the
 // detail sheet + booking prefill (extra.phone, extra.orig_appt_sec) still work.
 const PIN_DETAIL_FIELDS = "id,notes,extra,list_name,status_updated_at,status_by,upload_id,created_at";
+// "ANN MARIE ANDERSON" → "Ann Marie Anderson" for the clover name-drop line.
+const titleCaseName = (s) => { const str = String(s || "").trim(); return str ? str.toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase()) : str; };
 // Range-paginate a Supabase query (PostgREST returns ≤1000/request) up to `cap`.
 // `build` must return a FRESH query builder each call. Fetches page 0 first, then
 // — only if the result spans more pages — pulls the rest CONCURRENTLY (in fan-out
@@ -3689,6 +3691,12 @@ export default function CanvassMap() {
               )}
               {selected.status === "no_sit_reschedule" && origApptLabel(selected) && (
                 <div style={{ fontSize: 12.5, fontWeight: 800, color: "#c2410c", marginTop: 4 }}>🔄 No-sit · original appt was {origApptLabel(selected)}</div>
+              )}
+              {isCloverPin(selected) && selected.extra?.install_owner && (
+                <div style={{ marginTop: 6, background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: 10, padding: "7px 10px" }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 800, color: "#065f46" }}>🚧 We're roofing {titleCaseName(selected.extra.install_owner)}'s home nearby</div>
+                  <div style={{ fontSize: 11.5, color: "#047857", marginTop: 1 }}>Say it at the door — a crew's right there.</div>
+                </div>
               )}
               <div style={{ marginTop: 6, display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700 }}>
                 <span style={{ width: 10, height: 10, borderRadius: 5, background: (S[selected.status] || UNKNOWN_TYPE).color, display: "inline-block" }} />
