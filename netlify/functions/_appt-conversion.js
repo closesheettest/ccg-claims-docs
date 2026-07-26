@@ -79,6 +79,13 @@ function isStaleAppt(job, apptDateSec) {
 // Exact JN status_name spellings mirror all-no-sits.js.
 const NO_SIT_RESCHEDULE_STATUSES = new Set(["no sit need to reschedule", "no sit rescheduled"]);
 function isNoSitReschedule(job) { return NO_SIT_RESCHEDULE_STATUSES.has(normStatus(job.status_name)); }
+// Statuses that mean they NEVER actually sat (a no-show or still-a-no-sit). A re-booked
+// appointment in one of these did not "re-sit," so it must not count toward NSR re-sat.
+const DIDNT_SIT_STATUSES = new Set([
+  "no show h o", "no sit no show", "no sit",
+  "no sit need to reschedule", "no sit rescheduled", "refused appointment",
+]);
+function actuallySat(job) { return !DIDNT_SIT_STATUSES.has(normStatus(job.status_name)); }
 // Outcome of a counted appointment that isn't in a (net) SOLD status:
 //   • CREDIT DENIAL  → really a SALE, they just couldn't finance it. Counts toward the
 //     GROSS closing % (net % = funded only, which is what's counted now).
@@ -319,7 +326,7 @@ function tallyAppt(rec, job) {
   const cat = categoryOf(job);
   rec.appts++;
   rec[cat + "Ap"]++;
-  if (job.__isReset) rec.resitAp++;   // re-booked sit (no-sit recovery overlay)
+  if (job.__isReset && actuallySat(job)) rec.resitAp++;   // re-booked sit that ACTUALLY re-sat (not a repeat no-show)
   // Split the UNSOLD appointments so a low close % has context. Sold deals already
   // closed (net). Credit denials count toward GROSS. Inspection signings are skipped.
   if (!SOLD_STATUSES.has(normStatus(job.status_name))) {
