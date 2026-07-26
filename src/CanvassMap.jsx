@@ -1728,6 +1728,10 @@ export default function CanvassMap() {
     [prospects]
   );
   const requiredCount = requiredVisits.length + requiredCallbacks.length;
+  // Any appointment today — a real JN appt OR a practice test appt. With an appointment
+  // the rep plans the day AROUND it ("📅 Plan your day"), so "Route an area" is hidden
+  // (routing a raw box would ignore the appt). testAppts is only ever set in test/practice.
+  const hasApptToday = hasApptsToday || todayAppts.length > 0 || testAppts.length > 0;
   // 📞 Referrals waiting on a CALL (not yet reached) — a new one is due now (no
   // date), a rescheduled one is due when its call date arrives. These surface in
   // the "Calls to make" bar (like go-backs), NOT in the drive route.
@@ -3162,7 +3166,7 @@ export default function CanvassMap() {
             and it had bugs). Kept in code, shown ONLY for an Enhanced Planned Day (to run
             the manager's pre-planned section) AND only when the rep has no appointment
             today — with an appt they Plan-your-day instead. */}
-        {dayMode === null && !selecting && assignedIds && assignedIds.size > 0 && !hasApptsToday && (prospects.length > 0 || clusters.length > 0) && (
+        {dayMode === null && !selecting && assignedIds && assignedIds.size > 0 && !hasApptToday && (prospects.length > 0 || clusters.length > 0) && (
           <button type="button" onClick={() => (prospects.length ? setDayMode("choosing") : nudgeZoom())}
             style={{ position: "absolute", left: 12, bottom: 16, zIndex: 600, background: "#16a34a", color: "#fff", border: "none", borderRadius: 999, padding: "13px 20px", fontSize: 15, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer", opacity: prospects.length ? 1 : 0.85 }}>
             ▶ Start my day
@@ -3204,9 +3208,10 @@ export default function CanvassMap() {
           </button>
         )}
         {/* Route an area — drag a box, route exactly the doors inside it. Hidden when
-            the rep's day is manager-assigned OR they have required stops (reviews /
-            definitive come-back appts) to service. */}
-        {dayMode === null && !selecting && !(assignedIds && assignedIds.size > 0) && requiredCount === 0 && (prospects.length > 0 || clusters.length > 0) && (
+            the rep's day is manager-assigned, they have required stops (reviews /
+            definitive come-back appts), OR they have an appointment today — with an appt
+            they "📅 Plan your day" (weave doors around it) instead of routing a raw box. */}
+        {dayMode === null && !selecting && !(assignedIds && assignedIds.size > 0) && requiredCount === 0 && !hasApptToday && (prospects.length > 0 || clusters.length > 0) && (
           <button type="button" onClick={startSelecting}
             style={{ position: "absolute", left: 12, bottom: 68, zIndex: 600, background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
             ▢ Route an area
