@@ -20,7 +20,7 @@
 ---
 
 ## COLD OPEN — It's your effort (0:00–0:18)
-**[SCREEN]** Full-state map zoomed way out (dots everywhere), then snap-zoom into one tight neighborhood.
+**[SCREEN]** Open on YOU talking to camera (avatar full-frame, no map yet). On the line "This is Door---Dispatcher," cut to the **DoorDispatcher title card** (logo + "We send you where the money is") and hold ~2 sec. Then dissolve from the card into the full-state map zoomed way out (dots everywhere), snap-zooming into one tight neighborhood as the voice continues.
 **[SAY]** [serious] Think about what a salesperson has always had to work with. <break time="0.5s" /> A phone. <break time="0.5s" /> A map app. <break time="0.5s" /> A list of addresses  and a whole lot of guessing. <break time="0.5s" /> [firm] None of those tools ever cared how hard you worked. <break time="0.5s" /> [confident] And here's the truth about this business —   We can teach you how to sell,   I can hand you the best tools out there,   but the one thing We can't give you   is effort. <break time="0.5s" /> That part is on YOU. <break time="0.5s" /> [motivated] So here's what's different now. <break time="0.5s" /> For the first time,   there's a tool built to take every ounce of effort you put in   and make it COUNT. <break time="0.5s" /> [firm] This is Door---Dispatcher. <break time="0.5s" /> You bring the work. <break time="0.5s" /> It makes the work payoff."
 **[TEXT]** *Every rep before you guessed. You won't have to. Meet DoorDispatcher.*
 
@@ -84,6 +84,11 @@
 **[SCREEN]** Zoom out slowly on a fully-worked neighborhood — pins statused in every color.
 **[SAY]** [motivational]So here's the truth. <break time="0.5s" /> You've got the same streets  as the guy who's been here  years. <break time="0.5s" /> But now   you've got his playbook in your pocket. <break time="0.5s" /> [excited] Brand-new reps using this  out-produce veterans in their first WEEK. <break time="0.5s" /> That can be you. <break time="0.5s" /> Box your area,   hit your doors,   and go make your name.
 **[TEXT]** *Rookies with this out-earn 5-year vets.*
+
+## SCENE 12 — Take your test & unlock (8:00–8:40) ⭐
+**[SCREEN]** Cut to the training screen: the two buttons (**📝 Take my test** / **📖 Read the study guide**), then the test questions, then the green **"You passed! Enter your tools"** screen, ending on the map unlocking.
+**[SAY]** [confident] Now — before you touch a single door,   we want you to start this the RIGHT way. <break time="0.5s" /> So here's your last step. <break time="0.5s" /> [firm] Right after this video   there's a short test   on everything you just saw. <break time="0.5s" /> You need eighty percent to pass   and unlock your DoorDispatcher tools. <break time="0.5s" /> [reassuring] Miss a few?   Don't sweat it. <break time="0.5s" /> It shows you exactly what you got wrong,   sends you back to re-read just those parts,   and you take it again   until you've got it. <break time="0.5s" /> [motivated] The moment you pass,   your map goes LIVE   and you're cleared to hit the field. <break time="0.5s" /> [excited] So go pass that test,   and let's get you to those doors. <break time="0.5s" /> Your name starts today.
+**[TEXT]** *Pass the test (80%) → your map unlocks. Miss a few? Re-read & retake.*
 
 ---
 
