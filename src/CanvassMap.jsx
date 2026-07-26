@@ -387,7 +387,7 @@ function fmtTime(iso) { try { return new Date(iso).toLocaleTimeString("en-US", {
 // contact, geo, status). Deliberately drops the heavy fields — chiefly `extra`
 // (the whole CSV row as JSON, ~340KB of a 790KB viewport) plus notes/metadata —
 // so a 6000-pin viewport ships ~260KB instead of ~790KB (≈3× faster to load).
-const PIN_FIELDS_LITE = "id,name,address,city,state,zip,phone,email,latitude,longitude,status,jn_job_id,list_name,status_updated_at,status_by,route_claim_by,route_claim_by_jn,route_claim_at";
+const PIN_FIELDS_LITE = "id,name,address,city,state,zip,phone,email,latitude,longitude,status,jn_job_id,list_name,status_updated_at,status_by,route_claim_by,route_claim_by_jn,route_claim_at,callback_date";
 // A Clover Leaf grid a rep is actively routing is soft-locked to them; the
 // claim (route_claim_*) goes stale this many ms after the last heartbeat — i.e.
 // once their route is no longer active, the doors are back in play.
@@ -746,7 +746,11 @@ export default function CanvassMap() {
   const inFilter = (status) => { if (showNone) return false; const k = status === "install_home" ? "clover" : status; return sel.size === 0 || sel.has(k); };
   // A door scheduled for a come-back on a FUTURE day is held out of the route
   // until that day arrives (it still shows on the map, just not routed early).
-  const futureCallback = (p) => { const d = p?.extra?.callback?.date; return !!(d && d > ymdPlus(0)); };
+  const cbDateOf = (p) => (p && (p.callback_date || (p.extra && p.extra.callback && p.extra.callback.date))) || null;
+  const futureCallback = (p) => { const d = cbDateOf(p); return !!(d && d > ymdPlus(0)); };
+  // A "come back [day]" door whose day is HERE (today or overdue) — a definitive
+  // appointment the homeowner committed to, so it's mandatory like a review go-back.
+  const callbackDue = (p) => { const d = cbDateOf(p); return !!(d && p.status === "insp_callback" && d <= ymdPlus(0)); };
   const toggleSel = (key) => setSel((prev) => {
     setShowNone(false); // touching any type filter exits the office "show nothing" default
     const n = new Set(prev);
@@ -1477,7 +1481,7 @@ export default function CanvassMap() {
     const extra = { ...(stop.extra && typeof stop.extra === "object" ? stop.extra : {}), callback: { date: cbDate, note, by: repName || "rep", at: nowIso } };
     const entry = { at: nowIso, from: stop.status, to: "insp_callback", by: repName || "rep", callback_date: cbDate, note: note || undefined };
     const log = Array.isArray(stop.status_log) ? [...stop.status_log, entry] : [entry];
-    const patch = { status: "insp_callback", status_updated_at: nowIso, status_by: repName || null, status_log: log, extra, notes: note || stop.notes || null };
+    const patch = { status: "insp_callback", status_updated_at: nowIso, status_by: repName || null, status_log: log, extra, notes: note || stop.notes || null, callback_date: cbDate };
     if (!demoMode) {
       const { error } = await supabase.from("canvass_prospects").update(patch).eq("id", stop.id);
       if (error) { alert(error.message); setCbSaving(false); return; }
@@ -1681,40 +1685,49 @@ export default function CanvassMap() {
     () => visits.filter((v) => visitNeedsWork(v) && v.latitude != null && v.longitude != null),
     [visits]
   );
-  // Start the day AROUND the required reviews: auto-pick the tightest area that
+  // "Come back [day]" doors whose day has arrived — DEFINITIVE appointments the
+  // homeowner committed to. Mandatory like a review, but ranked above every review.
+  const requiredCallbacks = useMemo(
+    () => prospects.filter((p) => callbackDue(p) && p.latitude != null && p.longitude != null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [prospects]
+  );
+  const requiredCount = requiredVisits.length + requiredCallbacks.length;
+  // Start the day AROUND the mandatory stops: auto-pick the tightest area that
   // covers the most of them, lock those stops in, then fill the drive with fresh
-  // doors (IQ / Inspection-Needed / Clover) so no mile is wasted. Overdue reviews
-  // are hard-required and ride along even if they sit outside the cluster.
+  // doors (IQ / Inspection-Needed / Clover) so no mile is wasted. Definitive
+  // callbacks rank first; overdue/aging reviews are urgent and ride along even if
+  // they sit outside the cluster.
   function startMyDayReviews() {
-    const req = requiredVisits;
-    if (!req.length) { setDayMode(prospects.length ? "choosing" : null); if (!prospects.length) nudgeZoom(); return; }
+    if (!requiredCount) { setDayMode(prospects.length ? "choosing" : null); if (!prospects.length) nudgeZoom(); return; }
     const VISIT_PRIORITY = { retail: 0, damage: 1, no_damage: 2 };
     const CLUSTER_MI = Math.max(gobackRadiusMi, 4);
-    const ll = (v) => ({ lat: Number(v.latitude), lng: Number(v.longitude) });
     const ageDays = (v) => visitAgeDays(v) ?? 0;
-    // "Time kills all deals": an OVERDUE or AGING review is urgent — it rides along
-    // even if it sits outside the cluster, and sorts to the front.
-    const urgent = (v) => visitDueStatus(v) === "overdue" || ageDays(v) >= GOBACK_AGING_DAYS;
-    // Importance = triage bucket (retail→damage→no-damage) nudged by AGE, so older
-    // deals climb (~a week of age = one tier; a stale one can jump a whole bucket).
-    const importance = (v) => (VISIT_PRIORITY[v.bucket] ?? 3) - ageDays(v) * 0.15;
-    // Densest cluster: the review with the most neighbors within CLUSTER_MI seeds it.
-    let seed = req[0], best = -1;
-    for (const v of req) {
-      const n = req.reduce((c, o) => c + (feetBetween(ll(v), ll(o)) / 5280 <= CLUSTER_MI ? 1 : 0), 0);
-      if (n > best) { best = n; seed = v; }
+    // Normalize both sources to "required items" with a location + importance.
+    // Callbacks = definitive appts → importance -1 (above every review bucket).
+    const items = [
+      ...requiredCallbacks.map((p) => ({ kind: "cb", p, lat: Number(p.latitude), lng: Number(p.longitude), importance: -1, urgent: true })),
+      ...requiredVisits.map((v) => ({ kind: "visit", v, lat: Number(v.latitude), lng: Number(v.longitude),
+        importance: (VISIT_PRIORITY[v.bucket] ?? 3) - ageDays(v) * 0.15,
+        urgent: visitDueStatus(v) === "overdue" || ageDays(v) >= GOBACK_AGING_DAYS })),
+    ];
+    const dm = (a, b) => feetBetween({ lat: a.lat, lng: a.lng }, { lat: b.lat, lng: b.lng }) / 5280;
+    // Densest cluster among all mandatory items seeds the day's area.
+    let seed = items[0], best = -1;
+    for (const it of items) {
+      const n = items.reduce((c, o) => c + (dm(it, o) <= CLUSTER_MI ? 1 : 0), 0);
+      if (n > best) { best = n; seed = it; }
     }
-    const areaVisits = req.filter((v) => feetBetween(ll(seed), ll(v)) / 5280 <= CLUSTER_MI || urgent(v));
-    areaVisits.sort((a, b) => (urgent(b) - urgent(a)) || (importance(a) - importance(b)));
-    const reqStops = areaVisits.map((v) => ({
-      id: `v_${v.inspection_id}`, latitude: Number(v.latitude), longitude: Number(v.longitude),
-      name: v.client_name || v.address, address: v.address, city: v.city, state: v.state, zip: v.zip,
-      status: "goback", _visit: v, _required: true,
-    }));
-    const cen = areaVisits.reduce((a, v) => ({ lat: a.lat + Number(v.latitude), lng: a.lng + Number(v.longitude) }), { lat: 0, lng: 0 });
-    const from = myLoc || { lat: cen.lat / areaVisits.length, lng: cen.lng / areaVisits.length };
-    // Fresh doors inside the review cluster's box → the productivity fill.
-    const lats = areaVisits.map((v) => Number(v.latitude)), lngs = areaVisits.map((v) => Number(v.longitude));
+    const area = items.filter((it) => dm(seed, it) <= CLUSTER_MI || it.urgent);
+    // Definitive callbacks first, then urgent, then importance (retail→damage→no-damage, aged-up).
+    area.sort((a, b) => ((b.kind === "cb") - (a.kind === "cb")) || (b.urgent - a.urgent) || (a.importance - b.importance));
+    const reqStops = area.map((it) => it.kind === "cb"
+      ? { ...it.p, _required: true, _definitive: true }
+      : { id: `v_${it.v.inspection_id}`, latitude: it.lat, longitude: it.lng, name: it.v.client_name || it.v.address, address: it.v.address, city: it.v.city, state: it.v.state, zip: it.v.zip, status: "goback", _visit: it.v, _required: true });
+    const cen = area.reduce((a, it) => ({ lat: a.lat + it.lat, lng: a.lng + it.lng }), { lat: 0, lng: 0 });
+    const from = myLoc || { lat: cen.lat / area.length, lng: cen.lng / area.length };
+    // Fresh doors inside the mandatory cluster's box → the productivity fill.
+    const lats = area.map((it) => it.lat), lngs = area.map((it) => it.lng);
     const pad = 0.02; // ~1.4 mi cushion around the cluster
     const box = { s: Math.min(...lats) - pad, n: Math.max(...lats) + pad, w: Math.min(...lngs) - pad, e: Math.max(...lngs) + pad };
     const reqIds = new Set(reqStops.map((s) => s.id));
@@ -3078,15 +3091,16 @@ export default function CanvassMap() {
             auto-picks the tightest area covering the most due reviews, LOCKS them in,
             and fills the drive with fresh doors. Free "Route an area" is hidden so the
             rep can't start a day that skips their mandatory review visits. */}
-        {dayMode === null && !selecting && !(assignedIds && assignedIds.size > 0) && requiredVisits.length > 0 && (
+        {dayMode === null && !selecting && !(assignedIds && assignedIds.size > 0) && requiredCount > 0 && (
           <button type="button" onClick={startMyDayReviews}
             style={{ position: "absolute", left: 12, bottom: 68, zIndex: 600, background: "#b45309", color: "#fff", border: "none", borderRadius: 999, padding: "12px 18px", fontSize: 14, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.28)", cursor: "pointer" }}>
-            ▶ Start my day · {requiredVisits.length} required review{requiredVisits.length > 1 ? "s" : ""}
+            ▶ Start my day · {requiredCount} required stop{requiredCount > 1 ? "s" : ""}
           </button>
         )}
         {/* Route an area — drag a box, route exactly the doors inside it. Hidden when
-            the rep's day is manager-assigned OR they have required reviews to service. */}
-        {dayMode === null && !selecting && !(assignedIds && assignedIds.size > 0) && requiredVisits.length === 0 && (prospects.length > 0 || clusters.length > 0) && (
+            the rep's day is manager-assigned OR they have required stops (reviews /
+            definitive come-back appts) to service. */}
+        {dayMode === null && !selecting && !(assignedIds && assignedIds.size > 0) && requiredCount === 0 && (prospects.length > 0 || clusters.length > 0) && (
           <button type="button" onClick={startSelecting}
             style={{ position: "absolute", left: 12, bottom: 68, zIndex: 600, background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
             ▢ Route an area
