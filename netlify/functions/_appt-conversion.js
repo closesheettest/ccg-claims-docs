@@ -79,12 +79,27 @@ function isStaleAppt(job, apptDateSec) {
 // Exact JN status_name spellings mirror all-no-sits.js.
 const NO_SIT_RESCHEDULE_STATUSES = new Set(["no sit need to reschedule", "no sit rescheduled"]);
 function isNoSitReschedule(job) { return NO_SIT_RESCHEDULE_STATUSES.has(normStatus(job.status_name)); }
-// A counted appointment that DIDN'T sell is either DEAD (they sat and declined) or
-// still PENDING (being worked — a decision hasn't landed). Dead = an explicit "no"
-// status; everything else unsold is treated as pending so a low close % reads right
-// (lots of pending ≠ lots of dead). This is context only — it doesn't change appts.
-const DEAD_APPT_STATUSES = new Set(["sit no sale", "not interested", "no sit no show"]);
-function isDeadAppt(job) { return DEAD_APPT_STATUSES.has(normStatus(job.status_name)); }
+// Outcome of a counted appointment that isn't in a (net) SOLD status:
+//   • CREDIT DENIAL  → really a SALE, they just couldn't finance it. Counts toward the
+//     GROSS closing % (net % = funded only, which is what's counted now).
+//   • INSPECTION     → "Sit Sold Insp" is a free-inspection signing, a different funnel;
+//     excluded from the split entirely.
+//   • PENDING        → strictly "Sit - Pending" — a live deal still being worked. This
+//     is a WHITELIST on purpose: everything else unsold (declined, DQ, refused, no-show,
+//     stale, etc.) is NOT pending, so the Pending number only reflects real open deals.
+//   • DEAD           → everything else unsold (we don't display this — pending is the
+//     number that matters).
+const CREDIT_DENIED_STATUSES = new Set(["credit denial"]);
+const INSPECTION_STATUSES    = new Set(["sit sold insp"]);
+const PENDING_STATUSES       = new Set(["sit pending"]);
+// Classify an UNSOLD counted appointment. Returns 'credit' | 'insp' | 'pending' | 'dead'.
+function apptOutcome(job) {
+  const st = normStatus(job.status_name);
+  if (CREDIT_DENIED_STATUSES.has(st)) return "credit";
+  if (INSPECTION_STATUSES.has(st)) return "insp";
+  if (PENDING_STATUSES.has(st)) return "pending";
+  return "dead";
+}
 // A LOST deal is dead — it does NOT count as an appointment (and so never gets
 // flagged either, since the flag only runs on counted rows). If it had sold then
 // cancelled, the sale was already credited in its sold week; a later loss isn't a
@@ -287,7 +302,8 @@ function newRep(rep) {
   // deal becomes once it gets back on the calendar) and how many of those SOLD.
   // It's an OVERLAY, not a 4th category — a re-sit is still one of harv/comp/btr,
   // so harv+comp+btr still equals appts. resitPct = resitSl ÷ resitAp.
-  return { rep, level: "", appts: 0, harvAp: 0, compAp: 0, btrAp: 0, resitAp: 0, pendAp: 0, deadAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, resitSl: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0, details: [] };
+  // creditAp = credit-denied deals (a sale that couldn't finance) → feeds the GROSS %.
+  return { rep, level: "", appts: 0, harvAp: 0, compAp: 0, btrAp: 0, resitAp: 0, pendAp: 0, deadAp: 0, creditAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, resitSl: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0, details: [] };
 }
 
 // TMS rep_level → short badge. "" when unknown (rep_level not set).
@@ -304,10 +320,14 @@ function tallyAppt(rec, job) {
   rec.appts++;
   rec[cat + "Ap"]++;
   if (job.__isReset) rec.resitAp++;   // re-booked sit (no-sit recovery overlay)
-  // Split the UNSOLD appointments into still-pending (alive) vs dead (declined), so a
-  // low close % has context. Sold deals aren't pending/dead — they closed.
+  // Split the UNSOLD appointments so a low close % has context. Sold deals already
+  // closed (net). Credit denials count toward GROSS. Inspection signings are skipped.
   if (!SOLD_STATUSES.has(normStatus(job.status_name))) {
-    if (isDeadAppt(job)) rec.deadAp++; else rec.pendAp++;
+    const o = apptOutcome(job);
+    if (o === "credit") rec.creditAp++;
+    else if (o === "dead") rec.deadAp++;
+    else if (o === "pending") rec.pendAp++;
+    // 'insp' → excluded from the pending/dead/close split
   }
   rec.details.push({ kind: "appt", cat, ...dealInfo(job) });   // drill-down detail
 }
@@ -332,10 +352,11 @@ function pct(n, d) { return d > 0 ? Math.round((n / d) * 100) : 0; }
 function shapeRep(r) {
   return {
     rep: r.rep, level: r.level || "",
-    harvAp: r.harvAp, compAp: r.compAp, btrAp: r.btrAp, resitAp: r.resitAp, pendAp: r.pendAp, deadAp: r.deadAp, appts: r.appts,
+    harvAp: r.harvAp, compAp: r.compAp, btrAp: r.btrAp, resitAp: r.resitAp, pendAp: r.pendAp, deadAp: r.deadAp, creditAp: r.creditAp, appts: r.appts,
     harvSl: r.harvSl, compSl: r.compSl, btrSl: r.btrSl, resitSl: r.resitSl, sales: r.sales,
     harvAmt: Math.round(r.harvAmt), compAmt: Math.round(r.compAmt), btrAmt: Math.round(r.btrAmt),
-    harvPct: pct(r.harvSl, r.harvAp), compPct: pct(r.compSl, r.compAp), btrPct: pct(r.btrSl, r.btrAp), resitPct: pct(r.resitSl, r.resitAp), pct: pct(r.sales, r.appts),
+    harvPct: pct(r.harvSl, r.harvAp), compPct: pct(r.compSl, r.compAp), btrPct: pct(r.btrSl, r.btrAp), resitPct: pct(r.resitSl, r.resitAp),
+    pct: pct(r.sales, r.appts), grossPct: pct(r.sales + r.creditAp, r.appts), pendPct: pct(r.pendAp, r.appts),
     amt: Math.round(r.amt),
     avg: r.sales > 0 ? Math.round(r.amt / r.sales) : 0,
     rb: r.rb, rb_pct: pct(r.rb, r.sales), ins: r.ins, ins_pct: pct(r.ins, r.sales),
@@ -344,15 +365,16 @@ function shapeRep(r) {
 }
 function sumTotals(reps) {
   const t = reps.reduce((s, r) => ({
-    appts: s.appts + r.appts, harvAp: s.harvAp + r.harvAp, compAp: s.compAp + r.compAp, btrAp: s.btrAp + r.btrAp, resitAp: s.resitAp + r.resitAp, pendAp: s.pendAp + r.pendAp, deadAp: s.deadAp + r.deadAp,
+    appts: s.appts + r.appts, harvAp: s.harvAp + r.harvAp, compAp: s.compAp + r.compAp, btrAp: s.btrAp + r.btrAp, resitAp: s.resitAp + r.resitAp, pendAp: s.pendAp + r.pendAp, deadAp: s.deadAp + r.deadAp, creditAp: s.creditAp + r.creditAp,
     sales: s.sales + r.sales, harvSl: s.harvSl + r.harvSl, compSl: s.compSl + r.compSl, btrSl: s.btrSl + r.btrSl, resitSl: s.resitSl + r.resitSl,
     harvAmt: s.harvAmt + r.harvAmt, compAmt: s.compAmt + r.compAmt, btrAmt: s.btrAmt + r.btrAmt,
     amt: s.amt + r.amt, rb: s.rb + r.rb, ins: s.ins + r.ins,
-  }), { appts: 0, harvAp: 0, compAp: 0, btrAp: 0, resitAp: 0, pendAp: 0, deadAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, resitSl: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0 });
+  }), { appts: 0, harvAp: 0, compAp: 0, btrAp: 0, resitAp: 0, pendAp: 0, deadAp: 0, creditAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, resitSl: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0 });
   return {
     ...t,
     harvAmt: Math.round(t.harvAmt), compAmt: Math.round(t.compAmt), btrAmt: Math.round(t.btrAmt),
-    harvPct: pct(t.harvSl, t.harvAp), compPct: pct(t.compSl, t.compAp), btrPct: pct(t.btrSl, t.btrAp), resitPct: pct(t.resitSl, t.resitAp), pct: pct(t.sales, t.appts),
+    harvPct: pct(t.harvSl, t.harvAp), compPct: pct(t.compSl, t.compAp), btrPct: pct(t.btrSl, t.btrAp), resitPct: pct(t.resitSl, t.resitAp),
+    pct: pct(t.sales, t.appts), grossPct: pct(t.sales + t.creditAp, t.appts), pendPct: pct(t.pendAp, t.appts),
     amt: Math.round(t.amt),
     avg: t.sales > 0 ? Math.round(t.amt / t.sales) : 0,
     rb_pct: pct(t.rb, t.sales), ins_pct: pct(t.ins, t.sales),
