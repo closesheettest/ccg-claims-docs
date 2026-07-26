@@ -651,7 +651,7 @@ async function assignAppointment(manager, body) {
       const tr = await fetch(`${JN_BASE}/tasks?size=25&filter=${tf}`, { headers: jnHeaders })
       const td = tr.ok ? await tr.json().catch(() => ({})) : {}
       for (const t of (td.results || td.tasks || td.data || [])) {
-        if (APPT_TASK_NAMES.has(t.record_type_name) || [4, 12, 17].includes(Number(t.record_type))) taskIds.add(t.jnid || t.id)
+        if (APPT_TASK_NAMES.has(t.record_type_name) || [4, 12, 17].includes(Number(t.record_type)) || isGoBackTask(t)) taskIds.add(t.jnid || t.id)
       }
     } catch { /* task lookup best-effort */ }
     for (const tid of taskIds) {
@@ -661,6 +661,18 @@ async function assignAppointment(manager, body) {
       }).catch(() => {})
     }
   } catch { /* best-effort */ }
+
+  // If this job is an inspection (e.g. a go-back review being assigned out of the
+  // William/inactive backlog), move the INSPECTION's rep too — otherwise the JN
+  // job changed hands but the go-back never appears on the new rep's map
+  // (harvest-visits matches inspections.sales_rep). Mirrors manager-damage-queue's
+  // reassign. No-op for non-inspection jobs.
+  try {
+    await fetch(`${SB_URL}/rest/v1/inspections?jn_job_id=eq.${encodeURIComponent(jobId)}&cancelled_at=is.null`, {
+      method: 'PATCH', headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+      body: JSON.stringify({ sales_rep_id: repJnId, sales_rep_name: repName || null, manager_assigned_to_rep_at: new Date().toISOString() }),
+    })
+  } catch { /* best-effort — JN already updated */ }
 
   // Stamp the local row (app appointments only) so it reflects the assignment.
   if (appt) {
