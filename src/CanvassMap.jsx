@@ -2608,9 +2608,12 @@ export default function CanvassMap() {
   // passed too so the intake never re-runs the address lookup on a known address.
   function signInspection(stop, opts = {}) {
     if (!stop) return;
-    if (demoMode) { alert("🧪 Practice mode — signing opens the real intake, so it's turned off here. Everything else you can try freely."); return; }
     if (spotCheck) { alert("🔍 Spot-check — viewing this rep's map only; signing is off."); return; }
     const p = new URLSearchParams({ intake: "1", harvest_pin: String(stop.id) });
+    // Practice Mode → open the intake in TRAINING mode so the whole map → Sign
+    // Inspection → claim-intake flow can be shown/filmed end-to-end. The sandbox flag
+    // means the full flow runs but NOTHING is saved (no inspection, no JobNimbus deal).
+    if (demoMode) p.set("mode", "training");
     if (stop.name) p.set("name", stop.name);
     if (stop.phone) p.set("phone", stop.phone);
     if (stop.address) p.set("address", stop.address);
