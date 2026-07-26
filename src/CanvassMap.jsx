@@ -3403,7 +3403,7 @@ export default function CanvassMap() {
         {/* ── Add a house ── rep spots a damaged roof and drops their own pin.
              Top-right under the location pin — away from the Start-my-day /
              Route-an-area stack, so it can't be hit while building a route. */}
-        {auth.rt && !selecting && !adding && !newPin && (
+        {(auth.rt || testMode) && !selecting && !adding && !newPin && (
           <button type="button" onClick={startAddHouse} title="Add a house"
             style={{ position: "absolute", right: isDesktop ? 312 : 12, top: (myLoc && !selecting) ? 64 : 12, zIndex: 600, background: "#7c3aed", color: "#fff", border: "2px solid #fff", borderRadius: 999, width: 44, height: 44, fontSize: 19, boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>
             🏠
