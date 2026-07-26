@@ -1691,15 +1691,21 @@ export default function CanvassMap() {
     const VISIT_PRIORITY = { retail: 0, damage: 1, no_damage: 2 };
     const CLUSTER_MI = Math.max(gobackRadiusMi, 4);
     const ll = (v) => ({ lat: Number(v.latitude), lng: Number(v.longitude) });
-    const overdue = (v) => visitDueStatus(v) === "overdue";
+    const ageDays = (v) => visitAgeDays(v) ?? 0;
+    // "Time kills all deals": an OVERDUE or AGING review is urgent — it rides along
+    // even if it sits outside the cluster, and sorts to the front.
+    const urgent = (v) => visitDueStatus(v) === "overdue" || ageDays(v) >= GOBACK_AGING_DAYS;
+    // Importance = triage bucket (retail→damage→no-damage) nudged by AGE, so older
+    // deals climb (~a week of age = one tier; a stale one can jump a whole bucket).
+    const importance = (v) => (VISIT_PRIORITY[v.bucket] ?? 3) - ageDays(v) * 0.15;
     // Densest cluster: the review with the most neighbors within CLUSTER_MI seeds it.
     let seed = req[0], best = -1;
     for (const v of req) {
       const n = req.reduce((c, o) => c + (feetBetween(ll(v), ll(o)) / 5280 <= CLUSTER_MI ? 1 : 0), 0);
       if (n > best) { best = n; seed = v; }
     }
-    const areaVisits = req.filter((v) => feetBetween(ll(seed), ll(v)) / 5280 <= CLUSTER_MI || overdue(v));
-    areaVisits.sort((a, b) => (overdue(b) - overdue(a)) || ((VISIT_PRIORITY[a.bucket] ?? 3) - (VISIT_PRIORITY[b.bucket] ?? 3)));
+    const areaVisits = req.filter((v) => feetBetween(ll(seed), ll(v)) / 5280 <= CLUSTER_MI || urgent(v));
+    areaVisits.sort((a, b) => (urgent(b) - urgent(a)) || (importance(a) - importance(b)));
     const reqStops = areaVisits.map((v) => ({
       id: `v_${v.inspection_id}`, latitude: Number(v.latitude), longitude: Number(v.longitude),
       name: v.client_name || v.address, address: v.address, city: v.city, state: v.state, zip: v.zip,
