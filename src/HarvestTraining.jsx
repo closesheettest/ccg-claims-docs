@@ -14,7 +14,9 @@ const PASS_PCT = 80;
 export default function HarvestTraining({ track, userType, userKey, name, toolLabel = "the tool", onPass, preview = false }) {
   const [sections, setSections] = useState(null);
   const [questions, setQuestions] = useState([]);
-  const [stage, setStage] = useState("lesson"); // lesson | test | result
+  const [video, setVideo] = useState(null);      // { video_url, video_title } | null
+  const [videoDone, setVideoDone] = useState(false);
+  const [stage, setStage] = useState("lesson"); // watch | lesson | test | result
   const [answers, setAnswers] = useState({});   // qId -> choiceIndex
   const [result, setResult] = useState(null);   // { score, passed, wrong:[q], wrongSectionIds:[] }
   const [reread, setReread] = useState({});      // sectionId -> true (remediation)
@@ -23,16 +25,20 @@ export default function HarvestTraining({ track, userType, userKey, name, toolLa
 
   useEffect(() => {
     (async () => {
-      const [s, q] = await Promise.all([
+      const [s, q, c] = await Promise.all([
         supabase.from("harvest_training_sections").select("*").eq("track", track).eq("active", true).order("sort"),
         supabase.from("harvest_training_questions").select("*").eq("track", track).eq("active", true).order("sort"),
+        supabase.from("harvest_training_config").select("video_url,video_title").eq("track", track).maybeSingle(),
       ]);
       const secs = s.data || [];
       const qs = (q.data || []).filter((x) => (x.choices || []).length >= 2);
+      const vid = c.data && c.data.video_url ? c.data : null;
       // No content authored yet → don't lock anyone out; pass straight through.
       // (In preview we still show whatever's authored so the office can see it.)
       if (!qs.length && !preview) { onPass && onPass(); return; }
-      setSections(secs); setQuestions(qs);
+      setSections(secs); setQuestions(qs); setVideo(vid);
+      // Video first: watch it, then choose test or study guide. No video → straight to lessons.
+      if (vid) setStage("watch");
     })();
     // eslint-disable-next-line
   }, [track]);
@@ -63,6 +69,34 @@ export default function HarvestTraining({ track, userType, userKey, name, toolLa
   const allReread = (result?.wrongSectionIds || []).every((id) => reread[id]);
 
   if (sections === null) return <Screen preview={preview} onClose={onPass}><div style={{ color: "#94a3b8", padding: 40, textAlign: "center" }}>Loading your training…</div></Screen>;
+
+  // ── WATCH (video first, then pick your path) ─────────────────────────────
+  if (stage === "watch" && video) {
+    return (
+      <Screen innerRef={topRef} preview={preview} onClose={onPass}>
+        <Header title={`${track === "manager" ? "Regional Manager" : "Rep"} training`}
+          sub="Watch the walkthrough, then take the test — or read the written study guide first." />
+        {video.video_title ? <div style={{ fontSize: 16, fontWeight: 800, fontFamily: OSWALD, marginBottom: 8 }}>{video.video_title}</div> : null}
+        <VideoEmbed url={video.video_url} onEnded={() => setVideoDone(true)} />
+        <div style={{ marginTop: 18 }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8, textAlign: "center" }}>
+            {videoDone ? "Nice — now pick your next step" : "When you're done watching, pick one"}
+          </div>
+          <div style={{ display: "grid", gap: 10 }}>
+            <button type="button" onClick={() => { setStage("test"); setAnswers({}); scrollTop(); }}
+              style={{ ...btn(videoDone ? "#2563eb" : "#3b82f6"), marginTop: 0, boxShadow: videoDone ? "0 0 0 4px #bfdbfe" : "none" }}>
+              📝 Take my test →
+            </button>
+            <button type="button" onClick={() => { setStage("lesson"); scrollTop(); }}
+              style={{ ...btn("#0f172a"), marginTop: 0, background: "#fff", color: "#0f172a", border: "2px solid #cbd5e1" }}>
+              📖 Read the study guide first
+            </button>
+          </div>
+          <div style={{ fontSize: 12.5, color: "#94a3b8", textAlign: "center", marginTop: 10 }}>You need {PASS_PCT}% on the test to unlock {toolLabel}.</div>
+        </div>
+      </Screen>
+    );
+  }
 
   // ── RESULT ──────────────────────────────────────────────────────────────
   if (stage === "result") {
@@ -141,6 +175,12 @@ export default function HarvestTraining({ track, userType, userKey, name, toolLa
     <Screen innerRef={topRef} preview={preview} onClose={onPass}>
       <Header title={`${track === "manager" ? "Regional Manager" : "Rep"} training`}
         sub={remediation ? "Re-read the highlighted sections below, then retake the test." : "Read through, then take a short test to unlock your tools."} />
+      {video && !remediation && (
+        <button type="button" onClick={() => { setVideoDone(false); setStage("watch"); scrollTop(); }}
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 800, color: "#2563eb", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 9, padding: "8px 12px", cursor: "pointer", marginBottom: 14 }}>
+          ▶ Watch the video again
+        </button>
+      )}
       {remediation && (
         <div style={{ background: "#fffbeb", border: "1px solid #fcd34d", color: "#92400e", borderRadius: 10, padding: "10px 14px", fontSize: 13, fontWeight: 600, marginBottom: 14 }}>
           You missed {result.wrong.length} question{result.wrong.length === 1 ? "" : "s"}. The sections they came from are highlighted — re-read each and check the box, then retake.
@@ -205,3 +245,39 @@ function Header({ title, sub }) {
   );
 }
 const btn = (bg) => ({ width: "100%", marginTop: 20, background: bg, color: "#fff", border: "none", borderRadius: 12, padding: "14px", fontSize: 15.5, fontWeight: 800, fontFamily: OSWALD, letterSpacing: "0.02em" });
+
+// ── Video player. Detects YouTube / Vimeo / HeyGen share links → iframe; anything
+//    else (an uploaded .mp4, a Supabase storage URL) → native <video>. Native video
+//    reports when it ENDS so we can light up the "Take my test" button.
+function embedUrlFor(raw) {
+  const url = String(raw || "").trim();
+  try {
+    let m;
+    if ((m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([\w-]{6,})/))) return { kind: "iframe", src: `https://www.youtube.com/embed/${m[1]}?rel=0` };
+    if ((m = url.match(/vimeo\.com\/(?:video\/)?(\d+)/))) return { kind: "iframe", src: `https://player.vimeo.com/video/${m[1]}` };
+    if (/heygen\.com\//i.test(url)) {
+      // HeyGen share pages embed at /embeds/<id>; a raw .mp4 export plays natively.
+      const id = url.match(/heygen\.com\/(?:share|videos?)\/([\w-]+)/i);
+      if (id && !/\.mp4($|\?)/i.test(url)) return { kind: "iframe", src: `https://app.heygen.com/embeds/${id[1]}` };
+    }
+  } catch { /* fall through to native */ }
+  return { kind: "video", src: url };
+}
+function VideoEmbed({ url, onEnded }) {
+  const e = embedUrlFor(url);
+  const frame = { position: "relative", width: "100%", aspectRatio: "9 / 16", maxHeight: "70vh", margin: "0 auto", background: "#000", borderRadius: 14, overflow: "hidden", border: "1px solid #e5e7eb" };
+  if (e.kind === "iframe") {
+    return (
+      <div style={frame}>
+        <iframe src={e.src} title="Training video" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowFullScreen
+          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none" }} />
+      </div>
+    );
+  }
+  return (
+    <div style={frame}>
+      <video src={e.src} controls playsInline onEnded={onEnded}
+        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", background: "#000" }} />
+    </div>
+  );
+}

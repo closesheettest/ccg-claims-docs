@@ -17,20 +17,50 @@ export default function HarvestTrainingAdmin() {
   const [track, setTrack] = useState("manager");
   const [sections, setSections] = useState(null);
   const [questions, setQuestions] = useState([]);
+  const [cfg, setCfg] = useState({ video_url: "", video_title: "" }); // training video for this track
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState("");
   const [preview, setPreview] = useState(false); // full-screen "see it as they do" overlay
 
   const load = async () => {
-    const [s, q] = await Promise.all([
+    const [s, q, c] = await Promise.all([
       supabase.from("harvest_training_sections").select("*").eq("track", track).order("sort"),
       supabase.from("harvest_training_questions").select("*").eq("track", track).order("sort"),
+      supabase.from("harvest_training_config").select("*").eq("track", track).maybeSingle(),
     ]);
     if (s.error) { setMsg({ err: s.error.message.includes("harvest_training") ? "Run sql/harvest_training.sql in Supabase first." : s.error.message }); setSections([]); return; }
     setSections(s.data || []);
     setQuestions(q.data || []);
+    setCfg({ video_url: c.data?.video_url || "", video_title: c.data?.video_title || "" });
   };
   useEffect(() => { setSections(null); load(); /* eslint-disable-next-line */ }, [track]);
+
+  // ── Training video (one per track) ──────────────────────────────────────────
+  const saveVideo = async () => {
+    setBusy("vid");
+    const { error } = await supabase.from("harvest_training_config")
+      .upsert({ track, video_url: cfg.video_url?.trim() || null, video_title: cfg.video_title || "", updated_at: new Date().toISOString() }, { onConflict: "track" });
+    setBusy("");
+    if (error) return flash({ err: error.message.includes("harvest_training_config") ? "Run sql/harvest_training_video.sql in Supabase first." : error.message });
+    flash({ ok: "Training video saved." });
+  };
+  const uploadVideo = async (file) => {
+    if (!file) return;
+    setBusy("vidup");
+    try {
+      const ext = (file.name.split(".").pop() || "mp4").toLowerCase();
+      const path = `${track}/video-${Date.now()}.${ext}`;
+      const up = await supabase.storage.from("harvest-training").upload(path, file, { upsert: true, contentType: file.type });
+      if (up.error) throw up.error;
+      const url = supabase.storage.from("harvest-training").getPublicUrl(path).data.publicUrl;
+      const { error } = await supabase.from("harvest_training_config")
+        .upsert({ track, video_url: url, video_title: cfg.video_title || "", updated_at: new Date().toISOString() }, { onConflict: "track" });
+      if (error) throw error;
+      setCfg((v) => ({ ...v, video_url: url }));
+      flash({ ok: "Video uploaded & saved." });
+    } catch (e) { flash({ err: e.message || "Upload failed — did you run the SQL?" }); }
+    setBusy("");
+  };
 
   const flash = (m) => { setMsg(m); if (m?.ok) setTimeout(() => setMsg(null), 2500); };
 
@@ -128,6 +158,33 @@ export default function HarvestTrainingAdmin() {
       {msg && <div style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 10, fontSize: 13.5, fontWeight: 600, background: msg.err ? "#fef2f2" : "#ecfdf5", color: msg.err ? "#b91c1c" : "#065f46", border: `1px solid ${msg.err ? "#fecaca" : "#a7f3d0"}` }}>{msg.err || msg.ok}</div>}
       {sections === null ? <div style={{ color: "#94a3b8" }}>Loading…</div> : (
         <>
+          {/* ── Training video (plays first; then they pick test or study guide) ── */}
+          <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 14, background: "#fff", marginBottom: 18 }}>
+            <div style={{ fontSize: 16, fontWeight: 800, fontFamily: OSWALD, marginBottom: 4 }}>🎬 Training video</div>
+            <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 10 }}>
+              Plays at the top of the {track === "manager" ? "manager" : "rep"} training. After it, they choose <b>Take my test</b> or <b>Read the study guide</b>.
+              Paste a link (YouTube, Vimeo, or a HeyGen share link) <b>or</b> upload the .mp4.
+            </div>
+            <input value={cfg.video_title} onChange={(e) => setCfg((v) => ({ ...v, video_title: e.target.value }))}
+              placeholder="Optional heading (e.g. “Watch this first — 4 min”)"
+              style={{ width: "100%", boxSizing: "border-box", fontSize: 13.5, padding: "8px 10px", borderRadius: 8, border: "1px solid #cbd5e1", marginBottom: 8 }} />
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <input value={cfg.video_url} onChange={(e) => setCfg((v) => ({ ...v, video_url: e.target.value }))}
+                placeholder="Paste video link (YouTube / Vimeo / HeyGen) or an .mp4 URL"
+                style={{ flex: 1, minWidth: 240, fontSize: 13.5, padding: "8px 10px", borderRadius: 8, border: "1px solid #cbd5e1" }} />
+              <label style={{ fontSize: 12.5, fontWeight: 700, color: "#1d4ed8", cursor: "pointer", whiteSpace: "nowrap" }}>
+                {busy === "vidup" ? "Uploading…" : "⬆ Upload .mp4"}
+                <input type="file" accept="video/*" style={{ display: "none" }} onChange={(e) => uploadVideo(e.target.files?.[0])} />
+              </label>
+              <button type="button" onClick={saveVideo} disabled={busy === "vid"}
+                style={{ fontSize: 13, fontWeight: 800, padding: "8px 16px", borderRadius: 8, border: "none", background: "#16a34a", color: "#fff", cursor: "pointer" }}>
+                {busy === "vid" ? "Saving…" : "Save video"}
+              </button>
+            </div>
+            {cfg.video_url ? <div style={{ fontSize: 12, color: "#16a34a", fontWeight: 700, marginTop: 8 }}>✓ A video is set for this track. Use “Preview as …” above to watch what they'll see.</div>
+              : <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 8 }}>No video yet — the training will start on the written study guide.</div>}
+          </div>
+
           {/* ── Lesson sections ── */}
           <div style={{ fontSize: 16, fontWeight: 800, fontFamily: OSWALD, margin: "6px 0 10px" }}>📖 Lesson sections ({sections.length})</div>
           <div style={{ display: "grid", gap: 12 }}>
