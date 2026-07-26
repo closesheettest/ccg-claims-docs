@@ -786,6 +786,9 @@ export default function CanvassMap() {
   const [referralText, setReferralText] = useState("");   // address input text
   const [referralPlace, setReferralPlace] = useState(null); // geocoded place {lat,lng,address,city,state,zip}
   const [referralSaving, setReferralSaving] = useState(false);
+  const [activeCall, setActiveCall] = useState(null);     // the referral pin whose "call card" is open
+  const [callPickDate, setCallPickDate] = useState("");   // "pick a day" for a no-answer reschedule
+  const [callsCardOpen, setCallsCardOpen] = useState(false); // the "📞 Calls to make" list expanded
   const addingRef = useRef(false);              // map-click reads this (no stale closure)
   const [newPin, setNewPin] = useState(null);   // { lat, lng, checking, check, saving } being placed
   const dropPinRef = useRef(null);              // latest drop handler for the map click
@@ -1012,7 +1015,9 @@ export default function CanvassMap() {
   // skip them: anything terminal (Inspection Sold, Dead) plus "Pending signature"
   // (the link's already out — waiting on the homeowner, not a stop to re-work).
   const nonRoutableStatuses = useMemo(() => {
-    const s = new Set(["insp_pending"]);
+    // "referral" is a CALL, not a drive stop — it never gets boxed into a route
+    // until the rep reaches them and books an appt (then its status flips to "appt").
+    const s = new Set(["insp_pending", "referral"]);
     for (const t of pinTypes) if (t.is_terminal) s.add(t.key);
     return s;
   }, [pinTypes]);
@@ -1714,6 +1719,13 @@ export default function CanvassMap() {
     [prospects]
   );
   const requiredCount = requiredVisits.length + requiredCallbacks.length;
+  // 📞 Referrals waiting on a CALL (not yet reached) — a new one is due now (no
+  // date), a rescheduled one is due when its call date arrives. These surface in
+  // the "Calls to make" bar (like go-backs), NOT in the drive route.
+  const callsToMake = useMemo(
+    () => prospects.filter((p) => p.status === "referral" && (!p.callback_date || p.callback_date <= ymdPlus(0))),
+    [prospects]
+  );
   // Start the day AROUND the mandatory stops: auto-pick the tightest area that
   // covers the most of them, lock those stops in, then fill the drive with fresh
   // doors (IQ / Inspection-Needed / Clover) so no mile is wasted. Definitive
@@ -2660,8 +2672,32 @@ export default function CanvassMap() {
       }
       setProspects((list) => [...list.filter((x) => x.id !== pin.id), pin]);
       closeReferral();
-      setSelected(pin); // open the card so the rep can book the appt or sign right now
+      openCall(pin); // straight into the call card so the rep can dial + set the outcome
     } catch { alert("Couldn't add the referral — try again."); setReferralSaving(false); }
+  }
+  // ── Referral CALL card ─────────────────────────────────────────────────────
+  async function openCall(pin) {
+    setSelected(null); setSelectedInstall(null); setSelectedVisit(null); setCallPickDate("");
+    setActiveCall(pin);
+    const full = await hydratePin(pin).catch(() => null);   // pull extra (referred_by, phone)
+    if (full) setActiveCall((cur) => (cur && cur.id === pin.id ? full : cur));
+  }
+  function closeCall() { setActiveCall(null); setCallPickDate(""); }
+  // Reschedule a no-answer referral to try the call again later — stays a CALL,
+  // never a route stop, until the rep actually reaches them. date = YYYY-MM-DD.
+  async function rescheduleCall(pin, date) {
+    if (!pin || !date) return;
+    if (!demoMode) {
+      try { await supabase.from("canvass_prospects").update({ callback_date: date }).eq("id", pin.id); } catch { /* best-effort */ }
+    }
+    setProspects((list) => list.map((x) => (x.id === pin.id ? { ...x, callback_date: date } : x)));
+    closeCall();
+  }
+  // The homeowner never answers / isn't interested → dismiss the call off the list.
+  async function dismissCall(pin) {
+    await setStatus(pin, "insp_ni");
+    setProspects((list) => list.map((x) => (x.id === pin.id ? { ...x, status: "insp_ni" } : x)));
+    closeCall();
   }
   // The rep tapped a roof — place the pin and open its sheet (owner check runs
   // when they press "Owner occupied?").
@@ -3194,6 +3230,57 @@ export default function CanvassMap() {
                 style={{ width: "100%", marginTop: 14, padding: "14px", borderRadius: 12, border: "none", fontSize: 15, fontWeight: 800, fontFamily: "'Oswald', sans-serif", background: (!referralPlace || referralSaving) ? "#fcd9a6" : "#d97706", color: "#fff", cursor: (!referralPlace || referralSaving) ? "default" : "pointer" }}>
                 {referralSaving ? "Saving…" : "⭐ Save & work it"}
               </button>
+            </div>
+          </div>
+        )}
+        {/* 📞 Calls to make — referrals waiting on a call. Shows like the go-backs bar;
+            disappears once every referral has been called (scheduled or dismissed). */}
+        {!selecting && !referralForm && !activeCall && !newPin && callsToMake.length > 0 && (
+          <button type="button" onClick={() => setCallsCardOpen((v) => !v)}
+            style={{ position: "absolute", left: 12, right: 12, top: 12, zIndex: 610, background: "#b45309", color: "#fff", border: "none", borderRadius: 12, padding: "10px 14px", fontSize: 13.5, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span>📞 {callsToMake.length} referral call{callsToMake.length > 1 ? "s" : ""} to make</span>
+            <span style={{ fontSize: 11, opacity: 0.9 }}>{callsCardOpen ? "▾ hide" : "▸ show"}</span>
+          </button>
+        )}
+        {callsCardOpen && !activeCall && !referralForm && callsToMake.length > 0 && (
+          <div style={{ position: "absolute", left: 12, right: 12, top: 52, zIndex: 609, background: "#fff", borderRadius: 12, boxShadow: "0 6px 18px rgba(0,0,0,.2)", maxHeight: "42vh", overflowY: "auto", padding: 4 }}>
+            {callsToMake.map((p) => (
+              <button key={p.id} type="button" onClick={() => openCall(p)}
+                style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", borderBottom: "1px solid #f1f5f9", padding: "11px 12px", cursor: "pointer" }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: "#0f172a" }}>⭐ {p.name || "Referral"}{p.phone ? <span style={{ color: "#16a34a", fontWeight: 700 }}> · {p.phone}</span> : null}</div>
+                {p.address && <div style={{ fontSize: 12, color: "#64748b" }}>{p.address}</div>}
+              </button>
+            ))}
+          </div>
+        )}
+        {activeCall && (
+          <div style={{ position: "absolute", inset: 0, zIndex: 1250, background: "rgba(15,23,42,.5)", display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={closeCall}>
+            <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 460, background: "#fff", borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: "18px 18px 24px", boxShadow: "0 -4px 20px rgba(0,0,0,.2)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ fontSize: 17, fontWeight: 900, color: "#0f172a" }}>⭐ {activeCall.name || "Referral"}</div>
+                <button type="button" onClick={closeCall} style={{ background: "none", border: "none", fontSize: 22, color: "#94a3b8", cursor: "pointer", lineHeight: 1 }}>×</button>
+              </div>
+              {activeCall.address && <div style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>{activeCall.address}</div>}
+              {activeCall.extra?.referred_by && <div style={{ fontSize: 12.5, color: "#b45309", marginTop: 2, fontWeight: 700 }}>Referred by {activeCall.extra.referred_by}</div>}
+              {activeCall.phone ? (
+                <a href={`tel:${activeCall.phone}`} style={{ display: "block", textAlign: "center", marginTop: 12, padding: "13px", borderRadius: 12, background: "#16a34a", color: "#fff", fontSize: 16, fontWeight: 800, textDecoration: "none", fontFamily: "'Oswald', sans-serif" }}>📞 Call {activeCall.phone}</a>
+              ) : <div style={{ fontSize: 12.5, color: "#94a3b8", marginTop: 12, textAlign: "center" }}>No phone on file — knock the door instead.</div>}
+              <div style={{ fontSize: 12.5, fontWeight: 800, color: "#334155", marginTop: 16, marginBottom: 6 }}>How'd the call go?</div>
+              <button type="button" onClick={() => { const p = activeCall; closeCall(); demoMode ? alert("🧪 Practice mode — booking is off here.") : setBtrPin(p); }}
+                style={{ width: "100%", padding: "12px", borderRadius: 11, border: "none", background: "#7c3aed", color: "#fff", fontSize: 14.5, fontWeight: 800, cursor: "pointer", marginBottom: 10 }}>📅 Scheduled an appointment</button>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#64748b", marginBottom: 5 }}>📞 No answer — try again:</div>
+              <div style={{ display: "flex", gap: 7 }}>
+                <button type="button" onClick={() => rescheduleCall(activeCall, ymdPlus(0))} style={{ flex: 1, padding: "10px", borderRadius: 9, border: "1px solid #cbd5e1", background: "#f8fafc", color: "#334155", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}>Today</button>
+                <button type="button" onClick={() => rescheduleCall(activeCall, ymdPlus(1))} style={{ flex: 1, padding: "10px", borderRadius: 9, border: "1px solid #cbd5e1", background: "#f8fafc", color: "#334155", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}>Tomorrow</button>
+              </div>
+              <div style={{ display: "flex", gap: 7, marginTop: 7, alignItems: "center" }}>
+                <input type="date" value={callPickDate} min={ymdPlus(0)} onChange={(e) => setCallPickDate(e.target.value)}
+                  style={{ flex: 1, height: 40, padding: "0 10px", borderRadius: 9, border: "1px solid #d1d5db", fontSize: 14 }} />
+                <button type="button" disabled={!callPickDate} onClick={() => rescheduleCall(activeCall, callPickDate)}
+                  style={{ padding: "10px 16px", borderRadius: 9, border: "1px solid #cbd5e1", background: callPickDate ? "#f8fafc" : "#f1f5f9", color: "#334155", fontSize: 13.5, fontWeight: 700, cursor: callPickDate ? "pointer" : "default", opacity: callPickDate ? 1 : 0.6 }}>Set</button>
+              </div>
+              <button type="button" onClick={() => dismissCall(activeCall)}
+                style={{ width: "100%", marginTop: 12, padding: "10px", borderRadius: 11, border: "1px solid #fecaca", background: "#fff", color: "#dc2626", fontSize: 13.5, fontWeight: 800, cursor: "pointer" }}>🚫 Not interested — dismiss</button>
             </div>
           </div>
         )}
