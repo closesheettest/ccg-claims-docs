@@ -1675,6 +1675,54 @@ export default function CanvassMap() {
       optimizeByRoad(from, ordered);
     }
   }
+  // Today's REQUIRED review visits (go-backs due) — these are mandatory stops the
+  // rep can't skip. Triage priority: retail (hottest) → damage → no-damage.
+  const requiredVisits = useMemo(
+    () => visits.filter((v) => visitNeedsWork(v) && v.latitude != null && v.longitude != null),
+    [visits]
+  );
+  // Start the day AROUND the required reviews: auto-pick the tightest area that
+  // covers the most of them, lock those stops in, then fill the drive with fresh
+  // doors (IQ / Inspection-Needed / Clover) so no mile is wasted. Overdue reviews
+  // are hard-required and ride along even if they sit outside the cluster.
+  function startMyDayReviews() {
+    const req = requiredVisits;
+    if (!req.length) { setDayMode(prospects.length ? "choosing" : null); if (!prospects.length) nudgeZoom(); return; }
+    const VISIT_PRIORITY = { retail: 0, damage: 1, no_damage: 2 };
+    const CLUSTER_MI = Math.max(gobackRadiusMi, 4);
+    const ll = (v) => ({ lat: Number(v.latitude), lng: Number(v.longitude) });
+    const overdue = (v) => visitDueStatus(v) === "overdue";
+    // Densest cluster: the review with the most neighbors within CLUSTER_MI seeds it.
+    let seed = req[0], best = -1;
+    for (const v of req) {
+      const n = req.reduce((c, o) => c + (feetBetween(ll(v), ll(o)) / 5280 <= CLUSTER_MI ? 1 : 0), 0);
+      if (n > best) { best = n; seed = v; }
+    }
+    const areaVisits = req.filter((v) => feetBetween(ll(seed), ll(v)) / 5280 <= CLUSTER_MI || overdue(v));
+    areaVisits.sort((a, b) => (overdue(b) - overdue(a)) || ((VISIT_PRIORITY[a.bucket] ?? 3) - (VISIT_PRIORITY[b.bucket] ?? 3)));
+    const reqStops = areaVisits.map((v) => ({
+      id: `v_${v.inspection_id}`, latitude: Number(v.latitude), longitude: Number(v.longitude),
+      name: v.client_name || v.address, address: v.address, city: v.city, state: v.state, zip: v.zip,
+      status: "goback", _visit: v, _required: true,
+    }));
+    const cen = areaVisits.reduce((a, v) => ({ lat: a.lat + Number(v.latitude), lng: a.lng + Number(v.longitude) }), { lat: 0, lng: 0 });
+    const from = myLoc || { lat: cen.lat / areaVisits.length, lng: cen.lng / areaVisits.length };
+    // Fresh doors inside the review cluster's box → the productivity fill.
+    const lats = areaVisits.map((v) => Number(v.latitude)), lngs = areaVisits.map((v) => Number(v.longitude));
+    const pad = 0.02; // ~1.4 mi cushion around the cluster
+    const box = { s: Math.min(...lats) - pad, n: Math.max(...lats) + pad, w: Math.min(...lngs) - pad, e: Math.max(...lngs) + pad };
+    const reqIds = new Set(reqStops.map((s) => s.id));
+    const fresh = prospects.filter((p) => p.latitude >= box.s && p.latitude <= box.n && p.longitude >= box.w && p.longitude <= box.e
+      && !nonRoutableStatuses.has(p.status) && !futureCallback(p) && !routeLockedByOther(p) && !reqIds.has(p.id));
+    const freshCap = Math.max(0, routeCap(fresh) - reqStops.length);
+    const d2 = (p) => (from.lat - p.latitude) ** 2 + (from.lng - p.longitude) ** 2;
+    const freshNear = fresh.map((p) => ({ p, d: d2(p) })).sort((a, b) => a.d - b.d).slice(0, freshCap).map((x) => x.p);
+    // Order reviews + fresh doors together (whole-street, nearest-first) so they interleave.
+    const stops = orderStops(from, [...reqStops, ...freshNear]);
+    setStartPt(from); setRoute(stops); setStopIdx(0); setRound(1);
+    setResolvedIds(new Set()); workingRef.current = new Set(); setDayMode("active"); setFillOffer(null);
+    optimizeByRoad(from, stops);
+  }
   // Draw the go-back badges (toggleable).
   useEffect(() => {
     const lyr = visitsLayer.current; if (!lyr) return;
@@ -2646,6 +2694,9 @@ export default function CanvassMap() {
   // Drop a stop the rep doesn't want to drive to (e.g. it's across the bay). Keeps
   // the current stop stable and re-numbers the rest; the map line redraws.
   function removeStop(id) {
+    // Required review visits are mandatory — they can't be dropped from the day.
+    const target = route.find((p) => p.id === id);
+    if (target && target._required) { alert("This is a required review visit — it can't be dropped. If nobody's home, open it and tap 'Nobody home' to push it to their next best day."); return; }
     const curId = route[stopIdx]?.id;
     const next = route.filter((p) => p.id !== id);
     workingRef.current.delete(id);
@@ -3017,9 +3068,19 @@ export default function CanvassMap() {
             </button>
           </div>
         )}
+        {/* REQUIRED REVIEWS DUE → the only start option is the guided review day: it
+            auto-picks the tightest area covering the most due reviews, LOCKS them in,
+            and fills the drive with fresh doors. Free "Route an area" is hidden so the
+            rep can't start a day that skips their mandatory review visits. */}
+        {dayMode === null && !selecting && !(assignedIds && assignedIds.size > 0) && requiredVisits.length > 0 && (
+          <button type="button" onClick={startMyDayReviews}
+            style={{ position: "absolute", left: 12, bottom: 68, zIndex: 600, background: "#b45309", color: "#fff", border: "none", borderRadius: 999, padding: "12px 18px", fontSize: 14, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.28)", cursor: "pointer" }}>
+            ▶ Start my day · {requiredVisits.length} required review{requiredVisits.length > 1 ? "s" : ""}
+          </button>
+        )}
         {/* Route an area — drag a box, route exactly the doors inside it. Hidden when
-            the rep's day is manager-assigned (they work their section, not a free area). */}
-        {dayMode === null && !selecting && !(assignedIds && assignedIds.size > 0) && (prospects.length > 0 || clusters.length > 0) && (
+            the rep's day is manager-assigned OR they have required reviews to service. */}
+        {dayMode === null && !selecting && !(assignedIds && assignedIds.size > 0) && requiredVisits.length === 0 && (prospects.length > 0 || clusters.length > 0) && (
           <button type="button" onClick={startSelecting}
             style={{ position: "absolute", left: 12, bottom: 68, zIndex: 600, background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
             ▢ Route an area
