@@ -41,7 +41,7 @@ export const handler = async (event) => {
       fetchSoldJobs(JN_KEY, startSec, endSec),
     ]);
     // So "harvested" works for sold deals too: attach who created each job's appt task.
-    for (const j of soldJobs) { const m = taskMeta.get(j.jnid || j.id); j.__apptTaskCreators = m ? [...m.creators] : []; }
+    for (const j of soldJobs) { const m = taskMeta.get(j.jnid || j.id); j.__apptTaskCreators = m ? [...m.creators] : []; j.__isReset = m ? m.resetInWindow : false; }
     // Stamp inspections.result before tallying so a retail-result deal is BTR.
     const resultMap = await fetchResultMap([...apptJobs, ...soldJobs].map((j) => j.jnid || j.id));
     for (const j of [...apptJobs, ...soldJobs]) j.__result = resultMap[j.jnid || j.id] || null;

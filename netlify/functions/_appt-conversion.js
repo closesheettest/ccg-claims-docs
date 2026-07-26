@@ -276,7 +276,12 @@ function dealInfo(job) {
 }
 
 function newRep(rep) {
-  return { rep, level: "", appts: 0, harvAp: 0, compAp: 0, btrAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0, details: [] };
+  // resitAp / resitSl = the "No-Sit recovery" overlay: appointments whose counted
+  // sit was a RESET (a re-booked appointment — what a "No Sit- Need to Reschedule"
+  // deal becomes once it gets back on the calendar) and how many of those SOLD.
+  // It's an OVERLAY, not a 4th category — a re-sit is still one of harv/comp/btr,
+  // so harv+comp+btr still equals appts. resitPct = resitSl ÷ resitAp.
+  return { rep, level: "", appts: 0, harvAp: 0, compAp: 0, btrAp: 0, resitAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, resitSl: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0, details: [] };
 }
 
 // TMS rep_level → short badge. "" when unknown (rep_level not set).
@@ -292,6 +297,7 @@ function tallyAppt(rec, job) {
   const cat = categoryOf(job);
   rec.appts++;
   rec[cat + "Ap"]++;
+  if (job.__isReset) rec.resitAp++;   // re-booked sit (no-sit recovery overlay)
   rec.details.push({ kind: "appt", cat, ...dealInfo(job) });   // drill-down detail
 }
 
@@ -304,6 +310,7 @@ function tallySold(rec, job) {
   rec[cat + "Sl"]++;          // count (used for the per-bucket conversion %)
   rec[cat + "Amt"] += amt;    // $ value of this bucket's sales
   rec.amt += amt;
+  if (job.__isReset) rec.resitSl++;   // a re-booked sit that closed (no-sit recovered → sold)
   const F = fieldMap(job);
   if (isYes(F["Radiant Barrier"])) rec.rb++;
   if (isYes(F["Insulation"])) rec.ins++;
@@ -314,10 +321,10 @@ function pct(n, d) { return d > 0 ? Math.round((n / d) * 100) : 0; }
 function shapeRep(r) {
   return {
     rep: r.rep, level: r.level || "",
-    harvAp: r.harvAp, compAp: r.compAp, btrAp: r.btrAp, appts: r.appts,
-    harvSl: r.harvSl, compSl: r.compSl, btrSl: r.btrSl, sales: r.sales,
+    harvAp: r.harvAp, compAp: r.compAp, btrAp: r.btrAp, resitAp: r.resitAp, appts: r.appts,
+    harvSl: r.harvSl, compSl: r.compSl, btrSl: r.btrSl, resitSl: r.resitSl, sales: r.sales,
     harvAmt: Math.round(r.harvAmt), compAmt: Math.round(r.compAmt), btrAmt: Math.round(r.btrAmt),
-    harvPct: pct(r.harvSl, r.harvAp), compPct: pct(r.compSl, r.compAp), btrPct: pct(r.btrSl, r.btrAp), pct: pct(r.sales, r.appts),
+    harvPct: pct(r.harvSl, r.harvAp), compPct: pct(r.compSl, r.compAp), btrPct: pct(r.btrSl, r.btrAp), resitPct: pct(r.resitSl, r.resitAp), pct: pct(r.sales, r.appts),
     amt: Math.round(r.amt),
     avg: r.sales > 0 ? Math.round(r.amt / r.sales) : 0,
     rb: r.rb, rb_pct: pct(r.rb, r.sales), ins: r.ins, ins_pct: pct(r.ins, r.sales),
@@ -326,15 +333,15 @@ function shapeRep(r) {
 }
 function sumTotals(reps) {
   const t = reps.reduce((s, r) => ({
-    appts: s.appts + r.appts, harvAp: s.harvAp + r.harvAp, compAp: s.compAp + r.compAp, btrAp: s.btrAp + r.btrAp,
-    sales: s.sales + r.sales, harvSl: s.harvSl + r.harvSl, compSl: s.compSl + r.compSl, btrSl: s.btrSl + r.btrSl,
+    appts: s.appts + r.appts, harvAp: s.harvAp + r.harvAp, compAp: s.compAp + r.compAp, btrAp: s.btrAp + r.btrAp, resitAp: s.resitAp + r.resitAp,
+    sales: s.sales + r.sales, harvSl: s.harvSl + r.harvSl, compSl: s.compSl + r.compSl, btrSl: s.btrSl + r.btrSl, resitSl: s.resitSl + r.resitSl,
     harvAmt: s.harvAmt + r.harvAmt, compAmt: s.compAmt + r.compAmt, btrAmt: s.btrAmt + r.btrAmt,
     amt: s.amt + r.amt, rb: s.rb + r.rb, ins: s.ins + r.ins,
-  }), { appts: 0, harvAp: 0, compAp: 0, btrAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0 });
+  }), { appts: 0, harvAp: 0, compAp: 0, btrAp: 0, resitAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, resitSl: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0 });
   return {
     ...t,
     harvAmt: Math.round(t.harvAmt), compAmt: Math.round(t.compAmt), btrAmt: Math.round(t.btrAmt),
-    harvPct: pct(t.harvSl, t.harvAp), compPct: pct(t.compSl, t.compAp), btrPct: pct(t.btrSl, t.btrAp), pct: pct(t.sales, t.appts),
+    harvPct: pct(t.harvSl, t.harvAp), compPct: pct(t.compSl, t.compAp), btrPct: pct(t.btrSl, t.btrAp), resitPct: pct(t.resitSl, t.resitAp), pct: pct(t.sales, t.appts),
     amt: Math.round(t.amt),
     avg: t.sales > 0 ? Math.round(t.amt / t.sales) : 0,
     rb_pct: pct(t.rb, t.sales), ins_pct: pct(t.ins, t.sales),
