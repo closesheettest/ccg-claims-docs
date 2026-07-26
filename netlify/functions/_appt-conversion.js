@@ -79,6 +79,12 @@ function isStaleAppt(job, apptDateSec) {
 // Exact JN status_name spellings mirror all-no-sits.js.
 const NO_SIT_RESCHEDULE_STATUSES = new Set(["no sit need to reschedule", "no sit rescheduled"]);
 function isNoSitReschedule(job) { return NO_SIT_RESCHEDULE_STATUSES.has(normStatus(job.status_name)); }
+// A counted appointment that DIDN'T sell is either DEAD (they sat and declined) or
+// still PENDING (being worked — a decision hasn't landed). Dead = an explicit "no"
+// status; everything else unsold is treated as pending so a low close % reads right
+// (lots of pending ≠ lots of dead). This is context only — it doesn't change appts.
+const DEAD_APPT_STATUSES = new Set(["sit no sale", "not interested", "no sit no show"]);
+function isDeadAppt(job) { return DEAD_APPT_STATUSES.has(normStatus(job.status_name)); }
 // A LOST deal is dead — it does NOT count as an appointment (and so never gets
 // flagged either, since the flag only runs on counted rows). If it had sold then
 // cancelled, the sale was already credited in its sold week; a later loss isn't a
@@ -281,7 +287,7 @@ function newRep(rep) {
   // deal becomes once it gets back on the calendar) and how many of those SOLD.
   // It's an OVERLAY, not a 4th category — a re-sit is still one of harv/comp/btr,
   // so harv+comp+btr still equals appts. resitPct = resitSl ÷ resitAp.
-  return { rep, level: "", appts: 0, harvAp: 0, compAp: 0, btrAp: 0, resitAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, resitSl: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0, details: [] };
+  return { rep, level: "", appts: 0, harvAp: 0, compAp: 0, btrAp: 0, resitAp: 0, pendAp: 0, deadAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, resitSl: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0, details: [] };
 }
 
 // TMS rep_level → short badge. "" when unknown (rep_level not set).
@@ -298,6 +304,11 @@ function tallyAppt(rec, job) {
   rec.appts++;
   rec[cat + "Ap"]++;
   if (job.__isReset) rec.resitAp++;   // re-booked sit (no-sit recovery overlay)
+  // Split the UNSOLD appointments into still-pending (alive) vs dead (declined), so a
+  // low close % has context. Sold deals aren't pending/dead — they closed.
+  if (!SOLD_STATUSES.has(normStatus(job.status_name))) {
+    if (isDeadAppt(job)) rec.deadAp++; else rec.pendAp++;
+  }
   rec.details.push({ kind: "appt", cat, ...dealInfo(job) });   // drill-down detail
 }
 
@@ -321,7 +332,7 @@ function pct(n, d) { return d > 0 ? Math.round((n / d) * 100) : 0; }
 function shapeRep(r) {
   return {
     rep: r.rep, level: r.level || "",
-    harvAp: r.harvAp, compAp: r.compAp, btrAp: r.btrAp, resitAp: r.resitAp, appts: r.appts,
+    harvAp: r.harvAp, compAp: r.compAp, btrAp: r.btrAp, resitAp: r.resitAp, pendAp: r.pendAp, deadAp: r.deadAp, appts: r.appts,
     harvSl: r.harvSl, compSl: r.compSl, btrSl: r.btrSl, resitSl: r.resitSl, sales: r.sales,
     harvAmt: Math.round(r.harvAmt), compAmt: Math.round(r.compAmt), btrAmt: Math.round(r.btrAmt),
     harvPct: pct(r.harvSl, r.harvAp), compPct: pct(r.compSl, r.compAp), btrPct: pct(r.btrSl, r.btrAp), resitPct: pct(r.resitSl, r.resitAp), pct: pct(r.sales, r.appts),
@@ -333,11 +344,11 @@ function shapeRep(r) {
 }
 function sumTotals(reps) {
   const t = reps.reduce((s, r) => ({
-    appts: s.appts + r.appts, harvAp: s.harvAp + r.harvAp, compAp: s.compAp + r.compAp, btrAp: s.btrAp + r.btrAp, resitAp: s.resitAp + r.resitAp,
+    appts: s.appts + r.appts, harvAp: s.harvAp + r.harvAp, compAp: s.compAp + r.compAp, btrAp: s.btrAp + r.btrAp, resitAp: s.resitAp + r.resitAp, pendAp: s.pendAp + r.pendAp, deadAp: s.deadAp + r.deadAp,
     sales: s.sales + r.sales, harvSl: s.harvSl + r.harvSl, compSl: s.compSl + r.compSl, btrSl: s.btrSl + r.btrSl, resitSl: s.resitSl + r.resitSl,
     harvAmt: s.harvAmt + r.harvAmt, compAmt: s.compAmt + r.compAmt, btrAmt: s.btrAmt + r.btrAmt,
     amt: s.amt + r.amt, rb: s.rb + r.rb, ins: s.ins + r.ins,
-  }), { appts: 0, harvAp: 0, compAp: 0, btrAp: 0, resitAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, resitSl: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0 });
+  }), { appts: 0, harvAp: 0, compAp: 0, btrAp: 0, resitAp: 0, pendAp: 0, deadAp: 0, sales: 0, harvSl: 0, compSl: 0, btrSl: 0, resitSl: 0, harvAmt: 0, compAmt: 0, btrAmt: 0, amt: 0, rb: 0, ins: 0 });
   return {
     ...t,
     harvAmt: Math.round(t.harvAmt), compAmt: Math.round(t.compAmt), btrAmt: Math.round(t.btrAmt),
