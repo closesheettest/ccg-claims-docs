@@ -51,6 +51,20 @@ function installOwner(j) {
     || "";
   return String(n).trim() || null;
 }
+// The /jobs LIST endpoint omits primary/related contacts, so installOwner(j) is null off
+// a list job. Fall back to a single-job GET (which DOES include primary.name), so the
+// name-drop ("we're roofing the Andersons' place") gets stamped on new clover pins.
+async function resolveInstallOwner(j) {
+  const direct = installOwner(j);
+  if (direct) return direct;
+  const jnid = jnidOf(j);
+  if (!jnid) return null;
+  try {
+    const r = await fetch(`${JN_BASE}/jobs/${jnid}`, { headers: jnHeaders });
+    if (!r.ok) return null;
+    return installOwner(await r.json());
+  } catch { return null; }
+}
 const LIST_NAME = "Clover Leaf";
 const RADIUS_M = 250;        // ~820 ft around the install
 const MAX_DOORS = 30;        // nearest owner-occupied neighbors per install
@@ -112,7 +126,7 @@ exports.handler = async (event) => {
       // first rep to status a door claims it via the map).
       const sellerName = String(j.sales_rep_name || "").trim() || null;
       const sellerId = j.sales_rep || null;
-      const ownerName = installOwner(j);
+      const ownerName = await resolveInstallOwner(j);
       // Doors that ALREADY have a pin are matched by HOUSE NUMBER + PROXIMITY,
       // never address text — cadastral writes "1002 BROWARD ST W" where the map
       // pin says "1002 W Broward St", so text matching silently missed every one
@@ -204,7 +218,7 @@ exports.handler = async (event) => {
           : await geocode(addr);
         if (!geo) continue;
         const sellerName = String(j.sales_rep_name || "").trim() || null;
-        const ownerName = installOwner(j);
+        const ownerName = await resolveInstallOwner(j);
         homeRows.push({
           name: "🚧 Roof being installed",
           address: j.address_line1, city: j.city || null, state: "FL", zip: j.zip || null,
@@ -230,7 +244,7 @@ exports.handler = async (event) => {
   if (commit) {
     try {
       const ownerByJnid = {};
-      for (const j of jobs) { const o = installOwner(j); if (o) ownerByJnid[jnidOf(j)] = o; }
+      for (const j of jobs) { const o = await resolveInstallOwner(j); if (o) ownerByJnid[jnidOf(j)] = o; }
       let ownerBudget = 40;
       for (const p of existingClover) {
         if (ownerBudget <= 0) break;
