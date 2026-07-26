@@ -734,8 +734,10 @@ export default function CanvassMap() {
   // emergency, wants the roof). callbackFor = the stop id whose form is open.
   const [callbackFor, setCallbackFor] = useState(null);
   const [cbDate, setCbDate] = useState("");
+  const [cbTime, setCbTime] = useState(null);   // chosen soft target hour (0-23) for the come-back
   const [cbNote, setCbNote] = useState("");
   const [cbSaving, setCbSaving] = useState(false);
+  const [cbBusy, setCbBusy] = useState(null);   // Set of "YYYY-MM-DD-H" the rep is already booked (JN appts + app-held be-backs) → hidden so they can't double-book
   // Non-owner-occupied override: the rep has the owner (who lives elsewhere) and a
   // phone number, and wants to work THIS house as a live self-gen deal.
   const [ownerOverride, setOwnerOverride] = useState(false);
@@ -1509,12 +1511,17 @@ export default function CanvassMap() {
   // stays on the map; when the date arrives it resurfaces as a due come-back.
   async function saveCallback(stop) {
     if (!stop || !cbDate) { alert("Pick a come-back date."); return; }
+    if (cbTime == null) { alert("Pick a time — only your open times are shown."); return; }
     if (spotCheck) { alert("🔍 Spot-check — statusing is off."); return; }
     setCbSaving(true);
     const nowIso = new Date().toISOString();
     const note = cbNote.trim();
-    const extra = { ...(stop.extra && typeof stop.extra === "object" ? stop.extra : {}), callback: { date: cbDate, note, by: repName || "rep", at: nowIso } };
-    const entry = { at: nowIso, from: stop.status, to: "insp_callback", by: repName || "rep", callback_date: cbDate, note: note || undefined };
+    // time = a SOFT target hour (homeowner's "around 5" preference). The day routes the
+    // rep to be there around then — it's not a locked appointment. Picked from open
+    // slots only (see cbBusy) so it never doubles up on a real appt or another be-back.
+    const cb = { date: cbDate, time: cbTime, note, by: repName || "rep", at: nowIso };
+    const extra = { ...(stop.extra && typeof stop.extra === "object" ? stop.extra : {}), callback: cb };
+    const entry = { at: nowIso, from: stop.status, to: "insp_callback", by: repName || "rep", callback_date: cbDate, callback_time: cbTime, note: note || undefined };
     const log = Array.isArray(stop.status_log) ? [...stop.status_log, entry] : [entry];
     const patch = { status: "insp_callback", status_updated_at: nowIso, status_by: repName || null, status_log: log, extra, notes: note || stop.notes || null, callback_date: cbDate };
     if (!demoMode) {
@@ -1526,18 +1533,57 @@ export default function CanvassMap() {
     setSelected((s) => (s && s.id === stop.id ? { ...s, ...patch } : s));
     // Scheduled for a future day → drop it from the rest of today's route.
     setResolvedIds((s) => new Set(s).add(stop.id));
-    setCbSaving(false); setCallbackFor(null); setCbNote(""); setCbDate("");
+    setCbSaving(false); setCallbackFor(null); setCbNote(""); setCbDate(""); setCbTime(null);
     // Only advance the route when this WAS the current stop (a re-status from the
     // pin sheet shouldn't skip the rep past their next real stop).
     if (route[stopIdx]?.id === stop.id) advanceStop(); else setSelected(null);
   }
+  // Key a date (YYYY-MM-DD) + hour → the come-back availability check.
+  const cbSlotKey = (dateStr, hour) => `${dateStr}-${hour}`;
+  // When the come-back scheduler opens, pull the rep's BUSY hours so the picker only
+  // offers OPEN times — from BOTH the rep's JN appointments (harvest-availability) AND
+  // the app-held be-backs/reviews that never hit JN (their soft callback time). That's
+  // what stops a rep double-booking themselves.
+  useEffect(() => {
+    if (!callbackFor) { setCbBusy(null); return; }
+    let live = true;
+    (async () => {
+      const busy = new Set();
+      try {
+        if (auth.rt) {
+          const r = await fetch(`/.netlify/functions/harvest-availability?rt=${encodeURIComponent(auth.rt)}`);
+          const j = await r.json().catch(() => ({}));
+          for (const ms of (Array.isArray(j.booked) ? j.booked : [])) {
+            const d = new Date(ms);
+            busy.add(cbSlotKey(d.toLocaleDateString("en-CA"), d.getHours()));
+          }
+        }
+      } catch { /* best-effort */ }
+      try {
+        if (!demoMode) {
+          let q = supabase.from("canvass_prospects").select("id,callback_date,extra").eq("status", "insp_callback").gte("callback_date", ymdPlus(0)).limit(500);
+          if (repName) q = q.ilike("status_by", repName);
+          const { data } = await q;
+          for (const p of (data || [])) {
+            if (p.id === callbackFor) continue; // ignore the one being (re)scheduled
+            const t = p.extra?.callback?.time;
+            const dt = p.callback_date || p.extra?.callback?.date;
+            if (dt != null && t != null) busy.add(cbSlotKey(dt, Number(t)));
+          }
+        }
+      } catch { /* best-effort */ }
+      if (live) setCbBusy(busy);
+    })();
+    return () => { live = false; };
+    // eslint-disable-next-line
+  }, [callbackFor]);
   // Re-status a door from its pin sheet WHILE on a route (e.g. marked "not home",
   // then they came out). Same at-the-door gate as a route stop; does not advance
   // the route. Sign / appt / come-back open their own flows.
   async function restatusPin(pin, outcome) {
     if (spotCheck) { alert("🔍 Spot-check — statusing is off."); return; }
     if (outcome === "insp_sold") { signInspection(pin); return; }
-    if (outcome === "insp_callback") { setCallbackFor(pin.id); setCbDate(ymdPlus(7)); setCbNote(pin.notes || ""); return; }
+    if (outcome === "insp_callback") { setCallbackFor(pin.id); setCbDate(ymdPlus(7)); setCbTime(null); setCbNote(pin.notes || ""); return; }
     if (outcome === "appt" && pin.status !== "test" && !demoMode) { setApptPin(await hydratePin(pin)); return; }
     logActivity({ pin_id: pin.id, kind: "visit", to_status: outcome === "nothome" ? "not_home" : outcome, ...locAudit(pin) });
     if (outcome !== "nothome") { const ok = await setStatus(pin, outcome); if (ok === false) return; }
@@ -3724,7 +3770,7 @@ export default function CanvassMap() {
                       )
                       : o.key === "insp_callback"
                       ? (
-                        <button key={o.key} type="button" disabled={!near} onClick={() => { setCallbackFor(stop.id); setCbDate(ymdPlus(7)); setCbNote(stop.notes || ""); }}
+                        <button key={o.key} type="button" disabled={!near} onClick={() => { setCallbackFor(stop.id); setCbDate(ymdPlus(7)); setCbTime(null); setCbNote(stop.notes || ""); }}
                           style={{ flex: "1 1 44%", minWidth: 92, padding: "11px 8px", borderRadius: 11, fontSize: 13.5, fontWeight: 800, cursor: near ? "pointer" : "not-allowed",
                             border: `1px solid ${near ? o.color : "#e5e7eb"}`, background: near ? o.color : "#fff", color: near ? "#fff" : "#cbd5e1" }}>
                           {o.label}
@@ -3737,13 +3783,14 @@ export default function CanvassMap() {
                   {callbackFor === stop.id && (
                     <div style={{ marginTop: 10, background: "#fefce8", border: "1px solid #fde047", borderRadius: 12, padding: "12px 14px" }}>
                       <div style={{ fontSize: 13, fontWeight: 800, color: "#854d0e", marginBottom: 8 }}>📅 Come back — when?</div>
-                      <input type="date" value={cbDate} min={ymdPlus(0)} onChange={(e) => setCbDate(e.target.value)}
+                      <input type="date" value={cbDate} min={ymdPlus(0)} onChange={(e) => { setCbDate(e.target.value); setCbTime(null); }}
                         style={{ width: "100%", boxSizing: "border-box", height: 44, padding: "0 12px", borderRadius: 10, border: "1px solid #d1d5db", fontSize: 16, background: "#fff", marginBottom: 8 }} />
+                      <CbTimes date={cbDate} busy={cbBusy} value={cbTime} onPick={setCbTime} />
                       <textarea value={cbNote} onChange={(e) => setCbNote(e.target.value)} rows={2} placeholder="Note — e.g. medical emergency, still wants the roof"
                         style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 10, border: "1px solid #d1d5db", fontSize: 14, fontFamily: "inherit", resize: "vertical", marginBottom: 8 }} />
                       <div style={{ display: "flex", gap: 8 }}>
-                        <button type="button" disabled={cbSaving || !cbDate} onClick={() => saveCallback(stop)}
-                          style={{ flex: 1, background: "#ca8a04", color: "#fff", border: "none", borderRadius: 10, padding: "11px", fontSize: 13.5, fontWeight: 800, cursor: cbSaving ? "wait" : "pointer", opacity: cbDate ? 1 : 0.6 }}>
+                        <button type="button" disabled={cbSaving || !cbDate || cbTime == null} onClick={() => saveCallback(stop)}
+                          style={{ flex: 1, background: "#ca8a04", color: "#fff", border: "none", borderRadius: 10, padding: "11px", fontSize: 13.5, fontWeight: 800, cursor: cbSaving ? "wait" : "pointer", opacity: (cbDate && cbTime != null) ? 1 : 0.6 }}>
                           {cbSaving ? "Saving…" : "📅 Schedule come-back"}
                         </button>
                         <button type="button" onClick={() => setCallbackFor(null)}
@@ -4082,13 +4129,14 @@ export default function CanvassMap() {
                 {callbackFor === selected.id && (
                   <div style={{ marginTop: 10, background: "#fefce8", border: "1px solid #fde047", borderRadius: 12, padding: "12px 14px" }}>
                     <div style={{ fontSize: 13, fontWeight: 800, color: "#854d0e", marginBottom: 8 }}>📅 Come back — when?</div>
-                    <input type="date" value={cbDate} min={ymdPlus(0)} onChange={(e) => setCbDate(e.target.value)}
+                    <input type="date" value={cbDate} min={ymdPlus(0)} onChange={(e) => { setCbDate(e.target.value); setCbTime(null); }}
                       style={{ width: "100%", boxSizing: "border-box", height: 44, padding: "0 12px", borderRadius: 10, border: "1px solid #d1d5db", fontSize: 16, background: "#fff", marginBottom: 8 }} />
+                    <CbTimes date={cbDate} busy={cbBusy} value={cbTime} onPick={setCbTime} />
                     <textarea value={cbNote} onChange={(e) => setCbNote(e.target.value)} rows={2} placeholder="Note — e.g. medical emergency, still wants the roof"
                       style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 10, border: "1px solid #d1d5db", fontSize: 14, fontFamily: "inherit", resize: "vertical", marginBottom: 8 }} />
                     <div style={{ display: "flex", gap: 8 }}>
-                      <button type="button" disabled={cbSaving || !cbDate} onClick={() => saveCallback(selected)}
-                        style={{ flex: 1, background: "#ca8a04", color: "#fff", border: "none", borderRadius: 10, padding: "11px", fontSize: 13.5, fontWeight: 800, cursor: cbSaving ? "wait" : "pointer", opacity: cbDate ? 1 : 0.6 }}>{cbSaving ? "Saving…" : "📅 Schedule come-back"}</button>
+                      <button type="button" disabled={cbSaving || !cbDate || cbTime == null} onClick={() => saveCallback(selected)}
+                        style={{ flex: 1, background: "#ca8a04", color: "#fff", border: "none", borderRadius: 10, padding: "11px", fontSize: 13.5, fontWeight: 800, cursor: cbSaving ? "wait" : "pointer", opacity: (cbDate && cbTime != null) ? 1 : 0.6 }}>{cbSaving ? "Saving…" : "📅 Schedule come-back"}</button>
                       <button type="button" onClick={() => setCallbackFor(null)} style={{ background: "#fff", color: "#64748b", border: "1px solid #e5e7eb", borderRadius: 10, padding: "11px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Cancel</button>
                     </div>
                   </div>
@@ -4401,6 +4449,35 @@ function StatusCard({ color, label, count, active, onClick, locked }) {
 // Fixed appointment windows: Mon–Thu 11/2/5/7, Fri 9/12/3, Sat 9/12 (day-of-week
 // 1–4 / 5 / 6). Built in the rep's local time (reps are in ET).
 const APPT_HOURS = { 1: [11, 14, 17, 19], 2: [11, 14, 17, 19], 3: [11, 14, 17, 19], 4: [11, 14, 17, 19], 5: [9, 12, 15], 6: [9, 12] };
+function cbHourLabel(h) { const ap = h < 12 ? "AM" : "PM"; const hr = h % 12 === 0 ? 12 : h % 12; return `${hr} ${ap}`; }
+// Come-back time picker — the hours DoorDispatcher canvasses that weekday, minus the
+// rep's already-booked hours (JN appts + app-held be-backs, passed in `busy`). Picking
+// one sets a SOFT target time; the day routes the rep to be there around then.
+function CbTimes({ date, busy, value, onPick }) {
+  if (!date) return null;
+  const [y, m, d] = String(date).split("-").map(Number);
+  const wd = new Date(y, m - 1, d).getDay();
+  const open = (APPT_HOURS[wd] || []).filter((h) => !(busy && busy.has(`${date}-${h}`)));
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <div style={{ fontSize: 11.5, color: "#64748b", fontWeight: 700, marginBottom: 5 }}>
+        {busy == null ? "Checking your schedule…" : open.length ? "Best time to come back (only your open times show):" : "No open times that day — you're booked. Pick another date."}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {open.map((h) => {
+          const on = value === h;
+          return (
+            <button key={h} type="button" onClick={() => onPick(h)}
+              style={{ padding: "8px 12px", borderRadius: 9, fontSize: 13, fontWeight: 800, cursor: "pointer",
+                border: on ? "2px solid #ca8a04" : "1px solid #d1d5db", background: on ? "#fef9c3" : "#fff", color: "#0f172a" }}>
+              {cbHourLabel(h)}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 function genSlots(days = 14, includeToday = false) {
   const out = []; const b = new Date(); const nowMs = b.getTime();
   // Default starts at d=1 (tomorrow) — no same-day. includeToday (no-sit reschedules,
