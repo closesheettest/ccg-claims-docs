@@ -984,6 +984,13 @@ export default function CanvassMap() {
   const [viewAs, setViewAs] = useState(null);          // null → office's own full view
   const effLevel = viewAs || me?.level || null;
   const seesAll = !effLevel || effLevel === "admin";
+  // Are we rendering the REAL REP experience (route → "How'd it go?" → Not home →
+  // re-status), not the office status panel? True for an actual rep on their token,
+  // OR — so Practice-Mode training videos film the exact rep flow — when the office
+  // is in PRACTICE MODE and "VIEW AS Jr/Sr" (or ?test=jr|sr). Scoped to demoMode so
+  // the live office/admin map is never changed.
+  const actingRep = auth.rt ? me?.level !== "admin"
+    : (demoMode && (effLevel === "junior" || effLevel === "senior" || !!testLevel));
   // Seniors always have IQ + No-sit ON (their base work) but CAN add other types on
   // top — e.g. peek at Inspection Leads or a Pending-signature door. Only the two base
   // types are pinned/uncheckable; everything else toggles freely.
@@ -4025,14 +4032,14 @@ export default function CanvassMap() {
               <div style={{ fontSize: 13.5, fontWeight: 800, color: "#9a3412", marginTop: 2 }}>{routeLockName(selected)} is working this clover grid</div>
               <div style={{ fontSize: 12.5, color: "#9a3412", marginTop: 3 }}>They routed it first. It reopens if they stop working it. Get to the next cluster before someone beats you there.</div>
             </div>
-          ) : auth.rt && !dayMode ? (
+          ) : actingRep && !dayMode ? (
             // NOT on a route: statusing stays gated to route work, so every knock is
             // logged in order, at the door. Start a route to work / re-status doors.
             <div style={{ marginTop: 14, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 12, padding: "14px 16px", textAlign: "center" }}>
               <div style={{ fontSize: 13.5, fontWeight: 800, color: "#1e3a8a" }}>Work this door on a route</div>
               <div style={{ fontSize: 12.5, color: "#334155", marginTop: 4, lineHeight: 1.5 }}>To status it (signed, not interested, appt, …), tap {assignedIds && assignedIds.size > 0 ? <><b>▶ Start my day</b> or </> : null}<b>▢ Route an area</b>. It comes up in order with the <b>“How’d it go?”</b> buttons when you're at the door.</div>
             </div>
-          ) : auth.rt ? (() => {
+          ) : actingRep ? (() => {
             // ON a route: let the rep RE-STATUS any door from its pin sheet — e.g.
             // they marked "not home" and then the homeowner came out. Same at-the-door
             // gate (proximity + "I'm here" override) so it stays honest; no re-route.
