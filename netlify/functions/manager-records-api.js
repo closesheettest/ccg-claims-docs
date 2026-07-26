@@ -41,6 +41,13 @@ const PENDING_APPT_STATUS = 'Appointment Scheduled'
 // Appointment task record types (JN) — used to move the calendar appointment onto
 // the newly-assigned owner when a manager assigns a deal.
 const APPT_TASK_NAMES = new Set(['Initial Appointment', 'Reset Appointment', 'Appointment'])
+// Post-inspection GO-BACK result tasks (create-result-task): a scheduled review
+// visit the homeowner asked for. When one is owned by someone who can't work it
+// (William / an inactive rep), it must surface in the manager's assign queue like
+// an appointment so it isn't missed — with a note of WHAT it is.
+const GOBACK_TASK_TYPES = new Set([23, 24, 25])
+const GOBACK_LABEL = { 23: 'No-Damage go-back', 24: 'Back-to-Retail go-back', 25: 'Insurance PA go-back' }
+const isGoBackTask = (t) => GOBACK_TASK_TYPES.has(Number(t.record_type)) || /inspection result/i.test(String(t.record_type_name || t.title || ''))
 const TMS_REP_ZONES_URL =
   'https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones'
 
@@ -457,14 +464,25 @@ async function listAppointments(manager, body) {
     }
   }
   const assigned = [...(assignedRows || []), ...jnSyncedAssigned].sort((x, y) => new Date(x.appt_at) - new Date(y.appt_at))
-  // Backlog: pending JobNimbus appointments still owned by someone who can't sell
-  // them — the setter (Viviana) or an inactive rep (David Macella). Today → +90
-  // days, sorted by date. Shown to every manager so they can route them to a rep.
+  // Backlog: pending JN appointments AND scheduled go-back review visits still
+  // owned by someone who can't work them — the setter (Viviana), William (trainer:
+  // inspects but isn't a territory rep), or ANY inactive rep. (Neal: "if William
+  // or an inactive rep sets it… so the appt isn't missed.") Today → +90 days.
   const { startSec } = etDayBounds(0)
-  // Enrich (fetch each job) so the homeowner NAME shows — the appointment task
-  // title is just "Initial Appointment"; the homeowner lives on the job.
-  const bkRaw = await jnTeamAppointments([SETTER_VIVIANA_ID, DAVID_MACELLA_ID], startSec, startSec + 90 * 86400, {}, true)
-  const ownerLabel = (t) => t.owner_name || (t.owner_id === DAVID_MACELLA_ID ? 'David Macella' : 'Viviana')
+  // Owner watch-list: Viviana + every rep NOT flagged active in sales_reps, plus
+  // William explicitly (he can be "active" as a trainer yet still not a territory
+  // rep who works go-backs).
+  const allRepRows = await fetchTable('sales_reps', { select: 'name,jobnimbus_id,active', limit: 2000 })
+  const backlogOwnerIds = new Set([SETTER_VIVIANA_ID, DAVID_MACELLA_ID])
+  const inactiveOwnerNames = {}
+  for (const r of (allRepRows || [])) {
+    if (!r.jobnimbus_id) continue
+    if (r.active === false || /\bwilliam\b/i.test(String(r.name || ''))) { backlogOwnerIds.add(r.jobnimbus_id); inactiveOwnerNames[r.jobnimbus_id] = r.name }
+  }
+  // Enrich (fetch each job) so the homeowner NAME shows; includeGoBacks=true so the
+  // review-visit result tasks (record_type 23/24/25) come through too.
+  const bkRaw = await jnTeamAppointments([...backlogOwnerIds], startSec, startSec + 90 * 86400, {}, true, true)
+  const ownerLabel = (t) => t.owner_name || inactiveOwnerNames[t.owner_id] || (t.owner_id === DAVID_MACELLA_ID ? 'David Macella' : 'Viviana')
   // A backlog appointment belongs to the manager of the zone where the PROPERTY
   // is — geocode the job's city/zip → county → zone and keep only THIS manager's
   // zone (undeterminable ones are kept so a geocode miss never hides real work).
@@ -480,7 +498,7 @@ async function listAppointments(manager, body) {
     if (apptZone === zone || apptZone === 'Unassigned') bkZoned.push({ ...t, _addr: addr || null })
   }
   const backlog = bkZoned
-    .map((t) => ({ key: 'bk:' + t.id, source: 'jn', id: null, jn_job_id: t.job_id || null, homeowner: t.homeowner, address: t._addr, appt_at: t.appt_at, src: ownerLabel(t), owner_id: t.owner_id || null, owner_name: ownerLabel(t), sales_rep_id: null, sales_rep_name: null, needs_assignment: true }))
+    .map((t) => ({ key: 'bk:' + t.id, source: 'jn', id: null, jn_job_id: t.job_id || null, homeowner: t.homeowner, address: t._addr, appt_at: t.appt_at, src: ownerLabel(t), owner_id: t.owner_id || null, owner_name: ownerLabel(t), sales_rep_id: null, sales_rep_name: null, needs_assignment: true, is_goback: !!t.is_goback, appt_note: t.appt_note || null }))
     .sort((a, b) => new Date(a.appt_at) - new Date(b.appt_at))
   // Server-side geocode the appointments so the Assign map's blue pins show
   // reliably (shared cache across both lists).
@@ -506,7 +524,7 @@ function etDayBounds(offsetDays) {
 // (sales_rep lives on the job, not the appointment task). ONE date-range task
 // sweep — JN silently ignores { term: { 'owners.id' } } (returns nothing), so
 // owners are matched in code — + a batched job fetch.
-async function jnTeamAppointments(ownerIds, startSec, endSec, nameByJn = {}, enrich = true) {
+async function jnTeamAppointments(ownerIds, startSec, endSec, nameByJn = {}, enrich = true, includeGoBacks = false) {
   if (!JN_KEY || !ownerIds.length) return []
   const headers = { Authorization: `bearer ${JN_KEY}` }
   const cleanName = (title) => title.replace(/^.*?appointment\s*[—-]\s*/i, '').trim() || title || 'Appointment'
@@ -528,11 +546,12 @@ async function jnTeamAppointments(ownerIds, startSec, endSec, nameByJn = {}, enr
     const tid = t.jnid || t.id
     if (!tid || seen.has(tid)) continue; seen.add(tid)
     if (!(t.owners || []).some((o) => ownerSet.has(String(o.id)))) continue
-    if (!/appoint/i.test(String(t.record_type_name || t.title || ''))) continue
+    const gb = includeGoBacks && isGoBackTask(t)
+    if (!/appoint/i.test(String(t.record_type_name || t.title || '')) && !gb) continue
     if (t.is_completed === true || t.is_active === false) continue // already done / deleted — not on the calendar
     const job = (t.related || []).find((x) => x.type === 'job') || {}
     const owner = (t.owners || [])[0] || {}
-    appts.push({ task_id: tid, job_id: job.id || null, appt_at: new Date((Number(t.date_start) || 0) * 1000).toISOString(), title: String(t.title || ''), t_owner_id: owner.id || null, t_owner_name: owner.name || null })
+    appts.push({ task_id: tid, job_id: job.id || null, appt_at: new Date((Number(t.date_start) || 0) * 1000).toISOString(), title: String(t.title || ''), t_owner_id: owner.id || null, t_owner_name: owner.name || null, goback: gb, gb_note: gb ? (GOBACK_LABEL[Number(t.record_type)] || 'Go-back') : null })
   }
   // Light path (no job fetch) — used for the Viviana backlog (all unassigned).
   if (!enrich) {
@@ -559,11 +578,14 @@ async function jnTeamAppointments(ownerIds, startSec, endSec, nameByJn = {}, enr
         city: j.city || null, state: j.state_text || j.state || null, zip: j.zip || null,
         owner_id: ownerId, owner_name: nameByJn[ownerId] || ((j.owners || [])[0] || {}).name || a.t_owner_name || null,
         sales_rep_id: repId, sales_rep_name: j.sales_rep_name || nameByJn[repId] || null,
+        is_goback: !!a.goback, appt_note: a.gb_note || null,
       }
     })
     // Only PENDING appointments — drop sold/no-sit/etc. jobs whose appointment
-    // task lingered but isn't a live calendar appointment anymore.
-    .filter((it) => it.status === PENDING_APPT_STATUS)
+    // task lingered but isn't a live calendar appointment anymore. Go-backs are
+    // exempt: their job is Sit-Sold/BTR by design, but the review visit is still
+    // a real, scheduled appointment the manager must get assigned.
+    .filter((it) => it.status === PENDING_APPT_STATUS || it.is_goback)
 }
 
 async function assignAppointment(manager, body) {
