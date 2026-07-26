@@ -984,13 +984,6 @@ export default function CanvassMap() {
   const [viewAs, setViewAs] = useState(null);          // null → office's own full view
   const effLevel = viewAs || me?.level || null;
   const seesAll = !effLevel || effLevel === "admin";
-  // Are we rendering the REAL REP experience (route → "How'd it go?" → Not home →
-  // re-status), not the office status panel? True for an actual rep on their token,
-  // OR — so Practice-Mode training videos film the exact rep flow — when the office
-  // is in PRACTICE MODE and "VIEW AS Jr/Sr" (or ?test=jr|sr). Scoped to demoMode so
-  // the live office/admin map is never changed.
-  const actingRep = auth.rt ? me?.level !== "admin"
-    : (demoMode && (effLevel === "junior" || effLevel === "senior" || !!testLevel));
   // Seniors always have IQ + No-sit ON (their base work) but CAN add other types on
   // top — e.g. peek at Inspection Leads or a Pending-signature door. Only the two base
   // types are pinned/uncheckable; everything else toggles freely.
@@ -1050,6 +1043,15 @@ export default function CanvassMap() {
   // exact view but must NOT act as them — no live ping, no seat billing, no ended
   // beacon (it's just watching, not the rep working).
   const spotCheck = isAdminLink && !!auth.rt;
+
+  // Are we rendering the REAL REP experience (route → "How'd it go?" → Not home →
+  // re-status), not the office status panel? True for an actual rep on their token,
+  // OR — so Practice-Mode training videos film the exact rep flow — when the office
+  // is in PRACTICE MODE and "VIEW AS Jr/Sr" (or ?test=jr|sr). Scoped to demoMode so
+  // the live office/admin map is never changed. (Defined below `auth` — referencing
+  // auth.rt above its declaration would be a temporal-dead-zone crash.)
+  const actingRep = auth.rt ? me?.level !== "admin"
+    : (demoMode && (effLevel === "junior" || effLevel === "senior" || !!testLevel));
 
   // Tool-training gate: a REP must have passed the rep training before their map
   // unlocks. Office/admin links aren't gated. On any error (e.g. training not set up)
