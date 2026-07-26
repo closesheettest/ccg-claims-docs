@@ -35,18 +35,40 @@ export const handler = async (event) => {
   const rep = (await sbGet(`sales_reps?harvest_token=eq.${encodeURIComponent(rt)}&select=id,name,jobnimbus_id&limit=1`))[0];
   if (!rep) return json(401, { ok: false, error: "Invalid link" });
 
+  const isReferral = body.referral === true;
+  const referredBy = String(body.referred_by || "").trim() || null;
+
   // Fail-safe: never drop a second pin on a property that's already on the map.
+  // EXCEPTION — a REFERRAL is the hottest lead, so it OVERRIDES the existing pin,
+  // taking it over as a referral (the old status is kept in extra.pre_referral_status).
   const dupe = await findExistingPin(lat, lng, String(body.address || "").trim());
-  if (dupe) {
+  if (dupe && !isReferral) {
     return json(409, {
       ok: false, duplicate: true,
       error: "There's already a pin on this property.",
       existing: { id: dupe.id, name: dupe.name || "", address: dupe.address || "", status: dupe.status || "", rep: dupe.assigned_rep_name || "" },
     });
   }
+  if (dupe && isReferral) {
+    const patch = {
+      status: "referral", status_by: rep.name || null, status_updated_at: new Date().toISOString(),
+      name: String(body.owner || "").trim() || dupe.name || null,
+      phone: String(body.phone || "").trim() || dupe.phone || null,
+      assigned_rep_id: rep.id, assigned_rep_name: rep.name || null,
+      extra: { referral: true, referred_by: referredBy, pre_referral_status: dupe.status || null,
+        self_generated: true, created_by: rep.name || null, created_by_jn: rep.jobnimbus_id || null,
+        owner: String(body.owner || "").trim() || dupe.name || null },
+    };
+    const up = await fetch(`${SB_URL}/rest/v1/canvass_prospects?id=eq.${encodeURIComponent(dupe.id)}`, {
+      method: "PATCH", headers: { ...sb, Prefer: "return=representation" }, body: JSON.stringify(patch),
+    });
+    if (!up.ok) return json(500, { ok: false, error: (await up.text().catch(() => "")).slice(0, 200) || "override failed" });
+    const pin = ((await up.json().catch(() => []))[0]) || {};
+    return json(200, { ok: true, id: pin.id, pin, overrode: true });
+  }
 
   const row = {
-    list_name: "Self-Generated",
+    list_name: isReferral ? "Referral" : "Self-Generated",
     name: String(body.owner || "").trim() || null,
     address: String(body.address || "").trim() || null,
     city: String(body.city || "").trim() || null,
@@ -61,12 +83,14 @@ export const handler = async (event) => {
     geocode_status: "ok",
     // Owner-occupied → "insp" (Sign / BTR / Pending all apply). Non-owner-occupied
     // (rental) → "non_owner": an X on the map so no rep re-knocks it.
-    status: body.status === "non_owner" ? "non_owner" : "insp",
+    status: isReferral ? "referral" : body.status === "non_owner" ? "non_owner" : "insp",
     status_by: rep.name || null,
     assigned_rep_id: rep.id,
     assigned_rep_name: rep.name || null,
     extra: {
       self_generated: true,
+      referral: isReferral || undefined,
+      referred_by: referredBy || undefined,
       // Rep overrode a "non owner-occupied" cadastral result into a live deal
       // (e.g. the owner across the street wants a quote on this one).
       owner_override: body.override === true || undefined,

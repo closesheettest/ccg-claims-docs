@@ -26,6 +26,10 @@ const FALLBACK_TYPES = [
   { key: "no_sit_reschedule", label: "No sit – need to reschedule", color: "#dc2626", outcomes: ["appt", "dead", "new_roof"] },
   { key: "iq_ni", label: "IQ – Not Interested", color: "#f59e0b", outcomes: ["insp_sold", "dead", "new_roof"] },
   { key: "insp", label: "Inspection Lead", color: "#0ea5e9", outcomes: ["insp_sold", "insp_ni", "insp_callback", "dead", "new_roof"] },
+  // ⭐ Referral — a rep enters a lead someone vouched for (name/phone/address).
+  // Hottest lead on the map: it OVERRIDES any existing pin at that door. From its
+  // card the rep books a retail appt (→ harvest leaderboard) or signs (→ insp board).
+  { key: "referral", label: "⭐ Referral", color: "#d97706", outcomes: ["appt", "insp_sold", "insp_callback", "insp_ni", "dead"] },
   // 🍀 Clover Leaf — owner-occupied neighbors auto-pinned around a "Roof Started"
   // job (cron-install-blitz) so reps knock while the crew is on the roof. At the
   // door: roof looks fine / damage observed / book appt / sign / not interested.
@@ -624,6 +628,15 @@ function selfGenIcon(pulse) {
     iconSize: [26, 26], iconAnchor: [13, 24],
   });
 }
+// ⭐ Referral — a gold star so a vouched-for lead is unmistakable and outranks
+// every other pin on the map visually.
+function referralIcon() {
+  return L.divIcon({
+    className: "harvest-referral",
+    html: `<div style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:24px;filter:drop-shadow(0 1px 3px rgba(0,0,0,.5))">⭐</div>`,
+    iconSize: [28, 28], iconAnchor: [14, 14],
+  });
+}
 // Post-inspection go-back visits — a squared badge (distinct from round door dots
 // and the self-gen house) in the same color/emoji as the Rep Visit Hub buckets.
 const GOBACK_META = {
@@ -768,6 +781,11 @@ export default function CanvassMap() {
   const [btrPin, setBtrPin] = useState(null);   // insp pin → back-to-retail appt
   // "Add a house" — a rep in the field drops their own pin on a damaged roof.
   const [adding, setAdding] = useState(false);  // tap-to-place mode armed
+  // 📇 Referral — a rep enters a lead someone vouched for (name/phone/address).
+  const [referralForm, setReferralForm] = useState(null); // { name, phone, referred_by } | null
+  const [referralText, setReferralText] = useState("");   // address input text
+  const [referralPlace, setReferralPlace] = useState(null); // geocoded place {lat,lng,address,city,state,zip}
+  const [referralSaving, setReferralSaving] = useState(false);
   const addingRef = useRef(false);              // map-click reads this (no stale closure)
   const [newPin, setNewPin] = useState(null);   // { lat, lng, checking, check, saving } being placed
   const dropPinRef = useRef(null);              // latest drop handler for the map click
@@ -1073,6 +1091,9 @@ export default function CanvassMap() {
       const baseKeys = (pin_types || [])
         .filter((t) => seesAll || lvl === "admin" || !((t.visible_levels) || []).length || ((t.visible_levels) || []).includes(lvl))
         .map((t) => t.key);
+      // Referral is a rep-entered, top-priority status; always loadable regardless
+      // of the harvest_pin_types config so a rep's own referrals never vanish.
+      if (!baseKeys.includes("referral")) baseKeys.push("referral");
       if (!baseKeys.length) { setProspects([]); setInstalls([]); setCapped(false); setLoading(false); return []; }
 
       // Load ONLY the selected statuses ("only load what's picked"). Empty
@@ -1328,7 +1349,7 @@ export default function CanvassMap() {
       // route builder already skips doors worked today (see shownRef below).
       const color = (S[p.status] || UNKNOWN_TYPE).color;
       const marker = L.marker([p.latitude, p.longitude], {
-        icon: p.status === "install_home" ? INSTALL_HOME_ICON : p.status === "non_owner" ? xIcon(color) : isSelfGen ? selfGenIcon(true) : dotIcon(color),
+        icon: p.status === "referral" ? referralIcon() : p.status === "install_home" ? INSTALL_HOME_ICON : p.status === "non_owner" ? xIcon(color) : isSelfGen ? selfGenIcon(true) : dotIcon(color),
         ...(p.status === "install_home" ? { zIndexOffset: 900 } : {}),
       });
       marker.on("click", () => openPin(p));
@@ -2576,8 +2597,11 @@ export default function CanvassMap() {
     if (stop.state) p.set("state", stop.state);
     if (stop.zip) p.set("zip", stop.zip);
     if (stop.email) p.set("email", stop.email);
+    // A rep-entered REFERRAL → JN lead source "Referral" (harvest-flagged when it
+    // signs/books, same as a harvested door). Referral wins over the self-gen tag.
+    if (opts.referral || stop.status === "referral" || (stop.extra && stop.extra.referral)) p.set("source", "Referral");
     // A rep-generated door → JN lead source "Self Generated".
-    if (opts.selfGen || (stop.extra && stop.extra.self_generated)) p.set("source", "Self Generated");
+    else if (opts.selfGen || (stop.extra && stop.extra.self_generated)) p.set("source", "Self Generated");
     // Carry the rep so the intake doesn't re-ask (only when signed in as a real rep).
     if (me?.jn_id || me?.email) {
       p.set("rep", me.jn_id || "");
@@ -2605,6 +2629,40 @@ export default function CanvassMap() {
   // Arm tap-to-place: the next map tap drops a self-gen pin there.
   function startAddHouse() { setSelected(null); setSelectedInstall(null); setNewPin(null); setOwnerOverride(false); setOverridePhone(""); setAdding(true); }
   function cancelAdd() { setAdding(false); setNewPin(null); setOwnerOverride(false); setOverridePhone(""); }
+  function openReferral() { setSelected(null); setSelectedInstall(null); setAdding(false); setReferralText(""); setReferralPlace(null); setReferralForm({ name: "", phone: "", referred_by: "" }); }
+  function closeReferral() { setReferralForm(null); setReferralPlace(null); setReferralText(""); setReferralSaving(false); }
+  // Save a referral: it drops a ⭐ pin (OVERRIDING any pin already at that door) and
+  // creates the JN lead as source "Referral" (harvest-flagged when worked). In
+  // practice/demo mode nothing is written — a local pin is dropped so it's filmable.
+  async function submitReferral() {
+    const pl = referralPlace;
+    if (!pl || typeof pl.lat !== "number" || typeof pl.lng !== "number") { alert("Pick the address from the dropdown so it lands in the right spot."); return; }
+    if (referralSaving) return;
+    setReferralSaving(true);
+    try {
+      let pin;
+      if (demoMode || !auth.rt) {
+        pin = { id: `ref_demo_${Date.now()}`, name: (referralForm.name || "").trim() || "Referral", phone: (referralForm.phone || "").trim() || null,
+          address: pl.address || referralText, city: pl.city || null, state: pl.state || "FL", zip: pl.zip || null,
+          latitude: pl.lat, longitude: pl.lng, status: "referral", list_name: "Referral",
+          extra: { referral: true, referred_by: (referralForm.referred_by || "").trim() || null, self_generated: true, created_by: me?.name || repName || null, created_by_jn: me?.jn_id || null } };
+      } else {
+        const r = await fetch("/.netlify/functions/harvest-add-pin", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rt: auth.rt, referral: true, lat: pl.lat, lng: pl.lng,
+            address: pl.address || "", city: pl.city || "", state: pl.state || "FL", zip: pl.zip || "",
+            owner: (referralForm.name || "").trim(), phone: (referralForm.phone || "").trim() || undefined,
+            referred_by: (referralForm.referred_by || "").trim() }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!d.ok || !d.pin) { alert(d.error || "Couldn't add the referral — try again."); setReferralSaving(false); return; }
+        pin = d.pin;
+      }
+      setProspects((list) => [...list.filter((x) => x.id !== pin.id), pin]);
+      closeReferral();
+      setSelected(pin); // open the card so the rep can book the appt or sign right now
+    } catch { alert("Couldn't add the referral — try again."); setReferralSaving(false); }
+  }
   // The rep tapped a roof — place the pin and open its sheet (owner check runs
   // when they press "Owner occupied?").
   function dropPin({ lat, lng }) {
@@ -3105,6 +3163,39 @@ export default function CanvassMap() {
             style={{ position: "absolute", left: 12, bottom: 68, zIndex: 600, background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
             ▢ Route an area
           </button>
+        )}
+        {/* 📇 Referral — enter a vouched-for lead ANY time (planning or mid-day). It
+            drops a ⭐ pin that overrides any pin there + creates the JN lead. */}
+        {!selecting && !referralForm && !newPin && !adding && (auth.rt || testMode) && (
+          <button type="button" onClick={openReferral}
+            style={{ position: "absolute", right: 12, bottom: 16, zIndex: 600, background: "#d97706", color: "#fff", border: "none", borderRadius: 999, padding: "11px 16px", fontSize: 13.5, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.28)", cursor: "pointer" }}>
+            ⭐ Referral
+          </button>
+        )}
+        {referralForm && (
+          <div style={{ position: "absolute", inset: 0, zIndex: 1200, background: "rgba(15,23,42,.45)", display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={closeReferral}>
+            <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 460, background: "#fff", borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: "18px 18px 24px", boxShadow: "0 -4px 20px rgba(0,0,0,.2)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ fontSize: 17, fontWeight: 900, color: "#0f172a" }}>⭐ Add a Referral</div>
+                <button type="button" onClick={closeReferral} style={{ background: "none", border: "none", fontSize: 22, color: "#94a3b8", cursor: "pointer", lineHeight: 1 }}>×</button>
+              </div>
+              <div style={{ fontSize: 12.5, color: "#b45309", marginTop: 2, marginBottom: 12 }}>The warmest lead on the map — it drops a pin and overrides any pin already there.</div>
+              <input value={referralForm.name} onChange={(e) => setReferralForm((f) => ({ ...f, name: e.target.value }))} placeholder="Homeowner name"
+                style={{ width: "100%", boxSizing: "border-box", height: 46, padding: "0 12px", borderRadius: 10, border: "1px solid #d1d5db", fontSize: 15, marginBottom: 9 }} />
+              <input type="tel" inputMode="tel" value={referralForm.phone} onChange={(e) => setReferralForm((f) => ({ ...f, phone: e.target.value }))} placeholder="Phone"
+                style={{ width: "100%", boxSizing: "border-box", height: 46, padding: "0 12px", borderRadius: 10, border: "1px solid #d1d5db", fontSize: 15, marginBottom: 9 }} />
+              <AddressAutocomplete value={referralText} onChange={(v) => { setReferralText(v); setReferralPlace(null); }}
+                onPlaceSelected={(pl) => { setReferralPlace(pl); setReferralText(pl.formatted || pl.address || ""); }}
+                placeholder="Address" style={{ height: 46, borderRadius: 10, fontSize: 15 }} />
+              {!referralPlace && referralText && <div style={{ fontSize: 11.5, color: "#94a3b8", marginTop: 5 }}>Pick the address from the dropdown so it lands on the map.</div>}
+              <input value={referralForm.referred_by} onChange={(e) => setReferralForm((f) => ({ ...f, referred_by: e.target.value }))} placeholder="Referred by (optional)"
+                style={{ width: "100%", boxSizing: "border-box", height: 44, padding: "0 12px", borderRadius: 10, border: "1px solid #e2e8f0", fontSize: 14, marginTop: 9, background: "#f8fafc" }} />
+              <button type="button" disabled={!referralPlace || referralSaving} onClick={submitReferral}
+                style={{ width: "100%", marginTop: 14, padding: "14px", borderRadius: 12, border: "none", fontSize: 15, fontWeight: 800, fontFamily: "'Oswald', sans-serif", background: (!referralPlace || referralSaving) ? "#fcd9a6" : "#d97706", color: "#fff", cursor: (!referralPlace || referralSaving) ? "default" : "pointer" }}>
+                {referralSaving ? "Saving…" : "⭐ Save & work it"}
+              </button>
+            </div>
+          </div>
         )}
         {/* Smart Scheduling — plan the day around appts. Real reps see it only when the
             company toggle is ON; a ?test= link always shows it (so it can be tried while off). */}
