@@ -20,7 +20,7 @@
 ---
 
 ## COLD OPEN — It's your effort (0:00–0:18)
-**[SCREEN]** Quick montage feel: the full-state map zoomed way out (tiny dots everywhere), then snap-zoom into one tight neighborhood.
+**[SCREEN]** Open on YOU talking to camera (avatar full-frame, no map yet). On the line "This is DoorDispatcher," cut to the **DoorDispatcher title card** (logo + "We send you where the money is") and hold ~2 sec. Then dissolve from the card into the full-state map zoomed way out (tiny dots everywhere), snap-zooming into one tight neighborhood as the voice continues.
 **[SAY]** "[serious] Up until now,   think about the tools you actually had as a salesperson. <break time="0.5s" /> A phone. <break time="0.5s" /> A map app. <break time="0.5s" /> A list of addresses   and your own two feet. <break time="0.5s" /> [firm] None of it cared how hard you worked. <break time="0.5s" /> None of it made you a dime. <break time="0.5s" /> [confident] Because the truth is —   the one thing that ever separated the top from everybody else   was never talent,   and it was never the tools. <break time="0.5s" /> It's effort. <break time="0.5s" /> And that part is on YOU. <break time="0.5s" /> [motivated] But here's what changes today. <break time="0.5s" /> For the first time,   you've got a tool built to take that effort   and point every ounce of it at the RIGHT doors. <break time="0.5s" /> [firm] This is DoorDispatcher. <break time="0.5s" /> You bring the hustle. <break time="0.5s" /> This makes it PAY."
 **[TEXT]** *The tools never made you money. Your effort did. Meet DoorDispatcher.*
 
@@ -64,8 +64,8 @@
 **[TEXT]** *"We're doing your neighbor's roof right now."*
 
 ## SCENE 10 — Never lose one: go-backs (7:00–7:25)
-**[SCREEN]** Open **Today's go-backs** with Damage / No-Damage / Retail actions.
-**[SAY]** "Every house worth a second trip   lands in 'Today's go-backs' —   damage,   no-damage,   retail —   one list,   so a hot lead never slips through the cracks   and out of your pocket. <break time="0.5s" /> Handle it right from the card. <break time="0.5s" /> The map is basically holding your follow-ups for you."
+**[SCREEN]** On a door card tap **⏳ Pending (come back)** → pick the day. Jump to that day → tap **▶ Start my day** → the go-back is ALREADY a required stop in the route (🏠 badge), oldest first, with fresh doors packed around it.
+**[SAY]** "[confident] Every house worth a second trip   doesn't go on some list you've gotta remember. <break time="0.5s" /> When you schedule the come-back,   DoorDispatcher drops it onto that day. <break time="0.5s" /> Hit 'Start my day,'   and it's already IN your route —   a required stop you can't skip,   the oldest ones pushed up first,   because TIME kills all deals. <break time="0.5s" /> [motivated] You don't chase your follow-ups —   the map hands them to you,   so a hot lead never slips through the cracks   and out of your pocket."
 
 ## 🆕 ADD-IN SCENE — Your free-inspection review books ITSELF ⭐
 *(Standalone — drop it wherever it fits your final cut; nothing else depends on it.)*
