@@ -89,7 +89,3 @@
 5. Title card (*"DoorDispatcher — Junior Rep"*) + end card with a support number.
 6. Punchy, motivational music bed under the cold open, Scene 5, and Scene 8; low under the how-to scenes.
 7. Render, download the MP4 — it's yours.
-
-
-## ⚠️ EXTRA CLOSE BLOCK — you pasted this after Scene 11; it says "senior rep" (JR or SR?). Tell me where to place it and I'll slot it in.
-**[SAY]** So here's the deal. <break time="0.5s" /> Same hours. <break time="0.5s" /> Same neighborhoods. <break time="0.5s" /> But now you're hitting the right doors,   in the right order,   closing on the spot,   and never losing a leed. <break time="0.5s" /> That's not a small edge —THAT'S A DIFFERENT PAYCHECK   Open the map,   select your pins,   and go show everybody what a senior rep looks like."
