@@ -3267,7 +3267,12 @@ export default function CanvassMap() {
               ) : <div style={{ fontSize: 12.5, color: "#94a3b8", marginTop: 12, textAlign: "center" }}>No phone on file — knock the door instead.</div>}
               <div style={{ fontSize: 12.5, fontWeight: 800, color: "#334155", marginTop: 16, marginBottom: 6 }}>How'd the call go?</div>
               <button type="button" onClick={() => { const p = activeCall; closeCall(); demoMode ? alert("🧪 Practice mode — booking is off here.") : setBtrPin(p); }}
-                style={{ width: "100%", padding: "12px", borderRadius: 11, border: "none", background: "#7c3aed", color: "#fff", fontSize: 14.5, fontWeight: 800, cursor: "pointer", marginBottom: 10 }}>📅 Scheduled an appointment</button>
+                style={{ width: "100%", padding: "12px", borderRadius: 11, border: "none", background: "#7c3aed", color: "#fff", fontSize: 14.5, fontWeight: 800, cursor: "pointer", marginBottom: 8 }}>📅 Scheduled an appointment</button>
+              {/* They'll sign right now on the phone → open the prefilled intake. The
+                  rep can fill it as if in person, OR tap "Send to homeowner" in there
+                  to TEXT them the link so they sign on their own phone with a code. */}
+              <button type="button" onClick={() => { const p = activeCall; closeCall(); signInspection(p, { referral: true }); }}
+                style={{ width: "100%", padding: "12px", borderRadius: 11, border: "none", background: "#16a34a", color: "#fff", fontSize: 14.5, fontWeight: 800, cursor: "pointer", marginBottom: 10 }}>🖊️ Sign now — or text them the link to sign</button>
               <div style={{ fontSize: 12, fontWeight: 700, color: "#64748b", marginBottom: 5 }}>📞 No answer — try again:</div>
               <div style={{ display: "flex", gap: 7 }}>
                 <button type="button" onClick={() => rescheduleCall(activeCall, ymdPlus(0))} style={{ flex: 1, padding: "10px", borderRadius: 9, border: "1px solid #cbd5e1", background: "#f8fafc", color: "#334155", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}>Today</button>
