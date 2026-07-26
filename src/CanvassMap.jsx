@@ -4149,6 +4149,12 @@ export default function CanvassMap() {
                           </button>
                         );
                       })}
+                      {/* Nobody answered — log the knock without changing the door's status. */}
+                      <button type="button" onClick={() => restatusPin(selected, "nothome")}
+                        style={{ padding: "9px 14px", borderRadius: 10, fontSize: 13.5, fontWeight: 700, cursor: "pointer",
+                          border: "1px solid #e5e7eb", background: "#fff", color: "#334155" }}>
+                        🏠 Not home
+                      </button>
                     </div>
                     {selected.status === "insp" && (
                       <button type="button" onClick={() => demoMode ? alert("🧪 Practice mode — booking is off here.") : setBtrPin(selected)}
