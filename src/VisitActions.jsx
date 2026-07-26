@@ -18,11 +18,39 @@ const S = {
 };
 
 // Renders the right panel for a bucket ("damage" | "no_damage" | "retail").
+// Every bucket also gets the shared "Nobody home" action up top: a rep who
+// arrives at a scheduled go-back and finds no one home re-dates it to the
+// homeowner's next preferred day and logs the attempt (never removes it).
 export default function VisitActions({ type, deal, rep, api }) {
-  if (type === "damage") return <DamagePanel deal={deal} rep={rep} api={api} />;
-  if (type === "no_damage") return <NoDamagePanel deal={deal} rep={rep} api={api} />;
-  if (type === "retail") return <RetailPanel deal={deal} rep={rep} api={api} />;
-  return null;
+  const panel = type === "damage" ? <DamagePanel deal={deal} rep={rep} api={api} />
+    : type === "no_damage" ? <NoDamagePanel deal={deal} rep={rep} api={api} />
+    : type === "retail" ? <RetailPanel deal={deal} rep={rep} api={api} />
+    : null;
+  if (!panel) return null;
+  return <><NotHomeButton deal={deal} api={api} />{panel}</>;
+}
+
+function NotHomeButton({ deal, api }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const go = async () => {
+    if (busy || !deal?.inspection_id) return;
+    setBusy(true); setMsg("");
+    try {
+      const o = await api("goback-not-home", { inspection_id: deal.inspection_id });
+      setMsg(`🚪 Not home — moved to ${o.label || "the next preferred day"}${o.count > 1 ? ` · attempt #${o.count}` : ""}. Still on your list.`);
+    } catch (e) { setMsg(e?.body?.error || "Couldn't update — try again."); }
+    setBusy(false);
+  };
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <button type="button" onClick={go} disabled={busy}
+        style={{ width: "100%", border: "1px solid #cbd5e1", color: "#475569", background: "#f8fafc", borderRadius: 12, padding: "11px 0", fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: busy ? 0.6 : 1 }}>
+        {busy ? "Saving…" : "🚪 Nobody home — try again next time"}
+      </button>
+      {msg && <div style={{ fontSize: 12.5, color: "#475569", marginTop: 6, textAlign: "center" }}>{msg}</div>}
+    </div>
+  );
 }
 
 export function DamagePanel({ deal, rep, api }) {
