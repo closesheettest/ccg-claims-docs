@@ -65,7 +65,7 @@
 
 ## SCENE 10 — Never lose one: go-backs (7:00–7:25)
 **[SCREEN]** On a door card tap **⏳ Pending (come back)** → pick the day. Jump to that day → tap **▶ Start my day** → the go-back is ALREADY a required stop in the route (🏠 badge), oldest first, with fresh doors packed around it.
-**[SAY]** "[confident] Every house worth a second trip   doesn't go on some list you've gotta remember. <break time="0.5s" /> When you schedule the come-back,   DoorDispatcher drops it onto that day. <break time="0.5s" /> Hit 'Start my day,'   and it's already IN your route —   a required stop you can't skip,   the oldest ones pushed up first,   because TIME kills all deals. <break time="0.5s" /> [motivated] You don't chase your follow-ups —   the map hands them to you,   so a hot lead never slips through the cracks   and out of your pocket."
+**[SAY]** "[confident] Every house worth a second trip   doesn't go on some list you've gotta remember. <break time="0.5s" /> When you schedule the come-back,   DoorDispatcher drops it onto that day. <break time="0.5s" /> Hit 'Start my day,'   and it's already IN your route —   a required stop you can't skip,   the oldest ones pushed up first,   because TIME kills all deals. <break time="0.5s" /> And on a day you've got go-backs or an appointment,   you won't see 'Route an area' —   that's on purpose. <break time="0.5s" /> DoorDispatcher already knows where you need to be,   so it plans the day FOR you. <break time="0.5s" /> [motivated] You don't chase your follow-ups —   the map hands them to you,   so a hot lead never slips through the cracks   and out of your pocket."
 
 ## 🆕 ADD-IN SCENE — Your free-inspection review books ITSELF ⭐
 *(Standalone — drop it wherever it fits your final cut; nothing else depends on it.)*
