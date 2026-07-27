@@ -359,6 +359,25 @@ function buildApptPlan(start, nowMs, endMs, appts, pool, endPt) {
   const tailWindow = Math.max(0, (endMs - curTime) / 60000);
   const tailTo = endPt && typeof endPt.lat === "number" ? endPt : null;
   for (const p of fill(curPos, tailTo, tailWindow)) out.push(p);
+  // Guarantee every REQUIRED stop (a go-back / come-back) makes the day — the optional
+  // fill above only picks doors that fit the time budget near an anchor, so a required
+  // stop the fill didn't reach is inserted here at the cheapest spot (nearest-neighbor).
+  // Required stops are NEVER dropped just because the rep has an appointment.
+  const inOut = new Set(out.map((s) => s.id));
+  const startPos = { lat: start.lat, lng: start.lng };
+  for (const p of rem) {
+    if (!p._required || inOut.has(p.id)) continue;
+    const pc = { lat: p.latitude, lng: p.longitude };
+    let bestI = out.length, best = Infinity;
+    for (let i = 0; i <= out.length; i++) {
+      const prev = i > 0 ? { lat: out[i - 1].latitude, lng: out[i - 1].longitude } : startPos;
+      const nxt = i < out.length ? { lat: out[i].latitude, lng: out[i].longitude } : (tailTo || null);
+      const add = feetBetween(prev, pc) + (nxt ? feetBetween(pc, nxt) - feetBetween(prev, nxt) : 0);
+      if (add < best) { best = add; bestI = i; }
+    }
+    out.splice(bestI, 0, p);
+    inOut.add(p.id);
+  }
   return out;
 }
 // Appt time label, e.g. "11:00 AM".
@@ -2393,9 +2412,19 @@ export default function CanvassMap() {
       const R = 0.15;
       const wide = { getNorth: () => Math.max(...lats) + R, getSouth: () => Math.min(...lats) - R, getEast: () => Math.max(...lngs) + R, getWest: () => Math.min(...lngs) - R };
       const loaded = await load(wide);
-      const pool = (loaded.length ? loaded : (shownRef.current || [])).filter((p) => inFilter(p.status) && typeof p.latitude === "number"
+      const optional = (loaded.length ? loaded : (shownRef.current || [])).filter((p) => inFilter(p.status) && typeof p.latitude === "number"
         && (!visKeys || visKeys.has(p.status)) && !nonRoutableStatuses.has(p.status) && !workedTodayET(p)
         && (!assignedIds || assignedIds.has(p.id))); // Enhanced Planned Day: stay within the assigned section
+      // Fold the rep's REQUIRED go-backs / come-backs into an appointment day so it hits
+      // BOTH — buildApptPlan force-includes anything marked _required, woven around the
+      // appointment(s). Deduped against the optional fill by id.
+      const reqDoors = [
+        ...requiredCallbacks.map((p) => ({ ...p, _required: true })),
+        ...requiredVisits.map((v) => ({ id: `v_${v.inspection_id}`, latitude: Number(v.latitude), longitude: Number(v.longitude),
+          name: v.client_name || v.address, address: v.address, city: v.city, state: v.state, zip: v.zip, status: "goback", _visit: v, _required: true })),
+      ];
+      const reqIds = new Set(reqDoors.map((s) => s.id));
+      const pool = [...reqDoors, ...optional.filter((p) => !reqIds.has(p.id))];
       // End the day back where they started (home, or a hotel like William's).
       const home = { lat: start.lat, lng: start.lng };
       apptPoolRef.current = pool; apptListRef.current = appts; apptEndRef.current = endMs; apptHomeRef.current = home;
@@ -3247,7 +3276,7 @@ export default function CanvassMap() {
             auto-picks the tightest area covering the most due reviews, LOCKS them in,
             and fills the drive with fresh doors. Free "Route an area" is hidden so the
             rep can't start a day that skips their mandatory review visits. */}
-        {dayMode === null && !selecting && !(assignedIds && assignedIds.size > 0) && requiredCount > 0 && (
+        {dayMode === null && !selecting && !(assignedIds && assignedIds.size > 0) && requiredCount > 0 && !hasApptToday && (
           <button type="button" onClick={startMyDayReviews}
             style={{ position: "absolute", left: 12, bottom: 68, zIndex: 600, background: "#b45309", color: "#fff", border: "none", borderRadius: 999, padding: "12px 18px", fontSize: 14, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.28)", cursor: "pointer" }}>
             ▶ Start my day · {requiredCount} required stop{requiredCount > 1 ? "s" : ""}
@@ -3267,7 +3296,7 @@ export default function CanvassMap() {
             is hidden and THIS is the way to start: it opens Plan-your-day (enter your start
             time, doors weave around the appointment). Shown as "Start my day" so it reads
             like the go-back flow. */}
-        {dayMode === null && !selecting && !(assignedIds && assignedIds.size > 0) && requiredCount === 0 && hasApptToday && (prospects.length > 0 || clusters.length > 0) && (
+        {dayMode === null && !selecting && !(assignedIds && assignedIds.size > 0) && hasApptToday && (prospects.length > 0 || clusters.length > 0) && (
           <button type="button" onClick={openApptPlan}
             style={{ position: "absolute", left: 12, bottom: 68, zIndex: 600, background: "#16a34a", color: "#fff", border: "none", borderRadius: 999, padding: "12px 18px", fontSize: 14, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.28)", cursor: "pointer" }}>
             ▶ Start my day
