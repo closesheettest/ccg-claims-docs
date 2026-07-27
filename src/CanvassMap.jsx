@@ -1080,15 +1080,18 @@ export default function CanvassMap() {
   // Tool-training gate: a REP must have passed the rep training before their map
   // unlocks. Office/admin links aren't gated. On any error (e.g. training not set up)
   // we let them in rather than lock reps out.
+  // A rep's training track is their LEVEL — senior and junior get different videos/tests.
+  const repTrack = me?.level === "senior" ? "senior" : "junior";
   const [repTrainingOk, setRepTrainingOk] = useState(auth.rt ? null : true);
   useEffect(() => {
     if (!auth.rt) { setRepTrainingOk(true); return; }
+    if (!me) return; // wait until we know the rep's level (which track to check)
     let live = true;
     supabase.from("harvest_training_results").select("passed")
-      .eq("user_type", "rep").eq("user_key", auth.rt).eq("passed", true).limit(1)
+      .eq("user_key", auth.rt).eq("track", repTrack).eq("passed", true).limit(1)
       .then(({ data, error }) => { if (live) setRepTrainingOk(error ? true : (data || []).length > 0); }, () => { if (live) setRepTrainingOk(true); });
     return () => { live = false; };
-  }, [auth.rt]);
+  }, [auth.rt, me, repTrack]);
 
   // Load pins for a viewport (bounds). Without bounds → an initial global sample
   // so the map can fit to wherever the data is; after that, moves load by view.
@@ -3082,7 +3085,7 @@ export default function CanvassMap() {
   // Rep hasn't passed the tool training yet → send them through it first. (Skips
   // itself if no training content is authored, so it never locks reps out.)
   if (auth.rt && !authError && repTrainingOk === false && !isAdminLink) { // admin link bypasses the gate for spot-checks
-    return <HarvestTraining track="rep" userType="rep" userKey={auth.rt} name={me?.name} toolLabel="your DoorDispatcher" onPass={() => setRepTrainingOk(true)} />;
+    return <HarvestTraining track={repTrack} userType={repTrack} userKey={auth.rt} name={me?.name} toolLabel="your DoorDispatcher" onPass={() => setRepTrainingOk(true)} />;
   }
 
   // Bad/missing link → don't show any pins, just tell them what to do.

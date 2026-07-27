@@ -2,26 +2,39 @@
 // dashboard via ?manager=<token>; reps could use ?rt=<token>. Runs the take-it flow for
 // the right track and, on pass, shows a "certified" screen (their dashboard re-checks
 // and unlocks the tools). Records the pass keyed by their token.
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import HarvestTraining from "./HarvestTraining";
+import { supabase } from "./lib/supabase";
 
 const FONT = "'Nunito', system-ui, sans-serif";
 const OSWALD = "'Oswald', sans-serif";
 
 export default function HarvestTrainingPage() {
-  const { track, userType, userKey } = useMemo(() => {
+  const { userType, userKey, isManager } = useMemo(() => {
     try {
       const q = new URLSearchParams(window.location.search);
       const mgr = q.get("manager");
-      if (mgr) return { track: "manager", userType: "manager", userKey: mgr };
+      if (mgr) return { userType: "manager", userKey: mgr, isManager: true };
       const rt = q.get("rt");
-      if (rt) return { track: "rep", userType: "rep", userKey: rt };
+      if (rt) return { userType: "rep", userKey: rt, isManager: false };
     } catch { /* ignore */ }
-    return { track: null };
+    return {};
   }, []);
+  // A rep's track is their LEVEL (senior/junior) — resolve it from their token. Managers
+  // are the manager track. null = still resolving.
+  const [track, setTrack] = useState(isManager ? "manager" : null);
+  useEffect(() => {
+    if (isManager) { setTrack("manager"); return; }
+    if (!userKey) return;
+    let live = true;
+    supabase.from("sales_reps").select("harvest_level").eq("harvest_token", userKey).maybeSingle()
+      .then(({ data }) => { if (live) setTrack(data?.harvest_level === "senior" ? "senior" : "junior"); },
+        () => { if (live) setTrack("junior"); });
+    return () => { live = false; };
+  }, [isManager, userKey]);
   const [done, setDone] = useState(false);
 
-  if (!track) {
+  if (!userKey) {
     return (
       <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT, background: "#f1f5f9", padding: 24 }}>
         <div style={{ maxWidth: 380, textAlign: "center", background: "#fff", borderRadius: 16, padding: "28px 24px", boxShadow: "0 2px 12px rgba(0,0,0,.1)" }}>
@@ -31,6 +44,9 @@ export default function HarvestTrainingPage() {
         </div>
       </div>
     );
+  }
+  if (!track) {
+    return <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT, background: "#f1f5f9", color: "#94a3b8", fontWeight: 700 }}>Loading your training…</div>;
   }
 
   if (done) {

@@ -10,7 +10,7 @@ import HarvestTraining from "./HarvestTraining";
 
 const FONT = "'Nunito', system-ui, sans-serif";
 const OSWALD = "'Oswald', sans-serif";
-const TRACKS = [{ key: "manager", label: "🧭 Regional Manager" }, { key: "rep", label: "🚪 Rep" }];
+const TRACKS = [{ key: "manager", label: "🧭 Regional Manager" }, { key: "senior", label: "🥇 Senior Rep" }, { key: "junior", label: "🚪 Junior Rep" }];
 const PASS_PCT = 80;
 
 export default function HarvestTrainingAdmin() {
@@ -151,7 +151,7 @@ export default function HarvestTrainingAdmin() {
         ))}
         <button type="button" onClick={() => setPreview(true)}
           style={{ marginLeft: "auto", fontSize: 13.5, fontWeight: 800, padding: "9px 16px", borderRadius: 10, cursor: "pointer", border: "2px solid #7c3aed", background: "#faf5ff", color: "#7c3aed" }}>
-          👁 Preview as {track === "manager" ? "manager" : "rep"}
+          👁 Preview as {track === "manager" ? "manager" : track === "senior" ? "senior rep" : "junior rep"}
         </button>
       </div>
 
@@ -162,7 +162,7 @@ export default function HarvestTrainingAdmin() {
           <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 14, background: "#fff", marginBottom: 18 }}>
             <div style={{ fontSize: 16, fontWeight: 800, fontFamily: OSWALD, marginBottom: 4 }}>🎬 Training video</div>
             <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 10 }}>
-              Plays at the top of the {track === "manager" ? "manager" : "rep"} training. After it, they choose <b>Take my test</b> or <b>Read the study guide</b>.
+              Plays at the top of the {track === "manager" ? "manager" : track === "senior" ? "senior rep" : "junior rep"} training. After it, they choose <b>Take my test</b> or <b>Read the study guide</b>.
               Paste a link (YouTube, Vimeo, or a HeyGen share link) <b>or</b> upload the .mp4.
             </div>
             <input value={cfg.video_title} onChange={(e) => setCfg((v) => ({ ...v, video_title: e.target.value }))}
