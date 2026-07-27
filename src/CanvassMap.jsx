@@ -410,6 +410,10 @@ function fmtTime(iso) { try { return new Date(iso).toLocaleTimeString("en-US", {
 // contact, geo, status). Deliberately drops the heavy fields — chiefly `extra`
 // (the whole CSV row as JSON, ~340KB of a 790KB viewport) plus notes/metadata —
 // so a 6000-pin viewport ships ~260KB instead of ~790KB (≈3× faster to load).
+// Master switch for the rep tool-training gate. false = no rep is blocked (training approach
+// is being reworked; the video/lessons/test system is all still there). Flip to true to
+// re-enable the 80% gate (e.g. when selling the product).
+const TRAINING_GATE_ON = false;
 const PIN_FIELDS_LITE = "id,name,address,city,state,zip,phone,email,latitude,longitude,status,jn_job_id,list_name,status_updated_at,status_by,route_claim_by,route_claim_by_jn,route_claim_at,callback_date";
 // A Clover Leaf grid a rep is actively routing is soft-locked to them; the
 // claim (route_claim_*) goes stale this many ms after the last heartbeat — i.e.
@@ -1084,7 +1088,10 @@ export default function CanvassMap() {
   const repTrack = me?.level === "senior" ? "senior" : "junior";
   const [repTrainingOk, setRepTrainingOk] = useState(auth.rt ? null : true);
   useEffect(() => {
-    if (!auth.rt) { setRepTrainingOk(true); return; }
+    // MASTER SWITCH: the tool-training gate is OFF for now (reworking the training approach).
+    // Everything we built (video, lessons, 80% test) is preserved — flip TRAINING_GATE_ON
+    // back to true to re-enable gating (e.g. when selling it).
+    if (!auth.rt || !TRAINING_GATE_ON) { setRepTrainingOk(true); return; }
     if (!me) return; // wait until we know the rep's level (which track to check)
     // William (the field trainer) rides along with trainees — he's exempt from the
     // tool-training gate so it never blocks him on the map.
