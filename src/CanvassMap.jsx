@@ -2397,6 +2397,17 @@ export default function CanvassMap() {
     setTestAppts((list) => [...list, { jn_job_id: `test_${Date.now()}_${list.length}`, name: `Test appt ${list.length + 1}`, address: "Test appointment", lat: pt.lat, lng: pt.lng, at_ms }]);
   }
   testApptRef.current = dropTestAppt;
+  // Practice/test harness: fake an Enhanced Planned Day so the "your manager planned it"
+  // purple banner + assigned Start-my-day can be FILMED (there's no real assignment in
+  // practice). Grabs a tight cluster of pins near the map center as the assigned section.
+  function simPlannedDay() {
+    const c = map.current ? map.current.getCenter() : (myLoc || null);
+    const pool = ((shownRef.current && shownRef.current.length ? shownRef.current : prospects) || []).filter((p) => typeof p.latitude === "number");
+    if (!c || !pool.length) { alert("Zoom to an area with pins first, then simulate the planned day."); return; }
+    const near = pool.map((p) => ({ id: p.id, d: (c.lat - p.latitude) ** 2 + (c.lng - p.longitude) ** 2 }))
+      .sort((a, b) => a.d - b.d).slice(0, 25).map((x) => x.id);
+    setAssignedIds(new Set(near));
+  }
 
   // ── Plan the day around today's appointments ───────────────────────────────
   // Open the little "start / end time" sheet, defaulting start to NOW and end to 8 PM.
@@ -3442,6 +3453,21 @@ export default function CanvassMap() {
             </button>
             {testAppts.length > 0 && (
               <button type="button" onClick={() => { setTestAppts([]); setAddingTestAppt(false); }}
+                style={{ background: "#fff", color: "#b91c1c", border: "1px solid #fecaca", borderRadius: 999, padding: "9px 12px", fontSize: 12, fontWeight: 800, boxShadow: "0 3px 12px rgba(0,0,0,.2)", cursor: "pointer" }}>
+                ✕ Clear
+              </button>
+            )}
+          </div>
+        )}
+        {/* Sim an Enhanced Planned Day (manager-assigned section) so the purple banner can be filmed. */}
+        {dayMode === null && !selecting && testMode && (
+          <div style={{ position: "absolute", left: 12, bottom: 196, zIndex: 600, display: "flex", gap: 6, alignItems: "center" }}>
+            <button type="button" onClick={simPlannedDay}
+              style={{ background: "#7c3aed", color: "#fff", border: "none", borderRadius: 999, padding: "9px 15px", fontSize: 12.5, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
+              🧭 Sim planned day{assignedIds ? ` (${assignedIds.size})` : ""}
+            </button>
+            {assignedIds && (
+              <button type="button" onClick={() => setAssignedIds(null)}
                 style={{ background: "#fff", color: "#b91c1c", border: "1px solid #fecaca", borderRadius: 999, padding: "9px 12px", fontSize: 12, fontWeight: 800, boxShadow: "0 3px 12px rgba(0,0,0,.2)", cursor: "pointer" }}>
                 ✕ Clear
               </button>
