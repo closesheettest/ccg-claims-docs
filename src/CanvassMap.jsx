@@ -1814,7 +1814,10 @@ export default function CanvassMap() {
   // Any appointment today — a real JN appt OR a practice test appt. With an appointment
   // the rep plans the day AROUND it ("📅 Plan your day"), so "Route an area" is hidden
   // (routing a raw box would ignore the appt). testAppts is only ever set in test/practice.
-  const hasApptToday = hasApptsToday || todayAppts.length > 0 || testAppts.length > 0;
+  // Only a PLACEABLE appointment (one with a real location the planner can drop on the map)
+  // hides Route-an-area / switches to Plan-your-day. An appt with no geocoded location can't
+  // be planned around, so it must NOT trap the rep — Route-an-area stays available.
+  const hasApptToday = todayAppts.some((a) => typeof a.lat === "number" && typeof a.lng === "number") || testAppts.length > 0;
   // 📞 Referrals waiting on a CALL (not yet reached) — a new one is due now (no
   // date), a rescheduled one is due when its call date arrives. These surface in
   // the "Calls to make" bar (like go-backs), NOT in the drive route.
