@@ -2578,7 +2578,13 @@ export default function CanvassMap() {
     const el = mapEl.current; if (!el) return;
     if (!deg) { el.style.transform = ""; el.style.transformOrigin = ""; return; }
     const rad = (deg * Math.PI) / 180;
-    const cover = Math.abs(Math.sin(rad)) + Math.abs(Math.cos(rad)); // scale just enough to fill the corners (1 at 0°, ~1.41 at 45°)
+    const c = Math.abs(Math.cos(rad)), s = Math.abs(Math.sin(rad));
+    // Scale just enough that the ROTATED rectangle still covers the whole viewport — must
+    // use the real width/height, not |sin|+|cos| (that only holds for a square). On a tall
+    // phone the height's corners pull away faster, so a square-based scale under-fills and
+    // the background shows through at small angles. +1% to kill sub-pixel edge slivers.
+    const w = el.clientWidth || 1, h = el.clientHeight || 1;
+    const cover = Math.max((w * c + h * s) / w, (w * s + h * c) / h) * 1.01;
     el.style.transformOrigin = "center center";
     el.style.transform = `rotate(${deg}deg) scale(${cover})`;
   }
