@@ -11,7 +11,7 @@ const TABS = [
   { key: "jnsync", label: "🔄 JN Sync", href: "/?mode=harvestjnsync" },
   { key: "report", label: "📊 Reports", href: "/?mode=harvestreport" },
   { key: "schedule", label: "📅 Scheduler", href: "/?mode=scheduleadmin" },
-  { key: "howto", label: "📖 How-To", href: "/?mode=harvesthowto&nav=1" },
+  { key: "howto", label: "📖 How-To", href: "/?mode=harvesthowtoadmin" },
   { key: "training", label: "🎓 Training", href: "/?mode=harvesttrainingadmin" },
   { key: "plannedday", label: "🧭 Planned Day", href: "/?mode=harvestplannedday" },
   { key: "skiptrace", label: "📇 Skip-Trace", href: "/?mode=harvestskiptrace" },

@@ -25,6 +25,7 @@ import HarvestUpload from "./HarvestUpload";
 import HarvestLinks from "./HarvestLinks";
 import HarvestReport from "./HarvestReport";
 import HarvestHowTo from "./HarvestHowTo";
+import HarvestHowToAdmin from "./HarvestHowToAdmin";
 import HarvestTrainingAdmin from "./HarvestTrainingAdmin";
 import HarvestRepcardImport from "./HarvestRepcardImport";
 import HarvestPlannedDay from "./HarvestPlannedDay";
@@ -4436,7 +4437,7 @@ const MANAGER_TILES = [
   { group: "harvest", module: "sales", key: "harvest_plannedday", emoji: "🧭", label: "Planned Day", desc: "Enhanced Planned Day — see each senior rep's assigned section (the IQ + No-sit clusters) for the day.", href: "/?mode=harvestplannedday" },
   { group: "harvest", module: "sales", key: "harvest_nosit", emoji: "🔁", label: "No-Sits to Re-book", desc: "Company-wide No-Sit-need-to-reschedule backlog by team, with a progress benchmark so you can chase them back onto the calendar.", href: "/?mode=harvestnositreport" },
   { group: "harvest", module: "sales", key: "harvest_skiptrace", emoji: "📇", label: "Skip-Trace", desc: "Look up owner name + phone for an address before you knock or call it.", href: "/?mode=harvestskiptrace" },
-  { group: "harvest", module: "sales", key: "harvest_howto", emoji: "📖", label: "How-To Guide", desc: "The in-app how-to guide reps see on the map — office view / editor.", href: "/?mode=harvesthowto&nav=1" },
+  { group: "harvest", module: "sales", key: "harvest_howto", emoji: "📖", label: "How-To Library", desc: "Build the rep tool reference: every tool, when & how to use it, and the video timestamp for each. Reps open it from the ❓ on their map.", href: "/?mode=harvesthowtoadmin" },
   // ── Installs module (production tracking) ──
   { group: "harvest", module: "installs", key: "foreman_links", emoji: "🔗", label: "Jobsite Foreman Links", desc: "Each foreman's personal link — hand out so installs are tracked the same way we track reps.", href: "/?mode=foremanlinks" },
   { group: "harvest", module: "installs", key: "installs_map", emoji: "🗺️", label: "Map", desc: "Live map of current installs, colored by jobsite foreman.", href: "/?mode=installs" },
@@ -9519,6 +9520,11 @@ export default function App() {
     // the office via the nav tab (&nav=1 shows the admin nav).
     if (portalMode === "harvesthowto") {
       return <HarvestHowTo />;
+    }
+    // ?mode=harvesthowtoadmin — office builds the how-to tool library (every tool, when/how,
+    // per-tool video timestamp). Reps see the result via the ❓ on their map.
+    if (portalMode === "harvesthowtoadmin") {
+      return <HarvestHowToAdmin />;
     }
     // ?mode=harvesttrainingadmin — office authoring for the tool-training lessons/tests.
     if (portalMode === "harvesttrainingadmin") {

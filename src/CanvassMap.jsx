@@ -3582,7 +3582,7 @@ export default function CanvassMap() {
         {/* ❓ How-To — the scenario playbook page ("a house has damage and isn't a
             pin → what do I do"). Reps only; the office reaches it from the nav tab. */}
         {auth.rt && !selecting && !adding && !newPin && (
-          <a href="/?mode=harvesthowto" target="_blank" rel="noreferrer" title="How-To — what do I do when…"
+          <a href={`/?mode=harvesthowto${me?.level ? `&role=${encodeURIComponent(me.level)}` : ""}`} target="_blank" rel="noreferrer" title="How-To — every tool, when & how"
             style={{ position: "absolute", right: isDesktop ? 312 : 12, top: (myLoc && !selecting) ? 168 : 116, zIndex: 600, background: "#fff", color: "#334155", border: "2px solid #fff", borderRadius: 999, width: 44, height: 44, fontSize: 19, fontWeight: 800, boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, textDecoration: "none" }}>
             ❓
           </a>
