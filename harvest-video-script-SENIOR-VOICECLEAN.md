@@ -49,3 +49,6 @@ And here's what most reps never do. <break time="0.5s" /> Your route is built fo
 
 ## SCENE 13 — The challenge (9:05–9:30)
 So here's the deal. <break time="0.5s" /> Same hours. <break time="0.5s" /> Same neighborhoods. <break time="0.5s" />  But now you're hitting the RIGHT doors,   in the right order,   closing on the spot,   and never losing a lead. <break time="0.5s" /> That's not a small edge —   that's a different PAYCHECK. <break time="0.5s" /> Open the map,   hit Start My Day,   and go show everybody what a senior rep looks like.
+
+## SCENE 14 — Take your test & unlock (9:30–10:05) ⭐
+One last thing before you hit the field. <break time="0.5s" /> Right after this video   there's a short test   on everything you just saw. <break time="0.5s" />  You need eighty percent to pass   and unlock your DoorDispatcher tools. <break time="0.5s" />  Miss a few?   No big deal —   it shows you exactly what you missed,   sends you back to re-read just those parts,   and you retake it   until it's locked in. <break time="0.5s" />  The second you pass,   your map goes LIVE   and you're cleared to go make money. <break time="0.5s" />  So go pass it —   and let's get you to those homeowners.

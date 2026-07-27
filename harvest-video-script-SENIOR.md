@@ -94,6 +94,11 @@
 **[SAY]** "So here's the deal. <break time="0.5s" /> Same hours. <break time="0.5s" /> Same neighborhoods. <break time="0.5s" /> [motivated] But now you're hitting the RIGHT doors,   in the right order,   closing on the spot,   and never losing a lead. <break time="0.5s" /> That's not a small edge —   [excited] that's a different PAYCHECK. <break time="0.5s" /> Open the map,   hit Start My Day,   and go show everybody what a senior rep looks like."
 **[TEXT]** *Right doors. Less walking. More money.*
 
+## SCENE 14 — Take your test & unlock (9:30–10:05) ⭐
+**[SCREEN]** Cut to the training screen: the two buttons (**📝 Take my test** / **📖 Read the study guide**), then the test questions, then the green **"You passed! Enter your tools"** screen, ending on the map unlocking.
+**[SAY]** "[confident] One last thing before you hit the field. <break time="0.5s" /> Right after this video   there's a short test   on everything you just saw. <break time="0.5s" /> [firm] You need eighty percent to pass   and unlock your DoorDispatcher tools. <break time="0.5s" /> [reassuring] Miss a few?   No big deal —   it shows you exactly what you missed,   sends you back to re-read just those parts,   and you retake it   until it's locked in. <break time="0.5s" /> [motivated] The second you pass,   your map goes LIVE   and you're cleared to go make money. <break time="0.5s" /> [excited] So go pass it —   and let's get you to those homeowners."
+**[TEXT]** *Pass the test (80%) → your map unlocks. Miss a few? Re-read & retake.*
+
 ---
 
 ## Assembly checklist (in HeyGen)
