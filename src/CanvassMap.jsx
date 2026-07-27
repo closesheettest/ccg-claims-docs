@@ -1815,9 +1815,13 @@ export default function CanvassMap() {
   // the rep plans the day AROUND it ("📅 Plan your day"), so "Route an area" is hidden
   // (routing a raw box would ignore the appt). testAppts is only ever set in test/practice.
   // Only a PLACEABLE appointment (one with a real location the planner can drop on the map)
-  // hides Route-an-area / switches to Plan-your-day. An appt with no geocoded location can't
-  // be planned around, so it must NOT trap the rep — Route-an-area stays available.
+  // counts here. An appt with no geocoded location can't be planned around, so it must never
+  // trap a rep with no way to start.
   const hasApptToday = todayAppts.some((a) => typeof a.lat === "number" && typeof a.lng === "number") || testAppts.length > 0;
+  // JUNIOR-only restriction: with an appt today, a junior is FORCED into "Plan your day"
+  // (Route-an-area hidden) so their day stays structured. SENIORS always keep Route-an-area
+  // — they choose to route or plan. (Sam, a senior, lost his rectangle; this fixes it.)
+  const forceApptPlan = hasApptToday && effLevel === "junior";
   // 📞 Referrals waiting on a CALL (not yet reached) — a new one is due now (no
   // date), a rescheduled one is due when its call date arrives. These surface in
   // the "Calls to make" bar (like go-backs), NOT in the drive route.
@@ -3299,7 +3303,7 @@ export default function CanvassMap() {
             and it had bugs). Kept in code, shown ONLY for an Enhanced Planned Day (to run
             the manager's pre-planned section) AND only when the rep has no appointment
             today — with an appt they Plan-your-day instead. */}
-        {dayMode === null && !selecting && assignedIds && assignedIds.size > 0 && !hasApptToday && (prospects.length > 0 || clusters.length > 0) && (
+        {dayMode === null && !selecting && assignedIds && assignedIds.size > 0 && !forceApptPlan && (prospects.length > 0 || clusters.length > 0) && (
           <button type="button" onClick={() => (prospects.length ? setDayMode("choosing") : nudgeZoom())}
             style={{ position: "absolute", left: 12, bottom: 16, zIndex: 600, background: "#16a34a", color: "#fff", border: "none", borderRadius: 999, padding: "13px 20px", fontSize: 15, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer", opacity: prospects.length ? 1 : 0.85 }}>
             ▶ Start my day
@@ -3344,7 +3348,7 @@ export default function CanvassMap() {
             the rep's day is manager-assigned, they have required stops (reviews /
             definitive come-back appts), OR they have an appointment today — with an appt
             they "📅 Plan your day" (weave doors around it) instead of routing a raw box. */}
-        {dayMode === null && !selecting && !(assignedIds && assignedIds.size > 0) && requiredCount === 0 && !hasApptToday && (prospects.length > 0 || clusters.length > 0) && (
+        {dayMode === null && !selecting && !(assignedIds && assignedIds.size > 0) && requiredCount === 0 && !forceApptPlan && (prospects.length > 0 || clusters.length > 0) && (
           <button type="button" onClick={startSelecting}
             style={{ position: "absolute", left: 12, bottom: 68, zIndex: 600, background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
             ▢ Route an area
@@ -3354,7 +3358,7 @@ export default function CanvassMap() {
             is hidden and THIS is the way to start: it opens Plan-your-day (enter your start
             time, doors weave around the appointment). Shown as "Start my day" so it reads
             like the go-back flow. */}
-        {dayMode === null && !selecting && !(assignedIds && assignedIds.size > 0) && hasApptToday && (prospects.length > 0 || clusters.length > 0) && (
+        {dayMode === null && !selecting && !(assignedIds && assignedIds.size > 0) && forceApptPlan && (prospects.length > 0 || clusters.length > 0) && (
           <button type="button" onClick={openApptPlan}
             style={{ position: "absolute", left: 12, bottom: 68, zIndex: 600, background: "#16a34a", color: "#fff", border: "none", borderRadius: 999, padding: "12px 18px", fontSize: 14, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.28)", cursor: "pointer" }}>
             ▶ Start my day
@@ -3467,7 +3471,7 @@ export default function CanvassMap() {
         {/* Smart Scheduling — plan the day around appts. Real reps see it only when the
             company toggle is ON; a ?test= link always shows it (so it can be tried while off).
             Hidden once they HAVE an appt today — the green "▶ Start my day" above covers it. */}
-        {dayMode === null && !selecting && !hasApptToday && ((auth.rt && smartSchedEnabled) || testMode) && (
+        {dayMode === null && !selecting && !forceApptPlan && ((auth.rt && smartSchedEnabled) || testMode) && (
           <button type="button" onClick={openApptPlan}
             style={{ position: "absolute", left: 12, bottom: 112, zIndex: 600, background: "#7c3aed", color: "#fff", border: "none", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
             📅 Have an appt? Plan your day!
