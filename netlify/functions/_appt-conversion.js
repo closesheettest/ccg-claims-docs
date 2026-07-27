@@ -275,6 +275,13 @@ function fmtDate(sec) {
   try { return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "numeric", day: "numeric", year: "numeric" }).format(new Date(n * 1000)); }
   catch { return ""; }
 }
+// unix seconds → "M/D/YYYY, h:mm AM" (ET) — day + TIME of the actual appointment task.
+function fmtDateTime(sec) {
+  const n = Number(sec);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  try { return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "numeric", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(n * 1000)); }
+  catch { return ""; }
+}
 
 // Customer / address / status (+ appt, sold & start dates) for the drill-down
 // rows. apptDate = the date that PUT this on the report: the appointment task
@@ -292,6 +299,10 @@ function dealInfo(job) {
     source: job.source_name || "",         // JN lead source
 
     apptDate: fmtDate(apptSec),
+    // The ACTUAL appointment task day + TIME (when they were scheduled to sit). Uses the
+    // appt-task date (set on unsold jobs by fetchApptJobs, and on sold jobs by the handler
+    // via __apptTaskDate). Empty for a pure signing with no appointment task.
+    apptWhen: fmtDateTime(Number(job.__apptTaskDate) > 0 ? job.__apptTaskDate : (Number(job.__apptDate) > 0 ? job.__apptDate : 0)),
     sold: fmtDate(soldDateSec(job)),
     start: fmtDate(job.date_start),
     rb: isYes(F["Radiant Barrier"]),         // Radiant Barrier on the deal?

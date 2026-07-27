@@ -43,7 +43,7 @@ export const handler = async (event) => {
       fetchApptJobs(JN_KEY, startSec, endSec, taskMeta),
       fetchSoldJobs(JN_KEY, startSec, endSec),
     ]);
-    for (const j of soldJobs) { const m = taskMeta.get(j.jnid || j.id); j.__apptTaskCreators = m ? [...m.creators] : []; j.__isReset = m ? m.resetInWindow : false; }
+    for (const j of soldJobs) { const m = taskMeta.get(j.jnid || j.id); j.__apptTaskCreators = m ? [...m.creators] : []; j.__isReset = m ? m.resetInWindow : false; j.__apptTaskDate = m ? m.latest : 0; }
     // Stamp inspections.result on each job BEFORE tallying so categoryOf can put a
     // retail-result deal in BTR (overrides harv/comp).
     const resultMap = await fetchResultMap([...apptJobs, ...soldJobs].map((j) => j.jnid || j.id));
