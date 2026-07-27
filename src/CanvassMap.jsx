@@ -2408,6 +2408,26 @@ export default function CanvassMap() {
       .sort((a, b) => a.d - b.d).slice(0, 25).map((x) => x.id);
     setAssignedIds(new Set(near));
   }
+  // Practice/test harness: drop sample go-backs (retail / damage / no-damage) near the map
+  // center so the "Today's go-backs" card + required-stops Start-my-day can be FILMED — real
+  // go-backs only load for a live rep token. Clear resets.
+  function simGobacks() {
+    const c = map.current ? map.current.getCenter() : (myLoc || null);
+    if (!c) { alert("Zoom to an area first, then simulate go-backs."); return; }
+    const iso = (d) => new Date(Date.now() + d * 864e5).toISOString();
+    const off = [[0.0012, 0.0012], [-0.0016, 0.0009], [0.0009, -0.0018]];
+    const mk = (i, bucket, name, taskDays, ageDays) => ({
+      inspection_id: `sim_gb_${i}`, latitude: c.lat + off[i][0], longitude: c.lng + off[i][1],
+      client_name: name, address: `${100 + i} Practice St`, city: "Practice", state: "FL", zip: "00000",
+      bucket, result: bucket, result_at: iso(-ageDays), ...(taskDays != null ? { result_task_at: iso(taskDays) } : {}),
+    });
+    setVisits([
+      mk(0, "retail", "Alvarez", 0, 3),        // due today · retail (top priority)
+      mk(1, "damage", "Bennett", -1, 6),       // overdue · damage
+      mk(2, "no_damage", "Carter", null, 10),  // no date · aging · no-damage
+    ]);
+    setGobackCard(true);
+  }
 
   // ── Plan the day around today's appointments ───────────────────────────────
   // Open the little "start / end time" sheet, defaulting start to NOW and end to 8 PM.
@@ -3480,6 +3500,21 @@ export default function CanvassMap() {
             )}
           </div>
         )}
+        {/* Sim go-backs (retail/damage/no-damage) so the "Today's go-backs" card can be filmed. */}
+        {dayMode === null && !selecting && testMode && (
+          <div style={{ position: "absolute", left: 12, bottom: 236, zIndex: 600, display: "flex", gap: 6, alignItems: "center" }}>
+            <button type="button" onClick={simGobacks}
+              style={{ background: "#0f172a", color: "#fff", border: "none", borderRadius: 999, padding: "9px 15px", fontSize: 12.5, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
+              🧪 Sim go-backs{visits.length ? ` (${visits.length})` : ""}
+            </button>
+            {visits.length > 0 && (
+              <button type="button" onClick={() => { setVisits([]); setGobackCard(false); }}
+                style={{ background: "#fff", color: "#b91c1c", border: "1px solid #fecaca", borderRadius: 999, padding: "9px 12px", fontSize: 12, fontWeight: 800, boxShadow: "0 3px 12px rgba(0,0,0,.2)", cursor: "pointer" }}>
+                ✕ Clear
+              </button>
+            )}
+          </div>
+        )}
         {addingTestAppt && (
           <div style={{ position: "absolute", left: "50%", bottom: 200, transform: "translateX(-50%)", zIndex: 800, background: "#7c3aed", color: "#fff", borderRadius: 10, padding: "9px 15px", fontSize: 13, fontWeight: 700, boxShadow: "0 3px 14px rgba(0,0,0,.35)", whiteSpace: "nowrap" }}>
             📅 Tap the map to drop a test appt
@@ -4210,7 +4245,10 @@ export default function CanvassMap() {
             const effFt = distFt != null ? Math.max(0, distFt - accFt) : null;
             const near = ignoreDist || demoMode || (effFt != null && effFt <= ARRIVE_FT) || manualHere === selected.id;
             const outs = ((S[selected.status]?.outcomes) || []).map((k) => S[k]).filter(Boolean);
-            const opts = outs.length ? outs : ["insp_sold", "insp_ni", "insp_callback", "dead"].map((k) => S[k]).filter(Boolean);
+            let opts = outs.length ? outs : ["insp_sold", "insp_ni", "insp_callback", "dead"].map((k) => S[k]).filter(Boolean);
+            // Practice/demo: always offer Schedule appointment so the booking card can be
+            // filmed on ANY door (even one already showing an appointment time).
+            if (demoMode && S["appt"] && !opts.some((o) => o && o.key === "appt")) opts = [...opts, S["appt"]];
             const rBtn = (key, label, color) => (
               <button key={key} type="button" disabled={!near} onClick={() => restatusPin(selected, key)}
                 style={{ flex: "1 1 44%", minWidth: 92, padding: "11px 8px", borderRadius: 11, fontSize: 13.5, fontWeight: 800, cursor: near ? "pointer" : "not-allowed",
@@ -4255,7 +4293,9 @@ export default function CanvassMap() {
             // the sheet isn't a wall of buttons.
             const cur = S[selected.status];
             const allowed = (cur?.outcomes || []).map((k) => S[k]).filter(Boolean);
-            const options = allowed.length ? allowed : pinTypes;
+            let options = allowed.length ? allowed : pinTypes;
+            // Practice/demo: always offer Schedule appointment so the booking card films on any door.
+            if (demoMode && S["appt"] && !options.some((o) => o && o.key === "appt")) options = [...options, S["appt"]];
             const acts = Array.isArray(selActs) ? selActs.filter((a) => a.kind !== "arrival") : selActs;
             const knocks = Array.isArray(selActs) ? selActs.filter((a) => a.kind === "visit").length : 0;
             const actLabel = (a) => {
