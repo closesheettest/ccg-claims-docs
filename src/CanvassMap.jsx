@@ -1086,6 +1086,9 @@ export default function CanvassMap() {
   useEffect(() => {
     if (!auth.rt) { setRepTrainingOk(true); return; }
     if (!me) return; // wait until we know the rep's level (which track to check)
+    // William (the field trainer) rides along with trainees — he's exempt from the
+    // tool-training gate so it never blocks him on the map.
+    if (/\bwilliam\b/i.test(String(me.name || ""))) { setRepTrainingOk(true); return; }
     let live = true;
     supabase.from("harvest_training_results").select("passed")
       .eq("user_key", auth.rt).eq("track", repTrack).eq("passed", true).limit(1)
