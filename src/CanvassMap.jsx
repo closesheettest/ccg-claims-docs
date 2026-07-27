@@ -1621,7 +1621,7 @@ export default function CanvassMap() {
     if (spotCheck) { alert("🔍 Spot-check — statusing is off."); return; }
     if (outcome === "insp_sold") { signInspection(pin); return; }
     if (outcome === "insp_callback") { setCallbackFor(pin.id); setCbDate(ymdPlus(7)); setCbTime(null); setCbNote(pin.notes || ""); return; }
-    if (outcome === "appt" && pin.status !== "test" && !demoMode) { setApptPin(await hydratePin(pin)); return; }
+    if (outcome === "appt" && pin.status !== "test") { setApptPin(demoMode ? pin : await hydratePin(pin)); return; }
     logActivity({ pin_id: pin.id, kind: "visit", to_status: outcome === "nothome" ? "not_home" : outcome, ...locAudit(pin) });
     if (outcome !== "nothome") { const ok = await setStatus(pin, outcome); if (ok === false) return; }
     setSelected(null);
@@ -2707,7 +2707,7 @@ export default function CanvassMap() {
     if (!stop) return;
     // Real leads: "Appt" opens the booking flow (creates the JobNimbus appt). Test
     // pins / practice mode just set the status (no real homeowner/job to book).
-    if (outcome === "appt" && stop.status !== "test" && !demoMode) { setApptPin(await hydratePin(stop)); return; }
+    if (outcome === "appt" && stop.status !== "test") { setApptPin(demoMode ? stop : await hydratePin(stop)); return; }
     logActivity({ pin_id: stop.id, kind: "visit", to_status: outcome === "nothome" ? "not_home" : outcome, ...locAudit(stop) });
     if (outcome !== "nothome") {
       const ok = await setStatus(stop, outcome);
@@ -4311,7 +4311,7 @@ export default function CanvassMap() {
                         const on = selected.status === s.key;
                         return (
                           <button key={s.key} type="button"
-                            onClick={() => s.key === "appt" ? (demoMode ? setStatus(selected, "appt") : setApptPin(selected)) : s.key === "insp_sold" ? signInspection(selected) : setStatus(selected, s.key)}
+                            onClick={() => s.key === "appt" ? setApptPin(selected) : s.key === "insp_sold" ? signInspection(selected) : setStatus(selected, s.key)}
                             style={{ padding: "9px 14px", borderRadius: 10, fontSize: 13.5, fontWeight: 700, cursor: "pointer",
                               border: on ? `2px solid ${s.color}` : "1px solid #e5e7eb",
                               background: on ? s.color : "#fff", color: on ? "#fff" : "#334155" }}>
@@ -4421,7 +4421,7 @@ export default function CanvassMap() {
 
       {apptPin && (
         <AppointmentModal
-          pin={apptPin} rt={auth.rt}
+          pin={apptPin} rt={auth.rt} demo={demoMode}
           onClose={() => setApptPin(null)}
           onBooked={(patch) => {
             setProspects((list) => list.map((x) => (x.id === apptPin.id ? { ...x, ...patch } : x)));
@@ -4439,7 +4439,7 @@ export default function CanvassMap() {
 
       {btrPin && (
         <AppointmentModal
-          variant="btr" pin={btrPin} rt={auth.rt}
+          variant="btr" pin={btrPin} rt={auth.rt} demo={demoMode}
           onClose={() => setBtrPin(null)}
           onBooked={(patch) => {
             setProspects((list) => list.map((x) => (x.id === btrPin.id ? { ...x, ...patch } : x)));
@@ -4622,7 +4622,7 @@ function origApptLabel(pin) {
   return `${datePart} · ${timePart}`;
 }
 
-function AppointmentModal({ pin, rt, onClose, onBooked, variant }) {
+function AppointmentModal({ pin, rt, onClose, onBooked, variant, demo }) {
   // "btr" = book a Back-To-Retail appointment off an inspection pin (homeowner
   // declined the inspection, wants retail). Always a fresh booking + always
   // needs contact info. Otherwise: a reschedule (pin already has a JN job — e.g.
@@ -4639,6 +4639,9 @@ function AppointmentModal({ pin, rt, onClose, onBooked, variant }) {
   // Pull already-booked appointments so we only offer free times. For a BTR the
   // calendar belongs to whoever RUNS it (the rep, or the zone manager for William).
   useEffect(() => {
+    // Practice/demo: no real calendar — show every slot open so the booking screen can
+    // be demoed with generic available times.
+    if (demo) { setBooked([]); if (isBtr) setOwnerInfo({ name: "you", is_manager: false, zone: null }); return; }
     let live = true;
     (async () => {
       try {
@@ -4654,7 +4657,7 @@ function AppointmentModal({ pin, rt, onClose, onBooked, variant }) {
       } catch { if (live) setBooked([]); }
     })();
     return () => { live = false; };
-  }, [rt, isBtr, pin.id]);
+  }, [rt, isBtr, pin.id, demo]);
 
   // Same-day booking is allowed for a NO-SIT reschedule (rep's at the door, wants to
   // re-book today) — Neal. Every other appt type stays tomorrow-onward.
@@ -4666,6 +4669,8 @@ function AppointmentModal({ pin, rt, onClose, onBooked, variant }) {
 
   async function book(slot) {
     if (!isReschedule && phone.replace(/\D/g, "").length < 10) { setErr("Enter the homeowner's phone number first."); return; }
+    // Practice/demo: nothing is booked in JobNimbus — just flip the pin so the flow shows.
+    if (demo) { onBooked({ status: "appt", jn_job_id: null, status_updated_at: new Date().toISOString() }); return; }
     setBusy(slot.iso); setErr("");
     try {
       const r = await fetch(isBtr ? "/.netlify/functions/harvest-book-btr-appt" : "/.netlify/functions/harvest-book-appt", {
