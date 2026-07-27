@@ -806,6 +806,9 @@ export default function CanvassMap() {
   const [referralForm, setReferralForm] = useState(null); // { name, phone, referred_by } | null
   const [referralText, setReferralText] = useState("");   // address input text
   const [referralPlace, setReferralPlace] = useState(null); // geocoded place {lat,lng,address,city,state,zip}
+  const [referralPlacing, setReferralPlacing] = useState(false); // armed: next map tap sets the referral's location (fallback when the address dropdown fails)
+  const referralPlacingRef = useRef(false);
+  const referralTextRef = useRef("");
   const [referralSaving, setReferralSaving] = useState(false);
   const [activeCall, setActiveCall] = useState(null);     // the referral pin whose "call card" is open
   const [callPickDate, setCallPickDate] = useState("");   // "pick a day" for a no-answer reschedule
@@ -1298,6 +1301,12 @@ export default function CanvassMap() {
     m.on("click", (e) => {
       if (addingTestApptRef.current && testApptRef.current) { testApptRef.current({ lat: e.latlng.lat, lng: e.latlng.lng }); return; }
       if (addingRef.current && dropPinRef.current) { dropPinRef.current({ lat: e.latlng.lat, lng: e.latlng.lng }); return; }
+      // Placing a referral by tapping the map (fallback when the address dropdown fails).
+      if (referralPlacingRef.current) {
+        setReferralPlace((prev) => ({ lat: e.latlng.lat, lng: e.latlng.lng, address: (referralTextRef.current || "").trim() || "Dropped pin", formatted: (referralTextRef.current || "").trim() || "Dropped pin", city: null, state: "FL", zip: null, dropped: true }));
+        setReferralPlacing(false);
+        return;
+      }
       if (choosingRef.current && startFromRef.current) { startFromRef.current({ lat: e.latlng.lat, lng: e.latlng.lng }); return; }
       // Tap empty map to dismiss an open pin/install/visit info sheet. (Marker
       // clicks don't reach the map, so tapping another pin still opens that one.)
@@ -1447,6 +1456,12 @@ export default function CanvassMap() {
     const el = map.current?.getContainer();
     if (el) el.style.cursor = adding ? "crosshair" : "";
   }, [adding]);
+  useEffect(() => {
+    referralPlacingRef.current = referralPlacing;
+    const el = map.current?.getContainer();
+    if (el) el.style.cursor = referralPlacing ? "crosshair" : "";
+  }, [referralPlacing]);
+  useEffect(() => { referralTextRef.current = referralText; }, [referralText]);
   // Draw the pin the rep is currently placing (purple, pulsing). Draggable so
   // "wrong house" is a one-second fix — drop it on the right roof and, if they'd
   // already checked, it re-runs the owner lookup for the new spot.
@@ -2733,7 +2748,7 @@ export default function CanvassMap() {
   function startAddHouse() { setSelected(null); setSelectedInstall(null); setNewPin(null); setOwnerOverride(false); setOverridePhone(""); setAdding(true); }
   function cancelAdd() { setAdding(false); setNewPin(null); setOwnerOverride(false); setOverridePhone(""); }
   function openReferral() { setSelected(null); setSelectedInstall(null); setAdding(false); setReferralText(""); setReferralPlace(null); setReferralForm({ name: "", phone: "", referred_by: "" }); }
-  function closeReferral() { setReferralForm(null); setReferralPlace(null); setReferralText(""); setReferralSaving(false); }
+  function closeReferral() { setReferralForm(null); setReferralPlace(null); setReferralText(""); setReferralSaving(false); setReferralPlacing(false); }
   // Save a referral: it drops a ⭐ pin (OVERRIDING any pin already at that door) and
   // creates the JN lead as source "Referral" (harvest-flagged when worked). In
   // practice/demo mode nothing is written — a local pin is dropped so it's filmable.
@@ -3310,7 +3325,7 @@ export default function CanvassMap() {
             ⭐ Referral
           </button>
         )}
-        {referralForm && (
+        {referralForm && !referralPlacing && (
           <div style={{ position: "absolute", inset: 0, zIndex: 1200, background: "rgba(15,23,42,.45)", display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={closeReferral}>
             <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 460, background: "#fff", borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: "18px 18px 24px", boxShadow: "0 -4px 20px rgba(0,0,0,.2)" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -3325,7 +3340,14 @@ export default function CanvassMap() {
               <AddressAutocomplete value={referralText} onChange={(v) => { setReferralText(v); setReferralPlace(null); }}
                 onPlaceSelected={(pl) => { setReferralPlace(pl); setReferralText(pl.formatted || pl.address || ""); }}
                 placeholder="Address" style={{ height: 46, borderRadius: 10, fontSize: 15 }} />
-              {!referralPlace && referralText && <div style={{ fontSize: 11.5, color: "#94a3b8", marginTop: 5 }}>Pick the address from the dropdown so it lands on the map.</div>}
+              {referralPlace?.dropped
+                ? <div style={{ fontSize: 12, color: "#166534", marginTop: 5, fontWeight: 700 }}>📍 Pin dropped on the map{referralText ? ` — ${referralText}` : ""}. Save it below.</div>
+                : !referralPlace && referralText && <div style={{ fontSize: 11.5, color: "#94a3b8", marginTop: 5 }}>Pick the address from the dropdown — or tap the map below.</div>}
+              {/* Fallback when the address dropdown won't find it: drop the pin by tapping the map. */}
+              <button type="button" onClick={() => setReferralPlacing(true)}
+                style={{ marginTop: 8, fontSize: 12.5, fontWeight: 800, color: "#b45309", background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 9, padding: "8px 12px", cursor: "pointer" }}>
+                📍 Can't find it? Tap the map to drop it here
+              </button>
               <input value={referralForm.referred_by} onChange={(e) => setReferralForm((f) => ({ ...f, referred_by: e.target.value }))} placeholder="Referred by (optional)"
                 style={{ width: "100%", boxSizing: "border-box", height: 44, padding: "0 12px", borderRadius: 10, border: "1px solid #e2e8f0", fontSize: 14, marginTop: 9, background: "#f8fafc" }} />
               <button type="button" disabled={!referralPlace || referralSaving} onClick={submitReferral}
@@ -3333,6 +3355,14 @@ export default function CanvassMap() {
                 {referralSaving ? "Saving…" : "⭐ Save & work it"}
               </button>
             </div>
+          </div>
+        )}
+        {/* Placing a referral by map tap — the form is hidden so the map is tappable. */}
+        {referralForm && referralPlacing && (
+          <div style={{ position: "absolute", left: 12, right: 12, top: 56, zIndex: 1250, background: "#b45309", color: "#fff", borderRadius: 12, padding: "11px 14px", boxShadow: "0 3px 12px rgba(0,0,0,.28)", display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ flex: 1, fontSize: 13.5, fontWeight: 700, lineHeight: 1.3 }}>👇 Tap the house on the map to drop the referral pin.</div>
+            <button type="button" onClick={() => setReferralPlacing(false)}
+              style={{ background: "rgba(255,255,255,.2)", color: "#fff", border: "none", borderRadius: 8, padding: "7px 12px", fontSize: 12.5, fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" }}>Cancel</button>
           </div>
         )}
         {/* 📞 Calls to make — referrals waiting on a call. Shows like the go-backs bar;
