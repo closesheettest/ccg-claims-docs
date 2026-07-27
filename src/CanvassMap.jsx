@@ -3263,6 +3263,16 @@ export default function CanvassMap() {
             ▢ Route an area
           </button>
         )}
+        {/* Appointment today (and no manager-assigned day / required stops) → Route-an-area
+            is hidden and THIS is the way to start: it opens Plan-your-day (enter your start
+            time, doors weave around the appointment). Shown as "Start my day" so it reads
+            like the go-back flow. */}
+        {dayMode === null && !selecting && !(assignedIds && assignedIds.size > 0) && requiredCount === 0 && hasApptToday && (prospects.length > 0 || clusters.length > 0) && (
+          <button type="button" onClick={openApptPlan}
+            style={{ position: "absolute", left: 12, bottom: 68, zIndex: 600, background: "#16a34a", color: "#fff", border: "none", borderRadius: 999, padding: "12px 18px", fontSize: 14, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.28)", cursor: "pointer" }}>
+            ▶ Start my day
+          </button>
+        )}
         {/* 📇 Referral — enter a vouched-for lead ANY time (planning or mid-day). It
             drops a ⭐ pin that overrides any pin there + creates the JN lead. */}
         {!selecting && !referralForm && !newPin && !adding && (auth.rt || testMode) && (
@@ -3353,8 +3363,9 @@ export default function CanvassMap() {
           </div>
         )}
         {/* Smart Scheduling — plan the day around appts. Real reps see it only when the
-            company toggle is ON; a ?test= link always shows it (so it can be tried while off). */}
-        {dayMode === null && !selecting && ((auth.rt && smartSchedEnabled) || testMode) && (
+            company toggle is ON; a ?test= link always shows it (so it can be tried while off).
+            Hidden once they HAVE an appt today — the green "▶ Start my day" above covers it. */}
+        {dayMode === null && !selecting && !hasApptToday && ((auth.rt && smartSchedEnabled) || testMode) && (
           <button type="button" onClick={openApptPlan}
             style={{ position: "absolute", left: 12, bottom: 112, zIndex: 600, background: "#7c3aed", color: "#fff", border: "none", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
             📅 Have an appt? Plan your day!
