@@ -363,13 +363,21 @@ function buildApptPlan(start, nowMs, endMs, appts, pool, endPt) {
   // fill above only picks doors that fit the time budget near an anchor, so a required
   // stop the fill didn't reach is inserted here at the cheapest spot (nearest-neighbor).
   // Required stops are NEVER dropped just because the rep has an appointment.
+  //
+  // BUT an appointment is a hard TIME anchor: a go-back must never be inserted AHEAD of
+  // one — that would make the rep late (e.g. a go-back near the start vs. an appt 14 min
+  // out). Go-backs are always SECONDARY to an appointment. So a forced insert may only
+  // land at/after the last appointment anchor; anything that genuinely fit before an appt
+  // was already placed by the time-gated `fill` above. (No appts → insert anywhere.)
   const inOut = new Set(out.map((s) => s.id));
   const startPos = { lat: start.lat, lng: start.lng };
+  let minInsert = 0;
+  for (let i = 0; i < out.length; i++) if (out[i].isAppt) minInsert = i + 1;
   for (const p of rem) {
     if (!p._required || inOut.has(p.id)) continue;
     const pc = { lat: p.latitude, lng: p.longitude };
     let bestI = out.length, best = Infinity;
-    for (let i = 0; i <= out.length; i++) {
+    for (let i = minInsert; i <= out.length; i++) {
       const prev = i > 0 ? { lat: out[i - 1].latitude, lng: out[i - 1].longitude } : startPos;
       const nxt = i < out.length ? { lat: out[i].latitude, lng: out[i].longitude } : (tailTo || null);
       const add = feetBetween(prev, pc) + (nxt ? feetBetween(pc, nxt) - feetBetween(prev, nxt) : 0);
