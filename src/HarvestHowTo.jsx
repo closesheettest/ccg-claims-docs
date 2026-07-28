@@ -49,9 +49,19 @@ export default function HarvestHowTo() {
     <div style={{ maxWidth: 760, margin: "0 auto", padding: "18px 14px 60px", fontFamily: FONT }}>
       {showNav && <HarvestNav active="howto" />}
       <div style={{ fontSize: 24, fontWeight: 800, fontFamily: OSWALD }}>📖 DoorDispatcher — How-To</div>
-      <div style={{ fontSize: 13.5, color: "#64748b", margin: "4px 0 14px" }}>
+      <div style={{ fontSize: 13.5, color: "#64748b", margin: "4px 0 12px" }}>
         Every tool you have. Tap one to watch how it works and read the steps.
       </div>
+
+      {/* Hands-on: open the practice map (locked to this rep's level) in a new tab. */}
+      <a href={`/?mode=harvest&test=${role === "sr" ? "sr" : "jr"}`} target="_blank" rel="noreferrer"
+        style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none",
+          background: "#16a34a", color: "#fff", borderRadius: 12, padding: "12px 16px", marginBottom: 16,
+          fontSize: 14.5, fontWeight: 800, fontFamily: OSWALD, boxShadow: "0 2px 8px rgba(22,163,74,.3)" }}>
+        <span style={{ fontSize: 20 }}>🧪</span>
+        <span style={{ flex: 1 }}>Practice on the training map — try every tool, nothing is saved</span>
+        <span style={{ fontSize: 18 }}>›</span>
+      </a>
 
       {/* Role filter */}
       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
