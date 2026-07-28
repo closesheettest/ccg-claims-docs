@@ -200,7 +200,12 @@ export const handler = async (event) => {
         for (const [id, job] of candidates) {
           if (!job || mapJobIds.has(id)) continue;
           if (!isYes(fieldByLabel(job, "Sales Rep Harvested"))) continue;   // office didn't flag it harvested
-          if (!harvestInWindow(job, startSec, endSec)) continue;           // appt/booking not in this period
+          // Credit the period the appt was SET (booked), not when it's scheduled.
+          // taskJobIds = jobs whose appointment TASK was CREATED in this window — the
+          // true "set date" (works even for an IQ job created months before the appt
+          // was booked). Fall back to the job's own creation date so a harvest job whose
+          // task the scan missed still counts. date_start (the appt date) is never used.
+          if (!taskJobIds.has(id) && !harvestInWindow(job, startSec, endSec)) continue;
           if (qp.debug === "2") {
             payloadDebugJobs.push({ name: job.name, rep: job.sales_rep_name || null, status: job.status_name, when: harvestWhen(job) });
           }
