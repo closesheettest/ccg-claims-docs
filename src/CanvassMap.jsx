@@ -3391,22 +3391,31 @@ export default function CanvassMap() {
             and it had bugs). Kept in code, shown ONLY for an Enhanced Planned Day (to run
             the manager's pre-planned section) AND only when the rep has no appointment
             today — with an appt they Plan-your-day instead. */}
-        {dayMode === null && !selecting && assignedIds && assignedIds.size > 0 && !forceApptPlan && (prospects.length > 0 || clusters.length > 0) && (
+        {dayMode === null && !selecting && assignedIds && assignedIds.size > 0 && !hasApptToday && (prospects.length > 0 || clusters.length > 0) && (
           <button type="button" onClick={() => (prospects.length ? setDayMode("choosing") : nudgeZoom())}
             style={{ position: "absolute", left: 12, bottom: 16, zIndex: 600, background: "#16a34a", color: "#fff", border: "none", borderRadius: 999, padding: "13px 20px", fontSize: 15, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer", opacity: prospects.length ? 1 : 0.85 }}>
+            ▶ Start my day
+          </button>
+        )}
+        {/* Manager-assigned day AND an appointment today → still "Start my day", but it
+            routes the assigned section AROUND the appointment (planAroundAppts stays within
+            the assigned doors). Without this, an assigned rep with an appt got NO button. */}
+        {dayMode === null && !selecting && assignedIds && assignedIds.size > 0 && hasApptToday && (prospects.length > 0 || clusters.length > 0) && (
+          <button type="button" onClick={openApptPlan}
+            style={{ position: "absolute", left: 12, bottom: 16, zIndex: 600, background: "#16a34a", color: "#fff", border: "none", borderRadius: 999, padding: "13px 20px", fontSize: 15, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
             ▶ Start my day
           </button>
         )}
         {/* Enhanced Planned Day — this rep's manager assigned them a section today. */}
         {dayMode === null && !selecting && assignedIds && assignedIds.size > 0 && (
           <div style={{ position: "absolute", left: 12, right: 12, top: 56, zIndex: 590, background: "#7c3aed", color: "#fff", padding: "9px 14px", borderRadius: 10, fontSize: 13, fontWeight: 700, boxShadow: "0 2px 8px rgba(0,0,0,.25)", textAlign: "center" }}>
-            📋 Your day is planned by your manager — {assignedIds.size} doors. {hasApptsToday ? <>You have an appointment today — tap <b>📅 Plan your day</b> to weave your doors around it.</> : <>Tap <b>▶ Start my day</b>.</>}
+            📋 Your day is planned by your manager — {assignedIds.size} doors. Tap <b>▶ Start my day</b>.{hasApptToday ? <> Your appointment today is worked in automatically.</> : null}
           </div>
         )}
         {/* Auto-detect "you have an appointment" — shows the moment the map opens for a
             rep who has a JN appt today but ISN'T on a manager-assigned day (those reps
             get the purple banner above). No need to know to tap the button first. */}
-        {dayMode === null && !selecting && !(assignedIds && assignedIds.size > 0) && todayAppts.length > 0 && !apptBannerDismissed && ((auth.rt && smartSchedEnabled) || testMode) && (
+        {dayMode === null && !selecting && !(assignedIds && assignedIds.size > 0) && todayAppts.length > 0 && !apptBannerDismissed && (auth.rt || testMode) && (
           <div style={{ position: "absolute", left: 12, right: 12, top: 56, zIndex: 595, background: "#7c3aed", color: "#fff", padding: "11px 14px", borderRadius: 12, boxShadow: "0 3px 12px rgba(0,0,0,.28)", display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ flex: 1, fontSize: 13.5, fontWeight: 700, lineHeight: 1.3 }}>
               📅 You have {todayAppts.length} appointment{todayAppts.length > 1 ? "s" : ""} today — first at{" "}
