@@ -41,9 +41,9 @@ select * from (values
     'Every time you open the map — before you start your day.',
     'Each dot is a door; its color is the type. The legend on the right lists every type with a count. Gold stars are roofs we already installed (reference only). Tap a pin to see the homeowner and what''s happened there.'),
   -- The ONE real difference between a Junior and a Senior: the leads (pins) they work.
-  ('jr', 15, '🚪', 'Your leads — Inspections & Back-to-Retail',
+  ('jr', 15, '🚪', 'Your leads — Inspection Leads & IQ Not Interested',
     'This is your map. As a Junior rep you work two pin types.',
-    '🖊️ Inspection leads / go-backs — roofs we''ve already inspected that need a return visit.\n↩️ Back-to-Retail — homeowners who got an Instant Quote but weren''t interested; you go win them back.\nYour map is locked to these two so you always know exactly who to hit.'),
+    '🖊️ Inspection Lead — a door that needs a free roof inspection; you knock and get the homeowner signed up for one.\n↩️ IQ – Not Interested — homeowners who got an Instant Quote online but said no; you go win them back in person.\nYour map is locked to these two so you always know exactly who to hit.'),
   ('sr', 15, '🏅', 'Your leads — Instant Quote & No-Sits',
     'This is your map. As a Senior rep you work two pin types.',
     '💬 Instant Quote leads — homeowners who asked for a price online; warm, ready to talk.\n🔄 No-Sit / Need-to-Reschedule — appointments that didn''t sit; you re-book them, even same-day.\nYour map is locked to these two so you always know exactly who to hit.'),
