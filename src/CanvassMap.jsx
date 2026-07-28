@@ -3735,7 +3735,7 @@ export default function CanvassMap() {
 
         {/* ── Go-backs to work ── scheduled-due PLUS aging follow-ups (most have no
              scheduled date, so aging is what surfaces a stale pile). Worst first. */}
-        {visits.length > 0 && !selecting && (() => {
+        {visits.length > 0 && !selecting && dayMode !== "active" && (() => {
           const RANK = { overdue: 0, aging: 1, today: 2 };
           const needs = visits.map((v) => ({ v, w: visitNeedsWork(v), age: visitAgeDays(v) }))
             .filter((x) => x.w)
