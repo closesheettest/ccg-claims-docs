@@ -823,6 +823,7 @@ export default function CanvassMap() {
   const [me, setMe] = useState(null);          // { name, level } once signed in
   const [authError, setAuthError] = useState("");
   const [apptPin, setApptPin] = useState(null); // pin being scheduled → appointment
+  const replanAfterBookRef = useRef(null);      // appt anchor to re-plan after a "Rescheduled" re-book
   const [btrPin, setBtrPin] = useState(null);   // insp pin → back-to-retail appt
   // "Add a house" — a rep in the field drops their own pin on a damaged roof.
   const [adding, setAdding] = useState(false);  // tap-to-place mode armed
@@ -2561,6 +2562,42 @@ export default function CanvassMap() {
     if (map.current && next[prefix.length]) map.current.setView([next[prefix.length].latitude, next[prefix.length].longitude], 16);
   }
 
+  // ── Appointment OUTCOME (IQ / FB / AI / BTR) — the rep just left the appt ────
+  // The appt anchor is synthetic; its underlying real map pin (status 'appt', same JN
+  // job) carries the id + jn_job_id the JobNimbus writes need. Null in demo (fake appts).
+  function apptPinFor(stop) {
+    const jid = stop && stop._appt && stop._appt.jn_job_id;
+    if (!jid) return null;
+    const hit = (p) => p && p.jn_job_id === jid && p.status === "appt";
+    return (mapped || []).find(hit) || (prospects || []).find(hit) || null;
+  }
+  // 🔄 Rescheduled — rep re-booked. Open the time picker (harvest-book-appt's reschedule
+  // path resets the JN appointment); re-plan the rest of the day once it's booked.
+  function apptRescheduled(stop) {
+    if (demoMode || testMode) { setApptPin(stop); return; } // practice: the modal is a no-op
+    const pin = apptPinFor(stop);
+    if (!pin) { alert("Couldn't find this appointment's pin to reschedule — reschedule it from the pin on the map."); return; }
+    replanAfterBookRef.current = stop;
+    setApptPin(pin);
+  }
+  // 🔴 No sit – needs to reschedule — set the JN status + flip the pin onto the reschedule
+  // list, then re-plan the rest of the day. Best-effort JN write; the pin flips regardless.
+  async function apptNoSit(stop) {
+    if (!(demoMode || testMode)) {
+      const pin = apptPinFor(stop);
+      if (pin) {
+        try {
+          await fetch("/.netlify/functions/harvest-appt-nosit", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ rt: auth.rt, pin_id: pin.id }),
+          });
+        } catch { /* re-plan regardless */ }
+      }
+    }
+    logActivity({ pin_id: null, kind: "appt_nosit", to_status: "no_sit_reschedule" });
+    completeAppt(stop);
+  }
+
   // No-sit-reschedule pins we could add to a short day (from the wide fill pool if
   // loaded, else whatever's on the map), visible + not already in the given route.
   function availableFill(routePins) {
@@ -3841,11 +3878,21 @@ export default function CanvassMap() {
                     style={{ display: "block", textAlign: "center", width: "100%", boxSizing: "border-box", marginTop: 12, background: "#1d4ed8", color: "#fff", borderRadius: 12, padding: "12px", fontSize: 14.5, fontWeight: 800, textDecoration: "none" }}>
                     🧭 Directions to the appointment
                   </a>
-                  <button type="button" onClick={() => completeAppt(stop)}
-                    style={{ width: "100%", marginTop: 10, background: "#16a34a", color: "#fff", border: "none", borderRadius: 12, padding: "13px", fontSize: 14.5, fontWeight: 800, cursor: "pointer" }}>
-                    ✅ Appointment done — plan the rest of my day
+                  {/* How'd the appointment go? — same 3 outcomes for IQ / FB / AI / BTR appts. */}
+                  <div style={{ fontSize: 11.5, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 14, marginBottom: 6 }}>How'd it go?</div>
+                  <button type="button" onClick={() => apptRescheduled(stop)}
+                    style={{ width: "100%", background: "#7c3aed", color: "#fff", border: "none", borderRadius: 12, padding: "13px", fontSize: 14.5, fontWeight: 800, cursor: "pointer" }}>
+                    🔄 Rescheduled — re-book the time
                   </button>
-                  <div style={{ fontSize: 11.5, color: "#94a3b8", textAlign: "center", marginTop: 7 }}>Tap when you leave — we re-fill your doors based on the time before your next appt.</div>
+                  <button type="button" onClick={() => apptNoSit(stop)}
+                    style={{ width: "100%", marginTop: 8, background: "#dc2626", color: "#fff", border: "none", borderRadius: 12, padding: "13px", fontSize: 14.5, fontWeight: 800, cursor: "pointer" }}>
+                    🔴 No sit — needs to reschedule
+                  </button>
+                  <button type="button" onClick={() => completeAppt(stop)}
+                    style={{ width: "100%", marginTop: 8, background: "#16a34a", color: "#fff", border: "none", borderRadius: 12, padding: "13px", fontSize: 14.5, fontWeight: 800, cursor: "pointer" }}>
+                    ✅ Appt done — sold or no-sale
+                  </button>
+                  <div style={{ fontSize: 11.5, color: "#94a3b8", textAlign: "center", marginTop: 7 }}>Sit Sold / Sit No Sale syncs from JobNimbus — just tap Appt done to plan the rest of your day.</div>
                   <button type="button"
                     onClick={() => { if (window.confirm("Cancel this plan and start over?")) startOver(); }}
                     style={{ width: "100%", marginTop: 10, background: "#fff", color: "#dc2626", border: "1px solid #dc2626", borderRadius: 10, padding: "9px", fontSize: 12.5, fontWeight: 800, cursor: "pointer" }}>
@@ -4530,6 +4577,8 @@ export default function CanvassMap() {
             // the server also logs it and the leaderboard dedupes by pin.
             logActivity({ pin_id: apptPin.id, kind: "visit", from_status: apptPin.status, to_status: "appt", ...locAudit(apptPin) });
             if (dayMode === "active" && route[stopIdx] && route[stopIdx].id === apptPin.id) advanceStop();
+            // "Rescheduled" outcome: after the re-book, re-plan the rest of the day.
+            if (replanAfterBookRef.current) { const s = replanAfterBookRef.current; replanAfterBookRef.current = null; completeAppt(s); }
             setApptPin(null);
           }}
         />
