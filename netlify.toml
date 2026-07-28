@@ -231,3 +231,8 @@
 # declares this via exports.config.schedule; this toml entry keeps it visible.
 [functions."cron-harvest-leadsync"]
   schedule = "0 11,13,15,17,19,21,23,1 * * *"
+
+# Scheduled function: daily Venice roof-age scrub via Shovels.ai (free-tier safe,
+# 45 pins/day, credit-throttled). Roofing permit 2012+ = new roof -> pin -> new_roof.
+[functions."cron-shovels-venice-scrub"]
+  schedule = "0 14 * * *"
