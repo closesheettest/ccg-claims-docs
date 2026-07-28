@@ -61,7 +61,7 @@ select * from (values
     'You''ll see a purple "Your day is planned by your manager" banner. Tap ▶ Start my day and it routes your assigned doors. Got an appointment too? Same button — Start my day — it works the appointment right into your assigned doors automatically, so the two never collide.'),
   ('all', 50, '✅', 'Status a door (How''d it go?)',
     'At every door, once you''re actually there (GPS confirms it).',
-    'Tap what happened — Not interested, booked an appointment, signed, and so on. It logs it and moves you to the next stop. Never log a door you''re not standing at.'),
+    'The buttons sit right under "How''d it go?":\n🖊️ Sign Inspection — they said yes to a free roof inspection; opens the form and signs them up.\n❌ Not Interested — they passed; logs it, the door''s done.\n⏳ Pending (come back) — they want you back another time; set the day and time.\n🏠 BTR appt — they''d rather go retail; book a retail appointment right there.\n🆕 New Roof — they already have a new roof; nothing more to do.\n⚫ Dead / DNK — dead lead or do-not-knock; drops off your list.\n🏠 Not home — nobody answered; stays workable so your next round can hit it again.\nStatus it and it moves you to the next stop. Never status a door you''re not standing at.'),
   ('all', 60, '🏠', 'Not home',
     'When nobody answers the door.',
     'Tap 🏠 Not home. It logs the knock without changing the door''s status, so the door stays workable and shows in the visit history. If they come out later, re-open the pin and re-status it.'),
