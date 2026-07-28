@@ -195,7 +195,9 @@ export const handler = async (event) => {
       if (!/duplicate/i.test(e.message || "")) throw e;
       const existing = await findRecentJobForContact(contactId);
       if (existing) {
-        await jnPut(`jobs/${existing}`, { status: APPT_STATUS, status_name: APPT_STATUS_NAME, date_start: apptSec, ...(owner ? { owners: [{ id: owner }], sales_rep: owner } : {}) });
+        // Existing job → status by NAME only (numeric 531 is workflow-specific and JN
+        // rejects it on a job in another workflow: "Invalid status - 531").
+        await jnPut(`jobs/${existing}`, { status_name: APPT_STATUS_NAME, date_start: apptSec, ...(owner ? { owners: [{ id: owner }], sales_rep: owner } : {}) });
         jobId = existing;
       } else {
         const suffix = phone.replace(/\D/g, "").slice(-4) || String(apptSec).slice(-4);

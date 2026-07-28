@@ -122,7 +122,9 @@ export const handler = async (event) => {
         // origin (e.g. an old Instant Quote lead stays Instant Quote). Only a brand-new
         // job created for a rep-dropped pin gets source "Self Generated" (the create
         // path above). Per Neal: leave everything that already existed the same.
-        await jnPut(`jobs/${existing}`, { status: APPT_STATUS, status_name: APPT_STATUS_NAME, date_start: apptSec, ...(ownerJn ? { owners: [{ id: ownerJn }], sales_rep: ownerJn } : {}) });
+        // Existing job → status by NAME only (numeric 531 is workflow-specific; JN rejects
+        // it on a job in another workflow: "Invalid status - 531").
+        await jnPut(`jobs/${existing}`, { status_name: APPT_STATUS_NAME, date_start: apptSec, ...(ownerJn ? { owners: [{ id: ownerJn }], sales_rep: ownerJn } : {}) });
         jobId = existing;
       } else {
         const suffix = phone.replace(/\D/g, "").slice(-4) || String(apptSec).slice(-4);

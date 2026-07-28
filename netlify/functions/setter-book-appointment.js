@@ -215,7 +215,10 @@ exports.handler = async (event) => {
     }
     // 2. Job — RESET the existing No-Sit deal in place, or create a new retail Lead.
     if (isReset && jobId) {
-      await jnPut(`jobs/${jobId}`, { status: APPT_STATUS, status_name: APPT_STATUS_NAME, sales_rep: repId || undefined, owners: [{ id: owner }], cf_string_8: setterShort, ...harvestFlag });
+      // Existing job → set status by NAME only. The numeric id 531 is workflow-specific;
+      // on a job in another workflow JN rejects it ("Invalid status - 531"). status_name
+      // lets JobNimbus map to that workflow's own "Appointment Scheduled" id.
+      await jnPut(`jobs/${jobId}`, { status_name: APPT_STATUS_NAME, sales_rep: repId || undefined, owners: [{ id: owner }], cf_string_8: setterShort, ...harvestFlag });
     } else {
       const jobPayload = {
         name: `${test ? "[TEST] " : ""}${fullName}${c.address ? ` - ${c.address}` : ""}${spanishTag}`.trim(),
@@ -240,7 +243,7 @@ exports.handler = async (event) => {
         if (!/duplicate/i.test(e.message || "")) throw e;
         const existing = contactId ? await findRecentJobForContact(contactId) : null;
         if (existing) {
-          await jnPut(`jobs/${existing}`, { status: APPT_STATUS, status_name: APPT_STATUS_NAME, sales_rep: repId || undefined, owners: [{ id: owner }], cf_string_8: setterShort, source_name: source, ...harvestFlag });
+          await jnPut(`jobs/${existing}`, { status_name: APPT_STATUS_NAME, sales_rep: repId || undefined, owners: [{ id: owner }], cf_string_8: setterShort, source_name: source, ...harvestFlag });
           jobId = existing;
         } else {
           const suffix = String(c.mobile || "").replace(/\D/g, "").slice(-4) || String(apptMs).slice(-4);
