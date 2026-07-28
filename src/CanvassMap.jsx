@@ -325,7 +325,7 @@ function buildApptPlan(start, nowMs, endMs, appts, pool, endPt) {
     // the after-hours tail. Door-knocking wants a tight, dense block near where you're
     // headed — not doors spread along a long drive (that just makes reps criss-cross).
     const target = toPos || { lat: from.lat, lng: from.lng };
-    const cands = [];
+    const cands = [], beyond = [];
     for (const p of rem) {
       if (used.has(p.id)) continue;
       // Go-backs are ALWAYS secondary to an appointment: never weave a required stop into
@@ -334,14 +334,22 @@ function buildApptPlan(start, nowMs, endMs, appts, pool, endPt) {
       if (p._required) continue;
       const pc = { lat: p.latitude, lng: p.longitude };
       const dTarget = feetBetween(pc, target);
-      if (toPos) {
+      const inZone = toPos
         // On-the-way filter: don't grab doors that would be a big detour from from→appt.
-        if ((feetBetween(from, pc) + dTarget - base) / 5280 > APLAN.MAX_DETOUR_MI) continue;
-      } else if (dTarget / 5280 > APLAN.TAIL_RADIUS_MI) continue;
-      cands.push({ p, key: dTarget });
+        ? (feetBetween(from, pc) + dTarget - base) / 5280 <= APLAN.MAX_DETOUR_MI
+        : dTarget / 5280 <= APLAN.TAIL_RADIUS_MI;
+      (inZone ? cands : beyond).push({ p, key: dTarget });
     }
     cands.sort((a, b) => a.key - b.key); // nearest the destination = tight cluster around it
-    const chosen = cands.slice(0, budget).map((c) => c.p);
+    let picked = cands.slice(0, budget);
+    // If the tight zone is exhausted but there's still time in this window, work OUTWARD to
+    // the nearest doors beyond it (next-closest neighborhood) so a long day actually fills
+    // instead of quitting early. Only kicks in when the zone couldn't satisfy the budget.
+    if (picked.length < budget && beyond.length) {
+      beyond.sort((a, b) => a.key - b.key);
+      picked = picked.concat(beyond.slice(0, budget - picked.length));
+    }
+    const chosen = picked.map((c) => c.p);
     chosen.forEach((p) => used.add(p.id));
     // Order as an efficient PATH from `from` to the destination (appt / home), so the
     // rep starts near where they are and finishes at the anchor — no wandering.
