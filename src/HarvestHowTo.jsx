@@ -54,7 +54,7 @@ export default function HarvestHowTo() {
       </div>
 
       {/* Hands-on: open the practice map (locked to this rep's level) in a new tab. */}
-      <a href={`/?mode=harvest&test=${role === "sr" ? "sr" : "jr"}`} target="_blank" rel="noreferrer"
+      <a href={`/?mode=harvest&demo=1&test=${role === "sr" ? "sr" : "jr"}`} target="_blank" rel="noreferrer"
         style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none",
           background: "#16a34a", color: "#fff", borderRadius: 12, padding: "12px 16px", marginBottom: 16,
           fontSize: 14.5, fontWeight: 800, fontFamily: OSWALD, boxShadow: "0 2px 8px rgba(22,163,74,.3)" }}>

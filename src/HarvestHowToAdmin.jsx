@@ -75,9 +75,9 @@ export default function HarvestHowToAdmin() {
 
       {/* Quick links: open the practice DoorDispatcher (sandbox, nothing saved) + preview the rep page */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 18 }}>
-        <a href="/?mode=harvest&test=jr" target="_blank" rel="noreferrer"
+        <a href="/?mode=harvest&demo=1&test=jr" target="_blank" rel="noreferrer"
           style={{ textDecoration: "none", background: "#16a34a", color: "#fff", fontWeight: 800, fontSize: 13, fontFamily: OSWALD, padding: "9px 14px", borderRadius: 10 }}>🧪 Practice map — Junior ↗</a>
-        <a href="/?mode=harvest&test=sr" target="_blank" rel="noreferrer"
+        <a href="/?mode=harvest&demo=1&test=sr" target="_blank" rel="noreferrer"
           style={{ textDecoration: "none", background: "#0f766e", color: "#fff", fontWeight: 800, fontSize: 13, fontFamily: OSWALD, padding: "9px 14px", borderRadius: 10 }}>🧪 Practice map — Senior ↗</a>
         <a href="/?mode=harvesthowto&role=junior&nav=1" target="_blank" rel="noreferrer"
           style={{ textDecoration: "none", background: "#fff", color: "#334155", fontWeight: 800, fontSize: 13, fontFamily: OSWALD, padding: "9px 14px", borderRadius: 10, border: "2px solid #cbd5e1" }}>👁 Preview the rep page ↗</a>
