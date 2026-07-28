@@ -266,7 +266,7 @@ async function roadOrder(start, stops) {
 // WINDOW_MIN = assumed time AT an appt for the INITIAL plan (60 min). Kept modest so
 // the gap between appts actually fills with doors; the live "Appt done" re-plan uses
 // the REAL clock, so a longer appt just trims the next leg and a shorter one adds.
-const APLAN = { MIN_PER_DOOR: 8, SPEED_MPH: 30, BUFFER_MIN: 10, WINDOW_MIN: 60, MAX_DETOUR_MI: 6, TAIL_CAP: 40, TAIL_RADIUS_MI: 8 };
+const APLAN = { MIN_PER_DOOR: 8, SPEED_MPH: 30, BUFFER_MIN: 10, WINDOW_MIN: 60, MAX_DETOUR_MI: 6, TAIL_CAP: 100, TAIL_RADIUS_MI: 8 };
 function apptAnchor(a) {
   return { id: `appt_${a.jn_job_id}`, latitude: a.lat, longitude: a.lng, name: a.name, address: a.address, status: "appt_anchor", isAppt: true, _appt: { at_ms: a.at_ms, jn_job_id: a.jn_job_id } };
 }
@@ -2494,6 +2494,23 @@ export default function CanvassMap() {
       const R = 0.15;
       const wide = { getNorth: () => Math.max(...lats) + R, getSouth: () => Math.min(...lats) - R, getEast: () => Math.max(...lngs) + R, getWest: () => Math.min(...lngs) - R };
       const loaded = await load(wide);
+      // The wide load is capped (6000) and UNORDERED on a huge table, so it can miss the
+      // doors CLOSEST to the appointments and route the rep far away. Guarantee each
+      // appointment's + the start's immediate vicinity is in the pool: pull a tight box
+      // (~1.5 mi) around every anchor and merge. (Reps have a locked status set; skip for
+      // office "show all", which loads broadly already.)
+      const poolStatuses = [...sel].filter(Boolean);
+      if (poolStatuses.length) {
+        const seenIds = new Set(loaded.map((p) => p.id));
+        const rr = 0.022; // ~1.5 mi
+        for (const c of [start, ...appts.map((a) => ({ lat: a.lat, lng: a.lng }))]) {
+          const near = await sbFetchAll(() => supabase.from("canvass_prospects").select(PIN_FIELDS_LITE)
+            .not("latitude", "is", null).in("status", poolStatuses)
+            .gte("latitude", c.lat - rr).lte("latitude", c.lat + rr)
+            .gte("longitude", c.lng - rr).lte("longitude", c.lng + rr), 4000).catch(() => []);
+          for (const p of near) if (!seenIds.has(p.id)) { loaded.push(p); seenIds.add(p.id); }
+        }
+      }
       const optional = (loaded.length ? loaded : (shownRef.current || [])).filter((p) => inFilter(p.status) && typeof p.latitude === "number"
         && (!visKeys || visKeys.has(p.status)) && !nonRoutableStatuses.has(p.status) && !workedTodayET(p)
         && (!assignedIds || assignedIds.has(p.id))); // Enhanced Planned Day: stay within the assigned section
