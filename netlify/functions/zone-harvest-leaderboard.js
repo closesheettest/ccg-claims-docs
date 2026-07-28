@@ -36,21 +36,19 @@ function fieldByLabel(job, label) {
   for (const [k, v] of Object.entries(job)) if (k.trim().replace(/^\*|\*$/g, "").trim() === label) return v;
   return undefined;
 }
-// A harvested appointment belongs to a period if any DURABLE job date — the
-// appointment itself (date_start) or when the harvest job was created
-// (date_created) — falls in the window. Both are unix seconds on the job and
-// never move when the appt task is completed or the deal advances to Sit/Sold,
-// so once credited a harvested appointment stays credited. (date_start shifts
-// only on a genuine reschedule, which correctly re-dates the appointment.)
+// A harvested appointment is credited to the period in which it was SET (booked) —
+// NOT when the appointment itself is scheduled. So a deal booked this month whose
+// appointment is next month still counts THIS month. We use the job's date_created
+// (when the harvest job was created = when the appt was set); date_start (the appt
+// date) is intentionally NOT used for period bucketing — it would drop a set-this-
+// month / appt-next-month deal out of this month (e.g. 1007 Grant, set in July,
+// appt 8/3). date_created is durable — it never moves as the deal advances.
 function harvestInWindow(job, startSec, endSec) {
-  for (const v of [job.date_start, job.date_created]) {
-    const n = Number(v);
-    if (Number.isFinite(n) && n >= startSec && n <= endSec) return true;
-  }
-  return false;
+  const n = Number(job.date_created);
+  return Number.isFinite(n) && n >= startSec && n <= endSec;
 }
 function harvestWhen(job) {
-  const n = Number(job.date_start) || Number(job.date_created) || 0;
+  const n = Number(job.date_created) || 0;
   return n ? new Date(n * 1000).toISOString() : null;
 }
 // The door a harvested job represents. JN job names embed the street address
