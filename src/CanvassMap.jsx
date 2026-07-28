@@ -328,6 +328,10 @@ function buildApptPlan(start, nowMs, endMs, appts, pool, endPt) {
     const cands = [];
     for (const p of rem) {
       if (used.has(p.id)) continue;
+      // Go-backs are ALWAYS secondary to an appointment: never weave a required stop into
+      // the fill (which can run before an appt). They're placed only by the forced-insert
+      // below, which is pinned to at/after the last appointment anchor.
+      if (p._required) continue;
       const pc = { lat: p.latitude, lng: p.longitude };
       const dTarget = feetBetween(pc, target);
       if (toPos) {
@@ -1768,6 +1772,10 @@ export default function CanvassMap() {
   // Drive the visit-action endpoints with the visit token (same call shape the
   // Rep Visit Hub uses, so the shared panels behave identically).
   async function visitApi(fn, payload) {
+    // Practice mode: never hit real endpoints (no token, nothing to save). Return a benign
+    // empty result so the shared go-back panels render their UI (calendars/options show)
+    // instead of hanging — reps can practice the flow, and any submit is a no-op.
+    if (demoMode || testMode) return { ok: true, demo: true, slots: [], blocks: [], events: [], date_blocks: [] };
     const r = await fetch(`/.netlify/functions/${fn}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: visitToken, ...payload }) });
     const o = await r.json().catch(() => ({}));
     if (!r.ok || !o.ok) { const err = new Error(o.error || "Request failed"); err.body = o; throw err; }
@@ -3910,8 +3918,8 @@ export default function CanvassMap() {
                       <div style={{ fontSize: 12.5, fontWeight: 800, color: (GOBACK_META[stop._visit.bucket] || GOBACK_META.damage).color, marginBottom: 8 }}>
                         {(GOBACK_META[stop._visit.bucket] || GOBACK_META.damage).emoji} {(GOBACK_META[stop._visit.bucket] || GOBACK_META.damage).label} go-back — {(GOBACK_META[stop._visit.bucket] || GOBACK_META.damage).sub.toLowerCase()}
                       </div>
-                      {visitToken
-                        ? <VisitActions type={stop._visit.bucket} deal={stop._visit} rep={{ name: me?.name || "", jobnimbus_id: me?.jn_id || "", email: me?.email || "" }} api={visitApi} />
+                      {(visitToken || testMode)
+                        ? <VisitActions type={stop._visit.bucket} deal={stop._visit} rep={{ name: me?.name || "", jobnimbus_id: me?.jn_id || "practice", email: me?.email || "" }} api={visitApi} />
                         : <div style={{ fontSize: 13, color: "#94a3b8", textAlign: "center", padding: "8px 0" }}>Loading…</div>}
                       <button type="button" onClick={() => { loadVisits(); advanceStop(); }}
                         style={{ marginTop: 12, width: "100%", background: "#0f172a", color: "#fff", border: "none", borderRadius: 11, padding: "11px", fontSize: 13.5, fontWeight: 800, cursor: "pointer" }}>Next stop →</button>
@@ -4550,8 +4558,8 @@ export default function CanvassMap() {
 
             {/* The bucket's real action, shared verbatim with the Rep Visit Hub. */}
             <div style={{ marginTop: 14 }}>
-              {visitToken
-                ? <VisitActions type={v.bucket} deal={v} rep={{ name: me?.name || "", jobnimbus_id: me?.jn_id || "", email: me?.email || "" }} api={visitApi} />
+              {(visitToken || testMode)
+                ? <VisitActions type={v.bucket} deal={v} rep={{ name: me?.name || "", jobnimbus_id: me?.jn_id || "practice", email: me?.email || "" }} api={visitApi} />
                 : <div style={{ fontSize: 13, color: "#94a3b8", textAlign: "center", padding: "10px 0" }}>Loading…</div>}
             </div>
 
