@@ -1115,11 +1115,10 @@ export default function CanvassMap() {
     // back to true to re-enable gating (e.g. when selling it).
     if (!auth.rt || !TRAINING_GATE_ON) { setRepTrainingOk(true); return; }
     if (!me) return; // wait until we know the rep's level (which track to check)
-    // For now ONLY trainees are gated (harvest_level='trainee') — the active
-    // salesforce is never blocked. Everyone else passes straight through.
-    if (!me.trainee) { setRepTrainingOk(true); return; }
-    // William (the field trainer) rides along with trainees — he's exempt from the
-    // tool-training gate so it never blocks him on the map.
+    // EVERY rep (jr + sr) must pass before their map unlocks. Only exempt:
+    // regional managers / office / trainers on a view-all ('admin' level) link,
+    // and William (the field trainer who rides along with trainees).
+    if (me.level === "admin") { setRepTrainingOk(true); return; }
     if (/\bwilliam\b/i.test(String(me.name || ""))) { setRepTrainingOk(true); return; }
     let live = true;
     supabase.from("harvest_training_results").select("passed")
