@@ -24,6 +24,7 @@ import ForemanLinks from "./ForemanLinks";
 import HarvestUpload from "./HarvestUpload";
 import HarvestLinks from "./HarvestLinks";
 import HarvestReport from "./HarvestReport";
+import MasterInspectionReports from "./MasterInspectionReports";
 import HarvestHowTo from "./HarvestHowTo";
 import HarvestHowToAdmin from "./HarvestHowToAdmin";
 import HarvestTrainingAdmin from "./HarvestTrainingAdmin";
@@ -4409,6 +4410,7 @@ const MANAGER_TABS = [
   { key: "signing",     emoji: "🖊", label: "Signing & Sales" },
   { key: "harvest",     emoji: "🧭", label: "DoorDispatcher" },
   { key: "inspections", emoji: "🔍", label: "Inspections" },
+  { key: "master_reports", emoji: "📑", label: "Master Reports" },
   { key: "pa",          emoji: "🤝", label: "Public Adjuster" },
   { key: "settings",    emoji: "⚙️", label: "Settings" },
 ];
@@ -4454,6 +4456,8 @@ const MANAGER_TILES = [
   { group: "pa", key: "dialer", emoji: "📞", label: "Power Dialer", desc: "Damage-lead call queue: the dialer link, what's left to dial, and a report of who's been called + each outcome." },
   { group: "inspections", key: "jnreport", emoji: "📄", label: "JN Inspection Report", desc: "Generate insp report PDF with photos and upload to JN" },
   { group: "inspections", key: "bulkreport", emoji: "📦", label: "Bulk Inspection Reports", desc: "Run insp reports across every JN job with a chosen status" },
+  // ── Master Inspection Reports ──
+  { group: "master_reports", key: "master_inspection_report", emoji: "📑", label: "Master Inspection Reports", desc: "The whole free-roof-inspection pipeline on one page: still-to-inspect, inspected-but-no-go-back-status, retail breakdown with %s, damage with/without PA appointments, and every PA appointment that's passed (outcome, PA/company, filed date) — plus missed PA appointments.", href: "/?mode=masterinspreport" },
   // ── Public Adjuster ──
   { group: "pa", key: "team_roles", emoji: "🧑‍🤝‍🧑", label: "Team Roles", desc: "One list of everyone — check Inspector and/or PA to set each person's role. Start here when setting someone up." },
   { group: "pa", key: "pamgmt", emoji: "🔌", label: "PA Management", desc: "Turn the in-app PA paperwork (LoR + PA Authorization signing) on or off." },
@@ -9514,6 +9518,10 @@ export default function App() {
     // ?mode=harvestreport — office rep-activity report (visits, rounds, outcomes).
     if (portalMode === "harvestreport") {
       return <HarvestReport />;
+    }
+    // ?mode=masterinspreport — the whole inspection pipeline on one page.
+    if (portalMode === "masterinspreport") {
+      return <MasterInspectionReports />;
     }
     // ?mode=harvesthowto — collapsible scenario playbook ("a house has damage and
     // isn't a pin → here's what you do"). Reps reach it from the ❓ on their map;
