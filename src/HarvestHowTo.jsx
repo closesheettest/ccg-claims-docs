@@ -152,6 +152,20 @@ function ToolPage({ tool, videoUrl, endSec, nextTool, onBack, onNext }) {
         </div>
       )}
 
+      {/* Next sits RIGHT under the video — no scrolling past the steps to find it. */}
+      <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+        <button type="button" onClick={onBack}
+          style={{ flex: nextTool ? "0 0 auto" : 1, background: "#fff", color: "#334155", border: "2px solid #cbd5e1", borderRadius: 12, padding: "13px 16px", fontSize: 14.5, fontWeight: 800, fontFamily: OSWALD, cursor: "pointer" }}>
+          ‹ All tools
+        </button>
+        {nextTool && (
+          <button type="button" onClick={onNext}
+            style={{ flex: 1, background: "#16a34a", color: "#fff", border: "none", borderRadius: 12, padding: "13px 16px", fontSize: 14.5, fontWeight: 800, fontFamily: OSWALD, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            Next: {nextTool.title} ›
+          </button>
+        )}
+      </div>
+
       {tool.when_text && (
         <div style={{ marginTop: 18 }}>
           <div style={{ fontSize: 11.5, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em" }}>When to use it</div>
@@ -164,19 +178,6 @@ function ToolPage({ tool, videoUrl, endSec, nextTool, onBack, onNext }) {
           <div style={{ fontSize: 15, color: "#334155", lineHeight: 1.6, marginTop: 4, whiteSpace: "pre-wrap" }}>{tool.how_text}</div>
         </div>
       )}
-
-      <div style={{ display: "flex", gap: 10, marginTop: 26 }}>
-        <button type="button" onClick={onBack}
-          style={{ flex: nextTool ? "0 0 auto" : 1, background: "#fff", color: "#334155", border: "2px solid #cbd5e1", borderRadius: 12, padding: "13px 16px", fontSize: 14.5, fontWeight: 800, fontFamily: OSWALD, cursor: "pointer" }}>
-          ‹ All tools
-        </button>
-        {nextTool && (
-          <button type="button" onClick={onNext}
-            style={{ flex: 1, background: "#16a34a", color: "#fff", border: "none", borderRadius: 12, padding: "13px 16px", fontSize: 14.5, fontWeight: 800, fontFamily: OSWALD, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            Next: {nextTool.title} ›
-          </button>
-        )}
-      </div>
     </div>
   );
 }
