@@ -11,7 +11,7 @@ const FONT = "'Nunito', system-ui, sans-serif";
 const OSWALD = "'Oswald', sans-serif";
 const PASS_PCT = 80;
 
-export default function HarvestTraining({ track, userType, userKey, name, toolLabel = "the tool", onPass, preview = false }) {
+export default function HarvestTraining({ track, userType, userKey, name, toolLabel = "the tool", onPass, preview = false, startAtTest = false }) {
   const [sections, setSections] = useState(null);
   const [questions, setQuestions] = useState([]);
   const [video, setVideo] = useState(null);      // { video_url, video_title } | null
@@ -37,8 +37,10 @@ export default function HarvestTraining({ track, userType, userKey, name, toolLa
       // (In preview we still show whatever's authored so the office can see it.)
       if (!qs.length && !preview) { onPass && onPass(); return; }
       setSections(secs); setQuestions(qs); setVideo(vid);
-      // Video first: watch it, then choose test or study guide. No video → straight to lessons.
-      if (vid) setStage("watch");
+      // The certification landing already handled the videos → jump straight to the test.
+      // Otherwise: video first (watch → test/study), or straight to lessons if no video.
+      if (startAtTest) setStage("test");
+      else if (vid) setStage("watch");
     })();
     // eslint-disable-next-line
   }, [track]);

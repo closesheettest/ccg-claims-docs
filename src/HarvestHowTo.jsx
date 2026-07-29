@@ -22,9 +22,16 @@ export default function HarvestHowTo() {
   const showNav = params.get("nav") === "1";
   const urlRole = (params.get("role") || "").toLowerCase(); // rep's level, passed from the map
   const [role, setRole] = useState(urlRole === "senior" || urlRole === "sr" ? "sr" : urlRole === "junior" || urlRole === "jr" ? "jr" : "everything");
+  const trainKey = params.get("train") || ""; // rep's training token — present in the certification flow
   const [tools, setTools] = useState(null);
   const [videoUrl, setVideoUrl] = useState("");
   const [openId, setOpenId] = useState(null); // the tool whose instructional page is open
+
+  // Mark a tool WATCHED for this rep when they open it (training-gate progress).
+  const recordWatched = (toolId) => {
+    if (!trainKey || !toolId) return;
+    supabase.from("harvest_howto_watched").upsert({ user_key: trainKey, tool_id: toolId }, { onConflict: "user_key,tool_id" }).then(() => {}, () => {});
+  };
 
   useEffect(() => {
     (async () => {
@@ -80,7 +87,7 @@ export default function HarvestHowTo() {
           {list.map((s) => {
             const hasClip = videoUrl && s.video_start != null;
             return (
-              <button key={s.id} type="button" onClick={() => { setOpenId(s.id); try { window.scrollTo(0, 0); } catch { /* ignore */ } }}
+              <button key={s.id} type="button" onClick={() => { setOpenId(s.id); recordWatched(s.id); try { window.scrollTo(0, 0); } catch { /* ignore */ } }}
                 style={{ textAlign: "left", width: "100%", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14,
                   padding: "14px 16px", display: "flex", alignItems: "center", gap: 12, cursor: "pointer", WebkitTapHighlightColor: "transparent" }}>
                 <span style={{ fontSize: 24, flexShrink: 0, width: 30, textAlign: "center" }}>{s.icon}</span>
