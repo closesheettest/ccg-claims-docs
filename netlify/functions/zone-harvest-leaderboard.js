@@ -101,7 +101,7 @@ export const handler = async (event) => {
       `&created_at=gte.${encodeURIComponent(start.toISOString())}&created_at=lte.${encodeURIComponent(end.toISOString())}` +
       `&select=rep_name,pin_id,from_status,created_at&order=created_at.asc&limit=20000`
     );
-    const zoneOf = await fetchZoneResolver();
+    const { zoneOf, isJunior } = await fetchZoneResolver();
 
     // zone → { count, byRep:{ name → count } }. Dedupe by pin so the server+client
     // rows for one booking (and a same-period re-book of the same house) count once.
@@ -114,6 +114,7 @@ export const handler = async (event) => {
     const mapDealRefs = []; // { zone, rep, pin_id } — labels (addresses) filled in below
     for (const a of acts) {
       if (a.pin_id) { if (seenPins.has(a.pin_id)) continue; seenPins.add(a.pin_id); }
+      if (isJunior(a.rep_name)) continue;   // JR = BTR pins only, never harvest
       const zone = zoneOf(a.rep_name);
       if (!zone) { unattributed++; continue; }
       const z = agg[zone] || (agg[zone] = { count: 0, byRep: {}, deals: [] });
@@ -225,6 +226,7 @@ export const handler = async (event) => {
             payloadDebugJobs.push({ name: job.name, rep: job.sales_rep_name || null, status: job.status_name, when: harvestWhen(job) });
           }
           const rep = (job.sales_rep_name || "").trim();
+          if (isJunior(rep)) continue;   // JR harvest credit is a mis-flagged BTR/inspection deal — never count it
           const zone = zoneOf(rep);
           if (!zone) { unattributed++; continue; }
           const z = agg[zone] || (agg[zone] = { count: 0, byRep: {}, deals: [] });
@@ -263,12 +265,18 @@ async function sbGet(path) { const r = await fetch(`${SB_URL}/rest/v1/${path}`, 
 
 // Zone resolver — TMS rep-zones keyed by normalized name (harvest activity has
 // only the name). Same normalization as zone-sales-leaderboard.js.
+// Returns { zoneOf, isJunior }: JR reps only work inspection-needed + IQ-not-
+// interested pins (Back-to-Retail), which are NEVER harvest — so they're
+// excluded from this board entirely, even if a manager mis-flags one of their
+// inspection deals "Sales Rep Harvested = Yes" in JobNimbus.
 async function fetchZoneResolver() {
   let reps = [];
   try { const res = await fetch(TMS_REP_ZONES_URL); if (res.ok) reps = (await res.json()).reps || []; } catch { /* best-effort */ }
   const byName = {};
-  for (const r of reps) if (r.name) byName[normalizeName(r.name)] = r.zone;
-  return (name) => byName[normalizeName(name)] || null;
+  for (const r of reps) if (r.name) byName[normalizeName(r.name)] = { zone: r.zone, level: String(r.rep_level || "").toLowerCase() };
+  const zoneOf = (name) => byName[normalizeName(name)]?.zone || null;
+  const isJunior = (name) => byName[normalizeName(name)]?.level === "junior";
+  return { zoneOf, isJunior };
 }
 function normalizeName(s) {
   return String(s || "").toLowerCase()
