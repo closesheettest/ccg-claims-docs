@@ -3,8 +3,10 @@
 -- tool list (each tool marks watched when opened) → progress → at 100% the 80% test unlocks.
 -- Run once in the CCG Supabase SQL editor. Safe to re-run.
 
--- 1) A "Why" video URL on the shared How-To config (the "How" video is already video_url).
-alter table public.harvest_howto_config add column if not exists why_video_url text;
+-- 1) "Why" video URLs on the shared How-To config — one per level (JR / SR); the pitch
+--    differs by role. (The "How" tool video is shared — already video_url.)
+alter table public.harvest_howto_config add column if not exists why_video_url_jr text;
+alter table public.harvest_howto_config add column if not exists why_video_url_sr text;
 
 -- 2) Per-rep record of which How-To tools they've OPENED (watched). One row per (rep, tool).
 create table if not exists public.harvest_howto_watched (

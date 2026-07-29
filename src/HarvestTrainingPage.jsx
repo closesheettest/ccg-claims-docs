@@ -46,10 +46,11 @@ export default function HarvestTrainingPage() {
   const loadProgress = useCallback(async () => {
     if (!track || !userKey) return;
     const [cfg, toolsRes] = await Promise.all([
-      supabase.from("harvest_howto_config").select("why_video_url").eq("id", "main").maybeSingle(),
+      supabase.from("harvest_howto_config").select("why_video_url_jr,why_video_url_sr").eq("id", "main").maybeSingle(),
       supabase.from("harvest_howto_tools").select("id,role").eq("active", true),
     ]);
-    setWhyUrl(cfg.data?.why_video_url || "");
+    // Junior gets the JR "why" pitch; senior + manager get the SR one.
+    setWhyUrl((track === "junior" ? cfg.data?.why_video_url_jr : cfg.data?.why_video_url_sr) || "");
     const visible = (toolsRes.data || []).filter((t) => roleKey === "everything" || t.role === "all" || t.role === roleKey);
     const visibleIds = new Set(visible.map((t) => t.id));
     setTotal(visible.length);

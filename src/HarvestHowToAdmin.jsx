@@ -15,26 +15,28 @@ const mmss = (sec) => { const n = Number(sec); if (!Number.isFinite(n) || n < 0)
 export default function HarvestHowToAdmin() {
   const [tools, setTools] = useState(null);
   const [videoUrl, setVideoUrl] = useState("");
-  const [whyUrl, setWhyUrl] = useState("");
+  const [whyJr, setWhyJr] = useState("");
+  const [whySr, setWhySr] = useState("");
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState("");
 
   const load = async () => {
     const [t, c] = await Promise.all([
       supabase.from("harvest_howto_tools").select("*").order("sort"),
-      supabase.from("harvest_howto_config").select("video_url,why_video_url").eq("id", "main").maybeSingle(),
+      supabase.from("harvest_howto_config").select("video_url,why_video_url_jr,why_video_url_sr").eq("id", "main").maybeSingle(),
     ]);
     if (t.error) { setMsg({ err: t.error.message.includes("harvest_howto") ? "Run sql/harvest_howto_library.sql in Supabase first." : t.error.message }); setTools([]); return; }
     setTools(t.data || []);
     setVideoUrl(c.data?.video_url || "");
-    setWhyUrl(c.data?.why_video_url || "");
+    setWhyJr(c.data?.why_video_url_jr || "");
+    setWhySr(c.data?.why_video_url_sr || "");
   };
   useEffect(() => { load(); }, []);
   const flash = (m) => { setMsg(m); if (m?.ok) setTimeout(() => setMsg(null), 2500); };
 
   const saveVideo = async () => {
     setBusy("vid");
-    const { error } = await supabase.from("harvest_howto_config").upsert({ id: "main", video_url: videoUrl.trim() || null, why_video_url: whyUrl.trim() || null, updated_at: new Date().toISOString() }, { onConflict: "id" });
+    const { error } = await supabase.from("harvest_howto_config").upsert({ id: "main", video_url: videoUrl.trim() || null, why_video_url_jr: whyJr.trim() || null, why_video_url_sr: whySr.trim() || null, updated_at: new Date().toISOString() }, { onConflict: "id" });
     setBusy("");
     flash(error ? { err: error.message } : { ok: "Video saved." });
   };
@@ -90,8 +92,10 @@ export default function HarvestHowToAdmin() {
         <div style={{ fontSize: 15, fontWeight: 800, fontFamily: OSWALD, marginBottom: 2 }}>🎬 Training videos</div>
         <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 12 }}>YouTube / Vimeo / .mp4 links. Reps watch these on the certification page (<code>?mode=harvesttraining</code>).</div>
 
-        <label style={{ fontSize: 12.5, fontWeight: 800, color: "#334155", display: "block", marginBottom: 4 }}>1 · “Why you want to use DoorDispatcher”</label>
-        <input value={whyUrl} onChange={(e) => setWhyUrl(e.target.value)} placeholder="Paste the WHY video link"
+        <label style={{ fontSize: 12.5, fontWeight: 800, color: "#334155", display: "block", marginBottom: 4 }}>1 · “Why you want to use DoorDispatcher” — one per level</label>
+        <input value={whyJr} onChange={(e) => setWhyJr(e.target.value)} placeholder="Paste the WHY video link — 🚪 Junior"
+          style={{ width: "100%", boxSizing: "border-box", fontSize: 13.5, padding: "9px 11px", borderRadius: 8, border: "1px solid #cbd5e1", marginBottom: 6 }} />
+        <input value={whySr} onChange={(e) => setWhySr(e.target.value)} placeholder="Paste the WHY video link — 🏅 Senior"
           style={{ width: "100%", boxSizing: "border-box", fontSize: 13.5, padding: "9px 11px", borderRadius: 8, border: "1px solid #cbd5e1", marginBottom: 12 }} />
 
         <label style={{ fontSize: 12.5, fontWeight: 800, color: "#334155", display: "block", marginBottom: 4 }}>2 · “How to use DoorDispatcher” (the tool video)</label>
