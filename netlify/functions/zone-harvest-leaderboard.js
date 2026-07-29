@@ -175,22 +175,37 @@ export const handler = async (event) => {
           for (const j of rows) candidates.set(j.jnid || j.id, j);
           if (rows.length < 100) break;
         }
-        const taskFilter = encodeURIComponent(JSON.stringify({ must: [{ range: { date_created: { gte: startSec, lte: endSec } } }] }));
+        // Filter the scan to APPOINTMENT task types server-side. Without this, a MONTH
+        // window buries appt tasks under thousands of other tasks (notes/reminders), so a
+        // fixed page budget only samples a fraction of appt tasks — and the leaderboard
+        // undercounts the month (month < week). record_type [4,12,17] = Initial / Reset /
+        // Appointment. 60 pages (6,000 appt tasks) covers any real window.
+        const APPT_RTS = [4, 12, 17];
+        const taskFilter = encodeURIComponent(JSON.stringify({ must: [
+          { range: { date_created: { gte: startSec, lte: endSec } } },
+          { terms: { record_type: APPT_RTS } },
+        ] }));
         const taskJobIds = new Set();
-        for (let page = 0; page < 30; page++) {
+        for (let page = 0; page < 60; page++) {
           const r = await fetch(`${JN_BASE}/tasks?size=100&from=${page * 100}&filter=${taskFilter}`, { headers: jnHeaders });
           if (!r.ok) break;
           const d = await r.json().catch(() => ({}));
           const rows = d.results || d.tasks || [];
           for (const t of rows) {
-            if (!APPT_TASK_TYPES.has(t.record_type_name)) continue;
+            // Belt + suspenders: if JN ignores the server-side type filter, still keep only appt tasks.
+            if (!APPT_TASK_TYPES.has(t.record_type_name) && !APPT_RTS.includes(Number(t.record_type))) continue;
             for (const rel of (t.related || [])) if (rel.type === "job" && rel.id) taskJobIds.add(rel.id);
           }
           if (rows.length < 100) break;
         }
-        let individual = 0;
+        // Jobs whose appt task was set in-window but that AREN'T in the Harvesting-source
+        // pull (e.g. an IQ/RepCard-origin job booked in JN) — fetch them individually so
+        // they can be credited. Bounded by a time budget so we never trip the function
+        // timeout, but far more generous than the old flat 60 (which under-counted a month).
+        let individual = 0; const t0 = Date.now();
         for (const id of taskJobIds) {
-          if (candidates.has(id) || individual >= 60) continue;
+          if (candidates.has(id)) continue;
+          if (individual >= 250 || Date.now() - t0 > 6000) break;
           individual++;
           try { const r = await fetch(`${JN_BASE}/jobs/${id}`, { headers: jnHeaders }); if (r.ok) { const job = await r.json().catch(() => null); if (job) candidates.set(id, job); } } catch { /* skip */ }
         }
