@@ -13,6 +13,7 @@ import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 import { supabase } from "./lib/supabase";
 import VisitActions from "./VisitActions";
 import HarvestTraining from "./HarvestTraining";
+import HarvestTrainingPage from "./HarvestTrainingPage";
 import { AddressAutocomplete } from "./lib/AddressAutocomplete";
 
 // Fallback used only if the harvest_pin_types config table can't be reached.
@@ -433,7 +434,7 @@ function fmtTime(iso) { try { return new Date(iso).toLocaleTimeString("en-US", {
 // Master switch for the rep tool-training gate. false = no rep is blocked (training approach
 // is being reworked; the video/lessons/test system is all still there). Flip to true to
 // re-enable the 80% gate (e.g. when selling the product).
-const TRAINING_GATE_ON = false;
+const TRAINING_GATE_ON = true;
 const PIN_FIELDS_LITE = "id,name,address,city,state,zip,phone,email,latitude,longitude,status,jn_job_id,list_name,status_updated_at,status_by,route_claim_by,route_claim_by_jn,route_claim_at,callback_date";
 // A Clover Leaf grid a rep is actively routing is soft-locked to them; the
 // claim (route_claim_*) goes stale this many ms after the last heartbeat — i.e.
@@ -1114,6 +1115,9 @@ export default function CanvassMap() {
     // back to true to re-enable gating (e.g. when selling it).
     if (!auth.rt || !TRAINING_GATE_ON) { setRepTrainingOk(true); return; }
     if (!me) return; // wait until we know the rep's level (which track to check)
+    // For now ONLY trainees are gated (harvest_level='trainee') — the active
+    // salesforce is never blocked. Everyone else passes straight through.
+    if (!me.trainee) { setRepTrainingOk(true); return; }
     // William (the field trainer) rides along with trainees — he's exempt from the
     // tool-training gate so it never blocks him on the map.
     if (/\bwilliam\b/i.test(String(me.name || ""))) { setRepTrainingOk(true); return; }
@@ -3220,7 +3224,9 @@ export default function CanvassMap() {
   // Rep hasn't passed the tool training yet → send them through it first. (Skips
   // itself if no training content is authored, so it never locks reps out.)
   if (auth.rt && !authError && repTrainingOk === false && !isAdminLink) { // admin link bypasses the gate for spot-checks
-    return <HarvestTraining track={repTrack} userType={repTrack} userKey={auth.rt} name={me?.name} toolLabel="your DoorDispatcher" onPass={() => setRepTrainingOk(true)} />;
+    // Full instructional flow: "Why" video → How-To tools (watch each) → 100% test.
+    // On certification it flips the gate so they land straight on their map.
+    return <HarvestTrainingPage onDone={() => setRepTrainingOk(true)} />;
   }
 
   // Bad/missing link → don't show any pins, just tell them what to do.

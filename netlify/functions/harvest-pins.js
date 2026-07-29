@@ -47,7 +47,7 @@ export const handler = async (event) => {
   const rt = (p.rt || "").trim();
   const adminTok = (p.admin || "").trim();
 
-  let level = null, repName = null, repJn = null, repEmail = null;
+  let level = null, repName = null, repJn = null, repEmail = null, isTrainee = false;
   try {
     if (adminTok) {
       const s = await sbGet(`app_settings?key=eq.harvest_admin_token&select=value&limit=1`);
@@ -69,6 +69,7 @@ export const handler = async (event) => {
           // Trainees get JUNIOR pin visibility (insp + iq_ni — what they're
           // training on); the 'trainee' tag itself is just for the roster.
           level = ov === "trainee" ? "junior" : ov;
+          if (ov === "trainee") isTrainee = true;
           if (ov === "admin") repName = reps[0].name || "Office";
           repJn = reps[0].jobnimbus_id || null;
         } else {
@@ -94,7 +95,7 @@ export const handler = async (event) => {
   // authonly=1 → the map reads pins DIRECTLY from Supabase (no 6MB function
   // payload limit); we only resolve the rep's level + pin types here.
   if (/^(1|true|yes)$/i.test((p.authonly || "").trim())) {
-    return json(200, { ok: true, rep: { name: repName, level, jn_id: repJn, email: repEmail }, pin_types: types });
+    return json(200, { ok: true, rep: { name: repName, level, jn_id: repJn, email: repEmail, trainee: isTrainee }, pin_types: types });
   }
 
   const visible = (types || [])
@@ -133,7 +134,7 @@ export const handler = async (event) => {
     1000, CAP,
   ).catch(() => []);
 
-  return json(200, { ok: true, rep: { name: repName, level, jn_id: repJn, email: repEmail }, pins, pin_types: types, installs, capped: pinsCapped || installs.length >= CAP, viewport: hasBox });
+  return json(200, { ok: true, rep: { name: repName, level, jn_id: repJn, email: repEmail, trainee: isTrainee }, pins, pin_types: types, installs, capped: pinsCapped || installs.length >= CAP, viewport: hasBox });
 };
 
 function json(statusCode, obj) {

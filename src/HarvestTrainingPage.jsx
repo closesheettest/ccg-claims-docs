@@ -12,7 +12,7 @@ import { supabase } from "./lib/supabase";
 const FONT = "'Nunito', system-ui, sans-serif";
 const OSWALD = "'Oswald', sans-serif";
 
-export default function HarvestTrainingPage() {
+export default function HarvestTrainingPage({ onDone } = {}) {
   const { userType, userKey, isManager, previewRole } = useMemo(() => {
     try {
       const q = new URLSearchParams(window.location.search);
@@ -77,7 +77,7 @@ export default function HarvestTrainingPage() {
   if (done) return <Splash emoji="🎉" title="You're certified!" msg="Head back to your dashboard — your DoorDispatcher tools are unlocked now." good />;
 
   if (stage === "test") {
-    return <HarvestTraining track={track} userType={userType} userKey={userKey} startAtTest toolLabel="your DoorDispatcher tools" onPass={() => setDone(true)} />;
+    return <HarvestTraining track={track} userType={userType} userKey={userKey} startAtTest toolLabel="your DoorDispatcher tools" onPass={() => { setDone(true); onDone && onDone(); }} />;
   }
 
   const allWatched = total > 0 && watched >= total;

@@ -11,7 +11,7 @@ import HarvestTraining from "./HarvestTraining";
 const FONT = "'Nunito', system-ui, sans-serif";
 const OSWALD = "'Oswald', sans-serif";
 const TRACKS = [{ key: "manager", label: "🧭 Regional Manager" }, { key: "senior", label: "🥇 Senior Rep" }, { key: "junior", label: "🚪 Junior Rep" }];
-const PASS_PCT = 80;
+const PASS_PCT = 100;
 
 export default function HarvestTrainingAdmin() {
   const [track, setTrack] = useState("manager");
