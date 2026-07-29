@@ -15,6 +15,23 @@
 const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 const sbH = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
+const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1";
+
+// Rep → zone map (same normalization as the leaderboards) so non-PA sections can
+// group by team/zone then rep.
+function normalizeName(s) {
+  return String(s || "").toLowerCase()
+    .replace(/["“”]([^"“”]*)["“”]/g, "").replace(/'([^']*)'/g, "").replace(/\(([^)]*)\)/g, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+}
+async function fetchZoneByRep() {
+  const map = {};
+  try {
+    const res = await fetch(TMS_REP_ZONES_URL);
+    if (res.ok) { const j = await res.json(); for (const r of (j.reps || [])) if (r.name && r.zone) map[normalizeName(r.name)] = r.zone; }
+  } catch { /* best-effort — reps with no zone bucket under "Unassigned" */ }
+  return map;
+}
 
 // Range-paginate a PostgREST table (max-rows caps a single response at 1000).
 async function sbGetAll(pathQuery, pageSize = 1000) {
@@ -59,6 +76,7 @@ export const handler = async (event) => {
   if (!SB_URL || !SB_KEY) return cors(500, JSON.stringify({ ok: false, error: "Missing Supabase env" }));
   try {
     const nowMs = Date.now();
+    const zoneByRep = await fetchZoneByRep();
     const [inspections, appts, pas, companies] = await Promise.all([
       sbGetAll("inspections?select=id,jn_job_id,address,city,county,client_name,mobile,email,sales_rep_name,original_sales_rep_name,signed_at,docs_signed,date,inspection_date,inspector_name,result,inspection_result,jn_status,retail_outcome,retail_outcome_at,result_task_jnid,result_task_at,cancelled_at,lost_reason,pa_id,pa_company_id,pa_status,pa_signed_at,pa_stage,pa_fields"),
       sbGetAll("pa_appointments?select=id,pa_id,pa_company_id,inspection_id,homeowner_name,homeowner_phone,address,start_at,end_at,status,booked_by,notes,created_at"),
@@ -77,7 +95,8 @@ export const handler = async (event) => {
 
     // Live records only (drop cancelled/lost inspections from the pipeline views).
     const live = inspections.filter((i) => !i.cancelled_at && i.result !== "lost" && String(i.jn_status || "").toLowerCase() !== "lost");
-    const card = (i) => ({ id: i.id, jn_job_id: i.jn_job_id, address: i.address, city: i.city, county: i.county, name: person(i), rep: rep(i), phone: i.mobile, email: i.email, status: i.jn_status || i.inspection_result || null });
+    const zoneOf = (r) => (r && zoneByRep[normalizeName(r)]) || "Unassigned";
+    const card = (i) => ({ id: i.id, jn_job_id: i.jn_job_id, address: i.address, city: i.city, county: i.county, name: person(i), rep: rep(i), zone: zoneOf(rep(i)), phone: i.mobile, email: i.email, status: i.jn_status || i.inspection_result || null });
 
     // 1) STILL NEED TO BE INSPECTED — signed, not cancelled, no inspection done yet.
     const needs_inspection = live

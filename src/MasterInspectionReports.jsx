@@ -10,6 +10,38 @@ const OSWALD = "'Oswald', sans-serif";
 const fmtDate = (iso) => { if (!iso) return "—"; try { return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/New_York" }); } catch { return "—"; } };
 const fmtDateTime = (iso) => { if (!iso) return "—"; try { return new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }); } catch { return "—"; } };
 
+// Two-level grouping (e.g. zone → rep, or company → PA). Zones sort naturally,
+// "Unassigned"/"—" last; second level alphabetical.
+function zoneRank(k) { const m = /zone\s*(\d+)/i.exec(k); if (m) return Number(m[1]); if (/^—|unassigned/i.test(k)) return 999; return 500; }
+function twoLevel(rows, l1, l2, sort1 = "zone") {
+  const g1 = {};
+  for (const r of rows) { const a = l1(r) || "—"; (g1[a] = g1[a] || []).push(r); }
+  const keys1 = Object.keys(g1).sort((a, b) => sort1 === "zone" ? (zoneRank(a) - zoneRank(b) || a.localeCompare(b)) : ((/^—/.test(a) ? 1 : 0) - (/^—/.test(b) ? 1 : 0) || a.localeCompare(b)));
+  return keys1.map((k1) => {
+    const g2 = {};
+    for (const r of g1[k1]) { const b = l2(r) || "—"; (g2[b] = g2[b] || []).push(r); }
+    const keys2 = Object.keys(g2).sort((a, b) => (/^—/.test(a) ? 1 : 0) - (/^—/.test(b) ? 1 : 0) || a.localeCompare(b));
+    return { key: k1, count: g1[k1].length, subs: keys2.map((k2) => ({ key: k2, rows: g2[k2] })) };
+  });
+}
+function Grouped({ groups, renderRow, keyFn }) {
+  return (
+    <div>
+      {groups.map((g) => (
+        <div key={g.key} style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 14, fontWeight: 900, fontFamily: OSWALD, color: "#0f172a", background: "#eef2f7", borderRadius: 8, padding: "6px 12px", marginBottom: 8 }}>{g.key} · {g.count}</div>
+          {g.subs.map((s) => (
+            <div key={s.key} style={{ marginBottom: 10, paddingLeft: 4 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 800, color: "#475569", margin: "0 0 5px 2px" }}>{s.key} <span style={{ color: "#94a3b8" }}>({s.rows.length})</span></div>
+              <div style={{ display: "grid", gap: 6 }}>{s.rows.map(renderRow)}</div>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const OUT_COLOR = { signed: "#16a34a", refused: "#b91c1c", pending: "#d97706" };
 const OUT_LABEL = { signed: "✅ Signed", refused: "❌ Refused", pending: "⏳ No outcome" };
 const RETAIL_COLOR = { ni: "#64748b", btr_appt: "#2563eb", sold: "#16a34a", no_sale: "#b45309", pending: "#94a3b8" };
@@ -109,26 +141,22 @@ function Section({ title, sub, children }) {
 }
 
 function DealList({ title, sub, rows, cols = [] }) {
+  const renderRow = (r) => (
+    <div key={r.id} style={rowCard}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 800, color: "#0f172a" }}>{r.name}</div>
+        <div style={{ fontSize: 12.5, color: "#64748b" }}>{[r.address, r.city].filter(Boolean).join(", ")}</div>
+      </div>
+      <div style={{ textAlign: "right", fontSize: 12.5 }}>
+        {cols.map(([key, lbl, fmt]) => (
+          <div key={key}><span style={{ color: "#94a3b8" }}>{lbl}: </span><b>{fmt ? fmt(r[key]) : (r[key] || "—")}</b></div>
+        ))}
+      </div>
+    </div>
+  );
   return (
     <Section title={`${title} (${rows.length})`} sub={sub}>
-      {!rows.length ? <Empty /> : (
-        <div style={{ display: "grid", gap: 8 }}>
-          {rows.map((r) => (
-            <div key={r.id} style={rowCard}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 800, color: "#0f172a" }}>{r.name}</div>
-                <div style={{ fontSize: 12.5, color: "#64748b" }}>{[r.address, r.city].filter(Boolean).join(", ")}</div>
-                <div style={{ fontSize: 12, color: "#94a3b8" }}>{r.rep ? `Rep: ${r.rep}` : ""}{r.county ? ` · ${r.county}` : ""}</div>
-              </div>
-              <div style={{ textAlign: "right", fontSize: 12.5 }}>
-                {cols.map(([key, lbl, fmt]) => (
-                  <div key={key}><span style={{ color: "#94a3b8" }}>{lbl}: </span><b>{fmt ? fmt(r[key]) : (r[key] || "—")}</b></div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      {!rows.length ? <Empty /> : <Grouped groups={twoLevel(rows, (r) => r.zone, (r) => r.rep || "—")} renderRow={renderRow} />}
     </Section>
   );
 }
@@ -165,95 +193,83 @@ function Retail({ retail }) {
 }
 
 function Damage({ damage }) {
+  const needRow = (r) => (
+    <div key={r.id} style={rowCard}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 800 }}>{r.name}</div>
+        <div style={{ fontSize: 12.5, color: "#64748b" }}>{[r.address, r.city].filter(Boolean).join(", ")}</div>
+      </div>
+      <div style={{ textAlign: "right", fontSize: 12.5 }}>
+        <div>{r.company || r.pa || (r.assigned ? "Assigned" : <span style={{ color: "#b45309", fontWeight: 800 }}>Unassigned</span>)}</div>
+      </div>
+    </div>
+  );
+  const haveRow = (r) => (
+    <div key={r.id} style={rowCard}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 800 }}>{r.name}</div>
+        <div style={{ fontSize: 12.5, color: "#64748b" }}>{[r.address, r.city].filter(Boolean).join(", ")}</div>
+        <div style={{ fontSize: 12, color: "#94a3b8" }}>{r.pa || r.company || "PA"}</div>
+      </div>
+      <div style={{ textAlign: "right", fontSize: 12.5 }}>
+        <div><b>{fmtDateTime(r.start_at)}</b></div>
+        <div style={{ color: "#94a3b8" }}>{r.appt_status}</div>
+      </div>
+    </div>
+  );
   return (
     <div>
-      <Section title={`Damage — needs a PA appointment (${damage.needs_appt.length})`} sub="Damage found, no PA appointment booked yet.">
-        {!damage.needs_appt.length ? <Empty /> : (
-          <div style={{ display: "grid", gap: 8 }}>
-            {damage.needs_appt.map((r) => (
-              <div key={r.id} style={rowCard}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 800 }}>{r.name}</div>
-                  <div style={{ fontSize: 12.5, color: "#64748b" }}>{[r.address, r.city].filter(Boolean).join(", ")}</div>
-                </div>
-                <div style={{ textAlign: "right", fontSize: 12.5 }}>
-                  <div>{r.company || r.pa || (r.assigned ? "Assigned" : <span style={{ color: "#b45309", fontWeight: 800 }}>Unassigned</span>)}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+      <Section title={`Damage — needs a PA appointment (${damage.needs_appt.length})`} sub="Damage found, no PA appointment booked yet. By zone → rep.">
+        {!damage.needs_appt.length ? <Empty /> : <Grouped groups={twoLevel(damage.needs_appt, (r) => r.zone, (r) => r.rep || "—")} renderRow={needRow} />}
       </Section>
       <div style={{ height: 16 }} />
-      <Section title={`Damage — has a PA appointment (${damage.with_appt.length})`} sub="Damage deals with a PA appointment on the books.">
-        {!damage.with_appt.length ? <Empty /> : (
-          <div style={{ display: "grid", gap: 8 }}>
-            {damage.with_appt.map((r) => (
-              <div key={r.id} style={rowCard}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 800 }}>{r.name}</div>
-                  <div style={{ fontSize: 12.5, color: "#64748b" }}>{[r.address, r.city].filter(Boolean).join(", ")}</div>
-                  <div style={{ fontSize: 12, color: "#94a3b8" }}>{r.pa || r.company || "PA"}</div>
-                </div>
-                <div style={{ textAlign: "right", fontSize: 12.5 }}>
-                  <div><b>{fmtDateTime(r.start_at)}</b></div>
-                  <div style={{ color: "#94a3b8" }}>{r.appt_status}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+      <Section title={`Damage — has a PA appointment (${damage.with_appt.length})`} sub="Damage deals with a PA appointment on the books. By zone → rep.">
+        {!damage.with_appt.length ? <Empty /> : <Grouped groups={twoLevel(damage.with_appt, (r) => r.zone, (r) => r.rep || "—")} renderRow={haveRow} />}
       </Section>
     </div>
   );
 }
 
 function PaPassed({ rows }) {
+  const renderRow = (r) => (
+    <div key={r.appt_id} style={rowCard}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 800 }}>{r.name} <span style={{ fontSize: 12, fontWeight: 800, color: OUT_COLOR[r.outcome] }}>· {OUT_LABEL[r.outcome]}</span></div>
+        <div style={{ fontSize: 12.5, color: "#64748b" }}>{r.address}</div>
+        {r.rep && <div style={{ fontSize: 12, color: "#94a3b8" }}>rep {r.rep}</div>}
+      </div>
+      <div style={{ textAlign: "right", fontSize: 12 }}>
+        <div><span style={{ color: "#94a3b8" }}>Appt: </span><b>{fmtDateTime(r.start_at)}</b></div>
+        <div><span style={{ color: "#94a3b8" }}>Booked: </span>{fmtDate(r.booked_at)}</div>
+        <div><span style={{ color: "#94a3b8" }}>Filed: </span>{fmtDate(r.filed_at)}</div>
+        <div style={{ color: "#94a3b8" }}>appt: {r.appt_status}</div>
+      </div>
+    </div>
+  );
   return (
-    <Section title={`PA appointments that have passed (${rows.length})`} sub="Every PA appointment whose date is in the past — outcome, which PA/company, when the claim was filed, and when it was booked.">
-      {!rows.length ? <Empty /> : (
-        <div style={{ display: "grid", gap: 8 }}>
-          {rows.map((r) => (
-            <div key={r.appt_id} style={rowCard}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 800 }}>{r.name} <span style={{ fontSize: 12, fontWeight: 800, color: OUT_COLOR[r.outcome] }}>· {OUT_LABEL[r.outcome]}</span></div>
-                <div style={{ fontSize: 12.5, color: "#64748b" }}>{r.address}</div>
-                <div style={{ fontSize: 12, color: "#94a3b8" }}>{[r.pa, r.company].filter(Boolean).join(" · ") || "PA —"}{r.rep ? ` · rep ${r.rep}` : ""}</div>
-              </div>
-              <div style={{ textAlign: "right", fontSize: 12 }}>
-                <div><span style={{ color: "#94a3b8" }}>Appt: </span><b>{fmtDateTime(r.start_at)}</b></div>
-                <div><span style={{ color: "#94a3b8" }}>Booked: </span>{fmtDate(r.booked_at)}</div>
-                <div><span style={{ color: "#94a3b8" }}>Filed: </span>{fmtDate(r.filed_at)}</div>
-                <div style={{ color: "#94a3b8" }}>appt: {r.appt_status}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+    <Section title={`PA appointments that have passed (${rows.length})`} sub="Whose date is in the past — grouped by company → PA. Outcome, when the claim was filed, and when it was booked.">
+      {!rows.length ? <Empty /> : <Grouped groups={twoLevel(rows, (r) => r.company || "No company", (r) => r.pa || "—", "alpha")} renderRow={renderRow} />}
     </Section>
   );
 }
 
 function Missed({ rows }) {
+  const renderRow = (r) => (
+    <div key={r.appt_id} style={{ ...rowCard, borderColor: "#fecaca", background: "#fff7f7" }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 800 }}>{r.name}</div>
+        <div style={{ fontSize: 12.5, color: "#64748b" }}>{r.address}</div>
+        <div style={{ fontSize: 12, color: "#94a3b8" }}>{r.phone ? r.phone : ""}{r.rep ? `${r.phone ? " · " : ""}rep ${r.rep}` : ""}</div>
+      </div>
+      <div style={{ textAlign: "right", fontSize: 12 }}>
+        <div style={{ color: "#b91c1c", fontWeight: 800 }}>Missed {fmtDateTime(r.start_at)}</div>
+        <div style={{ color: "#94a3b8" }}>booked {fmtDate(r.booked_at)}</div>
+      </div>
+    </div>
+  );
   return (
-    <Section title={`⚠️ Missed PA appointments (${rows.length})`} sub="The appointment date passed with no outcome recorded — the homeowner likely no-showed. These need a re-book or a fresh scheduling link.">
-      {!rows.length ? <Empty msg="No missed PA appointments — nice." /> : (
-        <div style={{ display: "grid", gap: 8 }}>
-          {rows.map((r) => (
-            <div key={r.appt_id} style={{ ...rowCard, borderColor: "#fecaca", background: "#fff7f7" }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 800 }}>{r.name}</div>
-                <div style={{ fontSize: 12.5, color: "#64748b" }}>{r.address}</div>
-                <div style={{ fontSize: 12, color: "#94a3b8" }}>{[r.pa, r.company].filter(Boolean).join(" · ") || "PA —"}{r.phone ? ` · ${r.phone}` : ""}{r.rep ? ` · rep ${r.rep}` : ""}</div>
-              </div>
-              <div style={{ textAlign: "right", fontSize: 12 }}>
-                <div style={{ color: "#b91c1c", fontWeight: 800 }}>Missed {fmtDateTime(r.start_at)}</div>
-                <div style={{ color: "#94a3b8" }}>booked {fmtDate(r.booked_at)}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+    <Section title={`⚠️ Missed PA appointments (${rows.length})`} sub="Passed with no outcome — the homeowner likely no-showed. Grouped by company → PA. These need a re-book or a fresh scheduling link.">
+      {!rows.length ? <Empty msg="No missed PA appointments — nice." /> : <Grouped groups={twoLevel(rows, (r) => r.company || "No company", (r) => r.pa || "—", "alpha")} renderRow={renderRow} />}
     </Section>
   );
 }
