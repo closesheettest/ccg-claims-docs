@@ -112,10 +112,16 @@ export const handler = async (event) => {
     let unattributed = 0;
     const seenPins = new Set();
     const mapDealRefs = []; // { zone, rep, pin_id } — labels (addresses) filled in below
+    // Audit trail (debug=2): EVERY candidate deal with origin + who + counted/excluded,
+    // so the office can see exactly what a manager mis-flag pulled onto the board.
+    const auditOn = qp.debug === "2";
+    const auditRows = [];
     for (const a of acts) {
       if (a.pin_id) { if (seenPins.has(a.pin_id)) continue; seenPins.add(a.pin_id); }
-      if (isJunior(a.rep_name)) continue;   // JR = BTR pins only, never harvest
+      const jr = isJunior(a.rep_name);
       const zone = zoneOf(a.rep_name);
+      if (auditOn) auditRows.push({ origin: "map", rep: (a.rep_name || "—").trim() || "—", level: jr ? "junior" : (zone ? "senior" : "unknown"), zone: zone || null, kind: a.from_status, when: a.created_at, pin_id: a.pin_id, counted: !jr && !!zone, excluded: jr ? "junior" : (!zone ? "no-zone" : null) });
+      if (jr) continue;   // JR = BTR pins only, never harvest
       if (!zone) { unattributed++; continue; }
       const z = agg[zone] || (agg[zone] = { count: 0, byRep: {}, deals: [] });
       z.count += 1;
@@ -134,6 +140,7 @@ export const handler = async (event) => {
       }
     }
     for (const d of mapDealRefs) { const z = agg[d.zone]; if (z) z.deals.push({ rep: d.rep, label: pinAddr[d.pin_id] || "Map lead" }); }
+    if (auditOn) for (const r of auditRows) if (r.origin === "map" && r.pin_id) r.label = pinAddr[r.pin_id] || "Map lead";
 
     // ── JN-SIDE HARVESTED APPOINTMENTS (reverse direction, per Neal) ─────────
     // Appointments made directly IN JobNimbus count too, when the job's
@@ -144,7 +151,6 @@ export const handler = async (event) => {
     // pins' jn_job_id, and one credit per JOB. Best-effort: a JN hiccup never
     // breaks the board.
     let jnCounted = 0;
-    const payloadDebugJobs = [];
     try {
       if (JN_KEY) {
         // (mapJobIds — jobs already credited from a map booking — built above.)
@@ -186,7 +192,9 @@ export const handler = async (event) => {
           { range: { date_created: { gte: startSec, lte: endSec } } },
           { terms: { record_type: APPT_RTS } },
         ] }));
-        const taskJobIds = new Set();
+        // job id → earliest appt-task date_created IN this window = the true BOOKED date
+        // (when the appointment was SET, not when it's scheduled for).
+        const taskJobIds = new Map();
         for (let page = 0; page < 60; page++) {
           const r = await fetch(`${JN_BASE}/tasks?size=100&from=${page * 100}&filter=${taskFilter}`, { headers: jnHeaders });
           if (!r.ok) break;
@@ -195,7 +203,11 @@ export const handler = async (event) => {
           for (const t of rows) {
             // Belt + suspenders: if JN ignores the server-side type filter, still keep only appt tasks.
             if (!APPT_TASK_TYPES.has(t.record_type_name) && !APPT_RTS.includes(Number(t.record_type))) continue;
-            for (const rel of (t.related || [])) if (rel.type === "job" && rel.id) taskJobIds.add(rel.id);
+            const dc = Number(t.date_created) || 0;
+            for (const rel of (t.related || [])) if (rel.type === "job" && rel.id) {
+              const prev = taskJobIds.get(rel.id);
+              if (prev == null || (dc && dc < prev)) taskJobIds.set(rel.id, dc);
+            }
           }
           if (rows.length < 100) break;
         }
@@ -204,7 +216,7 @@ export const handler = async (event) => {
         // they can be credited. Bounded by a time budget so we never trip the function
         // timeout, but far more generous than the old flat 60 (which under-counted a month).
         let individual = 0; const t0 = Date.now();
-        for (const id of taskJobIds) {
+        for (const id of taskJobIds.keys()) {
           if (candidates.has(id)) continue;
           if (individual >= 250 || Date.now() - t0 > 6000) break;
           individual++;
@@ -222,12 +234,13 @@ export const handler = async (event) => {
           // was booked). Fall back to the job's own creation date so a harvest job whose
           // task the scan missed still counts. date_start (the appt date) is never used.
           if (!taskJobIds.has(id) && !harvestInWindow(job, startSec, endSec)) continue;
-          if (qp.debug === "2") {
-            payloadDebugJobs.push({ name: job.name, rep: job.sales_rep_name || null, status: job.status_name, when: harvestWhen(job) });
-          }
           const rep = (job.sales_rep_name || "").trim();
-          if (isJunior(rep)) continue;   // JR harvest credit is a mis-flagged BTR/inspection deal — never count it
+          const jr = isJunior(rep);
           const zone = zoneOf(rep);
+          const bookedSec = taskJobIds.get(id) || Number(job.date_created) || 0;
+          const bookedISO = bookedSec ? new Date(bookedSec * 1000).toISOString() : null;
+          if (auditOn) auditRows.push({ origin: "jn", label: titleAddr(jobAddress(job)), rep: rep || null, level: jr ? "junior" : (zone ? "senior" : "unknown"), zone: zone || null, source: job.source_name || null, status: job.status_name || null, booked: bookedISO, by_task: taskJobIds.has(id), job_created: harvestWhen(job), counted: !jr && !!zone, excluded: jr ? "junior" : (!zone ? "no-zone" : null) });
+          if (jr) continue;   // JR harvest credit is a mis-flagged BTR/inspection deal — never count it
           if (!zone) { unattributed++; continue; }
           const z = agg[zone] || (agg[zone] = { count: 0, byRep: {}, deals: [] });
           z.count += 1;
@@ -254,7 +267,7 @@ export const handler = async (event) => {
       total, zones,
     };
     if (qp.debug === "1" || qp.debug === "2") { payload.scanned = acts.length; payload.unattributed = unattributed; payload.jn_harvested = jnCounted; }
-    if (qp.debug === "2") payload.harvested_jobs = payloadDebugJobs;
+    if (qp.debug === "2") payload.audit = auditRows;
     return cors(200, JSON.stringify(payload));
   } catch (e) {
     return cors(500, JSON.stringify({ ok: false, error: e.message || "Unknown error" }));
