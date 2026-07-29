@@ -85,16 +85,17 @@ export const handler = async (event) => {
       .map((i) => ({ ...card(i), signed_at: toISO(i.signed_at), inspector: i.inspector_name || null }))
       .sort((a, b) => (a.signed_at || "").localeCompare(b.signed_at || ""));
 
-    // 2) INSPECTED, STILL NEED A GO-BACK STATUS — roof was inspected but no result
-    //    (Damage / No Damage / Retail) has been recorded yet, so the go-back is open.
+    // 2) INSPECTED, STILL NEED A GO-BACK STATUS — a result IS recorded (Damage /
+    //    Retail / No Damage) but no go-back result-task was ever created, so the
+    //    follow-up (present results / book PA / retail outcome) is still open.
     const needs_goback_status = live
-      .filter((i) => i.inspection_date && !i.result)
-      .map((i) => ({ ...card(i), inspection_date: toISO(i.inspection_date), inspector: i.inspector_name || null }))
+      .filter((i) => i.result && i.result !== "no_damage" && !i.result_task_jnid)
+      .map((i) => ({ ...card(i), result: i.result, inspection_date: toISO(i.result_at || i.date), inspector: i.inspector_name || null }))
       .sort((a, b) => (a.inspection_date || "").localeCompare(b.inspection_date || ""));
 
     // 3) RETAIL breakdown + percentages. retail_outcome: ni / no_sale / sold / btr_appt / (null = pending)
     const retailDeals = live.filter((i) => i.result === "retail");
-    const RB = { ni: "Retail – Not Interested", btr_appt: "Retail – Appointment", sold: "BTR Sold", no_sale: "Retail – No Sale", pending: "Retail – Undecided" };
+    const RB = { ni: "Retail – Not Interested", btr_appt: "Retail – Appointment", sold: "BTR Sold", no_sale: "Retail – No Sale", pending: "Not worked yet (rep hasn't gone back)" };
     const buckets = { ni: 0, btr_appt: 0, sold: 0, no_sale: 0, pending: 0 };
     for (const i of retailDeals) { const k = i.retail_outcome && buckets[i.retail_outcome] != null ? i.retail_outcome : "pending"; buckets[k]++; }
     const rTotal = retailDeals.length || 1;
