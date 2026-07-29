@@ -80,6 +80,7 @@ export default function RepVisitHub() {
   const [referrals, setReferrals] = useState(null);
   const [photosFor, setPhotosFor] = useState(null);
   const [appts, setAppts] = useState(null);   // upcoming PA appointments this rep booked
+  const [missed, setMissed] = useState(null); // this rep's PA appts that passed with no outcome (no-shows)
   const [issues, setIssues] = useState(null); // this rep's cancelled / correction-needed deals
   const [pay, setPay] = useState(null);       // William's pay report (weekly signups + cancels)
   const [err, setErr] = useState("");
@@ -147,6 +148,49 @@ export default function RepVisitHub() {
       if (ids.length) { const { data: pas } = await supabase.from("pas").select("id,name").in("id", ids); for (const p of (pas || [])) nameById[p.id] = p.name; }
       setAppts(rows.map((r) => ({ ...r, pa_name: nameById[r.pa_id] || "Adjuster" })));
     } catch (e) { setErr(e.message); setAppts([]); }
+  };
+  // This rep's MISSED PA appointments: the appt date is PAST, still "scheduled",
+  // and the homeowner never signed/refused (a no-show). Carries the inspection's
+  // location + contact so the rep can call to reschedule OR rebook right here.
+  const paPending = (insp) => {
+    if (!insp) return true;
+    let f = insp.pa_fields || {}; if (typeof f === "string") { try { f = JSON.parse(f); } catch { f = {}; } }
+    const signup = String(f.pa_signup || "").toLowerCase();
+    if (insp.pa_signed_at || insp.pa_status === "signed" || signup.startsWith("signed")) return false;
+    if (insp.pa_status === "refused" || signup.includes("refus") || signup.includes("retail")) return false;
+    return true;
+  };
+  const loadMissedApptRows = async () => {
+    const nowIso = new Date().toISOString();
+    const SEL = "id,sales_rep_id,sales_rep_name,original_sales_rep_id,original_sales_rep_name,latitude,longitude,client_name,mobile,address,city,pa_status,pa_signed_at,pa_fields,pa_notes_log";
+    const inspById = new Map();
+    if (rep.jobnimbus_id) { const { data } = await supabase.from("inspections").select(SEL).or(`sales_rep_id.eq.${rep.jobnimbus_id},original_sales_rep_id.eq.${rep.jobnimbus_id}`); for (const r of (data || [])) inspById.set(r.id, r); }
+    if (rep.name) { try { const { data } = await supabase.from("inspections").select(SEL).or(`sales_rep_name.eq.${rep.name},original_sales_rep_name.eq.${rep.name}`); for (const r of (data || [])) inspById.set(r.id, r); } catch { /* odd name */ } }
+    const repInspIds = new Set();
+    for (const r of inspById.values()) {
+      const isCurrent = (!!rep.jobnimbus_id && r.sales_rep_id === rep.jobnimbus_id) || (!!rep.name && r.sales_rep_name === rep.name);
+      const isOriginal = (!!rep.jobnimbus_id && r.original_sales_rep_id === rep.jobnimbus_id) || (!!rep.name && r.original_sales_rep_name === rep.name);
+      const hasCurrent = !!(r.sales_rep_id || r.sales_rep_name);
+      if (isCurrent || (!hasCurrent && isOriginal)) repInspIds.add(r.id);
+    }
+    const { data: all, error } = await supabase.from("pa_appointments")
+      .select("id,homeowner_name,homeowner_phone,address,start_at,pa_id,inspection_id,booked_by,status")
+      .eq("status", "scheduled").lt("start_at", nowIso).order("start_at", { ascending: false });
+    if (error) throw error;
+    return (all || [])
+      .filter((a) => (a.inspection_id && repInspIds.has(a.inspection_id)) || (a.booked_by && a.booked_by === rep.name))
+      .filter((a) => paPending(inspById.get(a.inspection_id)))
+      .map((a) => ({ ...a, insp: inspById.get(a.inspection_id) || null }));
+  };
+  const startMissedPa = async () => {
+    setMissed(null); setErr(""); setStage("missedpa");
+    try {
+      const rows = await loadMissedApptRows();
+      const ids = [...new Set(rows.map((r) => r.pa_id).filter(Boolean))];
+      const nameById = {};
+      if (ids.length) { const { data: pas } = await supabase.from("pas").select("id,name").in("id", ids); for (const p of (pas || [])) nameById[p.id] = p.name; }
+      setMissed(rows.map((r) => ({ ...r, pa_name: nameById[r.pa_id] || "Adjuster" })));
+    } catch (e) { setErr(e.message); setMissed([]); }
   };
   // This rep's deals that were CANCELLED (Marked Lost) or flagged "correction
   // needed", with the reason/note — so the rep can see what went Lost and why,
@@ -228,7 +272,8 @@ export default function RepVisitHub() {
         api("visit-deal-list", { result: t, rep_jobnimbus_id: rep.jobnimbus_id, rep_name: rep.name }).then((o) => (o.deals || []).length).catch(() => null)),
       api("referral-list", { rep_name: rep.name }).then((o) => (o.referrals || []).length).catch(() => null),
       loadApptRows().then((r) => r.length).catch(() => null),
-    ]).then(([damage, no_damage, retail, referrals, appts]) => { if (live) setCounts({ damage, no_damage, retail, referrals, appts }); });
+      loadMissedApptRows().then((r) => r.length).catch(() => null),
+    ]).then(([damage, no_damage, retail, referrals, appts, missed]) => { if (live) setCounts({ damage, no_damage, retail, referrals, appts, missed }); });
     return () => { live = false; };
   }, [rep, token, stage]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -245,10 +290,11 @@ export default function RepVisitHub() {
         {stage === "pick-rep" && <PickRep reps={reps} onPick={pickRep} />}
         {stage === "choose" && <Choose rep={rep} onNew={() => {
           window.location.href = `/?intake=1&rep=${encodeURIComponent(rep.jobnimbus_id || "")}&repName=${encodeURIComponent(rep.name || "")}&repEmail=${encodeURIComponent(rep.email || "")}`;
-        }} onType={startType} onReferrals={startReferrals} onApptsBooked={startApptsBooked} onIssues={startIssues} onPay={startPay} onCalendar={() => setStage("calendar")} counts={counts} />}
+        }} onType={startType} onReferrals={startReferrals} onApptsBooked={startApptsBooked} onMissedPa={startMissedPa} onIssues={startIssues} onPay={startPay} onCalendar={() => setStage("calendar")} counts={counts} />}
         {stage === "calendar" && rep && <RepCalendar rep={rep} token={token} onClose={() => setStage("choose")} />}
         {stage === "referrals" && <ReferralsView referrals={referrals} rep={rep} onBack={() => setStage("choose")} api={api} />}
         {stage === "appts" && <ApptsBookedView appts={appts} rep={rep} onBack={() => setStage("choose")} />}
+        {stage === "missedpa" && <MissedPaView missed={missed} rep={rep} api={api} onBack={() => setStage("choose")} />}
         {stage === "issues" && <IssuesView issues={issues} onBack={() => setStage("choose")} />}
         {stage === "pay" && <PayReport pay={pay} rep={rep} api={api} onBack={() => setStage("choose")} onReload={startPay} />}
         {stage === "list" && <DealList type={visitType} deals={deals} onBack={() => setStage("choose")} onPick={(d) => { setDeal(d); setStage("panel"); }} />}
@@ -304,7 +350,7 @@ function PickRep({ reps, onPick }) {
   );
 }
 
-function Choose({ rep, onNew, onType, onReferrals, onApptsBooked, onIssues, onPay, onCalendar, counts }) {
+function Choose({ rep, onNew, onType, onReferrals, onApptsBooked, onMissedPa, onIssues, onPay, onCalendar, counts }) {
   const Btn = ({ color, emoji, label, sub, onClick, count }) => (
     <button onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", textAlign: "left", color: "#fff", background: color, border: "none", borderRadius: 14, padding: "16px 16px", marginBottom: 12, cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,.12)" }}>
       <span style={{ fontSize: 26 }}>{emoji}</span>
@@ -333,6 +379,7 @@ function Choose({ rep, onNew, onType, onReferrals, onApptsBooked, onIssues, onPa
       {!isWilliam && <Btn color="#d97706" emoji="🏠" label="Retail visit" sub="Schedule a retail options appointment" onClick={() => onType("retail")} count={counts?.retail} />}
       <Btn color="#6d28d9" emoji="🤝" label="Referrals" sub="People you were referred to — who to sign up" onClick={onReferrals} count={counts?.referrals} />
       {!isWilliam && <Btn color="#0e7490" emoji="📅" label="Adjuster appts booked" sub="Upcoming PA appointments you've set" onClick={onApptsBooked} count={counts?.appts} />}
+      {!isWilliam && <Btn color="#dc2626" emoji="⚠️" label="Missed PA appts" sub="No-showed PA appointments — call the homeowner & rebook" onClick={onMissedPa} count={counts?.missed} />}
       <Btn color="#6b7280" emoji="⚠️" label="Cancelled / Needs correction" sub="Deals marked Lost or flagged to fix — see why" onClick={onIssues} />
       {/* William's pay report — only for him. */}
       {isWilliam && (
@@ -593,6 +640,42 @@ function ApptsBookedView({ appts, rep, onBack }) {
               {a.homeowner_phone && <div style={{ fontSize: 13, marginTop: 2 }}><a href={`tel:${a.homeowner_phone}`} style={{ color: "#0369a1" }}>📞 {a.homeowner_phone}</a></div>}
             </div>
           ))}</div>}
+    </div>
+  );
+}
+// This rep's PA appointments that were MISSED (passed, still scheduled, no outcome).
+// Each shows a tap-to-call phone so the rep can reschedule by phone, plus a Rebook
+// button that opens the PA scheduler (reschedule mode → cancels the old, books new).
+function MissedPaView({ missed, rep, api, onBack }) {
+  const [openId, setOpenId] = useState(null);
+  const fmt = (iso) => { try { return new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch { return iso; } };
+  return (
+    <div>
+      <BackBar onBack={onBack} title="Missed PA appointments" />
+      {missed === null ? <p style={{ textAlign: "center", color: "#9ca3af", fontSize: 14, padding: "24px 0" }}>Loading…</p>
+        : !missed.length ? <p style={{ textAlign: "center", color: "#6b7280", fontSize: 14, padding: "24px 0" }}>No missed PA appointments — nice.</p>
+        : <div>{missed.map((a) => {
+            const insp = a.insp || {};
+            const phone = a.homeowner_phone || insp.mobile;
+            const deal = a.inspection_id ? { inspection_id: a.inspection_id, latitude: insp.latitude, longitude: insp.longitude, client_name: insp.client_name || a.homeowner_name, mobile: phone, address: insp.address || a.address, pa_notes_log: insp.pa_notes_log } : null;
+            return (
+              <div key={a.id} style={{ background: "#fff", border: "1px solid #fecaca", borderRadius: 12, padding: "12px 14px", marginBottom: 10 }}>
+                <div style={{ fontWeight: 800, fontSize: 15 }}>{a.homeowner_name || insp.client_name || "Homeowner"}</div>
+                <div style={{ color: "#b91c1c", fontWeight: 700, fontSize: 13.5, marginTop: 2 }}>❌ Missed {fmt(a.start_at)}</div>
+                <div style={{ fontSize: 13, color: "#475569", marginTop: 2 }}>🧑‍⚖️ {a.pa_name}</div>
+                {(a.address || insp.address) && <div style={{ fontSize: 13, color: "#475569", marginTop: 2 }}>📍 {a.address || insp.address}</div>}
+                {phone
+                  ? <div style={{ marginTop: 8 }}><a href={`tel:${phone}`} style={{ display: "inline-block", background: "#0369a1", color: "#fff", borderRadius: 10, padding: "9px 14px", fontSize: 14.5, fontWeight: 800, textDecoration: "none" }}>📞 Call {phone} to reschedule</a></div>
+                  : <div style={{ marginTop: 6, fontSize: 12.5, color: "#94a3b8" }}>No phone on file.</div>}
+                {deal
+                  ? <>
+                      <button onClick={() => setOpenId(openId === a.id ? null : a.id)} style={{ marginTop: 10, width: "100%", background: "#dc2626", color: "#fff", border: "none", borderRadius: 10, padding: "11px 0", fontSize: 15, fontWeight: 800, cursor: "pointer" }}>{openId === a.id ? "Close" : "🔁 Rebook the PA appointment"}</button>
+                      {openId === a.id && <div style={{ marginTop: 10 }}><DamagePanel deal={deal} rep={rep} api={api} reschedule /></div>}
+                    </>
+                  : <div style={{ marginTop: 8, fontSize: 12.5, color: "#94a3b8" }}>Call to reschedule (no inspection link to auto-book).</div>}
+              </div>
+            );
+          })}</div>}
     </div>
   );
 }

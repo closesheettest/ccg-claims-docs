@@ -53,7 +53,7 @@ function NotHomeButton({ deal, api }) {
   );
 }
 
-export function DamagePanel({ deal, rep, api }) {
+export function DamagePanel({ deal, rep, api, reschedule = false }) {
   const [slots, setSlots] = useState(null);
   const [err, setErr] = useState("");
   const [booking, setBooking] = useState("");
@@ -64,7 +64,7 @@ export function DamagePanel({ deal, rep, api }) {
       .then((o) => setSlots(o.slots || [])).catch((e) => { setErr(e.message); setSlots([]); });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const doBook = async (s, force) =>
-    api("pa-schedule-api", { action: "book", pa_id: s.pa_id, start_at: s.start_at, inspection_id: deal.inspection_id, homeowner_name: deal.client_name, homeowner_phone: deal.mobile, address: deal.address, booked_by: rep.name, force });
+    api("pa-schedule-api", { action: "book", pa_id: s.pa_id, start_at: s.start_at, inspection_id: deal.inspection_id, homeowner_name: deal.client_name, homeowner_phone: deal.mobile, address: deal.address, booked_by: rep.name, force, reschedule });
   const book = async (s) => {
     setBooking(s.start_at + s.pa_id); setErr("");
     try {
