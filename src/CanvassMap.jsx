@@ -168,6 +168,7 @@ function orderStops(start, stops) {
   // 2) Segment-level 2-opt: reversing a block flips its order AND each street's entry
   //    direction; streets never split. Accept a move that reduces crossings, or (ties)
   //    reduces distance.
+  const accept = (sc) => sc.cx < curScore.cx || (sc.cx === curScore.cx && sc.d + 1e-6 < curScore.d);
   let curScore = score(order), improved = true, pass = 0;
   while (improved && pass < 15) {
     improved = false; pass++;
@@ -176,8 +177,26 @@ function orderStops(start, stops) {
         const block = order.slice(i, k + 1).reverse().map((e) => ({ ...e, rev: !e.rev }));
         const cand = order.slice(0, i).concat(block, order.slice(k + 1));
         const sc = score(cand);
-        if (sc.cx < curScore.cx || (sc.cx === curScore.cx && sc.d + 1e-6 < curScore.d)) {
-          order.splice(0, order.length, ...cand); curScore = sc; improved = true;
+        if (accept(sc)) { order.splice(0, order.length, ...cand); curScore = sc; improved = true; }
+      }
+    }
+    // 3) Or-opt: pull a SINGLE street out and drop it at its best slot (either entry
+    //    direction). 2-opt only reverses contiguous blocks, so it can't rescue a lone
+    //    pin's street stranded between two others — that's the "dip down to one house
+    //    and come back" backtrack reps see. Or-opt relocates it next to its neighbours.
+    //    Same objective (fewest crossings, then distance) so it never adds a crossing.
+    //    Guarded to normal-size routes so a huge day never churns on a phone.
+    if (order.length <= 60) {
+      for (let i = 0; i < order.length; i++) {
+        const seg = order[i];
+        const rest = order.slice(0, i).concat(order.slice(i + 1));
+        let moved = false;
+        for (let j = 0; j <= rest.length && !moved; j++) {
+          for (const rv of [false, true]) {
+            const cand = rest.slice(0, j).concat([{ ...seg, rev: rv ? !seg.rev : seg.rev }], rest.slice(j));
+            const sc = score(cand);
+            if (accept(sc)) { order.splice(0, order.length, ...cand); curScore = sc; improved = true; moved = true; break; }
+          }
         }
       }
     }
