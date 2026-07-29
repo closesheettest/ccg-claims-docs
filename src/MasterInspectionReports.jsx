@@ -61,7 +61,7 @@ export default function MasterInspectionReports() {
 
       {tab === "overview" && <Overview data={data} onJump={setTab} />}
       {tab === "needs_inspection" && <DealList title="Still need to be inspected" sub="Signed jobs with no inspection completed yet." rows={data.needs_inspection} cols={[["signed_at", "Signed", fmtDate], ["inspector", "Inspector"]]} />}
-      {tab === "needs_goback" && <DealList title="Inspected — still need a go-back status" sub="Roof was inspected but no result (Damage / No Damage / Retail) recorded yet." rows={data.needs_goback_status} cols={[["inspection_date", "Inspected", fmtDate], ["inspector", "Inspector"], ["status", "JN status"]]} />}
+      {tab === "needs_goback" && <DealList title="Inspected — still need a go-back status" sub="Result recorded, but the go-back isn't done: damage with no PA appointment, or retail the rep hasn't gone back to work." rows={data.needs_goback_status} cols={[["result", "Result"], ["need", "Needs"]]} />}
       {tab === "retail" && <Retail retail={data.retail} />}
       {tab === "damage" && <Damage damage={data.damage} />}
       {tab === "pa_passed" && <PaPassed rows={data.pa_passed} />}

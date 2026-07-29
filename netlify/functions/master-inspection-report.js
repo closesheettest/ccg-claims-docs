@@ -85,13 +85,15 @@ export const handler = async (event) => {
       .map((i) => ({ ...card(i), signed_at: toISO(i.signed_at), inspector: i.inspector_name || null }))
       .sort((a, b) => (a.signed_at || "").localeCompare(b.signed_at || ""));
 
-    // 2) INSPECTED, STILL NEED A GO-BACK STATUS — a result IS recorded (Damage /
-    //    Retail / No Damage) but no go-back result-task was ever created, so the
-    //    follow-up (present results / book PA / retail outcome) is still open.
+    // 2) INSPECTED, STILL NEED A GO-BACK STATUS — a result IS recorded but the go-back
+    //    action isn't done: a DAMAGE roof with no PA appointment booked (and not yet
+    //    signed/refused), or a RETAIL roof the rep hasn't gone back to work yet. This
+    //    is the post-inspection to-do backlog.
     const needs_goback_status = live
-      .filter((i) => i.result && i.result !== "no_damage" && !i.result_task_jnid)
-      .map((i) => ({ ...card(i), result: i.result, inspection_date: toISO(i.result_at || i.date), inspector: i.inspector_name || null }))
-      .sort((a, b) => (a.inspection_date || "").localeCompare(b.inspection_date || ""));
+      .filter((i) => (i.result === "damage" && !(apptByInsp[i.id] || []).length && paOutcome(i) === "pending")
+        || (i.result === "retail" && !i.retail_outcome))
+      .map((i) => ({ ...card(i), result: i.result, need: i.result === "damage" ? "Needs PA appointment" : "Needs rep go-back (retail)" }))
+      .sort((a, b) => (a.result || "").localeCompare(b.result || ""));
 
     // 3) RETAIL breakdown + percentages. retail_outcome: ni / no_sale / sold / btr_appt / (null = pending)
     const retailDeals = live.filter((i) => i.result === "retail");
