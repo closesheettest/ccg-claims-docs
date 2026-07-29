@@ -31,8 +31,8 @@ function Grouped({ groups, renderRow, keyFn }) {
         <div key={g.key} style={{ marginBottom: 18 }}>
           <div style={{ fontSize: 14, fontWeight: 900, fontFamily: OSWALD, color: "#0f172a", background: "#eef2f7", borderRadius: 8, padding: "6px 12px", marginBottom: 8 }}>{g.key} · {g.count}</div>
           {g.subs.map((s) => (
-            <div key={s.key} style={{ marginBottom: 10, paddingLeft: 4 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 800, color: "#475569", margin: "0 0 5px 2px" }}>{s.key} <span style={{ color: "#94a3b8" }}>({s.rows.length})</span></div>
+            <div key={s.key} style={{ marginBottom: 14, paddingLeft: 4 }}>
+              <div style={{ fontSize: 19, fontWeight: 900, fontFamily: OSWALD, color: "#0f172a", margin: "6px 0 7px 2px", display: "flex", alignItems: "baseline", gap: 8 }}>{s.key} <span style={{ fontSize: 13, fontWeight: 800, color: "#94a3b8" }}>({s.rows.length})</span></div>
               <div style={{ display: "grid", gap: 6 }}>{s.rows.map(renderRow)}</div>
             </div>
           ))}
