@@ -1256,8 +1256,11 @@ export default function CanvassMap() {
     defaultedFor.current = key;
     regionRef.current = null; setRegion(null);
     // Seniors work IQ + No-sit TOGETHER — not one or the other (filter locked below).
-    if (effLevel === "senior") setSel(new Set(SENIOR_STATUSES));
-    else if (effLevel === "junior") setSel(new Set(JUNIOR_STATUSES));
+    // A rep-level view (incl. the office's VIEW AS jr/sr) has real defaults to show,
+    // so clear the office "show nothing" gate — otherwise VIEW AS jr/sr renders a
+    // blank map even though its pin types are selected (the admin-map bug).
+    if (effLevel === "senior") { setSel(new Set(SENIOR_STATUSES)); setShowNone(false); }
+    else if (effLevel === "junior") { setSel(new Set(JUNIOR_STATUSES)); setShowNone(false); }
     else setSel(new Set());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effLevel, me, viewAs]);
