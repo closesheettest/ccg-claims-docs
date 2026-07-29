@@ -202,6 +202,7 @@ exports.handler = async (event) => {
     if (r.ok) removed = stale.length;
   }
 
+  await bumpDailyNew("nosit", inserted); // rolling per-day new-pin tally for the JN Sync report
   return cors(200, { ok: true, committed: true, no_sits_total: noSits.length, with_address: withAddr.length, geocoded, inserted, updated, skipped_ungeocoded: skipped, removed_rebooked: removed });
 };
 
@@ -260,6 +261,19 @@ async function readSetting(key) {
     const v = rows?.[0]?.value;
     return v ? (typeof v === "string" ? JSON.parse(v) : v) : null;
   } catch { return null; }
+}
+// Rolling per-day new-pin tally shared with the IQ sync → app_settings.harvest_sync_daily.
+async function bumpDailyNew(source, count) {
+  const n = Number(count) || 0; if (!n) return;
+  try {
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    const cur = (await readSetting("harvest_sync_daily")) || {};
+    const day = cur[today] || {};
+    day[source] = (day[source] || 0) + n;
+    cur[today] = day;
+    const keep = {}; for (const k of Object.keys(cur).sort().slice(-21)) keep[k] = cur[k];
+    await writeSetting("harvest_sync_daily", keep);
+  } catch { /* non-fatal */ }
 }
 async function writeSetting(key, obj) {
   try {

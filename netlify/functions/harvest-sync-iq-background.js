@@ -225,6 +225,7 @@ exports.handler = async (event) => {
         candidates: cands.length, inserted, updated, removed, preserved_worked: preserved, restatused_from_job: restatused, geocoded, skipped_ungeocoded: skipped, dup_skipped: dupSkipped, converted_from_insp: converted,
         started, finished: new Date().toISOString(),
       });
+      await bumpDailyNew(key, inserted); // rolling per-day new-pin tally for the JN Sync report
     } catch (e) {
       await writeSetting(`harvest_leadsync_${key}`, { ok: false, source: def.source, error: String(e && e.message || e), started, finished: new Date().toISOString() });
     }
@@ -334,6 +335,21 @@ async function geocode(addr) {
 }
 async function readSetting(key) {
   try { const r = await fetch(`${SB_URL}/rest/v1/app_settings?key=eq.${encodeURIComponent(key)}&select=value&limit=1`, { headers: sbHeaders }); if (!r.ok) return null; const rows = await r.json().catch(() => []); const v = rows?.[0]?.value; return v ? (typeof v === "string" ? JSON.parse(v) : v) : null; } catch { return null; }
+}
+// Rolling per-day count of NEW pins this sync added, keyed by source (iq/fb/ai).
+// Stored in app_settings.harvest_sync_daily → { "YYYY-MM-DD": { iq, fb, ai, nosit } }.
+// The JN Sync page reads this for the "new pins per day" report. Last 21 days kept.
+async function bumpDailyNew(source, count) {
+  const n = Number(count) || 0; if (!n) return;
+  try {
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    const cur = (await readSetting("harvest_sync_daily")) || {};
+    const day = cur[today] || {};
+    day[source] = (day[source] || 0) + n;
+    cur[today] = day;
+    const keep = {}; for (const k of Object.keys(cur).sort().slice(-21)) keep[k] = cur[k];
+    await writeSetting("harvest_sync_daily", keep);
+  } catch { /* non-fatal */ }
 }
 async function writeSetting(key, obj) {
   try { await fetch(`${SB_URL}/rest/v1/app_settings?on_conflict=key`, { method: "POST", headers: { ...sbHeaders, Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ key, value: JSON.stringify(obj), updated_at: new Date().toISOString() }) }); } catch { /* ignore */ }

@@ -31,6 +31,12 @@ export default function HarvestJnSync() {
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState({});
   const [loaded, setLoaded] = useState(false);
+  const [daily, setDaily] = useState({});   // harvest_sync_daily: new pins per day
+  const [scrub, setScrub] = useState({});   // shovels_venice_scrub_daily: bad/added per day
+
+  const loadSetting = async (k) => {
+    try { const { data } = await supabase.from("app_settings").select("value").eq("key", k).maybeSingle(); return data?.value ? (typeof data.value === "string" ? JSON.parse(data.value) : data.value) : {}; } catch { return {}; }
+  };
 
   useEffect(() => { (async () => {
     try {
@@ -38,6 +44,8 @@ export default function HarvestJnSync() {
       if (data?.value) { const v = typeof data.value === "string" ? JSON.parse(data.value) : data.value; setCfg({ iq: { ...DEFAULTS.iq, ...(v.iq || {}) }, fb: { ...DEFAULTS.fb, ...(v.fb || {}) }, ai: { ...DEFAULTS.ai, ...(v.ai || {}) }, nosit: { ...DEFAULTS.nosit, ...(v.nosit || {}) } }); }
     } catch { /* keep defaults */ }
     await refreshCounts();
+    setDaily(await loadSetting("harvest_sync_daily"));
+    setScrub(await loadSetting("shovels_venice_scrub_daily"));
     setLoaded(true);
   })(); }, []);
 
@@ -130,7 +138,57 @@ export default function HarvestJnSync() {
         btnStyle={btn(busy === "nosit", "#dc2626")}
       />
 
+      {/* ── Daily report: new pins added by the sync + Venice roof scrub ─────── */}
+      <DailyReport daily={daily} scrub={scrub} />
+
       {!loaded && <div style={{ color: "#94a3b8", fontSize: 13 }}>Loading…</div>}
+    </div>
+  );
+}
+
+// Rolling per-day report. `daily` = { date: { iq, fb, ai, nosit } } new pins the sync
+// added; `scrub` = { date: { bad, aging, processed } } from the Venice roof scrub.
+function DailyReport({ daily, scrub }) {
+  const days = [...new Set([...Object.keys(daily || {}), ...Object.keys(scrub || {})])].sort().reverse().slice(0, 14);
+  if (!days.length) return null;
+  const fmt = (d) => { try { return new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }); } catch { return d; } };
+  const th = { textAlign: "right", padding: "6px 8px", fontSize: 11.5, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.03em", borderBottom: "1px solid #e5e7eb" };
+  const td = { textAlign: "right", padding: "7px 8px", fontSize: 13.5, color: "#0f172a", borderBottom: "1px solid #f1f5f9" };
+  const td0 = { ...td, textAlign: "left", fontWeight: 700, color: "#334155" };
+  return (
+    <div style={{ border: "1px solid #e5e7eb", borderRadius: 14, padding: "16px 18px", marginTop: 8, background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,.04)" }}>
+      <div style={{ fontSize: 16.5, fontWeight: 800, fontFamily: OSWALD, marginBottom: 4 }}>📊 Daily report</div>
+      <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 12 }}>New pins the sync added each day, and the Venice roof-age scrub (bad = flipped to New Roof).</div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 520 }}>
+          <thead>
+            <tr>
+              <th style={{ ...th, textAlign: "left" }}>Day</th>
+              <th style={th}>IQ</th><th style={th}>FB</th><th style={th}>AI</th><th style={th}>No-Sit</th>
+              <th style={{ ...th, color: "#0f172a" }}>Added</th>
+              <th style={{ ...th, borderLeft: "2px solid #e5e7eb" }}>Checked</th>
+              <th style={{ ...th, color: "#b45309" }}>New Roof</th>
+              <th style={th}>Aging</th>
+            </tr>
+          </thead>
+          <tbody>
+            {days.map((d) => {
+              const s = daily[d] || {}, v = scrub[d] || {};
+              const added = (s.iq || 0) + (s.fb || 0) + (s.ai || 0) + (s.nosit || 0);
+              return (
+                <tr key={d}>
+                  <td style={td0}>{fmt(d)}</td>
+                  <td style={td}>{s.iq || 0}</td><td style={td}>{s.fb || 0}</td><td style={td}>{s.ai || 0}</td><td style={td}>{s.nosit || 0}</td>
+                  <td style={{ ...td, fontWeight: 800 }}>{added}</td>
+                  <td style={{ ...td, borderLeft: "2px solid #e5e7eb" }}>{v.processed || 0}</td>
+                  <td style={{ ...td, fontWeight: 800, color: "#b45309" }}>{v.bad || 0}</td>
+                  <td style={td}>{v.aging || 0}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

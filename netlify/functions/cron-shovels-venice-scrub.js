@@ -103,11 +103,32 @@ async function sbPatch(path, body) {
   await fetch(`${SB_URL}/rest/v1/${path}`, { method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify(body) }).catch(() => {});
 }
 async function logSummary(summary) {
+  await putSetting("shovels_venice_scrub_log", summary); // last run
+  // Rolling per-day tally for the report → { "YYYY-MM-DD": { bad, aging, processed } }.
+  try {
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    const cur = (await getSetting("shovels_venice_scrub_daily")) || {};
+    const day = cur[today] || { bad: 0, aging: 0, processed: 0 };
+    day.bad += summary.bad_new_roof || 0;
+    day.aging += summary.aging_kept || 0;
+    day.processed += summary.processed || 0;
+    cur[today] = day;
+    const keep = {}; for (const k of Object.keys(cur).sort().slice(-30)) keep[k] = cur[k];
+    await putSetting("shovels_venice_scrub_daily", keep);
+  } catch { /* non-fatal */ }
+}
+async function putSetting(key, obj) {
   await fetch(`${SB_URL}/rest/v1/app_settings?on_conflict=key`, {
-    method: "POST",
-    headers: { ...sb, Prefer: "resolution=merge-duplicates,return=minimal" },
-    body: JSON.stringify({ key: "shovels_venice_scrub_log", value: JSON.stringify(summary) }),
+    method: "POST", headers: { ...sb, Prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify({ key, value: JSON.stringify(obj) }),
   }).catch(() => {});
+}
+async function getSetting(key) {
+  const r = await fetch(`${SB_URL}/rest/v1/app_settings?key=eq.${encodeURIComponent(key)}&select=value&limit=1`, { headers: sb }).catch(() => null);
+  if (!r || !r.ok) return null;
+  const rows = await r.json().catch(() => []);
+  const v = rows?.[0]?.value;
+  return v ? (typeof v === "string" ? JSON.parse(v) : v) : null;
 }
 
 // ── Shovels parsing (same tag-proof logic as shovels-permit.js) ──────────────
