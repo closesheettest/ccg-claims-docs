@@ -26,10 +26,13 @@ export default function HarvestHowTo() {
   const [tools, setTools] = useState(null);
   const [videoUrl, setVideoUrl] = useState("");
   const [openId, setOpenId] = useState(null); // the tool whose instructional page is open
+  const [watchedIds, setWatchedIds] = useState(() => new Set()); // tools this rep has opened (cert flow)
 
   // Mark a tool WATCHED for this rep when they open it (training-gate progress).
+  // Flip the ✓ locally right away so they SEE it registered, then persist.
   const recordWatched = (toolId) => {
     if (!trainKey || !toolId) return;
+    setWatchedIds((prev) => { if (prev.has(toolId)) return prev; const n = new Set(prev); n.add(toolId); return n; });
     supabase.from("harvest_howto_watched").upsert({ user_key: trainKey, tool_id: toolId }, { onConflict: "user_key,tool_id" }).then(() => {}, () => {});
   };
 
@@ -41,15 +44,30 @@ export default function HarvestHowTo() {
       ]);
       setTools(t.data || []);
       setVideoUrl(c.data?.video_url || "");
+      if (trainKey) {
+        const w = await supabase.from("harvest_howto_watched").select("tool_id").eq("user_key", trainKey);
+        setWatchedIds(new Set((w.data || []).map((r) => r.tool_id)));
+      }
     })();
-  }, []);
+  }, [trainKey]);
 
   const list = (tools || []).filter((s) => role === "everything" || s.role === "all" || s.role === role);
   const openTool = (tools || []).find((t) => t.id === openId) || null;
+  // A tool's clip should STOP where the next tool's clip begins — the smallest
+  // video_start across ALL tools that's greater than this one's. Otherwise the one
+  // long video keeps rolling into the next tool.
+  const endSec = openTool && openTool.video_start != null
+    ? (tools || []).map((t) => Number(t.video_start)).filter((n) => Number.isFinite(n) && n > Number(openTool.video_start)).sort((a, b) => a - b)[0] ?? null
+    : null;
+  // Next tool in THIS rep's list, to step through in order.
+  const openIdx = list.findIndex((t) => t.id === openId);
+  const nextTool = openIdx >= 0 ? (list[openIdx + 1] || null) : null;
 
   // ── A tool's own instructional page: video on top, then When / How ──────────
   if (openTool) return (
-    <ToolPage tool={openTool} videoUrl={videoUrl} onBack={() => setOpenId(null)} />
+    <ToolPage tool={openTool} videoUrl={videoUrl} endSec={endSec} nextTool={nextTool}
+      onBack={() => setOpenId(null)}
+      onNext={nextTool ? () => { setOpenId(nextTool.id); recordWatched(nextTool.id); try { window.scrollTo(0, 0); } catch { /* ignore */ } } : null} />
   );
 
   return (
@@ -86,19 +104,22 @@ export default function HarvestHowTo() {
         <div style={{ display: "grid", gap: 10 }}>
           {list.map((s) => {
             const hasClip = videoUrl && s.video_start != null;
+            const watched = watchedIds.has(s.id);
             return (
               <button key={s.id} type="button" onClick={() => { setOpenId(s.id); recordWatched(s.id); try { window.scrollTo(0, 0); } catch { /* ignore */ } }}
-                style={{ textAlign: "left", width: "100%", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14,
+                style={{ textAlign: "left", width: "100%", background: watched ? "#f0fdf4" : "#fff", border: watched ? "1px solid #86efac" : "1px solid #e5e7eb", borderRadius: 14,
                   padding: "14px 16px", display: "flex", alignItems: "center", gap: 12, cursor: "pointer", WebkitTapHighlightColor: "transparent" }}>
                 <span style={{ fontSize: 24, flexShrink: 0, width: 30, textAlign: "center" }}>{s.icon}</span>
                 <span style={{ flex: 1 }}>
                   <span style={{ display: "block", fontSize: 15.5, fontWeight: 800, color: "#0f172a" }}>{s.title}</span>
-                  <span style={{ display: "block", fontSize: 12.5, color: "#94a3b8", marginTop: 1 }}>
-                    {hasClip ? `▶ Watch · ${mmss(s.video_start)}` : "Tap to read the steps"}
+                  <span style={{ display: "block", fontSize: 12.5, color: watched ? "#16a34a" : "#94a3b8", marginTop: 1, fontWeight: watched ? 800 : 400 }}>
+                    {watched ? "✓ Watched" : hasClip ? `▶ Watch · ${mmss(s.video_start)}` : "Tap to read the steps"}
                   </span>
                 </span>
                 {s.role !== "all" && <span style={{ fontSize: 10, fontWeight: 800, color: s.role === "sr" ? "#b91c1c" : "#1d4ed8", background: s.role === "sr" ? "#fef2f2" : "#eff6ff", borderRadius: 6, padding: "2px 6px" }}>{s.role === "sr" ? "SR" : "JR"}</span>}
-                <span style={{ color: "#cbd5e1", fontSize: 20, fontWeight: 700 }}>›</span>
+                {watched
+                  ? <span style={{ color: "#16a34a", fontSize: 20, fontWeight: 900 }}>✓</span>
+                  : <span style={{ color: "#cbd5e1", fontSize: 20, fontWeight: 700 }}>›</span>}
               </button>
             );
           })}
@@ -109,7 +130,7 @@ export default function HarvestHowTo() {
 }
 
 // One tool's instructional page — video (jumped to its timestamp) then When / How.
-function ToolPage({ tool, videoUrl, onBack }) {
+function ToolPage({ tool, videoUrl, endSec, nextTool, onBack, onNext }) {
   const hasClip = videoUrl && tool.video_start != null;
   return (
     <div style={{ maxWidth: 760, margin: "0 auto", padding: "14px 14px 70px", fontFamily: FONT }}>
@@ -124,7 +145,7 @@ function ToolPage({ tool, videoUrl, onBack }) {
 
       {/* Video — the instructional part, jumped to this tool's spot */}
       {hasClip ? (
-        <VideoPlayer url={videoUrl} start={Number(tool.video_start)} />
+        <VideoPlayer url={videoUrl} start={Number(tool.video_start)} endSec={endSec} />
       ) : (
         <div style={{ background: "#f1f5f9", border: "1px dashed #cbd5e1", borderRadius: 14, padding: "26px 16px", textAlign: "center", color: "#94a3b8", fontSize: 13.5, marginBottom: 16 }}>
           🎬 Video clip coming soon — read the steps below for now.
@@ -144,10 +165,18 @@ function ToolPage({ tool, videoUrl, onBack }) {
         </div>
       )}
 
-      <button type="button" onClick={onBack}
-        style={{ marginTop: 26, width: "100%", background: "#0f172a", color: "#fff", border: "none", borderRadius: 12, padding: "13px 16px", fontSize: 15, fontWeight: 800, fontFamily: OSWALD, cursor: "pointer" }}>
-        ‹ Back to all tools
-      </button>
+      <div style={{ display: "flex", gap: 10, marginTop: 26 }}>
+        <button type="button" onClick={onBack}
+          style={{ flex: nextTool ? "0 0 auto" : 1, background: "#fff", color: "#334155", border: "2px solid #cbd5e1", borderRadius: 12, padding: "13px 16px", fontSize: 14.5, fontWeight: 800, fontFamily: OSWALD, cursor: "pointer" }}>
+          ‹ All tools
+        </button>
+        {nextTool && (
+          <button type="button" onClick={onNext}
+            style={{ flex: 1, background: "#16a34a", color: "#fff", border: "none", borderRadius: 12, padding: "13px 16px", fontSize: 14.5, fontWeight: 800, fontFamily: OSWALD, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            Next: {nextTool.title} ›
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -156,13 +185,23 @@ function ToolPage({ tool, videoUrl, onBack }) {
 // with a start param; an uploaded .mp4 → native <video> seeked to the second.
 function ytId(u) { const m = String(u).match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([\w-]{6,})/); return m ? m[1] : null; }
 function vimeoId(u) { const m = String(u).match(/vimeo\.com\/(?:video\/)?(\d+)/); return m ? m[1] : null; }
-function VideoPlayer({ url, start }) {
+function VideoPlayer({ url, start, endSec }) {
   const vref = useRef(null);
   const yt = ytId(url), vim = vimeoId(url);
-  const src = yt ? `https://www.youtube.com/embed/${yt}?start=${start || 0}&autoplay=1&rel=0`
+  const end = Number.isFinite(Number(endSec)) && Number(endSec) > (start || 0) ? Math.ceil(Number(endSec)) : null;
+  const src = yt ? `https://www.youtube.com/embed/${yt}?start=${start || 0}${end ? `&end=${end}` : ""}&autoplay=1&rel=0`
     : vim ? `https://player.vimeo.com/video/${vim}#t=${start || 0}s`
     : null;
-  useEffect(() => { if (!src && vref.current) { try { vref.current.currentTime = start || 0; vref.current.play?.(); } catch { /* ignore */ } } }, [src, start]);
+  // Native .mp4: seek to start, and pause the moment we reach this tool's end.
+  useEffect(() => {
+    const v = vref.current;
+    if (src || !v) return;
+    try { v.currentTime = start || 0; v.play?.(); } catch { /* ignore */ }
+    if (!end) return;
+    const onTime = () => { if (v.currentTime >= end) { v.pause(); } };
+    v.addEventListener("timeupdate", onTime);
+    return () => v.removeEventListener("timeupdate", onTime);
+  }, [src, start, end]);
   return (
     <div style={{ width: "100%", background: "#000", borderRadius: 14, overflow: "hidden", position: "relative", aspectRatio: "9 / 16", maxHeight: "70vh", margin: "0 auto" }}>
       {src
