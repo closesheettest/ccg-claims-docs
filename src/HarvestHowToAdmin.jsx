@@ -83,8 +83,10 @@ export default function HarvestHowToAdmin() {
           style={{ textDecoration: "none", background: "#16a34a", color: "#fff", fontWeight: 800, fontSize: 13, fontFamily: OSWALD, padding: "9px 14px", borderRadius: 10 }}>🧪 Practice map — Junior ↗</a>
         <a href="/?mode=harvest&demo=1&test=sr" target="_blank" rel="noreferrer"
           style={{ textDecoration: "none", background: "#0f766e", color: "#fff", fontWeight: 800, fontSize: 13, fontFamily: OSWALD, padding: "9px 14px", borderRadius: 10 }}>🧪 Practice map — Senior ↗</a>
-        <a href="/?mode=harvesthowto&role=junior&nav=1" target="_blank" rel="noreferrer"
-          style={{ textDecoration: "none", background: "#fff", color: "#334155", fontWeight: 800, fontSize: 13, fontFamily: OSWALD, padding: "9px 14px", borderRadius: 10, border: "2px solid #cbd5e1" }}>👁 Preview the rep page ↗</a>
+        <a href="/?mode=harvesttraining&preview=jr" target="_blank" rel="noreferrer"
+          style={{ textDecoration: "none", background: "#fff", color: "#1d4ed8", fontWeight: 800, fontSize: 13, fontFamily: OSWALD, padding: "9px 14px", borderRadius: 10, border: "2px solid #93c5fd" }}>👁 Junior instruction page ↗</a>
+        <a href="/?mode=harvesttraining&preview=sr" target="_blank" rel="noreferrer"
+          style={{ textDecoration: "none", background: "#fff", color: "#b45309", fontWeight: 800, fontSize: 13, fontFamily: OSWALD, padding: "9px 14px", borderRadius: 10, border: "2px solid #fcd34d" }}>👁 Senior instruction page ↗</a>
       </div>
 
       {/* The two training videos (certification landing = ?mode=harvesttraining) */}

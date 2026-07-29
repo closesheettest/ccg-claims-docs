@@ -13,9 +13,13 @@ const FONT = "'Nunito', system-ui, sans-serif";
 const OSWALD = "'Oswald', sans-serif";
 
 export default function HarvestTrainingPage() {
-  const { userType, userKey, isManager } = useMemo(() => {
+  const { userType, userKey, isManager, previewRole } = useMemo(() => {
     try {
       const q = new URLSearchParams(window.location.search);
+      const pv = (q.get("preview") || "").toLowerCase();
+      // Office preview — see the JR or SR landing without a real rep token.
+      if (pv === "jr" || pv === "junior") return { userType: "preview", userKey: "preview-jr", previewRole: "junior" };
+      if (pv === "sr" || pv === "senior") return { userType: "preview", userKey: "preview-sr", previewRole: "senior" };
       const mgr = q.get("manager");
       if (mgr) return { userType: "manager", userKey: mgr, isManager: true };
       const rt = q.get("rt");
@@ -24,8 +28,9 @@ export default function HarvestTrainingPage() {
     return {};
   }, []);
 
-  const [track, setTrack] = useState(isManager ? "manager" : null);
+  const [track, setTrack] = useState(isManager ? "manager" : previewRole || null);
   useEffect(() => {
+    if (previewRole) { setTrack(previewRole); return; }
     if (isManager) { setTrack("manager"); return; }
     if (!userKey) return;
     let live = true;
