@@ -4380,6 +4380,9 @@ export default function CanvassMap() {
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
                   {opts.map((o) => o.key === "insp_sold"
                     ? <button key={o.key} type="button" disabled={!near} onClick={() => signInspection(selected)} style={{ flex: "1 1 44%", minWidth: 92, padding: "11px 8px", borderRadius: 11, fontSize: 13.5, fontWeight: 800, cursor: near ? "pointer" : "not-allowed", border: `1px solid ${near ? "#7c3aed" : "#e5e7eb"}`, background: near ? "#7c3aed" : "#fff", color: near ? "#fff" : "#cbd5e1" }}>🖊️ Sign Inspection</button>
+                    // On an Inspection Lead, an appointment = a BACK-TO-RETAIL appt — label it so + run the BTR flow.
+                    : o.key === "appt" && selected.status === "insp"
+                    ? <button key="btr" type="button" disabled={!near} onClick={() => near && (demoMode ? alert("🧪 Practice mode — booking is off here.") : setBtrPin(selected))} style={{ flex: "1 1 44%", minWidth: 92, padding: "11px 8px", borderRadius: 11, fontSize: 13.5, fontWeight: 800, cursor: near ? "pointer" : "not-allowed", border: `1px solid ${near ? "#16a34a" : "#e5e7eb"}`, background: near ? "#16a34a" : "#fff", color: near ? "#fff" : "#cbd5e1" }}>🏠 Back To Retail Appointment</button>
                     : rBtn(o.key, o.label, o.color))}
                   {rBtn("nothome", "🏠 Not home", "#475569")}
                 </div>
