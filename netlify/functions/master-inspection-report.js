@@ -78,7 +78,7 @@ export const handler = async (event) => {
     const nowMs = Date.now();
     const zoneByRep = await fetchZoneByRep();
     const [inspections, appts, pas, companies] = await Promise.all([
-      sbGetAll("inspections?select=id,jn_job_id,address,city,county,latitude,longitude,client_name,mobile,email,sales_rep_name,original_sales_rep_name,signed_at,docs_signed,date,inspection_date,inspector_name,result,inspection_result,jn_status,retail_outcome,retail_outcome_at,result_task_jnid,result_task_at,cancelled_at,lost_reason,pa_id,pa_company_id,pa_status,pa_signed_at,pa_stage,pa_fields"),
+      sbGetAll("inspections?select=id,jn_job_id,address,city,county,latitude,longitude,client_name,mobile,email,sales_rep_name,original_sales_rep_name,signed_at,docs_signed,date,inspection_date,inspector_name,result,inspection_result,jn_status,retail_outcome,retail_outcome_at,result_task_jnid,result_task_at,cancelled_at,cancel_review_pending,lost_reason,pa_id,pa_company_id,pa_status,pa_signed_at,pa_stage,pa_fields"),
       sbGetAll("pa_appointments?select=id,pa_id,pa_company_id,inspection_id,homeowner_name,homeowner_phone,address,start_at,end_at,status,booked_by,notes,created_at"),
       sbGetAll("pas?select=id,name,phone,email,pa_company_id"),
       sbGetAll("pa_companies?select=id,name"),
@@ -100,7 +100,7 @@ export const handler = async (event) => {
 
     // 1) STILL NEED TO BE INSPECTED — signed, not cancelled, no inspection done yet.
     const needs_inspection = live
-      .filter((i) => (i.signed_at || isYes(i.docs_signed)) && !i.inspection_date && !i.result)
+      .filter((i) => (i.signed_at || isYes(i.docs_signed)) && !i.inspection_date && !i.result && !i.cancel_review_pending)
       .map((i) => ({ ...card(i), signed_at: toISO(i.signed_at), inspector: i.inspector_name || null }))
       .sort((a, b) => (a.signed_at || "").localeCompare(b.signed_at || ""));
 
