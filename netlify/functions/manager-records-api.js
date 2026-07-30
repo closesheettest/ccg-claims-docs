@@ -475,9 +475,17 @@ async function listAppointments(manager, body) {
   const allRepRows = await fetchTable('sales_reps', { select: 'name,jobnimbus_id,active', limit: 2000 })
   const backlogOwnerIds = new Set([SETTER_VIVIANA_ID, DAVID_MACELLA_ID])
   const inactiveOwnerNames = {}
+  // "If a rep puts a deal in, it's theirs." Reps who will actually WORK a deal
+  // that's assigned to them as the sales rep: any active rep, plus William (an
+  // inspector who self-generates leads while harvesting and runs them himself).
+  // A backlog appointment whose SALES REP is one of these isn't an orphan for a
+  // manager to reassign — it drops off the assign queue below.
+  const liveSalesRepIds = new Set()
   for (const r of (allRepRows || [])) {
     if (!r.jobnimbus_id) continue
-    if (r.active === false || /\bwilliam\b/i.test(String(r.name || ''))) { backlogOwnerIds.add(r.jobnimbus_id); inactiveOwnerNames[r.jobnimbus_id] = r.name }
+    const isWilliam = /\bwilliam\b/i.test(String(r.name || ''))
+    if (r.active === false || isWilliam) { backlogOwnerIds.add(r.jobnimbus_id); inactiveOwnerNames[r.jobnimbus_id] = r.name }
+    if (r.active !== false || isWilliam) liveSalesRepIds.add(r.jobnimbus_id)
   }
   // Enrich (fetch each job) so the homeowner NAME shows; includeGoBacks=true so the
   // review-visit result tasks (record_type 23/24/25) come through too.
@@ -489,6 +497,10 @@ async function listAppointments(manager, body) {
   const geocache = {}
   const bkZoned = []
   for (const t of bkRaw) {
+    // Already assigned to a rep who'll work it (active, or William on his own)?
+    // It's theirs — not for a manager to reassign. It only re-surfaces here once
+    // that rep goes inactive (a departure → genuine reassignment).
+    if (t.sales_rep_id && liveSalesRepIds.has(t.sales_rep_id)) continue
     const addr = [t.city, t.state, t.zip].filter(Boolean).join(', ')
     let apptZone = 'Unassigned'
     if (addr) {
