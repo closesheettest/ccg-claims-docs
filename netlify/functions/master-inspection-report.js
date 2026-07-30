@@ -187,9 +187,12 @@ export const handler = async (event) => {
       while (rem.length) { let bi = 0, bd = Infinity; for (let i = 0; i < rem.length; i++) { const d = milesBetween(out[out.length - 1], rem[i]); if (d < bd) { bd = d; bi = i; } } out.push(rem.splice(bi, 1)[0]); }
       return out;
     };
-    const inspectedRows = inspections.filter((i) => ["damage", "retail", "no_damage"].includes(i.result) && i.inspector_name && !i.cancelled_at && i.date);
+    // Group by WHEN the roof was inspected (result_at) — NOT `date`, which is the
+    // homeowner's signed/appointment date and files a 7/29 inspection under 7/24.
+    // Fall back to `date` only for old rows that predate result_at being stamped.
+    const inspectedRows = inspections.filter((i) => ["damage", "retail", "no_damage"].includes(i.result) && i.inspector_name && !i.cancelled_at && (i.result_at || i.date));
     const byInsp = {};
-    for (const i of inspectedRows) { const d = String(i.date).slice(0, 10); (byInsp[i.inspector_name] = byInsp[i.inspector_name] || {}); (byInsp[i.inspector_name][d] = byInsp[i.inspector_name][d] || []).push(i); }
+    for (const i of inspectedRows) { const d = String(i.result_at || i.date).slice(0, 10); (byInsp[i.inspector_name] = byInsp[i.inspector_name] || {}); (byInsp[i.inspector_name][d] = byInsp[i.inspector_name][d] || []).push(i); }
     const inspector_activity = [];
     for (const [name, days] of Object.entries(byInsp)) {
       const day_list = []; let totalRoofs = 0, totalMiles = 0;
