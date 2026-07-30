@@ -475,17 +475,19 @@ async function listAppointments(manager, body) {
   const allRepRows = await fetchTable('sales_reps', { select: 'name,jobnimbus_id,active', limit: 2000 })
   const backlogOwnerIds = new Set([SETTER_VIVIANA_ID, DAVID_MACELLA_ID])
   const inactiveOwnerNames = {}
-  // "If a rep puts a deal in, it's theirs." Reps who will actually WORK a deal
-  // that's assigned to them as the sales rep: any active rep, plus William (an
-  // inspector who self-generates leads while harvesting and runs them himself).
-  // A backlog appointment whose SALES REP is one of these isn't an orphan for a
-  // manager to reassign — it drops off the assign queue below.
+  // "If a rep puts a deal in, it's theirs." A deal assigned to an ACTIVE rep is
+  // theirs (it shows in their own pipeline, not a manager's assign queue). Only
+  // when that rep goes INACTIVE does the deal become a reassignment a manager
+  // must place. So active reps' ids are the "it's theirs" set; inactive reps
+  // (plus the setter Viviana / David) are the backlog owners whose leads surface
+  // for (re)assignment. (Replaces an older name-based "William" special-case:
+  // William Hennis is an ACTIVE territory rep, so treating every "William" as a
+  // non-worker both mis-owned his live leads and would hide a departed rep's.)
   const liveSalesRepIds = new Set()
   for (const r of (allRepRows || [])) {
     if (!r.jobnimbus_id) continue
-    const isWilliam = /\bwilliam\b/i.test(String(r.name || ''))
-    if (r.active === false || isWilliam) { backlogOwnerIds.add(r.jobnimbus_id); inactiveOwnerNames[r.jobnimbus_id] = r.name }
-    if (r.active !== false || isWilliam) liveSalesRepIds.add(r.jobnimbus_id)
+    if (r.active === false) { backlogOwnerIds.add(r.jobnimbus_id); inactiveOwnerNames[r.jobnimbus_id] = r.name }
+    else liveSalesRepIds.add(r.jobnimbus_id)
   }
   // Enrich (fetch each job) so the homeowner NAME shows; includeGoBacks=true so the
   // review-visit result tasks (record_type 23/24/25) come through too.
