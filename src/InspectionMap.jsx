@@ -152,7 +152,14 @@ export default function InspectionMap() {
     else endDay();
   };
   const endDay = () => { const ids = route.map((p) => p.id); release(ids); setDayMode(null); setRoute([]); setStopIdx(0); trail.current?.clearLayers(); setSelected(null); loadPins(); };
-  const startInspection = (p) => { logVisit(p, "started"); window.location.href = `/?mode=inspector&job=${encodeURIComponent(p.jn_job_id || p.id)}`; };
+  // Open the inspection portal FOR THIS ROOF: carry the inspector's identity into
+  // the inspector app (so they land signed-in as themselves) and deep-link straight
+  // to this inspection's flow.
+  const startInspection = (p) => {
+    logVisit(p, "started");
+    try { if (me?.id) localStorage.setItem("ccg_inspector_id", me.id); } catch { /* ignore */ }
+    window.location.href = `/?mode=inspector&job=${encodeURIComponent(p.id)}`;
+  };
 
   if (err) return <Splash msg={err} />;
   if (!me) return <Splash msg="Loading your inspection map…" plain />;

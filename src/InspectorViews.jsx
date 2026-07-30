@@ -2020,7 +2020,10 @@ export function InspectorMobileApp() {
       const found = list.find((i) => i.id === stored);
       if (found) {
         setMe(found);
-        setStage("list");
+        // Deep-link from the Inspection Map's pin card: ?job=<inspection id> jumps
+        // straight into that roof's inspection instead of the list.
+        let jobParam = null; try { jobParam = new URLSearchParams(window.location.search).get("job"); } catch { /* ignore */ }
+        setStage(jobParam ? { kind: "detail", jobId: jobParam } : "list");
         return;
       }
       // Stored ID is NOT in the active+setup-done list. Look up the
