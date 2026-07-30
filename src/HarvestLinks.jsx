@@ -158,6 +158,29 @@ export default function HarvestLinks() {
     finally { setSaving(""); }
   };
 
+  // Manager "go-backs only" override — one rep, or a whole region's team.
+  const setGobacks = async (repId, on, name) => {
+    setSaving(repId); setNote("");
+    try {
+      const r = await fetch("/.netlify/functions/harvest-gobacks-only", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rep_id: repId, on }) });
+      const j = await r.json().catch(() => ({}));
+      if (!j.ok) setNote(`⚠️ ${name}: ${j.error || "couldn't save"}`);
+      else { setNote(`✓ ${name} — go-backs only ${on ? "ON" : "off"}.`); await load(); }
+    } catch (e) { setNote(`⚠️ ${e.message || "network error"}`); }
+    finally { setSaving(""); }
+  };
+  const setGobacksTeam = async (region, on) => {
+    const team = (data?.reps || []).filter((r) => (r.region || "No region") === region);
+    if (!team.length) return;
+    if (!window.confirm(`Set "go-backs only" ${on ? "ON" : "OFF"} for all ${team.length} reps in ${region}?`)) return;
+    setNote(""); setSaving("team-" + region);
+    try {
+      for (const r of team) await fetch("/.netlify/functions/harvest-gobacks-only", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rep_id: r.id, on }) });
+      setNote(`✓ ${region} — go-backs only ${on ? "ON" : "off"} for ${team.length} reps.`); await load();
+    } catch (e) { setNote(`⚠️ ${e.message || "network error"}`); }
+    finally { setSaving(""); }
+  };
+
   const admins = data?.admins || [];
   // Training completion across everyone with a link (for the summary chips).
   const everyone = [...(data?.admins || []), ...(data?.trainees || []), ...(data?.reps || [])];
@@ -339,12 +362,30 @@ export default function HarvestLinks() {
               const showRegion = i === 0 || r.region !== reps[i - 1].region;
               return (
               <React.Fragment key={r.id}>
-                {showRegion && <div style={{ fontSize: 13, fontWeight: 800, fontFamily: OSWALD, color: "#0f172a", margin: i === 0 ? "0 0 2px" : "12px 0 2px" }}>📍 {r.region || "No region"}</div>}
-                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", border: "1px solid #e5e7eb", borderRadius: 10, padding: "9px 12px", background: "#fff" }}>
+                {showRegion && (() => {
+                  const rgn = r.region || "No region";
+                  const teamOn = reps.filter((x) => (x.region || "No region") === rgn).every((x) => x.gobacks_only);
+                  return (
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", margin: i === 0 ? "0 0 2px" : "12px 0 2px" }}>
+                      <div style={{ fontSize: 13, fontWeight: 800, fontFamily: OSWALD, color: "#0f172a" }}>📍 {rgn}</div>
+                      <button type="button" disabled={saving === "team-" + rgn} onClick={() => setGobacksTeam(rgn, !teamOn)}
+                        title="Set the whole team to go-backs only (or clear it)"
+                        style={{ fontSize: 11, fontWeight: 800, borderRadius: 8, padding: "3px 9px", cursor: "pointer", border: "1px solid #ddd6fe", background: teamOn ? "#7c3aed" : "#f5f3ff", color: teamOn ? "#fff" : "#6d28d9" }}>
+                        🔁 Team go-backs only{teamOn ? " ✓" : ""}
+                      </button>
+                    </div>
+                  );
+                })()}
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", border: "1px solid #e5e7eb", borderRadius: 10, padding: "9px 12px", background: r.gobacks_only ? "#faf5ff" : "#fff" }}>
                 <span style={{ fontSize: 10.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.04em", background: r.level === "senior" ? "#16a34a" : "#334155", color: "#fff", padding: "2px 8px", borderRadius: 10 }}>{r.level}{r.override ? " ·set" : ""}</span>
                 <span style={{ fontSize: 14, fontWeight: 700 }}>{r.name}</span>
                 <TrainingBadge t={r.training} />
                 <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+                  <button type="button" disabled={saving === r.id} onClick={() => setGobacks(r.id, !r.gobacks_only, r.name)}
+                    title="Only go-backs on this rep's map"
+                    style={{ fontSize: 11.5, fontWeight: 800, borderRadius: 8, padding: "5px 9px", cursor: "pointer", border: "1px solid", borderColor: r.gobacks_only ? "#7c3aed" : "#cbd5e1", background: r.gobacks_only ? "#7c3aed" : "#fff", color: r.gobacks_only ? "#fff" : "#475569" }}>
+                    🔁 Go-backs{r.gobacks_only ? " ✓" : ""}
+                  </button>
                   <LevelSelect card={r} disabled={saving === r.id} onPick={(lv) => setLevel(r.id, lv, r.name)} />
                   <a href={spot(r.link)} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, fontWeight: 700, color: "#0e7490", textDecoration: "none" }}>Open ↗</a>
                   <button type="button" onClick={() => copy(r.link, r.link)} style={btn}>{copied === r.link ? "✓ Copied" : "Copy link"}</button>

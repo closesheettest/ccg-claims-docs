@@ -1146,6 +1146,9 @@ export default function CanvassMap() {
     return () => { live = false; };
   }, [auth.rt, me, repTrack]);
 
+  // A go-backs-only rep (manager override) lands straight on their go-backs list.
+  useEffect(() => { if (me?.gobacks_only) setGobackCard(true); }, [me]);
+
   // Load pins for a viewport (bounds). Without bounds → an initial global sample
   // so the map can fit to wherever the data is; after that, moves load by view.
   //
@@ -1193,7 +1196,10 @@ export default function CanvassMap() {
       // Load ONLY the selected statuses ("only load what's picked"). Empty
       // selection (office "All") = everything the level can see. No region gate —
       // clustering keeps the zoomed-out view cheap; the viewport scopes the rest.
-      let effStatuses = showNone ? [] : (sel.size ? [...sel].filter((k) => baseKeys.includes(k)) : baseKeys);
+      // A "go-backs only" rep (manager override) loads NO regular pins — only their
+      // post-inspection go-backs (which load separately) show on the map.
+      const gobacksOnly = !!(authInfo.current.rep && authInfo.current.rep.gobacks_only);
+      let effStatuses = (showNone || gobacksOnly) ? [] : (sel.size ? [...sel].filter((k) => baseKeys.includes(k)) : baseKeys);
       // Picking 🍀 Clover Leaf automatically brings the 🚧 install markers along
       // (install_home has no chip of its own).
       if (effStatuses.includes("clover") && !effStatuses.includes("install_home") && baseKeys.includes("install_home")) {
@@ -1310,7 +1316,7 @@ export default function CanvassMap() {
         .filter((t) => seesAll || lvl === "admin" || !((t.visible_levels) || []).length || ((t.visible_levels) || []).includes(lvl))
         .map((t) => t.key);
       if (!baseKeys.length) return false;
-      if (showNone) { setClusters([]); setProspects([]); return true; } // office default: show nothing until a type is picked
+      if (showNone || (rep && rep.gobacks_only)) { setClusters([]); setProspects([]); return true; } // office "pick a type" default, or a go-backs-only rep (only their go-backs show)
       const selArr = [...sel].filter((k) => baseKeys.includes(k));
       let statuses = selArr.length ? selArr : baseKeys;
       // 🚧 markers ride with the 🍀 selection in the zoomed-out clusters too.
@@ -3398,10 +3404,13 @@ export default function CanvassMap() {
         {loading && (
           <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", background: "#fff", padding: "6px 14px", borderRadius: 20, fontSize: 13, boxShadow: "0 2px 8px rgba(0,0,0,.15)", zIndex: 500 }}>Loading pins…</div>
         )}
-        {!loading && prospects.length === 0 && clusters.length === 0 && (
+        {!loading && prospects.length === 0 && clusters.length === 0 && !me?.gobacks_only && (
           <div style={{ position: "absolute", top: 20, left: "50%", transform: "translateX(-50%)", background: "#fff", padding: "14px 18px", borderRadius: 12, fontSize: 13.5, color: "#475569", boxShadow: "0 2px 10px rgba(0,0,0,.12)", zIndex: 500, textAlign: "center", maxWidth: 320 }}>
             No pins in your area yet. The office loads leads from the admin section.
           </div>
+        )}
+        {!loading && me?.gobacks_only && (
+          <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", background: "#7c3aed", color: "#fff", padding: "8px 16px", borderRadius: 20, fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 2px 8px rgba(0,0,0,.18)", zIndex: 500, whiteSpace: "nowrap" }}>🔁 Go-backs only — your manager set your map to go-backs</div>
         )}
         {!loading && capped && shownCount > 0 && dayMode === null && (
           <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", background: "#fffbeb", border: "1px solid #fcd34d", color: "#92400e", padding: "6px 14px", borderRadius: 20, fontSize: 12.5, fontWeight: 700, boxShadow: "0 2px 8px rgba(0,0,0,.12)", zIndex: 500, whiteSpace: "nowrap" }}>Showing the densest area — zoom in to see every pin</div>

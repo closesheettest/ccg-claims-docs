@@ -32,7 +32,8 @@ export const handler = async (event) => {
     // Pull every rep (name/token/level + contact so the office can SEND the link).
     // harvest_level / harvest_link_sent_at may not exist yet — fall back through
     // progressively smaller selects so this keeps working before a migration runs.
-    const allReps = await sbGet(`sales_reps?select=id,name,jobnimbus_id,harvest_token,active,harvest_level,phone,email,harvest_link_sent_at&order=name`).catch(() => null)
+    const allReps = await sbGet(`sales_reps?select=id,name,jobnimbus_id,harvest_token,active,harvest_level,harvest_gobacks_only,phone,email,harvest_link_sent_at&order=name`).catch(() => null)
+      || await sbGet(`sales_reps?select=id,name,jobnimbus_id,harvest_token,active,harvest_level,phone,email,harvest_link_sent_at&order=name`).catch(() => null)
       || await sbGet(`sales_reps?select=id,name,jobnimbus_id,harvest_token,active,harvest_level,phone,email&order=name`).catch(() => null)
       || await sbGet(`sales_reps?select=id,name,jobnimbus_id,harvest_token,active,harvest_level&order=name`).catch(() =>
         sbGet(`sales_reps?select=id,name,jobnimbus_id,harvest_token,active&order=name`));
@@ -83,6 +84,7 @@ export const handler = async (event) => {
         name: r.name || "Rep",
         level,
         override,                       // the explicit office assignment, if any
+        gobacks_only: r.harvest_gobacks_only === true, // manager "go-backs only" override
         region: zoneInfo?.region || null,
         active: r.active !== false,
         link: `${base}/?mode=harvest&rt=${r.harvest_token}`,
