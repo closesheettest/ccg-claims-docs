@@ -269,6 +269,10 @@ export default function ManagerRecordsView({ token }) {
           </div>
         </header>
 
+        {/* ─── Cancellation reviews to decide — surfaced here so a failed review
+             text (request-inspection-cancel) can't leave one sitting unseen. ─── */}
+        <CancelReviews token={token} />
+
         {/* ─────────── How-to banner ─────────── */}
         <section style={{
           background: '#eff6ff',
@@ -1375,6 +1379,41 @@ async function stampJn(token, id, fields) {
 // Setter bookings land on the regional manager with NO sales rep. Here he sees
 // the ones waiting, his reps' upcoming schedule, and assigns each an OWNER + a
 // SALES REP → writes both to the JN job. Self-contained: loads its own data.
+// Zone cancellation reviews the manager still has to decide — a to-do banner so a
+// missed review text can't leave one sitting unseen. Fetches manager-cancel-reviews.
+function CancelReviews({ token }) {
+  const [reviews, setReviews] = useState(null)
+  useEffect(() => {
+    if (!token) return
+    let live = true
+    fetch(`/.netlify/functions/manager-cancel-reviews?manager=${encodeURIComponent(token)}`)
+      .then((r) => r.json()).then((j) => { if (live) setReviews(j.ok ? (j.reviews || []) : []) })
+      .catch(() => { if (live) setReviews([]) })
+    return () => { live = false }
+  }, [token])
+  if (!reviews || !reviews.length) return null
+  const when = (iso) => { try { return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) } catch { return '' } }
+  return (
+    <section style={{ background: '#fef2f2', border: '2px solid #fecaca', borderRadius: 12, padding: '14px 18px', marginBottom: 14 }}>
+      <div style={{ fontSize: 15, fontWeight: 800, color: '#b91c1c', marginBottom: 6 }}>🚫 Cancellation reviews to decide ({reviews.length})</div>
+      <div style={{ fontSize: 12.5, color: '#7f1d1d', marginBottom: 10 }}>A homeowner cancelled during an inspection — read the note and Confirm or Keep. Do these first.</div>
+      <div style={{ display: 'grid', gap: 8 }}>
+        {reviews.map((r) => (
+          <div key={r.id} style={{ background: '#fff', border: '1px solid #fecaca', borderRadius: 10, padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 800, fontSize: 14 }}>{r.client_name || 'Homeowner'}</div>
+              <div style={{ fontSize: 12.5, color: '#64748b' }}>{[r.address, r.city].filter(Boolean).join(', ')}</div>
+              {r.note && <div style={{ fontSize: 12.5, color: '#b45309', marginTop: 2 }}>📝 "{r.note}"</div>}
+              <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 2 }}>{r.by ? `Reported by ${r.by}` : ''}{r.at ? ` · ${when(r.at)}` : ''}{r.rep ? ` · rep ${r.rep}` : ''}</div>
+            </div>
+            <a href={r.link} style={{ flexShrink: 0, background: '#b91c1c', color: '#fff', borderRadius: 10, padding: '9px 14px', fontSize: 13.5, fontWeight: 800, textDecoration: 'none' }}>Review &amp; decide ›</a>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 function AssignAppointments({ token }) {
   const [d, setD] = useState(null)        // { zone, reps, unassigned, assigned }
   const [sel, setSel] = useState({})      // apptId → { owner, rep } (JN ids)
