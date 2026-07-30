@@ -26,6 +26,7 @@ import HarvestLinks from "./HarvestLinks";
 import HarvestReport from "./HarvestReport";
 import MasterInspectionReports from "./MasterInspectionReports";
 import PaReschedule from "./PaReschedule";
+import InspectionMap from "./InspectionMap";
 import HarvestHowTo from "./HarvestHowTo";
 import HarvestHowToAdmin from "./HarvestHowToAdmin";
 import HarvestTrainingAdmin from "./HarvestTrainingAdmin";
@@ -9527,6 +9528,10 @@ export default function App() {
     // ?mode=pareschedule — homeowner self-reschedules a missed PA appointment.
     if (portalMode === "pareschedule") {
       return <PaReschedule />;
+    }
+    // ?mode=inspectmap — inspector's map of inspections needing inspection (route-my-day + route-lock).
+    if (portalMode === "inspectmap") {
+      return <InspectionMap />;
     }
     // ?mode=harvesthowto — collapsible scenario playbook ("a house has damage and
     // isn't a pin → here's what you do"). Reps reach it from the ❓ on their map;
