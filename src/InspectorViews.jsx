@@ -20,7 +20,7 @@
 //     inspection_photos jsonb -- [{ path, bucket, captured_at, ... }]
 //     latitude / longitude double precision -- for distance routing
 
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useMemo, useState, useRef, Fragment } from "react";
 import { supabase } from "./lib/supabase";
 import { fmtSigned } from "./lib/dates";
 import { AddressAutocomplete } from "./lib/AddressAutocomplete";
@@ -3190,6 +3190,105 @@ function InspectorReportDetail({ insp, onBack }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// CANCEL DRILL-DOWN — the detail behind one inspector's "Cancelled" count.
+// A cancel is the inspector clicking "Homeowner cancelled" at the door; it
+// captures two photos (house number + front of house) as proof the visit
+// actually happened. This panel shows each cancel with its note and those
+// before-cancel photos, so a manager can confirm the inspector really went —
+// or spot an inspector whose cancels have no photos / an outlier cancel rate.
+// (Geo/where-they-were is handled separately by the inspector map.)
+// ─────────────────────────────────────────────────────────────────────
+function CancelDrilldown({ inspectorName, cancels }) {
+  const [urls, setUrls] = useState({}); // photo path -> short-lived signed URL
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const out = {};
+      for (const c of cancels) {
+        for (const p of (c.photos || [])) {
+          if (!p?.path || out[p.path]) continue;
+          try {
+            const { data } = await supabase.storage
+              .from(p.bucket || SIGNED_BUCKET)
+              .createSignedUrl(p.path, 3600);
+            if (data?.signedUrl) out[p.path] = data.signedUrl;
+          } catch { /* skip a photo that won't sign */ }
+        }
+      }
+      if (!cancelled) { setUrls(out); setLoading(false); }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cancels]);
+
+  if (!cancels.length) {
+    return <div style={{ fontSize: 12, color: "#6b7280" }}>No cancel details in this range.</div>;
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 8 }}>
+      <div style={{ fontSize: 11, color: "#991b1b", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+        {inspectorName} · {cancels.length} cancel{cancels.length === 1 ? "" : "s"}
+      </div>
+      {cancels.map((c) => {
+        const addr = [c.address, c.city].filter(Boolean).join(", ");
+        const enough = c.photoCount >= 2;
+        return (
+          <div key={c.id} style={{ background: "#fff", border: "1px solid #fecaca", borderRadius: 8, padding: 10, display: "grid", gap: 6 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "baseline" }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{c.client_name || "—"}</div>
+                {addr && <div style={{ fontSize: 11, color: "#6b7280" }}>{addr}</div>}
+              </div>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                {c.at && <span style={{ fontSize: 11, color: "#9ca3af" }}>{new Date(c.at).toLocaleString()}</span>}
+                <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 999, background: c.pending ? "#fef3c7" : "#e5e7eb", color: c.pending ? "#92400e" : "#374151" }}>
+                  {c.pending ? "⏳ In review" : "Resolved"}
+                </span>
+              </div>
+            </div>
+            {c.note && (
+              <div style={{ fontSize: 12, color: "#7f1d1d", background: "#fef2f2", borderRadius: 6, padding: "6px 8px" }}>
+                “{c.note}”
+              </div>
+            )}
+            <div>
+              <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 999, background: enough ? "#dcfce7" : "#fee2e2", color: enough ? "#166534" : "#991b1b" }}>
+                {enough
+                  ? `✓ ${c.photoCount} before-cancel photo${c.photoCount === 1 ? "" : "s"}`
+                  : `⚠ Only ${c.photoCount} photo${c.photoCount === 1 ? "" : "s"} — verify the visit happened`}
+              </span>
+            </div>
+            {c.photoCount > 0 && (
+              loading ? (
+                <div style={{ fontSize: 11, color: "#6b7280" }}>Loading photos…</div>
+              ) : (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {(c.photos || []).map((p, i) => (
+                    urls[p.path] ? (
+                      <a key={i} href={urls[p.path]} target="_blank" rel="noreferrer" title={p.label || `Photo ${i + 1}`} style={{ display: "block" }}>
+                        <img src={urls[p.path]} alt={p.label || `Photo ${i + 1}`} style={{ width: 84, height: 84, objectFit: "cover", borderRadius: 6, border: "1px solid #e5e7eb" }} />
+                      </a>
+                    ) : (
+                      <div key={i} style={{ width: 84, height: 84, borderRadius: 6, border: "1px dashed #d1d5db", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#9ca3af", textAlign: "center" }}>
+                        no preview
+                      </div>
+                    )
+                  ))}
+                </div>
+              )
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ═════════════════════════════════════════════════════════════════════
 // MANAGER REPORTS — aggregate across all inspectors. Lives in the
 // Manager → Inspector Reports tile. Shares range/status helpers with
@@ -3204,6 +3303,7 @@ export function ManagerInspectorReports() {
   const [reviewRows, setReviewRows] = useState([]); // cancel-review pending (awaiting manager)
   const [inspectorList, setInspectorList] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [drillKey, setDrillKey] = useState(null); // by-inspector row expanded to show its cancels
   // Custom date range — only used when range === "custom". Defaults to the
   // last 30 days so switching to Custom shows a sensible window right away.
   const _iso = (d) => d.toISOString().slice(0, 10);
@@ -3282,7 +3382,7 @@ export function ManagerInspectorReports() {
       // "lost" (result='lost', by result_at) — treated as ONE bucket, deduped.
       let cancelledQ = supabase
         .from("inspections")
-        .select("id, inspector_id, cancelled_at, cancel_review_by")
+        .select("id, inspector_id, cancelled_at, cancel_review_by, cancel_review_note, cancel_review_at, cancel_review_pending, client_name, address, city, inspection_photos")
         .not("cancelled_at", "is", null)
         .gte("cancelled_at", fromIso)
         .lte("cancelled_at", toIso)
@@ -3301,7 +3401,7 @@ export function ManagerInspectorReports() {
       // Current snapshot, independent of the date range — like Pending.
       let reviewQ = supabase
         .from("inspections")
-        .select("id, inspector_id, cancel_review_by")
+        .select("id, inspector_id, cancel_review_by, cancel_review_note, cancel_review_at, cancel_review_pending, client_name, address, city, inspection_photos")
         .eq("cancel_review_pending", true)
         .limit(5000);
 
@@ -3326,10 +3426,11 @@ export function ManagerInspectorReports() {
     return m;
   }, [inspectorList]);
 
-  const { byStatus, byDay, byInspector, total } = useMemo(() => {
+  const { byStatus, byDay, byInspector, cancelDetailsByKey, total } = useMemo(() => {
     const byStatus = { damage: 0, no_damage: 0, retail: 0, cancelled: 0 };
     const byDay = new Map();
     const byInspector = new Map(); // inspector_id -> { name, total, damage, no_damage, retail, pending }
+    const cancelDetailsByKey = new Map(); // attribution key -> [{ ...cancel detail }]
     for (const r of rows) {
       if (byStatus[r.result] != null) byStatus[r.result]++;
       const k = dayKey(r.result_at);
@@ -3369,21 +3470,41 @@ export function ManagerInspectorReports() {
       name: nameById.get(key) || fallbackName || "(removed inspector)",
       total: 0, damage: 0, no_damage: 0, retail: 0, pending: 0, cancelled: 0, review: 0,
     };
+    const pushDetail = (key, row, kind) => {
+      const list = cancelDetailsByKey.get(key) || [];
+      const photos = Array.isArray(row.inspection_photos) ? row.inspection_photos : [];
+      list.push({
+        id: row.id,
+        client_name: row.client_name || null,
+        address: row.address || null,
+        city: row.city || null,
+        note: row.cancel_review_note || null,
+        at: row.cancel_review_at || row.cancelled_at || null,
+        pending: !!row.cancel_review_pending || kind === "review",
+        photos,
+        photoCount: photos.length,
+      });
+      cancelDetailsByKey.set(key, list);
+    };
     for (const c of cancelledRows) {
       byStatus.cancelled++;
       const key = attrKey(c); const e = entryFor(key, c.cancel_review_by); e.cancelled++; byInspector.set(key, e);
+      pushDetail(key, c, "cancel");
     }
     for (const v of reviewRows) {
       byStatus.cancelled++;
       const key = attrKey(v); const e = entryFor(key, v.cancel_review_by); e.cancelled++; e.review++; byInspector.set(key, e);
+      pushDetail(key, v, "review");
     }
+    // Newest cancel first within each inspector.
+    for (const list of cancelDetailsByKey.values()) list.sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
     const dayList = Array.from(byDay.values()).sort(
       (a, b) => new Date(b.date) - new Date(a.date),
     );
     const inspectorList = Array.from(byInspector.entries())
       .map(([id, v]) => ({ id, ...v }))
       .sort((a, b) => b.total - a.total);
-    return { byStatus, byDay: dayList, byInspector: inspectorList, total: rows.length };
+    return { byStatus, byDay: dayList, byInspector: inspectorList, cancelDetailsByKey, total: rows.length };
   }, [rows, pendingRows, cancelledRows, reviewRows, nameById]);
 
   const maxDayTotal = Math.max(1, ...byDay.map((d) => d.total));
@@ -3558,26 +3679,53 @@ export function ManagerInspectorReports() {
                           {n}{row.total > 0 && <span style={{ color: "#9ca3af", fontWeight: 600 }}> · {pct(n)}</span>}
                         </td>
                       );
+                      const hasCancels = (row.cancelled || 0) > 0;
+                      const isOpen = drillKey === row.id;
                       return (
-                        <tr key={row.id} style={{ borderBottom: "1px solid #f3f4f6" }}>
-                          <td style={{ padding: "6px 8px", fontWeight: 600 }}>{row.name}</td>
-                          <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700 }}>{row.total}</td>
-                          {cell(row.damage)}
-                          {cell(row.no_damage)}
-                          {cell(row.retail)}
-                          <td style={{ padding: "6px 8px", textAlign: "right", color: row.pending > 0 ? "#b45309" : "#6b7280", fontWeight: row.pending > 0 ? 700 : 400 }}>
-                            {row.pending}
-                          </td>
-                          <td style={{ padding: "6px 8px", textAlign: "right", color: row.cancelled > 0 ? STATUS_META.cancelled.color : "#9ca3af", fontWeight: row.cancelled > 0 ? 700 : 400 }}>
-                            {row.cancelled || 0}
-                            {(row.total + (row.cancelled || 0)) > 0 && (
-                              <span style={{ color: "#9ca3af", fontWeight: 600 }}> · {Math.round(((row.cancelled || 0) / (row.total + (row.cancelled || 0))) * 100)}%</span>
-                            )}
-                          </td>
-                          <td style={{ padding: "6px 8px", textAlign: "right", color: row.review > 0 ? "#b45309" : "#9ca3af", fontWeight: row.review > 0 ? 700 : 400 }}>
-                            {row.review || 0}
-                          </td>
-                        </tr>
+                        <Fragment key={row.id}>
+                          <tr
+                            onClick={hasCancels ? () => setDrillKey(isOpen ? null : row.id) : undefined}
+                            style={{
+                              borderBottom: isOpen ? "none" : "1px solid #f3f4f6",
+                              cursor: hasCancels ? "pointer" : "default",
+                              background: isOpen ? "#fef2f2" : "transparent",
+                            }}
+                            title={hasCancels ? "Tap to see this inspector's cancels + before-cancel photos" : undefined}
+                          >
+                            <td style={{ padding: "6px 8px", fontWeight: 600 }}>
+                              {hasCancels && (
+                                <span style={{ color: STATUS_META.cancelled.color, marginRight: 5, display: "inline-block", transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>▸</span>
+                              )}
+                              {row.name}
+                            </td>
+                            <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700 }}>{row.total}</td>
+                            {cell(row.damage)}
+                            {cell(row.no_damage)}
+                            {cell(row.retail)}
+                            <td style={{ padding: "6px 8px", textAlign: "right", color: row.pending > 0 ? "#b45309" : "#6b7280", fontWeight: row.pending > 0 ? 700 : 400 }}>
+                              {row.pending}
+                            </td>
+                            <td style={{ padding: "6px 8px", textAlign: "right", color: row.cancelled > 0 ? STATUS_META.cancelled.color : "#9ca3af", fontWeight: row.cancelled > 0 ? 700 : 400 }}>
+                              {row.cancelled || 0}
+                              {(row.total + (row.cancelled || 0)) > 0 && (
+                                <span style={{ color: "#9ca3af", fontWeight: 600 }}> · {Math.round(((row.cancelled || 0) / (row.total + (row.cancelled || 0))) * 100)}%</span>
+                              )}
+                            </td>
+                            <td style={{ padding: "6px 8px", textAlign: "right", color: row.review > 0 ? "#b45309" : "#9ca3af", fontWeight: row.review > 0 ? 700 : 400 }}>
+                              {row.review || 0}
+                            </td>
+                          </tr>
+                          {isOpen && (
+                            <tr style={{ borderBottom: "1px solid #f3f4f6", background: "#fef2f2" }}>
+                              <td colSpan={8} style={{ padding: "4px 8px 12px" }}>
+                                <CancelDrilldown
+                                  inspectorName={row.name}
+                                  cancels={cancelDetailsByKey.get(row.id) || []}
+                                />
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
                       );
                     })}
                   </tbody>
