@@ -3282,9 +3282,8 @@ export function ManagerInspectorReports() {
       // "lost" (result='lost', by result_at) — treated as ONE bucket, deduped.
       let cancelledQ = supabase
         .from("inspections")
-        .select("id, inspector_id, cancelled_at")
+        .select("id, inspector_id, cancelled_at, cancel_review_by")
         .not("cancelled_at", "is", null)
-        .not("inspector_id", "is", null)
         .gte("cancelled_at", fromIso)
         .lte("cancelled_at", toIso)
         .limit(5000);
@@ -3302,11 +3301,9 @@ export function ManagerInspectorReports() {
       // Current snapshot, independent of the date range — like Pending.
       let reviewQ = supabase
         .from("inspections")
-        .select("id, inspector_id")
+        .select("id, inspector_id, cancel_review_by")
         .eq("cancel_review_pending", true)
-        .not("inspector_id", "is", null)
         .limit(5000);
-      if (filterInspectorId) reviewQ = reviewQ.eq("inspector_id", filterInspectorId);
 
       const [completed, pending, insList, cancelledR, lostR, reviewR] = await Promise.all([completedQ, pendingQ, insQ, cancelledQ, lostQ, reviewQ]);
       if (cancelled) return;
@@ -3357,22 +3354,28 @@ export function ManagerInspectorReports() {
       insEntry.pending++;
       byInspector.set(p.inspector_id, insEntry);
     }
+    // Cancels are attributed to the INSPECTOR who clicked cancel during the
+    // inspection (cancel_review_by, a NAME) — these rows carry no inspector_id.
+    // A cancel counts whether it's still in review OR already resolved, so an
+    // inspector prompting an unusual number of cancels stands out.
+    const idByName = new Map();
+    for (const [id, nm] of nameById) if (nm) idByName.set(String(nm).trim().toLowerCase(), id);
+    const attrKey = (row) => {
+      const nm = row.cancel_review_by ? String(row.cancel_review_by).trim().toLowerCase() : null;
+      if (nm) return idByName.get(nm) || ("nm:" + nm);
+      return row.inspector_id;
+    };
+    const entryFor = (key, fallbackName) => byInspector.get(key) || {
+      name: nameById.get(key) || fallbackName || "(removed inspector)",
+      total: 0, damage: 0, no_damage: 0, retail: 0, pending: 0, cancelled: 0, review: 0,
+    };
     for (const c of cancelledRows) {
       byStatus.cancelled++;
-      const insEntry = byInspector.get(c.inspector_id) || {
-        name: nameById.get(c.inspector_id) || "(removed inspector)",
-        total: 0, damage: 0, no_damage: 0, retail: 0, pending: 0, cancelled: 0, review: 0,
-      };
-      insEntry.cancelled++;
-      byInspector.set(c.inspector_id, insEntry);
+      const key = attrKey(c); const e = entryFor(key, c.cancel_review_by); e.cancelled++; byInspector.set(key, e);
     }
     for (const v of reviewRows) {
-      const insEntry = byInspector.get(v.inspector_id) || {
-        name: nameById.get(v.inspector_id) || "(removed inspector)",
-        total: 0, damage: 0, no_damage: 0, retail: 0, pending: 0, cancelled: 0, review: 0,
-      };
-      insEntry.review++;
-      byInspector.set(v.inspector_id, insEntry);
+      byStatus.cancelled++;
+      const key = attrKey(v); const e = entryFor(key, v.cancel_review_by); e.cancelled++; e.review++; byInspector.set(key, e);
     }
     const dayList = Array.from(byDay.values()).sort(
       (a, b) => new Date(b.date) - new Date(a.date),
