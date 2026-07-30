@@ -94,13 +94,13 @@ export default function HarvestHowToAdmin() {
         <div style={{ fontSize: 15, fontWeight: 800, fontFamily: OSWALD, marginBottom: 2 }}>🎬 Training videos</div>
         <div style={{ fontSize: 12.5, color: "#64748b", marginBottom: 12 }}>YouTube / Vimeo / .mp4 links. Reps watch these on the certification page (<code>?mode=harvesttraining</code>).</div>
 
-        <label style={{ fontSize: 12.5, fontWeight: 800, color: "#334155", display: "block", marginBottom: 4 }}>1 · “Why you want to use DoorDispatcher” — one per level</label>
+        <label style={{ fontSize: 12.5, fontWeight: 800, color: "#334155", display: "block", marginBottom: 4 }}>1 · “WHY WE USE IT!” — one per level</label>
         <input value={whyJr} onChange={(e) => setWhyJr(e.target.value)} placeholder="Paste the WHY video link — 🚪 Junior"
           style={{ width: "100%", boxSizing: "border-box", fontSize: 13.5, padding: "9px 11px", borderRadius: 8, border: "1px solid #cbd5e1", marginBottom: 6 }} />
         <input value={whySr} onChange={(e) => setWhySr(e.target.value)} placeholder="Paste the WHY video link — 🏅 Senior"
           style={{ width: "100%", boxSizing: "border-box", fontSize: 13.5, padding: "9px 11px", borderRadius: 8, border: "1px solid #cbd5e1", marginBottom: 12 }} />
 
-        <label style={{ fontSize: 12.5, fontWeight: 800, color: "#334155", display: "block", marginBottom: 4 }}>2 · “How to use DoorDispatcher” (the tool video)</label>
+        <label style={{ fontSize: 12.5, fontWeight: 800, color: "#334155", display: "block", marginBottom: 4 }}>2 · “HOW WE USE IT!” (the tool video)</label>
         <div style={{ fontSize: 11.5, color: "#94a3b8", marginBottom: 4 }}>Each tool below opens THIS video at its timestamp.</div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <input value={videoUrl} onChange={(e) => setVideoUrl(e.target.value)} placeholder="Paste the HOW video link"

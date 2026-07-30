@@ -91,7 +91,7 @@ export default function HarvestTrainingPage({ onDone } = {}) {
 
       {/* 1) WHY */}
       <div style={{ fontSize: 12, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Part 1 — Watch this first</div>
-      <div style={{ fontSize: 18, fontWeight: 800, fontFamily: OSWALD, marginBottom: 8 }}>Why you want to use DoorDispatcher</div>
+      <div style={{ fontSize: 18, fontWeight: 800, fontFamily: OSWALD, marginBottom: 8 }}>WHY WE USE IT!</div>
       {whyUrl ? <VideoEmbed url={whyUrl} /> : <Placeholder text="🎬 The office is adding this video." />}
 
       {/* 2) HOW → the tool list */}
@@ -99,7 +99,7 @@ export default function HarvestTrainingPage({ onDone } = {}) {
       <a href={howToHref} style={{ display: "flex", alignItems: "center", gap: 12, textDecoration: "none", background: "#0f172a", color: "#fff", borderRadius: 14, padding: "16px 18px" }}>
         <span style={{ fontSize: 26 }}>📖</span>
         <span style={{ flex: 1 }}>
-          <span style={{ display: "block", fontSize: 16.5, fontWeight: 800, fontFamily: OSWALD }}>How to use DoorDispatcher</span>
+          <span style={{ display: "block", fontSize: 16.5, fontWeight: 800, fontFamily: OSWALD }}>HOW WE USE IT!</span>
           <span style={{ display: "block", fontSize: 12.5, opacity: 0.8, marginTop: 1 }}>Open each tool and watch it — that's what unlocks your test.</span>
         </span>
         <span style={{ fontSize: 22 }}>›</span>
