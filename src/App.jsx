@@ -27,6 +27,7 @@ import HarvestReport from "./HarvestReport";
 import MasterInspectionReports from "./MasterInspectionReports";
 import PaReschedule from "./PaReschedule";
 import InspectionMap from "./InspectionMap";
+import InspectorLinks from "./InspectorLinks";
 import HarvestHowTo from "./HarvestHowTo";
 import HarvestHowToAdmin from "./HarvestHowToAdmin";
 import HarvestTrainingAdmin from "./HarvestTrainingAdmin";
@@ -45,6 +46,15 @@ async function openHarvestAdminMap() {
     const tok = data?.value;
     window.open(tok ? `/?mode=harvest&admin=${encodeURIComponent(tok)}` : "/?mode=harvestlinks", "_blank", "noopener");
   } catch { window.open("/?mode=harvestlinks", "_blank", "noopener"); }
+}
+// Open the INSPECTION MAP as the OFFICE (every inspection needing inspecting, no
+// route-lock). Inspectors use their own personal ?it= links.
+async function openInspectionAdminMap() {
+  try {
+    const { data } = await supabase.from("app_settings").select("value").eq("key", "harvest_admin_token").maybeSingle();
+    const tok = data?.value;
+    window.open(tok ? `/?mode=inspectmap&admin=${encodeURIComponent(tok)}` : "/?mode=inspectmap", "_blank", "noopener");
+  } catch { window.open("/?mode=inspectmap", "_blank", "noopener"); }
 }
 import ReviewApptPicker from "./ReviewApptPicker";
 import JnMatchPickerModal from "./JnMatchPickerModal";
@@ -4442,6 +4452,9 @@ const MANAGER_TILES = [
   { group: "harvest", module: "sales", key: "harvest_nosit", emoji: "🔁", label: "No-Sits to Re-book", desc: "Company-wide No-Sit-need-to-reschedule backlog by team, with a progress benchmark so you can chase them back onto the calendar.", href: "/?mode=harvestnositreport" },
   { group: "harvest", module: "sales", key: "harvest_skiptrace", emoji: "📇", label: "Skip-Trace", desc: "Look up owner name + phone for an address before you knock or call it.", href: "/?mode=harvestskiptrace" },
   { group: "harvest", module: "sales", key: "harvest_howto", emoji: "📖", label: "How-To Library", desc: "Build the rep tool reference: every tool, when & how to use it, and the video timestamp for each. Reps open it from the ❓ on their map.", href: "/?mode=harvesthowtoadmin" },
+  // ── Inspection module (inspector map) ──
+  { group: "harvest", module: "inspection", key: "inspection_map", emoji: "🔍", label: "Inspection Map", desc: "Inspectors' map of every roof still needing an inspection (office view — all of them). Route-my-day + route-lock (boxed roofs hide from other inspectors); each inspector uses their own personal link.", href: null },
+  { group: "harvest", module: "inspection", key: "inspector_links", emoji: "🔗", label: "Inspector Links", desc: "Each active inspector's personal map link, to hand out.", href: "/?mode=inspectorlinks" },
   // ── Installs module (production tracking) ──
   { group: "harvest", module: "installs", key: "foreman_links", emoji: "🔗", label: "Jobsite Foreman Links", desc: "Each foreman's personal link — hand out so installs are tracked the same way we track reps.", href: "/?mode=foremanlinks" },
   { group: "harvest", module: "installs", key: "installs_map", emoji: "🗺️", label: "Map", desc: "Live map of current installs, colored by jobsite foreman.", href: "/?mode=installs" },
@@ -8712,7 +8725,7 @@ function AdminDashboard() {
   }
 
   const toolTile = (item) => (
-    <button key={item.group + ":" + item.key} type="button" onClick={() => item.key === "harvest_map" ? openHarvestAdminMap() : item.href ? window.open(item.href, "_blank", "noopener") : launchManagerTool(item.key)}
+    <button key={item.group + ":" + item.key} type="button" onClick={() => item.key === "harvest_map" ? openHarvestAdminMap() : item.key === "inspection_map" ? openInspectionAdminMap() : item.href ? window.open(item.href, "_blank", "noopener") : launchManagerTool(item.key)}
       style={{ padding: "20px 18px", borderRadius: 20, border: "2px solid #e5e7eb", background: "#fff", textAlign: "left", cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
       <div style={{ fontSize: 32, marginBottom: 8 }}>{item.emoji}</div>
       <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>{item.label}{item.href ? " ↗" : ""}</div>
@@ -9532,6 +9545,10 @@ export default function App() {
     // ?mode=inspectmap — inspector's map of inspections needing inspection (route-my-day + route-lock).
     if (portalMode === "inspectmap") {
       return <InspectionMap />;
+    }
+    // ?mode=inspectorlinks — office: each active inspector's personal map link.
+    if (portalMode === "inspectorlinks") {
+      return <InspectorLinks />;
     }
     // ?mode=harvesthowto — collapsible scenario playbook ("a house has damage and
     // isn't a pin → here's what you do"). Reps reach it from the ❓ on their map;
@@ -17036,7 +17053,7 @@ if (!hasDamage) {
                       // (shared with the Admin Dashboard) — see top of file.
                       // DoorDispatcher (harvest) splits into Sales / Installs modules.
                       const isHarvest = managerTab === "harvest";
-                      const MODULES = [{ key: "sales", emoji: "🚪", label: "Sales" }, { key: "installs", emoji: "🏗️", label: "Installs" }];
+                      const MODULES = [{ key: "sales", emoji: "🚪", label: "Sales" }, { key: "installs", emoji: "🏗️", label: "Installs" }, { key: "inspection", emoji: "🔍", label: "Inspection" }];
                       const tiles = MANAGER_TILES.filter(t => t.group === managerTab && (!isHarvest || (t.module || "sales") === managerModule));
                       return (
                         <div style={{ marginTop: 8 }}>
@@ -17076,7 +17093,7 @@ if (!hasDamage) {
                           {/* Tiles for the selected tab (+ module) */}
                           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
                             {tiles.map(item => (
-                              <button key={item.key} type="button" onClick={() => item.key === "harvest_map" ? openHarvestAdminMap() : item.href ? window.open(item.href, "_blank", "noopener") : setManagerSection(item.key)}
+                              <button key={item.key} type="button" onClick={() => item.key === "harvest_map" ? openHarvestAdminMap() : item.key === "inspection_map" ? openInspectionAdminMap() : item.href ? window.open(item.href, "_blank", "noopener") : setManagerSection(item.key)}
                                 style={{ padding: "24px 20px", borderRadius: 20, border: "2px solid #e5e7eb", background: "#fff", textAlign: "left", cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
                                 <div style={{ fontSize: 36, marginBottom: 10 }}>{item.emoji}</div>
                                 <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", fontFamily: "'Oswald', sans-serif", marginBottom: 4 }}>{item.label}{item.href ? " ↗" : ""}</div>
