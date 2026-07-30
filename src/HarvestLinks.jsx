@@ -42,6 +42,36 @@ export default function HarvestLinks() {
     } catch { setNote("⚠️ Network error — try again."); }
     setSendingId("");
   };
+  // Blast EVERY rep their personal map link — text + email, same endpoint as the
+  // single Send. Sequential so we don't hammer the SMS/email gateway; live
+  // progress so it's clear it's working. Reps with no phone AND no email are
+  // skipped (nothing to send to).
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkProg, setBulkProg] = useState(null); // { done, total }
+  const sendAllReps = async () => {
+    if (!adminTok) { setNote("⚠️ Office link not loaded yet — try again in a moment."); return; }
+    const all = data?.reps || [];
+    const targets = all.filter((r) => r.phone || r.email);
+    const skipped = all.length - targets.length;
+    if (!targets.length) { setNote("⚠️ No reps have a phone or email on file."); return; }
+    if (!window.confirm(`Text + email their personal map link to all ${targets.length} rep${targets.length === 1 ? "" : "s"} now?${skipped ? `\n(${skipped} skipped — no phone/email on file.)` : ""}`)) return;
+    setBulkBusy(true); setNote("");
+    let sent = 0, failed = 0;
+    for (const r of targets) {
+      setBulkProg({ done: sent + failed, total: targets.length });
+      try {
+        const res = await fetch("/.netlify/functions/harvest-send-link", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ admin: adminTok, rep_id: r.id }),
+        });
+        const j = await res.json().catch(() => ({}));
+        if (j.ok) sent++; else failed++;
+      } catch { failed++; }
+    }
+    setBulkProg(null); setBulkBusy(false);
+    setNote(`✓ Sent to ${sent} rep${sent === 1 ? "" : "s"} (📲 text + ✉️ email)${failed ? ` · ${failed} failed` : ""}${skipped ? ` · ${skipped} skipped (no contact info)` : ""}.`);
+    await load();
+  };
   // Send button + "already sent" flag, shown on every link card (admins/trainees/reps).
   const sendCell = (r) => {
     const noContact = !r.phone && !r.email;
@@ -355,7 +385,14 @@ export default function HarvestLinks() {
           {/* Reps — level links, grouped by region. */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 8 }}>
             <div style={{ fontSize: 16, fontWeight: 800, fontFamily: OSWALD }}>Reps ({data.reps.length})</div>
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search reps…" style={{ fontSize: 13, padding: "7px 10px", borderRadius: 8, border: "1px solid #cbd5e1", minWidth: 180 }} />
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <button type="button" onClick={sendAllReps} disabled={bulkBusy || !adminTok}
+                title="Text + email every rep their personal map link"
+                style={{ fontSize: 13, fontWeight: 800, color: "#fff", background: bulkBusy ? "#94a3b8" : "#16a34a", border: "none", borderRadius: 8, padding: "8px 14px", cursor: bulkBusy ? "default" : "pointer", whiteSpace: "nowrap" }}>
+                {bulkBusy ? `Sending… ${bulkProg ? `${bulkProg.done}/${bulkProg.total}` : ""}` : "📲✉️ Send to every rep"}
+              </button>
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search reps…" style={{ fontSize: 13, padding: "7px 10px", borderRadius: 8, border: "1px solid #cbd5e1", minWidth: 180 }} />
+            </div>
           </div>
           <div style={{ display: "grid", gap: 6 }}>
             {reps.map((r, i) => {
