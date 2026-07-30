@@ -21,13 +21,18 @@ function normalizeName(s) { return String(s || "").toLowerCase().replace(/["â€œâ
 export const handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return cors(200, "");
   if (!SB_URL || !SB_KEY) return cors(500, JSON.stringify({ ok: false, error: "Missing Supabase env" }));
-  const token = ((event.queryStringParameters || {}).manager || "").trim();
-  if (!token) return cors(400, JSON.stringify({ ok: false, error: "manager token required" }));
+  const qp = event.queryStringParameters || {};
+  const token = (qp.manager || "").trim();
+  const zoneParam = (qp.zone || "").trim(); // TMS dashboard calls by zone (like zone-deals-to-fix)
+  if (!token && !zoneParam) return cors(400, JSON.stringify({ ok: false, error: "manager token or zone required" }));
   const sbGet = async (path) => { const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: sb }); if (!r.ok) return []; return r.json().catch(() => []); };
   try {
-    const mgr = (await sbGet(`regional_managers?token=eq.${encodeURIComponent(token)}&select=zone,name&limit=1`))[0];
-    if (!mgr) return cors(401, JSON.stringify({ ok: false, error: "invalid manager token" }));
-    const myZone = String(mgr.zone || "").trim();
+    let myZone = zoneParam;
+    if (!myZone) {
+      const mgr = (await sbGet(`regional_managers?token=eq.${encodeURIComponent(token)}&select=zone,name&limit=1`))[0];
+      if (!mgr) return cors(401, JSON.stringify({ ok: false, error: "invalid manager token" }));
+      myZone = String(mgr.zone || "").trim();
+    }
 
     const rows = await sbGet(`inspections?cancel_review_pending=is.true&cancelled_at=is.null&select=id,client_name,address,city,sales_rep_name,cancel_review_note,cancel_review_by,cancel_review_at&order=cancel_review_at.desc&limit=200`);
     if (!rows.length) return cors(200, JSON.stringify({ ok: true, zone: myZone, reviews: [] }));
