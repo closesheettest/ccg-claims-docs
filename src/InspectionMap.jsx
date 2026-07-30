@@ -63,8 +63,10 @@ export default function InspectionMap() {
   const loadPins = async () => { try { const r = await fetch(`/.netlify/functions/inspect-pins?${qs}`); const j = await r.json(); if (j.ok) setPins(j.pins || []); } catch { /* keep */ } };
   useEffect(() => { if (me) loadPins(); /* eslint-disable-next-line */ }, [me]);
 
-  // Map init
-  useEffect(() => { if (map.current || !mapEl.current) return;
+  // Map init — runs once `me` is resolved (before that the component shows the
+  // loading splash and the map div isn't in the DOM yet, so a mount-only [] effect
+  // would bail on a null ref and never re-run).
+  useEffect(() => { if (map.current || !me || !mapEl.current) return;
     const m = L.map(mapEl.current, { zoomControl: true }).setView([27.7, -81.6], 7);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; OpenStreetMap" }).addTo(m);
     map.current = m; markers.current = L.layerGroup().addTo(m); routeLine.current = L.layerGroup().addTo(m); trail.current = L.layerGroup().addTo(m); selectLayer.current = L.layerGroup().addTo(m);
@@ -73,7 +75,7 @@ export default function InspectionMap() {
     const kick = () => { try { m.invalidateSize(); } catch { /* ignore */ } };
     setTimeout(kick, 60); setTimeout(kick, 300); setTimeout(kick, 800);
     window.addEventListener("resize", kick); window.addEventListener("orientationchange", kick);
-  }, []);
+  }, [me]);
 
   // Render pins (all needing inspection when idle; the routed set when active)
   useEffect(() => { const m = map.current; if (!m || !markers.current) return;
