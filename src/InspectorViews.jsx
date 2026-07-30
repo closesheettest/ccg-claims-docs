@@ -1990,6 +1990,16 @@ export function InspectorMobileApp() {
   // inspectors open a plain ?mode=inspector link and never see those.
   const adminView = typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("admin") === "1";
+  // Launched from the Inspection Map (?from=map)? Then "back"/"done" return to
+  // the map (URL stashed by the map before it deep-linked here) so the route
+  // can advance to the next stop, instead of dropping into the job list.
+  const mapReturn = useMemo(() => {
+    try {
+      const q = new URLSearchParams(window.location.search);
+      if (q.get("from") === "map") return localStorage.getItem("ccg_inspect_return") || null;
+    } catch { /* ignore */ }
+    return null;
+  }, []);
   const [stage, setStage] = useState("pick"); // pick | list | detail | inactive
   const [inspectors, setInspectors] = useState([]);
   const [me, setMe] = useState(null);
@@ -2149,6 +2159,7 @@ export function InspectorMobileApp() {
           me={me}
           jobId={stage.jobId}
           onBack={() => setStage("list")}
+          mapReturn={mapReturn}
         />
       )}
 
@@ -3910,7 +3921,19 @@ function googleMapsDirectionsUrl(job) {
   return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}`;
 }
 
-function InspectorJobDetail({ me, jobId, onBack }) {
+function InspectorJobDetail({ me, jobId, onBack, mapReturn }) {
+  // When the inspector reached this job from the Inspection Map (Door
+  // Dispatcher), "back" and "done" should return to the MAP — and, when the
+  // inspection is finished, advance it to the next stop. mapReturn is the map
+  // URL to go back to; we drop a completion flag so the map knows to advance.
+  const returnToMap = (completed) => {
+    try { if (completed) localStorage.setItem("ccg_inspect_completed", String(jobId)); } catch { /* ignore */ }
+    window.location.href = mapReturn;
+  };
+  const finishBack = (completed, delayMs = 0) => {
+    if (mapReturn) { if (delayMs) setTimeout(() => returnToMap(completed), delayMs); else returnToMap(completed); }
+    else if (delayMs) setTimeout(() => onBack(), delayMs); else onBack();
+  };
   const [job, setJob] = useState(null);
   const [loading, setLoading] = useState(true);
   // Real-time cancellation gate: set when the office marked this deal Lost in
@@ -4332,9 +4355,9 @@ function InspectorJobDetail({ me, jobId, onBack }) {
           : `Done — inspection saved. ${body.jn_photos_uploaded || 0} of ${uploadedPhotos.length} photos pushed to JN.` +
             (body.pa_pdn_fired ? " PA Ops Hub notified." : ""),
       });
-      setTimeout(() => {
-        onBack();
-      }, 1800);
+      // Finished this roof → back to the map + advance to the next stop
+      // (or back to the list when not launched from the map).
+      finishBack(true, 1800);
     } catch (e) {
       setSubmitMsg({ kind: "error", text: e.message || "Unknown error" });
       setSubmitProgress(null);
@@ -4371,7 +4394,7 @@ function InspectorJobDetail({ me, jobId, onBack }) {
         return;
       }
       setSubmitMsg({ kind: "success", text: "Marked Lost — reason saved and JobNimbus updated." });
-      setTimeout(() => { onBack(); }, 1600);
+      finishBack(true, 1600);
     } catch (e) {
       setSubmitMsg({ kind: "error", text: e.message || "Unknown error" });
     } finally {
@@ -4383,7 +4406,7 @@ function InspectorJobDetail({ me, jobId, onBack }) {
   if (!job) return (
     <div style={{ padding: 16 }}>
       <div style={{ color: "#991b1b", marginBottom: 12 }}>Job not found.</div>
-      <button type="button" onClick={onBack} style={secondaryBtn}>← Back</button>
+      <button type="button" onClick={() => finishBack(false)} style={secondaryBtn}>{mapReturn ? "← Back to map" : "← Back"}</button>
     </div>
   );
   // Cancellation gate — the office marked this deal Lost in JobNimbus. Do NOT
@@ -4398,7 +4421,7 @@ function InspectorJobDetail({ me, jobId, onBack }) {
         <div style={{ fontSize: 14, color: "#64748b", marginBottom: 18, lineHeight: 1.5 }}>
           {job.client_name ? `${job.client_name}'s ` : "This "}job was marked <strong>Lost</strong> in JobNimbus by the office — please don't inspect it. It's been removed from your list.
         </div>
-        <button type="button" onClick={onBack} style={secondaryBtn}>← Back to jobs</button>
+        <button type="button" onClick={() => finishBack(true)} style={secondaryBtn}>{mapReturn ? "← Back to map" : "← Back to jobs"}</button>
       </div>
     </div>
   );
@@ -4475,7 +4498,8 @@ function InspectorJobDetail({ me, jobId, onBack }) {
           if (submitting) {
             if (!confirm("Inspection is still uploading. Leaving now will lose your work and you'll have to take all photos again. Are you sure?")) return;
           }
-          onBack();
+          // Leaving WITHOUT finishing → don't advance the map's route.
+          finishBack(false);
         }}
         style={{
           ...secondaryBtn,
@@ -4484,7 +4508,7 @@ function InspectorJobDetail({ me, jobId, onBack }) {
           opacity: submitting ? 0.55 : 1,
         }}
       >
-        ← Back to list
+        {mapReturn ? "← Back to map" : "← Back to list"}
       </button>
 
       <div style={{ padding: 14, background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb" }}>

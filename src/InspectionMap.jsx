@@ -48,6 +48,8 @@ export default function InspectionMap() {
   const [dayMode, setDayMode] = useState(null); // null | "active"
   const [selected, setSelected] = useState(null);
   const [loc, setLoc] = useState(null);
+  const [mapReady, setMapReady] = useState(false);
+  const restored = useRef(false);
 
   const mapEl = useRef(null), map = useRef(null);
   const markers = useRef(null), routeLine = useRef(null), trail = useRef(null), selectLayer = useRef(null);
@@ -63,13 +65,56 @@ export default function InspectionMap() {
   const loadPins = async () => { try { const r = await fetch(`/.netlify/functions/inspect-pins?${qs}`); const j = await r.json(); if (j.ok) setPins(j.pins || []); } catch { /* keep */ } };
   useEffect(() => { if (me) loadPins(); /* eslint-disable-next-line */ }, [me]);
 
+  // Restore an in-progress route after returning from the inspector portal.
+  // Starting an inspection navigates away (full page load), so the route is
+  // persisted to localStorage; on the way back we rebuild it and — if the
+  // inspector just finished a roof — advance to the next stop.
+  useEffect(() => {
+    if (!me || restored.current) return;
+    restored.current = true;
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem("ccg_inspect_route") || "null"); } catch { /* ignore */ }
+    if (!saved || !Array.isArray(saved.stops) || !saved.stops.length) return;
+    // A route older than 4h is yesterday's — start fresh.
+    if (saved.ts && Date.now() - saved.ts > 4 * 3600 * 1000) { try { localStorage.removeItem("ccg_inspect_route"); } catch { /* ignore */ } return; }
+    let idx = Number(saved.stopIdx) || 0;
+    let completedId = null;
+    try { completedId = localStorage.getItem("ccg_inspect_completed"); } catch { /* ignore */ }
+    if (completedId) {
+      try { localStorage.removeItem("ccg_inspect_completed"); } catch { /* ignore */ }
+      const ci = saved.stops.findIndex((s) => String(s.id) === String(completedId));
+      if (ci >= 0) idx = ci + 1; // advance past the finished roof
+    }
+    if (idx >= saved.stops.length) {
+      // Whole route done — release the locks and clear it.
+      release(saved.stops.map((s) => s.id));
+      try { localStorage.removeItem("ccg_inspect_route"); } catch { /* ignore */ }
+      return;
+    }
+    setRoute(saved.stops); setStopIdx(idx); setDayMode("active");
+  }, [me]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep the persisted route fresh while a route is active (survives the
+  // navigate-away/return round-trip).
+  useEffect(() => {
+    if (dayMode !== "active" || !route.length) return;
+    try { localStorage.setItem("ccg_inspect_route", JSON.stringify({ stops: route, stopIdx, ts: Date.now() })); } catch { /* ignore */ }
+  }, [dayMode, route, stopIdx]);
+
+  // Center on the current stop whenever it changes (incl. restored/advanced).
+  useEffect(() => {
+    if (!mapReady || dayMode !== "active") return;
+    const n = route[stopIdx];
+    if (n && n.latitude != null) { try { map.current.setView([n.latitude, n.longitude], 16); } catch { /* ignore */ } }
+  }, [mapReady, dayMode, stopIdx, route]);
+
   // Map init — runs once `me` is resolved (before that the component shows the
   // loading splash and the map div isn't in the DOM yet, so a mount-only [] effect
   // would bail on a null ref and never re-run).
   useEffect(() => { if (map.current || !me || !mapEl.current) return;
     const m = L.map(mapEl.current, { zoomControl: true }).setView([27.7, -81.6], 7);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; OpenStreetMap" }).addTo(m);
-    map.current = m; markers.current = L.layerGroup().addTo(m); routeLine.current = L.layerGroup().addTo(m); trail.current = L.layerGroup().addTo(m); selectLayer.current = L.layerGroup().addTo(m);
+    map.current = m; markers.current = L.layerGroup().addTo(m); routeLine.current = L.layerGroup().addTo(m); trail.current = L.layerGroup().addTo(m); selectLayer.current = L.layerGroup().addTo(m); setMapReady(true);
     // The container's final size isn't ready the instant L.map() runs (React hasn't
     // painted yet) — without this the tiles never load and the map is blank.
     const kick = () => { try { m.invalidateSize(); } catch { /* ignore */ } };
@@ -158,14 +203,22 @@ export default function InspectionMap() {
     if (stopIdx + 1 < route.length) { const n = route[stopIdx + 1]; setStopIdx(stopIdx + 1); if (n) map.current.setView([n.latitude, n.longitude], 16); }
     else endDay();
   };
-  const endDay = () => { const ids = route.map((p) => p.id); release(ids); setDayMode(null); setRoute([]); setStopIdx(0); trail.current?.clearLayers(); setSelected(null); loadPins(); };
+  const endDay = () => { const ids = route.map((p) => p.id); release(ids); setDayMode(null); setRoute([]); setStopIdx(0); trail.current?.clearLayers(); setSelected(null); try { localStorage.removeItem("ccg_inspect_route"); } catch { /* ignore */ } loadPins(); };
   // Open the inspection portal FOR THIS ROOF: carry the inspector's identity into
   // the inspector app (so they land signed-in as themselves) and deep-link straight
   // to this inspection's flow.
   const startInspection = (p) => {
     logVisit(p, "started");
-    try { if (me?.id) localStorage.setItem("ccg_inspector_id", me.id); } catch { /* ignore */ }
-    window.location.href = `/?mode=inspector&job=${encodeURIComponent(p.id)}`;
+    try {
+      if (me?.id) localStorage.setItem("ccg_inspector_id", me.id);
+      // Stash where to come back to + the live route so the inspector portal
+      // can return here and advance to the next stop after finishing.
+      localStorage.setItem("ccg_inspect_return", window.location.href);
+      if (dayMode === "active" && route.length) {
+        localStorage.setItem("ccg_inspect_route", JSON.stringify({ stops: route, stopIdx, ts: Date.now() }));
+      }
+    } catch { /* ignore */ }
+    window.location.href = `/?mode=inspector&job=${encodeURIComponent(p.id)}&from=map`;
   };
 
   if (err) return <Splash msg={err} />;
