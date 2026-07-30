@@ -48,14 +48,16 @@ export default function HarvestLinks() {
   // skipped (nothing to send to).
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkProg, setBulkProg] = useState(null); // { done, total }
+  const [bulkResults, setBulkResults] = useState(null); // [{ name, ok, sms, email, error }]
   const sendAllReps = async () => {
     if (!adminTok) { setNote("⚠️ Office link not loaded yet — try again in a moment."); return; }
     const all = data?.reps || [];
     const targets = all.filter((r) => r.phone || r.email);
-    const skipped = all.length - targets.length;
+    const skippedReps = all.filter((r) => !r.phone && !r.email);
     if (!targets.length) { setNote("⚠️ No reps have a phone or email on file."); return; }
-    if (!window.confirm(`Text + email their personal map link to all ${targets.length} rep${targets.length === 1 ? "" : "s"} now?${skipped ? `\n(${skipped} skipped — no phone/email on file.)` : ""}`)) return;
-    setBulkBusy(true); setNote("");
+    if (!window.confirm(`Text + email their personal map link to all ${targets.length} rep${targets.length === 1 ? "" : "s"} now?${skippedReps.length ? `\n(${skippedReps.length} skipped — no phone/email on file.)` : ""}`)) return;
+    setBulkBusy(true); setNote(""); setBulkResults(null);
+    const results = [];
     let sent = 0, failed = 0;
     for (const r of targets) {
       setBulkProg({ done: sent + failed, total: targets.length });
@@ -65,11 +67,14 @@ export default function HarvestLinks() {
           body: JSON.stringify({ admin: adminTok, rep_id: r.id }),
         });
         const j = await res.json().catch(() => ({}));
-        if (j.ok) sent++; else failed++;
-      } catch { failed++; }
+        if (j.ok) { sent++; results.push({ name: r.name || "Rep", ok: true, sms: !!j.sent_sms, email: !!j.sent_email }); }
+        else { failed++; results.push({ name: r.name || "Rep", ok: false, error: j.error || "send failed" }); }
+      } catch (e) { failed++; results.push({ name: r.name || "Rep", ok: false, error: "network error" }); }
     }
+    for (const r of skippedReps) results.push({ name: r.name || "Rep", ok: false, error: "no phone/email on file", skipped: true });
     setBulkProg(null); setBulkBusy(false);
-    setNote(`✓ Sent to ${sent} rep${sent === 1 ? "" : "s"} (📲 text + ✉️ email)${failed ? ` · ${failed} failed` : ""}${skipped ? ` · ${skipped} skipped (no contact info)` : ""}.`);
+    setBulkResults({ sent, failed, skipped: skippedReps.length, rows: results, at: new Date() });
+    setNote(`✓ Sent to ${sent} rep${sent === 1 ? "" : "s"} (📲 text + ✉️ email)${failed ? ` · ${failed} failed` : ""}${skippedReps.length ? ` · ${skippedReps.length} skipped (no contact info)` : ""}.`);
     await load();
   };
   // Send button + "already sent" flag, shown on every link card (admins/trainees/reps).
@@ -258,7 +263,7 @@ export default function HarvestLinks() {
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <div>
               <div style={{ fontSize: 15, fontWeight: 800, fontFamily: OSWALD, color: "#166534" }}>💵 Monthly Invoice</div>
-              <div style={{ fontSize: 12.5, color: "#15803d" }}>$40 per person with map access this month.</div>
+              <div style={{ fontSize: 12.5, color: "#15803d" }}>Everyone with map access this month.</div>
             </div>
             <button type="button" onClick={genInvoice} disabled={invBusy}
               style={{ marginLeft: "auto", fontSize: 13.5, fontWeight: 800, color: "#fff", background: "#16a34a", border: "none", borderRadius: 10, padding: "10px 16px", cursor: "pointer", opacity: invBusy ? 0.6 : 1 }}>
@@ -394,6 +399,28 @@ export default function HarvestLinks() {
               <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search reps…" style={{ fontSize: 13, padding: "7px 10px", borderRadius: 8, border: "1px solid #cbd5e1", minWidth: 180 }} />
             </div>
           </div>
+          {/* Send-to-all audit — per-rep result of the last blast. */}
+          {bulkResults && (
+            <div style={{ marginBottom: 10, border: "1px solid #e5e7eb", borderRadius: 12, background: "#fff", padding: "12px 14px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                <div style={{ fontSize: 13.5, fontWeight: 800, color: "#0f172a" }}>
+                  Send audit — ✅ {bulkResults.sent} sent{bulkResults.failed ? ` · ❌ ${bulkResults.failed} failed` : ""}{bulkResults.skipped ? ` · ⏭️ ${bulkResults.skipped} skipped` : ""}
+                </div>
+                <button type="button" onClick={() => setBulkResults(null)} style={{ ...btn, fontSize: 11.5 }}>Dismiss</button>
+              </div>
+              <div style={{ marginTop: 8, maxHeight: 220, overflowY: "auto", display: "grid", gap: 3 }}>
+                {bulkResults.rows.slice().sort((a, b) => (a.ok === b.ok ? 0 : a.ok ? 1 : -1)).map((r, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: r.ok ? "#334155" : "#991b1b" }}>
+                    <span>{r.ok ? "✅" : r.skipped ? "⏭️" : "❌"}</span>
+                    <span style={{ fontWeight: 700, minWidth: 150 }}>{r.name}</span>
+                    <span style={{ color: "#94a3b8" }}>
+                      {r.ok ? [r.sms && "📲 text", r.email && "✉️ email"].filter(Boolean).join(" + ") : r.error}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div style={{ display: "grid", gap: 6 }}>
             {reps.map((r, i) => {
               const showRegion = i === 0 || r.region !== reps[i - 1].region;
