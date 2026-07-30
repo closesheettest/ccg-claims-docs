@@ -3202,6 +3202,7 @@ function InspectorReportDetail({ insp, onBack }) {
 function CancelDrilldown({ inspectorName, cancels }) {
   const [urls, setUrls] = useState({}); // photo path -> short-lived signed URL
   const [loading, setLoading] = useState(true);
+  const [openCancel, setOpenCancel] = useState(null); // which single cancel is expanded
 
   useEffect(() => {
     let cancelled = false;
@@ -3237,50 +3238,68 @@ function CancelDrilldown({ inspectorName, cancels }) {
       {cancels.map((c) => {
         const addr = [c.address, c.city].filter(Boolean).join(", ");
         const enough = c.photoCount >= 2;
+        const open = openCancel === c.id;
         return (
-          <div key={c.id} style={{ background: "#fff", border: "1px solid #fecaca", borderRadius: 8, padding: 10, display: "grid", gap: 6 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "baseline" }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700 }}>{c.client_name || "—"}</div>
-                {addr && <div style={{ fontSize: 11, color: "#6b7280" }}>{addr}</div>}
+          <div key={c.id} style={{ background: "#fff", border: "1px solid #fecaca", borderRadius: 8, overflow: "hidden" }}>
+            {/* Collapsed header — one row per cancel; tap to open its photos + note */}
+            <button
+              type="button"
+              onClick={() => setOpenCancel(open ? null : c.id)}
+              style={{ width: "100%", textAlign: "left", background: open ? "#fef2f2" : "#fff", border: "none", cursor: "pointer", padding: 10, display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}
+            >
+              <div style={{ display: "flex", gap: 8, alignItems: "baseline", minWidth: 0 }}>
+                <span style={{ color: STATUS_META.cancelled.color, transform: open ? "rotate(90deg)" : "none", transition: "transform 0.15s", display: "inline-block" }}>▸</span>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700 }}>{c.client_name || "—"}</div>
+                  {addr && <div style={{ fontSize: 11, color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis" }}>{addr}</div>}
+                </div>
               </div>
               <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                {c.at && <span style={{ fontSize: 11, color: "#9ca3af" }}>{new Date(c.at).toLocaleString()}</span>}
+                {c.at && <span style={{ fontSize: 11, color: "#9ca3af" }}>{new Date(c.at).toLocaleDateString()}</span>}
+                {/* Photo verdict is visible even collapsed — the whole point is spotting a cancel with no proof at a glance */}
+                <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 999, background: enough ? "#dcfce7" : "#fee2e2", color: enough ? "#166534" : "#991b1b" }}>
+                  {enough ? `✓ ${c.photoCount} photos` : `⚠ ${c.photoCount} photo${c.photoCount === 1 ? "" : "s"}`}
+                </span>
                 <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 999, background: c.pending ? "#fef3c7" : "#e5e7eb", color: c.pending ? "#92400e" : "#374151" }}>
                   {c.pending ? "⏳ In review" : "Resolved"}
                 </span>
               </div>
-            </div>
-            {c.note && (
-              <div style={{ fontSize: 12, color: "#7f1d1d", background: "#fef2f2", borderRadius: 6, padding: "6px 8px" }}>
-                “{c.note}”
-              </div>
-            )}
-            <div>
-              <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 999, background: enough ? "#dcfce7" : "#fee2e2", color: enough ? "#166534" : "#991b1b" }}>
-                {enough
-                  ? `✓ ${c.photoCount} before-cancel photo${c.photoCount === 1 ? "" : "s"}`
-                  : `⚠ Only ${c.photoCount} photo${c.photoCount === 1 ? "" : "s"} — verify the visit happened`}
-              </span>
-            </div>
-            {c.photoCount > 0 && (
-              loading ? (
-                <div style={{ fontSize: 11, color: "#6b7280" }}>Loading photos…</div>
-              ) : (
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {(c.photos || []).map((p, i) => (
-                    urls[p.path] ? (
-                      <a key={i} href={urls[p.path]} target="_blank" rel="noreferrer" title={p.label || `Photo ${i + 1}`} style={{ display: "block" }}>
-                        <img src={urls[p.path]} alt={p.label || `Photo ${i + 1}`} style={{ width: 84, height: 84, objectFit: "cover", borderRadius: 6, border: "1px solid #e5e7eb" }} />
-                      </a>
-                    ) : (
-                      <div key={i} style={{ width: 84, height: 84, borderRadius: 6, border: "1px dashed #d1d5db", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#9ca3af", textAlign: "center" }}>
-                        no preview
-                      </div>
-                    )
-                  ))}
+            </button>
+            {open && (
+              <div style={{ borderTop: "1px solid #fee2e2", padding: 10, display: "grid", gap: 8, background: "#fffdfd" }}>
+                {c.at && <div style={{ fontSize: 11, color: "#9ca3af" }}>Cancelled {new Date(c.at).toLocaleString()}</div>}
+                {c.note && (
+                  <div style={{ fontSize: 12, color: "#7f1d1d", background: "#fef2f2", borderRadius: 6, padding: "6px 8px" }}>
+                    “{c.note}”
+                  </div>
+                )}
+                <div>
+                  <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 999, background: enough ? "#dcfce7" : "#fee2e2", color: enough ? "#166534" : "#991b1b" }}>
+                    {enough
+                      ? `✓ ${c.photoCount} before-cancel photo${c.photoCount === 1 ? "" : "s"} (house number + front of house)`
+                      : `⚠ Only ${c.photoCount} photo${c.photoCount === 1 ? "" : "s"} — verify the visit happened`}
+                  </span>
                 </div>
-              )
+                {c.photoCount > 0 && (
+                  loading ? (
+                    <div style={{ fontSize: 11, color: "#6b7280" }}>Loading photos…</div>
+                  ) : (
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {(c.photos || []).map((p, i) => (
+                        urls[p.path] ? (
+                          <a key={i} href={urls[p.path]} target="_blank" rel="noreferrer" title={p.label || `Photo ${i + 1}`} style={{ display: "block" }}>
+                            <img src={urls[p.path]} alt={p.label || `Photo ${i + 1}`} style={{ width: 84, height: 84, objectFit: "cover", borderRadius: 6, border: "1px solid #e5e7eb" }} />
+                          </a>
+                        ) : (
+                          <div key={i} style={{ width: 84, height: 84, borderRadius: 6, border: "1px dashed #d1d5db", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#9ca3af", textAlign: "center" }}>
+                            no preview
+                          </div>
+                        )
+                      ))}
+                    </div>
+                  )
+                )}
+              </div>
             )}
           </div>
         );
