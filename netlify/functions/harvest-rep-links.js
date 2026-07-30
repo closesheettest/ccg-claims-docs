@@ -111,6 +111,15 @@ export const handler = async (event) => {
       .map((r) => ({ id: r.id, name: r.name || "Rep", has_token: !!r.harvest_token, override: norm(r.harvest_level) }))
       .sort(byName);
 
+    // EVERY active person who has a map link AND a way to reach them — the target
+    // for "Send to every rep". This is broader than `reps` (the rep-zones field
+    // roster): it also catches token-holders who aren't in that roster yet, so a
+    // real rep with map access never silently misses the blast.
+    const all_sendable = (allReps || [])
+      .filter((r) => r.harvest_token && r.active !== false && (String(r.phone || "").trim() || String(r.email || "").trim()))
+      .map((r) => ({ id: r.id, name: r.name || "Rep" }))
+      .sort(byName);
+
     const adminTok = adminRow?.[0]?.value || "";
     return json(200, {
       ok: true,
@@ -120,6 +129,7 @@ export const handler = async (event) => {
       trainees,
       reps,
       all,
+      all_sendable,
     });
   } catch (e) {
     return json(500, { ok: false, error: e.message || "error" });
