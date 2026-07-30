@@ -294,7 +294,7 @@ export default function RepVisitHub() {
         {stage === "calendar" && rep && <RepCalendar rep={rep} token={token} onClose={() => setStage("choose")} />}
         {stage === "referrals" && <ReferralsView referrals={referrals} rep={rep} onBack={() => setStage("choose")} api={api} />}
         {stage === "appts" && <ApptsBookedView appts={appts} rep={rep} onBack={() => setStage("choose")} />}
-        {stage === "missedpa" && <MissedPaView missed={missed} rep={rep} api={api} onBack={() => setStage("choose")} />}
+        {stage === "missedpa" && <MissedPaView missed={missed} rep={rep} api={api} token={token} onBack={() => setStage("choose")} />}
         {stage === "issues" && <IssuesView issues={issues} onBack={() => setStage("choose")} />}
         {stage === "pay" && <PayReport pay={pay} rep={rep} api={api} onBack={() => setStage("choose")} onReload={startPay} />}
         {stage === "list" && <DealList type={visitType} deals={deals} onBack={() => setStage("choose")} onPick={(d) => { setDeal(d); setStage("panel"); }} />}
@@ -646,9 +646,18 @@ function ApptsBookedView({ appts, rep, onBack }) {
 // This rep's PA appointments that were MISSED (passed, still scheduled, no outcome).
 // Each shows a tap-to-call phone so the rep can reschedule by phone, plus a Rebook
 // button that opens the PA scheduler (reschedule mode → cancels the old, books new).
-function MissedPaView({ missed, rep, api, onBack }) {
+function MissedPaView({ missed, rep, api, token, onBack }) {
   const [openId, setOpenId] = useState(null);
+  const [sent, setSent] = useState({}); // appt_id → "sending" | "sent" | "err"
   const fmt = (iso) => { try { return new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch { return iso; } };
+  const resend = async (apptId) => {
+    setSent((s) => ({ ...s, [apptId]: "sending" }));
+    try {
+      const r = await fetch("/.netlify/functions/pa-reschedule", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "send", appt_id: apptId, auth: token }) });
+      const j = await r.json().catch(() => ({}));
+      setSent((s) => ({ ...s, [apptId]: j.ok && j.sent ? "sent" : "err" }));
+    } catch { setSent((s) => ({ ...s, [apptId]: "err" })); }
+  };
   return (
     <div>
       <BackBar onBack={onBack} title="Missed PA appointments" />
@@ -664,9 +673,15 @@ function MissedPaView({ missed, rep, api, onBack }) {
                 <div style={{ color: "#b91c1c", fontWeight: 700, fontSize: 13.5, marginTop: 2 }}>❌ Missed {fmt(a.start_at)}</div>
                 <div style={{ fontSize: 13, color: "#475569", marginTop: 2 }}>🧑‍⚖️ {a.pa_name}</div>
                 {(a.address || insp.address) && <div style={{ fontSize: 13, color: "#475569", marginTop: 2 }}>📍 {a.address || insp.address}</div>}
-                {phone
-                  ? <div style={{ marginTop: 8 }}><a href={`tel:${phone}`} style={{ display: "inline-block", background: "#0369a1", color: "#fff", borderRadius: 10, padding: "9px 14px", fontSize: 14.5, fontWeight: 800, textDecoration: "none" }}>📞 Call {phone} to reschedule</a></div>
-                  : <div style={{ marginTop: 6, fontSize: 12.5, color: "#94a3b8" }}>No phone on file.</div>}
+                <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {phone
+                    ? <a href={`tel:${phone}`} style={{ display: "inline-block", background: "#0369a1", color: "#fff", borderRadius: 10, padding: "9px 14px", fontSize: 14.5, fontWeight: 800, textDecoration: "none" }}>📞 Call {phone}</a>
+                    : <span style={{ fontSize: 12.5, color: "#94a3b8", alignSelf: "center" }}>No phone on file.</span>}
+                  <button type="button" disabled={sent[a.id] === "sending"} onClick={() => resend(a.id)}
+                    style={{ background: sent[a.id] === "sent" ? "#16a34a" : "#fff", color: sent[a.id] === "sent" ? "#fff" : "#0369a1", border: "2px solid #0369a1", borderRadius: 10, padding: "9px 14px", fontSize: 14, fontWeight: 800, cursor: "pointer" }}>
+                    {sent[a.id] === "sending" ? "Sending…" : sent[a.id] === "sent" ? "✓ Link sent" : sent[a.id] === "err" ? "⚠️ Retry" : "📲 Send reschedule link"}
+                  </button>
+                </div>
                 {deal
                   ? <>
                       <button onClick={() => setOpenId(openId === a.id ? null : a.id)} style={{ marginTop: 10, width: "100%", background: "#dc2626", color: "#fff", border: "none", borderRadius: 10, padding: "11px 0", fontSize: 15, fontWeight: 800, cursor: "pointer" }}>{openId === a.id ? "Close" : "🔁 Rebook the PA appointment"}</button>

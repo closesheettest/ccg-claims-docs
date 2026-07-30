@@ -1,0 +1,109 @@
+// Homeowner self-reschedule page (?mode=pareschedule&t=<token>). Opened from the
+// text/email we send after a missed PA appointment. Loads the appointment by its
+// private token, shows open times, and books the new one (cancelling the old).
+import React, { useEffect, useMemo, useState } from "react";
+
+const FONT = "'Nunito', system-ui, sans-serif";
+const OSWALD = "'Oswald', sans-serif";
+const NAVY = "#0f2557";
+const api = async (action, payload) => {
+  const r = await fetch("/.netlify/functions/pa-reschedule", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...payload }) });
+  const j = await r.json().catch(() => ({}));
+  if (!j.ok) throw new Error(j.error || "Something went wrong");
+  return j;
+};
+const dayKey = (iso) => new Date(iso).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+const dayLabel = (iso) => new Date(iso).toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "long", month: "short", day: "numeric" });
+const timeLabel = (iso) => new Date(iso).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
+
+export default function PaReschedule() {
+  const token = useMemo(() => { try { return new URLSearchParams(window.location.search).get("t") || ""; } catch { return ""; } }, []);
+  const [appt, setAppt] = useState(null);
+  const [slots, setSlots] = useState(null);
+  const [err, setErr] = useState("");
+  const [booking, setBooking] = useState("");
+  const [done, setDone] = useState(null);
+
+  useEffect(() => {
+    if (!token) { setErr("This link is missing its code — please use the link from your text or email."); return; }
+    (async () => {
+      try { const j = await api("load", { t: token }); setAppt(j.appt); } catch (e) { setErr(e.message); return; }
+      try { const j = await api("slots", { t: token }); setSlots(j.slots || []); } catch (e) { setErr(e.message); setSlots([]); }
+    })();
+  }, [token]);
+
+  const book = async (s) => {
+    setBooking(s.start_at + s.pa_id); setErr("");
+    try { await api("book", { t: token, pa_id: s.pa_id, start_at: s.start_at }); setDone(s); }
+    catch (e) { setErr(e.message); }
+    setBooking("");
+  };
+
+  const byDay = useMemo(() => {
+    const m = {};
+    for (const s of (slots || [])) { const k = dayKey(s.start_at); (m[k] = m[k] || []).push(s); }
+    // one time per hour per day (first PA available) to keep it simple for the homeowner
+    for (const k of Object.keys(m)) {
+      const seen = new Set(), out = [];
+      for (const s of m[k].sort((a, b) => new Date(a.start_at) - new Date(b.start_at))) { const t = timeLabel(s.start_at); if (seen.has(t)) continue; seen.add(t); out.push(s); }
+      m[k] = out;
+    }
+    return m;
+  }, [slots]);
+
+  if (done) return (
+    <Wrap>
+      <div style={{ textAlign: "center", padding: "20px 0" }}>
+        <div style={{ fontSize: 46 }}>✅</div>
+        <div style={{ fontSize: 21, fontWeight: 800, fontFamily: OSWALD, color: "#16a34a", marginTop: 6 }}>You're all set!</div>
+        <div style={{ fontSize: 15, color: "#334155", marginTop: 8, lineHeight: 1.55 }}>Your roof adjuster appointment is booked for<br /><b>{dayLabel(done.start_at)} at {timeLabel(done.start_at)}</b>.</div>
+        <div style={{ fontSize: 13.5, color: "#64748b", marginTop: 10 }}>We'll see you then. You can close this page.</div>
+      </div>
+    </Wrap>
+  );
+
+  if (err && !appt) return <Wrap><Msg text={err} /></Wrap>;
+  if (!appt) return <Wrap><Msg text="Loading your appointment…" plain /></Wrap>;
+
+  const dayKeys = Object.keys(byDay).sort();
+  return (
+    <Wrap>
+      <div style={{ fontSize: 22, fontWeight: 900, fontFamily: OSWALD, color: NAVY }}>Reschedule your appointment</div>
+      <div style={{ fontSize: 14.5, color: "#334155", marginTop: 6, lineHeight: 1.5 }}>
+        Hi {(appt.name || "there").split(" ")[0]} — we missed you for your roof adjuster appointment{appt.address ? <> at <b>{[appt.address, appt.city].filter(Boolean).join(", ")}</b></> : ""}. Pick a new time that works for you:
+      </div>
+      {err && <div style={{ color: "#b91c1c", fontSize: 13.5, marginTop: 12, fontWeight: 700 }}>{err}</div>}
+      {slots === null ? <Msg text="Finding open times…" plain />
+        : !dayKeys.length ? <div style={{ marginTop: 16, color: "#64748b", fontSize: 14 }}>No open times online right now — we'll call you to set one up.</div>
+        : (
+        <div style={{ marginTop: 18, display: "grid", gap: 16 }}>
+          {dayKeys.map((k) => (
+            <div key={k}>
+              <div style={{ fontSize: 14, fontWeight: 800, fontFamily: OSWALD, color: NAVY, marginBottom: 8 }}>{dayLabel(byDay[k][0].start_at)}</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {byDay[k].map((s) => (
+                  <button key={s.start_at + s.pa_id} disabled={!!booking} onClick={() => book(s)}
+                    style={{ fontSize: 14.5, fontWeight: 800, padding: "11px 16px", borderRadius: 12, border: "2px solid " + NAVY, background: booking === s.start_at + s.pa_id ? NAVY : "#fff", color: booking === s.start_at + s.pa_id ? "#fff" : NAVY, cursor: booking ? "default" : "pointer" }}>
+                    {booking === s.start_at + s.pa_id ? "…" : timeLabel(s.start_at)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Wrap>
+  );
+}
+
+function Wrap({ children }) {
+  return (
+    <div style={{ minHeight: "100vh", background: "#f1f5f9", fontFamily: FONT, padding: "24px 16px" }}>
+      <div style={{ maxWidth: 460, margin: "0 auto", background: "#fff", borderRadius: 18, padding: "24px 22px", boxShadow: "0 2px 14px rgba(0,0,0,.08)" }}>
+        <div style={{ fontSize: 12, fontWeight: 800, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 14 }}>U.S. Shingle &amp; Metal</div>
+        {children}
+      </div>
+    </div>
+  );
+}
+function Msg({ text, plain }) { return <div style={{ textAlign: "center", padding: "30px 0", color: plain ? "#94a3b8" : "#b91c1c", fontSize: 14.5, fontWeight: 700 }}>{text}</div>; }
