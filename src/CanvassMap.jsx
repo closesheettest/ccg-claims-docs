@@ -3523,7 +3523,7 @@ export default function CanvassMap() {
             they "📅 Plan your day" (weave doors around it) instead of routing a raw box. */}
         {dayMode === null && !selecting && !(assignedIds && assignedIds.size > 0) && (requiredCount === 0 || isRouteManager) && !forceApptPlan && (prospects.length > 0 || clusters.length > 0) && (
           <button type="button" onClick={startSelecting}
-            style={{ position: "absolute", left: 12, bottom: (requiredCount > 0 && isRouteManager) ? 120 : 68, zIndex: 600, background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
+            style={{ position: "absolute", left: 12, bottom: (requiredCount > 0 && isRouteManager) ? 160 : 68, zIndex: 601, background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.25)", cursor: "pointer" }}>
             ▢ Route an area
           </button>
         )}
