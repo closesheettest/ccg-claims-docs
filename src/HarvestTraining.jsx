@@ -9,7 +9,7 @@ import { supabase } from "./lib/supabase";
 
 const FONT = "'Nunito', system-ui, sans-serif";
 const OSWALD = "'Oswald', sans-serif";
-const PASS_PCT = 100;
+const PASS_PCT = 80; // ≥80% to pass (was mistakenly 100 — one wrong answer trapped reps retaking forever)
 
 export default function HarvestTraining({ track, userType, userKey, name, toolLabel = "the tool", onPass, preview = false, startAtTest = false }) {
   const [sections, setSections] = useState(null);
