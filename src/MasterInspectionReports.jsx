@@ -310,7 +310,7 @@ function InspectorActivity({ rows }) {
                             {i < d.legs.length && <div style={{ fontSize: 12, color: "#0891b2", margin: "2px 0 2px 26px" }}>↓ {d.legs[i].miles} mi</div>}
                           </div>
                         ))}
-                        <div style={{ marginTop: 8, fontSize: 12.5, color: "#64748b", fontWeight: 700 }}>Total ~{d.miles} mi (estimated route)</div>
+                        <div style={{ marginTop: 8, fontSize: 12.5, color: "#64748b", fontWeight: 700 }}>Total ~{d.miles} mi (estimated route){d.missing_geo > 0 ? ` · ${d.missing_geo} roof${d.missing_geo === 1 ? "" : "s"} not geocoded — miles partial` : ""}</div>
                       </div>
                     )}
                   </div>

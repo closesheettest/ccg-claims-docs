@@ -194,12 +194,16 @@ export const handler = async (event) => {
     for (const [name, days] of Object.entries(byInsp)) {
       const day_list = []; let totalRoofs = 0, totalMiles = 0;
       for (const [d, rows] of Object.entries(days)) {
-        const geo = rows.filter((r) => r.latitude != null && r.longitude != null).map((r) => ({ lat: +r.latitude, lng: +r.longitude, address: r.address, city: r.city, result: r.result, name: person(r) }));
+        const strip = (r) => ({ address: r.address, city: r.city, result: r.result, name: person(r) });
+        const geo = rows.filter((r) => r.latitude != null && r.longitude != null).map((r) => ({ lat: +r.latitude, lng: +r.longitude, ...strip(r) }));
+        const noGeo = rows.filter((r) => r.latitude == null || r.longitude == null).map(strip);
         const ordered = orderRoofs(geo);
         const legs = []; let miles = 0;
         for (let k = 1; k < ordered.length; k++) { const m = milesBetween(ordered[k - 1], ordered[k]) * ROAD; miles += m; legs.push({ from: ordered[k - 1].address, to: ordered[k].address, miles: r1(m) }); }
         totalRoofs += rows.length; totalMiles += miles;
-        day_list.push({ date: d, roofs: rows.length, miles: r1(miles), stops: ordered.map((r) => ({ address: r.address, city: r.city, result: r.result, name: r.name })), legs });
+        // Every roof lists (with city); legs only span the geocoded ones. missing_geo
+        // flags a day whose mileage is partial (some roofs not geocoded yet).
+        day_list.push({ date: d, roofs: rows.length, miles: r1(miles), missing_geo: noGeo.length, stops: [...ordered.map(strip), ...noGeo], legs });
       }
       day_list.sort((a, b) => b.date.localeCompare(a.date));
       inspector_activity.push({ inspector: name, days: day_list.length, roofs: totalRoofs, miles: r1(totalMiles), day_list });
