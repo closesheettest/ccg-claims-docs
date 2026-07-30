@@ -50,22 +50,28 @@ export const handler = async (event) => {
   const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
   const sbGet = (path) => fetch(`${SB_URL}/rest/v1/${path}`, { headers: sb }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
 
-  // Office view: EVERY rep's post-inspection go-backs that STILL NEED A HOMEOWNER
-  // VISIT — not ones already worked/converted. Damage → no PA appointment booked yet
-  // and not signed/refused; Retail → no retail outcome yet (a retail→appt conversion
-  // sets retail_outcome, so it drops off); No-damage → no referral outcome yet.
+  // Office view: EVERY rep's post-inspection go-backs that still need a homeowner
+  // visit — the SAME visit-deal-list query the reps use, just WITHOUT a rep filter
+  // (so it spans all reps). Same "needs a visit" logic (damage claim not moving,
+  // retail no outcome + not scheduled, no-damage no referral outcome).
   if (admin) {
     const ok = (await sbGet(`app_settings?key=eq.harvest_admin_token&select=value&limit=1`))[0]?.value === admin;
     if (ok) {
-      const [rows, appts] = await Promise.all([
-        sbGet(`inspections?result=in.(damage,no_damage,retail)&cancelled_at=is.null&latitude=not.is.null&select=id,client_name,address,city,latitude,longitude,result,result_task_at,review_availability,pa_status,pa_signed_at,pa_fields,retail_outcome,referral_outcome,mobile,jn_job_id,sales_rep_name&limit=3000`),
-        sbGet(`pa_appointments?status=eq.scheduled&select=inspection_id`),
-      ]);
-      const hasAppt = new Set((appts || []).map((a) => a.inspection_id));
-      const paPending = (r) => { let f = r.pa_fields || {}; if (typeof f === "string") { try { f = JSON.parse(f); } catch { f = {}; } } const s = String(f.pa_signup || "").toLowerCase(); if (r.pa_signed_at || r.pa_status === "signed" || s.startsWith("signed")) return false; if (r.pa_status === "refused" || s.includes("refus") || s.includes("retail")) return false; return true; };
-      const needsVisit = (r) => r.result === "damage" ? (!hasAppt.has(r.id) && paPending(r)) : r.result === "retail" ? !r.retail_outcome : r.result === "no_damage" ? !r.referral_outcome : false;
-      const visits = rows.filter(needsVisit).map((r) => ({ inspection_id: r.id, ...r, bucket: r.result }));
-      return json(200, { ok: true, visits, admin: true });
+      const visitToken = (await sbGet(`app_settings?key=eq.visit_token&select=value&limit=1`))[0]?.value;
+      if (!visitToken) return json(200, { ok: true, visits: [], note: "visit_token not set" });
+      const base = (process.env.URL || process.env.PUBLIC_SITE_URL || "https://free-roof-inspections.netlify.app").replace(/\/$/, "");
+      const callAll = async (result) => {
+        try {
+          const r = await fetch(`${base}/.netlify/functions/visit-deal-list`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token: visitToken, result }), // no rep → every rep
+          });
+          const d = await r.json().catch(() => ({}));
+          return (d.deals || []).map((x) => ({ ...x, bucket: result }));
+        } catch { return []; }
+      };
+      const lists = await Promise.all(BUCKETS.map(callAll));
+      return json(200, { ok: true, visits: lists.flat(), admin: true, visit_token: visitToken });
     }
   }
   if (!UUID.test(rt)) return json(401, { ok: false, error: "Invalid link" });
