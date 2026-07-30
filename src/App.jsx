@@ -9414,18 +9414,6 @@ export default function App() {
   // BEFORE all the heavy claim-intake state initializes.
   if (typeof window !== "undefined") {
     const params = new URLSearchParams(window.location.search);
-    // A rep who opened their personal map link once → this device remembers it
-    // (ccg_harvest_rt, stamped in the ?mode=harvest branch below). On a truly BARE
-    // url — closed + reopened, a home-screen bookmark, or a refresh that dropped
-    // the query — send them straight back to THEIR map (which gates to training if
-    // they haven't passed) instead of the Field-Visit "Who are you?" hub.
-    const _bareUrl = !["mode", "rt", "manager", "sign", "intake", "crew", "dialer", "inspector_setup", "cancel_review", "post_job"].some((k) => params.get(k));
-    if (_bareUrl) {
-      try {
-        const savedRt = localStorage.getItem("ccg_harvest_rt");
-        if (savedRt) { window.location.replace(`/?mode=harvest&rt=${encodeURIComponent(savedRt)}`); return null; }
-      } catch { /* private mode */ }
-    }
     // Regional Manager records page — token-gated zone-scoped view.
     // Tony / Richard / Chad / Sam each get a URL like
     // /?manager=<token>; tapping it opens this view instead of the
@@ -9483,7 +9471,7 @@ export default function App() {
     // Escape valve: /?mode=rep clears the inspector flag so a wrongly-flagged
     // (e.g. shared) device returns to the normal rep field-visit hub.
     if (portalMode === "rep") {
-      try { localStorage.removeItem("uss_inspector"); localStorage.removeItem("ccg_harvest_rt"); } catch { /* private mode */ }
+      try { localStorage.removeItem("uss_inspector"); } catch { /* private mode */ }
     }
     if (portalMode === "pa") {
       return <PAMobileApp />;
@@ -9516,10 +9504,6 @@ export default function App() {
     // addresses show as pins colored by status; a rep taps a pin to update it
     // (IQ → Appt, Not Home, etc.). Self-contained, mobile-first.
     if (portalMode === "harvest" || portalMode === "canvass") {
-      // Remember this rep's personal map link so a later bare url returns them
-      // here (see the _bareUrl redirect above). Skip office spot-checks (admin
-      // token) so we never stamp the office's device with a rep's token.
-      try { const rt = params.get("rt"); if (rt && !params.get("admin")) localStorage.setItem("ccg_harvest_rt", rt); } catch { /* private mode */ }
       return <CanvassMap />;
     }
     // ?mode=harvestadmin — office admin page to configure the map's pin types
