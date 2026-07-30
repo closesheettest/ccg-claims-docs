@@ -870,6 +870,7 @@ export default function CanvassMap() {
   const [selectedInstall, setSelectedInstall] = useState(null);
   const [visits, setVisits] = useState([]);            // rep's post-inspection go-backs (damage/no_damage/retail)
   const [showGobacks, setShowGobacks] = useState(true);
+  const [gobackShow, setGobackShow] = useState({ damage: true, retail: true, no_damage: true }); // per-bucket legend toggles
   const [selectedVisit, setSelectedVisit] = useState(null);
   const [gobackCard, setGobackCard] = useState(false); // "Today's go-backs" list open
   const [gobackRadiusMi, setGobackRadiusMi] = useState(5); // admin-tunable (app_settings.harvest_goback_radius_mi)
@@ -1950,11 +1951,12 @@ export default function CanvassMap() {
     lyr.clearLayers();
     if (!showGobacks) return;
     for (const v of visits) {
+      if (gobackShow[v.bucket] === false) continue; // per-bucket legend toggle
       const mk = L.marker([v.latitude, v.longitude], { icon: gobackIcon(v.bucket, !!visitNeedsWork(v)), zIndexOffset: 500 });
       mk.on("click", () => { setSelected(null); setSelectedInstall(null); setSelectedVisit(v); });
       lyr.addLayer(mk);
     }
-  }, [visits, showGobacks]);
+  }, [visits, showGobacks, gobackShow]);
   useEffect(() => { signingStopRef.current = signingStop; }, [signingStop]);
   // The intake tab writes localStorage 'harvest_signed' when a signing completes.
   // That 'storage' event fires in THIS tab (a different one) → advance instantly.
@@ -3382,6 +3384,11 @@ export default function CanvassMap() {
             {visTypes.map((s) => (
               <StatusCard key={s.key} color={s.color} label={`${isPinned(s.key) ? "🔒 " : ""}${s.label}`} count={countFor(s.key)}
                 active={sel.has(s.key)} locked={isPinned(s.key)} onClick={() => isPinned(s.key) ? null : toggleSel(s.key)} />
+            ))}
+            {/* Post-inspection go-backs — one legend toggle per bucket. */}
+            {visits.length > 0 && showGobacks && [["damage", "Damage go back"], ["retail", "Retail go back"], ["no_damage", "No damage go back"]].map(([b, label]) => (
+              <StatusCard key={"gb-" + b} color={GOBACK_META[b].color} label={`${GOBACK_META[b].emoji} ${label}`} count={visits.filter((v) => v.bucket === b).length}
+                active={gobackShow[b] !== false} onClick={() => setGobackShow((s) => ({ ...s, [b]: s[b] === false }))} />
             ))}
             {installs.length > 0 && (
               <StatusCard color={INSTALL_COLOR} label="⭐ Installs" count={installs.length}

@@ -224,7 +224,6 @@ export default function InspectionMap() {
             <button onClick={() => setSelected(null)} style={{ background: "none", border: "none", fontSize: 22, color: "#cbd5e1", cursor: "pointer", lineHeight: 1 }}>×</button>
           </div>
           <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
-            {selected.mobile && <a href={`tel:${selected.mobile}`} style={{ ...btnStyle("#0369a1", 14.5), flex: "0 0 auto", textDecoration: "none", textAlign: "center" }}>📞 Call</a>}
             <button onClick={() => startInspection(selected)} style={{ ...btnStyle("#16a34a", 15), flex: 1 }}>🏠 Start inspection</button>
           </div>
         </div>
