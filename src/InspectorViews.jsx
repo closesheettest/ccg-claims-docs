@@ -3060,7 +3060,7 @@ function InspectorReports({ me, onBack }) {
                           {r.client_name || "—"}
                         </div>
                         <div style={{ fontSize: 11, color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {r.address || ""}
+                          {[r.address, r.city].filter(Boolean).join(", ")}
                         </div>
                         <div style={{ fontSize: 11, color: photoCount > 0 ? "#0e7490" : "#9ca3af", marginTop: 2, fontWeight: 600 }}>
                           {photoCount > 0 ? `📷 ${photoCount} photo${photoCount === 1 ? "" : "s"} · tap to view` : "No photos"}
@@ -3242,7 +3242,7 @@ export function ManagerInspectorReports() {
       // Completed in range (every inspector, optional inspector filter).
       let completedQ = supabase
         .from("inspections")
-        .select("id, client_name, address, result, result_at, inspector_id, lost_reason")
+        .select("id, client_name, address, city, result, result_at, inspector_id, lost_reason")
         // Only the three real terminal outcomes count as a completed
         // inspection. `result` can also hold pre-inspection placeholder
         // strings ("Needs Service", "Needs Sales Visit", etc.) that land
@@ -3649,7 +3649,7 @@ export function ManagerInspectorReports() {
                           </span>
                         </div>
                         <div style={{ fontSize: 11, color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {r.address || ""}
+                          {[r.address, r.city].filter(Boolean).join(", ")}
                         </div>
                         {r.result === "lost" && r.lost_reason && (
                           <div style={{ fontSize: 11, color: "#b91c1c", marginTop: 2, whiteSpace: "normal", lineHeight: 1.35 }}>
