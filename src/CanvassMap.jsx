@@ -871,6 +871,7 @@ export default function CanvassMap() {
   const [visits, setVisits] = useState([]);            // rep's post-inspection go-backs (damage/no_damage/retail)
   const [showGobacks, setShowGobacks] = useState(true);
   const [gobackShow, setGobackShow] = useState({ damage: true, retail: true, no_damage: true }); // per-bucket legend toggles
+  const [legendOpen, setLegendOpen] = useState({ work: true, statused: false, goback: true }); // collapsible legend groups
   const [selectedVisit, setSelectedVisit] = useState(null);
   const [gobackCard, setGobackCard] = useState(false); // "Today's go-backs" list open
   const [gobackRadiusMi, setGobackRadiusMi] = useState(5); // admin-tunable (app_settings.harvest_goback_radius_mi)
@@ -1797,7 +1798,7 @@ export default function CanvassMap() {
     try {
       const r = await fetch("/.netlify/functions/harvest-visits", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rt: auth.rt, lat: myLoc?.lat, lng: myLoc?.lng }),
+        body: JSON.stringify({ rt: auth.rt, admin: auth.admin, lat: myLoc?.lat, lng: myLoc?.lng }),
       });
       const d = await r.json();
       if (d.ok && Array.isArray(d.visits)) setVisits(d.visits.filter((v) => v.latitude != null && v.longitude != null));
@@ -1805,7 +1806,7 @@ export default function CanvassMap() {
     } catch { /* non-fatal */ }
   }
   useEffect(() => {
-    if (visitsLoaded.current || !me || !auth.rt) return;
+    if (visitsLoaded.current || !me || (!auth.rt && !auth.admin)) return;
     visitsLoaded.current = true;
     loadVisits();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3381,15 +3382,33 @@ export default function CanvassMap() {
                 count={dbCounts ? Object.entries(dbCounts).reduce((sum, [k, n]) => sum + ((!visKeys || visKeys.has(k)) ? n : 0), 0) : (visKeys ? prospects.filter((p) => visKeys.has(p.status)).length : prospects.length)}
                 active={!showNone && sel.size === 0} onClick={() => { setShowNone(false); setSel(new Set()); }} />
             )}
-            {visTypes.map((s) => (
-              <StatusCard key={s.key} color={s.color} label={`${isPinned(s.key) ? "🔒 " : ""}${s.label}`} count={countFor(s.key)}
-                active={sel.has(s.key)} locked={isPinned(s.key)} onClick={() => isPinned(s.key) ? null : toggleSel(s.key)} />
-            ))}
-            {/* Post-inspection go-backs — one legend toggle per bucket. */}
-            {visits.length > 0 && showGobacks && [["damage", "Damage go back"], ["retail", "Retail go back"], ["no_damage", "No damage go back"]].map(([b, label]) => (
-              <StatusCard key={"gb-" + b} color={GOBACK_META[b].color} label={`${GOBACK_META[b].emoji} ${label}`} count={visits.filter((v) => v.bucket === b).length}
-                active={gobackShow[b] !== false} onClick={() => setGobackShow((s) => ({ ...s, [b]: s[b] === false }))} />
-            ))}
+            {(() => {
+              const WORK_ORDER = ["iq", "iq_ni", "clover", "fb", "ai", "no_sit_reschedule", "insp"];
+              const workTypes = WORK_ORDER.map((k) => visTypes.find((t) => t.key === k)).filter(Boolean);
+              const statusedTypes = visTypes.filter((t) => !WORK_ORDER.includes(t.key));
+              const card = (s) => (
+                <StatusCard key={s.key} color={s.color} label={`${isPinned(s.key) ? "🔒 " : ""}${s.label}`} count={countFor(s.key)}
+                  active={sel.has(s.key)} locked={isPinned(s.key)} onClick={() => isPinned(s.key) ? null : toggleSel(s.key)} />
+              );
+              return (
+                <>
+                  <LegendGroup title="Pins to work" open={legendOpen.work} onToggle={() => setLegendOpen((o) => ({ ...o, work: !o.work }))}>
+                    {workTypes.map(card)}
+                  </LegendGroup>
+                  {visits.length > 0 && showGobacks && (
+                    <LegendGroup title="Go-backs" open={legendOpen.goback} onToggle={() => setLegendOpen((o) => ({ ...o, goback: !o.goback }))}>
+                      {[["damage", "Damage go back"], ["retail", "Retail go back"], ["no_damage", "No damage go back"]].map(([b, label]) => (
+                        <StatusCard key={"gb-" + b} color={GOBACK_META[b].color} label={`${GOBACK_META[b].emoji} ${label}`} count={visits.filter((v) => v.bucket === b).length}
+                          active={gobackShow[b] !== false} onClick={() => setGobackShow((s) => ({ ...s, [b]: s[b] === false }))} />
+                      ))}
+                    </LegendGroup>
+                  )}
+                  <LegendGroup title="Statused pins" open={legendOpen.statused} onToggle={() => setLegendOpen((o) => ({ ...o, statused: !o.statused }))}>
+                    {statusedTypes.map(card)}
+                  </LegendGroup>
+                </>
+              );
+            })()}
             {installs.length > 0 && (
               <StatusCard color={INSTALL_COLOR} label="⭐ Installs" count={installs.length}
                 active={showInstalls} onClick={() => setShowInstalls((v) => !v)} />
@@ -4741,6 +4760,18 @@ function Chip({ active, onClick, color, label, check }) {
 }
 
 // Desktop right-column filter card — the "chip" for the web view.
+// Collapsible legend section (keeps the long "Pins to show" list tidy).
+function LegendGroup({ title, open, onToggle, children }) {
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <button type="button" onClick={onToggle}
+        style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", background: "#e2e8f0", border: "none", borderRadius: 9, padding: "8px 11px", cursor: "pointer", fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.04em", color: "#334155", marginBottom: 6 }}>
+        <span>{title}</span><span style={{ fontSize: 11 }}>{open ? "▲" : "▼"}</span>
+      </button>
+      {open && <div>{children}</div>}
+    </div>
+  );
+}
 function StatusCard({ color, label, count, active, onClick, locked }) {
   return (
     <button type="button" onClick={onClick}

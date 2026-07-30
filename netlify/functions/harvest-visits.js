@@ -44,11 +44,22 @@ export const handler = async (event) => {
   if (!SB_URL || !SB_KEY) return json(500, { ok: false, error: "env missing" });
   let body; try { body = JSON.parse(event.body || "{}"); } catch { return json(400, { ok: false, error: "bad JSON" }); }
   const rt = String(body.rt || "").trim();
-  if (!UUID.test(rt)) return json(401, { ok: false, error: "Invalid link" });
+  const admin = String(body.admin || "").trim();
   const lat = Number(body.lat), lng = Number(body.lng);
 
   const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
   const sbGet = (path) => fetch(`${SB_URL}/rest/v1/${path}`, { headers: sb }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+
+  // Office view: EVERY rep's post-inspection go-backs (all damage / no-damage / retail),
+  // colored by bucket, so the admin map shows them all.
+  if (admin) {
+    const ok = (await sbGet(`app_settings?key=eq.harvest_admin_token&select=value&limit=1`))[0]?.value === admin;
+    if (ok) {
+      const rows = await sbGet(`inspections?result=in.(damage,no_damage,retail)&cancelled_at=is.null&latitude=not.is.null&select=id,client_name,address,city,latitude,longitude,result,result_task_at,review_availability,pa_notes_log,mobile,jn_job_id,sales_rep_name,inspector_name&limit=3000`);
+      return json(200, { ok: true, visits: rows.map((r) => ({ inspection_id: r.id, ...r, bucket: r.result })), admin: true });
+    }
+  }
+  if (!UUID.test(rt)) return json(401, { ok: false, error: "Invalid link" });
 
   const rep = (await sbGet(`sales_reps?harvest_token=eq.${encodeURIComponent(rt)}&select=name,jobnimbus_id&limit=1`))[0];
   if (!rep) return json(401, { ok: false, error: "Invalid link" });
