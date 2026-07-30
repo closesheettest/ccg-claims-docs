@@ -72,6 +72,7 @@ export default function MasterInspectionReports() {
     ["damage", `Damage / PA (${c.damage})`],
     ["pa_passed", `PA Appts Passed (${c.pa_passed})`],
     ["missed", `⚠️ Missed PA (${c.missed_pa})`],
+    ["inspectors", `👷 Inspectors (${c.inspectors})`],
   ];
 
   return (
@@ -98,6 +99,7 @@ export default function MasterInspectionReports() {
       {tab === "damage" && <Damage damage={data.damage} />}
       {tab === "pa_passed" && <PaPassed rows={data.pa_passed} />}
       {tab === "missed" && <Missed rows={data.missed_pa} />}
+      {tab === "inspectors" && <InspectorActivity rows={data.inspector_activity} />}
     </div>
   );
 }
@@ -235,7 +237,7 @@ function PaPassed({ rows }) {
     <div key={r.appt_id} style={rowCard}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: 800 }}>{r.name} <span style={{ fontSize: 12, fontWeight: 800, color: OUT_COLOR[r.outcome] }}>· {OUT_LABEL[r.outcome]}</span></div>
-        <div style={{ fontSize: 12.5, color: "#64748b" }}>{r.address}</div>
+        <div style={{ fontSize: 12.5, color: "#64748b" }}>{[r.address, r.city].filter(Boolean).join(", ")}</div>
         {r.rep && <div style={{ fontSize: 12, color: "#94a3b8" }}>rep {r.rep}</div>}
       </div>
       <div style={{ textAlign: "right", fontSize: 12 }}>
@@ -258,7 +260,7 @@ function Missed({ rows }) {
     <div key={r.appt_id} style={{ ...rowCard, borderColor: "#fecaca", background: "#fff7f7" }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: 800 }}>{r.name}</div>
-        <div style={{ fontSize: 12.5, color: "#64748b" }}>{r.address}</div>
+        <div style={{ fontSize: 12.5, color: "#64748b" }}>{[r.address, r.city].filter(Boolean).join(", ")}</div>
         <div style={{ fontSize: 12, color: "#94a3b8" }}>{r.phone ? r.phone : ""}{r.rep ? `${r.phone ? " · " : ""}rep ${r.rep}` : ""}</div>
       </div>
       <div style={{ textAlign: "right", fontSize: 12 }}>
@@ -274,6 +276,53 @@ function Missed({ rows }) {
   );
 }
 
+const fmtDayLong = (d) => { try { return new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" }); } catch { return d; } };
+function InspectorActivity({ rows }) {
+  const [open, setOpen] = useState(null); // "inspector|date"
+  if (!rows || !rows.length) return <Empty msg="No inspector activity yet." />;
+  return (
+    <Section title={`Inspector activity (${rows.length})`} sub="Per inspector, per day: roofs inspected + estimated miles driven (shortest route through the day's roofs). Tap a day for the roofs + miles between each. (On-roof times come with the inspector map.)">
+      <div style={{ display: "grid", gap: 18 }}>
+        {rows.map((insp) => (
+          <div key={insp.inspector}>
+            <div style={{ fontSize: 19, fontWeight: 900, fontFamily: OSWALD, color: "#0f172a", display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+              👷 {insp.inspector}
+              <span style={{ fontSize: 13, fontWeight: 800, color: "#64748b" }}>{insp.roofs} roofs · {insp.days} days · ~{insp.miles} mi</span>
+            </div>
+            <div style={{ display: "grid", gap: 6, marginTop: 6 }}>
+              {insp.day_list.map((d) => {
+                const key = insp.inspector + "|" + d.date;
+                const isOpen = open === key;
+                return (
+                  <div key={key} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden" }}>
+                    <button onClick={() => setOpen(isOpen ? null : key)} style={{ width: "100%", textAlign: "left", background: "none", border: "none", padding: "12px 14px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                      <span style={{ fontWeight: 800 }}>{fmtDayLong(d.date)}</span>
+                      <span style={{ fontSize: 13, color: "#334155" }}><b>{d.roofs}</b> roof{d.roofs === 1 ? "" : "s"} · <b>~{d.miles} mi</b> {isOpen ? "▲" : "▼"}</span>
+                    </button>
+                    {isOpen && (
+                      <div style={{ borderTop: "1px solid #f1f5f9", padding: "10px 14px", background: "#f8fafc" }}>
+                        {d.stops.map((s, i) => (
+                          <div key={i}>
+                            <div style={{ display: "flex", gap: 8, fontSize: 13.5 }}>
+                              <span style={{ color: "#94a3b8", fontWeight: 800, minWidth: 18 }}>{i + 1}.</span>
+                              <span><b>{s.name}</b> — {[s.address, s.city].filter(Boolean).join(", ")} <span style={{ color: "#94a3b8" }}>({s.result})</span></span>
+                            </div>
+                            {i < d.legs.length && <div style={{ fontSize: 12, color: "#0891b2", margin: "2px 0 2px 26px" }}>↓ {d.legs[i].miles} mi</div>}
+                          </div>
+                        ))}
+                        <div style={{ marginTop: 8, fontSize: 12.5, color: "#64748b", fontWeight: 700 }}>Total ~{d.miles} mi (estimated route)</div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+}
 const rowCard = { display: "flex", gap: 12, alignItems: "flex-start", justifyContent: "space-between", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "12px 14px" };
 function Empty({ msg }) { return <div style={{ color: "#94a3b8", padding: 24, textAlign: "center", background: "#f8fafc", borderRadius: 12, fontSize: 14 }}>{msg || "Nothing here right now."}</div>; }
 function btn(bg) { return { background: bg, color: "#fff", border: "none", borderRadius: 10, padding: "9px 15px", fontSize: 13.5, fontWeight: 800, fontFamily: OSWALD, cursor: "pointer" }; }

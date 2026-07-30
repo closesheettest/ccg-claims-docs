@@ -156,6 +156,7 @@ export const handler = async (event) => {
           phone: a.homeowner_phone || (insp && insp.mobile) || null,
           email: insp && insp.email || null,
           address: a.address || (insp && insp.address) || null,
+          city: (insp && insp.city) || null,
           pa: a.pa_id ? paName[a.pa_id] : null,
           company: a.pa_company_id ? coName[a.pa_company_id] : (insp && insp.pa_company_id ? coName[insp.pa_company_id] : null),
           pa_id: a.pa_id || (insp && insp.pa_id) || null,
@@ -168,6 +169,42 @@ export const handler = async (event) => {
         };
       })
       .sort((a, b) => (b.start_at || "").localeCompare(a.start_at || ""));
+
+    // ── INSPECTOR ACTIVITY — per inspector, per day: roofs inspected + miles driven.
+    //    Miles are ESTIMATED (shortest route through the day's roofs × a road factor) —
+    //    the actual visit order/times aren't captured yet (coming with the inspector map).
+    const milesBetween = (a, b) => {
+      if (!a || !b || a.lat == null || b.lat == null) return 0;
+      const R = 3958.8, toRad = (d) => (d * Math.PI) / 180;
+      const dLat = toRad(b.lat - a.lat), dLng = toRad(b.lng - a.lng);
+      const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+      return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+    };
+    const ROAD = 1.3, r1 = (x) => Math.round(x * 10) / 10;
+    const orderRoofs = (pts) => { // nearest-neighbour from the first roof
+      if (pts.length <= 2) return pts.slice();
+      const rem = pts.slice(), out = [rem.shift()];
+      while (rem.length) { let bi = 0, bd = Infinity; for (let i = 0; i < rem.length; i++) { const d = milesBetween(out[out.length - 1], rem[i]); if (d < bd) { bd = d; bi = i; } } out.push(rem.splice(bi, 1)[0]); }
+      return out;
+    };
+    const inspectedRows = inspections.filter((i) => ["damage", "retail", "no_damage"].includes(i.result) && i.inspector_name && !i.cancelled_at && i.date);
+    const byInsp = {};
+    for (const i of inspectedRows) { const d = String(i.date).slice(0, 10); (byInsp[i.inspector_name] = byInsp[i.inspector_name] || {}); (byInsp[i.inspector_name][d] = byInsp[i.inspector_name][d] || []).push(i); }
+    const inspector_activity = [];
+    for (const [name, days] of Object.entries(byInsp)) {
+      const day_list = []; let totalRoofs = 0, totalMiles = 0;
+      for (const [d, rows] of Object.entries(days)) {
+        const geo = rows.filter((r) => r.latitude != null && r.longitude != null).map((r) => ({ lat: +r.latitude, lng: +r.longitude, address: r.address, city: r.city, result: r.result, name: person(r) }));
+        const ordered = orderRoofs(geo);
+        const legs = []; let miles = 0;
+        for (let k = 1; k < ordered.length; k++) { const m = milesBetween(ordered[k - 1], ordered[k]) * ROAD; miles += m; legs.push({ from: ordered[k - 1].address, to: ordered[k].address, miles: r1(m) }); }
+        totalRoofs += rows.length; totalMiles += miles;
+        day_list.push({ date: d, roofs: rows.length, miles: r1(miles), stops: ordered.map((r) => ({ address: r.address, city: r.city, result: r.result, name: r.name })), legs });
+      }
+      day_list.sort((a, b) => b.date.localeCompare(a.date));
+      inspector_activity.push({ inspector: name, days: day_list.length, roofs: totalRoofs, miles: r1(totalMiles), day_list });
+    }
+    inspector_activity.sort((a, b) => b.roofs - a.roofs);
 
     // MISSED PA APPOINTMENTS — passed, not cancelled, no outcome yet. These need a
     // rebook / a fresh scheduling link (rep view + homeowner auto-nudge).
@@ -185,8 +222,9 @@ export const handler = async (event) => {
         damage_needs_appt: damage.needs_appt.length,
         pa_passed: pa_passed.length,
         missed_pa: missed_pa.length,
+        inspectors: inspector_activity.length,
       },
-      needs_inspection, needs_goback_status, retail, damage, pa_passed, missed_pa,
+      needs_inspection, needs_goback_status, retail, damage, pa_passed, missed_pa, inspector_activity,
     }));
   } catch (e) {
     return cors(500, JSON.stringify({ ok: false, error: e.message || "Unknown error" }));
