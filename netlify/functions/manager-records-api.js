@@ -496,20 +496,28 @@ async function listAppointments(manager, body) {
   // A backlog appointment belongs to the manager of the zone where the PROPERTY
   // is — geocode the job's city/zip → county → zone and keep only THIS manager's
   // zone (undeterminable ones are kept so a geocode miss never hides real work).
+  const repZoneMaps = await loadRepZoneMaps()
   const geocache = {}
   const bkZoned = []
   for (const t of bkRaw) {
-    // Already assigned to a rep who'll work it (active, or William on his own)?
-    // It's theirs — not for a manager to reassign. It only re-surfaces here once
-    // that rep goes inactive (a departure → genuine reassignment).
+    // Already assigned to an ACTIVE rep? It's theirs — not for a manager to
+    // reassign. It only re-surfaces once that rep goes inactive (a departure).
     if (t.sales_rep_id && liveSalesRepIds.has(t.sales_rep_id)) continue
     const addr = [t.city, t.state, t.zip].filter(Boolean).join(', ')
-    let apptZone = 'Unassigned'
-    if (addr) {
-      if (!(addr in geocache)) { const g = await geocodeCounty(addr); geocache[addr] = g ? countyToZone(g.county, g.lat) : 'Unassigned' }
-      apptZone = geocache[addr]
+    // A departed rep's lead goes back to THEIR team manager (their book of
+    // business) — prefer the sales rep, then the owner. Only a truly orphaned
+    // lead (setter Viviana/David, or an unknown rep) falls back to the PROPERTY's
+    // county → zone. Keeps a departed Zone-1 rep's lead on the Zone-1 board even
+    // when the house sits in another zone.
+    let routeZone = teamZoneFor(repZoneMaps, t.sales_rep_id, t.sales_rep_name)
+      || teamZoneFor(repZoneMaps, t.owner_id, t.owner_name)
+    if (!routeZone) {
+      if (addr) {
+        if (!(addr in geocache)) { const g = await geocodeCounty(addr); geocache[addr] = g ? countyToZone(g.county, g.lat) : 'Unassigned' }
+        routeZone = geocache[addr]
+      } else routeZone = 'Unassigned'
     }
-    if (apptZone === zone || apptZone === 'Unassigned') bkZoned.push({ ...t, _addr: addr || null })
+    if (routeZone === zone || routeZone === 'Unassigned') bkZoned.push({ ...t, _addr: addr || null })
   }
   const backlog = bkZoned
     .map((t) => ({ key: 'bk:' + t.id, source: 'jn', id: null, jn_job_id: t.job_id || null, homeowner: t.homeowner, address: t._addr, appt_at: t.appt_at, src: ownerLabel(t), owner_id: t.owner_id || null, owner_name: ownerLabel(t), sales_rep_id: null, sales_rep_name: null, needs_assignment: true, is_goback: !!t.is_goback, appt_note: t.appt_note || null }))
@@ -631,19 +639,26 @@ async function assignAppointment(manager, body) {
       const jr = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(jobId)}`, { headers: { Authorization: `bearer ${JN_KEY}` } })
       const j = jr.ok ? await jr.json().catch(() => ({})) : {}
       const ownerIds = (j.owners || []).map((o) => o.id)
-      // The backlog list surfaces a lead to the manager of the zone where the
-      // PROPERTY is (geocode city/zip → county → zone) and includes jobs owned by
-      // William / any inactive rep — not just Viviana & David. Gate the assign the
-      // SAME way, or a lead that legitimately shows on a manager's board can't be
-      // assigned (Richard: "not in my territory" on an in-zone Orlando lead). So:
-      // in zone if a zone rep owns/sells it, OR it's the shared Viviana/David
-      // backlog, OR the PROPERTY itself geocodes to this manager's zone.
+      // Gate the assign the SAME way the backlog list routes it, or a lead that
+      // shows on a manager's board can't be assigned (Richard: "not in my
+      // territory" on an in-zone lead). Routing = the DEPARTED rep's team zone
+      // (their book of business — sales rep first, then owner); only a truly
+      // orphaned lead falls back to the PROPERTY's county → zone. Plus the always-
+      // allow escape hatches: a zone rep already owns/sells it, or it's the shared
+      // Viviana/David setter backlog.
+      const repZoneMaps = await loadRepZoneMaps()
+      const ownerName = ((j.owners || [])[0] || {}).name || null
+      const teamZone = teamZoneFor(repZoneMaps, j.sales_rep, j.sales_rep_name)
+        || teamZoneFor(repZoneMaps, ownerIds[0], ownerName)
       let propZone = 'Unassigned'
-      const propAddr = [j.city, j.state_text || j.state, j.zip].filter(Boolean).join(', ')
-      if (propAddr) { const g = await geocodeCounty(propAddr); propZone = g ? countyToZone(g.county, g.lat) : 'Unassigned' }
+      if (!teamZone) {
+        const propAddr = [j.city, j.state_text || j.state, j.zip].filter(Boolean).join(', ')
+        if (propAddr) { const g = await geocodeCounty(propAddr); propZone = g ? countyToZone(g.county, g.lat) : 'Unassigned' }
+      }
+      const routeZone = teamZone || propZone
       const inZone = ownerIds.some((id) => zoneJn.has(id)) || (j.sales_rep && zoneJn.has(j.sales_rep))
         || ownerIds.includes(SETTER_VIVIANA_ID) || ownerIds.includes(DAVID_MACELLA_ID)
-        || propZone === manager.zone || propZone === 'Unassigned'
+        || routeZone === manager.zone || routeZone === 'Unassigned'
       if (!inZone) return json(403, { ok: false, error: 'That job isn’t in your zone.' })
     } catch { return json(502, { ok: false, error: 'Could not verify the JobNimbus job.' }) }
   }
@@ -1013,6 +1028,31 @@ async function buildRecords(manager) {
 //      nicknames: 'James "Jimmy" Bates' → 'james bates')
 // If neither matches, the rep falls into "No Zone" and won't show on
 // any manager view — admin needs to backfill their JN ID in TMS.
+// rep (JN id / name) → their TEAM zone, INCLUDING departed reps. A departed
+// rep's leads go back to THEIR manager to redistribute, so we need inactive reps
+// in the map (the default rep-zones list is active-only). Returns { byJn, byName }.
+async function loadRepZoneMaps() {
+  let tmsReps = []
+  try {
+    const res = await fetch(`${TMS_REP_ZONES_URL}?include_inactive=1`)
+    if (res.ok) tmsReps = (await res.json()).reps || []
+  } catch (e) { console.warn('rep-zones (incl inactive) fetch failed:', e.message || e) }
+  const byJn = {}, byName = {}
+  for (const r of tmsReps) {
+    if (r.jobnimbus_id && r.zone) byJn[r.jobnimbus_id] = r.zone
+    if (r.name && r.zone) byName[normalizeName(r.name)] = r.zone
+  }
+  return { byJn, byName }
+}
+// The team zone for a rep by JN id (preferred) or name. null when unknown / not a
+// rep (e.g. the setter Viviana / David) — caller then falls back to property zone.
+function teamZoneFor(maps, jnId, name) {
+  if (!maps) return null
+  if (jnId && maps.byJn[jnId]) return maps.byJn[jnId]
+  if (name && maps.byName[normalizeName(name)]) return maps.byName[normalizeName(name)]
+  return null
+}
+
 async function fetchRepsInZoneBridged(targetZone) {
   // a) TMS reps → maps from JN ID + normalized name to zone string
   let tmsReps = []
