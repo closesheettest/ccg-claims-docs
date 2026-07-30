@@ -617,9 +617,19 @@ async function assignAppointment(manager, body) {
       const jr = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(jobId)}`, { headers: { Authorization: `bearer ${JN_KEY}` } })
       const j = jr.ok ? await jr.json().catch(() => ({})) : {}
       const ownerIds = (j.owners || []).map((o) => o.id)
-      // In zone if a zone rep owns it / sells it — OR it's the Viviana backlog
-      // (still owned by the setter), which any manager may claim + assign.
-      const inZone = ownerIds.some((id) => zoneJn.has(id)) || (j.sales_rep && zoneJn.has(j.sales_rep)) || ownerIds.includes(SETTER_VIVIANA_ID) || ownerIds.includes(DAVID_MACELLA_ID)
+      // The backlog list surfaces a lead to the manager of the zone where the
+      // PROPERTY is (geocode city/zip → county → zone) and includes jobs owned by
+      // William / any inactive rep — not just Viviana & David. Gate the assign the
+      // SAME way, or a lead that legitimately shows on a manager's board can't be
+      // assigned (Richard: "not in my territory" on an in-zone Orlando lead). So:
+      // in zone if a zone rep owns/sells it, OR it's the shared Viviana/David
+      // backlog, OR the PROPERTY itself geocodes to this manager's zone.
+      let propZone = 'Unassigned'
+      const propAddr = [j.city, j.state_text || j.state, j.zip].filter(Boolean).join(', ')
+      if (propAddr) { const g = await geocodeCounty(propAddr); propZone = g ? countyToZone(g.county, g.lat) : 'Unassigned' }
+      const inZone = ownerIds.some((id) => zoneJn.has(id)) || (j.sales_rep && zoneJn.has(j.sales_rep))
+        || ownerIds.includes(SETTER_VIVIANA_ID) || ownerIds.includes(DAVID_MACELLA_ID)
+        || propZone === manager.zone || propZone === 'Unassigned'
       if (!inZone) return json(403, { ok: false, error: 'That job isn’t in your zone.' })
     } catch { return json(502, { ok: false, error: 'Could not verify the JobNimbus job.' }) }
   }
