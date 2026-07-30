@@ -46,6 +46,15 @@ export default function HarvestTrainingPage({ onDone } = {}) {
   const [whyUrl, setWhyUrl] = useState("");
   const [total, setTotal] = useState(null);
   const [watched, setWatched] = useState(0);
+  // Did they finish the WHY video? Required (alongside the tools) before the test.
+  // Persisted per person so it survives leaving to watch the tools and coming back.
+  const [whyDone, setWhyDone] = useState(false);
+  const whyKey = userKey && track ? `ccg_why_done_${userKey}_${track}` : "";
+  useEffect(() => {
+    if (!whyKey) return;
+    try { if (localStorage.getItem(whyKey) === "1") setWhyDone(true); } catch { /* private mode */ }
+  }, [whyKey]);
+  const markWhyDone = () => { setWhyDone(true); try { if (whyKey) localStorage.setItem(whyKey, "1"); } catch { /* private mode */ } };
 
   // Load the "Why" video + how many tools this rep must watch + how many they have.
   const loadProgress = useCallback(async () => {
@@ -83,6 +92,16 @@ export default function HarvestTrainingPage({ onDone } = {}) {
   const allWatched = total > 0 && watched >= total;
   const pct = total > 0 ? Math.round((watched / total) * 100) : 0;
   const howToHref = `/?mode=harvesthowto&role=${track}&train=${encodeURIComponent(userKey)}`;
+  // Test requires BOTH parts. The WHY is required only once a video exists (never
+  // hard-lock everyone when the office hasn't added it yet). YouTube/Vimeo can't
+  // report completion to us, so those get a manual "I watched it"; a self-hosted
+  // .mp4 checks off automatically when it plays to the end.
+  const whyRequired = !!whyUrl;
+  const whyIsIframe = !!whyUrl && (!!ytId(whyUrl) || !!vimeoId(whyUrl));
+  const canTest = (!whyRequired || whyDone) && allWatched;
+  const need = [];
+  if (whyRequired && !whyDone) need.push("finish the WHY video");
+  if (!allWatched) need.push(`open all ${total} tools`);
 
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", padding: "22px 16px 70px", fontFamily: FONT }}>
@@ -92,7 +111,19 @@ export default function HarvestTrainingPage({ onDone } = {}) {
       {/* 1) WHY */}
       <div style={{ fontSize: 12, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Part 1 — Watch this first</div>
       <div style={{ fontSize: 18, fontWeight: 800, fontFamily: OSWALD, marginBottom: 8 }}>WHY WE USE IT!</div>
-      {whyUrl ? <VideoEmbed url={whyUrl} /> : <Placeholder text="🎬 The office is adding this video." />}
+      {whyUrl ? <VideoEmbed url={whyUrl} onEnded={markWhyDone} /> : <Placeholder text="🎬 The office is adding this video." />}
+      {whyRequired && (
+        whyDone ? (
+          <div style={{ marginTop: 8, fontSize: 12.5, fontWeight: 800, color: "#166534", background: "#dcfce7", border: "1px solid #86efac", borderRadius: 999, padding: "5px 12px", display: "inline-block" }}>✓ WHY video watched</div>
+        ) : whyIsIframe ? (
+          <button type="button" onClick={markWhyDone}
+            style={{ marginTop: 8, fontSize: 13, fontWeight: 800, color: "#fff", background: "#2563eb", border: "none", borderRadius: 10, padding: "9px 14px", cursor: "pointer" }}>
+            ✅ I watched the whole video
+          </button>
+        ) : (
+          <div style={{ marginTop: 8, fontSize: 12.5, color: "#94a3b8", fontWeight: 700 }}>▶ Watch the whole video — this checks off automatically when it finishes.</div>
+        )
+      )}
 
       {/* 2) HOW → the tool list */}
       <div style={{ fontSize: 12, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", margin: "26px 0 6px" }}>Part 2 — Learn every tool</div>
@@ -118,14 +149,14 @@ export default function HarvestTrainingPage({ onDone } = {}) {
 
       {/* 3) TEST */}
       <div style={{ marginTop: 22, textAlign: "center" }}>
-        {allWatched ? (
+        {canTest ? (
           <button type="button" onClick={() => setStage("test")}
             style={{ width: "100%", background: "#16a34a", color: "#fff", border: "none", borderRadius: 14, padding: "16px", fontSize: 17, fontWeight: 900, fontFamily: OSWALD, cursor: "pointer", boxShadow: "0 3px 12px rgba(22,163,74,.3)" }}>
             ✅ Take the test
           </button>
         ) : (
           <div style={{ background: "#f8fafc", border: "1px dashed #cbd5e1", borderRadius: 14, padding: "16px", color: "#94a3b8", fontSize: 15, fontWeight: 800, fontFamily: OSWALD }}>
-            🔒 Test unlocks once you've watched all {total} tools
+            🔒 Test unlocks once you {need.join(" and ")}
           </div>
         )}
       </div>
@@ -135,7 +166,7 @@ export default function HarvestTrainingPage({ onDone } = {}) {
 
 function ytId(u) { const m = String(u).match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([\w-]{6,})/); return m ? m[1] : null; }
 function vimeoId(u) { const m = String(u).match(/vimeo\.com\/(?:video\/)?(\d+)/); return m ? m[1] : null; }
-function VideoEmbed({ url }) {
+function VideoEmbed({ url, onEnded }) {
   const vref = useRef(null);
   const yt = ytId(url), vim = vimeoId(url);
   const src = yt ? `https://www.youtube.com/embed/${yt}?rel=0` : vim ? `https://player.vimeo.com/video/${vim}` : null;
@@ -143,7 +174,7 @@ function VideoEmbed({ url }) {
     <div style={{ width: "100%", background: "#000", borderRadius: 14, overflow: "hidden", position: "relative", aspectRatio: "16 / 9" }}>
       {src
         ? <iframe src={src} title="Why DoorDispatcher" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none" }} />
-        : <video ref={vref} src={url} controls playsInline style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", background: "#000" }} />}
+        : <video ref={vref} src={url} controls playsInline onEnded={onEnded} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", background: "#000" }} />}
     </div>
   );
 }
