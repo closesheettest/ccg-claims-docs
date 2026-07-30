@@ -9688,7 +9688,15 @@ export default function App() {
     // The PIN gate still guards it unless the hub set the unlock flag (below).
     if (mode === "manager") return "manager";
     // Flagged inspector device on a bare URL → inspector app (see stickyInspector).
-    if (!mode) { try { if (localStorage.getItem("uss_inspector") === "1") return "inspector"; } catch { /* private mode */ } }
+    // BUT never hijack a deliberate rep/homeowner action: an ?intake link (a rep
+    // signing a homeowner up for a Free Roof Inspection) or a ?sign= link (a
+    // homeowner e-signing) must always open their OWN flow — even on a device an
+    // inspector once used. Only a truly bare URL falls through to the app.
+    if (!mode) {
+      const q = new URLSearchParams(window.location.search);
+      const repOrHomeownerIntent = q.get("intake") || q.get("sign");
+      if (!repOrHomeownerIntent) { try { if (localStorage.getItem("uss_inspector") === "1") return "inspector"; } catch { /* private mode */ } }
+    }
     return "input";
   });
   // ?mode=training → practice/sandbox run. The full flow works for real (real
