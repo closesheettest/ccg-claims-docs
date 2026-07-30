@@ -279,16 +279,22 @@ function Missed({ rows }) {
 const fmtDayLong = (d) => { try { return new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" }); } catch { return d; } };
 function InspectorActivity({ rows }) {
   const [open, setOpen] = useState(null); // "inspector|date"
+  const [openInsp, setOpenInsp] = useState(null); // which inspector is expanded
   if (!rows || !rows.length) return <Empty msg="No inspector activity yet." />;
   return (
-    <Section title={`Inspector activity (${rows.length})`} sub="Per inspector, per day: roofs inspected + estimated miles driven (shortest route through the day's roofs). Tap a day for the roofs + miles between each. (On-roof times come with the inspector map.)">
-      <div style={{ display: "grid", gap: 18 }}>
-        {rows.map((insp) => (
+    <Section title={`Inspector activity (${rows.length})`} sub="Tap an inspector to see their days, then a day for the roofs + miles between each. Miles are estimated (shortest route through the day's roofs). On-roof times come with the inspector map.">
+      <div style={{ display: "grid", gap: 10 }}>
+        {rows.map((insp) => {
+          const inspOpen = openInsp === insp.inspector;
+          return (
           <div key={insp.inspector}>
-            <div style={{ fontSize: 19, fontWeight: 900, fontFamily: OSWALD, color: "#0f172a", display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-              👷 {insp.inspector}
-              <span style={{ fontSize: 13, fontWeight: 800, color: "#64748b" }}>{insp.roofs} roofs · {insp.days} days · ~{insp.miles} mi</span>
-            </div>
+            <button onClick={() => setOpenInsp(inspOpen ? null : insp.inspector)}
+              style={{ width: "100%", textAlign: "left", cursor: "pointer", background: inspOpen ? "#0f172a" : "#eef2f7", border: "none", borderRadius: 12, padding: "12px 16px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 18, fontWeight: 900, fontFamily: OSWALD, color: inspOpen ? "#fff" : "#0f172a" }}>👷 {insp.inspector}</span>
+              <span style={{ fontSize: 13, fontWeight: 800, color: inspOpen ? "#cbd5e1" : "#64748b" }}>{insp.roofs} roofs · {insp.days} days · ~{insp.miles} mi</span>
+              <span style={{ marginLeft: "auto", fontSize: 14, color: inspOpen ? "#fff" : "#94a3b8" }}>{inspOpen ? "▲" : "▼"}</span>
+            </button>
+            {inspOpen && (
             <div style={{ display: "grid", gap: 6, marginTop: 6 }}>
               {insp.day_list.map((d) => {
                 const key = insp.inspector + "|" + d.date;
@@ -317,8 +323,10 @@ function InspectorActivity({ rows }) {
                 );
               })}
             </div>
+            )}
           </div>
-        ))}
+          );
+        })}
       </div>
     </Section>
   );
