@@ -68,6 +68,11 @@ export default function InspectionMap() {
     const m = L.map(mapEl.current, { zoomControl: true }).setView([27.7, -81.6], 7);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; OpenStreetMap" }).addTo(m);
     map.current = m; markers.current = L.layerGroup().addTo(m); routeLine.current = L.layerGroup().addTo(m); trail.current = L.layerGroup().addTo(m); selectLayer.current = L.layerGroup().addTo(m);
+    // The container's final size isn't ready the instant L.map() runs (React hasn't
+    // painted yet) — without this the tiles never load and the map is blank.
+    const kick = () => { try { m.invalidateSize(); } catch { /* ignore */ } };
+    setTimeout(kick, 60); setTimeout(kick, 300); setTimeout(kick, 800);
+    window.addEventListener("resize", kick); window.addEventListener("orientationchange", kick);
   }, []);
 
   // Render pins (all needing inspection when idle; the routed set when active)

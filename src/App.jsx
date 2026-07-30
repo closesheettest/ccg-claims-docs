@@ -28,6 +28,7 @@ import MasterInspectionReports from "./MasterInspectionReports";
 import PaReschedule from "./PaReschedule";
 import InspectionMap from "./InspectionMap";
 import InspectorLinks from "./InspectorLinks";
+import InspectionVisitReport from "./InspectionVisitReport";
 import HarvestHowTo from "./HarvestHowTo";
 import HarvestHowToAdmin from "./HarvestHowToAdmin";
 import HarvestTrainingAdmin from "./HarvestTrainingAdmin";
@@ -4455,6 +4456,7 @@ const MANAGER_TILES = [
   // ── Inspection module (inspector map) ──
   { group: "harvest", module: "inspection", key: "inspection_map", emoji: "🔍", label: "Inspection Map", desc: "Inspectors' map of every roof still needing an inspection (office view — all of them). Route-my-day + route-lock (boxed roofs hide from other inspectors); each inspector uses their own personal link.", href: null },
   { group: "harvest", module: "inspection", key: "inspector_links", emoji: "🔗", label: "Inspector Links", desc: "Each active inspector's personal map link, to hand out.", href: "/?mode=inspectorlinks" },
+  { group: "harvest", module: "inspection", key: "inspect_report", emoji: "📊", label: "Inspector Activity (live)", desc: "Pin-by-pin timestamps + GPS from the Inspection Map: each inspector's roofs per day, arrival/completion times, and real miles between stops.", href: "/?mode=inspectvisitreport" },
   // ── Installs module (production tracking) ──
   { group: "harvest", module: "installs", key: "foreman_links", emoji: "🔗", label: "Jobsite Foreman Links", desc: "Each foreman's personal link — hand out so installs are tracked the same way we track reps.", href: "/?mode=foremanlinks" },
   { group: "harvest", module: "installs", key: "installs_map", emoji: "🗺️", label: "Map", desc: "Live map of current installs, colored by jobsite foreman.", href: "/?mode=installs" },
@@ -9549,6 +9551,10 @@ export default function App() {
     // ?mode=inspectorlinks — office: each active inspector's personal map link.
     if (portalMode === "inspectorlinks") {
       return <InspectorLinks />;
+    }
+    // ?mode=inspectvisitreport — inspector activity from the real visit log (pin-by-pin times).
+    if (portalMode === "inspectvisitreport") {
+      return <InspectionVisitReport />;
     }
     // ?mode=harvesthowto — collapsible scenario playbook ("a house has damage and
     // isn't a pin → here's what you do"). Reps reach it from the ❓ on their map;
