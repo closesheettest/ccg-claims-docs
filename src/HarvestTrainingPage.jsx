@@ -34,11 +34,17 @@ export default function HarvestTrainingPage({ onDone } = {}) {
     if (isManager) { setTrack("manager"); return; }
     if (!userKey) return;
     let live = true;
-    supabase.from("sales_reps").select("harvest_level").eq("harvest_token", userKey).maybeSingle()
-      .then(({ data }) => { if (live) setTrack(data?.harvest_level === "senior" ? "senior" : "junior"); },
-        () => { if (live) setTrack("junior"); });
+    // Resolve the rep's level the SAME way the map gate does — harvest_level OR the
+    // rep-zones rep_level fallback (via harvest-pins authonly). Reading
+    // sales_reps.harvest_level alone recorded 'junior' for a SENIOR rep whose
+    // seniority lives in rep-zones (harvest_level empty), so the test wrote a junior
+    // pass while the gate demanded a senior one — Anthony passed 8× and stayed locked.
+    fetch(`/.netlify/functions/harvest-pins?rt=${encodeURIComponent(userKey)}&authonly=1`)
+      .then((r) => r.json())
+      .then((j) => { if (live) setTrack(j?.rep?.level === "senior" ? "senior" : "junior"); })
+      .catch(() => { if (live) setTrack("junior"); });
     return () => { live = false; };
-  }, [isManager, userKey]);
+  }, [isManager, userKey, previewRole]);
 
   const roleKey = track === "senior" ? "sr" : track === "junior" ? "jr" : "everything";
   const [stage, setStage] = useState("landing"); // landing | test
