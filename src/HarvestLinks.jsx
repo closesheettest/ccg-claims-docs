@@ -51,13 +51,13 @@ export default function HarvestLinks() {
   const [bulkResults, setBulkResults] = useState(null); // [{ name, ok, sms, email, error }]
   const sendAllReps = async () => {
     if (!adminTok) { setNote("⚠️ Office link not loaded yet — try again in a moment."); return; }
-    // EVERY active person who has a map link + contact info (not just the field-rep
-    // roster) — so a real rep with map access can't silently miss the blast. Falls
-    // back to the roster on an older deploy that doesn't send all_sendable yet.
-    const targets = (data?.all_sendable && data.all_sendable.length)
-      ? data.all_sendable
-      : (data?.reps || []).filter((r) => r.phone || r.email);
-    const skippedReps = data?.all_sendable ? [] : (data?.reps || []).filter((r) => !r.phone && !r.email);
+    // ONLY the active SALES-REP roster (the Reps section) — never all token-holders.
+    // A previous "widen to everyone with a token" version blasted the DoorDispatcher
+    // link to external PAs (Five Star et al.) who happen to have a map token. The
+    // roster is the authoritative active-sales-rep list; it excludes PAs/office.
+    const all = data?.reps || [];
+    const targets = all.filter((r) => r.phone || r.email);
+    const skippedReps = all.filter((r) => !r.phone && !r.email);
     if (!targets.length) { setNote("⚠️ No reps have a phone or email on file."); return; }
     if (!window.confirm(`Text + email their personal map link to all ${targets.length} rep${targets.length === 1 ? "" : "s"} now?${skippedReps.length ? `\n(${skippedReps.length} skipped — no phone/email on file.)` : ""}`)) return;
     setBulkBusy(true); setNote(""); setBulkResults(null);
