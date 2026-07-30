@@ -98,7 +98,23 @@ exports.handler = async (event) => {
         sms_results.push({ to: rcpt.name, ok: !!jr.success, error: jr.success ? undefined : (jr.error || `ghl-sms ${r.status}`) });
       } catch (e) { sms_results.push({ to: rcpt.name, ok: false, error: e.message || "fetch failed" }); }
     }
-    return cors(200, JSON.stringify({ ok: true, zone: zone || null, manager_texted: !!manager?.phone, sms_results }));
+    // Email the manager too — SMS silently misses DND / opted-out numbers, so a
+    // text-only alert can leave a review unseen (the Chad/Zone 3 case).
+    let manager_emailed = false;
+    if (manager?.email) {
+      try {
+        const r = await fetch(`${base}/.netlify/functions/send-email`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            to: manager.email,
+            subject: `🚫 Cancellation review needed — ${insp.client_name || "a homeowner"}`,
+            html: `<p><strong>${inspectorName}</strong> says ${insp.client_name || "a homeowner"}${insp.address ? ` (${insp.address})` : ""} cancelled during the inspection.</p><p style="color:#b45309">"${note}"</p><p><a href="${link}">Review &amp; decide ›</a></p>`,
+          }),
+        });
+        manager_emailed = r.ok;
+      } catch { /* best-effort */ }
+    }
+    return cors(200, JSON.stringify({ ok: true, zone: zone || null, manager_texted: !!manager?.phone, manager_emailed, sms_results }));
   } catch (e) {
     return cors(500, JSON.stringify({ ok: false, error: e.message || "error" }));
   }
@@ -136,7 +152,9 @@ async function resolveZone(rep, fallbackName) {
   return (jnId && byJnId[jnId]) || (name && byName[normalizeName(name)]) || null;
 }
 async function fetchManager(SB_URL, headers, zone) {
-  const res = await fetch(`${SB_URL}/rest/v1/regional_managers?zone=eq.${encodeURIComponent(zone)}&select=zone,name,phone&limit=1`, { headers });
+  // email may not exist yet on older DBs — fall back to the phone-only select.
+  const res = await fetch(`${SB_URL}/rest/v1/regional_managers?zone=eq.${encodeURIComponent(zone)}&select=zone,name,phone,email&limit=1`, { headers })
+    .then((r) => (r.ok ? r : fetch(`${SB_URL}/rest/v1/regional_managers?zone=eq.${encodeURIComponent(zone)}&select=zone,name,phone&limit=1`, { headers })));
   if (!res.ok) return null;
   return (await res.json().catch(() => []))?.[0] || null;
 }
