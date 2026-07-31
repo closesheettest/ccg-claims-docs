@@ -2985,7 +2985,14 @@ export default function CanvassMap() {
     setAdding(false);
     setOwnerOverride(false); setOverridePhone("");
     setNewPin({ lat, lng, checking: true, check: null, saving: false });
-    map.current?.panTo([lat, lng]);
+    // Lift the dropped pin into the TOP strip — the "New self-gen door" sheet covers
+    // the bottom ~72% of the screen, so a plain panTo(center) buries the new pin and
+    // the surrounding houses behind it. Center then nudge the view down so the pin
+    // (and the homes around it) sit above the sheet.
+    try {
+      const m = map.current;
+      if (m) { m.setView([lat, lng]); const h = m.getSize().y || 0; if (h) m.panBy([0, Math.round(h * 0.32)], { animate: false }); }
+    } catch { /* ignore */ }
     runOwnerCheck(lat, lng);   // pull the address + owner right away
   }
   dropPinRef.current = dropPin;
