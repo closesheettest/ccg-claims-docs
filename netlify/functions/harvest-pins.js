@@ -47,7 +47,7 @@ export const handler = async (event) => {
   const rt = (p.rt || "").trim();
   const adminTok = (p.admin || "").trim();
 
-  let level = null, repName = null, repJn = null, repEmail = null, isTrainee = false, gobacksOnly = false;
+  let level = null, repName = null, repJn = null, repEmail = null, isTrainee = false, gobacksOnly = false, routeAlways = false;
   try {
     if (adminTok) {
       const s = await sbGet(`app_settings?key=eq.harvest_admin_token&select=value&limit=1`);
@@ -55,14 +55,16 @@ export const handler = async (event) => {
     }
     const isUuid = (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
     if (!level && rt && isUuid(rt)) {
-      const reps = await sbGet(`sales_reps?harvest_token=eq.${encodeURIComponent(rt)}&select=name,jobnimbus_id,email,harvest_level,harvest_gobacks_only&limit=1`).catch(() =>
-        sbGet(`sales_reps?harvest_token=eq.${encodeURIComponent(rt)}&select=name,jobnimbus_id,email,harvest_level&limit=1`).catch(() =>
-          // older DBs — no harvest_level / harvest_gobacks_only columns yet.
-          sbGet(`sales_reps?harvest_token=eq.${encodeURIComponent(rt)}&select=name,jobnimbus_id,email&limit=1`)));
+      const reps = await sbGet(`sales_reps?harvest_token=eq.${encodeURIComponent(rt)}&select=name,jobnimbus_id,email,harvest_level,harvest_gobacks_only,harvest_route_always&limit=1`).catch(() =>
+        sbGet(`sales_reps?harvest_token=eq.${encodeURIComponent(rt)}&select=name,jobnimbus_id,email,harvest_level,harvest_gobacks_only&limit=1`).catch(() =>
+          sbGet(`sales_reps?harvest_token=eq.${encodeURIComponent(rt)}&select=name,jobnimbus_id,email,harvest_level&limit=1`).catch(() =>
+            // older DBs — no harvest_level / harvest_gobacks_only / harvest_route_always columns yet.
+            sbGet(`sales_reps?harvest_token=eq.${encodeURIComponent(rt)}&select=name,jobnimbus_id,email&limit=1`))));
       if (reps[0]) {
         repName = reps[0].name || "Rep";
         repEmail = reps[0].email || null;
         gobacksOnly = reps[0].harvest_gobacks_only === true;
+        routeAlways = reps[0].harvest_route_always === true;
         // Office override wins: harvest_level ('admin' → view-all, or senior/junior)
         // takes precedence over the rep-zones default. Lets the office give a
         // trainer/manager a personal view-all link without touching rep-zones.
@@ -97,7 +99,7 @@ export const handler = async (event) => {
   // authonly=1 → the map reads pins DIRECTLY from Supabase (no 6MB function
   // payload limit); we only resolve the rep's level + pin types here.
   if (/^(1|true|yes)$/i.test((p.authonly || "").trim())) {
-    return json(200, { ok: true, rep: { name: repName, level, jn_id: repJn, email: repEmail, trainee: isTrainee, gobacks_only: gobacksOnly }, pin_types: types });
+    return json(200, { ok: true, rep: { name: repName, level, jn_id: repJn, email: repEmail, trainee: isTrainee, gobacks_only: gobacksOnly, route_always: routeAlways }, pin_types: types });
   }
 
   const visible = (types || [])
@@ -136,7 +138,7 @@ export const handler = async (event) => {
     1000, CAP,
   ).catch(() => []);
 
-  return json(200, { ok: true, rep: { name: repName, level, jn_id: repJn, email: repEmail, trainee: isTrainee, gobacks_only: gobacksOnly }, pins, pin_types: types, installs, capped: pinsCapped || installs.length >= CAP, viewport: hasBox });
+  return json(200, { ok: true, rep: { name: repName, level, jn_id: repJn, email: repEmail, trainee: isTrainee, gobacks_only: gobacksOnly, route_always: routeAlways }, pins, pin_types: types, installs, capped: pinsCapped || installs.length >= CAP, viewport: hasBox });
 };
 
 function json(statusCode, obj) {

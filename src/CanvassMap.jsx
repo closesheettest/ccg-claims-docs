@@ -454,17 +454,6 @@ function fmtTime(iso) { try { return new Date(iso).toLocaleTimeString("en-US", {
 // is being reworked; the video/lessons/test system is all still there). Flip to true to
 // re-enable the 80% gate (e.g. when selling the product).
 const TRAINING_GATE_ON = true;
-// The 4 regional managers (keyed by their personal map token) may ALWAYS "Route an
-// area" — even with a required go-back or an appointment today — instead of being
-// forced into the guided "Start my day". A trusted-manager override: regular reps
-// still can't start a day that skips a mandatory review visit. (Hardcoded set for a
-// fast rollout — swap for a sales_reps flag when there's time.)
-const MANAGER_ROUTE_TOKENS = new Set([
-  "457f547a-cb16-4f28-8cf1-2a1e6affb1e9", // Anthony Alongi — Zone 1
-  "f2e9d99a-44a7-4365-815b-fdc514af091a", // Richard Barnett — Zone 2
-  "19eab09a-92cd-4dc0-a7e3-a0f45b263e50", // Chad Griffith — Zone 3
-  "618f0e1a-0392-4fa0-983c-1690956ebfcc", // Samuel Bissu — Zone 4
-]);
 const PIN_FIELDS_LITE = "id,name,address,city,state,zip,phone,email,latitude,longitude,status,jn_job_id,list_name,status_updated_at,status_by,route_claim_by,route_claim_by_jn,route_claim_at,callback_date";
 // A Clover Leaf grid a rep is actively routing is soft-locked to them; the
 // claim (route_claim_*) goes stale this many ms after the last heartbeat — i.e.
@@ -1125,9 +1114,11 @@ export default function CanvassMap() {
   // exact view but must NOT act as them — no live ping, no seat billing, no ended
   // beacon (it's just watching, not the rep working).
   const spotCheck = isAdminLink && !!auth.rt;
-  // One of the 4 regional managers → may keep "Route an area" even with a required
-  // go-back or an appointment (trusted override; see MANAGER_ROUTE_TOKENS).
-  const isRouteManager = !!auth.rt && MANAGER_ROUTE_TOKENS.has(auth.rt);
+  // Rep the manager granted "Route an area anytime" (sales_reps.harvest_route_always,
+  // returned by harvest-pins as me.route_always) — keeps Route-an-area even with a
+  // required go-back or an appointment. Everyone else must Start-my-day and work the
+  // plan until they earn it. Regional managers have the flag set ON.
+  const isRouteManager = !!me?.route_always;
 
   // Are we rendering the REAL REP experience (route → "How'd it go?" → Not home →
   // re-status), not the office status panel? True for an actual rep on their token,
