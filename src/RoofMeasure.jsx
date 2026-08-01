@@ -156,6 +156,17 @@ function ResultCard({ d }) {
         <Bucket title="Sloped → shingle" b={sloped} accent="#2563eb" />
         <Bucket title="Flat / low-slope → membrane" b={flat} accent="#0891b2" />
       </div>
+
+      {/* Alternative: whole roof as metal at a flat 10% waste. */}
+      {m.metal && (
+        <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 10, padding: "10px 14px" }}>
+          <span style={{ fontSize: 13.5, fontWeight: 700, color: "#475569" }}>
+            🔩 As a metal roof <span style={{ fontWeight: 400, color: "#94a3b8" }}>(whole roof, {m.metal.waste_pct}% waste)</span>
+          </span>
+          <b style={{ fontSize: 16, color: "#0f172a" }}>{m.metal.order_squares} sq</b>
+        </div>
+      )}
+
       <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 10 }}>{m.note}</div>
 
       {/* Human-verification: open the satellite map to trace any section the

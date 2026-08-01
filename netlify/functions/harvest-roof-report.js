@@ -179,6 +179,19 @@ export const handler = async (event) => {
 
     const slopedBucket = bucket(slopedM2, slopedMaterial, slopedWaste);
     const flatBucket = bucket(flatM2, flatMaterial, flatWaste);
+
+    // Whole roof as a METAL build — an alternative to the shingle+membrane split.
+    // Metal is a flat 10% waste over the entire surface (sloped + flat).
+    const metalMeasured = sq(surfaceM2);
+    const metalOrder = metalMeasured != null ? +(metalMeasured * 1.10).toFixed(2) : null;
+    const metal = {
+      material: "metal",
+      measured_squares: metalMeasured,
+      waste_pct: 10,
+      order_squares: metalOrder,
+      price_per_square: prices.metal != null ? +prices.metal : null,
+      est_cost: (prices.metal != null && metalOrder != null) ? +(prices.metal * metalOrder).toFixed(2) : null,
+    };
     const estTotal = (slopedBucket.est_cost != null || flatBucket.est_cost != null)
       ? +((slopedBucket.est_cost || 0) + (flatBucket.est_cost || 0)).toFixed(2) : null;
 
@@ -187,6 +200,7 @@ export const handler = async (event) => {
       complexity: planes.length >= 9 ? "high" : planes.length >= 5 ? "moderate" : "simple",
       sloped: slopedBucket,
       flat: flatBucket,
+      metal,
       est_total_cost: estTotal,
       note: "The flat/sloped split is an estimate — treat per-material numbers as a starting point, not a firm material takeoff.",
     };
