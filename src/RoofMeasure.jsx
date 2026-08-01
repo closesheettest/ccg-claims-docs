@@ -56,8 +56,7 @@ export default function RoofMeasure() {
         <span style={{ fontSize: 11, fontWeight: 700, color: "#7c3aed", background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 999, padding: "3px 9px" }}>SPOT-CHECK</span>
       </div>
       <p style={{ color: "#64748b", fontSize: 14, margin: "0 0 18px" }}>
-        Type an address to pull a satellite roof measurement. Total squares are accurate to ~3%;
-        the flat/sloped split is an estimate, not a firm takeoff. Nothing is saved — this is just to see how it looks.
+        Type an address to pull a satellite roof measurement. Nothing is saved — this is just to see how it looks.
       </p>
 
       {/* Address input */}
@@ -145,9 +144,8 @@ function ResultCard({ d }) {
       {/* Top-line numbers */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 14, marginBottom: 18 }}>
         <Stat label="Total roof (sloped)" value={`${r.surface_squares ?? "—"}`} unit="squares" />
-        <Stat label="Footprint (flat proj.)" value={`${r.footprint_squares ?? "—"}`} unit="squares" />
         <Stat label="Predominant pitch" value={r.avg_pitch_x12 != null ? `${r.avg_pitch_x12}/12` : "—"} unit={r.avg_pitch_deg != null ? `${r.avg_pitch_deg}°` : ""} />
-        <Stat label="Roof facets" value={`${r.plane_count ?? "—"}`} unit={m.complexity ? `${m.complexity} complexity` : ""} />
+        <Stat label="Roof facets" value={`${r.plane_count ?? "—"}`} unit="" />
       </div>
 
       {/* Material split */}

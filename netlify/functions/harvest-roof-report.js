@@ -188,7 +188,7 @@ export const handler = async (event) => {
       sloped: slopedBucket,
       flat: flatBucket,
       est_total_cost: estTotal,
-      note: "Total squares are accurate to ~3%. The flat/sloped split inherits the model's low-slope uncertainty — treat per-material numbers as an estimate, not a firm material takeoff.",
+      note: "The flat/sloped split is an estimate — treat per-material numbers as a starting point, not a firm material takeoff.",
     };
 
     return json(200, {
