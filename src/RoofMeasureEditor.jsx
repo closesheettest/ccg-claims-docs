@@ -40,7 +40,7 @@ function polygonAreaM2(pts) {
 const slopeFactor = (x12) => Math.sqrt(1 + Math.pow((+x12 || 0) / 12, 2));
 const sq = (m2) => m2 / SQ_M_PER_SQUARE;
 
-export default function RoofMeasureEditor({ result, onClose }) {
+export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
   const mapEl = useRef(null);
   const mapRef = useRef(null);
   const drawLayerRef = useRef(null);      // committed section polygons
@@ -172,6 +172,27 @@ export default function RoofMeasureEditor({ result, onClose }) {
   const adjustedSlopedOrder = adjustedSlopedMeasured * (1 + wastePct / 100);
 
   const r2 = (n) => Math.round(n * 100) / 100;
+
+  // Push the corrected numbers up to the report card so the top figures reflect
+  // the fix. Only revert to null after the user has actually adjusted, so merely
+  // opening the editor doesn't wipe a prior correction.
+  const everRef = useRef(false);
+  useEffect(() => {
+    if (!onAdjust) return;
+    if (sections.length > 0) {
+      everRef.current = true;
+      onAdjust({
+        total: r2(adjustedTotal),
+        slopedMeasured: r2(adjustedSlopedMeasured),
+        slopedWastePct: wastePct,
+        slopedOrder: r2(adjustedSlopedOrder),
+        replaceMode,
+      });
+    } else if (everRef.current) {
+      onAdjust(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sections, pitch, replaceMode]);
 
   return (
     <div style={{ marginTop: 16, border: "1px solid #e5e7eb", borderRadius: 14, overflow: "hidden", fontFamily: FONT }}>

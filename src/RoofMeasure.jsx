@@ -134,18 +134,35 @@ function ResultCard({ d }) {
   const sloped = m.sloped || {};
   const flat = m.flat || {};
   const [showEditor, setShowEditor] = useState(false);
+  const [adj, setAdj] = useState(null);   // corrected figures from the map editor
+  const isAdj = !!adj;
+
+  // Once the outline is adjusted on the map, the corrected numbers drive the top.
+  const totalSq = isAdj ? adj.total : r.surface_squares;
+  const slopedShow = isAdj
+    ? { material: sloped.material, measured_squares: adj.slopedMeasured, waste_pct: adj.slopedWastePct, order_squares: adj.slopedOrder }
+    : sloped;
+  const flatShow = (isAdj && adj.replaceMode)   // a full retrace replaces the roof → no separate flat
+    ? { material: flat.material, measured_squares: 0, waste_pct: flat.waste_pct, order_squares: 0 }
+    : flat;
+  const metalOrder = isAdj ? Math.round(adj.total * 110) / 100 : (m.metal ? m.metal.order_squares : null);
+  const metalWaste = m.metal ? m.metal.waste_pct : 10;
+
   return (
-    <div style={{ ...CARD }}>
+    <div style={{ ...CARD, ...(isAdj ? { borderColor: "#86efac", boxShadow: "0 0 0 1px #86efac" } : {}) }}>
       <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
         <div style={{ fontSize: 16, fontWeight: 700 }}>{d.geocoded_as || d._addr}</div>
-        <div style={{ fontSize: 12.5, color: "#64748b" }}>
-          Imagery: <b style={{ color: qColor(d.imagery?.quality) }}>{d.imagery?.quality || "—"}</b> · {fmtDate(d.imagery?.date)}
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {isAdj && <span style={{ fontSize: 11, fontWeight: 800, color: "#16a34a", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 999, padding: "3px 9px" }}>✏️ ADJUSTED</span>}
+          <div style={{ fontSize: 12.5, color: "#64748b" }}>
+            Imagery: <b style={{ color: qColor(d.imagery?.quality) }}>{d.imagery?.quality || "—"}</b> · {fmtDate(d.imagery?.date)}
+          </div>
         </div>
       </div>
 
       {/* Top-line numbers */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 14, marginBottom: 18 }}>
-        <Stat label="Total roof (sloped)" value={`${r.surface_squares ?? "—"}`} unit="squares" />
+        <Stat label="Total roof (sloped)" value={`${totalSq ?? "—"}`} unit={isAdj ? "squares · adjusted" : "squares"} accent={isAdj ? "#16a34a" : undefined} />
         <Stat label="Predominant pitch" value={r.avg_pitch_x12 != null ? `${r.avg_pitch_x12}/12` : "—"} unit={r.avg_pitch_deg != null ? `${r.avg_pitch_deg}°` : ""} />
         <Stat label="Roof facets" value={`${r.plane_count ?? "—"}`} unit="" />
       </div>
@@ -153,17 +170,17 @@ function ResultCard({ d }) {
       {/* Material split */}
       <div style={{ ...LABEL, marginBottom: 8 }}>Material split &amp; waste</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12, marginBottom: 6 }}>
-        <Bucket title="Sloped → shingle" b={sloped} accent="#2563eb" />
-        <Bucket title="Flat / low-slope → membrane" b={flat} accent="#0891b2" />
+        <Bucket title="Sloped → shingle" b={slopedShow} accent="#2563eb" />
+        <Bucket title="Flat / low-slope → membrane" b={flatShow} accent="#0891b2" />
       </div>
 
       {/* Alternative: whole roof as metal at a flat 10% waste. */}
       {m.metal && (
         <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 10, padding: "10px 14px" }}>
           <span style={{ fontSize: 13.5, fontWeight: 700, color: "#475569" }}>
-            🔩 As a metal roof <span style={{ fontWeight: 400, color: "#94a3b8" }}>(whole roof, {m.metal.waste_pct}% waste)</span>
+            🔩 As a metal roof <span style={{ fontWeight: 400, color: "#94a3b8" }}>(whole roof, {metalWaste}% waste)</span>
           </span>
-          <b style={{ fontSize: 16, color: "#0f172a" }}>{m.metal.order_squares} sq</b>
+          <b style={{ fontSize: 16, color: "#0f172a" }}>{metalOrder} sq</b>
         </div>
       )}
 
@@ -173,7 +190,7 @@ function ResultCard({ d }) {
           automated read clipped, and watch the total correct live. */}
       {d.location?.lat != null && (
         showEditor
-          ? <RoofMeasureEditor result={d} onClose={() => setShowEditor(false)} />
+          ? <RoofMeasureEditor result={d} onAdjust={setAdj} onClose={() => setShowEditor(false)} />
           : (
             <button
               onClick={() => setShowEditor(true)}
@@ -187,11 +204,11 @@ function ResultCard({ d }) {
   );
 }
 
-function Stat({ label, value, unit }) {
+function Stat({ label, value, unit, accent }) {
   return (
     <div>
       <div style={LABEL}>{label}</div>
-      <div style={BIG}>{value}</div>
+      <div style={{ ...BIG, ...(accent ? { color: accent } : {}) }}>{value}</div>
       {unit ? <div style={{ fontSize: 12.5, color: "#94a3b8", marginTop: 2 }}>{unit}</div> : null}
     </div>
   );
