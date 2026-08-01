@@ -16,6 +16,7 @@
 
 import sharp from "sharp";
 import { fromArrayBuffer } from "geotiff";
+import proj4 from "proj4";
 
 const GOOGLE_KEY = process.env.GOOGLE_MAPS_API_KEY || process.env.VITE_GOOGLE_PLACES_API_KEY;
 const GEOCODE = "https://maps.googleapis.com/maps/api/geocode/json";
@@ -23,10 +24,20 @@ const DATALAYERS = "https://solar.googleapis.com/v1/dataLayers:get";
 
 const json = (code, obj) => ({ statusCode: code, headers: { "Content-Type": "application/json" }, body: JSON.stringify(obj) });
 
-// Web-Mercator (EPSG:3857) meters → lat/lng.
-const R = 6378137;
-const mercToLng = (x) => (x / R) * 180 / Math.PI;
-const mercToLat = (y) => (Math.atan(Math.exp(y / R)) * 2 - Math.PI / 2) * 180 / Math.PI;
+const WGS84 = "+proj=longlat +datum=WGS84 +no_defs";
+
+// proj4 def string for the GeoTIFF's EPSG. Solar dataLayers come in UTM (e.g.
+// 32617 = zone 17N); handle UTM north/south + web-mercator + plain geographic.
+function projDef(epsg) {
+  const e = String(epsg || "");
+  if (e === "4326") return WGS84;
+  if (e === "3857" || e === "900913") return "+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +nadgrids=@null +no_defs";
+  const utmN = e.match(/^326(\d\d)$/);
+  if (utmN) return `+proj=utm +zone=${+utmN[1]} +datum=WGS84 +units=m +no_defs`;
+  const utmS = e.match(/^327(\d\d)$/);
+  if (utmS) return `+proj=utm +zone=${+utmS[1]} +south +datum=WGS84 +units=m +no_defs`;
+  return null;
+}
 
 async function geocode(address) {
   const r = await fetch(`${GEOCODE}?address=${encodeURIComponent(address)}&region=us&key=${GOOGLE_KEY}`);
@@ -85,15 +96,14 @@ export const handler = async (event) => {
     }
     const png = await sharp(rgba, { raw: { width, height, channels: 4 } }).png().toBuffer();
 
-    // 5. bounds → lat/lng. Solar dataLayers GeoTIFFs are EPSG:3857 (Web Mercator);
-    // fall back to treating bbox as geographic if the geokey says otherwise.
-    const epsg = gk.ProjectedCSTypeGeoKey || gk.ProjectedCRSGeoKey || null;
-    let bounds;
-    if (epsg == null || String(epsg) === "3857" || String(epsg) === "900913") {
-      bounds = [[mercToLat(bbox[1]), mercToLng(bbox[0])], [mercToLat(bbox[3]), mercToLng(bbox[2])]];
-    } else {
-      bounds = [[bbox[1], bbox[0]], [bbox[3], bbox[2]]];   // already lng/lat
-    }
+    // 5. bounds → lat/lng via proj4 (the GeoTIFF is UTM, e.g. EPSG:32617).
+    const epsg = gk.ProjectedCSTypeGeoKey || gk.ProjectedCRSGeoKey || gk.GeographicTypeGeoKey || null;
+    const def = projDef(epsg);
+    if (!def) return json(502, { ok: false, error: `Unsupported mask CRS EPSG:${epsg}` });
+    const toLL = (x, y) => proj4(def, WGS84, [x, y]);   // → [lng, lat]
+    const [wLng, sLat] = toLL(bbox[0], bbox[1]);         // SW corner (minX, minY)
+    const [eLng, nLat] = toLL(bbox[2], bbox[3]);         // NE corner (maxX, maxY)
+    const bounds = [[sLat, wLng], [nLat, eLng]];
 
     return json(200, {
       ok: true,
