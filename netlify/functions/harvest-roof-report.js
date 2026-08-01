@@ -136,7 +136,14 @@ export const handler = async (event) => {
     // Area-weighted average pitch across planes (a single "the roof is ~6/12" number).
     let wSum = 0, pSum = 0;
     for (const p of planes) if (p.pitch_deg != null && p.area_m2) { wSum += p.area_m2; pSum += p.pitch_deg * p.area_m2; }
-    const avgPitchDeg = wSum ? +(pSum / wSum).toFixed(1) : null;
+    const avgPitchDegRaw = wSum ? pSum / wSum : null;
+    // Predominant pitch: round UP to a whole x/12 (roofing convention; steeper is
+    // the conservative direction). A real fraction rounds up (4.2→5, 4.7→5), but a
+    // 0.15 deadband keeps a pitch sitting just above a whole number where it is
+    // (6.1→6, and float noise on a clean 6.0 stays 6). Reported deg matches it.
+    const rawX12 = avgPitchDegRaw != null ? Math.tan(avgPitchDegRaw / R2D) * 12 : null;
+    const pitchX12 = rawX12 != null ? Math.ceil(rawX12 - 0.15) : null;
+    const avgPitchDeg = pitchX12 != null ? +(Math.atan(pitchX12 / 12) * R2D).toFixed(1) : null;
 
     const surfaceM2 = whole.areaMeters2 != null ? +whole.areaMeters2.toFixed(2) : null;
     const groundM2 = whole.groundAreaMeters2 != null ? +whole.groundAreaMeters2.toFixed(2) : null;
@@ -218,7 +225,7 @@ export const handler = async (event) => {
         surface_area_m2: surfaceM2,
         footprint_area_m2: groundM2,
         avg_pitch_deg: avgPitchDeg,
-        avg_pitch_x12: pitchToX12(avgPitchDeg),
+        avg_pitch_x12: pitchX12,
         plane_count: planes.length,
         implied_slope_factor: (surfaceM2 && groundM2) ? +(surfaceM2 / groundM2).toFixed(4) : null,
       },
