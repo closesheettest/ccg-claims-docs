@@ -83,26 +83,60 @@ export const handler = async (event) => {
     const width = image.getWidth();
     const height = image.getHeight();
     const rasters = await image.readRasters();
-    const band = rasters[0];               // single-band building mask
+    const band = rasters[0];               // single-band building mask (all buildings in radius)
     const bbox = image.getBoundingBox();   // [minX, minY, maxX, maxY] in file CRS
     const gk = image.getGeoKeys() || {};
 
-    // 4. RGBA PNG — green + translucent where mask>0, transparent elsewhere
-    const rgba = Buffer.alloc(width * height * 4);
-    for (let i = 0; i < width * height; i++) {
-      if (band[i] > 0) {
-        rgba[i * 4] = 34; rgba[i * 4 + 1] = 197; rgba[i * 4 + 2] = 94; rgba[i * 4 + 3] = 130;
-      }
-    }
-    const png = await sharp(rgba, { raw: { width, height, channels: 4 } }).png().toBuffer();
-
-    // 5. bounds → lat/lng via proj4 (the GeoTIFF is UTM, e.g. EPSG:32617).
     const epsg = gk.ProjectedCSTypeGeoKey || gk.ProjectedCRSGeoKey || gk.GeographicTypeGeoKey || null;
     const def = projDef(epsg);
     if (!def) return json(502, { ok: false, error: `Unsupported mask CRS EPSG:${epsg}` });
+
+    // Isolate the SUBJECT building. The mask covers EVERY building in the radius
+    // (neighbors too), so flood-fill only the blob the pinned point sits in and
+    // drop the rest — otherwise the overlay paints multiple houses green.
+    const spanX = bbox[2] - bbox[0], spanY = bbox[3] - bbox[1];
+    const [px, py] = proj4(WGS84, def, [lng, lat]);     // point → raster CRS
+    let col = Math.round(((px - bbox[0]) / spanX) * (width - 1));
+    let row = Math.round(((bbox[3] - py) / spanY) * (height - 1));   // row 0 = north
+    col = Math.max(0, Math.min(width - 1, col));
+    row = Math.max(0, Math.min(height - 1, row));
+    const on = (c, r) => band[r * width + c] > 0;
+    // Start at the point, or the nearest mask pixel if the geocode landed just off.
+    let start = on(col, row) ? row * width + col : -1;
+    for (let rad = 1; start < 0 && rad < Math.max(width, height); rad++) {
+      for (let d = -rad; d <= rad && start < 0; d++) {
+        for (const [c, r] of [[col + d, row - rad], [col + d, row + rad], [col - rad, row + d], [col + rad, row + d]]) {
+          if (c >= 0 && c < width && r >= 0 && r < height && on(c, r)) { start = r * width + c; break; }
+        }
+      }
+    }
+    // BFS the 4-connected component from `start`.
+    const keep = new Uint8Array(width * height);
+    if (start >= 0) {
+      const stack = [start]; keep[start] = 1;
+      while (stack.length) {
+        const p = stack.pop(), c = p % width, r = (p - c) / width;
+        const nbrs = [];
+        if (c > 0) nbrs.push(p - 1);
+        if (c < width - 1) nbrs.push(p + 1);
+        if (r > 0) nbrs.push(p - width);
+        if (r < height - 1) nbrs.push(p + width);
+        for (const n of nbrs) if (!keep[n] && band[n] > 0) { keep[n] = 1; stack.push(n); }
+      }
+    }
+
+    // RGBA PNG — green + translucent only on the subject building.
+    const rgba = Buffer.alloc(width * height * 4);
+    let kept = 0;
+    for (let i = 0; i < width * height; i++) {
+      if (keep[i]) { rgba[i * 4] = 34; rgba[i * 4 + 1] = 197; rgba[i * 4 + 2] = 94; rgba[i * 4 + 3] = 130; kept++; }
+    }
+    const png = await sharp(rgba, { raw: { width, height, channels: 4 } }).png().toBuffer();
+
+    // bounds → lat/lng (GeoTIFF is UTM, e.g. EPSG:32617).
     const toLL = (x, y) => proj4(def, WGS84, [x, y]);   // → [lng, lat]
-    const [wLng, sLat] = toLL(bbox[0], bbox[1]);         // SW corner (minX, minY)
-    const [eLng, nLat] = toLL(bbox[2], bbox[3]);         // NE corner (maxX, maxY)
+    const [wLng, sLat] = toLL(bbox[0], bbox[1]);         // SW corner
+    const [eLng, nLat] = toLL(bbox[2], bbox[3]);         // NE corner
     const bounds = [[sLat, wLng], [nLat, eLng]];
 
     return json(200, {
@@ -110,6 +144,7 @@ export const handler = async (event) => {
       bounds,
       png: `data:image/png;base64,${png.toString("base64")}`,
       epsg: epsg || "3857(assumed)",
+      kept_pixels: kept,
       imagery: { date: dl.imageryDate || null, quality: dl.imageryQuality || null },
     });
   } catch (e) {
