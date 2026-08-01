@@ -52,6 +52,7 @@ export default function RoofMeasureEditor({ result, onClose }) {
   const [sections, setSections] = useState([]);   // [{ pts, area_m2 }]
   const [pitch, setPitch] = useState(result?.roof?.avg_pitch_x12 || 6);
   const [ptCount, setPtCount] = useState(0);
+  const [replaceMode, setReplaceMode] = useState(false);   // false = add to base, true = trace replaces base
 
   const lat = result?.location?.lat;
   const lng = result?.location?.lng;
@@ -85,6 +86,13 @@ export default function RoofMeasureEditor({ result, onClose }) {
     return () => { m.remove(); mapRef.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lat, lng]);
+
+  // While drawing, show an arrow pointer (not Leaflet's grab hand) so it reads
+  // as "click to place a point," not "drag to pan."
+  useEffect(() => {
+    const m = mapRef.current;
+    if (m) m.getContainer().style.cursor = drawing ? "default" : "";
+  }, [drawing]);
 
   function redrawActive() {
     const g = activeLayerRef.current; if (!g) return;
@@ -129,11 +137,14 @@ export default function RoofMeasureEditor({ result, onClose }) {
   const addedFootprintM2 = sections.reduce((a, s) => a + s.area_m2, 0);
   const addedSlopedSq = sq(addedFootprintM2 * sf);
   const baseTotal = result?.roof?.surface_squares || 0;
-  const adjustedTotal = baseTotal + addedSlopedSq;
+  // Add mode: drawn area adds to Google's number (for a clipped-off wing).
+  // Replace mode: your full trace IS the roof — Google's number is ignored
+  // (so tracing the whole roof can't double-count).
+  const adjustedTotal = replaceMode ? addedSlopedSq : baseTotal + addedSlopedSq;
 
   const slopedB = result?.materials?.sloped || {};
   const wastePct = slopedB.waste_pct ?? 10;
-  const adjustedSlopedMeasured = (slopedB.measured_squares || 0) + addedSlopedSq;
+  const adjustedSlopedMeasured = replaceMode ? addedSlopedSq : (slopedB.measured_squares || 0) + addedSlopedSq;
   const adjustedSlopedOrder = adjustedSlopedMeasured * (1 + wastePct / 100);
 
   const r2 = (n) => Math.round(n * 100) / 100;
@@ -151,15 +162,22 @@ export default function RoofMeasureEditor({ result, onClose }) {
       {/* controls */}
       <div style={{ padding: 14 }}>
         {!drawing ? (
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-            <button onClick={startDraw} style={btn("#2563eb")}>✏️ Draw a missing section</button>
+          <div>
+            {/* mode: add a clipped-off piece, or retrace the whole roof (replaces) */}
+            <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+              <button onClick={() => setReplaceMode(false)} style={seg(!replaceMode)}>➕ Add missing area</button>
+              <button onClick={() => setReplaceMode(true)} style={seg(replaceMode)}>⟳ Redraw whole roof</button>
+            </div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+            <button onClick={startDraw} style={btn("#2563eb")}>✏️ {replaceMode ? "Trace the whole roof" : "Draw a missing section"}</button>
             <label style={{ fontSize: 13, color: "#475569" }}>
-              Pitch for added area:&nbsp;
+              Pitch for {replaceMode ? "roof" : "added"} area:&nbsp;
               <input type="number" value={pitch} min={0} max={24} step={0.5}
                 onChange={(e) => setPitch(e.target.value)}
                 style={{ width: 54, fontFamily: FONT, fontSize: 14, padding: "4px 6px", border: "1px solid #cbd5e1", borderRadius: 6 }} />
               &nbsp;/12
             </label>
+            </div>
           </div>
         ) : (
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -184,28 +202,41 @@ export default function RoofMeasureEditor({ result, onClose }) {
 
         {/* live totals */}
         <div style={{ marginTop: 14, background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 10, padding: 14 }}>
-          <Row label="Measured (automated)" value={`${r2(baseTotal)} sq`} />
-          <Row label="You added" value={`+ ${r2(addedSlopedSq)} sq`} accent="#16a34a" />
+          <Row label="Automated read" value={`${r2(baseTotal)} sq`} muted={replaceMode} />
+          <Row label={replaceMode ? "Your full trace (replaces it)" : "You added"} value={`${replaceMode ? "" : "+ "}${r2(addedSlopedSq)} sq`} accent="#16a34a" />
           <Row label="Adjusted total" value={`${r2(adjustedTotal)} sq`} big />
           <div style={{ borderTop: "1px dashed #bae6fd", marginTop: 8, paddingTop: 8 }}>
             <Row label={`Shingle order (w/ ${wastePct}% waste)`} value={`${r2(adjustedSlopedOrder)} sq`} accent="#2563eb" />
           </div>
         </div>
         <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 8 }}>
-          Added area is treated as sloped/shingle at the pitch above. Nothing is saved.
+          {replaceMode
+            ? "Redraw mode: your trace IS the roof — the automated number is ignored. Trace the whole roof; treated as sloped/shingle at the pitch above. Nothing is saved."
+            : "Add mode: only trace a section the read MISSED — it adds on top. Nothing is saved."}
         </div>
       </div>
     </div>
   );
 }
 
-function Row({ label, value, big, accent }) {
+function Row({ label, value, big, accent, muted }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "3px 0" }}>
-      <span style={{ fontSize: big ? 14 : 13, color: "#475569", fontWeight: big ? 700 : 400 }}>{label}</span>
-      <b style={{ fontSize: big ? 20 : 15, color: accent || "#0f172a" }}>{value}</b>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "3px 0", opacity: muted ? 0.45 : 1 }}>
+      <span style={{ fontSize: big ? 14 : 13, color: "#475569", fontWeight: big ? 700 : 400, textDecoration: muted ? "line-through" : "none" }}>{label}</span>
+      <b style={{ fontSize: big ? 20 : 15, color: accent || "#0f172a", textDecoration: muted ? "line-through" : "none" }}>{value}</b>
     </div>
   );
+}
+
+// Segmented toggle button (Add vs Redraw mode).
+function seg(active) {
+  return {
+    flex: 1, fontFamily: FONT, fontSize: 13, fontWeight: 700,
+    color: active ? "#fff" : "#475569",
+    background: active ? "#2563eb" : "#fff",
+    border: `1px solid ${active ? "#2563eb" : "#cbd5e1"}`,
+    borderRadius: 8, padding: "8px 10px", cursor: "pointer",
+  };
 }
 
 function btn(color, outline) {
