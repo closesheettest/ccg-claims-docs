@@ -8,6 +8,7 @@
 // into the rep flow. Nothing here is saved or synced — it's a proving ground.
 
 import React, { useState, useRef } from "react";
+import RoofMeasureEditor from "./RoofMeasureEditor";
 
 const FONT = "'Oswald', system-ui, sans-serif";
 const CARD = { border: "1px solid #e5e7eb", borderRadius: 14, background: "#fff", padding: 18, boxShadow: "0 1px 3px rgba(0,0,0,.05)" };
@@ -132,6 +133,7 @@ function ResultCard({ d }) {
   const m = d.materials || {};
   const sloped = m.sloped || {};
   const flat = m.flat || {};
+  const [showEditor, setShowEditor] = useState(false);
   return (
     <div style={{ ...CARD }}>
       <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
@@ -155,6 +157,21 @@ function ResultCard({ d }) {
         <Bucket title="Flat / low-slope → membrane" b={flat} accent="#0891b2" />
       </div>
       <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 10 }}>{m.note}</div>
+
+      {/* Human-verification: open the satellite map to trace any section the
+          automated read clipped, and watch the total correct live. */}
+      {d.location?.lat != null && (
+        showEditor
+          ? <RoofMeasureEditor result={d} onClose={() => setShowEditor(false)} />
+          : (
+            <button
+              onClick={() => setShowEditor(true)}
+              style={{ marginTop: 14, fontFamily: FONT, fontSize: 14, fontWeight: 700, color: "#2563eb", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, padding: "11px 18px", cursor: "pointer", width: "100%" }}
+            >
+              🗺️ Verify / adjust outline on map
+            </button>
+          )
+      )}
     </div>
   );
 }
