@@ -69,7 +69,9 @@ async function fetchSolar(lat, lng) {
     const r = await fetch(url);
     if (r.ok) return await r.json();
     const body = await r.text().catch(() => "");
-    lastErr = `${r.status} @${q}: ${body.slice(0, 240)}`;
+    let reason = "";
+    try { reason = JSON.parse(body)?.error?.details?.[0]?.reason || ""; } catch { /* not json */ }
+    lastErr = `${r.status} @${q}${reason ? ` [${reason}]` : ""}: ${body.slice(0, 700)}`;
     // 404 = no building at that quality → try the next (lower) tier. Any other
     // status (403 not-enabled, 400 bad-arg) won't fix by relaxing quality — stop.
     if (r.status !== 404) break;
