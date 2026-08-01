@@ -53,6 +53,9 @@ export default function RoofMeasureEditor({ result, onClose }) {
   const [pitch, setPitch] = useState(result?.roof?.avg_pitch_x12 || 6);
   const [ptCount, setPtCount] = useState(0);
   const [replaceMode, setReplaceMode] = useState(false);   // false = add to base, true = trace replaces base
+  const maskOverlayRef = useRef(null);
+  const [maskState, setMaskState] = useState("loading");   // loading | ready | none
+  const [showMask, setShowMask] = useState(true);
 
   const lat = result?.location?.lat;
   const lng = result?.location?.lng;
@@ -76,6 +79,20 @@ export default function RoofMeasureEditor({ result, onClose }) {
         iconAnchor: [17, 31],   // tip of the pin sits on the geocoded point
       }),
     }).addTo(m);
+    // Fetch Google's DETECTED roof mask and paint it green ("already captured"),
+    // so the user only traces what falls OUTSIDE it — or nothing if it's covered.
+    fetch("/.netlify/functions/harvest-roof-mask", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lat, lng }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (!d || !d.ok || !d.png || !d.bounds || !mapRef.current) { setMaskState("none"); return; }
+        maskOverlayRef.current = L.imageOverlay(d.png, d.bounds, { opacity: 1, interactive: false });
+        maskOverlayRef.current.addTo(mapRef.current);
+        setMaskState("ready");
+      })
+      .catch(() => setMaskState("none"));
     drawLayerRef.current = L.layerGroup().addTo(m);
     activeLayerRef.current = L.layerGroup().addTo(m);
     m.on("click", onMapClick);
@@ -93,6 +110,13 @@ export default function RoofMeasureEditor({ result, onClose }) {
     const m = mapRef.current;
     if (m) m.getContainer().style.cursor = drawing ? "default" : "";
   }, [drawing]);
+
+  // Show/hide the "already captured" mask overlay.
+  useEffect(() => {
+    const ov = maskOverlayRef.current, m = mapRef.current;
+    if (!ov || !m) return;
+    if (showMask) ov.addTo(m); else ov.remove();
+  }, [showMask, maskState]);
 
   function redrawActive() {
     const g = activeLayerRef.current; if (!g) return;
@@ -163,6 +187,14 @@ export default function RoofMeasureEditor({ result, onClose }) {
       <div style={{ padding: 14 }}>
         {!drawing ? (
           <div>
+            {/* what the automated read already captured */}
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#475569", marginBottom: 12 }}>
+              <input type="checkbox" checked={showMask} onChange={(e) => setShowMask(e.target.checked)} disabled={maskState !== "ready"} />
+              <span>
+                Show what the read captured (<span style={{ color: "#16a34a", fontWeight: 700 }}>green</span>) —{" "}
+                {maskState === "loading" ? "loading…" : maskState === "none" ? "not available for this roof" : "draw only what falls outside it"}
+              </span>
+            </label>
             {/* mode: add a clipped-off piece, or retrace the whole roof (replaces) */}
             <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
               <button onClick={() => setReplaceMode(false)} style={seg(!replaceMode)}>➕ Add missing area</button>
