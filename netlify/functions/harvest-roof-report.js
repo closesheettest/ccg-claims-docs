@@ -193,7 +193,7 @@ export const handler = async (event) => {
 
     return json(200, {
       ok: true,
-      source: "google-solar",
+      source: "satellite",
       input: address || `${lat},${lng}`,
       geocoded_as: formatted,
       location: { lat, lng },
