@@ -50,7 +50,7 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
 
   const [drawing, setDrawing] = useState(false);
   const [sections, setSections] = useState([]);   // [{ pts, area_m2 }]
-  const [pitch, setPitch] = useState(result?.roof?.avg_pitch_x12 || 6);
+  const [pitch, setPitch] = useState(result?.roof?.avg_pitch_x12 ?? 6);
   const [ptCount, setPtCount] = useState(0);
   const [replaceMode, setReplaceMode] = useState(false);   // false = add to base, true = trace replaces base
   const maskOverlayRef = useRef(null);
@@ -159,17 +159,26 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
   // ── live math
   const sf = slopeFactor(pitch);
   const addedFootprintM2 = sections.reduce((a, s) => a + s.area_m2, 0);
-  const addedSlopedSq = sq(addedFootprintM2 * sf);
+  const addedSurfaceSq = sq(addedFootprintM2 * sf);
+  const addedIsFlat = (+pitch) < 2.5;      // low-slope traced area is membrane, not shingle
   const baseTotal = result?.roof?.surface_squares || 0;
-  // Add mode: drawn area adds to Google's number (for a clipped-off wing).
-  // Replace mode: your full trace IS the roof — Google's number is ignored
-  // (so tracing the whole roof can't double-count).
-  const adjustedTotal = replaceMode ? addedSlopedSq : baseTotal + addedSlopedSq;
 
-  const slopedB = result?.materials?.sloped || {};
-  const wastePct = slopedB.waste_pct ?? 10;
-  const adjustedSlopedMeasured = replaceMode ? addedSlopedSq : (slopedB.measured_squares || 0) + addedSlopedSq;
-  const adjustedSlopedOrder = adjustedSlopedMeasured * (1 + wastePct / 100);
+  const baseSloped = result?.materials?.sloped || {};
+  const baseFlat = result?.materials?.flat || {};
+  const slopedWaste = baseSloped.waste_pct ?? 12;
+  const flatWaste = baseFlat.waste_pct ?? 10;
+
+  // Add mode: traced area adds to the right bucket (by its pitch). Replace mode:
+  // the trace IS the whole roof, all in one bucket by its pitch.
+  const adjSlopedMeasured = replaceMode
+    ? (addedIsFlat ? 0 : addedSurfaceSq)
+    : (baseSloped.measured_squares || 0) + (addedIsFlat ? 0 : addedSurfaceSq);
+  const adjFlatMeasured = replaceMode
+    ? (addedIsFlat ? addedSurfaceSq : 0)
+    : (baseFlat.measured_squares || 0) + (addedIsFlat ? addedSurfaceSq : 0);
+  const adjSlopedOrder = adjSlopedMeasured * (1 + slopedWaste / 100);
+  const adjFlatOrder = adjFlatMeasured * (1 + flatWaste / 100);
+  const adjustedTotal = adjSlopedMeasured + adjFlatMeasured;
 
   const r2 = (n) => Math.round(n * 100) / 100;
 
@@ -183,10 +192,8 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
       everRef.current = true;
       onAdjust({
         total: r2(adjustedTotal),
-        slopedMeasured: r2(adjustedSlopedMeasured),
-        slopedWastePct: wastePct,
-        slopedOrder: r2(adjustedSlopedOrder),
-        replaceMode,
+        sloped: { measured_squares: r2(adjSlopedMeasured), waste_pct: slopedWaste, order_squares: r2(adjSlopedOrder) },
+        flat: { measured_squares: r2(adjFlatMeasured), waste_pct: flatWaste, order_squares: r2(adjFlatOrder) },
       });
     } else if (everRef.current) {
       onAdjust(null);
@@ -256,16 +263,16 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
         {/* live totals */}
         <div style={{ marginTop: 14, background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 10, padding: 14 }}>
           <Row label="Automated read" value={`${r2(baseTotal)} sq`} muted={replaceMode} />
-          <Row label={replaceMode ? "Your full trace (replaces it)" : "You added"} value={`${replaceMode ? "" : "+ "}${r2(addedSlopedSq)} sq`} accent="#16a34a" />
+          <Row label={`${replaceMode ? "Your full trace" : "You added"} (${addedIsFlat ? "membrane" : "shingle"})`} value={`${replaceMode ? "" : "+ "}${r2(addedSurfaceSq)} sq`} accent="#16a34a" />
           <Row label="Adjusted total" value={`${r2(adjustedTotal)} sq`} big />
           <div style={{ borderTop: "1px dashed #bae6fd", marginTop: 8, paddingTop: 8 }}>
-            <Row label={`Shingle order (w/ ${wastePct}% waste)`} value={`${r2(adjustedSlopedOrder)} sq`} accent="#2563eb" />
+            {adjSlopedMeasured > 0 && <Row label={`Shingle order (w/ ${slopedWaste}% waste)`} value={`${r2(adjSlopedOrder)} sq`} accent="#2563eb" />}
+            {adjFlatMeasured > 0 && <Row label={`Membrane order (w/ ${flatWaste}% waste)`} value={`${r2(adjFlatOrder)} sq`} accent="#0891b2" />}
           </div>
         </div>
         <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 8 }}>
-          {replaceMode
-            ? "Redraw mode: your trace IS the roof — the automated number is ignored. Trace the whole roof; treated as sloped/shingle at the pitch above. Nothing is saved."
-            : "Add mode: only trace a section the read MISSED — it adds on top. Nothing is saved."}
+          {`Traced area is ${addedIsFlat ? "low-slope → membrane at 10%" : "sloped → shingle"} (by the pitch above). `}
+          {replaceMode ? "Redraw mode: your trace replaces the automated number." : "Add mode: it adds on top of the read."} Nothing is saved.
         </div>
       </div>
     </div>

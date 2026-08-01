@@ -138,13 +138,11 @@ function ResultCard({ d }) {
   const isAdj = !!adj;
 
   // Once the outline is adjusted on the map, the corrected numbers drive the top.
+  // The editor emits both buckets (classed by pitch), so a low-slope trace lands
+  // in membrane and shingle stays 0.
   const totalSq = isAdj ? adj.total : r.surface_squares;
-  const slopedShow = isAdj
-    ? { material: sloped.material, measured_squares: adj.slopedMeasured, waste_pct: adj.slopedWastePct, order_squares: adj.slopedOrder }
-    : sloped;
-  const flatShow = (isAdj && adj.replaceMode)   // a full retrace replaces the roof → no separate flat
-    ? { material: flat.material, measured_squares: 0, waste_pct: flat.waste_pct, order_squares: 0 }
-    : flat;
+  const slopedShow = isAdj ? { material: sloped.material, ...adj.sloped } : sloped;
+  const flatShow = isAdj ? { material: flat.material, ...adj.flat } : flat;
   const metalOrder = isAdj ? Math.round(adj.total * 110) / 100 : (m.metal ? m.metal.order_squares : null);
   const metalWaste = m.metal ? m.metal.waste_pct : 10;
 
