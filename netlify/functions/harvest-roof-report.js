@@ -137,12 +137,11 @@ export const handler = async (event) => {
     let wSum = 0, pSum = 0;
     for (const p of planes) if (p.pitch_deg != null && p.area_m2) { wSum += p.area_m2; pSum += p.pitch_deg * p.area_m2; }
     const avgPitchDegRaw = wSum ? pSum / wSum : null;
-    // Predominant pitch: round UP to a whole x/12 (roofing convention; steeper is
-    // the conservative direction). A real fraction rounds up (4.2→5, 4.7→5), but a
-    // 0.15 deadband keeps a pitch sitting just above a whole number where it is
-    // (6.1→6, and float noise on a clean 6.0 stays 6). Reported deg matches it.
+    // Predominant pitch → whole x/12: fraction ≥ .3 rounds UP, below .3 stays
+    // (4.7→5, 4.3→5; 6.1→6, 4.2→4; 6.4→7). round(x+0.2) puts the tipping point at
+    // .3 instead of .5. Reported degrees match the rounded pitch.
     const rawX12 = avgPitchDegRaw != null ? Math.tan(avgPitchDegRaw / R2D) * 12 : null;
-    const pitchX12 = rawX12 != null ? Math.ceil(rawX12 - 0.15) : null;
+    const pitchX12 = rawX12 != null ? Math.round(rawX12 + 0.2) : null;
     const avgPitchDeg = pitchX12 != null ? +(Math.atan(pitchX12 / 12) * R2D).toFixed(1) : null;
 
     const surfaceM2 = whole.areaMeters2 != null ? +whole.areaMeters2.toFixed(2) : null;
