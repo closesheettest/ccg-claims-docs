@@ -64,6 +64,17 @@ export default function RoofMeasureEditor({ result, onClose }) {
       "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
       { maxZoom: 21, maxNativeZoom: 19, attribution: "Imagery &copy; Esri" },
     ).addTo(m);
+    // Drop a pin on the subject house so it's obvious which roof to trace.
+    L.marker([lat, lng], {
+      interactive: false,
+      keyboard: false,
+      icon: L.divIcon({
+        className: "rm-subject-pin",
+        html: '<div style="font-size:34px;line-height:1;filter:drop-shadow(0 2px 3px rgba(0,0,0,.6))">📍</div>',
+        iconSize: [34, 34],
+        iconAnchor: [17, 31],   // tip of the pin sits on the geocoded point
+      }),
+    }).addTo(m);
     drawLayerRef.current = L.layerGroup().addTo(m);
     activeLayerRef.current = L.layerGroup().addTo(m);
     m.on("click", onMapClick);
