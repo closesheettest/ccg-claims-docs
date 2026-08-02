@@ -182,15 +182,30 @@ export const handler = async (event) => {
       };
     });
 
-    // Area-weighted average pitch across planes (a single "the roof is ~6/12" number).
-    let wSum = 0, pSum = 0;
-    for (const p of planes) if (p.pitch_deg != null && p.area_m2) { wSum += p.area_m2; pSum += p.pitch_deg * p.area_m2; }
-    const avgPitchDegRaw = wSum ? pSum / wSum : null;
-    // Predominant pitch → whole x/12: fraction ≥ .3 rounds UP, below .3 stays
-    // (4.7→5, 4.3→5; 6.1→6, 4.2→4; 6.4→7). round(x+0.2) puts the tipping point at
-    // .3 instead of .5. Reported degrees match the rounded pitch.
-    const rawX12 = avgPitchDegRaw != null ? Math.tan(avgPitchDegRaw / R2D) * 12 : null;
-    const pitchX12 = rawX12 != null ? Math.round(rawX12 + 0.2) : null;
+    // PREDOMINANT pitch (matches Roofr): the whole-x/12 bucket that covers the most
+    // SLOPED area, not an area-weighted average. Averaging folds a big flat lanai
+    // into the number and reads low — e.g. Cheval's blended avg is 7.29/12 (dragged
+    // down by a 71 m² flat porch) but the shingle is 8/12, which is what Roofr shows.
+    // Bucket each sloped plane to its nearest whole x/12, sum area per bucket, pick
+    // the largest. Flat planes (< cutoff) are excluded — they're membrane/metal, not
+    // the shingle pitch. If the whole roof is flat, fall back to that.
+    const buckets = new Map(); // whole x/12 → sloped m² in that bucket
+    for (const p of planes) {
+      if (p.pitch_x12 == null || p.area_m2 == null) continue;
+      if (p.pitch_x12 < DEFAULT_FLAT_CUTOFF_X12) continue; // skip flat
+      const k = Math.round(p.pitch_x12);
+      buckets.set(k, (buckets.get(k) || 0) + p.area_m2);
+    }
+    let pitchX12 = null;
+    if (buckets.size) {
+      let best = -1;
+      for (const [k, area] of buckets) if (area > best) { best = area; pitchX12 = k; }
+    } else {
+      // no sloped planes — report the flat predominant so the number isn't null
+      let wSum = 0, pSum = 0;
+      for (const p of planes) if (p.pitch_x12 != null && p.area_m2) { wSum += p.area_m2; pSum += p.pitch_x12 * p.area_m2; }
+      pitchX12 = wSum ? Math.round(pSum / wSum) : null;
+    }
     const avgPitchDeg = pitchX12 != null ? +(Math.atan(pitchX12 / 12) * R2D).toFixed(1) : null;
 
     const surfaceM2 = whole.areaMeters2 != null ? +(whole.areaMeters2 * CAL).toFixed(2) : null;
