@@ -14,7 +14,7 @@
 // reconstruction. Ridge/hip/valley come from the geometry pass and are NOT here.
 
 import React, { useRef, useState, useEffect, useMemo } from "react";
-import { roofSkeleton } from "./roofSkeleton";
+import { roofSkeleton, eavePerimeter } from "./roofSkeleton";
 
 const FONT = "'Oswald', system-ui, sans-serif";
 const LINECOL = { ridge: "#dc2626", hip: "#2563eb", valley: "#059669", eave: "#0f172a" };
@@ -176,6 +176,9 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets }) {
   const roofSqft = Math.round(roof);
   const squares = roof * sf(pitch) / 100;
   const r1 = (n) => Math.round(n * 10) / 10;
+  // EAVES = drip-edge perimeter from the appraiser footprint (survey-exact) — the
+  // source of truth for eaves; the satellite line-drawing only does ridge/hip/valley
+  const eaves = useMemo(() => (regions.length && ftPerPx ? eavePerimeter(regions, ftPerPx, parseFloat(overhang) || 0) : 0), [regions, ftPerPx, overhang]);
   // straight-skeleton line takeoff — skeletons each region's CLEAN traced polygon
   // (correct hip/valley/ridge classification; each region = one roof-height piece).
   const skel = useMemo(
@@ -335,7 +338,11 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets }) {
               <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", color: "#64748b" }}>Pitch
                 <span><input value={pitch} onChange={(e) => onPitchChange && onPitchChange(e.target.value)} type="number" min={0} max={24} step={0.5} style={inp(58)} /> /12</span>
               </label>
-              <div style={{ fontSize: 12, color: "#94a3b8", maxWidth: "26ch" }}>Roof = walls + a fixed <b>2 ft</b> drip-edge overhang (standard — no per-house guessing).</div>
+              <div style={{ borderLeft: "2px solid #bae6fd", paddingLeft: 16 }}>
+                <div style={stat}>Eaves (drip edge)</div>
+                <div style={{ fontSize: 18, fontWeight: 800 }}>{eaves} <span style={unit}>ft</span></div>
+              </div>
+              <div style={{ fontSize: 12, color: "#94a3b8", maxWidth: "24ch" }}>Roof + eaves = survey-exact from the appraiser footprint. Ridge/hip/valley come from the satellite drawing below.</div>
             </div>
           )}
 

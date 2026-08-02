@@ -163,6 +163,23 @@ function skeletonOfOutline(polyIn, pitchX12, cell) {
   return { eave, ridge, hip, valley, segs };
 }
 
+// EAVES from the appraiser footprint (survey-exact) — the drip-edge perimeter =
+// perimeter of the region union dilated by the overhang. This is the source of
+// truth for eaves; the satellite line-drawing is only for ridges/hips/valleys.
+export function eavePerimeter(regionsPx, ftPerPx, overhangFt) {
+  if (!ftPerPx || !regionsPx || !regionsPx.length) return 0;
+  const regionsFt = regionsPx.map((r) => r.pts.map((p) => ({ x: p.x * ftPerPx, y: p.y * ftPerPx })));
+  const pts = regionsFt.flat();
+  if (pts.length < 3) return 0;
+  let minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
+  for (const p of pts) { if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x; if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y; }
+  const cell = Math.max(0.2, Math.max(maxX - minX, maxY - minY) / 230);
+  const outline = outlineFromMask(roofMask(regionsFt, overhangFt, cell));
+  let per = 0;
+  for (let i = 0; i < outline.length; i++) { const a = outline[i], b = outline[(i + 1) % outline.length]; per += Math.hypot(a.x - b.x, a.y - b.y); }
+  return Math.round(per * 10) / 10;
+}
+
 // PUBLIC: regionsPx = [{pts:[{x,y}px]}], ftPerPx scales to feet. Skeletons EACH
 // region's CLEAN traced polygon directly (its corners are exact), so hip/valley/
 // ridge classification is reliable — re-rasterizing to an outline split corners
