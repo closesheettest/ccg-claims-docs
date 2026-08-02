@@ -182,26 +182,29 @@ export const handler = async (event) => {
       };
     });
 
-    // PREDOMINANT pitch (matches Roofr): the whole-x/12 bucket that covers the most
-    // SLOPED area, not an area-weighted average. Averaging folds a big flat lanai
-    // into the number and reads low — e.g. Cheval's blended avg is 7.29/12 (dragged
-    // down by a 71 m² flat porch) but the shingle is 8/12, which is what Roofr shows.
-    // Bucket each sloped plane to its nearest whole x/12, sum area per bucket, pick
-    // the largest. Flat planes (< cutoff) are excluded — they're membrane/metal, not
-    // the shingle pitch. If the whole roof is flat, fall back to that.
-    const buckets = new Map(); // whole x/12 → sloped m² in that bucket
-    for (const p of planes) {
-      if (p.pitch_x12 == null || p.area_m2 == null) continue;
-      if (p.pitch_x12 < DEFAULT_FLAT_CUTOFF_X12) continue; // skip flat
-      const k = Math.round(p.pitch_x12);
-      buckets.set(k, (buckets.get(k) || 0) + p.area_m2);
-    }
+    // PREDOMINANT pitch (matches Roofr): the pitch of the roof's DOMINANT SLOPE
+    // CLUSTER, not a whole-roof average. A plain average folds a flat lanai and
+    // steep-outlier misreads into the number — Cheval's blended avg is 7.29/12 (a
+    // 71 m² flat porch drags it down) but the shingle is 8/12, which Roofr shows.
+    // A pure "biggest integer bucket" is the opposite failure: Cheval's fine, but
+    // a simple 5.5/12 gable whose two identical sides get read as 5.2 & 5.8 splits
+    // into buckets 5 and 6 and mis-picks 5 (Hollybrook → Roofr says 6). So: bucket
+    // the SLOPED planes (flat planes excluded — they're membrane/metal), take the
+    // mode bucket, then area-weight-average the planes within ±1 of it. That merges
+    // a noise-split main plane while still shedding flat + steep-outlier facets.
+    const sloped = planes.filter((p) => p.pitch_x12 != null && p.area_m2 && p.pitch_x12 >= DEFAULT_FLAT_CUTOFF_X12);
     let pitchX12 = null;
-    if (buckets.size) {
-      let best = -1;
-      for (const [k, area] of buckets) if (area > best) { best = area; pitchX12 = k; }
+    if (sloped.length) {
+      const buckets = new Map(); // whole x/12 → sloped m²
+      for (const p of sloped) { const k = Math.round(p.pitch_x12); buckets.set(k, (buckets.get(k) || 0) + p.area_m2); }
+      let mode = null, best = -1;
+      for (const [k, area] of buckets) if (area > best) { best = area; mode = k; }
+      const cluster = sloped.filter((p) => Math.abs(Math.round(p.pitch_x12) - mode) <= 1);
+      let wSum = 0, pSum = 0;
+      for (const p of cluster) { wSum += p.area_m2; pSum += p.pitch_x12 * p.area_m2; }
+      pitchX12 = wSum ? Math.round(pSum / wSum) : mode;
     } else {
-      // no sloped planes — report the flat predominant so the number isn't null
+      // whole roof is low-slope — report the flat predominant so the number isn't null
       let wSum = 0, pSum = 0;
       for (const p of planes) if (p.pitch_x12 != null && p.area_m2) { wSum += p.area_m2; pSum += p.pitch_x12 * p.area_m2; }
       pitchX12 = wSum ? Math.round(pSum / wSum) : null;
