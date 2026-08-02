@@ -22,6 +22,17 @@ const distToSeg = (px, py, ax, ay, bx, by) => {
   return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
 };
 const signedArea = (pts) => { let a = 0; for (let i = 0; i < pts.length; i++) { const j = (i + 1) % pts.length; a += pts[i].x * pts[j].y - pts[j].x * pts[i].y; } return a / 2; };
+// union-find clustering by proximity — separates disconnected skeleton pieces that share an edge-pair
+const clusterPoints = (pts, thr) => {
+  const n = pts.length, parent = new Array(n);
+  for (let i = 0; i < n; i++) parent[i] = i;
+  const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  const th2 = thr * thr;
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) { const dx = pts[i].x - pts[j].x, dy = pts[i].y - pts[j].y; if (dx * dx + dy * dy <= th2) { const a = find(i), b = find(j); if (a !== b) parent[a] = b; } }
+  const m = {};
+  for (let i = 0; i < n; i++) { const r = find(i); (m[r] = m[r] || []).push(pts[i]); }
+  return Object.values(m);
+};
 const pinPoly = (x, y, poly) => {
   let inside = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -121,24 +132,32 @@ function skeletonOfOutline(polyIn, pitchX12, cell) {
   const p = (pitchX12 || 0) / 12;
   const hip3d = Math.sqrt(1 + (p * p) / 2);
   let ridge = 0, hip = 0, valley = 0; const segs = [];
-  for (const [k, pts] of groups) {
-    if (pts.length < 2) continue;
+  for (const [k, ptsAll] of groups) {
+    if (ptsAll.length < 2) continue;
     const [i, j] = k.split(",").map(Number);
     const sv = sharedVertex(i, j);
     const type = sv >= 0 ? (convex[sv] ? "hip" : "valley") : "ridge";
-    let len = 0, ep;
-    if (sv >= 0) {
-      const V = poly[sv]; let far = pts[0], fd = 0;
-      for (const q of pts) { const d = Math.hypot(q.x - V.x, q.y - V.y); if (d > fd) { fd = d; far = q; } }
-      len = fd + cell / 2; ep = [V, far];
-    } else {
-      let a0 = pts[0], b0 = pts[0];
-      for (let a = 0; a < pts.length; a++) for (let b = a + 1; b < pts.length; b++) { const d = Math.hypot(pts[a].x - pts[b].x, pts[a].y - pts[b].y); if (d > len) { len = d; a0 = pts[a]; b0 = pts[b]; } }
-      len += cell; ep = [a0, b0];
+    const V = sv >= 0 ? poly[sv] : null;
+    // The SAME edge-pair can bisect in several separate spots on a complex roof;
+    // measuring them as one segment spanned the whole roof and blew up ridges.
+    // Split into connected pieces and measure each on its own.
+    for (const pts of clusterPoints(ptsAll, cell * 2.5)) {
+      if (pts.length < 2) continue;
+      let len = 0, ep;
+      const nearV = V && pts.some((q) => Math.hypot(q.x - V.x, q.y - V.y) < cell * 3);
+      if (nearV) {
+        let far = pts[0], fd = 0;
+        for (const q of pts) { const d = Math.hypot(q.x - V.x, q.y - V.y); if (d > fd) { fd = d; far = q; } }
+        len = fd + cell / 2; ep = [V, far];
+      } else {
+        let a0 = pts[0], b0 = pts[0];
+        for (let a = 0; a < pts.length; a++) for (let b = a + 1; b < pts.length; b++) { const d = Math.hypot(pts[a].x - pts[b].x, pts[a].y - pts[b].y); if (d > len) { len = d; a0 = pts[a]; b0 = pts[b]; } }
+        len += cell; ep = [a0, b0];
+      }
+      if (len < cell) continue;
+      if (type === "ridge") ridge += len; else if (type === "hip") hip += len * hip3d; else valley += len * hip3d;
+      segs.push({ type, a: ep[0], b: ep[1] });
     }
-    if (len < cell) continue;
-    if (type === "ridge") ridge += len; else if (type === "hip") hip += len * hip3d; else valley += len * hip3d;
-    segs.push({ type, a: ep[0], b: ep[1] });
   }
   let eave = 0; for (const e of edges) eave += Math.hypot(e.b.x - e.a.x, e.b.y - e.a.y);
   return { eave, ridge, hip, valley, segs };
