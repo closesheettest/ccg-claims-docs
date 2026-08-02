@@ -127,17 +127,17 @@ export default function RoofSketchTracer({ onApply }) {
         <>
           {/* toolbar */}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", margin: "8px 0 8px" }}>
-            <button onClick={() => { setArmed("main"); setFirstPt(null); }} style={seg(armed === "main")}>① Trace the BIGGEST box</button>
+            <button onClick={() => { setArmed("main"); setFirstPt(null); }} style={seg(armed === "main")}>① Trace the biggest ROOFED box</button>
             <button onClick={() => { setArmed("section"); setFirstPt(null); }} disabled={!main} style={seg(armed === "section", !main)}>② Add a section</button>
             <label style={{ ...btn("#64748b", true), display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
               ↺ Replace image<input type="file" accept="image/*" onChange={onFile} style={{ display: "none" }} />
             </label>
-            {armed && <span style={{ fontSize: 12.5, fontWeight: 700, color: "#b45309" }}>{firstPt ? "Now tap the OPPOSITE corner" : `Tap one corner of the ${armed === "main" ? "biggest box" : "section"}`}</span>}
+            {armed && <span style={{ fontSize: 12.5, fontWeight: 700, color: "#b45309" }}>{firstPt ? "Now tap the OPPOSITE corner" : `Tap one corner of the ${armed === "main" ? "biggest roofed box" : "section"}`}</span>}
           </div>
 
           {/* the model, spelled out so nobody boxes the whole house */}
           <div style={{ fontSize: 12.5, color: "#334155", background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 12px", marginBottom: 10, lineHeight: 1.5 }}>
-            Trace each <b>labeled box</b> on the sketch on its own — the biggest (BAS / TWO) is the main, each garage / porch (FGR / FOP) is a section. Copy the number printed on each edge. <b style={{ color: "#b45309" }}>Don't draw one box around the whole house.</b> Skip open balconies (BAL). Your traced footprint should roughly match the sum of the area numbers printed inside the boxes.
+            Trace each <b>roofed box</b> on the sketch on its own — the biggest area <b>under roof</b> (BAS / TWO living area) is the main; each garage / covered porch (FGR / FOP) is a section. Copy the number printed on each edge. <b style={{ color: "#b45309" }}>Don't draw one box around the whole house.</b> Skip anything <b>not under roof</b> — open balconies / decks (BAL). Your traced footprint should roughly match the sum of the area numbers printed inside the roofed boxes.
           </div>
 
           {/* the sketch + trace overlay */}
