@@ -13,13 +13,63 @@
 // Phase 1 delivers footprint + squares (exact on any cut-up shape) + the
 // reconstruction. Ridge/hip/valley come from the geometry pass and are NOT here.
 
-import React, { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect, useMemo } from "react";
 
 const FONT = "'Oswald', system-ui, sans-serif";
 const sf = (x12) => Math.sqrt(1 + Math.pow((+x12 || 0) / 12, 2));
 const shoelace = (pts) => { let a = 0; for (let i = 0; i < pts.length; i++) { const j = (i + 1) % pts.length; a += pts[i].x * pts[j].y - pts[j].x * pts[i].y; } return Math.abs(a) / 2; };
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const centroid = (pts) => ({ x: pts.reduce((s, p) => s + p.x, 0) / pts.length, y: pts.reduce((s, p) => s + p.y, 0) / pts.length });
+
+const pointInPoly = (x, y, pts) => {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const xi = pts[i].x, yi = pts[i].y, xj = pts[j].x, yj = pts[j].y;
+    if (((yi > y) !== (yj > y)) && (x < ((xj - xi) * (y - yi)) / (yj - yi) + xi)) inside = !inside;
+  }
+  return inside;
+};
+
+// Roof area from the traced WALL regions + eave overhang. The appraiser draws the
+// walls; the roof hangs past them to the drip edge, which is what Roofr measures.
+// We rasterize the union of the regions and dilate outward by the overhang with a
+// SQUARE kernel (roof corners are square, not rounded) — a robust polygon-offset
+// that ignores trace slop and applies overhang only to the OUTER edge (interior
+// height-change boundaries stay internal to the union, so they don't dilate).
+function roofArea(regions, ftPerPx, overhangFt) {
+  const wall = regions.reduce((s, r) => s + shoelace(r.pts) * ftPerPx * ftPerPx, 0);
+  if (!regions.length || !ftPerPx) return { wall: 0, roof: 0 };
+  if (overhangFt <= 0) return { wall, roof: wall };
+  const pts = regions.flatMap((r) => r.pts);
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const p of pts) { if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x; if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y; }
+  const ohPx = overhangFt / ftPerPx;
+  const spanX = maxX - minX, spanY = maxY - minY;
+  const cell = (Math.max(spanX, spanY) / 280) || 1;      // ~280 cells across the long side
+  const pad = ohPx + cell * 2;
+  const x0 = minX - pad, y0 = minY - pad;
+  const cols = Math.ceil((spanX + 2 * pad) / cell), rows = Math.ceil((spanY + 2 * pad) / cell);
+  const mask = new Uint8Array(cols * rows);
+  for (let j = 0; j < rows; j++) {
+    const y = y0 + (j + 0.5) * cell;
+    for (let i = 0; i < cols; i++) {
+      const x = x0 + (i + 0.5) * cell;
+      for (const r of regions) { if (pointInPoly(x, y, r.pts)) { mask[j * cols + i] = 1; break; } }
+    }
+  }
+  const rad = Math.max(1, Math.round(ohPx / cell));
+  // separable square dilation (Minkowski sum with a square = offset all edges by overhang)
+  const tmp = new Uint8Array(cols * rows);
+  for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+    let v = 0; for (let k = -rad; k <= rad && !v; k++) { const ii = i + k; if (ii >= 0 && ii < cols && mask[j * cols + ii]) v = 1; } tmp[j * cols + i] = v;
+  }
+  let count = 0;
+  for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+    let v = 0; for (let k = -rad; k <= rad && !v; k++) { const jj = j + k; if (jj >= 0 && jj < rows && tmp[jj * cols + i]) v = 1; } if (v) count++;
+  }
+  const cellFt = cell * ftPerPx;
+  return { wall, roof: count * cellFt * cellFt };
+}
 
 export default function RoofRegionTracer({ pitch = 6, onPitchChange }) {
   const [imgUrl, setImgUrl] = useState(null);
@@ -31,6 +81,7 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange }) {
   const [regions, setRegions] = useState([]);          // { id, label, pts:[{x,y}] }
   const [draft, setDraft] = useState([]);              // in-progress region corners
   const [hover, setHover] = useState(null);
+  const [overhang, setOverhang] = useState(1);         // eave overhang, ft (wall → drip edge)
   const wrapRef = useRef(null);
 
   // paste a screenshot of the sketch
@@ -96,9 +147,11 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange }) {
 
   // ── math (all in natural px, scaled to feet by ftPerPx)
   const ftPerPx = scale?.ftPerPx || 0;
-  const areaFt = (pts) => shoelace(pts) * ftPerPx * ftPerPx;
-  const footprint = Math.round(regions.reduce((s, r) => s + areaFt(r.pts), 0));
-  const squares = footprint * sf(pitch) / 100;
+  const areaFt = (pts) => shoelace(pts) * ftPerPx * ftPerPx;   // per-region wall area (for the list)
+  const { wall, roof } = useMemo(() => roofArea(regions, ftPerPx, parseFloat(overhang) || 0), [regions, ftPerPx, overhang]);
+  const footprint = Math.round(wall);
+  const roofSqft = Math.round(roof);
+  const squares = roof * sf(pitch) / 100;
   const r1 = (n) => Math.round(n * 10) / 10;
 
   const stroke = Math.max(nat.w, nat.h) / 400;   // scale line widths to image size
@@ -198,21 +251,30 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange }) {
             </div>
           )}
 
-          {/* result */}
+          {/* result — walls → +overhang → roof → squares */}
           {regions.length > 0 && scale && (
-            <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "center", marginTop: 14, background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 10, padding: 14 }}>
+            <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center", marginTop: 14, background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 10, padding: 14 }}>
               <div>
-                <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", color: "#64748b" }}>Footprint</div>
-                <div style={{ fontSize: 24, fontWeight: 800 }}>{footprint.toLocaleString()} <span style={{ fontSize: 14, color: "#64748b" }}>sqft</span></div>
+                <div style={stat}>Walls</div>
+                <div style={{ fontSize: 18, fontWeight: 800 }}>{footprint.toLocaleString()} <span style={unit}>sqft</span></div>
               </div>
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", color: "#64748b" }}>Squares @ {pitch}/12</div>
-                <div style={{ fontSize: 24, fontWeight: 800, color: "#0369a1" }}>{r1(squares)} <span style={{ fontSize: 14, color: "#64748b" }}>sq</span></div>
-              </div>
-              <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 11, fontWeight: 700, color: "#64748b" }}>PITCH
-                <span><input value={pitch} onChange={(e) => onPitchChange && onPitchChange(e.target.value)} type="number" min={0} max={24} step={0.5} style={inp(64)} /> /12</span>
+              <span style={{ fontSize: 18, color: "#94a3b8" }}>+</span>
+              <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", color: "#64748b" }}>Overhang
+                <span><input value={overhang} onChange={(e) => setOverhang(e.target.value)} type="number" min={0} max={4} step={0.25} style={inp(58)} /> ft</span>
               </label>
-              <div style={{ fontSize: 12, color: "#94a3b8", maxWidth: "32ch" }}>Exact footprint & squares. Ridge / hip / valley come from the geometry pass (next).</div>
+              <span style={{ fontSize: 18, color: "#94a3b8" }}>→</span>
+              <div>
+                <div style={stat}>Roof (drip edge)</div>
+                <div style={{ fontSize: 18, fontWeight: 800 }}>{roofSqft.toLocaleString()} <span style={unit}>sqft</span></div>
+              </div>
+              <div style={{ borderLeft: "2px solid #bae6fd", paddingLeft: 16 }}>
+                <div style={stat}>Squares @ {pitch}/12</div>
+                <div style={{ fontSize: 26, fontWeight: 800, color: "#0369a1" }}>{r1(squares)} <span style={unit}>sq</span></div>
+              </div>
+              <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", color: "#64748b" }}>Pitch
+                <span><input value={pitch} onChange={(e) => onPitchChange && onPitchChange(e.target.value)} type="number" min={0} max={24} step={0.5} style={inp(58)} /> /12</span>
+              </label>
+              <div style={{ fontSize: 12, color: "#94a3b8", maxWidth: "26ch" }}>Roof = walls expanded to the drip edge (overhang ~1–2 ft). Ridge / hip / valley next.</div>
             </div>
           )}
         </>
@@ -221,6 +283,8 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange }) {
   );
 }
 
+const stat = { fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", color: "#64748b" };
+const unit = { fontSize: 14, color: "#64748b" };
 const inp = (w) => ({ width: w, fontFamily: FONT, fontSize: 15, padding: "6px 8px", border: "1px solid #cbd5e1", borderRadius: 8 });
 const sel = { fontFamily: FONT, fontSize: 13, padding: "5px 7px", border: "1px solid #cbd5e1", borderRadius: 8 };
 function btn(color, outline) { return { fontFamily: FONT, fontSize: 13, fontWeight: 700, color: outline ? color : "#fff", background: outline ? "#fff" : color, border: `1px solid ${color}`, borderRadius: 8, padding: "7px 12px", cursor: "pointer" }; }
