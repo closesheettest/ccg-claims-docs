@@ -9,6 +9,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import RoofMeasureEditor from "./RoofMeasureEditor";
+import { AddressAutocomplete } from "./lib/AddressAutocomplete";
 
 const FONT = "'Oswald', system-ui, sans-serif";
 const CARD = { border: "1px solid #e5e7eb", borderRadius: 14, background: "#fff", padding: 18, boxShadow: "0 1px 3px rgba(0,0,0,.05)" };
@@ -25,8 +26,8 @@ export default function RoofMeasure() {
   const [rows, setRows] = useState([]);     // history, newest first
   const inputRef = useRef(null);
 
-  async function measure() {
-    const addr = address.trim();
+  async function measure(addrArg) {
+    const addr = String(typeof addrArg === "string" ? addrArg : address).trim();
     if (!addr || busy) return;
     setBusy(true); setErr("");
     try {
@@ -62,17 +63,20 @@ export default function RoofMeasure() {
 
       {/* Address input */}
       <div style={{ ...CARD, display: "flex", gap: 10, alignItems: "center", marginBottom: 18 }}>
-        <input
-          ref={inputRef}
-          value={address}
-          onChange={(e) => setAddress(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") measure(); }}
-          placeholder="4365 Birch Street NE, St. Petersburg, FL 33703"
-          style={{ flex: 1, fontFamily: FONT, fontSize: 16, padding: "12px 14px", border: "1px solid #cbd5e1", borderRadius: 10, outline: "none" }}
-          autoFocus
-        />
+        <div style={{ flex: 1, minWidth: 240 }}>
+          <AddressAutocomplete
+            value={address}
+            onChange={(v) => setAddress(v)}
+            onPlaceSelected={({ formatted, address: street, city, state, zip }) => {
+              const full = formatted || [street, city, state, zip].filter(Boolean).join(", ");
+              setAddress(full);
+              measure(full);   // auto-measure on a confirmed pick
+            }}
+            placeholder="4365 Birch Street NE, St. Petersburg, FL 33703"
+          />
+        </div>
         <button
-          onClick={measure}
+          onClick={() => measure()}
           disabled={busy || !address.trim()}
           style={{ fontFamily: FONT, fontSize: 16, fontWeight: 700, color: "#fff", background: busy || !address.trim() ? "#94a3b8" : "#2563eb", border: "none", borderRadius: 10, padding: "12px 22px", cursor: busy || !address.trim() ? "default" : "pointer", whiteSpace: "nowrap" }}
         >
