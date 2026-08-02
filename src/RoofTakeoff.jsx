@@ -54,6 +54,7 @@ const SIDES = { bottom: "Bottom", top: "Top", right: "Right", left: "Left" };
 export default function RoofTakeoff() {
   const [pitch, setPitch] = useState(6);
   const [overhang, setOverhang] = useState(2);   // ft; 2 is the standard default, or measured from the photo
+  const [photoRakes, setPhotoRakes] = useState(0);   // cross-gable rakes drawn on the photo (added to the sketch rakes)
   const [main, setMain] = useState({ w: 54, l: 40, style: "hip" });
   const [wings, setWings] = useState([{ span: 20, depth: 22, side: "bottom", offset: 30, style: "hip" }]);
 
@@ -184,10 +185,10 @@ export default function RoofTakeoff() {
       })()}
 
       {/* PRIMARY: region trace → exact footprint + squares on any cut-up shape */}
-      <RoofRegionTracer pitch={pitch} onPitchChange={setPitch} facets={ref && !ref.error ? ref.planes : null} overhang={overhang} />
+      <RoofRegionTracer pitch={pitch} onPitchChange={setPitch} facets={ref && !ref.error ? ref.planes : null} overhang={overhang} photoRakes={photoRakes} />
 
       {/* LINE takeoff — human draws ridges/hips/valleys on the satellite, math measures */}
-      <RoofLineTracer lat={ref && !ref.error ? ref.loc?.lat : null} lng={ref && !ref.error ? ref.loc?.lng : null} pitch={pitch} overhang={overhang} onOverhang={setOverhang} />
+      <RoofLineTracer lat={ref && !ref.error ? ref.loc?.lat : null} lng={ref && !ref.error ? ref.loc?.lng : null} pitch={pitch} overhang={overhang} onOverhang={setOverhang} onPhotoRakes={setPhotoRakes} />
 
       {/* line takeoff (rectangles) — for ridge/hip/valley on simple houses until the geometry pass */}
       <details style={{ marginTop: 4 }}>

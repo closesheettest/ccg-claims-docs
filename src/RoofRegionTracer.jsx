@@ -92,7 +92,7 @@ function roofArea(regions, ftPerPx, overhangFt) {
   return { wall, roof: count * cellFt * cellFt };
 }
 
-export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets, overhang = 2 }) {
+export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets, overhang = 2, photoRakes = 0 }) {
   const facetInfo = useMemo(() => summarizeFacets(facets), [facets]);
   const [imgUrl, setImgUrl] = useState(null);
   const [nat, setNat] = useState({ w: 1, h: 1 });     // natural image px (resize-invariant)
@@ -189,7 +189,7 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets, ove
   let eaveLen = 0, rakeLen = 0;
   outlineFt.forEach((_, i) => { const L = edgeLenFt(i); if (rakeSet.has(i)) rakeLen += L; else eaveLen += L; });
   const eaves = Math.round(eaveLen * 10) / 10;
-  const rakes = Math.round(rakeLen * rakeF * 10) / 10;
+  const rakes = Math.round((rakeLen * rakeF + (parseFloat(photoRakes) || 0)) * 10) / 10;   // sketch rakes + cross-gable rakes drawn on the photo
   // straight-skeleton line takeoff — skeletons each region's CLEAN traced polygon
   // (correct hip/valley/ridge classification; each region = one roof-height piece).
   const skel = useMemo(

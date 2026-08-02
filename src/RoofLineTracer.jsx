@@ -16,7 +16,7 @@ const FONT = "'Oswald', system-ui, sans-serif";
 const COL = { ridge: "#dc2626", hip: "#2563eb", valley: "#059669", rake: "#b45309" };
 const M_TO_FT = 3.28084;
 
-export default function RoofLineTracer({ lat, lng, pitch = 8, overhang, onOverhang }) {
+export default function RoofLineTracer({ lat, lng, pitch = 8, overhang, onOverhang, onPhotoRakes }) {
   const [mode, setMode] = useState(null);         // 'ridge' | 'hip' | 'valley' | 'overhang'
   const [lines, setLines] = useState([]);         // [{id,type,a:{lat,lng},b:{lat,lng}}]
   const [pending, setPending] = useState(null);   // first click of a line segment
@@ -87,6 +87,7 @@ export default function RoofLineTracer({ lat, lng, pitch = 8, overhang, onOverha
   // measured overhang = (roof width from the photo − wall length from the sketch) / 2
   const roofWidthFt = ovLine ? L.latLng(ovLine.a.lat, ovLine.a.lng).distanceTo(L.latLng(ovLine.b.lat, ovLine.b.lng)) * M_TO_FT : null;
   const measuredOh = (roofWidthFt != null && parseFloat(wallFt) > 0) ? (roofWidthFt - parseFloat(wallFt)) / 2 : null;
+  useEffect(() => { if (onPhotoRakes) onPhotoRakes(rake); }, [rake, onPhotoRakes]);   // photo rakes → region panel total
 
   if (lat == null || lng == null) {
     return <div style={{ ...card, color: "#64748b", fontSize: 13 }}>Look up an address above to load the satellite photo for line tracing.</div>;
@@ -122,7 +123,8 @@ export default function RoofLineTracer({ lat, lng, pitch = 8, overhang, onOverha
               <span>roof width <b>{roofWidthFt.toFixed(1)} ft</b></span>
               <label style={{ color: "#475569" }}>− sketch wall <input value={wallFt} onChange={(e) => setWallFt(e.target.value)} inputMode="decimal" placeholder="44" style={{ width: 56, fontFamily: FONT, fontSize: 14, padding: "5px 7px", border: "1px solid #cbd5e1", borderRadius: 7 }} /> ft</label>
               {measuredOh != null && <span>= overhang <b style={{ color: measuredOh >= 0 && measuredOh < 4 ? "#16a34a" : "#dc2626" }}>{measuredOh.toFixed(2)} ft</b></span>}
-              {measuredOh != null && measuredOh >= 0 && measuredOh < 4 && <button onClick={() => onOverhang && onOverhang(Math.round(measuredOh * 100) / 100)} style={btn("#16a34a")}>Use this overhang</button>}
+              {measuredOh != null && measuredOh >= 0 && measuredOh < 4 && <button onClick={() => onOverhang && onOverhang(Math.round(measuredOh * 100) / 100)} style={btn("#16a34a")}>← Use this overhang</button>}
+              {measuredOh != null && (measuredOh < 0 || measuredOh >= 4) && <span style={{ color: "#dc2626", fontWeight: 700, fontSize: 12 }}>too big to apply — your line is diagonal or across a longer wall. Draw it STRAIGHT across the {parseFloat(wallFt) || "known"}-ft wall (should read ≈ {parseFloat(wallFt) ? (parseFloat(wallFt) + 2.6).toFixed(0) : "wall + ~3"} ft).</span>}
               <button onClick={() => { setOvLine(null); setWallFt(""); }} style={btn("#64748b", true)}>redo</button>
             </>
           )}
