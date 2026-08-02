@@ -79,7 +79,7 @@ export default function RoofLineTracer({ lat, lng, pitch = 8, overhang, onOverha
     if (!st.mode) return;
     const p = snap(e.latlng);
     if (!st.pending) { setPending(p); return; }   // first click
-    if (st.mode === "overhang") { setOvLine({ a: st.pending, b: snapAxis(st.pending, p) }); setPending(null); setMode(null); return; }
+    if (st.mode === "overhang") { setOvLine({ a: st.pending, b: p }); setPending(null); setMode(null); return; }
     setLines((ls) => [...ls, { id: `${ls.length}_${Date.now() % 1e6}`, type: st.mode, a: st.pending, b: p }]);
     setPending(null);
   }
@@ -90,8 +90,8 @@ export default function RoofLineTracer({ lat, lng, pitch = 8, overhang, onOverha
     g.clearLayers();
     lines.forEach((s) => { L.polyline([[s.a.lat, s.a.lng], [s.b.lat, s.b.lng]], { color: COL[s.type], weight: 4 }).addTo(g); });
     // overhang line + live preview: SOLID green when square to axis, DASHED red when angled
-    if (ovLine) { const ok = axisAligned(ovLine.a, ovLine.b); L.polyline([[ovLine.a.lat, ovLine.a.lng], [ovLine.b.lat, ovLine.b.lng]], { color: ok ? "#16a34a" : "#dc2626", weight: 3.5, dashArray: ok ? null : "7,6" }).addTo(g); }
-    if (mode === "overhang" && pending && hover) { const b = snapAxis(pending, hover); L.polyline([[pending.lat, pending.lng], [b.lat, b.lng]], { color: "#16a34a", weight: 3.5 }).addTo(g); }
+    if (ovLine) L.polyline([[ovLine.a.lat, ovLine.a.lng], [ovLine.b.lat, ovLine.b.lng]], { color: "#7c3aed", weight: 3.5 }).addTo(g);
+    if (mode === "overhang" && pending && hover) L.polyline([[pending.lat, pending.lng], [hover.lat, hover.lng]], { color: "#7c3aed", weight: 3, dashArray: "5,4" }).addTo(g);
     if (pending) L.circleMarker([pending.lat, pending.lng], { radius: 5, color: "#f59e0b", fillColor: "#f59e0b", fillOpacity: 1 }).addTo(g);
   }, [lines, pending, ovLine, hover, mode]);
 
@@ -140,11 +140,11 @@ export default function RoofLineTracer({ lat, lng, pitch = 8, overhang, onOverha
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 8, background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 8, padding: "8px 12px", fontSize: 13 }}>
           <b style={{ color: "#6d28d9" }}>◳ Overhang</b>
           {!ovLine ? (
-            <span style={{ color: "#b45309", fontWeight: 700 }}>{pending ? "move across to the other eave — the line locks straight for you, then click to set it" : "click one eave, then the other, across a wall you know — it snaps straight automatically"}</span>
+            <span style={{ color: "#b45309", fontWeight: 700 }}>{pending ? "now click the OTHER corner of that same roof edge" : "click the two CORNERS of one roof side (a straight edge you can see) — the angle doesn't matter"}</span>
           ) : (
             <>
-              <span>roof width <b>{roofWidthFt.toFixed(1)} ft</b></span>
-              <label style={{ color: "#475569" }}>− sketch wall <input value={wallFt} onChange={(e) => setWallFt(e.target.value)} inputMode="decimal" placeholder="44" style={{ width: 56, fontFamily: FONT, fontSize: 14, padding: "5px 7px", border: "1px solid #cbd5e1", borderRadius: 7 }} /> ft</label>
+              <span>roof edge <b>{roofWidthFt.toFixed(1)} ft</b></span>
+              <label style={{ color: "#475569" }}>− that wall on the sketch <input value={wallFt} onChange={(e) => setWallFt(e.target.value)} inputMode="decimal" placeholder="44" style={{ width: 56, fontFamily: FONT, fontSize: 14, padding: "5px 7px", border: "1px solid #cbd5e1", borderRadius: 7 }} /> ft</label>
               {measuredOh != null && <span>= overhang <b style={{ color: measuredOh >= 0 && measuredOh < 4 ? "#16a34a" : "#dc2626" }}>{measuredOh.toFixed(2)} ft</b></span>}
               {measuredOh != null && measuredOh >= 0 && measuredOh < 4 && <button onClick={() => onOverhang && onOverhang(Math.round(measuredOh * 100) / 100)} style={btn("#16a34a")}>← Use this overhang</button>}
               {measuredOh != null && (measuredOh < 0 || measuredOh >= 4) && <span style={{ color: "#dc2626", fontWeight: 700, fontSize: 12 }}>too big to apply — your line is diagonal or across a longer wall. Draw it STRAIGHT across the {parseFloat(wallFt) || "known"}-ft wall (should read ≈ {parseFloat(wallFt) ? (parseFloat(wallFt) + 2.6).toFixed(0) : "wall + ~3"} ft).</span>}
