@@ -142,12 +142,16 @@ export default function RoofTakeoff() {
         <button onClick={lookup} disabled={looking || !address.trim()} style={btn(looking || !address.trim() ? "#94a3b8" : "#2563eb")}>{looking ? "…" : "Look up"}</button>
       </div>
       {ref && !ref.error && (
-        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 13, color: "#475569", background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 10, padding: "10px 14px", marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center", fontSize: 13, color: "#475569", background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 10, padding: "10px 14px", marginBottom: 16 }}>
           <span>Reference for <b>{ref.addr}</b>:</span>
           <span>satellite <b>{ref.sat} sq</b> ({ref.imagery})</span>
           {ref.living != null && <span>· county living <b>{ref.living} sqft</b></span>}
           {ref.fema != null && <span>· FEMA footprint <b>{ref.fema} sqft</b></span>}
           <span>· pitch pre-filled to <b>{ref.pitch}/12</b></span>
+          <a href={`https://www.google.com/search?q=${encodeURIComponent((ref.addr || address) + " property appraiser building sketch")}`} target="_blank" rel="noreferrer"
+            style={{ marginLeft: "auto", fontFamily: FONT, fontSize: 13, fontWeight: 700, color: "#fff", background: "#7c3aed", border: "none", borderRadius: 8, padding: "8px 14px", cursor: "pointer", textDecoration: "none", whiteSpace: "nowrap" }}>
+            🏛️ Open appraiser sketch ↗
+          </a>
         </div>
       )}
 
