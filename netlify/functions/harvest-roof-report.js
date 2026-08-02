@@ -179,6 +179,10 @@ export const handler = async (event) => {
         pitch_x12: pitchToX12(s.pitchDegrees),
         azimuth_deg: s.azimuthDegrees != null ? Math.round(s.azimuthDegrees) : null,
         slope_factor: slopeFactor(s.pitchDegrees),
+        // extra structure for the line engine: facet HEIGHT (pins the 2-story vs
+        // 1-story step) and CENTER (which footprint region the facet sits over)
+        height_m: s.planeHeightAtCenterMeters != null ? +s.planeHeightAtCenterMeters.toFixed(2) : null,
+        center: s.center ? { lat: s.center.latitude, lng: s.center.longitude } : null,
       };
     });
 
