@@ -135,7 +135,7 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange }) {
               ? <><b>Step 1 — scale:</b> click the two ends of a wall whose length is printed on the sketch (e.g. the <b>44</b> edge), then type that number below.</>
               : mode === "draw"
                 ? <><b>Drawing a region:</b> click each corner, then <b>Close region</b> (or Enter). Esc / Undo point fixes a mis-click.</>
-                : <><b>Step 2 — regions:</b> draw the <b>2-story core</b> first, then each piece <b>not under it</b> (garage / porch / 1-story). Each region's printed area is your check.</>}
+                : <><b>Step 2 — group by roof height:</b> draw everything at the <b>same roof height</b> as one region — the 2-story core <b>includes any finished upstairs (FUS)</b>, even over the garage (same height = no valley between them). Then draw each <b>1-story</b> piece on its own — the line where it meets the 2-story is the real valley. Each region's printed area is your check.</>}
           </div>
 
           {/* scale feet entry */}
@@ -189,7 +189,7 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange }) {
               {regions.map((r, i) => (
                 <div key={r.id} style={{ display: "flex", gap: 10, alignItems: "center", padding: "6px 0", borderTop: "1px dashed #e5e7eb", fontSize: 13.5 }}>
                   <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: r.label === "core" ? "#2563eb" : "#16a34a" }} />
-                  <select value={r.label} onChange={(e) => setLabel(r.id, e.target.value)} style={sel}><option value="core">2-story core</option><option value="ext">extension</option></select>
+                  <select value={r.label} onChange={(e) => setLabel(r.id, e.target.value)} style={sel}><option value="core">2-story core</option><option value="ext">1-story piece</option></select>
                   <b>{Math.round(areaFt(r.pts))} sqft</b>
                   <span style={{ color: "#94a3b8", fontSize: 12 }}>{r.pts.length} corners</span>
                   <button onClick={() => removeRegion(r.id)} style={{ ...btn("#dc2626", true), marginLeft: "auto" }}>×</button>
