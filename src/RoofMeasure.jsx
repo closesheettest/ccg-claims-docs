@@ -7,7 +7,7 @@
 // spot-check a batch of addresses and eyeball how it'll look before we build it
 // into the rep flow. Nothing here is saved or synced — it's a proving ground.
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import RoofMeasureEditor from "./RoofMeasureEditor";
 
 const FONT = "'Oswald', system-ui, sans-serif";
@@ -157,6 +157,13 @@ function ResultCard({ d }) {
     });
   }
 
+  // Auto pre-fill from the county's living area on load (rep bumps for garage/porch).
+  useEffect(() => {
+    const liv = d.appraiser?.living_sqft;
+    if (liv && !apprSqft) applyAppraiser(String(liv));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Once the outline is adjusted on the map, the corrected numbers drive the top.
   // The editor emits both buckets (classed by pitch), so a low-slope trace lands
   // in membrane and shingle stays 0.
@@ -212,7 +219,11 @@ function ResultCard({ d }) {
           style={{ width: 130, fontFamily: FONT, fontSize: 15, padding: "7px 10px", border: "1px solid #cbd5e1", borderRadius: 8 }}
         />
         <span style={{ fontSize: 12.5, color: "#94a3b8" }}>
-          {adj?.source === "appraiser" ? `→ ${adj.total} sq at ${r.avg_pitch_x12}/12 (overrides the read)` : "sum BAS + garage + porches → exact squares, any imagery"}
+          {adj?.source === "appraiser"
+            ? (d.appraiser?.living_sqft && apprSqft === String(d.appraiser.living_sqft)
+                ? `→ ${adj.total} sq · county living area — add garage/porch for the rest`
+                : `→ ${adj.total} sq at ${r.avg_pitch_x12}/12 (overrides the read)`)
+            : (d.appraiser?.living_sqft ? `county living area ${d.appraiser.living_sqft} sqft — add garage/porch` : "sum under-roof sqft → exact squares, any imagery")}
         </span>
       </div>
 

@@ -63,6 +63,24 @@ function shingleWastePct(planeCount) {
   return 10;                        // simple gable — the floor
 }
 
+// Statewide FL parcel lookup — pulls the county's building living area (heated
+// sq ft) at a point, to pre-fill the appraiser-sqft override. Living area misses
+// garage/porch, so it's a starting point the rep bumps up. FL only; null else.
+async function fetchLivingArea(lat, lng) {
+  try {
+    const params = new URLSearchParams({
+      geometry: JSON.stringify({ x: lng, y: lat, spatialReference: { wkid: 4326 } }),
+      geometryType: "esriGeometryPoint", inSR: "4326",
+      spatialRel: "esriSpatialRelIntersects",
+      outFields: "TOT_LVG_AR,LND_SQFOOT,ACT_YR_BLT,NO_BULDNG", returnGeometry: "false", f: "json",
+    });
+    const r = await fetch(`https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0/query?${params}`);
+    const a = (await r.json())?.features?.[0]?.attributes;
+    if (!a || !a.TOT_LVG_AR) return null;
+    return { living_sqft: Math.round(a.TOT_LVG_AR), land_sqft: a.LND_SQFOOT || null, year_built: a.ACT_YR_BLT || null, buildings: a.NO_BULDNG || null };
+  } catch { return null; }
+}
+
 async function geocode(address) {
   const url = `${GEOCODE}?address=${encodeURIComponent(address)}&region=us&key=${GOOGLE_KEY}`;
   const r = await fetch(url);
@@ -211,12 +229,15 @@ export const handler = async (event) => {
       note: "The flat/sloped split is an estimate — treat per-material numbers as a starting point, not a firm material takeoff.",
     };
 
+    const appraiser = await fetchLivingArea(lat, lng);
+
     return json(200, {
       ok: true,
       source: "satellite",
       input: address || `${lat},${lng}`,
       geocoded_as: formatted,
       location: { lat, lng },
+      appraiser,
       imagery: { date: data.imageryDate || null, quality: data.imageryQuality || null },
       roof: {
         surface_squares: sq(surfaceM2),
