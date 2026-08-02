@@ -14,8 +14,10 @@
 // reconstruction. Ridge/hip/valley come from the geometry pass and are NOT here.
 
 import React, { useRef, useState, useEffect, useMemo } from "react";
+import { roofSkeleton } from "./roofSkeleton";
 
 const FONT = "'Oswald', system-ui, sans-serif";
+const LINECOL = { ridge: "#dc2626", hip: "#2563eb", valley: "#059669", eave: "#0f172a" };
 const sf = (x12) => Math.sqrt(1 + Math.pow((+x12 || 0) / 12, 2));
 const shoelace = (pts) => { let a = 0; for (let i = 0; i < pts.length; i++) { const j = (i + 1) % pts.length; a += pts[i].x * pts[j].y - pts[j].x * pts[i].y; } return Math.abs(a) / 2; };
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -153,6 +155,12 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange }) {
   const roofSqft = Math.round(roof);
   const squares = roof * sf(pitch) / 100;
   const r1 = (n) => Math.round(n * 10) / 10;
+  // straight-skeleton line takeoff (ridge/hip/valley) from the drip-edge outline
+  const skel = useMemo(
+    () => (regions.length && ftPerPx ? roofSkeleton(regions, ftPerPx, parseFloat(pitch) || 6, overhang) : null),
+    [regions, ftPerPx, pitch, overhang]
+  );
+  const toPx = (p) => `${p.x / ftPerPx},${p.y / ftPerPx}`;   // feet → natural px for drawing
 
   const stroke = Math.max(nat.w, nat.h) / 400;   // scale line widths to image size
   const fontPx = Math.max(nat.w, nat.h) / 55;
@@ -216,6 +224,13 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange }) {
                   </g>
                 );
               })}
+              {/* straight-skeleton roof lines (drip-edge outline + ridge/hip/valley) */}
+              {skel && mode !== "draw" && <g>
+                <polygon points={skel.outlineFt.map(toPx).join(" ")} fill="none" stroke={LINECOL.eave} strokeWidth={stroke * 1.2} opacity={0.75} />
+                {skel.segsFt.map((s, i) => (
+                  <line key={i} x1={s.a.x / ftPerPx} y1={s.a.y / ftPerPx} x2={s.b.x / ftPerPx} y2={s.b.y / ftPerPx} stroke={LINECOL[s.type]} strokeWidth={stroke * (s.type === "ridge" ? 2 : 1.6)} strokeLinecap="round" />
+                ))}
+              </g>}
               {/* in-progress region */}
               {draft.length > 0 && <>
                 <polyline points={[...draft, ...(hover ? [hover] : [])].map((p) => `${p.x},${p.y}`).join(" ")} fill="none" stroke="#f59e0b" strokeWidth={stroke * 1.4} strokeDasharray={`${stroke * 4},${stroke * 3}`} />
@@ -275,7 +290,21 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange }) {
               <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", color: "#64748b" }}>Pitch
                 <span><input value={pitch} onChange={(e) => onPitchChange && onPitchChange(e.target.value)} type="number" min={0} max={24} step={0.5} style={inp(58)} /> /12</span>
               </label>
-              <div style={{ fontSize: 12, color: "#94a3b8", maxWidth: "26ch" }}>Roof = walls + a fixed <b>2 ft</b> drip-edge overhang (standard — no per-house guessing). Ridge / hip / valley next.</div>
+              <div style={{ fontSize: 12, color: "#94a3b8", maxWidth: "26ch" }}>Roof = walls + a fixed <b>2 ft</b> drip-edge overhang (standard — no per-house guessing).</div>
+            </div>
+          )}
+
+          {/* line takeoff — ridge / hip / valley / eave from the skeleton */}
+          {skel && (
+            <div style={{ display: "flex", gap: 18, flexWrap: "wrap", alignItems: "center", marginTop: 10, background: "#fafafa", border: "1px solid #e5e7eb", borderRadius: 10, padding: "10px 14px" }}>
+              <span style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: ".05em", color: "#334155" }}>Lines (ft)</span>
+              {[["Ridge", skel.ridge, "ridge"], ["Hips", skel.hip, "hip"], ["Valleys", skel.valley, "valley"], ["Eaves", skel.eave, "eave"]].map(([n, v, t]) => (
+                <span key={n} style={{ fontSize: 13.5, color: "#334155" }}>
+                  <span style={{ display: "inline-block", width: 9, height: 9, borderRadius: 2, background: LINECOL[t], marginRight: 6 }} />
+                  {n} <b style={{ fontFamily: "ui-monospace,monospace" }}>{v}</b>
+                </span>
+              ))}
+              <span style={{ fontSize: 11.5, color: "#b45309", marginLeft: "auto" }}>geometry estimate — compare to Roofr</span>
             </div>
           )}
         </>
