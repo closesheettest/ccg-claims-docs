@@ -134,8 +134,28 @@ function ResultCard({ d }) {
   const sloped = m.sloped || {};
   const flat = m.flat || {};
   const [showEditor, setShowEditor] = useState(false);
-  const [adj, setAdj] = useState(null);   // corrected figures from the map editor
+  const [adj, setAdj] = useState(null);   // corrected figures from the map editor / appraiser override
+  const [apprSqft, setApprSqft] = useState("");
   const isAdj = !!adj;
+
+  // Appraiser override: the county publishes each roofed section's exact sq ft
+  // (BAS + garage + porches). Sum = under-roof FOOTPRINT; × slope factor = true
+  // squares — imagery-independent, so it fixes MEDIUM / multi-building misses.
+  function applyAppraiser(v) {
+    setApprSqft(v);
+    const n = parseFloat(String(v).replace(/[, ]/g, ""));
+    if (!n || n <= 0) { setAdj(null); return; }
+    const p = (r.avg_pitch_x12 ?? 6) / 12;
+    const sf = Math.sqrt(1 + p * p);
+    const total = Math.round((n * sf) / 100 * 100) / 100;      // squares (surface)
+    const w = sloped.waste_pct ?? 12;
+    setAdj({
+      total,
+      sloped: { measured_squares: total, waste_pct: w, order_squares: Math.round(total * (1 + w / 100) * 100) / 100 },
+      flat: { measured_squares: 0, waste_pct: 10, order_squares: 0 },
+      source: "appraiser",
+    });
+  }
 
   // Once the outline is adjusted on the map, the corrected numbers drive the top.
   // The editor emits both buckets (classed by pitch), so a low-slope trace lands
@@ -181,6 +201,20 @@ function ResultCard({ d }) {
           <b style={{ fontSize: 16, color: "#0f172a" }}>{metalOrder} sq</b>
         </div>
       )}
+
+      {/* Appraiser sq ft override — exact, imagery-independent squares. */}
+      <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: adj?.source === "appraiser" ? "#f0fdf4" : "#f8fafc", border: `1px solid ${adj?.source === "appraiser" ? "#bbf7d0" : "#e5e7eb"}`, borderRadius: 10, padding: "10px 14px" }}>
+        <span style={{ fontSize: 13.5, fontWeight: 700, color: "#475569" }}>🏛️ Appraiser sq ft</span>
+        <input
+          type="text" inputMode="numeric" value={apprSqft}
+          onChange={(e) => applyAppraiser(e.target.value)}
+          placeholder="under-roof sqft"
+          style={{ width: 130, fontFamily: FONT, fontSize: 15, padding: "7px 10px", border: "1px solid #cbd5e1", borderRadius: 8 }}
+        />
+        <span style={{ fontSize: 12.5, color: "#94a3b8" }}>
+          {adj?.source === "appraiser" ? `→ ${adj.total} sq at ${r.avg_pitch_x12}/12 (overrides the read)` : "sum BAS + garage + porches → exact squares, any imagery"}
+        </span>
+      </div>
 
       <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 10 }}>{m.note}</div>
 
