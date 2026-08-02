@@ -156,19 +156,12 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange }) {
   const roofSqft = Math.round(roof);
   const squares = roof * sf(pitch) / 100;
   const r1 = (n) => Math.round(n * 10) / 10;
-  // straight-skeleton line takeoff. Skeleton EACH roof-height tier (grouped by the
-  // core/1-story label) SEPARATELY, so a lower wing isn't fused into the main roof
-  // — fusing was inventing phantom ridges. (Junction wall/step flashing is a later
-  // pass; for now each tier is its own hip roof and they abut.)
-  const skel = useMemo(() => {
-    if (!showLines || !regions.length || !ftPerPx) return null;
-    const groups = {};
-    for (const r of regions) (groups[r.label] = groups[r.label] || []).push(r);
-    const parts = Object.values(groups).map((g) => roofSkeleton(g, ftPerPx, parseFloat(pitch) || 6, overhang)).filter(Boolean);
-    if (!parts.length) return null;
-    const sum = (k) => Math.round(parts.reduce((s, p) => s + p[k], 0) * 10) / 10;
-    return { ridge: sum("ridge"), hip: sum("hip"), valley: sum("valley"), eave: sum("eave"), outlineFts: parts.map((p) => p.outlineFt), segsFt: parts.flatMap((p) => p.segsFt) };
-  }, [showLines, regions, ftPerPx, pitch, overhang]);
+  // straight-skeleton line takeoff — skeletons each region's CLEAN traced polygon
+  // (correct hip/valley/ridge classification; each region = one roof-height piece).
+  const skel = useMemo(
+    () => (showLines && regions.length && ftPerPx ? roofSkeleton(regions, ftPerPx, parseFloat(pitch) || 6) : null),
+    [showLines, regions, ftPerPx, pitch]
+  );
   const toPx = (p) => `${p.x / ftPerPx},${p.y / ftPerPx}`;   // feet → natural px for drawing
 
   const stroke = Math.max(nat.w, nat.h) / 400;   // scale line widths to image size

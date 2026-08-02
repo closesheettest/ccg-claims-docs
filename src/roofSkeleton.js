@@ -144,21 +144,29 @@ function skeletonOfOutline(polyIn, pitchX12, cell) {
   return { eave, ridge, hip, valley, segs };
 }
 
-// PUBLIC: regionsPx = [{pts:[{x,y}px]}], ftPerPx scales to feet. Returns line
-// totals (ft) + outline & segments in FEET for drawing.
-export function roofSkeleton(regionsPx, ftPerPx, pitchX12, overhangFt) {
-  const regionsFt = regionsPx.map((r) => r.pts.map((p) => ({ x: p.x * ftPerPx, y: p.y * ftPerPx })));
-  const pts = regionsFt.flat();
-  if (pts.length < 3 || !ftPerPx) return null;
-  let minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
-  for (const p of pts) { if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x; if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y; }
-  const cell = Math.max(0.2, Math.max(maxX - minX, maxY - minY) / 230);   // ~230 cells across, bounded
-  const outline = outlineFromMask(roofMask(regionsFt, overhangFt, cell));
-  if (outline.length < 3) return null;
-  const sk = skeletonOfOutline(outline, pitchX12, cell);
+// PUBLIC: regionsPx = [{pts:[{x,y}px]}], ftPerPx scales to feet. Skeletons EACH
+// region's CLEAN traced polygon directly (its corners are exact), so hip/valley/
+// ridge classification is reliable — re-rasterizing to an outline split corners
+// into staircase steps and mislabeled hips as ridges. Lines are wall-based (no
+// overhang here; ridge is overhang-invariant anyway, and the 2ft mostly lengthens
+// eaves/hips — a small separate correction, TODO). roofMask/outlineFromMask are
+// kept for a future union path. Returns totals (ft) + outlines & segments (ft).
+export function roofSkeleton(regionsPx, ftPerPx, pitchX12) {
+  if (!ftPerPx || !regionsPx || !regionsPx.length) return null;
+  let eave = 0, ridge = 0, hip = 0, valley = 0;
+  const segsFt = [], outlineFts = [];
+  for (const r of regionsPx) {
+    const poly = r.pts.map((p) => ({ x: p.x * ftPerPx, y: p.y * ftPerPx }));
+    if (poly.length < 3) continue;
+    let minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
+    for (const p of poly) { if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x; if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y; }
+    const cell = Math.max(0.2, Math.max(maxX - minX, maxY - minY) / 200);
+    const sk = skeletonOfOutline(poly, pitchX12, cell);
+    eave += sk.eave; ridge += sk.ridge; hip += sk.hip; valley += sk.valley;
+    segsFt.push(...sk.segs);
+    outlineFts.push(poly);
+  }
+  if (!outlineFts.length) return null;
   const r1 = (v) => Math.round(v * 10) / 10;
-  return {
-    eave: r1(sk.eave), ridge: r1(sk.ridge), hip: r1(sk.hip), valley: r1(sk.valley),
-    outlineFt: outline, segsFt: sk.segs,
-  };
+  return { eave: r1(eave), ridge: r1(ridge), hip: r1(hip), valley: r1(valley), outlineFt: outlineFts[0], outlineFts, segsFt };
 }
