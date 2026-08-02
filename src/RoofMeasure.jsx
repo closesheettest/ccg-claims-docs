@@ -179,9 +179,9 @@ function ResultCard({ d }) {
         <div style={{ fontSize: 16, fontWeight: 700 }}>{d.geocoded_as || d._addr}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {isAdj && <span style={{ fontSize: 11, fontWeight: 800, color: "#16a34a", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 999, padding: "3px 9px" }}>✏️ ADJUSTED</span>}
-          {d.confidence && (
-            <span style={{ fontSize: 11, fontWeight: 800, padding: "3px 9px", borderRadius: 999, whiteSpace: "nowrap", ...(d.confidence.level === "low" ? { color: "#b45309", background: "#fffbeb", border: "1px solid #fde68a" } : { color: "#15803d", background: "#f0fdf4", border: "1px solid #bbf7d0" }) }}>
-              {d.confidence.level === "low" ? "⚠️ CHECK" : "✓ CROSS-CHECKED"}
+          {d.confidence?.level === "low" && (
+            <span style={{ fontSize: 11, fontWeight: 800, padding: "3px 9px", borderRadius: 999, whiteSpace: "nowrap", color: "#b45309", background: "#fffbeb", border: "1px solid #fde68a" }}>
+              ⚠️ CHECK
             </span>
           )}
           <div style={{ fontSize: 12.5, color: "#64748b" }}>
