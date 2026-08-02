@@ -177,8 +177,10 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
   function finishSection() {
     const pts = ptsRef.current.slice();
     if (pts.length < 3) return;
-    L.polygon(pts.map((p) => [p.lat, p.lng]), { color: "#16a34a", weight: 2, fillColor: "#22c55e", fillOpacity: 0.35 }).addTo(drawLayerRef.current);
-    setSections((prev) => [...prev, { pts, area_m2: polygonAreaM2(pts) }]);
+    const flat = (+pitch) < 2.5;
+    // flat sections drawn in a blue tint so pitched vs flat reads at a glance
+    L.polygon(pts.map((p) => [p.lat, p.lng]), { color: flat ? "#0284c7" : "#16a34a", weight: 2, fillColor: flat ? "#38bdf8" : "#22c55e", fillOpacity: 0.35 }).addTo(drawLayerRef.current);
+    setSections((prev) => [...prev, { pts, area_m2: polygonAreaM2(pts), pitch: +pitch }]);
     cancelDraw();
   }
   function removeSection(idx) {
@@ -186,7 +188,7 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
     setSections(next);
     const g = drawLayerRef.current; if (!g) return;
     g.clearLayers();
-    next.forEach((s) => L.polygon(s.pts.map((p) => [p.lat, p.lng]), { color: "#16a34a", weight: 2, fillColor: "#22c55e", fillOpacity: 0.35 }).addTo(g));
+    next.forEach((s) => { const flat = (+s.pitch) < 2.5; L.polygon(s.pts.map((p) => [p.lat, p.lng]), { color: flat ? "#0284c7" : "#16a34a", weight: 2, fillColor: flat ? "#38bdf8" : "#22c55e", fillOpacity: 0.35 }).addTo(g); });
   }
 
   // ── buildings: tap to measure one precisely
@@ -220,11 +222,13 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
     setBuildings((prev) => prev.filter((b) => b.id !== id));
   }
 
-  // ── live math
-  const sf = slopeFactor(pitch);
-  const addedFootprintM2 = sections.reduce((a, s) => a + s.area_m2, 0);
-  const addedSurfaceSq = sq(addedFootprintM2 * sf);
-  const addedIsFlat = (+pitch) < 2.5;
+  // ── live math — each traced section is bucketed by ITS OWN pitch, so a roof
+  // with a pitched group AND a flat section is captured by drawing each part.
+  const curIsFlat = (+pitch) < 2.5; // classification the NEXT trace will get (for the UI hint)
+  const isFlatSec = (s) => (+s.pitch) < 2.5;
+  const secSurfaceSq = (s) => sq(s.area_m2 * slopeFactor(+s.pitch)); // flat sf ≈ 1
+  const addedSlopedSurfaceSq = sections.filter((s) => !isFlatSec(s)).reduce((a, s) => a + secSurfaceSq(s), 0);
+  const addedFlatSurfaceSq = sections.filter(isFlatSec).reduce((a, s) => a + secSurfaceSq(s), 0);
   const baseTotal = result?.roof?.surface_squares || 0;
   const baseSloped = result?.materials?.sloped || {};
   const baseFlat = result?.materials?.flat || {};
@@ -238,8 +242,8 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
   const bFlatM = buildings.reduce((a, b) => a + b.flat_m, 0);
   const bFlatO = buildings.reduce((a, b) => a + b.flat_o, 0);
 
-  const adjSlopedMeasured = replaceMode ? (addedIsFlat ? 0 : addedSurfaceSq) : (baseSloped.measured_squares || 0) + (addedIsFlat ? 0 : addedSurfaceSq);
-  const adjFlatMeasured = replaceMode ? (addedIsFlat ? addedSurfaceSq : 0) : (baseFlat.measured_squares || 0) + (addedIsFlat ? addedSurfaceSq : 0);
+  const adjSlopedMeasured = replaceMode ? addedSlopedSurfaceSq : (baseSloped.measured_squares || 0) + addedSlopedSurfaceSq;
+  const adjFlatMeasured = replaceMode ? addedFlatSurfaceSq : (baseFlat.measured_squares || 0) + addedFlatSurfaceSq;
   const adjSlopedOrder = adjSlopedMeasured * (1 + slopedWaste / 100);
   const adjFlatOrder = adjFlatMeasured * (1 + flatWaste / 100);
   const adjustedTotal = adjSlopedMeasured + adjFlatMeasured;
@@ -308,13 +312,21 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
           </div>
         ) : !drawing ? (
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-            <button onClick={startDraw} style={btn("#2563eb")}>✏️ {replaceMode ? "Trace the whole roof" : "Draw a missing section"}</button>
-            <label style={{ fontSize: 13, color: "#475569" }}>
-              Pitch for {replaceMode ? "roof" : "added"} area:&nbsp;
-              <input type="number" value={pitch} min={0} max={24} step={0.5} onChange={(e) => setPitch(e.target.value)}
-                style={{ width: 54, fontFamily: FONT, fontSize: 14, padding: "4px 6px", border: "1px solid #cbd5e1", borderRadius: 6 }} />
-              &nbsp;/12
-            </label>
+            <button onClick={startDraw} style={btn(curIsFlat ? "#0284c7" : "#2563eb")}>✏️ Draw a {curIsFlat ? "FLAT" : "PITCHED"} section</button>
+            {/* pitched vs flat — pick before drawing; a flat section counts as membrane/metal, not shingle */}
+            <button onClick={() => setPitch(result?.roof?.avg_pitch_x12 || 6)} style={seg(!curIsFlat)}>⌂ Pitched</button>
+            <button onClick={() => setPitch(0)} style={seg(curIsFlat)}>▭ Flat</button>
+            {!curIsFlat && (
+              <label style={{ fontSize: 13, color: "#475569" }}>
+                pitch&nbsp;
+                <input type="number" value={pitch} min={0} max={24} step={0.5} onChange={(e) => setPitch(e.target.value)}
+                  style={{ width: 54, fontFamily: FONT, fontSize: 14, padding: "4px 6px", border: "1px solid #cbd5e1", borderRadius: 6 }} />
+                &nbsp;/12
+              </label>
+            )}
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: curIsFlat ? "#0284c7" : "#16a34a" }}>
+              → counts as {curIsFlat ? "FLAT (membrane/metal)" : "SHINGLE"}
+            </span>
           </div>
         ) : (
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -329,12 +341,20 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
         {/* sections list (trace modes) */}
         {!buildMode && sections.length > 0 && (
           <div style={{ marginTop: 12 }}>
-            {sections.map((s, i) => (
+            {sections.map((s, i) => {
+              const flat = isFlatSec(s);
+              return (
               <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13.5, padding: "6px 0", borderBottom: "1px solid #f1f5f9" }}>
-                <span>Section {i + 1}: <b>{r2(sq(s.area_m2 * sf))} sq</b> <span style={{ color: "#94a3b8" }}>({Math.round(s.area_m2 * 10.7639)} sqft footprint)</span></span>
+                <span>
+                  <span style={{ display: "inline-block", width: 9, height: 9, borderRadius: 2, background: flat ? "#38bdf8" : "#22c55e", marginRight: 6 }} />
+                  Section {i + 1}: <b>{r2(secSurfaceSq(s))} sq</b>{" "}
+                  <span style={{ color: flat ? "#0284c7" : "#16a34a", fontWeight: 700 }}>{flat ? "flat" : `${s.pitch}/12`}</span>
+                  <span style={{ color: "#94a3b8" }}> · {Math.round(s.area_m2 * 10.7639)} sqft footprint</span>
+                </span>
                 <button onClick={() => removeSection(i)} style={btn("#dc2626", true)}>Remove</button>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -350,7 +370,8 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
           ) : (
             <>
               <Row label="Automated read" value={`${r2(baseTotal)} sq`} muted={replaceMode} />
-              <Row label={`${replaceMode ? "Your full trace" : "You added"} (${addedIsFlat ? "membrane" : "shingle"})`} value={`${replaceMode ? "" : "+ "}${r2(addedSurfaceSq)} sq`} accent="#16a34a" />
+              {addedSlopedSurfaceSq > 0 && <Row label={`${replaceMode ? "Traced" : "You added"} · pitched → shingle`} value={`${replaceMode ? "" : "+ "}${r2(addedSlopedSurfaceSq)} sq`} accent="#16a34a" />}
+              {addedFlatSurfaceSq > 0 && <Row label={`${replaceMode ? "Traced" : "You added"} · flat → membrane`} value={`${replaceMode ? "" : "+ "}${r2(addedFlatSurfaceSq)} sq`} accent="#0284c7" />}
               <Row label="Adjusted total" value={`${r2(adjustedTotal)} sq`} big />
               <div style={{ borderTop: "1px dashed #bae6fd", marginTop: 8, paddingTop: 8 }}>
                 {adjSlopedMeasured > 0 && <Row label={`Shingle order (w/ ${slopedWaste}% waste)`} value={`${r2(adjSlopedOrder)} sq`} accent="#2563eb" />}
@@ -362,7 +383,7 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
         <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 8 }}>
           {buildMode
             ? "Each building is measured on its own (squares + pitch). Sum only the ones you want. Nothing is saved."
-            : `Traced area is ${addedIsFlat ? "low-slope → membrane at 10%" : "sloped → shingle"} (by the pitch above). ${replaceMode ? "Redraw replaces the automated number." : "Add mode adds on top."} Nothing is saved.`}
+            : `Draw pitched and flat sections separately — each counts by its own pitch (flat → membrane/metal, sloped → shingle). ${replaceMode ? "Redraw replaces the automated number." : "Add mode adds on top."} Nothing is saved.`}
         </div>
       </div>
     </div>
