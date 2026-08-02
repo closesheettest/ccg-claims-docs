@@ -83,6 +83,7 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange }) {
   const [regions, setRegions] = useState([]);          // { id, label, pts:[{x,y}] }
   const [draft, setDraft] = useState([]);              // in-progress region corners
   const [hover, setHover] = useState(null);
+  const [showLines, setShowLines] = useState(false);   // roof lines only after you say you're done tracing
   const overhang = 2;   // STANDARD eave overhang, ft (wall → drip edge). Fixed, not editable — nobody judges it per house; 2ft is biased slightly high, the safe side for estimating.
   const wrapRef = useRef(null);
 
@@ -157,8 +158,8 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange }) {
   const r1 = (n) => Math.round(n * 10) / 10;
   // straight-skeleton line takeoff (ridge/hip/valley) from the drip-edge outline
   const skel = useMemo(
-    () => (regions.length && ftPerPx ? roofSkeleton(regions, ftPerPx, parseFloat(pitch) || 6, overhang) : null),
-    [regions, ftPerPx, pitch, overhang]
+    () => (showLines && regions.length && ftPerPx ? roofSkeleton(regions, ftPerPx, parseFloat(pitch) || 6, overhang) : null),
+    [showLines, regions, ftPerPx, pitch, overhang]
   );
   const toPx = (p) => `${p.x / ftPerPx},${p.y / ftPerPx}`;   // feet → natural px for drawing
 
@@ -188,6 +189,7 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange }) {
             {mode === "draw" && draft.length >= 3 && <button onClick={closeRegion} style={btn("#16a34a")}>✓ Close region</button>}
             <button onClick={undoLast} disabled={!draft.length && !regions.length} style={btn((!draft.length && !regions.length) ? "#94a3b8" : "#dc2626", true)}>{draft.length ? "↶ Undo point" : "↶ Undo region"}</button>
             <label style={{ ...btn("#64748b", true), display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>↺ Replace<input type="file" accept="image/*" onChange={onFile} style={{ display: "none" }} /></label>
+            <button onClick={() => setShowLines((v) => !v)} disabled={!regions.length} style={seg(showLines, !regions.length)}>📐 {showLines ? "Hide roof lines" : "Show roof lines (beta)"}</button>
           </div>
 
           {/* status line */}
