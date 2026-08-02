@@ -23,6 +23,25 @@ const shoelace = (pts) => { let a = 0; for (let i = 0; i < pts.length; i++) { co
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const centroid = (pts) => ({ x: pts.reduce((s, p) => s + p.x, 0) / pts.length, y: pts.reduce((s, p) => s + p.y, 0) / pts.length });
 
+// Read the roof's STRUCTURE from Google Solar's facets — the fusion sanity layer.
+// count = facet total; shape from azimuth spread (4 directions ≈ hip, 2 opposite ≈
+// gable → rakes); tiers from height gaps (2 = a story step, e.g. garage vs house).
+function summarizeFacets(facets) {
+  if (!facets || facets.length < 2) return null;
+  const count = facets.length;
+  const sloped = facets.filter((p) => p.pitch_x12 != null && p.pitch_x12 >= 2.5);
+  const flat = count - sloped.length;
+  const totalArea = sloped.reduce((s, p) => s + (p.area_m2 || 0), 0) || 1;
+  const oct = {};
+  for (const p of sloped) { if (p.azimuth_deg == null) continue; const k = ((Math.round(p.azimuth_deg / 45) % 8) + 8) % 8; oct[k] = (oct[k] || 0) + (p.area_m2 || 0); }
+  const dirCount = Object.values(oct).filter((a) => a > totalArea * 0.1).length;   // significant slope directions
+  const shape = dirCount >= 4 ? "hip" : dirCount <= 2 ? "gable" : "mixed";
+  const hs = sloped.map((p) => p.height_m).filter((h) => h != null).sort((a, b) => a - b);
+  let tiers = hs.length ? 1 : 0;
+  for (let i = 1; i < hs.length; i++) if (hs[i] - hs[i - 1] > 2) tiers++;            // >2 m gap = a roof-height step
+  return { count, flat, shape, tiers };
+}
+
 const pointInPoly = (x, y, pts) => {
   let inside = false;
   for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
@@ -73,7 +92,8 @@ function roofArea(regions, ftPerPx, overhangFt) {
   return { wall, roof: count * cellFt * cellFt };
 }
 
-export default function RoofRegionTracer({ pitch = 6, onPitchChange }) {
+export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets }) {
+  const facetInfo = useMemo(() => summarizeFacets(facets), [facets]);
   const [imgUrl, setImgUrl] = useState(null);
   const [nat, setNat] = useState({ w: 1, h: 1 });     // natural image px (resize-invariant)
   const [mode, setMode] = useState(null);              // 'scale' | 'draw' | null
@@ -174,6 +194,26 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange }) {
         <span style={{ fontSize: 11, fontWeight: 700, color: "#0369a1", background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 999, padding: "2px 8px" }}>EXACT SQUARES · ANY SHAPE</span>
         <span style={{ fontSize: 11.5, color: "#64748b" }}>set scale → draw each roofed region → exact footprint</span>
       </div>
+
+      {/* fusion sanity layer — what Google Solar sees, cross-checked against the trace */}
+      {facetInfo && (() => {
+        const traceTiers = new Set(regions.map((r) => r.label)).size;
+        const agree = regions.length > 0 && traceTiers === facetInfo.tiers;
+        return (
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", fontSize: 12.5, color: "#4c1d95", background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 10, padding: "8px 12px", margin: "6px 0 4px" }}>
+            <b style={{ color: "#6d28d9" }}>🛰️ Satellite cross-check</b>
+            <span><b>{facetInfo.count}</b> facets</span>
+            <span>· <b>{facetInfo.shape}</b>-roof{facetInfo.shape === "gable" ? " (expect rakes)" : ""}</span>
+            <span>· <b>{facetInfo.tiers}</b> roof-height tier{facetInfo.tiers > 1 ? "s" : ""}</span>
+            {facetInfo.flat > 0 && <span>· {facetInfo.flat} flat</span>}
+            {regions.length > 0 && (
+              <span style={{ marginLeft: "auto", fontWeight: 700, color: agree ? "#16a34a" : "#b45309" }}>
+                {agree ? `✓ your ${traceTiers} tier${traceTiers > 1 ? "s" : ""} match` : `⚠ you drew ${traceTiers} tier${traceTiers > 1 ? "s" : ""}, satellite sees ${facetInfo.tiers}`}
+              </span>
+            )}
+          </div>
+        );
+      })()}
 
       {!imgUrl ? (
         <label style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, height: 190, border: "2px dashed #cbd5e1", borderRadius: 12, cursor: "pointer", color: "#64748b", background: "#f8fafc" }}>
