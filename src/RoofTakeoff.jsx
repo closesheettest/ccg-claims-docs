@@ -1,0 +1,180 @@
+// DoorDispatcher — ROOF TAKEOFF (production/admin, ?mode=rooftakeoff). Office-only.
+//
+// The precise counterpart to the sales measure tool. An admin reads the roofed
+// sub-areas off the county appraiser sketch (base + garage + porch, as W×L
+// rectangles) and the pitch; this composes the roof and returns the full linear
+// takeoff — squares + ridge / hip / valley / eave / rake — and draws the roof so
+// they can eyeball it. Survey-grade areas + geometry = a material-order takeoff,
+// no per-county scraping and no imagery. Engine validated against Roofr.
+
+import React, { useState } from "react";
+
+const FONT = "'Oswald', system-ui, sans-serif";
+const sf = (x12) => Math.sqrt(1 + Math.pow((+x12 || 0) / 12, 2));
+
+// ── takeoff for one rectangle (feet). Ridge runs along the LONGER side.
+function rectRoof(w, l, x12, style) {
+  const W = Math.min(w, l), L = Math.max(w, l);
+  const p = (+x12 || 0) / 12;
+  if (style === "gable") {
+    return { ridge: L, hips: 0, valleys: 0, eaves: 2 * L, rakes: 2 * W * sf(x12), area: L * W * sf(x12) };
+  }
+  return { ridge: L - W, hips: 4 * (W / 2) * Math.sqrt(2 + p * p), valleys: 0, eaves: 2 * (L + W), rakes: 0, area: L * W * sf(x12) };
+}
+
+// ── line geometry (top-down) for a rectangle placed at (x0,y0), size w×h.
+function rectLines(x0, y0, w, h, style) {
+  const lines = [];
+  const eave = { type: "eave", pts: [[x0, y0], [x0 + w, y0], [x0 + w, y0 + h], [x0, y0 + h], [x0, y0]] };
+  const horiz = w >= h;                          // ridge runs along the longer axis
+  const half = Math.min(w, h) / 2;
+  if (style === "gable") {
+    if (horiz) lines.push({ type: "ridge", pts: [[x0, y0 + h / 2], [x0 + w, y0 + h / 2]] });
+    else lines.push({ type: "ridge", pts: [[x0 + w / 2, y0], [x0 + w / 2, y0 + h]] });
+  } else {                                        // hip
+    let a, b;
+    if (horiz) { a = [x0 + half, y0 + h / 2]; b = [x0 + w - half, y0 + h / 2]; }
+    else { a = [x0 + w / 2, y0 + half]; b = [x0 + w / 2, y0 + h - half]; }
+    lines.push({ type: "ridge", pts: [a, b] });
+    lines.push({ type: "hip", pts: [[x0, y0], a] });
+    lines.push({ type: "hip", pts: [[x0 + w, y0], horiz ? a : b] });
+    lines.push({ type: "hip", pts: [[x0, y0 + h], horiz ? b : a] });
+    lines.push({ type: "hip", pts: [[x0 + w, y0 + h], b] });
+  }
+  return { eave, lines };
+}
+
+const SIDES = { bottom: "Bottom", top: "Top", right: "Right", left: "Left" };
+
+export default function RoofTakeoff() {
+  const [pitch, setPitch] = useState(6);
+  const [main, setMain] = useState({ w: 54, l: 40, style: "hip" });
+  const [wings, setWings] = useState([{ span: 20, depth: 22, side: "bottom", offset: 30, style: "hip" }]);
+
+  const num = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
+  const setW = (i, k, v) => setWings((ws) => ws.map((w, j) => (j === i ? { ...w, [k]: v } : w)));
+
+  // ── place rectangles on a shared grid (main at origin) + collect lines
+  const rects = [{ x: 0, y: 0, w: num(main.w), h: num(main.l), style: main.style }];
+  wings.forEach((wg) => {
+    const span = num(wg.span), depth = num(wg.depth), off = num(wg.offset);
+    let r;
+    if (wg.side === "bottom") r = { x: off, y: num(main.l), w: span, h: depth };
+    else if (wg.side === "top") r = { x: off, y: -depth, w: span, h: depth };
+    else if (wg.side === "right") r = { x: num(main.w), y: off, w: depth, h: span };
+    else r = { x: -depth, y: off, w: depth, h: span };
+    rects.push({ ...r, style: wg.style });
+  });
+
+  // ── totals: sum each rectangle, add 2 valleys per wing (its slopes dying into main)
+  const t = { ridge: 0, hips: 0, valleys: 0, eaves: 0, rakes: 0, area: 0 };
+  const mainRoof = rectRoof(num(main.w), num(main.l), pitch, main.style);
+  for (const k in t) t[k] += mainRoof[k];
+  wings.forEach((wg) => {
+    const wr = rectRoof(num(wg.span), num(wg.depth), pitch, wg.style);
+    for (const k in t) t[k] += wr[k];
+    const p = (+pitch || 0) / 12;
+    t.valleys += 2 * (num(wg.span) / 2) * Math.sqrt(2 + p * p);   // wing meets main → 2 valleys
+    t.eaves -= num(wg.span);                                       // shared wall is not an eave
+  });
+  const squares = t.area / 100;
+  const r1 = (n) => Math.round(n * 10) / 10;
+
+  // ── SVG bounds
+  const xs = rects.flatMap((r) => [r.x, r.x + r.w]);
+  const ys = rects.flatMap((r) => [r.y, r.y + r.h]);
+  const minX = Math.min(...xs) - 6, maxX = Math.max(...xs) + 6, minY = Math.min(...ys) - 6, maxY = Math.max(...ys) + 6;
+  const geo = rects.map((r) => rectLines(r.x, r.y, r.w, r.h, r.style));
+  const col = { eave: "#0f172a", ridge: "#dc2626", hip: "#2563eb", valley: "#059669" };
+
+  return (
+    <div style={{ fontFamily: FONT, maxWidth: 1000, margin: "0 auto", padding: "24px 16px 80px", color: "#0f172a" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+        <span style={{ fontSize: 30 }}>📐</span>
+        <h1 style={{ fontSize: 26, fontWeight: 800, margin: 0 }}>Roof Takeoff</h1>
+        <span style={{ fontSize: 11, fontWeight: 700, color: "#7c3aed", background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 999, padding: "3px 9px" }}>PRODUCTION</span>
+      </div>
+      <p style={{ color: "#64748b", fontSize: 14, margin: "0 0 20px", maxWidth: "70ch" }}>
+        Read the roofed sections off the appraiser sketch (base + garage + porch, each W×L in feet) and set the pitch. This composes the roof and returns the full linear takeoff — exact, from the survey numbers.
+      </p>
+
+      {/* inputs */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 16 }}>
+        <div style={card}>
+          <div style={label}>Pitch</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input value={pitch} onChange={(e) => setPitch(e.target.value)} type="number" min={0} max={24} step={0.5} style={inp(80)} /> <span style={{ color: "#64748b" }}>/12</span>
+          </div>
+          <div style={{ ...label, marginTop: 16 }}>Main body (BAS)</div>
+          <div style={row}>
+            <L t="Width">{<input value={main.w} onChange={(e) => setMain({ ...main, w: e.target.value })} style={inp(70)} />}</L>
+            <L t="Length">{<input value={main.l} onChange={(e) => setMain({ ...main, l: e.target.value })} style={inp(70)} />}</L>
+            <L t="Style">{<select value={main.style} onChange={(e) => setMain({ ...main, style: e.target.value })} style={sel}><option value="hip">Hip</option><option value="gable">Gable</option></select>}</L>
+          </div>
+        </div>
+        <div style={card}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={label}>Wings (garage FGR, porch FOP…)</div>
+            <button onClick={() => setWings([...wings, { span: 16, depth: 8, side: "bottom", offset: 0, style: "hip" }])} style={btn("#2563eb", true)}>+ Add</button>
+          </div>
+          {wings.map((wg, i) => (
+            <div key={i} style={{ ...row, marginTop: 10, borderTop: "1px dashed #e5e7eb", paddingTop: 10 }}>
+              <L t="Span">{<input value={wg.span} onChange={(e) => setW(i, "span", e.target.value)} style={inp(56)} />}</L>
+              <L t="Depth">{<input value={wg.depth} onChange={(e) => setW(i, "depth", e.target.value)} style={inp(56)} />}</L>
+              <L t="Side">{<select value={wg.side} onChange={(e) => setW(i, "side", e.target.value)} style={sel}>{Object.entries(SIDES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>}</L>
+              <L t="Offset">{<input value={wg.offset} onChange={(e) => setW(i, "offset", e.target.value)} style={inp(56)} />}</L>
+              <button onClick={() => setWings(wings.filter((_, j) => j !== i))} style={{ ...btn("#dc2626", true), alignSelf: "end" }}>×</button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* result */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 18 }}>
+        <div style={card}>
+          <div style={label}>Takeoff</div>
+          <div style={{ fontSize: 38, fontWeight: 800, letterSpacing: "-.02em", margin: "4px 0 2px" }}>{r1(squares)} <span style={{ fontSize: 16, color: "#64748b", fontWeight: 600 }}>squares</span></div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14, marginTop: 8 }}>
+            <tbody>
+              {[["Ridge", t.ridge, col.ridge], ["Hips", t.hips, col.hip], ["Valleys", t.valleys, col.valley], ["Eaves", t.eaves, col.eave], ["Rakes", t.rakes, "#b45309"]].map(([n, v, c]) => (
+                <tr key={n} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                  <td style={{ padding: "7px 0" }}><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: c, marginRight: 8 }} />{n}</td>
+                  <td style={{ padding: "7px 0", textAlign: "right", fontFamily: "ui-monospace,monospace", fontWeight: 700 }}>{r1(v)} ft</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 8 }}>Wings add 2 valleys each at the junction. Enter the drip-edge dimensions (add overhang) for order-ready numbers.</div>
+        </div>
+        <div style={card}>
+          <div style={label}>Roof</div>
+          <svg viewBox={`${minX} ${minY} ${maxX - minX} ${maxY - minY}`} style={{ width: "100%", height: 300, background: "#f8fafc", borderRadius: 8, marginTop: 6 }} preserveAspectRatio="xMidYMid meet">
+            {geo.map((g, gi) => (
+              <g key={gi}>
+                <polyline points={g.eave.pts.map((p) => p.join(",")).join(" ")} fill="rgba(37,99,235,.05)" stroke={col.eave} strokeWidth={0.7} />
+                {g.lines.map((ln, li) => (
+                  <polyline key={li} points={ln.pts.map((p) => p.join(",")).join(" ")} fill="none" stroke={col[ln.type]} strokeWidth={ln.type === "ridge" ? 1.1 : 0.9} />
+                ))}
+              </g>
+            ))}
+          </svg>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 11.5, marginTop: 6, color: "#64748b" }}>
+            <span><b style={{ color: col.ridge }}>—</b> ridge</span><span><b style={{ color: col.hip }}>—</b> hip</span><span><b style={{ color: col.valley }}>—</b> valley</span><span><b style={{ color: col.eave }}>—</b> eave</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function L({ t, children }) {
+  return <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", color: "#64748b" }}>{t}{children}</label>;
+}
+const card = { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14, padding: 16 };
+const label = { fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", color: "#64748b", marginBottom: 6 };
+const row = { display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" };
+const inp = (w) => ({ width: w, fontFamily: FONT, fontSize: 15, padding: "7px 9px", border: "1px solid #cbd5e1", borderRadius: 8 });
+const sel = { fontFamily: FONT, fontSize: 14, padding: "7px 8px", border: "1px solid #cbd5e1", borderRadius: 8 };
+function btn(color, outline) {
+  return { fontFamily: FONT, fontSize: 13, fontWeight: 700, color: outline ? color : "#fff", background: outline ? "#fff" : color, border: `1px solid ${color}`, borderRadius: 8, padding: "6px 12px", cursor: "pointer" };
+}

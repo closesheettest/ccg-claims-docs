@@ -29,6 +29,7 @@ import PaReschedule from "./PaReschedule";
 import InspectionMap from "./InspectionMap";
 import InspectorLinks from "./InspectorLinks";
 import RoofMeasure from "./RoofMeasure";
+import RoofTakeoff from "./RoofTakeoff";
 import InspectionVisitReport from "./InspectionVisitReport";
 import HarvestHowTo from "./HarvestHowTo";
 import HarvestHowToAdmin from "./HarvestHowToAdmin";
@@ -4459,6 +4460,7 @@ const MANAGER_TILES = [
   { group: "harvest", module: "inspection", key: "inspector_links", emoji: "🔗", label: "Inspector Links", desc: "Each active inspector's personal map link, to hand out.", href: "/?mode=inspectorlinks" },
   { group: "harvest", module: "inspection", key: "inspect_report", emoji: "📊", label: "Inspector Activity (live)", desc: "Pin-by-pin timestamps + GPS from the Inspection Map: each inspector's roofs per day, arrival/completion times, and real miles between stops.", href: "/?mode=inspectvisitreport" },
   { group: "harvest", module: "roofmeasure", key: "roof_measure", emoji: "📐", label: "Roof Measurement", desc: "Spot-check any address for a satellite roof measurement: total squares, pitch, and the flat/sloped material split with waste applied. Type an address and see how it looks — nothing is saved.", href: "/?mode=roofmeasure" },
+  { group: "harvest", module: "roofmeasure", key: "roof_takeoff", emoji: "📐", label: "Roof Takeoff (production)", desc: "Precise material takeoff for a sold job: enter the appraiser sub-areas (base + garage + porch) and pitch; it composes the roof and returns squares + ridge/hip/valley/eave/rake, with a diagram.", href: "/?mode=rooftakeoff" },
   // ── Installs module (production tracking) ──
   { group: "harvest", module: "installs", key: "foreman_links", emoji: "🔗", label: "Jobsite Foreman Links", desc: "Each foreman's personal link — hand out so installs are tracked the same way we track reps.", href: "/?mode=foremanlinks" },
   { group: "harvest", module: "installs", key: "installs_map", emoji: "🗺️", label: "Map", desc: "Live map of current installs, colored by jobsite foreman.", href: "/?mode=installs" },
@@ -9557,6 +9559,10 @@ export default function App() {
     // ?mode=roofmeasure — office spot-check: satellite roof measurement (Google Solar).
     if (portalMode === "roofmeasure") {
       return <RoofMeasure />;
+    }
+    // ?mode=rooftakeoff — production takeoff: sub-area rectangles → linear takeoff.
+    if (portalMode === "rooftakeoff") {
+      return <RoofTakeoff />;
     }
     // ?mode=inspectvisitreport — inspector activity from the real visit log (pin-by-pin times).
     if (portalMode === "inspectvisitreport") {
