@@ -9,6 +9,7 @@
 
 import React, { useState } from "react";
 import { appraiserFor } from "./flAppraisers";
+import RoofSketchTracer from "./RoofSketchTracer";
 
 const FONT = "'Oswald', system-ui, sans-serif";
 const sf = (x12) => Math.sqrt(1 + Math.pow((+x12 || 0) / 12, 2));
@@ -58,6 +59,12 @@ export default function RoofTakeoff() {
 
   const num = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
   const setW = (i, k, v) => setWings((ws) => ws.map((w, j) => (j === i ? { ...w, [k]: v } : w)));
+
+  // trace → fills the same fields the typed tool uses (side + offset from the trace)
+  function applyTrace({ main: m, wings: wg }) {
+    setMain({ w: m.w, l: m.l, style: m.style });
+    setWings(wg.length ? wg : []);
+  }
 
   async function lookup() {
     const a = address.trim(); if (!a || looking) return;
@@ -133,7 +140,7 @@ export default function RoofTakeoff() {
         <span style={{ fontSize: 11, fontWeight: 700, color: "#7c3aed", background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 999, padding: "3px 9px" }}>PRODUCTION</span>
       </div>
       <p style={{ color: "#64748b", fontSize: 14, margin: "0 0 20px", maxWidth: "70ch" }}>
-        Read the roofed sections off the appraiser sketch (base + garage + porch, each W×L in feet) and set the pitch. This composes the roof and returns the full linear takeoff — exact, from the survey numbers.
+        Paste the county sketch, tap each roofed box on top of it, and type the two edge lengths printed on the drawing — the side & offset are read from your trace. (Or type the sections by hand below.) This composes the roof and returns the full linear takeoff — exact, from the survey numbers.
       </p>
 
       {/* address lookup — pulls independent numbers to pre-fill the pitch and cross-check the entry */}
@@ -161,7 +168,11 @@ export default function RoofTakeoff() {
         );
       })()}
 
-      {/* inputs */}
+      {/* trace the sketch → fills the fields below (side + offset inferred from the trace) */}
+      <RoofSketchTracer onApply={applyTrace} />
+
+      {/* inputs — the source of truth; the trace fills them, tweak here if needed */}
+      <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", color: "#64748b", margin: "4px 0 8px" }}>Sections (from your trace — edit if needed)</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 16 }}>
         <div style={card}>
           <div style={label}>Pitch</div>
