@@ -270,8 +270,8 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets, ove
           )}
 
           {/* sketch + overlay */}
-          <div ref={wrapRef} onClick={onClick} onMouseMove={onMove} style={{ position: "relative", lineHeight: 0, borderRadius: 10, overflow: "hidden", border: "1px solid #e5e7eb", cursor: mode ? "crosshair" : "default", userSelect: "none" }}>
-            <img src={imgUrl} onLoad={onImgLoad} alt="appraiser sketch" style={{ width: "100%", display: "block", pointerEvents: "none" }} />
+          <div ref={wrapRef} onClick={onClick} onMouseMove={onMove} style={{ position: "relative", lineHeight: 0, borderRadius: 10, overflow: "hidden", border: "1px solid #e5e7eb", cursor: mode ? "crosshair" : "default", userSelect: "none", width: "fit-content", maxWidth: "100%", margin: "0 auto" }}>
+            <img src={imgUrl} onLoad={onImgLoad} alt="appraiser sketch" style={{ maxHeight: "70vh", maxWidth: "100%", width: "auto", display: "block", pointerEvents: "none" }} />
             <svg viewBox={`0 0 ${nat.w} ${nat.h}`} width="100%" height="100%" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
               {/* closed regions */}
               {regions.map((r, i) => {
