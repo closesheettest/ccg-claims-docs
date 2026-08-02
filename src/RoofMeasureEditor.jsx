@@ -34,6 +34,40 @@ function polygonAreaM2(pts) {
 const slopeFactor = (x12) => Math.sqrt(1 + Math.pow((+x12 || 0) / 12, 2));
 const sq = (m2) => m2 / SQ_M_PER_SQUARE;
 const r2 = (n) => Math.round(n * 100) / 100;
+
+// Orthogonalize a traced polygon — nudge every corner toward a right angle so a
+// roughly-drawn outline snaps square (roofs are rectilinear). Iterative method
+// (à la iD editor): each vertex moves along the bisector of its two edges,
+// scaled by how far off 90° it is; converges for near-rectangular shapes.
+function squareUp(latlngs) {
+  const n = latlngs.length;
+  if (n < 4) return latlngs;
+  const lat0 = latlngs.reduce((a, p) => a + p.lat, 0) / n;
+  const mLat = 110540, mLng = 111320 * Math.cos((lat0 * Math.PI) / 180);
+  let P = latlngs.map((p) => [p.lng * mLng, p.lat * mLat]);
+  const sub = (a, b) => [a[0] - b[0], a[1] - b[1]];
+  const add = (a, b) => [a[0] + b[0], a[1] + b[1]];
+  const len = (v) => Math.hypot(v[0], v[1]);
+  const norm = (v) => { const l = len(v) || 1; return [v[0] / l, v[1] / l]; };
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1];
+  const scaleV = (v, s) => [v[0] * s, v[1] * s];
+  for (let iter = 0; iter < 1000; iter++) {
+    let maxM = 0;
+    const motions = P.map((b, i) => {
+      const a = P[(i - 1 + n) % n], c = P[(i + 1) % n];
+      let p = sub(a, b), q = sub(c, b);
+      const s = Math.min(len(p), len(q));
+      p = norm(p); q = norm(q);
+      const dp = dot(p, q);
+      const m = scaleV(norm(add(p, q)), dp * s * 0.5);
+      maxM = Math.max(maxM, len(m));
+      return m;
+    });
+    for (let i = 0; i < n; i++) P[i] = add(P[i], motions[i]);
+    if (maxM < 1e-4) break;
+  }
+  return P.map(([x, y]) => ({ lng: x / mLng, lat: y / mLat }));
+}
 const vertexIcon = () => L.divIcon({ className: "", html: '<div style="width:13px;height:13px;border-radius:50%;background:#f59e0b;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.6)"></div>', iconSize: [13, 13], iconAnchor: [7, 7] });
 
 export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
@@ -134,6 +168,7 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
 
   function startDraw() { drawingRef.current = true; setDrawing(true); ptsRef.current = []; setPtCount(0); redrawActive(); }
   function undoPoint() { ptsRef.current = ptsRef.current.slice(0, -1); setPtCount(ptsRef.current.length); redrawActive(); }
+  function squareTrace() { if (ptsRef.current.length < 4) return; ptsRef.current = squareUp(ptsRef.current); redrawActive(); }
   function cancelDraw() {
     drawingRef.current = false; setDrawing(false); ptsRef.current = []; setPtCount(0);
     if (activePolyRef.current) { activePolyRef.current.remove(); activePolyRef.current = null; }
@@ -283,7 +318,8 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
           </div>
         ) : (
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            <span style={{ fontSize: 13, color: "#b45309", fontWeight: 700 }}>Tap corners, then drag any point to adjust ({ptCount})</span>
+            <span style={{ fontSize: 13, color: "#b45309", fontWeight: 700 }}>Tap corners, drag to adjust, then square up ({ptCount})</span>
+            <button onClick={squareTrace} disabled={ptCount < 4} style={btn(ptCount < 4 ? "#94a3b8" : "#7c3aed")}>◻ Square up</button>
             <button onClick={finishSection} disabled={ptCount < 3} style={btn(ptCount < 3 ? "#94a3b8" : "#16a34a")}>Finish section</button>
             <button onClick={undoPoint} disabled={!ptCount} style={btn("#64748b", true)}>Undo point</button>
             <button onClick={cancelDraw} style={btn("#64748b", true)}>Cancel</button>
