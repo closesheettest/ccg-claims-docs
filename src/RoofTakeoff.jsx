@@ -8,6 +8,7 @@
 // no per-county scraping and no imagery. Engine validated against Roofr.
 
 import React, { useState } from "react";
+import { appraiserFor } from "./flAppraisers";
 
 const FONT = "'Oswald', system-ui, sans-serif";
 const sf = (x12) => Math.sqrt(1 + Math.pow((+x12 || 0) / 12, 2));
@@ -64,7 +65,7 @@ export default function RoofTakeoff() {
     try {
       const d = await fetch("/.netlify/functions/harvest-roof-report", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address: a }) }).then((r) => r.json());
       if (d.ok) {
-        setRef({ sat: d.roof?.surface_squares, pitch: d.roof?.avg_pitch_x12, living: d.appraiser?.living_sqft, fema: d.confidence?.fema_sqft, imagery: d.imagery?.quality, addr: d.geocoded_as });
+        setRef({ sat: d.roof?.surface_squares, pitch: d.roof?.avg_pitch_x12, living: d.appraiser?.living_sqft, fema: d.confidence?.fema_sqft, imagery: d.imagery?.quality, addr: d.geocoded_as, county: d.county });
         if (d.roof?.avg_pitch_x12) setPitch(d.roof.avg_pitch_x12);   // pre-fill the pitch we trust
       } else setRef({ error: d.error || "no data" });
     } catch { setRef({ error: "lookup failed" }); }
@@ -141,19 +142,24 @@ export default function RoofTakeoff() {
         <input value={address} onChange={(e) => setAddress(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") lookup(); }} placeholder="4333 Cheval Blvd, Lutz, FL" style={{ ...inp(280), flex: "1 1 220px" }} />
         <button onClick={lookup} disabled={looking || !address.trim()} style={btn(looking || !address.trim() ? "#94a3b8" : "#2563eb")}>{looking ? "…" : "Look up"}</button>
       </div>
-      {ref && !ref.error && (
+      {ref && !ref.error && (() => {
+        const appr = appraiserFor(ref.county); // [displayName, searchUrl] or null
+        const href = appr ? appr[1] : `https://www.google.com/search?q=${encodeURIComponent((ref.addr || address) + " property appraiser building sketch")}`;
+        const label = appr ? `🏛️ ${appr[0]} appraiser ↗` : "🏛️ Find appraiser sketch ↗";
+        return (
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center", fontSize: 13, color: "#475569", background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 10, padding: "10px 14px", marginBottom: 16 }}>
           <span>Reference for <b>{ref.addr}</b>:</span>
           <span>satellite <b>{ref.sat} sq</b> ({ref.imagery})</span>
           {ref.living != null && <span>· county living <b>{ref.living} sqft</b></span>}
           {ref.fema != null && <span>· FEMA footprint <b>{ref.fema} sqft</b></span>}
           <span>· pitch pre-filled to <b>{ref.pitch}/12</b></span>
-          <a href={`https://www.google.com/search?q=${encodeURIComponent((ref.addr || address) + " property appraiser building sketch")}`} target="_blank" rel="noreferrer"
+          <a href={href} target="_blank" rel="noreferrer" title={appr ? `Opens ${appr[0]}'s property search — search the address, then open Building Sketch` : "County not mapped — falls back to a web search"}
             style={{ marginLeft: "auto", fontFamily: FONT, fontSize: 13, fontWeight: 700, color: "#fff", background: "#7c3aed", border: "none", borderRadius: 8, padding: "8px 14px", cursor: "pointer", textDecoration: "none", whiteSpace: "nowrap" }}>
-            🏛️ Open appraiser sketch ↗
+            {label}
           </a>
         </div>
-      )}
+        );
+      })()}
 
       {/* inputs */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 16 }}>

@@ -116,7 +116,10 @@ async function geocode(address) {
     throw new Error(`Geocode failed: ${d.status || r.status}${d.error_message ? ` — ${d.error_message}` : ""}`);
   }
   const loc = d.results[0].geometry.location;
-  return { lat: loc.lat, lng: loc.lng, formatted: d.results[0].formatted_address };
+  const comps = d.results[0].address_components || [];
+  const cc = comps.find((c) => (c.types || []).includes("administrative_area_level_2"));
+  const county = cc ? cc.long_name : null; // e.g. "Pasco County"
+  return { lat: loc.lat, lng: loc.lng, formatted: d.results[0].formatted_address, county };
 }
 
 // Ask Solar for the closest building. requiredQuality is a MINIMUM — try HIGH
@@ -150,11 +153,12 @@ export const handler = async (event) => {
   let lng = body.lng != null ? +body.lng : null;
   const address = String(body.address || "").trim();
   let formatted = null;
+  let county = null;
 
   try {
     if ((lat == null || lng == null) && address) {
       const g = await geocode(address);
-      lat = g.lat; lng = g.lng; formatted = g.formatted;
+      lat = g.lat; lng = g.lng; formatted = g.formatted; county = g.county;
     }
     if (lat == null || lng == null) return json(400, { ok: false, error: "address or lat/lng required" });
 
@@ -275,6 +279,7 @@ export const handler = async (event) => {
       source: "satellite",
       input: address || `${lat},${lng}`,
       geocoded_as: formatted,
+      county,
       location: { lat, lng },
       appraiser,
       confidence,
