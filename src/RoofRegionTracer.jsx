@@ -92,7 +92,7 @@ function roofArea(regions, ftPerPx, overhangFt) {
   return { wall, roof: count * cellFt * cellFt };
 }
 
-export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets }) {
+export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets, overhang = 2 }) {
   const facetInfo = useMemo(() => summarizeFacets(facets), [facets]);
   const [imgUrl, setImgUrl] = useState(null);
   const [nat, setNat] = useState({ w: 1, h: 1 });     // natural image px (resize-invariant)
@@ -107,7 +107,6 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets }) {
   const [markRakes, setMarkRakes] = useState(false);   // tag perimeter edges as rakes
   const [rakeSet, setRakeSet] = useState(() => new Set()); // outline edge indices that are rakes
   useEffect(() => { setRakeSet(new Set()); }, [regions]);  // edge indices shift when the footprint changes
-  const overhang = 2;   // STANDARD eave overhang, ft (wall → drip edge). Fixed, not editable — nobody judges it per house; 2ft is biased slightly high, the safe side for estimating.
   const wrapRef = useRef(null);
 
   // paste a screenshot of the sketch
@@ -356,7 +355,7 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets }) {
               <span style={{ fontSize: 18, color: "#94a3b8" }}>+</span>
               <div>
                 <div style={stat}>Overhang</div>
-                <div style={{ fontSize: 18, fontWeight: 800 }}>2 <span style={unit}>ft</span> <span style={{ fontSize: 9.5, fontWeight: 700, color: "#94a3b8", letterSpacing: ".06em" }}>STD</span></div>
+                <div style={{ fontSize: 18, fontWeight: 800 }}>{overhang} <span style={unit}>ft</span> <span style={{ fontSize: 9.5, fontWeight: 700, color: +overhang === 2 ? "#94a3b8" : "#16a34a", letterSpacing: ".06em" }}>{+overhang === 2 ? "STD" : "MEAS"}</span></div>
               </div>
               <span style={{ fontSize: 18, color: "#94a3b8" }}>→</span>
               <div>

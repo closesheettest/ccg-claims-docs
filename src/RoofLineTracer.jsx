@@ -16,10 +16,12 @@ const FONT = "'Oswald', system-ui, sans-serif";
 const COL = { ridge: "#dc2626", hip: "#2563eb", valley: "#059669" };
 const M_TO_FT = 3.28084;
 
-export default function RoofLineTracer({ lat, lng, pitch = 8 }) {
-  const [mode, setMode] = useState(null);         // 'ridge' | 'hip' | 'valley'
+export default function RoofLineTracer({ lat, lng, pitch = 8, overhang, onOverhang }) {
+  const [mode, setMode] = useState(null);         // 'ridge' | 'hip' | 'valley' | 'overhang'
   const [lines, setLines] = useState([]);         // [{id,type,a:{lat,lng},b:{lat,lng}}]
   const [pending, setPending] = useState(null);   // first click of a line segment
+  const [ovLine, setOvLine] = useState(null);     // overhang measurement line (eave→eave)
+  const [wallFt, setWallFt] = useState("");       // the matching wall length off the sketch
   const mapEl = useRef(null);
   const mapRef = useRef(null);
   const drawRef = useRef(null);
@@ -56,6 +58,7 @@ export default function RoofLineTracer({ lat, lng, pitch = 8 }) {
     if (!st.mode) return;
     const p = snap(e.latlng);
     if (!st.pending) { setPending(p); return; }   // first click
+    if (st.mode === "overhang") { setOvLine({ a: st.pending, b: p }); setPending(null); setMode(null); return; }
     setLines((ls) => [...ls, { id: `${ls.length}_${Date.now() % 1e6}`, type: st.mode, a: st.pending, b: p }]);
     setPending(null);
   }
@@ -65,8 +68,9 @@ export default function RoofLineTracer({ lat, lng, pitch = 8 }) {
     const g = drawRef.current; if (!g) return;
     g.clearLayers();
     lines.forEach((s) => { L.polyline([[s.a.lat, s.a.lng], [s.b.lat, s.b.lng]], { color: COL[s.type], weight: 4 }).addTo(g); });
+    if (ovLine) L.polyline([[ovLine.a.lat, ovLine.a.lng], [ovLine.b.lat, ovLine.b.lng]], { color: "#7c3aed", weight: 3, dashArray: "6,5" }).addTo(g);
     if (pending) L.circleMarker([pending.lat, pending.lng], { radius: 5, color: "#f59e0b", fillColor: "#f59e0b", fillOpacity: 1 }).addTo(g);
-  }, [lines, pending]);
+  }, [lines, pending, ovLine]);
 
   function pickMode(mo) { setMode(mo); setPending(null); }
   function undo() { if (pending) { setPending(null); return; } if (lines.length) setLines((ls) => ls.slice(0, -1)); }
@@ -79,6 +83,9 @@ export default function RoofLineTracer({ lat, lng, pitch = 8 }) {
   const sum = (t, f) => lines.filter((s) => s.type === t).reduce((a, s) => a + segFt(s) * f, 0);
   const ridge = sum("ridge", 1), hip = sum("hip", hipF), valley = sum("valley", hipF);
   const r1 = (n) => Math.round(n * 10) / 10;
+  // measured overhang = (roof width from the photo − wall length from the sketch) / 2
+  const roofWidthFt = ovLine ? L.latLng(ovLine.a.lat, ovLine.a.lng).distanceTo(L.latLng(ovLine.b.lat, ovLine.b.lng)) * M_TO_FT : null;
+  const measuredOh = (roofWidthFt != null && parseFloat(wallFt) > 0) ? (roofWidthFt - parseFloat(wallFt)) / 2 : null;
 
   if (lat == null || lng == null) {
     return <div style={{ ...card, color: "#64748b", fontSize: 13 }}>Look up an address above to load the satellite photo for line tracing.</div>;
@@ -96,10 +103,29 @@ export default function RoofLineTracer({ lat, lng, pitch = 8 }) {
         <button onClick={() => pickMode("ridge")} style={seg(mode === "ridge", COL.ridge)}>▬ Ridge</button>
         <button onClick={() => pickMode("hip")} style={seg(mode === "hip", COL.hip)}>╱ Hip</button>
         <button onClick={() => pickMode("valley")} style={seg(mode === "valley", COL.valley)}>╲ Valley</button>
+        <button onClick={() => { setMode("overhang"); setPending(null); }} style={seg(mode === "overhang", "#7c3aed")}>◳ Measure overhang</button>
         <button onClick={undo} style={btn("#dc2626", true)}>↶ Undo</button>
         <button onClick={clearAll} style={btn("#64748b", true)}>Clear</button>
-        {mode && <span style={{ fontSize: 12.5, fontWeight: 700, color: "#b45309" }}>{pending ? "click the OTHER end of the line" : `click one end of a ${mode}`}</span>}
+        {mode && mode !== "overhang" && <span style={{ fontSize: 12.5, fontWeight: 700, color: "#b45309" }}>{pending ? "click the OTHER end of the line" : `click one end of a ${mode}`}</span>}
       </div>
+
+      {/* measured overhang: draw eave→eave across a wall you know, type its length, apply */}
+      {(mode === "overhang" || ovLine) && (
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 8, background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 8, padding: "8px 12px", fontSize: 13 }}>
+          <b style={{ color: "#6d28d9" }}>◳ Overhang</b>
+          {!ovLine ? (
+            <span style={{ color: "#b45309", fontWeight: 700 }}>{pending ? "click the OTHER eave" : "draw a line across the house — eave to eave, over a wall whose length is on the sketch"}</span>
+          ) : (
+            <>
+              <span>roof width <b>{roofWidthFt.toFixed(1)} ft</b></span>
+              <label style={{ color: "#475569" }}>− sketch wall <input value={wallFt} onChange={(e) => setWallFt(e.target.value)} inputMode="decimal" placeholder="44" style={{ width: 56, fontFamily: FONT, fontSize: 14, padding: "5px 7px", border: "1px solid #cbd5e1", borderRadius: 7 }} /> ft</label>
+              {measuredOh != null && <span>= overhang <b style={{ color: measuredOh >= 0 && measuredOh < 4 ? "#16a34a" : "#dc2626" }}>{measuredOh.toFixed(2)} ft</b></span>}
+              {measuredOh != null && measuredOh >= 0 && measuredOh < 4 && <button onClick={() => onOverhang && onOverhang(Math.round(measuredOh * 100) / 100)} style={btn("#16a34a")}>Use this overhang</button>}
+              <button onClick={() => { setOvLine(null); setWallFt(""); }} style={btn("#64748b", true)}>redo</button>
+            </>
+          )}
+        </div>
+      )}
 
       <div ref={mapEl} style={{ width: "100%", height: 460, borderRadius: 10, overflow: "hidden", border: "1px solid #e5e7eb", cursor: mode ? "crosshair" : "grab" }} />
 
