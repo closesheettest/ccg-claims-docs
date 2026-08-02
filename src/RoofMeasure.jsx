@@ -179,11 +179,22 @@ function ResultCard({ d }) {
         <div style={{ fontSize: 16, fontWeight: 700 }}>{d.geocoded_as || d._addr}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {isAdj && <span style={{ fontSize: 11, fontWeight: 800, color: "#16a34a", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 999, padding: "3px 9px" }}>✏️ ADJUSTED</span>}
+          {d.confidence && (
+            <span style={{ fontSize: 11, fontWeight: 800, padding: "3px 9px", borderRadius: 999, whiteSpace: "nowrap", ...(d.confidence.level === "low" ? { color: "#b45309", background: "#fffbeb", border: "1px solid #fde68a" } : { color: "#15803d", background: "#f0fdf4", border: "1px solid #bbf7d0" }) }}>
+              {d.confidence.level === "low" ? "⚠️ CHECK" : "✓ CROSS-CHECKED"}
+            </span>
+          )}
           <div style={{ fontSize: 12.5, color: "#64748b" }}>
             Imagery: <b style={{ color: qColor(d.imagery?.quality) }}>{d.imagery?.quality || "—"}</b> · {fmtDate(d.imagery?.date)}
           </div>
         </div>
       </div>
+
+      {d.confidence?.level === "low" && (
+        <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 10, padding: "9px 13px", marginBottom: 14, fontSize: 13, color: "#92400e" }}>
+          ⚠️ <b>Low confidence</b> — the satellite footprint and the independent building outline disagree by {d.confidence.delta_pct}%. Google likely grabbed the wrong or partial building. Verify with the map (Buildings mode / trace) or the appraiser sq ft below.
+        </div>
+      )}
 
       {/* Top-line numbers */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 14, marginBottom: 18 }}>

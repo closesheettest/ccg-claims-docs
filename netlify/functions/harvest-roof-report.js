@@ -36,6 +36,9 @@ const GEOCODE = "https://maps.googleapis.com/maps/api/geocode/json";
 const SOLAR = "https://solar.googleapis.com/v1/buildingInsights:findClosest";
 
 const SQ_M_PER_SQUARE = 9.290304;   // 100 sq ft in m²
+// Calibration: our satellite footprint runs ~4.5% under Roofr across 72 measured
+// roofs (the effective wall→drip-edge gap). ×1.045 centers our numbers on Roofr.
+const CAL = 1.045;
 const R2D = 180 / Math.PI;
 
 const json = (code, obj) => ({
@@ -78,6 +81,30 @@ async function fetchLivingArea(lat, lng) {
     const a = (await r.json())?.features?.[0]?.attributes;
     if (!a || !a.TOT_LVG_AR) return null;
     return { living_sqft: Math.round(a.TOT_LVG_AR), land_sqft: a.LND_SQFOOT || null, year_built: a.ACT_YR_BLT || null, buildings: a.NO_BULDNG || null };
+  } catch { return null; }
+}
+
+// FEMA "USA Structures" — an independent, imagery-derived roof-outline footprint
+// (nationwide). We use it only to CROSS-CHECK the satellite read: if the two
+// footprints disagree a lot, the satellite likely grabbed the wrong/partial
+// building. Returns footprint sq ft, or null.
+async function fetchFemaFootprintSqft(lat, lng) {
+  try {
+    const params = new URLSearchParams({
+      geometry: JSON.stringify({ x: lng, y: lat, spatialReference: { wkid: 4326 } }),
+      geometryType: "esriGeometryPoint", inSR: "4326", outSR: "4326",
+      spatialRel: "esriSpatialRelIntersects", returnGeometry: "true", outFields: "", f: "json",
+    });
+    const r = await fetch(`https://services2.arcgis.com/FiaPA4ga0iQKduv3/ArcGIS/rest/services/USA_Structures_View/FeatureServer/0/query?${params}`);
+    const ring = (await r.json())?.features?.[0]?.geometry?.rings?.[0];
+    if (!ring || ring.length < 4) return null;
+    const mLat = 110540, mLng = 111320 * Math.cos((lat * Math.PI) / 180);
+    let a = 0;
+    for (let i = 0; i < ring.length - 1; i++) {
+      const x1 = ring[i][0] * mLng, y1 = ring[i][1] * mLat, x2 = ring[i + 1][0] * mLng, y2 = ring[i + 1][1] * mLat;
+      a += x1 * y2 - x2 * y1;
+    }
+    return Math.round((Math.abs(a) / 2) * 10.7639);
   } catch { return null; }
 }
 
@@ -162,8 +189,8 @@ export const handler = async (event) => {
     const pitchX12 = rawX12 != null ? Math.round(rawX12 + 0.2) : null;
     const avgPitchDeg = pitchX12 != null ? +(Math.atan(pitchX12 / 12) * R2D).toFixed(1) : null;
 
-    const surfaceM2 = whole.areaMeters2 != null ? +whole.areaMeters2.toFixed(2) : null;
-    const groundM2 = whole.groundAreaMeters2 != null ? +whole.groundAreaMeters2.toFixed(2) : null;
+    const surfaceM2 = whole.areaMeters2 != null ? +(whole.areaMeters2 * CAL).toFixed(2) : null;
+    const groundM2 = whole.groundAreaMeters2 != null ? +(whole.groundAreaMeters2 * CAL).toFixed(2) : null;
 
     // ── Material split + waste. Flat (low-slope) and sloped take different
     // materials at different prices, so bucket each plane by pitch, then apply
@@ -179,8 +206,8 @@ export const handler = async (event) => {
 
     const isFlat = (p) => p.pitch_x12 != null && p.pitch_x12 < flatCutoff;
     const sumM2 = (arr) => arr.reduce((a, p) => a + (p.area_m2 || 0), 0);
-    const flatM2 = +sumM2(planes.filter(isFlat)).toFixed(2);
-    const slopedM2 = +sumM2(planes.filter((p) => !isFlat(p))).toFixed(2);
+    const flatM2 = +(sumM2(planes.filter(isFlat)) * CAL).toFixed(2);
+    const slopedM2 = +(sumM2(planes.filter((p) => !isFlat(p))) * CAL).toFixed(2);
 
     // Metal → flat 10%. Shingle → max(10%, complexity bump). Override wins.
     const slopedWaste = wasteOverride.sloped != null ? +wasteOverride.sloped
@@ -229,7 +256,19 @@ export const handler = async (event) => {
       note: "The flat/sloped split is an estimate — treat per-material numbers as a starting point, not a firm material takeoff.",
     };
 
-    const appraiser = await fetchLivingArea(lat, lng);
+    const [appraiser, femaSqft] = await Promise.all([fetchLivingArea(lat, lng), fetchFemaFootprintSqft(lat, lng)]);
+
+    // Cross-source confidence: compare our (calibrated) footprint against FEMA's
+    // independent roof outline, de-biased to Roofr. A big gap = probable wrong/
+    // partial building — flag it so the rep verifies with the trace or appraiser.
+    const FEMA_BIAS = 0.895;
+    let confidence = null;
+    if (femaSqft && groundM2) {
+      const satSqft = groundM2 * 10.7639;          // already ×CAL
+      const femaEst = femaSqft / FEMA_BIAS;
+      const delta = Math.abs(satSqft - femaEst) / Math.max(satSqft, femaEst);
+      confidence = { level: delta > 0.2 ? "low" : "high", delta_pct: Math.round(delta * 100), satellite_sqft: Math.round(satSqft), fema_sqft: femaSqft };
+    }
 
     return json(200, {
       ok: true,
@@ -238,6 +277,7 @@ export const handler = async (event) => {
       geocoded_as: formatted,
       location: { lat, lng },
       appraiser,
+      confidence,
       imagery: { date: data.imageryDate || null, quality: data.imageryQuality || null },
       roof: {
         surface_squares: sq(surfaceM2),
