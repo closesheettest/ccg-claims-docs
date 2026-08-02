@@ -180,6 +180,19 @@ export function eavePerimeter(regionsPx, ftPerPx, overhangFt) {
   return Math.round(per * 10) / 10;
 }
 
+// The drip-edge outline as a POLYGON (ft) — the clickable perimeter for eave/rake
+// tagging on the sketch. Same computation as eavePerimeter, but returns the ring.
+export function dripOutline(regionsPx, ftPerPx, overhangFt) {
+  if (!ftPerPx || !regionsPx || !regionsPx.length) return [];
+  const regionsFt = regionsPx.map((r) => r.pts.map((p) => ({ x: p.x * ftPerPx, y: p.y * ftPerPx })));
+  const pts = regionsFt.flat();
+  if (pts.length < 3) return [];
+  let minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
+  for (const p of pts) { if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x; if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y; }
+  const cell = Math.max(0.2, Math.max(maxX - minX, maxY - minY) / 230);
+  return outlineFromMask(roofMask(regionsFt, overhangFt, cell));   // [{x,y}] ft
+}
+
 // PUBLIC: regionsPx = [{pts:[{x,y}px]}], ftPerPx scales to feet. Skeletons EACH
 // region's CLEAN traced polygon directly (its corners are exact), so hip/valley/
 // ridge classification is reliable — re-rasterizing to an outline split corners

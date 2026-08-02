@@ -14,7 +14,7 @@
 // reconstruction. Ridge/hip/valley come from the geometry pass and are NOT here.
 
 import React, { useRef, useState, useEffect, useMemo } from "react";
-import { roofSkeleton, eavePerimeter } from "./roofSkeleton";
+import { roofSkeleton, dripOutline } from "./roofSkeleton";
 
 const FONT = "'Oswald', system-ui, sans-serif";
 const LINECOL = { ridge: "#dc2626", hip: "#2563eb", valley: "#059669", eave: "#0f172a" };
@@ -104,6 +104,9 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets }) {
   const [draft, setDraft] = useState([]);              // in-progress region corners
   const [hover, setHover] = useState(null);
   const [showLines, setShowLines] = useState(false);   // roof lines only after you say you're done tracing
+  const [markRakes, setMarkRakes] = useState(false);   // tag perimeter edges as rakes
+  const [rakeSet, setRakeSet] = useState(() => new Set()); // outline edge indices that are rakes
+  useEffect(() => { setRakeSet(new Set()); }, [regions]);  // edge indices shift when the footprint changes
   const overhang = 2;   // STANDARD eave overhang, ft (wall → drip edge). Fixed, not editable — nobody judges it per house; 2ft is biased slightly high, the safe side for estimating.
   const wrapRef = useRef(null);
 
@@ -176,9 +179,18 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets }) {
   const roofSqft = Math.round(roof);
   const squares = roof * sf(pitch) / 100;
   const r1 = (n) => Math.round(n * 10) / 10;
-  // EAVES = drip-edge perimeter from the appraiser footprint (survey-exact) — the
-  // source of truth for eaves; the satellite line-drawing only does ridge/hip/valley
-  const eaves = useMemo(() => (regions.length && ftPerPx ? eavePerimeter(regions, ftPerPx, parseFloat(overhang) || 0) : 0), [regions, ftPerPx, overhang]);
+  // EAVES + RAKES from the appraiser footprint. The drip-edge outline is the
+  // clickable perimeter; you tag the gable-end edges as rakes (the human DEFINES),
+  // then geometry MEASURES: eaves = un-tagged edges (horizontal), rakes = tagged
+  // edges × √(1+p²) (they run up the gable slope). Both from the printed dimensions.
+  const outlineFt = useMemo(() => (regions.length && ftPerPx ? dripOutline(regions, ftPerPx, parseFloat(overhang) || 0) : []), [regions, ftPerPx, overhang]);
+  const p12 = (parseFloat(pitch) || 0) / 12;
+  const rakeF = Math.sqrt(1 + p12 * p12);
+  const edgeLenFt = (i) => { const a = outlineFt[i], b = outlineFt[(i + 1) % outlineFt.length]; return Math.hypot(a.x - b.x, a.y - b.y); };
+  let eaveLen = 0, rakeLen = 0;
+  outlineFt.forEach((_, i) => { const L = edgeLenFt(i); if (rakeSet.has(i)) rakeLen += L; else eaveLen += L; });
+  const eaves = Math.round(eaveLen * 10) / 10;
+  const rakes = Math.round(rakeLen * rakeF * 10) / 10;
   // straight-skeleton line takeoff — skeletons each region's CLEAN traced polygon
   // (correct hip/valley/ridge classification; each region = one roof-height piece).
   const skel = useMemo(
@@ -234,11 +246,14 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets }) {
             <button onClick={undoLast} disabled={!draft.length && !regions.length} style={btn((!draft.length && !regions.length) ? "#94a3b8" : "#dc2626", true)}>{draft.length ? "↶ Undo point" : "↶ Undo region"}</button>
             <label style={{ ...btn("#64748b", true), display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>↺ Replace<input type="file" accept="image/*" onChange={onFile} style={{ display: "none" }} /></label>
             <button onClick={() => setShowLines((v) => !v)} disabled={!regions.length} style={seg(showLines, !regions.length)}>📐 {showLines ? "Hide roof lines" : "Show roof lines (beta)"}</button>
+            <button onClick={() => { setMarkRakes((v) => !v); setMode(null); }} disabled={!outlineFt.length} style={seg(markRakes, !outlineFt.length)}>◺ {markRakes ? "Done marking rakes" : "Mark rakes (gable ends)"}</button>
           </div>
 
           {/* status line */}
           <div style={{ fontSize: 12.5, color: "#334155", background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 12px", marginBottom: 10, lineHeight: 1.5 }}>
-            {!scale
+            {markRakes
+              ? <><b>Mark rakes:</b> click each <b>gable-end</b> edge of the outline — it turns <b style={{ color: "#b45309" }}>amber</b> (a rake). Everything else stays an eave. Click again to un-mark.</>
+              : !scale
               ? <><b>Step 1 — scale:</b> click the two ends of a wall whose length is printed on the sketch (e.g. the <b>44</b> edge), then type that number below.</>
               : mode === "draw"
                 ? <><b>Drawing a region:</b> click each corner, then <b>Close region</b> (or Enter). Esc / Undo point fixes a mis-click.</>
@@ -279,6 +294,23 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets }) {
                   <line key={i} x1={s.a.x / ftPerPx} y1={s.a.y / ftPerPx} x2={s.b.x / ftPerPx} y2={s.b.y / ftPerPx} stroke={LINECOL[s.type]} strokeWidth={stroke * (s.type === "ridge" ? 2 : 1.6)} strokeLinecap="round" />
                 ))}
               </g>}
+              {/* drip-edge perimeter — tag gable-end edges as rakes (eave=dark, rake=amber) */}
+              {(markRakes || rakeSet.size > 0) && outlineFt.length > 2 && (
+                <g>
+                  {outlineFt.map((a, i) => {
+                    const b = outlineFt[(i + 1) % outlineFt.length];
+                    const isRake = rakeSet.has(i);
+                    return (
+                      <line key={i}
+                        x1={a.x / ftPerPx} y1={a.y / ftPerPx} x2={b.x / ftPerPx} y2={b.y / ftPerPx}
+                        stroke={isRake ? "#b45309" : "#0f172a"} strokeWidth={stroke * (markRakes ? 3.2 : 2)} strokeLinecap="round"
+                        style={{ pointerEvents: markRakes ? "stroke" : "none", cursor: markRakes ? "pointer" : "default" }}
+                        onClick={(e) => { e.stopPropagation(); setRakeSet((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; }); }}
+                      />
+                    );
+                  })}
+                </g>
+              )}
               {/* in-progress region */}
               {draft.length > 0 && <>
                 <polyline points={[...draft, ...(hover ? [hover] : [])].map((p) => `${p.x},${p.y}`).join(" ")} fill="none" stroke="#f59e0b" strokeWidth={stroke * 1.4} strokeDasharray={`${stroke * 4},${stroke * 3}`} />
@@ -339,10 +371,14 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets }) {
                 <span><input value={pitch} onChange={(e) => onPitchChange && onPitchChange(e.target.value)} type="number" min={0} max={24} step={0.5} style={inp(58)} /> /12</span>
               </label>
               <div style={{ borderLeft: "2px solid #bae6fd", paddingLeft: 16 }}>
-                <div style={stat}>Eaves (drip edge)</div>
+                <div style={stat}>Eaves</div>
                 <div style={{ fontSize: 18, fontWeight: 800 }}>{eaves} <span style={unit}>ft</span></div>
               </div>
-              <div style={{ fontSize: 12, color: "#94a3b8", maxWidth: "24ch" }}>Roof + eaves = survey-exact from the appraiser footprint. Ridge/hip/valley come from the satellite drawing below.</div>
+              <div>
+                <div style={{ ...stat, color: "#b45309" }}>Rakes</div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: "#b45309" }}>{rakes} <span style={unit}>ft</span></div>
+              </div>
+              <div style={{ fontSize: 12, color: "#94a3b8", maxWidth: "26ch" }}>Area + eaves + rakes = survey-exact from the appraiser footprint. Use <b>◺ Mark rakes</b> to tag the gable ends. Ridge/hip/valley come from the satellite drawing below.</div>
             </div>
           )}
 
