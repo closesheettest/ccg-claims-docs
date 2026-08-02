@@ -1,0 +1,227 @@
+// DoorDispatcher — ROOF REGION TRACER (production/admin). Phase 1 of the
+// "reproduce the appraiser drawing" flow Neal designed:
+//   1. Set the scale once (click a wall of known length, type the feet).
+//   2. Draw each ROOFED region by its real corners — the 2-story core first,
+//      then everything NOT under it (single-story extensions, garage, porch).
+//   3. It stitches the regions into the exact footprint and returns EXACT
+//      squares. The drawn region borders reproduce the sketch's interior lines.
+//
+// Slicing by story doesn't change the AREA (roof area = ground footprint however
+// you cut it) — it's chosen so the region joins land where the real roof valleys
+// / step-downs are, which is what the ridge/hip/valley geometry pass (next) needs.
+//
+// Phase 1 delivers footprint + squares (exact on any cut-up shape) + the
+// reconstruction. Ridge/hip/valley come from the geometry pass and are NOT here.
+
+import React, { useRef, useState, useEffect } from "react";
+
+const FONT = "'Oswald', system-ui, sans-serif";
+const sf = (x12) => Math.sqrt(1 + Math.pow((+x12 || 0) / 12, 2));
+const shoelace = (pts) => { let a = 0; for (let i = 0; i < pts.length; i++) { const j = (i + 1) % pts.length; a += pts[i].x * pts[j].y - pts[j].x * pts[i].y; } return Math.abs(a) / 2; };
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+const centroid = (pts) => ({ x: pts.reduce((s, p) => s + p.x, 0) / pts.length, y: pts.reduce((s, p) => s + p.y, 0) / pts.length });
+
+export default function RoofRegionTracer({ pitch = 6, onPitchChange }) {
+  const [imgUrl, setImgUrl] = useState(null);
+  const [nat, setNat] = useState({ w: 1, h: 1 });     // natural image px (resize-invariant)
+  const [mode, setMode] = useState(null);              // 'scale' | 'draw' | null
+  const [scalePts, setScalePts] = useState([]);        // clicks while setting scale
+  const [feetInput, setFeetInput] = useState("");
+  const [scale, setScale] = useState(null);            // { p1, p2, feet, ftPerPx }
+  const [regions, setRegions] = useState([]);          // { id, label, pts:[{x,y}] }
+  const [draft, setDraft] = useState([]);              // in-progress region corners
+  const [hover, setHover] = useState(null);
+  const wrapRef = useRef(null);
+
+  // paste a screenshot of the sketch
+  useEffect(() => {
+    function onPaste(e) {
+      for (const it of e.clipboardData?.items || []) {
+        if (it.type.startsWith("image/")) { const b = it.getAsFile(); if (b) { setImgUrl((u) => { if (u) URL.revokeObjectURL(u); return URL.createObjectURL(b); }); e.preventDefault(); } return; }
+      }
+    }
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, []);
+
+  // Esc / Enter helpers for drawing
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === "Escape") { if (draft.length) undoPoint(); else if (scalePts.length) { setScalePts([]); setMode(null); } }
+      if (e.key === "Enter" && mode === "draw" && draft.length >= 3) closeRegion();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  function onFile(e) { const f = e.target.files?.[0]; if (f) setImgUrl((u) => { if (u) URL.revokeObjectURL(u); return URL.createObjectURL(f); }); }
+  function onImgLoad(e) { setNat({ w: e.target.naturalWidth || 1, h: e.target.naturalHeight || 1 }); }
+
+  // click → natural-image px (invariant to display size, so resize never breaks it)
+  const toNat = (e) => { const r = wrapRef.current.getBoundingClientRect(); return { x: (e.clientX - r.left) * (nat.w / r.width), y: (e.clientY - r.top) * (nat.h / r.height) }; };
+
+  function onClick(e) {
+    if (!imgUrl || !mode) return;
+    const p = toNat(e);
+    if (mode === "scale") {
+      const next = [...scalePts, p].slice(-2);
+      setScalePts(next);
+      return;
+    }
+    if (mode === "draw") setDraft((d) => [...d, p]);
+  }
+  function onMove(e) { if (mode && (draft.length || scalePts.length === 1)) setHover(toNat(e)); }
+
+  function startScale() { setMode("scale"); setScalePts([]); setScale(null); setFeetInput(""); }
+  function commitScale() {
+    const f = parseFloat(feetInput);
+    if (scalePts.length === 2 && f > 0) {
+      const px = dist(scalePts[0], scalePts[1]);
+      if (px > 2) { setScale({ p1: scalePts[0], p2: scalePts[1], feet: f, ftPerPx: f / px }); setMode(null); setScalePts([]); }
+    }
+  }
+  function startRegion() { if (!scale) return; setMode("draw"); setDraft([]); }
+  function undoPoint() { setDraft((d) => d.slice(0, -1)); }
+  function closeRegion() {
+    if (draft.length < 3) return;
+    setRegions((rs) => [...rs, { id: `${rs.length}_${draft.length}`, label: rs.length === 0 ? "core" : "ext", pts: draft }]);
+    setDraft([]); setMode(null);
+  }
+  function undoLast() {
+    if (draft.length) { undoPoint(); return; }
+    setRegions((rs) => rs.slice(0, -1));
+  }
+  function removeRegion(id) { setRegions((rs) => rs.filter((r) => r.id !== id)); }
+  function setLabel(id, label) { setRegions((rs) => rs.map((r) => (r.id === id ? { ...r, label } : r))); }
+
+  // ── math (all in natural px, scaled to feet by ftPerPx)
+  const ftPerPx = scale?.ftPerPx || 0;
+  const areaFt = (pts) => shoelace(pts) * ftPerPx * ftPerPx;
+  const footprint = Math.round(regions.reduce((s, r) => s + areaFt(r.pts), 0));
+  const squares = footprint * sf(pitch) / 100;
+  const r1 = (n) => Math.round(n * 10) / 10;
+
+  const stroke = Math.max(nat.w, nat.h) / 400;   // scale line widths to image size
+  const fontPx = Math.max(nat.w, nat.h) / 55;
+
+  return (
+    <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14, padding: 16, marginBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+        <b style={{ fontSize: 15 }}>🧩 Region trace</b>
+        <span style={{ fontSize: 11, fontWeight: 700, color: "#0369a1", background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 999, padding: "2px 8px" }}>EXACT SQUARES · ANY SHAPE</span>
+        <span style={{ fontSize: 11.5, color: "#64748b" }}>set scale → draw each roofed region → exact footprint</span>
+      </div>
+
+      {!imgUrl ? (
+        <label style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, height: 190, border: "2px dashed #cbd5e1", borderRadius: 12, cursor: "pointer", color: "#64748b", background: "#f8fafc" }}>
+          <span style={{ fontSize: 32 }}>📋</span>
+          <span style={{ fontSize: 14, fontWeight: 700 }}>Paste the sketch (⌘/Ctrl-V) or click to upload</span>
+          <input type="file" accept="image/*" onChange={onFile} style={{ display: "none" }} />
+        </label>
+      ) : (
+        <>
+          {/* toolbar */}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", margin: "8px 0" }}>
+            <button onClick={startScale} style={seg(mode === "scale")}>📏 {scale ? "Redo scale" : "① Set scale"}</button>
+            <button onClick={startRegion} disabled={!scale} style={seg(mode === "draw", !scale)}>✏️ ② Draw region</button>
+            {mode === "draw" && draft.length >= 3 && <button onClick={closeRegion} style={btn("#16a34a")}>✓ Close region</button>}
+            <button onClick={undoLast} disabled={!draft.length && !regions.length} style={btn((!draft.length && !regions.length) ? "#94a3b8" : "#dc2626", true)}>{draft.length ? "↶ Undo point" : "↶ Undo region"}</button>
+            <label style={{ ...btn("#64748b", true), display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>↺ Replace<input type="file" accept="image/*" onChange={onFile} style={{ display: "none" }} /></label>
+          </div>
+
+          {/* status line */}
+          <div style={{ fontSize: 12.5, color: "#334155", background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 12px", marginBottom: 10, lineHeight: 1.5 }}>
+            {!scale
+              ? <><b>Step 1 — scale:</b> click the two ends of a wall whose length is printed on the sketch (e.g. the <b>44</b> edge), then type that number below.</>
+              : mode === "draw"
+                ? <><b>Drawing a region:</b> click each corner, then <b>Close region</b> (or Enter). Esc / Undo point fixes a mis-click.</>
+                : <><b>Step 2 — regions:</b> draw the <b>2-story core</b> first, then each piece <b>not under it</b> (garage / porch / 1-story). Each region's printed area is your check.</>}
+          </div>
+
+          {/* scale feet entry */}
+          {mode === "scale" && scalePts.length === 2 && (
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#b45309" }}>That wall is</span>
+              <input value={feetInput} onChange={(e) => setFeetInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") commitScale(); }} inputMode="decimal" placeholder="44" autoFocus style={inp(70)} />
+              <span style={{ fontSize: 13, color: "#64748b" }}>ft</span>
+              <button onClick={commitScale} disabled={!(parseFloat(feetInput) > 0)} style={btn(parseFloat(feetInput) > 0 ? "#2563eb" : "#94a3b8")}>Set scale</button>
+            </div>
+          )}
+
+          {/* sketch + overlay */}
+          <div ref={wrapRef} onClick={onClick} onMouseMove={onMove} style={{ position: "relative", lineHeight: 0, borderRadius: 10, overflow: "hidden", border: "1px solid #e5e7eb", cursor: mode ? "crosshair" : "default", userSelect: "none" }}>
+            <img src={imgUrl} onLoad={onImgLoad} alt="appraiser sketch" style={{ width: "100%", display: "block", pointerEvents: "none" }} />
+            <svg viewBox={`0 0 ${nat.w} ${nat.h}`} width="100%" height="100%" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+              {/* closed regions */}
+              {regions.map((r, i) => {
+                const c = r.label === "core" ? "#2563eb" : "#16a34a";
+                const ce = centroid(r.pts);
+                return (
+                  <g key={r.id}>
+                    <polygon points={r.pts.map((p) => `${p.x},${p.y}`).join(" ")} fill={c + "22"} stroke={c} strokeWidth={stroke * 1.4} />
+                    <text x={ce.x} y={ce.y} fill={c} fontSize={fontPx} fontWeight={800} textAnchor="middle" dominantBaseline="middle" style={{ fontFamily: FONT }}>{Math.round(areaFt(r.pts))}</text>
+                  </g>
+                );
+              })}
+              {/* in-progress region */}
+              {draft.length > 0 && <>
+                <polyline points={[...draft, ...(hover ? [hover] : [])].map((p) => `${p.x},${p.y}`).join(" ")} fill="none" stroke="#f59e0b" strokeWidth={stroke * 1.4} strokeDasharray={`${stroke * 4},${stroke * 3}`} />
+                {draft.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r={stroke * 3} fill="#f59e0b" />)}
+              </>}
+              {/* scale line */}
+              {(scale || scalePts.length) && (() => {
+                const pa = scale ? scale.p1 : scalePts[0];
+                const pb = scale ? scale.p2 : (scalePts[1] || hover);
+                if (!pa || !pb) return <circle cx={pa.x} cy={pa.y} r={stroke * 3} fill="#dc2626" />;
+                const mid = { x: (pa.x + pb.x) / 2, y: (pa.y + pb.y) / 2 };
+                return <g>
+                  <line x1={pa.x} y1={pa.y} x2={pb.x} y2={pb.y} stroke="#dc2626" strokeWidth={stroke * 1.6} />
+                  <circle cx={pa.x} cy={pa.y} r={stroke * 3} fill="#dc2626" /><circle cx={pb.x} cy={pb.y} r={stroke * 3} fill="#dc2626" />
+                  {scale && <text x={mid.x} y={mid.y - fontPx * 0.4} fill="#dc2626" fontSize={fontPx} fontWeight={800} textAnchor="middle" style={{ fontFamily: FONT }}>{scale.feet}′</text>}
+                </g>;
+              })()}
+            </svg>
+          </div>
+
+          {/* regions list */}
+          {regions.length > 0 && (
+            <div style={{ marginTop: 12 }}>
+              {regions.map((r, i) => (
+                <div key={r.id} style={{ display: "flex", gap: 10, alignItems: "center", padding: "6px 0", borderTop: "1px dashed #e5e7eb", fontSize: 13.5 }}>
+                  <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: r.label === "core" ? "#2563eb" : "#16a34a" }} />
+                  <select value={r.label} onChange={(e) => setLabel(r.id, e.target.value)} style={sel}><option value="core">2-story core</option><option value="ext">extension</option></select>
+                  <b>{Math.round(areaFt(r.pts))} sqft</b>
+                  <span style={{ color: "#94a3b8", fontSize: 12 }}>{r.pts.length} corners</span>
+                  <button onClick={() => removeRegion(r.id)} style={{ ...btn("#dc2626", true), marginLeft: "auto" }}>×</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* result */}
+          {regions.length > 0 && scale && (
+            <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "center", marginTop: 14, background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 10, padding: 14 }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", color: "#64748b" }}>Footprint</div>
+                <div style={{ fontSize: 24, fontWeight: 800 }}>{footprint.toLocaleString()} <span style={{ fontSize: 14, color: "#64748b" }}>sqft</span></div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", color: "#64748b" }}>Squares @ {pitch}/12</div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: "#0369a1" }}>{r1(squares)} <span style={{ fontSize: 14, color: "#64748b" }}>sq</span></div>
+              </div>
+              <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 11, fontWeight: 700, color: "#64748b" }}>PITCH
+                <span><input value={pitch} onChange={(e) => onPitchChange && onPitchChange(e.target.value)} type="number" min={0} max={24} step={0.5} style={inp(64)} /> /12</span>
+              </label>
+              <div style={{ fontSize: 12, color: "#94a3b8", maxWidth: "32ch" }}>Exact footprint & squares. Ridge / hip / valley come from the geometry pass (next).</div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+const inp = (w) => ({ width: w, fontFamily: FONT, fontSize: 15, padding: "6px 8px", border: "1px solid #cbd5e1", borderRadius: 8 });
+const sel = { fontFamily: FONT, fontSize: 13, padding: "5px 7px", border: "1px solid #cbd5e1", borderRadius: 8 };
+function btn(color, outline) { return { fontFamily: FONT, fontSize: 13, fontWeight: 700, color: outline ? color : "#fff", background: outline ? "#fff" : color, border: `1px solid ${color}`, borderRadius: 8, padding: "7px 12px", cursor: "pointer" }; }
+function seg(active, disabled) { return { fontFamily: FONT, fontSize: 13, fontWeight: 700, color: disabled ? "#cbd5e1" : active ? "#fff" : "#334155", background: active ? "#2563eb" : "#fff", border: `1px solid ${active ? "#2563eb" : "#cbd5e1"}`, borderRadius: 8, padding: "7px 12px", cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.6 : 1 }; }

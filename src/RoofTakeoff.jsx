@@ -10,6 +10,7 @@
 import React, { useState } from "react";
 import { appraiserFor } from "./flAppraisers";
 import RoofSketchTracer from "./RoofSketchTracer";
+import RoofRegionTracer from "./RoofRegionTracer";
 
 const FONT = "'Oswald', system-ui, sans-serif";
 const sf = (x12) => Math.sqrt(1 + Math.pow((+x12 || 0) / 12, 2));
@@ -168,8 +169,15 @@ export default function RoofTakeoff() {
         );
       })()}
 
-      {/* trace the sketch → fills the fields below (side + offset inferred from the trace) */}
-      <RoofSketchTracer onApply={applyTrace} />
+      {/* PRIMARY: region trace → exact footprint + squares on any cut-up shape */}
+      <RoofRegionTracer pitch={pitch} onPitchChange={setPitch} />
+
+      {/* line takeoff (rectangles) — for ridge/hip/valley on simple houses until the geometry pass */}
+      <details style={{ marginTop: 4 }}>
+        <summary style={{ cursor: "pointer", fontSize: 12.5, fontWeight: 700, color: "#475569", padding: "6px 0" }}>➕ Line takeoff (ridge / hip / valley) — box + wings, for simple houses</summary>
+
+        {/* trace the sketch → fills the fields below (side + offset inferred from the trace) */}
+        <RoofSketchTracer onApply={applyTrace} />
 
       {/* inputs — the source of truth; the trace fills them, tweak here if needed */}
       <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", color: "#64748b", margin: "4px 0 8px" }}>Sections (from your trace — edit if needed)</div>
@@ -247,6 +255,7 @@ export default function RoofTakeoff() {
           </div>
         </div>
       </div>
+      </details>
     </div>
   );
 }
