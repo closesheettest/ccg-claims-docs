@@ -244,7 +244,6 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets, ove
             {mode === "draw" && draft.length >= 3 && <button onClick={closeRegion} style={btn("#16a34a")}>✓ Close region</button>}
             <button onClick={undoLast} disabled={!draft.length && !regions.length} style={btn((!draft.length && !regions.length) ? "#94a3b8" : "#dc2626", true)}>{draft.length ? "↶ Undo point" : "↶ Undo region"}</button>
             <label style={{ ...btn("#64748b", true), display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>↺ Replace<input type="file" accept="image/*" onChange={onFile} style={{ display: "none" }} /></label>
-            <button onClick={() => setShowLines((v) => !v)} disabled={!regions.length} style={seg(showLines, !regions.length)}>📐 {showLines ? "Hide roof lines" : "Show roof lines (beta)"}</button>
             <button onClick={() => { setMarkRakes((v) => !v); setMode(null); }} disabled={!outlineFt.length} style={seg(markRakes, !outlineFt.length)}>◺ {markRakes ? "Done marking rakes" : "Mark rakes (gable ends)"}</button>
           </div>
 

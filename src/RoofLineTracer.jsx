@@ -22,6 +22,7 @@ export default function RoofLineTracer({ lat, lng, pitch = 8, overhang, onOverha
   const [pending, setPending] = useState(null);   // first click of a line segment
   const [ovLine, setOvLine] = useState(null);     // overhang measurement line (eave→eave)
   const [wallFt, setWallFt] = useState("");       // the matching wall length off the sketch
+  const [hover, setHover] = useState(null);       // live cursor while drawing the overhang line
   const mapEl = useRef(null);
   const mapRef = useRef(null);
   const drawRef = useRef(null);
@@ -38,6 +39,7 @@ export default function RoofLineTracer({ lat, lng, pitch = 8, overhang, onOverha
       icon: L.divIcon({ className: "", html: '<div style="font-size:26px;line-height:1;filter:drop-shadow(0 2px 3px rgba(0,0,0,.6))">📍</div>', iconSize: [26, 26], iconAnchor: [13, 24] }) }).addTo(m);
     drawRef.current = L.layerGroup().addTo(m);
     m.on("click", onMapClick);
+    m.on("mousemove", (e) => { const st = stateRef.current; if (st.mode === "overhang" && st.pending) setHover(e.latlng); });
     setTimeout(() => m.invalidateSize(), 60);
     setTimeout(() => m.invalidateSize(), 300);
     mapRef.current = m;
@@ -51,6 +53,15 @@ export default function RoofLineTracer({ lat, lng, pitch = 8, overhang, onOverha
     let best = null, bd = 1.4; // metres
     for (const v of verts) { const d = L.latLng(v.lat, v.lng).distanceTo(L.latLng(ll.lat, ll.lng)); if (d < bd) { bd = d; best = v; } }
     return best ? { lat: best.lat, lng: best.lng } : { lat: ll.lat, lng: ll.lng };
+  }
+
+  // is a line square to the screen axes? (within 5° of horizontal/vertical) — the
+  // overhang line must be straight across a wall, not diagonal, or it measures long
+  function axisAligned(a, b) {
+    const m = mapRef.current; if (!m) return true;
+    const pa = m.latLngToContainerPoint([a.lat, a.lng]), pb = m.latLngToContainerPoint([b.lat, b.lng]);
+    const deg = Math.abs((Math.atan2(pb.y - pa.y, pb.x - pa.x) * 180) / Math.PI) % 90;
+    return deg < 5 || deg > 85;
   }
 
   function onMapClick(e) {
@@ -68,9 +79,11 @@ export default function RoofLineTracer({ lat, lng, pitch = 8, overhang, onOverha
     const g = drawRef.current; if (!g) return;
     g.clearLayers();
     lines.forEach((s) => { L.polyline([[s.a.lat, s.a.lng], [s.b.lat, s.b.lng]], { color: COL[s.type], weight: 4 }).addTo(g); });
-    if (ovLine) L.polyline([[ovLine.a.lat, ovLine.a.lng], [ovLine.b.lat, ovLine.b.lng]], { color: "#7c3aed", weight: 3, dashArray: "6,5" }).addTo(g);
+    // overhang line + live preview: SOLID green when square to axis, DASHED red when angled
+    if (ovLine) { const ok = axisAligned(ovLine.a, ovLine.b); L.polyline([[ovLine.a.lat, ovLine.a.lng], [ovLine.b.lat, ovLine.b.lng]], { color: ok ? "#16a34a" : "#dc2626", weight: 3.5, dashArray: ok ? null : "7,6" }).addTo(g); }
+    if (mode === "overhang" && pending && hover) { const ok = axisAligned(pending, hover); L.polyline([[pending.lat, pending.lng], [hover.lat, hover.lng]], { color: ok ? "#16a34a" : "#dc2626", weight: 3, dashArray: ok ? null : "7,6" }).addTo(g); }
     if (pending) L.circleMarker([pending.lat, pending.lng], { radius: 5, color: "#f59e0b", fillColor: "#f59e0b", fillOpacity: 1 }).addTo(g);
-  }, [lines, pending, ovLine]);
+  }, [lines, pending, ovLine, hover, mode]);
 
   function pickMode(mo) { setMode(mo); setPending(null); }
   function undo() { if (pending) { setPending(null); return; } if (lines.length) setLines((ls) => ls.slice(0, -1)); }
@@ -117,7 +130,7 @@ export default function RoofLineTracer({ lat, lng, pitch = 8, overhang, onOverha
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 8, background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 8, padding: "8px 12px", fontSize: 13 }}>
           <b style={{ color: "#6d28d9" }}>◳ Overhang</b>
           {!ovLine ? (
-            <span style={{ color: "#b45309", fontWeight: 700 }}>{pending ? "click the OTHER eave" : "draw a line across the house — eave to eave, over a wall whose length is on the sketch"}</span>
+            <span style={{ color: "#b45309", fontWeight: 700 }}>{pending ? "move to the OTHER eave — keep the line SOLID GREEN (straight); dashed red = angled (too long). Click when green." : "draw a line straight across a wall you know — eave to eave"}</span>
           ) : (
             <>
               <span>roof width <b>{roofWidthFt.toFixed(1)} ft</b></span>
