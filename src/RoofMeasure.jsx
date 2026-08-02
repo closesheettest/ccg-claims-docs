@@ -136,7 +136,9 @@ function ResultCard({ d }) {
   const [showEditor, setShowEditor] = useState(false);
   const [adj, setAdj] = useState(null);   // corrected figures from the map editor / appraiser override
   const [apprSqft, setApprSqft] = useState("");
+  const [looksRight, setLooksRight] = useState(false);
   const isAdj = !!adj;
+  const confirmed = isAdj || looksRight;   // auto read stays an ESTIMATE until the rep confirms or redraws
 
   // Appraiser override: the county publishes each roofed section's exact sq ft
   // (BAS + garage + porches). Sum = under-roof FOOTPRINT; × slope factor = true
@@ -198,10 +200,19 @@ function ResultCard({ d }) {
 
       {/* Top-line numbers */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 14, marginBottom: 18 }}>
-        <Stat label="Total roof (sloped)" value={`${totalSq ?? "—"}`} unit={isAdj ? "squares · adjusted" : "squares"} accent={isAdj ? "#16a34a" : undefined} />
+        <Stat label="Total roof (sloped)" value={`${totalSq ?? "—"}`} unit={confirmed ? (isAdj ? "squares · confirmed" : "squares · confirmed") : "squares · ESTIMATE"} accent={confirmed ? "#16a34a" : "#b45309"} />
         <Stat label="Predominant pitch" value={r.avg_pitch_x12 != null ? `${r.avg_pitch_x12}/12` : "—"} unit={r.avg_pitch_deg != null ? `${r.avg_pitch_deg}°` : ""} />
         <Stat label="Roof facets" value={`${r.plane_count ?? "—"}`} unit="" />
       </div>
+
+      {/* Confirm gate — the auto read is only an estimate until the rep vouches for it. */}
+      {!confirmed && (
+        <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 10, padding: "11px 14px", marginBottom: 16, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ fontSize: 13.5, color: "#92400e", fontWeight: 600, flex: "1 1 240px" }}>⚠️ Automated estimate — the outline can be off (it may grab a pool cage or the wrong building). Confirm before quoting:</span>
+          <button onClick={() => setLooksRight(true)} style={{ fontFamily: FONT, fontSize: 14, fontWeight: 700, color: "#fff", background: "#16a34a", border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer" }}>✓ Looks right</button>
+          <button onClick={() => setShowEditor(true)} style={{ fontFamily: FONT, fontSize: 14, fontWeight: 700, color: "#2563eb", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: "8px 16px", cursor: "pointer" }}>✏️ Verify / redraw</button>
+        </div>
+      )}
 
       {/* Material split */}
       <div style={{ ...LABEL, marginBottom: 8 }}>Material split &amp; waste</div>
