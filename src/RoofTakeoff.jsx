@@ -51,8 +51,25 @@ export default function RoofTakeoff() {
   const [main, setMain] = useState({ w: 54, l: 40, style: "hip" });
   const [wings, setWings] = useState([{ span: 20, depth: 22, side: "bottom", offset: 30, style: "hip" }]);
 
+  const [address, setAddress] = useState("");
+  const [ref, setRef] = useState(null);       // independent reference numbers for cross-check
+  const [looking, setLooking] = useState(false);
+
   const num = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
   const setW = (i, k, v) => setWings((ws) => ws.map((w, j) => (j === i ? { ...w, [k]: v } : w)));
+
+  async function lookup() {
+    const a = address.trim(); if (!a || looking) return;
+    setLooking(true);
+    try {
+      const d = await fetch("/.netlify/functions/harvest-roof-report", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address: a }) }).then((r) => r.json());
+      if (d.ok) {
+        setRef({ sat: d.roof?.surface_squares, pitch: d.roof?.avg_pitch_x12, living: d.appraiser?.living_sqft, fema: d.confidence?.fema_sqft, imagery: d.imagery?.quality, addr: d.geocoded_as });
+        if (d.roof?.avg_pitch_x12) setPitch(d.roof.avg_pitch_x12);   // pre-fill the pitch we trust
+      } else setRef({ error: d.error || "no data" });
+    } catch { setRef({ error: "lookup failed" }); }
+    setLooking(false);
+  }
 
   // ── place rectangles on a shared grid (main at origin) + collect lines
   const rects = [{ x: 0, y: 0, w: num(main.w), h: num(main.l), style: main.style }];
@@ -79,6 +96,26 @@ export default function RoofTakeoff() {
   });
   const squares = t.area / 100;
   const r1 = (n) => Math.round(n * 10) / 10;
+  const footprint = t.area / sf(pitch);   // under-roof footprint (sqft)
+
+  // ── guardrails: bounds, contradictions, and cross-checks vs the independent numbers
+  const warnings = [];
+  const nP = num(pitch);
+  if (nP <= 0 || nP > 24) warnings.push("Pitch is outside 0–24/12 — check it.");
+  if (num(main.w) < 4 || num(main.w) > 300 || num(main.l) < 4 || num(main.l) > 300) warnings.push("A main-body dimension is outside 4–300 ft.");
+  wings.forEach((wg, i) => {
+    const span = num(wg.span), depth = num(wg.depth), off = num(wg.offset);
+    const edge = (wg.side === "bottom" || wg.side === "top") ? num(main.w) : num(main.l);
+    if (span < 2 || span > 200 || depth < 2 || depth > 200) warnings.push(`Wing ${i + 1} dimensions look off.`);
+    if (span > edge) warnings.push(`Wing ${i + 1} is wider (${span} ft) than the wall it attaches to (${edge} ft).`);
+    if (off < 0) warnings.push(`Wing ${i + 1} offset can't be negative.`);
+    else if (off + span > edge + 0.5) warnings.push(`Wing ${i + 1} hangs off the edge (offset ${off} + span ${span} > ${edge} ft wall).`);
+  });
+  if (squares < 5 || squares > 120) warnings.push(`Total ${r1(squares)} sq is outside a normal roof range (5–120).`);
+  if (ref && !ref.error) {
+    if (ref.living && footprint < ref.living * 0.95) warnings.push(`Under-roof (${Math.round(footprint)} sqft) is LESS than the county living area (${ref.living} sqft) — impossible on one story. Missing the garage/porch?`);
+    if (ref.sat && Math.abs(squares - ref.sat) / ref.sat > 0.3) warnings.push(`Your ${r1(squares)} sq is ${Math.round((Math.abs(squares - ref.sat) / ref.sat) * 100)}% off the satellite read (${ref.sat} sq) — double-check for a fat-finger (stray digit?).`);
+  }
 
   // ── SVG bounds
   const xs = rects.flatMap((r) => [r.x, r.x + r.w]);
@@ -97,6 +134,22 @@ export default function RoofTakeoff() {
       <p style={{ color: "#64748b", fontSize: 14, margin: "0 0 20px", maxWidth: "70ch" }}>
         Read the roofed sections off the appraiser sketch (base + garage + porch, each W×L in feet) and set the pitch. This composes the roof and returns the full linear takeoff — exact, from the survey numbers.
       </p>
+
+      {/* address lookup — pulls independent numbers to pre-fill the pitch and cross-check the entry */}
+      <div style={{ ...card, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 16 }}>
+        <span style={{ fontSize: 13.5, fontWeight: 700, color: "#475569" }}>🔎 Address (optional — pre-fills pitch, cross-checks your entry):</span>
+        <input value={address} onChange={(e) => setAddress(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") lookup(); }} placeholder="4333 Cheval Blvd, Lutz, FL" style={{ ...inp(280), flex: "1 1 220px" }} />
+        <button onClick={lookup} disabled={looking || !address.trim()} style={btn(looking || !address.trim() ? "#94a3b8" : "#2563eb")}>{looking ? "…" : "Look up"}</button>
+      </div>
+      {ref && !ref.error && (
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 13, color: "#475569", background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 10, padding: "10px 14px", marginBottom: 16 }}>
+          <span>Reference for <b>{ref.addr}</b>:</span>
+          <span>satellite <b>{ref.sat} sq</b> ({ref.imagery})</span>
+          {ref.living != null && <span>· county living <b>{ref.living} sqft</b></span>}
+          {ref.fema != null && <span>· FEMA footprint <b>{ref.fema} sqft</b></span>}
+          <span>· pitch pre-filled to <b>{ref.pitch}/12</b></span>
+        </div>
+      )}
 
       {/* inputs */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 16 }}>
@@ -128,6 +181,16 @@ export default function RoofTakeoff() {
           ))}
         </div>
       </div>
+
+      {/* guardrails */}
+      {warnings.length > 0 && (
+        <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 12, padding: "12px 16px", marginTop: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: "#b45309", marginBottom: 6 }}>⚠️ Check these before ordering</div>
+          <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13.5, color: "#92400e", lineHeight: 1.6 }}>
+            {warnings.map((w, i) => <li key={i}>{w}</li>)}
+          </ul>
+        </div>
+      )}
 
       {/* result */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 18 }}>
