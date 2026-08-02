@@ -11,6 +11,7 @@ import React, { useState } from "react";
 import { appraiserFor } from "./flAppraisers";
 import RoofSketchTracer from "./RoofSketchTracer";
 import RoofRegionTracer from "./RoofRegionTracer";
+import RoofLineTracer from "./RoofLineTracer";
 
 const FONT = "'Oswald', system-ui, sans-serif";
 const sf = (x12) => Math.sqrt(1 + Math.pow((+x12 || 0) / 12, 2));
@@ -73,7 +74,7 @@ export default function RoofTakeoff() {
     try {
       const d = await fetch("/.netlify/functions/harvest-roof-report", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address: a }) }).then((r) => r.json());
       if (d.ok) {
-        setRef({ sat: d.roof?.surface_squares, pitch: d.roof?.avg_pitch_x12, living: d.appraiser?.living_sqft, fema: d.confidence?.fema_sqft, imagery: d.imagery?.quality, addr: d.geocoded_as, county: d.county, planes: d.planes });
+        setRef({ sat: d.roof?.surface_squares, pitch: d.roof?.avg_pitch_x12, living: d.appraiser?.living_sqft, fema: d.confidence?.fema_sqft, imagery: d.imagery?.quality, addr: d.geocoded_as, county: d.county, planes: d.planes, loc: d.location });
         if (d.roof?.avg_pitch_x12) setPitch(d.roof.avg_pitch_x12);   // pre-fill the pitch we trust
       } else setRef({ error: d.error || "no data" });
     } catch { setRef({ error: "lookup failed" }); }
@@ -171,6 +172,9 @@ export default function RoofTakeoff() {
 
       {/* PRIMARY: region trace → exact footprint + squares on any cut-up shape */}
       <RoofRegionTracer pitch={pitch} onPitchChange={setPitch} facets={ref && !ref.error ? ref.planes : null} />
+
+      {/* LINE takeoff — human draws ridges/hips/valleys on the satellite, math measures */}
+      <RoofLineTracer lat={ref && !ref.error ? ref.loc?.lat : null} lng={ref && !ref.error ? ref.loc?.lng : null} pitch={pitch} />
 
       {/* line takeoff (rectangles) — for ridge/hip/valley on simple houses until the geometry pass */}
       <details style={{ marginTop: 4 }}>
