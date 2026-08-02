@@ -12,6 +12,7 @@ import { appraiserFor } from "./flAppraisers";
 import RoofSketchTracer from "./RoofSketchTracer";
 import RoofRegionTracer from "./RoofRegionTracer";
 import RoofLineTracer from "./RoofLineTracer";
+import { AddressAutocomplete } from "./lib/AddressAutocomplete";
 
 const FONT = "'Oswald', system-ui, sans-serif";
 const sf = (x12) => Math.sqrt(1 + Math.pow((+x12 || 0) / 12, 2));
@@ -68,8 +69,8 @@ export default function RoofTakeoff() {
     setWings(wg.length ? wg : []);
   }
 
-  async function lookup() {
-    const a = address.trim(); if (!a || looking) return;
+  async function lookup(addrArg) {
+    const a = String(typeof addrArg === "string" ? addrArg : address).trim(); if (!a || looking) return;
     setLooking(true);
     try {
       const d = await fetch("/.netlify/functions/harvest-roof-report", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address: a }) }).then((r) => r.json());
@@ -148,8 +149,19 @@ export default function RoofTakeoff() {
       {/* address lookup — pulls independent numbers to pre-fill the pitch and cross-check the entry */}
       <div style={{ ...card, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 16 }}>
         <span style={{ fontSize: 13.5, fontWeight: 700, color: "#475569" }}>🔎 Address (optional — pre-fills pitch, cross-checks your entry):</span>
-        <input value={address} onChange={(e) => setAddress(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") lookup(); }} placeholder="4333 Cheval Blvd, Lutz, FL" style={{ ...inp(280), flex: "1 1 220px" }} />
-        <button onClick={lookup} disabled={looking || !address.trim()} style={btn(looking || !address.trim() ? "#94a3b8" : "#2563eb")}>{looking ? "…" : "Look up"}</button>
+        <div style={{ flex: "1 1 240px", minWidth: 220 }}>
+          <AddressAutocomplete
+            value={address}
+            onChange={(v) => setAddress(v)}
+            onPlaceSelected={({ formatted, address: street, city, state, zip }) => {
+              const full = formatted || [street, city, state, zip].filter(Boolean).join(", ");
+              setAddress(full);
+              lookup(full);   // auto-run the lookup on a confirmed pick
+            }}
+            placeholder="4333 Cheval Blvd, Lutz, FL"
+          />
+        </div>
+        <button onClick={() => lookup()} disabled={looking || !address.trim()} style={btn(looking || !address.trim() ? "#94a3b8" : "#2563eb")}>{looking ? "…" : "Look up"}</button>
       </div>
       {ref && !ref.error && (() => {
         const appr = appraiserFor(ref.county); // [displayName, searchUrl] or null
