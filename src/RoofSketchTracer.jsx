@@ -74,6 +74,19 @@ export default function RoofSketchTracer({ onApply }) {
   function setDim(i, k, v) { setRects((rs) => rs.map((r, j) => (j === i ? { ...r, [k]: v } : r))); }
   function setStyle(i, v) { setRects((rs) => rs.map((r, j) => (j === i ? { ...r, style: v } : r))); }
   function removeRect(i) { setRects((rs) => rs.filter((_, j) => j !== i)); setActiveIdx(-1); }
+  // one control for both: bail out of a half-drawn box, else drop the last one placed
+  function undoLast() {
+    if (firstPt) { setFirstPt(null); setHoverPt(null); return; }
+    setRects((rs) => rs.slice(0, -1));
+    setActiveIdx(-1);
+  }
+
+  // Esc cancels a pending corner / undoes the last box
+  useEffect(() => {
+    function onKey(e) { if (e.key === "Escape") undoLast(); }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   const main = rects.find((r) => r.role === "main");
   const num = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
@@ -129,6 +142,7 @@ export default function RoofSketchTracer({ onApply }) {
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", margin: "8px 0 8px" }}>
             <button onClick={() => { setArmed("main"); setFirstPt(null); }} style={seg(armed === "main")}>① Trace the biggest ROOFED box</button>
             <button onClick={() => { setArmed("section"); setFirstPt(null); }} disabled={!main} style={seg(armed === "section", !main)}>② Add a section</button>
+            <button onClick={undoLast} disabled={!firstPt && rects.length === 0} style={btn((!firstPt && rects.length === 0) ? "#94a3b8" : "#dc2626", true)}>{firstPt ? "✕ Cancel box" : "↶ Undo last box"}</button>
             <label style={{ ...btn("#64748b", true), display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
               ↺ Replace image<input type="file" accept="image/*" onChange={onFile} style={{ display: "none" }} />
             </label>
