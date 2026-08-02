@@ -13,7 +13,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 const FONT = "'Oswald', system-ui, sans-serif";
-const COL = { ridge: "#dc2626", hip: "#2563eb", valley: "#059669" };
+const COL = { ridge: "#dc2626", hip: "#2563eb", valley: "#059669", rake: "#b45309" };
 const M_TO_FT = 3.28084;
 
 export default function RoofLineTracer({ lat, lng, pitch = 8, overhang, onOverhang }) {
@@ -79,9 +79,10 @@ export default function RoofLineTracer({ lat, lng, pitch = 8, overhang, onOverha
   // ── totals (ft). Interior lines only.
   const p = (parseFloat(pitch) || 0) / 12;
   const hipF = Math.sqrt(1 + (p * p) / 2);   // hip/valley run at 45° → √(1+p²/2)
+  const rakeF = Math.sqrt(1 + p * p);        // rake runs up the gable slope → √(1+p²)
   const segFt = (s) => L.latLng(s.a.lat, s.a.lng).distanceTo(L.latLng(s.b.lat, s.b.lng)) * M_TO_FT;
   const sum = (t, f) => lines.filter((s) => s.type === t).reduce((a, s) => a + segFt(s) * f, 0);
-  const ridge = sum("ridge", 1), hip = sum("hip", hipF), valley = sum("valley", hipF);
+  const ridge = sum("ridge", 1), hip = sum("hip", hipF), valley = sum("valley", hipF), rake = sum("rake", rakeF);
   const r1 = (n) => Math.round(n * 10) / 10;
   // measured overhang = (roof width from the photo − wall length from the sketch) / 2
   const roofWidthFt = ovLine ? L.latLng(ovLine.a.lat, ovLine.a.lng).distanceTo(L.latLng(ovLine.b.lat, ovLine.b.lng)) * M_TO_FT : null;
@@ -103,6 +104,7 @@ export default function RoofLineTracer({ lat, lng, pitch = 8, overhang, onOverha
         <button onClick={() => pickMode("ridge")} style={seg(mode === "ridge", COL.ridge)}>▬ Ridge</button>
         <button onClick={() => pickMode("hip")} style={seg(mode === "hip", COL.hip)}>╱ Hip</button>
         <button onClick={() => pickMode("valley")} style={seg(mode === "valley", COL.valley)}>╲ Valley</button>
+        <button onClick={() => pickMode("rake")} style={seg(mode === "rake", COL.rake)}>◺ Rake (cross-gable)</button>
         <button onClick={() => { setMode("overhang"); setPending(null); }} style={seg(mode === "overhang", "#7c3aed")}>◳ Measure overhang</button>
         <button onClick={undo} style={btn("#dc2626", true)}>↶ Undo</button>
         <button onClick={clearAll} style={btn("#64748b", true)}>Clear</button>
@@ -131,7 +133,7 @@ export default function RoofLineTracer({ lat, lng, pitch = 8, overhang, onOverha
 
       <div style={{ display: "flex", gap: 18, flexWrap: "wrap", alignItems: "center", marginTop: 10, background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 10, padding: "10px 14px" }}>
         <span style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: ".05em", color: "#334155" }}>Interior lines (ft) @ {pitch}/12</span>
-        {[["Ridge", ridge, "ridge"], ["Hips", hip, "hip"], ["Valleys", valley, "valley"]].map(([n, v, t]) => (
+        {[["Ridge", ridge, "ridge"], ["Hips", hip, "hip"], ["Valleys", valley, "valley"], ...(rake > 0 ? [["+ Rakes", rake, "rake"]] : [])].map(([n, v, t]) => (
           <span key={n} style={{ fontSize: 14, color: "#334155" }}>
             <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: COL[t], marginRight: 6 }} />
             {n} <b style={{ fontFamily: "ui-monospace,monospace" }}>{r1(v)}</b>
