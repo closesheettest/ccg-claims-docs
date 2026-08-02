@@ -81,7 +81,7 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange }) {
   const [regions, setRegions] = useState([]);          // { id, label, pts:[{x,y}] }
   const [draft, setDraft] = useState([]);              // in-progress region corners
   const [hover, setHover] = useState(null);
-  const [overhang, setOverhang] = useState(1);         // eave overhang, ft (wall → drip edge)
+  const overhang = 2;   // STANDARD eave overhang, ft (wall → drip edge). Fixed, not editable — nobody judges it per house; 2ft is biased slightly high, the safe side for estimating.
   const wrapRef = useRef(null);
 
   // paste a screenshot of the sketch
@@ -259,9 +259,10 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange }) {
                 <div style={{ fontSize: 18, fontWeight: 800 }}>{footprint.toLocaleString()} <span style={unit}>sqft</span></div>
               </div>
               <span style={{ fontSize: 18, color: "#94a3b8" }}>+</span>
-              <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", color: "#64748b" }}>Overhang
-                <span><input value={overhang} onChange={(e) => setOverhang(e.target.value)} type="number" min={0} max={4} step={0.25} style={inp(58)} /> ft</span>
-              </label>
+              <div>
+                <div style={stat}>Overhang</div>
+                <div style={{ fontSize: 18, fontWeight: 800 }}>2 <span style={unit}>ft</span> <span style={{ fontSize: 9.5, fontWeight: 700, color: "#94a3b8", letterSpacing: ".06em" }}>STD</span></div>
+              </div>
               <span style={{ fontSize: 18, color: "#94a3b8" }}>→</span>
               <div>
                 <div style={stat}>Roof (drip edge)</div>
@@ -274,7 +275,7 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange }) {
               <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", color: "#64748b" }}>Pitch
                 <span><input value={pitch} onChange={(e) => onPitchChange && onPitchChange(e.target.value)} type="number" min={0} max={24} step={0.5} style={inp(58)} /> /12</span>
               </label>
-              <div style={{ fontSize: 12, color: "#94a3b8", maxWidth: "26ch" }}>Roof = walls expanded to the drip edge (overhang ~1–2 ft). Ridge / hip / valley next.</div>
+              <div style={{ fontSize: 12, color: "#94a3b8", maxWidth: "26ch" }}>Roof = walls + a fixed <b>2 ft</b> drip-edge overhang (standard — no per-house guessing). Ridge / hip / valley next.</div>
             </div>
           )}
         </>
