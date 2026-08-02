@@ -78,6 +78,7 @@ export default function RoofSketchTracer({ onApply }) {
   const main = rects.find((r) => r.role === "main");
   const num = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
   const ready = main && num(main.a) > 0 && num(main.b) > 0 && rects.every((r) => num(r.a) > 0 && num(r.b) > 0);
+  const footprint = Math.round(rects.reduce((s, r) => s + num(r.a) * num(r.b), 0)); // Σ box areas (sqft) — cross-check vs the sketch's printed areas
 
   // ── turn the traced boxes into the engine's main + wings. Typed dims give the
   // SIZE; the pixel positions give side + offset (what the office used to guess).
@@ -125,13 +126,18 @@ export default function RoofSketchTracer({ onApply }) {
       ) : (
         <>
           {/* toolbar */}
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", margin: "8px 0 10px" }}>
-            <button onClick={() => { setArmed("main"); setFirstPt(null); }} style={seg(armed === "main")}>① Trace MAIN body</button>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", margin: "8px 0 8px" }}>
+            <button onClick={() => { setArmed("main"); setFirstPt(null); }} style={seg(armed === "main")}>① Trace the BIGGEST box</button>
             <button onClick={() => { setArmed("section"); setFirstPt(null); }} disabled={!main} style={seg(armed === "section", !main)}>② Add a section</button>
             <label style={{ ...btn("#64748b", true), display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
               ↺ Replace image<input type="file" accept="image/*" onChange={onFile} style={{ display: "none" }} />
             </label>
-            {armed && <span style={{ fontSize: 12.5, fontWeight: 700, color: "#b45309" }}>{firstPt ? "Now tap the OPPOSITE corner" : `Tap one corner of the ${armed === "main" ? "main body" : "section"}`}</span>}
+            {armed && <span style={{ fontSize: 12.5, fontWeight: 700, color: "#b45309" }}>{firstPt ? "Now tap the OPPOSITE corner" : `Tap one corner of the ${armed === "main" ? "biggest box" : "section"}`}</span>}
+          </div>
+
+          {/* the model, spelled out so nobody boxes the whole house */}
+          <div style={{ fontSize: 12.5, color: "#334155", background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 12px", marginBottom: 10, lineHeight: 1.5 }}>
+            Trace each <b>labeled box</b> on the sketch on its own — the biggest (BAS / TWO) is the main, each garage / porch (FGR / FOP) is a section. Copy the number printed on each edge. <b style={{ color: "#b45309" }}>Don't draw one box around the whole house.</b> Skip open balconies (BAL). Your traced footprint should roughly match the sum of the area numbers printed inside the boxes.
           </div>
 
           {/* the sketch + trace overlay */}
@@ -185,10 +191,19 @@ export default function RoofSketchTracer({ onApply }) {
             </div>
           )}
 
-          <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 12 }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 12 }}>
             <button onClick={apply} disabled={!ready} style={btn(ready ? "#16a34a" : "#94a3b8")}>✓ Apply to takeoff</button>
-            <span style={{ fontSize: 12, color: "#94a3b8" }}>{ready ? "Fills the sections below — the side & offset are read from your trace." : "Trace the main body + type every box's two dimensions to apply."}</span>
+            {footprint > 0 && (
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: "#334155" }}>
+                Traced footprint: {footprint.toLocaleString()} sqft
+                <span style={{ fontWeight: 400, color: "#94a3b8" }}> — should ≈ the area numbers printed on the sketch</span>
+              </span>
+            )}
+            {rects.length === 1 && footprint > 0 && (
+              <span style={{ fontSize: 12, color: "#b45309" }}>Only one box traced — most homes have a garage/porch section too. Sure this isn't the whole outline?</span>
+            )}
           </div>
+          <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 6 }}>{ready ? "Fills the sections below — the side & offset are read from your trace." : "Trace the biggest box + type every box's two dimensions to apply."}</div>
         </>
       )}
     </div>
