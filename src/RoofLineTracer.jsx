@@ -29,6 +29,25 @@ export default function RoofLineTracer({ lat, lng, pitch = 8, overhang, onOverha
   const stateRef = useRef({});
   stateRef.current = { mode, lines, pending };
 
+  // ── geometry: hip/valley LENGTH = corner → ridge, so how long you drew it is
+  // irrelevant — only which corner + which ridge. Snap the ridge-end of a hip/valley
+  // onto the nearest ridge line (local planar meters for the line math).
+  const cosLat = Math.cos((lat || 0) * Math.PI / 180) || 1;
+  const toXY = (q) => ({ x: (q.lng - lng) * 111320 * cosLat, y: (q.lat - lat) * 110540 });
+  const toLL = (q) => ({ lat: lat + q.y / 110540, lng: lng + q.x / (111320 * cosLat) });
+  const projOnSeg = (pt, a, b) => { const dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy || 1e-9; let t = ((pt.x - a.x) * dx + (pt.y - a.y) * dy) / L2; t = Math.max(0, Math.min(1, t)); const q = { x: a.x + t * dx, y: a.y + t * dy }; return { q, d: Math.hypot(pt.x - q.x, pt.y - q.y) }; };
+  function snapToRidge(seg) {
+    if (lat == null || lng == null) return seg;
+    const ridges = stateRef.current.lines.filter((s) => s.type === "ridge");
+    if (!ridges.length) return seg;
+    const a = toXY(seg.a), b = toXY(seg.b);
+    let best = null;
+    for (const r of ridges) { const ra = toXY(r.a), rb = toXY(r.b); const pa = projOnSeg(a, ra, rb), pb = projOnSeg(b, ra, rb); const cand = pa.d < pb.d ? { end: "a", q: pa.q, d: pa.d } : { end: "b", q: pb.q, d: pb.d }; if (!best || cand.d < best.d) best = cand; }
+    if (best && best.d < 6) { const s = toLL(best.q); return best.end === "a" ? { ...seg, a: s } : { ...seg, b: s }; }   // within 6 m of a ridge → snap
+    return seg;
+  }
+  const geomSeg = (s) => (s.type === "hip" || s.type === "valley" ? snapToRidge(s) : s);
+
   // ── map
   useEffect(() => {
     if (!mapEl.current || mapRef.current || lat == null || lng == null) return;
@@ -88,7 +107,7 @@ export default function RoofLineTracer({ lat, lng, pitch = 8, overhang, onOverha
   useEffect(() => {
     const g = drawRef.current; if (!g) return;
     g.clearLayers();
-    lines.forEach((s) => { L.polyline([[s.a.lat, s.a.lng], [s.b.lat, s.b.lng]], { color: COL[s.type], weight: 4 }).addTo(g); });
+    lines.forEach((s) => { const d = geomSeg(s); L.polyline([[d.a.lat, d.a.lng], [d.b.lat, d.b.lng]], { color: COL[s.type], weight: 4 }).addTo(g); });
     // overhang line + live preview: SOLID green when square to axis, DASHED red when angled
     if (ovLine) L.polyline([[ovLine.a.lat, ovLine.a.lng], [ovLine.b.lat, ovLine.b.lng]], { color: "#7c3aed", weight: 3.5 }).addTo(g);
     if (mode === "overhang" && pending && hover) L.polyline([[pending.lat, pending.lng], [hover.lat, hover.lng]], { color: "#7c3aed", weight: 3, dashArray: "5,4" }).addTo(g);
@@ -103,7 +122,7 @@ export default function RoofLineTracer({ lat, lng, pitch = 8, overhang, onOverha
   const p = (parseFloat(pitch) || 0) / 12;
   const hipF = Math.sqrt(1 + (p * p) / 2);   // hip/valley run at 45° → √(1+p²/2)
   const rakeF = Math.sqrt(1 + p * p);        // rake runs up the gable slope → √(1+p²)
-  const segFt = (s) => L.latLng(s.a.lat, s.a.lng).distanceTo(L.latLng(s.b.lat, s.b.lng)) * M_TO_FT;
+  const segFt = (s) => { const g = geomSeg(s); return L.latLng(g.a.lat, g.a.lng).distanceTo(L.latLng(g.b.lat, g.b.lng)) * M_TO_FT; };
   const sum = (t, f) => lines.filter((s) => s.type === t).reduce((a, s) => a + segFt(s) * f, 0);
   const ridge = sum("ridge", 1), hip = sum("hip", hipF), valley = sum("valley", hipF), rake = sum("rake", rakeF);
   const r1 = (n) => Math.round(n * 10) / 10;
