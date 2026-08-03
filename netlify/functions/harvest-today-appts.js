@@ -54,8 +54,12 @@ export const handler = async (event) => {
     { range: { date_start: { gte: fromSec, lte: toSec } } },
   ] }));
 
-  // 1) Today's appt tasks → { jobId, at_ms, title }.
-  const rows = [];
+  // 1) Today's appt tasks. Collect EVERY appointment task in the window (any owner),
+  //    tagging whether the REP owns the task. A rep's harvested/setter appt is booked
+  //    through our system, so the rep owns the task. A COMPANY appt is created in the
+  //    office, where the rep owns the JOB, not the task — so a task-owner-only match
+  //    silently dropped every company appointment. We resolve job-ownership next.
+  const candidates = [];
   try {
     for (let page = 0; page < 8; page++) {
       const r = await fetch(`${JN_BASE}/tasks?size=100&from=${page * 100}&filter=${filter}`, { headers: jnHeaders });
@@ -64,15 +68,30 @@ export const handler = async (event) => {
       const results = d.results || d.tasks || d.data || [];
       for (const t of results) {
         if (!APPT_TASK_TYPES.has(t.record_type_name) && !APPT_TASK_RTS.has(Number(t.record_type))) continue;
-        if (!(t.owners || []).some((o) => String(o.id) === String(jn))) continue;
         const sec = Number(t.date_start) || 0; if (!sec) continue;
         const rel = (t.related || []).find((x) => x.type === "job") || (t.primary && t.primary.type === "job" ? t.primary : null);
-        const jobId = rel?.id || null;
-        rows.push({ jobId, at_ms: sec * 1000, title: t.title || "" });
+        const taskOwned = (t.owners || []).some((o) => String(o.id) === String(jn));
+        candidates.push({ jobId: rel?.id || null, at_ms: sec * 1000, title: t.title || "", taskOwned });
       }
       if (results.length < 100) break;
     }
   } catch { /* fall through with whatever we have */ }
+  if (!candidates.length) return cors(200, { ok: true, appts: [] });
+
+  // Task-owned appts are the rep's for sure. For the rest, the appt is the rep's if the
+  // rep owns the JOB it's attached to — that's how an office-booked COMPANY appointment
+  // ties to a rep (job "Assigned To" = the rep, even though the office owns the task).
+  const checkIds = [...new Set(candidates.filter((c) => !c.taskOwned && c.jobId).map((c) => c.jobId))];
+  const jobIsRep = {};
+  await Promise.all(checkIds.map(async (id) => {
+    try {
+      const r = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(id)}`, { headers: jnHeaders });
+      if (!r.ok) return;
+      const j = await r.json().catch(() => ({}));
+      jobIsRep[id] = (j.owners || []).some((o) => String(o.id) === String(jn)) || String(j.sales_rep || "") === String(jn);
+    } catch { /* skip this one */ }
+  }));
+  const rows = candidates.filter((c) => c.taskOwned || (c.jobId && jobIsRep[c.jobId]));
   if (!rows.length) return cors(200, { ok: true, appts: [] });
 
   // 2) Location shortcut: the map's own appt pins (already geocoded) by jn_job_id.
