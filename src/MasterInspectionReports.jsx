@@ -68,7 +68,7 @@ export default function MasterInspectionReports() {
     ["overview", "Overview"],
     ["needs_inspection", `Needs Inspecting (${c.needs_inspection})`],
     ["needs_goback", `Needs Go-Back Status (${c.needs_goback_status})`],
-    ["retail", `Retail (${c.retail})`],
+    ["retail", `BTR (${c.retail})`],
     ["damage", `Damage / PA (${c.damage})`],
     ["pa_passed", `PA Appts Passed (${c.pa_passed})`],
     ["missed", `⚠️ Missed PA (${c.missed_pa})`],
@@ -109,7 +109,7 @@ function Overview({ data, onJump }) {
   const tiles = [
     ["needs_inspection", "🔍", "Need inspecting", c.needs_inspection, "#2563eb"],
     ["needs_goback", "🔁", "Need go-back status", c.needs_goback_status, "#7c3aed"],
-    ["retail", "🏠", "Retail deals", c.retail, "#0891b2"],
+    ["retail", "🏠", "BTR deals", c.retail, "#0891b2"],
     ["damage", "⚡", "Damage deals", c.damage, "#ca8a04"],
     ["damage", "📅", "Damage w/ PA appt", c.damage_with_appt, "#16a34a"],
     ["damage", "📌", "Damage need PA appt", c.damage_needs_appt, "#b45309"],
@@ -168,7 +168,7 @@ function RetailBars({ retail, compact }) {
   const total = retail.total || 1;
   return (
     <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14, padding: "16px 18px" }}>
-      <div style={{ fontSize: 15, fontWeight: 800, fontFamily: OSWALD, marginBottom: 10 }}>Retail breakdown — {retail.total} deals</div>
+      <div style={{ fontSize: 15, fontWeight: 800, fontFamily: OSWALD, marginBottom: 10 }}>BTR breakdown — {retail.total} deals</div>
       {order.map((k) => (
         <div key={k} style={{ marginBottom: 9 }}>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, fontWeight: 700, color: "#334155", marginBottom: 3 }}>
@@ -188,7 +188,7 @@ function Retail({ retail }) {
     <div>
       <RetailBars retail={retail} />
       <div style={{ height: 14 }} />
-      <DealList title="Retail deals" sub="Every retail-track deal and its current outcome." rows={retail.deals}
+      <DealList title="BTR deals" sub="Every BTR-track deal and its current outcome." rows={retail.deals}
         cols={[["outcome", "Outcome"], ["outcome_at", "When", fmtDate]]} />
     </div>
   );

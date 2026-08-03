@@ -111,12 +111,12 @@ export const handler = async (event) => {
     const needs_goback_status = live
       .filter((i) => (i.result === "damage" && !(apptByInsp[i.id] || []).length && paOutcome(i) === "pending")
         || (i.result === "retail" && !i.retail_outcome))
-      .map((i) => ({ ...card(i), result: i.result, need: i.result === "damage" ? "Needs PA appointment" : "Needs rep go-back (retail)" }))
+      .map((i) => ({ ...card(i), result: i.result, need: i.result === "damage" ? "Needs PA appointment" : "Needs rep go-back (BTR)" }))
       .sort((a, b) => (a.result || "").localeCompare(b.result || ""));
 
     // 3) RETAIL breakdown + percentages. retail_outcome: ni / no_sale / sold / btr_appt / (null = pending)
     const retailDeals = live.filter((i) => i.result === "retail");
-    const RB = { ni: "Retail – Not Interested", btr_appt: "Retail – Appointment", sold: "BTR Sold", no_sale: "Retail – No Sale", pending: "Not worked yet (rep hasn't gone back)" };
+    const RB = { ni: "BTR – Not Interested", btr_appt: "BTR – Appointment", sold: "BTR Sold", no_sale: "BTR – No Sale", pending: "Not worked yet (rep hasn't gone back)" };
     const buckets = { ni: 0, btr_appt: 0, sold: 0, no_sale: 0, pending: 0 };
     for (const i of retailDeals) { const k = i.retail_outcome && buckets[i.retail_outcome] != null ? i.retail_outcome : "pending"; buckets[k]++; }
     const rTotal = retailDeals.length || 1;
