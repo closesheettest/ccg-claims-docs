@@ -160,7 +160,7 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets, ove
   function undoPoint() { setDraft((d) => d.slice(0, -1)); }
   function closeRegion() {
     if (draft.length < 3) return;
-    setRegions((rs) => [...rs, { id: `${rs.length}_${draft.length}`, label: rs.length === 0 ? "core" : "ext", pts: draft }]);
+    setRegions((rs) => [...rs, { id: `${rs.length}_${draft.length}`, label: rs.length === 0 ? "core" : "ext", pts: draft, flat: false }]);
     setDraft([]); setMode(null);
   }
   function undoLast() {
@@ -169,6 +169,7 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets, ove
   }
   function removeRegion(id) { setRegions((rs) => rs.filter((r) => r.id !== id)); }
   function setLabel(id, label) { setRegions((rs) => rs.map((r) => (r.id === id ? { ...r, label } : r))); }
+  function toggleFlat(id) { setRegions((rs) => rs.map((r) => (r.id === id ? { ...r, flat: !r.flat } : r))); }
 
   // ── math (all in natural px, scaled to feet by ftPerPx)
   const ftPerPx = scale?.ftPerPx || 0;
@@ -176,7 +177,19 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets, ove
   const { wall, roof } = useMemo(() => roofArea(regions, ftPerPx, parseFloat(overhang) || 0), [regions, ftPerPx, overhang]);
   const footprint = Math.round(wall);
   const roofSqft = Math.round(roof);
-  const squares = roof * sf(pitch) / 100;
+  // Split the roof into PITCHED (→ shingle, gets the slope factor) and FLAT (→ membrane
+  // / metal, no slope factor) — different material, ordered separately. Apportion the
+  // overhang-inclusive roof area by each bucket's footprint so shingle + membrane always
+  // sum to the whole roof (no double-count at the shared pitched↔flat transition).
+  const footOf = (rs) => rs.reduce((s, r) => s + shoelace(r.pts) * ftPerPx * ftPerPx, 0);
+  const flatFoot = footOf(regions.filter((r) => r.flat));
+  const totFoot = footOf(regions) || 1;
+  const flatRoof = roof * (flatFoot / totFoot);
+  const pitchedRoof = roof - flatRoof;
+  const shingleSquares = pitchedRoof * sf(pitch) / 100;   // sloped → shingle
+  const membraneSquares = flatRoof / 100;                 // flat → membrane / metal (sf ≈ 1)
+  const squares = shingleSquares + membraneSquares;
+  const hasFlat = flatFoot > 0;
   const r1 = (n) => Math.round(n * 10) / 10;
   // EAVES + RAKES from the appraiser footprint. The drip-edge outline is the
   // clickable perimeter; you tag the gable-end edges as rakes (the human DEFINES),
@@ -278,7 +291,7 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets, ove
             <svg viewBox={`0 0 ${nat.w} ${nat.h}`} width="100%" height="100%" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
               {/* closed regions */}
               {regions.map((r, i) => {
-                const c = r.label === "core" ? "#2563eb" : "#16a34a";
+                const c = r.flat ? "#0891b2" : r.label === "core" ? "#2563eb" : "#16a34a"; // flat → membrane cyan
                 const ce = centroid(r.pts);
                 return (
                   <g key={r.id}>
@@ -342,7 +355,8 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets, ove
                   <select value={r.label} onChange={(e) => setLabel(r.id, e.target.value)} style={sel}><option value="core">2-story core</option><option value="ext">1-story piece</option></select>
                   <b>{Math.round(areaFt(r.pts))} sqft</b>
                   <span style={{ color: "#94a3b8", fontSize: 12 }}>{r.pts.length} corners</span>
-                  <button onClick={() => removeRegion(r.id)} style={{ ...btn("#dc2626", true), marginLeft: "auto" }}>×</button>
+                  <button onClick={() => toggleFlat(r.id)} style={{ ...btn(r.flat ? "#0891b2" : "#64748b", !r.flat), fontSize: 12, padding: "4px 9px", marginLeft: "auto" }}>{r.flat ? "▭ Flat → membrane" : "△ Pitched → shingle"}</button>
+                  <button onClick={() => removeRegion(r.id)} style={btn("#dc2626", true)}>×</button>
                 </div>
               ))}
             </div>
@@ -366,8 +380,14 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets, ove
                 <div style={{ fontSize: 18, fontWeight: 800 }}>{roofSqft.toLocaleString()} <span style={unit}>sqft</span></div>
               </div>
               <div style={{ borderLeft: "2px solid #bae6fd", paddingLeft: 16 }}>
-                <div style={stat}>Squares @ {pitch}/12</div>
+                <div style={stat}>{hasFlat ? "Total squares" : `Squares @ ${pitch}/12`}</div>
                 <div style={{ fontSize: 26, fontWeight: 800, color: "#0369a1" }}>{r1(squares)} <span style={unit}>sq</span></div>
+                {hasFlat && (
+                  <div style={{ fontSize: 12, marginTop: 4, lineHeight: 1.55 }}>
+                    <div style={{ color: "#2563eb", fontWeight: 700 }}>▲ Shingle {r1(shingleSquares)} sq <span style={{ color: "#94a3b8", fontWeight: 400 }}>@ {pitch}/12</span></div>
+                    <div style={{ color: "#0891b2", fontWeight: 700 }}>▭ Membrane {r1(membraneSquares)} sq <span style={{ color: "#94a3b8", fontWeight: 400 }}>flat</span></div>
+                  </div>
+                )}
               </div>
               <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", color: "#64748b" }}>Pitch
                 <span><input value={pitch} onChange={(e) => onPitchChange && onPitchChange(e.target.value)} type="number" min={0} max={24} step={0.5} style={inp(58)} /> /12</span>

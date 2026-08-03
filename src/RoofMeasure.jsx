@@ -137,12 +137,10 @@ function ResultCard({ d }) {
   const m = d.materials || {};
   const sloped = m.sloped || {};
   const flat = m.flat || {};
-  const [showEditor, setShowEditor] = useState(false);
-  const [adj, setAdj] = useState(null);   // corrected figures from the map editor / appraiser override
+  const [showEditor, setShowEditor] = useState(true);   // draw-first: open the trace map immediately — no auto-estimate to trust
+  const [adj, setAdj] = useState(null);   // the rep's traced measurement (or appraiser-sqft override)
   const [apprSqft, setApprSqft] = useState("");
-  const [looksRight, setLooksRight] = useState(false);
-  const isAdj = !!adj;
-  const confirmed = isAdj || looksRight;   // auto read stays an ESTIMATE until the rep confirms or redraws
+  const isAdj = !!adj;   // true once the rep has traced the roof (or entered appraiser sqft) — that trace IS the number we show
 
   // Appraiser override: the county publishes each roofed section's exact sq ft
   // (BAS + garage + porches). Sum = under-roof FOOTPRINT; × slope factor = true
@@ -163,14 +161,7 @@ function ResultCard({ d }) {
     });
   }
 
-  // Auto pre-fill from the county's living area on load (rep bumps for garage/porch).
-  useEffect(() => {
-    const liv = d.appraiser?.living_sqft;
-    if (liv && !apprSqft) applyAppraiser(String(liv));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Once the outline is adjusted on the map, the corrected numbers drive the top.
+  // Once the outline is traced on the map, the rep's numbers drive the top.
   // The editor emits both buckets (classed by pitch), so a low-slope trace lands
   // in membrane and shingle stays 0.
   const totalSq = isAdj ? adj.total : r.surface_squares;
@@ -202,37 +193,38 @@ function ResultCard({ d }) {
         </div>
       )}
 
-      {/* Top-line numbers */}
+      {/* Reference only — pitch & facet count from the satellite. NOT a measurement:
+          the rep traces the roof below and that trace is the number they price off. */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 14, marginBottom: 18 }}>
-        <Stat label="Total roof (sloped)" value={`${totalSq ?? "—"}`} unit={confirmed ? (isAdj ? "squares · confirmed" : "squares · confirmed") : "squares · ESTIMATE"} accent={confirmed ? "#16a34a" : "#b45309"} />
+        {isAdj && <Stat label="Total roof (sloped)" value={`${totalSq ?? "—"}`} unit="squares · from your trace" accent="#16a34a" />}
         <Stat label="Predominant pitch" value={r.avg_pitch_x12 != null ? `${r.avg_pitch_x12}/12` : "—"} unit={r.avg_pitch_deg != null ? `${r.avg_pitch_deg}°` : ""} />
         <Stat label="Roof facets" value={`${r.plane_count ?? "—"}`} unit="" />
       </div>
 
-      {/* Confirm gate — the auto read is only an estimate until the rep vouches for it. */}
-      {!confirmed && (
-        <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 10, padding: "11px 14px", marginBottom: 16, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <span style={{ fontSize: 13.5, color: "#92400e", fontWeight: 600, flex: "1 1 240px" }}>⚠️ Automated estimate — the outline can be off (it may grab a pool cage or the wrong building). Confirm before quoting:</span>
-          <button onClick={() => setLooksRight(true)} style={{ fontFamily: FONT, fontSize: 14, fontWeight: 700, color: "#fff", background: "#16a34a", border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer" }}>✓ Looks right</button>
-          <button onClick={() => setShowEditor(true)} style={{ fontFamily: FONT, fontSize: 14, fontWeight: 700, color: "#2563eb", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: "8px 16px", cursor: "pointer" }}>✏️ Verify / redraw</button>
+      {/* Draw-first: no automated estimate. The rep traces the roof and THAT is the number. */}
+      {!isAdj && (
+        <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, padding: "11px 14px", marginBottom: 16, fontSize: 13.5, color: "#1e40af", fontWeight: 600 }}>
+          ✏️ Trace the roof outline on the map below — what you draw is your measurement. Draw pitched and flat sections separately (different material).
         </div>
       )}
 
-      {/* Material split */}
-      <div style={{ ...LABEL, marginBottom: 8 }}>Material split &amp; waste</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12, marginBottom: 6 }}>
-        <Bucket title="Sloped → shingle" b={slopedShow} accent="#2563eb" />
-        <Bucket title="Flat / low-slope → membrane" b={flatShow} accent="#0891b2" />
-      </div>
-
-      {/* Alternative: whole roof as metal at a flat 10% waste. */}
-      {m.metal && (
-        <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 10, padding: "10px 14px" }}>
-          <span style={{ fontSize: 13.5, fontWeight: 700, color: "#475569" }}>
-            🔩 As a metal roof <span style={{ fontWeight: 400, color: "#94a3b8" }}>(whole roof, {metalWaste}% waste)</span>
-          </span>
-          <b style={{ fontSize: 16, color: "#0f172a" }}>{metalOrder} sq</b>
-        </div>
+      {/* Material split + metal — only after the rep has TRACED the roof (their number). */}
+      {isAdj && (
+        <>
+          <div style={{ ...LABEL, marginBottom: 8 }}>Material split &amp; waste</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12, marginBottom: 6 }}>
+            <Bucket title="Sloped → shingle" b={slopedShow} accent="#2563eb" />
+            <Bucket title="Flat / low-slope → membrane" b={flatShow} accent="#0891b2" />
+          </div>
+          {m.metal && (
+            <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 10, padding: "10px 14px" }}>
+              <span style={{ fontSize: 13.5, fontWeight: 700, color: "#475569" }}>
+                🔩 As a metal roof <span style={{ fontWeight: 400, color: "#94a3b8" }}>(whole roof, {metalWaste}% waste)</span>
+              </span>
+              <b style={{ fontSize: 16, color: "#0f172a" }}>{metalOrder} sq</b>
+            </div>
+          )}
+        </>
       )}
 
       {/* Appraiser sq ft override — exact, imagery-independent squares. */}
