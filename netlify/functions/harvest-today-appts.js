@@ -40,6 +40,8 @@ export const handler = async (event) => {
   // reliable link across both.
   const repName = String(rep?.name || "").trim().toLowerCase();
   const isRepOwner = (arr) => (arr || []).some((o) => String(o.id) === String(jn) || (repName && String(o.name || "").trim().toLowerCase() === repName));
+  const DEBUG = String((event.queryStringParameters || {}).debug || "") === "1";  // TEMP probe — remove after diagnosis
+  const dbgTasks = [];
 
   // Today's window in ET (FL), from ~2h ago (covers an appt already in progress) to
   // end of day, so we only plan around what's still ahead.
@@ -73,6 +75,7 @@ export const handler = async (event) => {
       const d = await r.json().catch(() => ({}));
       const results = d.results || d.tasks || d.data || [];
       for (const t of results) {
+        if (DEBUG && /\btee\b|arlington/i.test(String(t.title || ""))) dbgTasks.push({ title: t.title, rt_name: t.record_type_name, rt: t.record_type, date_start: t.date_start, owners: (t.owners || []).map((o) => ({ id: o.id, name: o.name })), jobId: ((t.related || []).find((x) => x.type === "job") || (t.primary && t.primary.type === "job" ? t.primary : null))?.id || null });
         if (!APPT_TASK_TYPES.has(t.record_type_name) && !APPT_TASK_RTS.has(Number(t.record_type))) continue;
         const sec = Number(t.date_start) || 0; if (!sec) continue;
         const rel = (t.related || []).find((x) => x.type === "job") || (t.primary && t.primary.type === "job" ? t.primary : null);
@@ -82,6 +85,16 @@ export const handler = async (event) => {
       if (results.length < 100) break;
     }
   } catch { /* fall through with whatever we have */ }
+  if (DEBUG) {   // TEMP probe — dump the Al-Tee task + its job so we can see owners/sales-rep
+    for (const dt of dbgTasks) {
+      if (!dt.jobId) continue;
+      try {
+        const r = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(dt.jobId)}`, { headers: jnHeaders });
+        if (r.ok) { const j = await r.json().catch(() => ({})); dt.job = { owners: (j.owners || []).map((o) => ({ id: o.id, name: o.name })), sales_rep: j.sales_rep, keys: Object.keys(j), repish: Object.fromEntries(Object.entries(j).filter(([k, v]) => /rep|sales/i.test(k) || (typeof v === "string" && /bissu/i.test(v)))) }; }
+      } catch { /* ignore */ }
+    }
+    return cors(200, { ok: true, debug: true, jn, repName, appt_candidates: candidates.length, matched: dbgTasks });
+  }
   if (!candidates.length) return cors(200, { ok: true, appts: [] });
 
   // Task-owned appts are the rep's for sure. For the rest, the appt is the rep's if the
