@@ -90,7 +90,7 @@ export const handler = async (event) => {
       if (!dt.jobId) continue;
       try {
         const r = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(dt.jobId)}`, { headers: jnHeaders });
-        if (r.ok) { const j = await r.json().catch(() => ({})); dt.job = { owners: (j.owners || []).map((o) => ({ id: o.id, name: o.name })), sales_rep: j.sales_rep, keys: Object.keys(j), repish: Object.fromEntries(Object.entries(j).filter(([k, v]) => /rep|sales/i.test(k) || (typeof v === "string" && /bissu/i.test(v)))) }; }
+        if (r.ok) { const j = await r.json().catch(() => ({})); dt.job = { addr: [j.address_line1, j.city, j.state_text, j.zip], geo: j.geo, hasPin: false }; try { const p = await sbGet(`canvass_prospects?jn_job_id=eq.${encodeURIComponent(dt.jobId)}&select=latitude,longitude&limit=1`); dt.job.hasPin = !!(p && p[0] && typeof p[0].latitude === "number"); } catch { /* ignore */ } }
       } catch { /* ignore */ }
     }
     return cors(200, { ok: true, debug: true, jn, repName, appt_candidates: candidates.length, matched: dbgTasks });
