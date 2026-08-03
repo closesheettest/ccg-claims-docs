@@ -93,7 +93,10 @@ export const handler = async (event) => {
       // Fall back to sales_rep_* for rows signed before the freeze backfill.
       const signerId = r.original_sales_rep_id || r.sales_rep_id
       const signerName = r.original_sales_rep_name || r.sales_rep_name
-      if (/\bwilliam\b/i.test(String(signerName || ''))) {
+      // Match the trainer specifically — William HERNANDEZ. A bare /\bwilliam\b/
+      // also swept in other Williams on real teams (e.g. William Hennis),
+      // inflating the solo card and double-counting their team signings.
+      if (/william\s+hernandez/i.test(String(signerName || ''))) {
         williamCount++
         williamDeals.push({ rep: 'William', label: titleAddr(r.address) || (r.client_name || '').trim() || 'Signed inspection' })
       }
