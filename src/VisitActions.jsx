@@ -59,23 +59,24 @@ export function DamagePanel({ deal, rep, api, reschedule = false }) {
   const [booking, setBooking] = useState("");
   const [done, setDone] = useState(null);
   const [ni, setNi] = useState(false);
+  const [note, setNote] = useState("");   // reschedule: a note the rep sends the PA (wrong address, gate code, what went wrong)
   useEffect(() => {
     api("pa-schedule-api", { action: "slots", inspection_id: deal.inspection_id, lat: deal.latitude, lng: deal.longitude })
       .then((o) => setSlots(o.slots || [])).catch((e) => { setErr(e.message); setSlots([]); });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const doBook = async (s, force) =>
-    api("pa-schedule-api", { action: "book", pa_id: s.pa_id, start_at: s.start_at, inspection_id: deal.inspection_id, homeowner_name: deal.client_name, homeowner_phone: deal.mobile, address: deal.address, booked_by: rep.name, force, reschedule });
+    api("pa-schedule-api", { action: "book", pa_id: s.pa_id, start_at: s.start_at, inspection_id: deal.inspection_id, homeowner_name: deal.client_name, homeowner_phone: deal.mobile, address: deal.address, booked_by: rep.name, force, reschedule, note: note.trim() || undefined });
   const book = async (s) => {
     setBooking(s.start_at + s.pa_id); setErr("");
     try {
       await doBook(s, false);
-      setDone(`Booked with ${s.pa_name} — ${s.label}. The PA was notified.`);
+      setDone(`Booked with ${s.pa_name} — ${s.label}. The PA was notified${note.trim() ? " with your note" : ""}.`);
     } catch (e) {
       if (e.body?.duplicate) {
         const ex = e.body.existing || {};
         const when = ex.start_at ? new Date(ex.start_at).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" }) : "another time";
         if (window.confirm(`⚠️ ${deal.client_name || "This homeowner"} already has a PA appointment scheduled for ${when}${ex.pa_name ? ` with ${ex.pa_name}` : ""}.\n\nBook a SECOND appointment anyway?\n\n• OK = book anyway\n• Cancel = go back and pick a different time`)) {
-          try { await doBook(s, true); setDone(`Booked with ${s.pa_name} — ${s.label}. The PA was notified.`); }
+          try { await doBook(s, true); setDone(`Booked with ${s.pa_name} — ${s.label}. The PA was notified${note.trim() ? " with your note" : ""}.`); }
           catch (e2) { setErr(e2.message); }
         } else {
           setErr("Didn't book — this homeowner already has a PA appointment. Pick a different time or leave the existing one.");
@@ -156,6 +157,15 @@ export function DamagePanel({ deal, rep, api, reschedule = false }) {
         </div>
       ) : (
         <>
+          {reschedule && (
+            <div style={{ marginBottom: 14, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 10, padding: "10px 12px" }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 800, color: "#92400e", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 5 }}>📝 Note for the PA (optional)</label>
+              <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2}
+                placeholder="e.g. PA went to the wrong house — correct address is 1204 N New Hampshire Ave, blue door on the corner. Gate code 1234."
+                style={{ width: "100%", boxSizing: "border-box", fontFamily: "inherit", fontSize: 13.5, padding: "8px 10px", border: "1px solid #fcd34d", borderRadius: 8, resize: "vertical" }} />
+              <div style={{ fontSize: 11.5, color: "#a16207", marginTop: 4 }}>Sent to the PA with the new appointment — in their text/email and on the JobNimbus job.</div>
+            </div>
+          )}
           <p style={{ fontSize: 14, fontWeight: 700, color: "#374151", margin: "0 0 8px" }}>…or pick a day & time for the PA to come out:</p>
           <div style={{ maxHeight: "55vh", overflowY: "auto" }}>
             {dayKeys.map((k) => {

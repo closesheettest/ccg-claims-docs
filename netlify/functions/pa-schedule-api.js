@@ -262,7 +262,11 @@ async function book(body) {
   const phone = String(body.homeowner_phone || "").trim();
   const address = String(body.address || "").trim();
   const bookedBy = String(body.booked_by || "").trim() || "Dialer";
-  const notes = String(body.notes || "").slice(0, 1000) || null;
+  // Rep's note to the PA on a rebook (e.g. "PA went to the wrong house — correct
+  // address is …, gate code …"). Delivered in the PA's text + email + calendar event
+  // and stored on the appointment, so the PA actually sees it.
+  const repNote = String(body.note || "").trim().slice(0, 500);
+  const notes = [String(body.notes || "").trim(), repNote ? `Note from ${bookedBy}: ${repNote}` : ""].filter(Boolean).join(" | ").slice(0, 1000) || null;
 
   // Reschedule (e.g. nobody home): cancel this homeowner's existing scheduled
   // appointment(s) FIRST, so booking the new time is a MOVE, not a second appt.
@@ -396,7 +400,7 @@ async function book(body) {
   const MONITOR_PHONE = "7275037017"; // TEMP: copy Neal so he can confirm delivery — remove when he shuts his off.
 
   // PA — SMS + email with the details.
-  const paApptMsg = `📅 New appointment: ${homeowner || "a homeowner"}${fullAddress ? ` — ${fullAddress}` : ""} on ${when}.${phone ? ` Homeowner: ${phone}.` : ""} (booked by ${bookedBy})`;
+  const paApptMsg = `📅 New appointment: ${homeowner || "a homeowner"}${fullAddress ? ` — ${fullAddress}` : ""} on ${when}.${phone ? ` Homeowner: ${phone}.` : ""} (booked by ${bookedBy})${repNote ? `\n\n📝 Note from ${bookedBy}: ${repNote}` : ""}`;
   if (base && pa.phone) await sms(base, pa.phone, pa.name, paApptMsg);
   if (base && pa.email) await email(base, pa.email, "📅 New appointment booked for you", paApptMsg);
 
