@@ -147,7 +147,7 @@ export default function RoofLineTracer({ lat, lng, pitch = 8, overhang, onOverha
         <button onClick={() => pickMode("ridge")} style={seg(mode === "ridge", COL.ridge)}>▬ Ridge</button>
         <button onClick={() => pickMode("hip")} style={seg(mode === "hip", COL.hip)}>╱ Hip</button>
         <button onClick={() => pickMode("valley")} style={seg(mode === "valley", COL.valley)}>╲ Valley</button>
-        <button onClick={() => pickMode("rake")} style={seg(mode === "rake", COL.rake)}>◺ Rake (cross-gable)</button>
+        <button onClick={() => pickMode("rake")} style={seg(mode === "rake", COL.rake)}>◺ Rake</button>
         <button onClick={() => { setMode("overhang"); setPending(null); }} style={seg(mode === "overhang", "#7c3aed")}>◳ Measure overhang</button>
         <button onClick={undo} style={btn("#dc2626", true)}>↶ Undo</button>
         <button onClick={clearAll} style={btn("#64748b", true)}>Clear</button>
