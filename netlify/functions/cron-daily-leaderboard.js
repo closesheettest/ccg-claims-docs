@@ -74,7 +74,7 @@ export const handler = async (event) => {
     weekday: "long",
     timeZone: "America/New_York",
   });
-  const message = buildMessage(zones, dayName);
+  const message = buildMessage(zones, dayName, lb.william);
 
   if (dry) {
     return json(200, { ok: true, fired: false, dry: true, would_send: message, extra_recipients: cfg.recipients });
@@ -104,13 +104,13 @@ export const handler = async (event) => {
 // under ~160 chars. Emoji-dense multi-line texts with "Press here 👉" + a full
 // https URL get content-filtered by carriers for some recipient segments (the
 // message silently never arrives). Keep it lean so it delivers everywhere.
-function buildMessage(zones, dayName) {
+function buildMessage(zones, dayName, william) {
   const top = zones[0];
   const runner = zones[1];
   // No link — reps know where the dashboard is, and a URL is the single biggest
   // carrier spam trigger. Plain standings text delivers everywhere.
   if (!top || top.count === 0) {
-    return `US Shingle standings (${dayName}): no signings yet this week — first team to sign takes the lead.`;
+    return `US Shingle standings (${dayName}): no signings yet this week — first team to sign takes the lead.${williamLine(william, zones)}`;
   }
   let msg = `US Shingle standings (${dayName}): ${top.team} leads with ${top.count}`;
   if (runner && runner.count > 0) {
@@ -119,7 +119,24 @@ function buildMessage(zones, dayName) {
   } else if (runner) {
     msg += `, ${runner.team} ${top.count} behind`;
   }
-  return `${msg}.`;
+  return `${msg}.${williamLine(william, zones)}`;
+}
+
+// Trainer William works solo (no team). When his personal signings match or beat
+// a full squad's, that's the motivational gut-punch worth broadcasting. Kept
+// plain-text + one line to stay carrier-safe like the rest of the message.
+// Silent when he has 0, or when every team is ahead of him (nothing to boast).
+function williamLine(william, zones) {
+  const w = william && Number(william.count);
+  if (!w) return "";
+  const teams = (zones || []).filter((z) => z && z.team);
+  const tied = teams.filter((z) => z.count === w).map((z) => z.team);
+  const beats = teams.filter((z) => z.count < w).map((z) => z.team);
+  if (!tied.length && !beats.length) return "";
+  const parts = [];
+  if (tied.length) parts.push(`tied ${tied.join(" & ")}`);
+  if (beats.length) parts.push(`ahead of ${beats.join(" & ")}`);
+  return ` Trainer William solo has ${w} — ${parts.join(", ")}.`;
 }
 
 // ── auto_sms registry helpers (fail-open) ───────────────────────────
