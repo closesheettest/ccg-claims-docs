@@ -7,9 +7,11 @@ exports.handler = async () => {
   const H = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
   const out = { jobs_by_address: [], pin_contact: null, contact_jobs: [] };
   try {
-    // 1. Jobs whose address_line1 matches "668 Arlington"
-    const filter = encodeURIComponent(JSON.stringify({ must: [{ match_phrase: { address_line1: "668 Arlington Drive" } }] }));
-    const r = await fetch(`${JN_BASE}/jobs?size=25&filter=${filter}`, { headers: H });
+    // 1. ALL jobs whose address starts "668 Arlington" (any suffix/city) — to see
+    // if a same-street-number job in a DIFFERENT zip (with a heavier status) is
+    // hijacking the shared street key and tripping the zip-mismatch skip.
+    const filter = encodeURIComponent(JSON.stringify({ must: [{ match: { address_line1: "668 Arlington" } }] }));
+    const r = await fetch(`${JN_BASE}/jobs?size=50&filter=${filter}`, { headers: H });
     const d = await r.json().catch(() => ({}));
     for (const j of (d.results || d.jobs || [])) {
       out.jobs_by_address.push({
