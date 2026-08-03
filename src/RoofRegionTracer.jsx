@@ -188,7 +188,11 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets, ove
   const edgeLenFt = (i) => { const a = outlineFt[i], b = outlineFt[(i + 1) % outlineFt.length]; return Math.hypot(a.x - b.x, a.y - b.y); };
   let eaveLen = 0, rakeLen = 0;
   outlineFt.forEach((_, i) => { const L = edgeLenFt(i); if (rakeSet.has(i)) rakeLen += L; else eaveLen += L; });
-  const eaves = Math.round(eaveLen * 10) / 10;
+  // Rakes drawn on the SATELLITE (for a half-gable/half-eave wall the flat sketch
+  // can't split) subtract their plan length from the eaves — so a partial-edge rake
+  // splits correctly instead of counting the whole wall as one or the other.
+  const photoRakePlan = (parseFloat(photoRakes) || 0) / rakeF;   // satellite rake 3D → plan (horizontal)
+  const eaves = Math.round(Math.max(0, eaveLen - photoRakePlan) * 10) / 10;
   const rakes = Math.round((rakeLen * rakeF + (parseFloat(photoRakes) || 0)) * 10) / 10;   // sketch rakes + cross-gable rakes drawn on the photo
   // straight-skeleton line takeoff — skeletons each region's CLEAN traced polygon
   // (correct hip/valley/ridge classification; each region = one roof-height piece).
