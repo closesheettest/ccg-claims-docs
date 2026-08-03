@@ -104,9 +104,11 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets, ove
   const [draft, setDraft] = useState([]);              // in-progress region corners
   const [hover, setHover] = useState(null);
   const [showLines, setShowLines] = useState(false);   // roof lines only after you say you're done tracing
-  const [markRakes, setMarkRakes] = useState(false);   // tag perimeter edges as rakes
-  const [rakeSet, setRakeSet] = useState(() => new Set()); // outline edge indices that are rakes
-  useEffect(() => { setRakeSet(new Set()); }, [regions]);  // edge indices shift when the footprint changes
+  const [markRakes, setMarkRakes] = useState(false);   // tag perimeter parts as rakes
+  const [splitMode, setSplitMode] = useState(false);   // click a wall to cut it (part eave / part rake)
+  const [rakeSet, setRakeSet] = useState(() => new Set()); // sub-segment keys `edge_part` that are rakes
+  const [splits, setSplits] = useState({});            // { edgeIndex: [fraction,…] } — where a wall is cut into eave/rake parts
+  useEffect(() => { setRakeSet(new Set()); setSplits({}); }, [regions]);  // indices shift when the footprint changes
   const wrapRef = useRef(null);
 
   // paste a screenshot of the sketch
@@ -137,8 +139,10 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets, ove
   const toNat = (e) => { const r = wrapRef.current.getBoundingClientRect(); return { x: (e.clientX - r.left) * (nat.w / r.width), y: (e.clientY - r.top) * (nat.h / r.height) }; };
 
   function onClick(e) {
-    if (!imgUrl || !mode) return;
+    if (!imgUrl) return;
     const p = toNat(e);
+    if (splitMode) { addSplitAt(p); return; }
+    if (!mode) return;
     if (mode === "scale") {
       const next = [...scalePts, p].slice(-2);
       setScalePts(next);
@@ -147,6 +151,22 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets, ove
     if (mode === "draw") setDraft((d) => [...d, p]);
   }
   function onMove(e) { if (mode && (draft.length || scalePts.length === 1)) setHover(toNat(e)); }
+  // Split mode: drop a cut on the nearest wall at the clicked point (ignored right at
+  // a corner), so that wall becomes two independently eave/rake-taggable parts.
+  function addSplitAt(natPt) {
+    if (!outlineFt.length || !ftPerPx) return;
+    let best = null;
+    for (let i = 0; i < outlineFt.length; i++) {
+      const a = outlineFt[i], b = outlineFt[(i + 1) % outlineFt.length];
+      const ax = a.x / ftPerPx, ay = a.y / ftPerPx, bx = b.x / ftPerPx, by = b.y / ftPerPx;
+      const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy || 1e-9;
+      let t = ((natPt.x - ax) * dx + (natPt.y - ay) * dy) / L2;
+      t = Math.max(0, Math.min(1, t));
+      const d = Math.hypot(natPt.x - (ax + dx * t), natPt.y - (ay + dy * t));
+      if (!best || d < best.d) best = { i, t, d };
+    }
+    if (best && best.t > 0.03 && best.t < 0.97) setSplits((prev) => ({ ...prev, [best.i]: [...(prev[best.i] || []), best.t] }));
+  }
 
   function startScale() { setMode("scale"); setScalePts([]); setScale(null); setFeetInput(""); }
   function commitScale() {
@@ -198,9 +218,26 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets, ove
   const outlineFt = useMemo(() => (regions.length && ftPerPx ? dripOutline(regions, ftPerPx, parseFloat(overhang) || 0) : []), [regions, ftPerPx, overhang]);
   const p12 = (parseFloat(pitch) || 0) / 12;
   const rakeF = Math.sqrt(1 + p12 * p12);
-  const edgeLenFt = (i) => { const a = outlineFt[i], b = outlineFt[(i + 1) % outlineFt.length]; return Math.hypot(a.x - b.x, a.y - b.y); };
+  // Split each outline edge at its cut fractions into sub-segments, each tagged eave
+  // or rake independently — so a wall that's PART gable / PART eave (the front 44 ft
+  // where a gable eats into it) splits exactly, straight from the survey dimensions,
+  // instead of relying on a photo rake to subtract the right amount.
+  const subSegs = useMemo(() => {
+    const out = [];
+    for (let i = 0; i < outlineFt.length; i++) {
+      const a = outlineFt[i], b = outlineFt[(i + 1) % outlineFt.length];
+      const cuts = [0, ...((splits[i] || []).slice().sort((x, y) => x - y)), 1];
+      for (let k = 0; k < cuts.length - 1; k++) {
+        const t0 = cuts[k], t1 = cuts[k + 1];
+        const p0 = { x: a.x + (b.x - a.x) * t0, y: a.y + (b.y - a.y) * t0 };
+        const p1 = { x: a.x + (b.x - a.x) * t1, y: a.y + (b.y - a.y) * t1 };
+        out.push({ key: `${i}_${k}`, p0, p1, lenFt: Math.hypot(p1.x - p0.x, p1.y - p0.y) });
+      }
+    }
+    return out;
+  }, [outlineFt, splits]);
   let eaveLen = 0, rakeLen = 0;
-  outlineFt.forEach((_, i) => { const L = edgeLenFt(i); if (rakeSet.has(i)) rakeLen += L; else eaveLen += L; });
+  for (const s of subSegs) { if (rakeSet.has(s.key)) rakeLen += s.lenFt; else eaveLen += s.lenFt; }
   // Rakes drawn on the SATELLITE (for a half-gable/half-eave wall the flat sketch
   // can't split) subtract their plan length from the eaves — so a partial-edge rake
   // splits correctly instead of counting the whole wall as one or the other.
@@ -261,13 +298,16 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets, ove
             {mode === "draw" && draft.length >= 3 && <button onClick={closeRegion} style={btn("#16a34a")}>✓ Close region</button>}
             <button onClick={undoLast} disabled={!draft.length && !regions.length} style={btn((!draft.length && !regions.length) ? "#94a3b8" : "#dc2626", true)}>{draft.length ? "↶ Undo point" : "↶ Undo region"}</button>
             <label style={{ ...btn("#64748b", true), display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>↺ Replace<input type="file" accept="image/*" onChange={onFile} style={{ display: "none" }} /></label>
-            <button onClick={() => { setMarkRakes((v) => !v); setMode(null); }} disabled={!outlineFt.length} style={seg(markRakes, !outlineFt.length)}>◺ {markRakes ? "Done marking rakes" : "Mark rakes (gable ends)"}</button>
+            <button onClick={() => { setMarkRakes((v) => !v); setSplitMode(false); setMode(null); }} disabled={!outlineFt.length} style={seg(markRakes, !outlineFt.length)}>◺ {markRakes ? "Done marking rakes" : "Mark rakes (gable ends)"}</button>
+            <button onClick={() => { setSplitMode((v) => !v); setMarkRakes(false); setMode(null); }} disabled={!outlineFt.length} style={seg(splitMode, !outlineFt.length)}>✂ {splitMode ? "Done splitting" : "Split a wall"}</button>
           </div>
 
           {/* status line */}
           <div style={{ fontSize: 12.5, color: "#334155", background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 12px", marginBottom: 10, lineHeight: 1.5 }}>
-            {markRakes
-              ? <><b>Mark rakes:</b> click each <b>gable-end</b> edge of the outline — it turns <b style={{ color: "#b45309" }}>amber</b> (a rake). Everything else stays an eave. Click again to un-mark.</>
+            {splitMode
+              ? <><b>Split a wall:</b> click the point on a wall where a gable <b>starts or stops</b> — it drops an <b style={{ color: "#b45309" }}>amber</b> cut. Then hit <b>Mark rakes</b> and tag just the gable part. Click a cut to remove it.</>
+              : markRakes
+              ? <><b>Mark rakes:</b> click each <b>gable-end</b> part of the outline — it turns <b style={{ color: "#b45309" }}>amber</b> (a rake). Everything else stays an eave. Click again to un-mark. Use <b>✂ Split a wall</b> first if only part of a wall is a gable.</>
               : !scale
               ? <><b>Step 1 — scale:</b> click the two ends of a wall whose length is printed on the sketch (e.g. the <b>44</b> edge), then type that number below.</>
               : mode === "draw"
@@ -286,7 +326,7 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets, ove
           )}
 
           {/* sketch + overlay */}
-          <div ref={wrapRef} onClick={onClick} onMouseMove={onMove} style={{ position: "relative", lineHeight: 0, borderRadius: 10, overflow: "hidden", border: "1px solid #e5e7eb", cursor: mode ? "pointer" : "default", userSelect: "none", width: "fit-content", maxWidth: "100%", margin: "0 auto" }}>
+          <div ref={wrapRef} onClick={onClick} onMouseMove={onMove} style={{ position: "relative", lineHeight: 0, borderRadius: 10, overflow: "hidden", border: "1px solid #e5e7eb", cursor: (mode || splitMode) ? "pointer" : "default", userSelect: "none", width: "fit-content", maxWidth: "100%", margin: "0 auto" }}>
             <img src={imgUrl} onLoad={onImgLoad} alt="appraiser sketch" style={{ maxHeight: "70vh", maxWidth: "100%", width: "auto", display: "block", pointerEvents: "none" }} />
             <svg viewBox={`0 0 ${nat.w} ${nat.h}`} width="100%" height="100%" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
               {/* closed regions */}
@@ -310,20 +350,31 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets, ove
                 ))}
               </g>}
               {/* drip-edge perimeter — tag gable-end edges as rakes (eave=dark, rake=amber) */}
-              {(markRakes || rakeSet.size > 0) && outlineFt.length > 2 && (
+              {(markRakes || splitMode || rakeSet.size > 0) && outlineFt.length > 2 && (
                 <g>
-                  {outlineFt.map((a, i) => {
-                    const b = outlineFt[(i + 1) % outlineFt.length];
-                    const isRake = rakeSet.has(i);
+                  {subSegs.map((s) => {
+                    const isRake = rakeSet.has(s.key);
                     return (
-                      <line key={i}
-                        x1={a.x / ftPerPx} y1={a.y / ftPerPx} x2={b.x / ftPerPx} y2={b.y / ftPerPx}
+                      <line key={s.key}
+                        x1={s.p0.x / ftPerPx} y1={s.p0.y / ftPerPx} x2={s.p1.x / ftPerPx} y2={s.p1.y / ftPerPx}
                         stroke={isRake ? "#b45309" : "#0f172a"} strokeWidth={stroke * (markRakes ? 3.2 : 2)} strokeLinecap="round"
                         style={{ pointerEvents: markRakes ? "stroke" : "none", cursor: markRakes ? "pointer" : "default" }}
-                        onClick={(e) => { e.stopPropagation(); setRakeSet((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; }); }}
+                        onClick={(e) => { if (!markRakes) return; e.stopPropagation(); setRakeSet((prev) => { const n = new Set(prev); n.has(s.key) ? n.delete(s.key) : n.add(s.key); return n; }); }}
                       />
                     );
                   })}
+                  {/* cut markers — click one in Split mode to remove that cut */}
+                  {Object.entries(splits).flatMap(([ei, ts]) => ts.map((t, ti) => {
+                    const i = +ei, a = outlineFt[i], b = outlineFt[(i + 1) % outlineFt.length];
+                    if (!a || !b) return null;
+                    const cx = (a.x + (b.x - a.x) * t) / ftPerPx, cy = (a.y + (b.y - a.y) * t) / ftPerPx;
+                    return (
+                      <circle key={`cut_${ei}_${ti}`} cx={cx} cy={cy} r={stroke * 3.5} fill="#b45309" stroke="#fff" strokeWidth={stroke}
+                        style={{ pointerEvents: splitMode ? "all" : "none", cursor: splitMode ? "pointer" : "default" }}
+                        onClick={(e) => { if (!splitMode) return; e.stopPropagation(); setSplits((prev) => { const arr = (prev[i] || []).filter((v) => v !== t); const n = { ...prev }; if (arr.length) n[i] = arr; else delete n[i]; return n; }); }}
+                      />
+                    );
+                  }))}
                 </g>
               )}
               {/* in-progress region */}
@@ -400,7 +451,7 @@ export default function RoofRegionTracer({ pitch = 6, onPitchChange, facets, ove
                 <div style={{ ...stat, color: "#b45309" }}>Rakes</div>
                 <div style={{ fontSize: 18, fontWeight: 800, color: "#b45309" }}>{rakes} <span style={unit}>ft</span></div>
               </div>
-              <div style={{ fontSize: 12, color: "#94a3b8", maxWidth: "26ch" }}>Area + eaves + rakes = survey-exact from the appraiser footprint. Use <b>◺ Mark rakes</b> to tag the gable ends. Ridge/hip/valley come from the satellite drawing below.</div>
+              <div style={{ fontSize: 12, color: "#94a3b8", maxWidth: "26ch" }}>Area + eaves + rakes = survey-exact from the appraiser footprint. Use <b>◺ Mark rakes</b> to tag the gable ends — and <b>✂ Split a wall</b> first when only part of a wall is a gable. Ridge/hip/valley come from the satellite drawing below.</div>
             </div>
           )}
 
