@@ -34,14 +34,6 @@ export const handler = async (event) => {
   const rep = (await sbGet(`sales_reps?harvest_token=eq.${encodeURIComponent(rt)}&select=jobnimbus_id,name&limit=1`))[0];
   const jn = rep?.jobnimbus_id;
   if (!jn) return cors(200, { ok: true, appts: [] });
-  // Match by NAME too, not just our stored id: the company/regional-manager books an
-  // appt and sets Assigned-To + Sales-Rep to the rep's NAME, but the JN owner id there
-  // doesn't line up with the id we stamp on the rep's own harvested appts. Name is the
-  // reliable link across both.
-  const repName = String(rep?.name || "").trim().toLowerCase();
-  const isRepOwner = (arr) => (arr || []).some((o) => String(o.id) === String(jn) || (repName && String(o.name || "").trim().toLowerCase() === repName));
-  const DEBUG = String((event.queryStringParameters || {}).debug || "") === "1";  // TEMP probe — remove after diagnosis
-  const dbgTasks = [];
 
   // Today's window in ET (FL), from ~2h ago (covers an appt already in progress) to
   // end of day, so we only plan around what's still ahead.
@@ -62,12 +54,8 @@ export const handler = async (event) => {
     { range: { date_start: { gte: fromSec, lte: toSec } } },
   ] }));
 
-  // 1) Today's appt tasks. Collect EVERY appointment task in the window (any owner),
-  //    tagging whether the REP owns the task. A rep's harvested/setter appt is booked
-  //    through our system, so the rep owns the task. A COMPANY appt is created in the
-  //    office, where the rep owns the JOB, not the task — so a task-owner-only match
-  //    silently dropped every company appointment. We resolve job-ownership next.
-  const candidates = [];
+  // 1) Today's appt tasks → { jobId, at_ms, title }.
+  const rows = [];
   try {
     for (let page = 0; page < 8; page++) {
       const r = await fetch(`${JN_BASE}/tasks?size=100&from=${page * 100}&filter=${filter}`, { headers: jnHeaders });
@@ -75,42 +63,16 @@ export const handler = async (event) => {
       const d = await r.json().catch(() => ({}));
       const results = d.results || d.tasks || d.data || [];
       for (const t of results) {
-        if (DEBUG && /\btee\b|arlington/i.test(String(t.title || ""))) dbgTasks.push({ title: t.title, rt_name: t.record_type_name, rt: t.record_type, date_start: t.date_start, owners: (t.owners || []).map((o) => ({ id: o.id, name: o.name })), jobId: ((t.related || []).find((x) => x.type === "job") || (t.primary && t.primary.type === "job" ? t.primary : null))?.id || null });
         if (!APPT_TASK_TYPES.has(t.record_type_name) && !APPT_TASK_RTS.has(Number(t.record_type))) continue;
+        if (!(t.owners || []).some((o) => String(o.id) === String(jn))) continue;
         const sec = Number(t.date_start) || 0; if (!sec) continue;
         const rel = (t.related || []).find((x) => x.type === "job") || (t.primary && t.primary.type === "job" ? t.primary : null);
-        const taskOwned = isRepOwner(t.owners);
-        candidates.push({ jobId: rel?.id || null, at_ms: sec * 1000, title: t.title || "", taskOwned });
+        const jobId = rel?.id || null;
+        rows.push({ jobId, at_ms: sec * 1000, title: t.title || "" });
       }
       if (results.length < 100) break;
     }
   } catch { /* fall through with whatever we have */ }
-  if (DEBUG) {   // TEMP probe — dump the Al-Tee task + its job so we can see owners/sales-rep
-    for (const dt of dbgTasks) {
-      if (!dt.jobId) continue;
-      try {
-        const r = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(dt.jobId)}`, { headers: jnHeaders });
-        if (r.ok) { const j = await r.json().catch(() => ({})); dt.job = { addr: [j.address_line1, j.city, j.state_text, j.zip], geo: j.geo, hasPin: false }; try { const p = await sbGet(`canvass_prospects?jn_job_id=eq.${encodeURIComponent(dt.jobId)}&select=latitude,longitude&limit=1`); dt.job.hasPin = !!(p && p[0] && typeof p[0].latitude === "number"); } catch { /* ignore */ } }
-      } catch { /* ignore */ }
-    }
-    return cors(200, { ok: true, debug: true, jn, repName, appt_candidates: candidates.length, matched: dbgTasks });
-  }
-  if (!candidates.length) return cors(200, { ok: true, appts: [] });
-
-  // Task-owned appts are the rep's for sure. For the rest, the appt is the rep's if the
-  // rep owns the JOB it's attached to — that's how an office-booked COMPANY appointment
-  // ties to a rep (job "Assigned To" = the rep, even though the office owns the task).
-  const checkIds = [...new Set(candidates.filter((c) => !c.taskOwned && c.jobId).map((c) => c.jobId))];
-  const jobIsRep = {};
-  await Promise.all(checkIds.map(async (id) => {
-    try {
-      const r = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(id)}`, { headers: jnHeaders });
-      if (!r.ok) return;
-      const j = await r.json().catch(() => ({}));
-      jobIsRep[id] = isRepOwner(j.owners) || (repName && String(j.sales_rep || "").trim().toLowerCase() === repName);
-    } catch { /* skip this one */ }
-  }));
-  const rows = candidates.filter((c) => c.taskOwned || (c.jobId && jobIsRep[c.jobId]));
   if (!rows.length) return cors(200, { ok: true, appts: [] });
 
   // 2) Location shortcut: the map's own appt pins (already geocoded) by jn_job_id.
@@ -135,6 +97,11 @@ export const handler = async (event) => {
       const address = [j.address_line1, j.city, j.state_text, j.zip].filter(Boolean).join(", ");
       const name = j.display_name || j.name || "";
       let geo = geocache[id];
+      // JobNimbus already stores the job's coordinates — use them (free, no geocode).
+      // JN uses { lat, lon }; our shape is { lat, lng }. This is what makes a COMPANY /
+      // office-booked appointment (which has no map pin, and whose address geocode was
+      // silently failing) actually place on the rep's route.
+      if (!geo && j.geo && Number(j.geo.lat) && Number(j.geo.lon)) geo = { lat: Number(j.geo.lat), lng: Number(j.geo.lon) };
       if (!geo && address && GOOGLE_KEY) { geo = await geocode(address); if (geo) { geocache[id] = geo; cacheDirty = true; } }
       jobInfo[id] = { name, address, geo };
     } catch { /* skip this one */ }
