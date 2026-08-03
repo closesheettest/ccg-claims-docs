@@ -301,6 +301,59 @@ async function roadOrder(start, stops) {
   } catch { return null; }
 }
 
+// Group a day's doors into ~size neighborhoods by REAL DRIVING distance (OSRM), not
+// crow-flies — so a door that's straight-line-close but road-far (across water / a
+// wetland, reachable only by driving around) lands with its true ROAD neighbors
+// instead of getting grabbed early and dragging the rep back and forth. Streets still
+// serpentine (orderStops) WITHIN each group, and consecutive groups are road-adjacent
+// (each seeds from the last one's exit). Returns null on any failure / too-many-coords
+// → the caller keeps the instant straight-line route.
+async function roadClusterOrder(start, pins, size) {
+  const pts = (pins || []).filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number");
+  if (pts.length < size + 2) return null;   // small enough that straight-line is already clean
+  if (pts.length > 98) return null;         // OSRM table coord cap (+start) — fall back to straight-line
+  const coords = [`${start.lng},${start.lat}`, ...pts.map((p) => `${p.longitude},${p.latitude}`)].join(";");
+  let D;
+  try {
+    const res = await fetch(`https://router.project-osrm.org/table/v1/driving/${coords}?annotations=duration`);
+    const j = await res.json();
+    if (j.code !== "Ok" || !Array.isArray(j.durations)) return null;
+    D = j.durations;
+  } catch { return null; }
+  const val = (a, b) => (D[a] && D[a][b] != null ? D[a][b] : Infinity); // driving seconds; node 0 = start, node i+1 = pts[i]
+  const remaining = new Set(pts.map((_, i) => i + 1));   // matrix node indices
+  const clusters = [];
+  let anchor = 0;   // start node
+  while (remaining.size) {
+    // seed the block with the door road-nearest the running anchor
+    let seed = -1, sd = Infinity;
+    for (const n of remaining) { const d = val(anchor, n); if (d < sd) { sd = d; seed = n; } }
+    remaining.delete(seed);
+    const cl = [seed];
+    let stepSum = 0, steps = 0;
+    while (cl.length < size && remaining.size) {
+      let best = -1, bd = Infinity;
+      for (const n of remaining) { let m = Infinity; for (const c of cl) { const d = val(c, n); if (d < m) m = d; } if (m < bd) { bd = m; best = n; } }
+      // barrier break: once a block has a few doors, a road jump far bigger than its
+      // usual spacing means the next door is really a DIFFERENT neighborhood — close
+      // the block here (that's the door across the water that shouldn't join it).
+      if (cl.length >= 5 && steps > 0 && bd > 5 * (stepSum / steps)) break;
+      remaining.delete(best); cl.push(best); stepSum += bd; steps++;
+    }
+    clusters.push(cl);
+    anchor = cl[cl.length - 1];   // next block seeds from this one's exit → road-adjacent
+  }
+  const out = [];
+  let from = { lat: start.lat, lng: start.lng };
+  for (const cl of clusters) {
+    const ordered = orderStops(from, cl.map((n) => pts[n - 1]));
+    out.push(...ordered);
+    const last = ordered[ordered.length - 1];
+    if (last && typeof last.latitude === "number") from = { lat: last.latitude, lng: last.longitude };
+  }
+  return out;
+}
+
 // ── Plan the day around fixed appointments ──────────────────────────────────
 // Weave door-knocking into the gaps around the rep's appts (each has a time +
 // location, pre-sorted): pins BEFORE the first appt, BETWEEN appts, and AFTER the
@@ -563,8 +616,8 @@ let ROUTE_CAP_DEFAULT = 30, ROUTE_CAP_INSP = 100;
 // and anti-crossing passes (too slow for a phone), which is the "took me all over the
 // place, back and forth" juniors report. So a day bigger than the trigger is split into
 // tight ~25-door neighborhoods, each FULLY optimized, worked back-to-back as one list.
-const ROUTE_SEG_SIZE = 25;    // target doors per neighborhood block
-const ROUTE_SEG_TRIGGER = 50; // only segment days bigger than this — smaller days route whole (orderStops already optimal ≤60)
+const ROUTE_SEG_SIZE = 25;    // target doors per neighborhood block — no day routes more than this at once
+const ROUTE_SEG_TRIGGER = ROUTE_SEG_SIZE; // segment ANY day bigger than one block, no matter the pin count
 const MAX_ROUTE_MI = 25; // never route a stop more than 25 mi from the start point
 const routeCap = (pins) => {
   if (!pins || !pins.length) return ROUTE_CAP_DEFAULT;
@@ -2375,11 +2428,11 @@ export default function CanvassMap() {
       .slice(0, max)
       .map((x) => x.p);
     // Whole-street ordering: finish a street before moving on, streets never split.
-    // BIG DAY (junior ~100-door inspection days) → split into tight ~25-door
-    // neighborhoods, fully optimize EACH (well under orderStops' de-backtrack caps),
-    // and chain them from where the last block ended so the rep works one clean block
-    // before the next — no cross-map zig-zag that orderStops can't fix past ~90 stops.
-    // Small days (seniors, short boxes) route whole — orderStops is already optimal.
+    // ANY day over one block → split into tight ~25-door neighborhoods, fully optimize
+    // EACH (well under orderStops' de-backtrack caps), and chain them from the last
+    // block's exit so the rep works one clean block before the next. This is the
+    // INSTANT straight-line grouping; optimizeByRoad then regroups it by real driving
+    // distance so crow-flies-close-but-road-far doors land with their road neighbors.
     if (rem.length > ROUTE_SEG_TRIGGER) {
       const segCount = Math.ceil(rem.length / ROUTE_SEG_SIZE);
       const perSeg = Math.ceil(rem.length / segCount); // balanced blocks: 100→4×25, 80→4×20
@@ -2402,23 +2455,22 @@ export default function CanvassMap() {
   // applies if no newer route replaced this one (routeGen) AND they haven't started
   // working yet (still on stop 1). Same pins, just a smarter order — ids unchanged.
   async function optimizeByRoad(start, baseStops) {
-    // DISABLED (Neal, Jul 2026): the driving-time re-order reshuffled whole streets
-    // out of geographic order, which read as backtracking. The instant street-by-street
-    // serpentine (buildRoute → orderStops) is what the reps want — tight, one street at
-    // a time, minimal backtracking — so we keep that and don't override it. Kept as a
-    // no-op so every call site still works; re-enable the body if we ever need road
-    // ordering for a single-entrance subdivision.
-    return;
-    /* eslint-disable no-unreachable */
-    if (!start || !baseStops || baseStops.length < 3) return;
+    // The instant route shows first as tight ~25-door blocks grouped by STRAIGHT-LINE
+    // distance. This quietly REGROUPS them by real DRIVING distance (OSRM) and swaps
+    // the better order in — so a door that's crow-flies-close but road-far (across
+    // water / wetland, reachable only by driving around) moves to its true road
+    // neighbors instead of dragging the rep back and forth. We only regroup for
+    // clustering, NOT whole-street road-ordering (that's what read as backtracking
+    // before). Guarded: applies only if no newer route replaced this one AND the rep
+    // is still on stop 1. Same doors, smarter grouping — ids unchanged.
+    if (!start || !baseStops || baseStops.length < ROUTE_SEG_SIZE + 2) return; // small day: instant route already clean
     const gen = ++routeGen.current;
     setOptimizing(true);
-    const better = await roadOrder(start, baseStops);
+    const better = await roadClusterOrder(start, baseStops, ROUTE_SEG_SIZE);
     if (routeGen.current === gen) setOptimizing(false);
     if (!better || routeGen.current !== gen || stopIdxRef.current !== 0) return;
     setRoute(better);
     if (map.current && better[0]) map.current.setView([better[0].latitude, better[0].longitude], Math.max(map.current.getZoom(), 15));
-    /* eslint-enable no-unreachable */
   }
 
   // Tapped Start/Route while zoomed out (only clusters loaded, no pins to route) —
