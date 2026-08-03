@@ -175,7 +175,7 @@ export default function RoofLineTracer({ lat, lng, pitch = 8, overhang, onOverha
         </div>
       )}
 
-      <div ref={mapEl} style={{ width: "100%", height: 460, borderRadius: 10, overflow: "hidden", border: "1px solid #e5e7eb", cursor: mode ? "crosshair" : "grab" }} />
+      <div ref={mapEl} style={{ width: "100%", height: 460, borderRadius: 10, overflow: "hidden", border: "1px solid #e5e7eb", cursor: mode ? "pointer" : "grab" }} />
 
       <div style={{ display: "flex", gap: 18, flexWrap: "wrap", alignItems: "center", marginTop: 10, background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 10, padding: "10px 14px" }}>
         <span style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: ".05em", color: "#334155" }}>Interior lines (ft) @ {pitch}/12</span>
