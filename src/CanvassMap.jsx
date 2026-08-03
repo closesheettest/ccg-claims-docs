@@ -204,6 +204,33 @@ function orderStops(start, stops) {
   return flat(order);
 }
 
+// Partition a big day's doors into compact ~`size` neighborhoods. Each cluster grows
+// from a seed (the nearest remaining door to a running anchor) by repeatedly pulling
+// in the door nearest the cluster's own centroid — so blocks come out round and tight,
+// not strung out in a line. The next cluster seeds from where the last one ENDED, so
+// consecutive blocks sit next to each other (block 2 is adjacent to block 1) instead
+// of jumping across town. The caller orders within each block for a clean serpentine.
+function clusterBySize(start, pins, size) {
+  const co = (p) => ({ lat: p.latitude, lng: p.longitude });
+  const rem = pins.slice();
+  const clusters = [];
+  let anchor = { lat: start.lat, lng: start.lng };
+  while (rem.length) {
+    let si = 0, sd = Infinity;
+    for (let i = 0; i < rem.length; i++) { const d = feetBetween(anchor, co(rem[i])); if (d < sd) { sd = d; si = i; } }
+    const cl = [rem.splice(si, 1)[0]];
+    while (cl.length < size && rem.length) {
+      const c = { lat: cl.reduce((s, p) => s + p.latitude, 0) / cl.length, lng: cl.reduce((s, p) => s + p.longitude, 0) / cl.length };
+      let bi = 0, bd = Infinity;
+      for (let i = 0; i < rem.length; i++) { const d = feetBetween(c, co(rem[i])); if (d < bd) { bd = d; bi = i; } }
+      cl.push(rem.splice(bi, 1)[0]);
+    }
+    clusters.push(cl);
+    anchor = co(cl[cl.length - 1]); // next block starts where this one ended → adjacent blocks
+  }
+  return clusters;
+}
+
 // Order the day by REAL DRIVING distance (the road network), not straight line —
 // but at the STREET level, never the individual house. We keep each street whole
 // (streetSegments) and only decide the ORDER of streets + which end to enter, so
@@ -531,6 +558,13 @@ const ARRIVE_FT = 400; // must be within this many feet of the stop to status it
 // (app_settings.harvest_route_cap_sr / _jr) — loaded on mount and written into
 // these module vars so the office can massage them for the sweet spot.
 let ROUTE_CAP_DEFAULT = 30, ROUTE_CAP_INSP = 100;
+// A junior inspection day (up to ROUTE_CAP_INSP=100 doors) is too big for orderStops
+// to fully de-backtrack in one pass — above ~60/90 stops it drops its lone-house-rescue
+// and anti-crossing passes (too slow for a phone), which is the "took me all over the
+// place, back and forth" juniors report. So a day bigger than the trigger is split into
+// tight ~25-door neighborhoods, each FULLY optimized, worked back-to-back as one list.
+const ROUTE_SEG_SIZE = 25;    // target doors per neighborhood block
+const ROUTE_SEG_TRIGGER = 50; // only segment days bigger than this — smaller days route whole (orderStops already optimal ≤60)
 const MAX_ROUTE_MI = 25; // never route a stop more than 25 mi from the start point
 const routeCap = (pins) => {
   if (!pins || !pins.length) return ROUTE_CAP_DEFAULT;
@@ -1988,10 +2022,16 @@ export default function CanvassMap() {
     window.addEventListener("storage", onStorage);
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onFocus);
+    // iOS/Safari: coming back to the backgrounded map tab usually restores it from
+    // the back-forward cache, which fires 'pageshow' (persisted) but often NOT
+    // focus/visibilitychange. Without this, a just-signed pin stayed painted on the
+    // map until a manual refresh (rep thinks the signing failed → risks re-signing).
+    window.addEventListener("pageshow", onFocus);
     return () => {
       window.removeEventListener("storage", onStorage);
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onFocus);
+      window.removeEventListener("pageshow", onFocus);
     };
   }, []);
 
@@ -2335,6 +2375,24 @@ export default function CanvassMap() {
       .slice(0, max)
       .map((x) => x.p);
     // Whole-street ordering: finish a street before moving on, streets never split.
+    // BIG DAY (junior ~100-door inspection days) → split into tight ~25-door
+    // neighborhoods, fully optimize EACH (well under orderStops' de-backtrack caps),
+    // and chain them from where the last block ended so the rep works one clean block
+    // before the next — no cross-map zig-zag that orderStops can't fix past ~90 stops.
+    // Small days (seniors, short boxes) route whole — orderStops is already optimal.
+    if (rem.length > ROUTE_SEG_TRIGGER) {
+      const segCount = Math.ceil(rem.length / ROUTE_SEG_SIZE);
+      const perSeg = Math.ceil(rem.length / segCount); // balanced blocks: 100→4×25, 80→4×20
+      const out = [];
+      let from = { lat: start.lat, lng: start.lng };
+      for (const cl of clusterBySize(start, rem, perSeg)) {
+        const ordered = orderStops(from, cl);
+        out.push(...ordered);
+        const last = ordered[ordered.length - 1];
+        if (last && typeof last.latitude === "number") from = { lat: last.latitude, lng: last.longitude };
+      }
+      return out;
+    }
     return orderStops(start, rem);
   }
 
