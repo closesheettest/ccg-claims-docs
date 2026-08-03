@@ -2159,7 +2159,7 @@ export default function CanvassMap() {
     fetch("/.netlify/functions/harvest-access", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rt: auth.rt }) }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me]);
-  // Office/admin: poll everyone's breadcrumbs every 30s. Paused while viewing a
+  // Office/admin: poll everyone's breadcrumbs every 5s. Paused while viewing a
   // past day's route history (so it doesn't overwrite the loaded trails).
   useEffect(() => {
     if (me?.level !== "admin" || !auth.admin || historyMode) return;
@@ -2177,7 +2177,7 @@ export default function CanvassMap() {
   }, [me?.level, auth.admin, historyMode]);
   // Draw each rep's trail (road-snapped, jumps broken) + a labelled dot at their
   // latest position. Snapping is async + cached, so a trail is snapped once and
-  // reused across the 30s polls; a faint dashed straight line shows until it lands.
+  // reused across the 5s polls; a faint dashed straight line shows until it lands.
   useEffect(() => {
     const lyr = teamLayer.current;
     if (!lyr) return;
@@ -2203,10 +2203,21 @@ export default function CanvassMap() {
           }).catch(() => trailSnapping.current.delete(key));
         }
       }
-      const label = `${escapeHtml(r.name)}${r.last_action ? " · " + escapeHtml(r.last_action) : ""}`;
+      // Context line UNDER the name: what they're on right now (their last logged
+      // action — Booked appt / IQ not int. / Signed / Working a door / Not home) and
+      // how long ago. If it's been a while with nothing, it reads "Idle" and goes amber
+      // so the office can spot a rep who's parked.
+      const nameHtml = escapeHtml(r.name);
+      const actHtml = r.last_action ? escapeHtml(r.last_action) : "";
+      const lastMs = r.last_at ? Date.parse(r.last_at) : (last.at ? Date.parse(last.at) : NaN);
+      const idleMin = Number.isFinite(lastMs) ? Math.max(0, Math.round((Date.now() - lastMs) / 60000)) : null;
+      const idle = idleMin != null && idleMin >= 25;   // 25+ min with no new activity = parked
+      const agoStr = idleMin == null ? "" : idleMin < 1 ? "just now" : idleMin < 60 ? `${idleMin}m ago` : `${Math.floor(idleMin / 60)}h${idleMin % 60 ? " " + (idleMin % 60) + "m" : ""} ago`;
+      const ctx = actHtml ? `${actHtml}${idleMin != null ? " · " + agoStr : ""}` : (idleMin != null ? `Idle · ${agoStr}` : "");
+      const ctxColor = idle ? "#fbbf24" : "#bfdbfe";
       const icon = L.divIcon({
         className: "harvest-rep",
-        html: `<div style="display:flex;flex-direction:column;align-items:center;transform:translateY(-4px)"><div style="background:#1e3a8a;color:#fff;font-size:10px;font-weight:800;padding:1px 6px;border-radius:8px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.4);margin-bottom:2px">${label}</div><div style="width:14px;height:14px;border-radius:50%;background:#2563eb;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.5)"></div></div>`,
+        html: `<div style="display:flex;flex-direction:column;align-items:center;transform:translateY(-4px)"><div style="background:#1e3a8a;color:#fff;padding:2px 7px;border-radius:8px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.4);margin-bottom:2px;text-align:center;line-height:1.15"><div style="font-size:10px;font-weight:800">${nameHtml}</div>${ctx ? `<div style="font-size:9px;font-weight:600;color:${ctxColor};margin-top:1px">${ctx}</div>` : ""}</div><div style="width:14px;height:14px;border-radius:50%;background:${idle ? "#d97706" : "#2563eb"};border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.5)"></div></div>`,
         iconSize: [1, 1], iconAnchor: [0, 7],
       });
       L.marker([last.lat, last.lng], { icon, zIndexOffset: 2500, interactive: false }).addTo(lyr);
