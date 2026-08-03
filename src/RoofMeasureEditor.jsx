@@ -132,7 +132,7 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
   // cursor: pointer to tap-select buildings, arrow while tracing, else default
   useEffect(() => {
     const m = mapRef.current;
-    if (m) m.getContainer().style.cursor = buildMode ? "pointer" : (drawing ? "crosshair" : "");
+    if (m) m.getContainer().style.cursor = buildMode ? "pointer" : (drawing ? "pointer" : "");
   }, [drawing, buildMode]);
 
   useEffect(() => {
