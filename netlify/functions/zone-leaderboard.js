@@ -81,6 +81,10 @@ export const handler = async (event) => {
     const counts = {} // zone → count
     const repsByZone = {} // zone → Map(repName → count)
     const dealsByZone = {} // zone → [{ rep, label }] — the houses behind each count
+    // William is the field trainer — not on a team, so his sign-ups have no zone and
+    // get dropped. Count them separately so the dashboard can show a solo "William" card.
+    let williamCount = 0
+    const williamDeals = []
     for (const r of signed) {
       // Attribute the SIGN-UP to whoever originally signed it, not whoever the
       // deal was later reassigned to. A retail deal handed to a sales rep still
@@ -89,6 +93,10 @@ export const handler = async (event) => {
       // Fall back to sales_rep_* for rows signed before the freeze backfill.
       const signerId = r.original_sales_rep_id || r.sales_rep_id
       const signerName = r.original_sales_rep_name || r.sales_rep_name
+      if (/\bwilliam\b/i.test(String(signerName || ''))) {
+        williamCount++
+        williamDeals.push({ rep: 'William', label: titleAddr(r.address) || (r.client_name || '').trim() || 'Signed inspection' })
+      }
       const zone =
         (signerId != null && byId[String(signerId)]) ||
         byName[normalizeName(signerName)] ||
@@ -126,6 +134,7 @@ export const handler = async (event) => {
       week: { start: start.toISOString(), end: end.toISOString() }, // back-compat
       total,
       zones,
+      william: { name: 'William', count: williamCount, deals: williamDeals },
     }))
   } catch (e) {
     return cors(500, JSON.stringify({ ok: false, error: e.message || 'Unknown error' }))
