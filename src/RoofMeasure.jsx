@@ -141,6 +141,7 @@ function ResultCard({ d }) {
   const [adj, setAdj] = useState(null);   // the rep's traced measurement (or appraiser-sqft override)
   const [apprSqft, setApprSqft] = useState("");
   const isAdj = !!adj;   // true once the rep has traced the roof (or entered appraiser sqft) — that trace IS the number we show
+  const showAppraiser = false;   // hidden in the sales tool for now — bring back with the 3D-image work. Code kept intact.
 
   // Appraiser override: the county publishes each roofed section's exact sq ft
   // (BAS + garage + porches). Sum = under-roof FOOTPRINT; × slope factor = true
@@ -227,25 +228,29 @@ function ResultCard({ d }) {
         </>
       )}
 
-      {/* Appraiser sq ft override — exact, imagery-independent squares. */}
-      <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: adj?.source === "appraiser" ? "#f0fdf4" : "#f8fafc", border: `1px solid ${adj?.source === "appraiser" ? "#bbf7d0" : "#e5e7eb"}`, borderRadius: 10, padding: "10px 14px" }}>
-        <span style={{ fontSize: 13.5, fontWeight: 700, color: "#475569" }}>🏛️ Appraiser sq ft</span>
-        <input
-          type="text" inputMode="numeric" value={apprSqft}
-          onChange={(e) => applyAppraiser(e.target.value)}
-          placeholder="under-roof sqft"
-          style={{ width: 130, fontFamily: FONT, fontSize: 15, padding: "7px 10px", border: "1px solid #cbd5e1", borderRadius: 8 }}
-        />
-        <span style={{ fontSize: 12.5, color: "#94a3b8" }}>
-          {adj?.source === "appraiser"
-            ? (d.appraiser?.living_sqft && apprSqft === String(d.appraiser.living_sqft)
-                ? `→ ${adj.total} sq · county living area — add garage/porch for the rest`
-                : `→ ${adj.total} sq at ${r.avg_pitch_x12}/12 (overrides the read)`)
-            : (d.appraiser?.living_sqft ? `county living area ${d.appraiser.living_sqft} sqft — add garage/porch` : "sum under-roof sqft → exact squares, any imagery")}
-        </span>
-      </div>
-
-      <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 10 }}>{m.note}</div>
+      {/* Appraiser sq ft override + material-estimate note — HIDDEN in the sales tool
+          for now (draw-first). Kept intact; re-enable via showAppraiser for the 3D work. */}
+      {showAppraiser && (
+        <>
+          <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: adj?.source === "appraiser" ? "#f0fdf4" : "#f8fafc", border: `1px solid ${adj?.source === "appraiser" ? "#bbf7d0" : "#e5e7eb"}`, borderRadius: 10, padding: "10px 14px" }}>
+            <span style={{ fontSize: 13.5, fontWeight: 700, color: "#475569" }}>🏛️ Appraiser sq ft</span>
+            <input
+              type="text" inputMode="numeric" value={apprSqft}
+              onChange={(e) => applyAppraiser(e.target.value)}
+              placeholder="under-roof sqft"
+              style={{ width: 130, fontFamily: FONT, fontSize: 15, padding: "7px 10px", border: "1px solid #cbd5e1", borderRadius: 8 }}
+            />
+            <span style={{ fontSize: 12.5, color: "#94a3b8" }}>
+              {adj?.source === "appraiser"
+                ? (d.appraiser?.living_sqft && apprSqft === String(d.appraiser.living_sqft)
+                    ? `→ ${adj.total} sq · county living area — add garage/porch for the rest`
+                    : `→ ${adj.total} sq at ${r.avg_pitch_x12}/12 (overrides the read)`)
+                : (d.appraiser?.living_sqft ? `county living area ${d.appraiser.living_sqft} sqft — add garage/porch` : "sum under-roof sqft → exact squares, any imagery")}
+            </span>
+          </div>
+          <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 10 }}>{m.note}</div>
+        </>
+      )}
 
       {/* Human-verification: open the satellite map to trace any section the
           automated read clipped, and watch the total correct live. */}
