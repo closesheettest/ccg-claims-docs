@@ -34,6 +34,12 @@ export const handler = async (event) => {
   const rep = (await sbGet(`sales_reps?harvest_token=eq.${encodeURIComponent(rt)}&select=jobnimbus_id,name&limit=1`))[0];
   const jn = rep?.jobnimbus_id;
   if (!jn) return cors(200, { ok: true, appts: [] });
+  // Match by NAME too, not just our stored id: the company/regional-manager books an
+  // appt and sets Assigned-To + Sales-Rep to the rep's NAME, but the JN owner id there
+  // doesn't line up with the id we stamp on the rep's own harvested appts. Name is the
+  // reliable link across both.
+  const repName = String(rep?.name || "").trim().toLowerCase();
+  const isRepOwner = (arr) => (arr || []).some((o) => String(o.id) === String(jn) || (repName && String(o.name || "").trim().toLowerCase() === repName));
 
   // Today's window in ET (FL), from ~2h ago (covers an appt already in progress) to
   // end of day, so we only plan around what's still ahead.
@@ -70,7 +76,7 @@ export const handler = async (event) => {
         if (!APPT_TASK_TYPES.has(t.record_type_name) && !APPT_TASK_RTS.has(Number(t.record_type))) continue;
         const sec = Number(t.date_start) || 0; if (!sec) continue;
         const rel = (t.related || []).find((x) => x.type === "job") || (t.primary && t.primary.type === "job" ? t.primary : null);
-        const taskOwned = (t.owners || []).some((o) => String(o.id) === String(jn));
+        const taskOwned = isRepOwner(t.owners);
         candidates.push({ jobId: rel?.id || null, at_ms: sec * 1000, title: t.title || "", taskOwned });
       }
       if (results.length < 100) break;
@@ -88,7 +94,7 @@ export const handler = async (event) => {
       const r = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(id)}`, { headers: jnHeaders });
       if (!r.ok) return;
       const j = await r.json().catch(() => ({}));
-      jobIsRep[id] = (j.owners || []).some((o) => String(o.id) === String(jn)) || String(j.sales_rep || "") === String(jn);
+      jobIsRep[id] = isRepOwner(j.owners) || (repName && String(j.sales_rep || "").trim().toLowerCase() === repName);
     } catch { /* skip this one */ }
   }));
   const rows = candidates.filter((c) => c.taskOwned || (c.jobId && jobIsRep[c.jobId]));
