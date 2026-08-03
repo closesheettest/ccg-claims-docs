@@ -46,7 +46,9 @@ export default function RoofLineTracer({ lat, lng, pitch = 8, overhang, onOverha
     if (best && best.d < 6) { const s = toLL(best.q); return best.end === "a" ? { ...seg, a: s } : { ...seg, b: s }; }   // within 6 m of a ridge → snap
     return seg;
   }
-  const geomSeg = (s) => (s.type === "hip" || s.type === "valley" ? snapToRidge(s) : s);
+  // hip, valley AND rake all snap their upper end to the ridge — so the length is
+  // set by the math (corner → ridge), not by how long/short you drew the line.
+  const geomSeg = (s) => (s.type === "hip" || s.type === "valley" || s.type === "rake" ? snapToRidge(s) : s);
 
   // ── map
   useEffect(() => {
@@ -185,7 +187,7 @@ export default function RoofLineTracer({ lat, lng, pitch = 8, overhang, onOverha
         ))}
         <span style={{ fontSize: 11.5, color: "#b45309", marginLeft: "auto" }}>compare to Roofr</span>
       </div>
-      <div style={{ fontSize: 11.5, color: "#94a3b8", marginTop: 6 }}>Hips/valleys use the √(1+p²/2) pitch factor (~45° hips). Endpoints snap so a rough click still measures clean. Eaves &amp; rakes come from the appraiser sketch above. Test in real Chrome — the in-app browser renders the map at 0×0.</div>
+      <div style={{ fontSize: 11.5, color: "#94a3b8", marginTop: 6 }}>Hips/valleys/rakes snap their top end to the ridge, so a rough click still measures clean — the math sets the length, not how long you drew it. Eaves &amp; rakes come from the appraiser sketch above. Test in real Chrome — the in-app browser renders the map at 0×0.</div>
     </div>
   );
 }
