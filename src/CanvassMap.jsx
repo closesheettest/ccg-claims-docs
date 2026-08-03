@@ -4476,6 +4476,11 @@ export default function CanvassMap() {
               {isCloverPin(selected) && selected.extra?.install_owner && (
                 <div style={{ marginTop: 6, background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: 10, padding: "7px 10px" }}>
                   <div style={{ fontSize: 12.5, fontWeight: 800, color: "#065f46" }}>🚧 We're roofing {titleCaseName(selected.extra.install_owner)}'s home nearby</div>
+                  {/* The install site is our OWN job — not a protected lead — so show its
+                      address so the rep can point right at it ("the roof on Sherwood, there"). */}
+                  {(selected.extra.install_address || selected.extra.clover_zone_install) && (
+                    <div style={{ fontSize: 11.5, fontWeight: 700, color: "#065f46", marginTop: 2 }}>📍 {selected.extra.install_address || selected.extra.clover_zone_install}</div>
+                  )}
                   <div style={{ fontSize: 11.5, color: "#047857", marginTop: 1 }}>Say it at the door — a crew's right there.</div>
                 </div>
               )}
