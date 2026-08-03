@@ -311,8 +311,11 @@ async function roadOrder(start, stops) {
 async function roadClusterOrder(start, pins, size) {
   const pts = (pins || []).filter((p) => typeof p.latitude === "number" && typeof p.longitude === "number");
   if (pts.length < size + 2) return null;   // small enough that straight-line is already clean
-  if (pts.length > 98) return null;         // OSRM table coord cap (+start) — fall back to straight-line
-  const coords = [`${start.lng},${start.lat}`, ...pts.map((p) => `${p.longitude},${p.latitude}`)].join(";");
+  if (pts.length > 100) return null;        // beyond OSRM's ~100-location table cap → fall back
+  // Matrix over the DOORS ONLY (no start node) so a full 100-door junior day still
+  // fits the cap in one call; the start is folded in as a straight-line FIRST seed
+  // (which door to begin near) + orderStops. All the barrier logic stays road-based.
+  const coords = pts.map((p) => `${p.longitude},${p.latitude}`).join(";");
   let D;
   try {
     const res = await fetch(`https://router.project-osrm.org/table/v1/driving/${coords}?annotations=duration`);
@@ -320,14 +323,14 @@ async function roadClusterOrder(start, pins, size) {
     if (j.code !== "Ok" || !Array.isArray(j.durations)) return null;
     D = j.durations;
   } catch { return null; }
-  const val = (a, b) => (D[a] && D[a][b] != null ? D[a][b] : Infinity); // driving seconds; node 0 = start, node i+1 = pts[i]
-  const remaining = new Set(pts.map((_, i) => i + 1));   // matrix node indices
+  const val = (a, b) => (D[a] && D[a][b] != null ? D[a][b] : Infinity);  // door-to-door driving seconds
+  const co = (p) => ({ lat: p.latitude, lng: p.longitude });
+  const remaining = new Set(pts.map((_, i) => i));
   const clusters = [];
-  let anchor = 0;   // start node
+  let anchor = null;   // previous block's exit door; null → seed the first block off the START (straight-line)
   while (remaining.size) {
-    // seed the block with the door road-nearest the running anchor
     let seed = -1, sd = Infinity;
-    for (const n of remaining) { const d = val(anchor, n); if (d < sd) { sd = d; seed = n; } }
+    for (const n of remaining) { const d = anchor == null ? feetBetween(start, co(pts[n])) : val(anchor, n); if (d < sd) { sd = d; seed = n; } }
     remaining.delete(seed);
     const cl = [seed];
     let stepSum = 0, steps = 0;
@@ -346,7 +349,7 @@ async function roadClusterOrder(start, pins, size) {
   const out = [];
   let from = { lat: start.lat, lng: start.lng };
   for (const cl of clusters) {
-    const ordered = orderStops(from, cl.map((n) => pts[n - 1]));
+    const ordered = orderStops(from, cl.map((n) => pts[n]));
     out.push(...ordered);
     const last = ordered[ordered.length - 1];
     if (last && typeof last.latitude === "number") from = { lat: last.latitude, lng: last.longitude };
