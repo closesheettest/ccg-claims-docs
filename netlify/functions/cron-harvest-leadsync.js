@@ -12,9 +12,12 @@
 // POSTs to the background sync (which returns 202 immediately and then runs to
 // completion on its own up to the 15-min background budget) and returns.
 //
-// Cadence (netlify.toml): every 2 hours, ~7 AM–9 PM ET.
+// Cadence (netlify.toml): every 30 min, ~7 AM–9 PM ET. The same background run
+// also carries the ADDRESS reverse-sync (flips a pin to "appt" when the office
+// books the appointment in JN on a separate contact), so a company-scheduled
+// door hides from other reps within ~30 min instead of up to 2 hours.
 
-export const config = { schedule: "0 11,13,15,17,19,21,23,1 * * *" };
+export const config = { schedule: "*/30 11-23,0-1 * * *" };
 
 export const handler = async () => {
   const base = process.env.URL || process.env.DEPLOY_PRIME_URL || process.env.DEPLOY_URL || "";

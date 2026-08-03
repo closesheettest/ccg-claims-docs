@@ -226,11 +226,14 @@
 
 # Scheduled function: auto-run the harvest lead sync so NEW JobNimbus leads
 # (Instant Quote / Facebook / AI Bot) land on the Harvesting Map same-day
-# instead of only when someone manually clicks "sync". Every 2 hours ~7 AM–9 PM
-# ET. Thin wrapper — fires the -background sync and returns. The file also
-# declares this via exports.config.schedule; this toml entry keeps it visible.
+# instead of only when someone manually clicks "sync". Every 30 min ~7 AM–9 PM
+# ET — the same run also carries the ADDRESS reverse-sync that flips a pin to
+# "appt" when the office schedules the appointment in JN (on a separate contact),
+# so a company-booked door hides within ~30 min instead of up to 2 hours. Thin
+# wrapper — fires the -background sync and returns. The file also declares this
+# via exports.config.schedule; this toml entry keeps it visible.
 [functions."cron-harvest-leadsync"]
-  schedule = "0 11,13,15,17,19,21,23,1 * * *"
+  schedule = "*/30 11-23,0-1 * * *"
 
 # Scheduled function: daily Venice roof-age scrub via Shovels.ai (free-tier safe,
 # 45 pins/day, credit-throttled). Roofing permit 2012+ = new roof -> pin -> new_roof.
