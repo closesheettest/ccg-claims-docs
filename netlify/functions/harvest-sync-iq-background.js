@@ -47,7 +47,7 @@ exports.handler = async (event) => {
   // off. jobStatusByContact keeps the "heaviest" status when a contact has several.
   const withJob = new Set();
   const jobStatusByContact = {};   // jn_contact_id -> mapped pin status (from its job)
-  const jobByAddr = {};            // streetKey -> { st, zip } — heaviest job status at an ADDRESS
+  const jobByAddr = {};            // streetKey -> { zip5 -> heaviest pin-status } ("" bucket = job w/ no zip)
   const noteJob = (cid, name) => {
     if (!cid) return;
     withJob.add(cid);
@@ -67,7 +67,17 @@ exports.handler = async (event) => {
       const sk = streetKey(job.address_line1);
       if (sk) {
         const st = jobPinStatus(name);
-        if (st) { const cur = jobByAddr[sk]; if (!cur || (PIN_RANK[st] || 0) > (PIN_RANK[cur.st] || 0)) jobByAddr[sk] = { st, zip: zip5(job.zip) }; }
+        if (st) {
+          // Bucket by ZIP within the street key. Keying by street alone let a
+          // same-street-number job in ANOTHER city (different zip) occupy the slot
+          // with a heavier status, after which the zip guard below skipped the
+          // real same-city pin — so it never flipped (the 668 Arlington / Al Tee
+          // company-appointment case). Per-zip buckets keep each location's own
+          // heaviest status. "" = job with no zip (drift/manual entries).
+          const z = zip5(job.zip) || "";
+          let bucket = jobByAddr[sk]; if (!bucket) { bucket = {}; jobByAddr[sk] = bucket; }
+          if (!(z in bucket) || (PIN_RANK[st] || 0) > (PIN_RANK[bucket[z]] || 0)) bucket[z] = st;
+        }
       }
     });
   }
@@ -253,16 +263,26 @@ exports.handler = async (event) => {
       return Number.isFinite(t) && (Date.now() - t) < REP_PROTECT_MS;
     };
     for (const [sk, arr] of streetIdx) {
-      const job = jobByAddr[sk]; if (!job) continue;
-      const tgtRank = PIN_RANK[job.st] || 0;
+      const bucket = jobByAddr[sk]; if (!bucket) continue;
       for (const p of arr) {
-        if (p.status === job.st) continue;
+        const pz = zip5(p.zip) || "";
+        // Pick the heaviest job status at THIS pin's own location. A job's zip and
+        // the pin's zip must AGREE when both are present (so a different city can't
+        // reach across); a missing zip on either side still matches (the ~90m drift
+        // + manually-entered-no-zip cases the address net was built for).
+        let best = null, bestRank = -1;
+        for (const z in bucket) {
+          if (z && pz && z !== pz) continue;
+          const rk = PIN_RANK[bucket[z]] || 0;
+          if (rk > bestRank) { bestRank = rk; best = bucket[z]; }
+        }
+        if (!best) continue;
+        if (p.status === best) continue;
         if (repProtected(p)) continue;                                // rep worked it recently → their call sticks
-        if ((PIN_RANK[p.status] || 0) >= tgtRank) continue;           // don't downgrade a heavier pin
-        if (job.zip && p.zip && job.zip !== p.zip) continue;          // same street, different city → skip
+        if ((PIN_RANK[p.status] || 0) >= bestRank) continue;          // don't downgrade a heavier pin
         addrRev.push(fetch(`${SB_URL}/rest/v1/canvass_prospects?id=eq.${p.id}`, {
           method: "PATCH", headers: { ...sbHeaders, Prefer: "return=minimal" },
-          body: JSON.stringify({ status: job.st, status_by: "JN job (address match)", status_updated_at: nowIso }),
+          body: JSON.stringify({ status: best, status_by: "JN job (address match)", status_updated_at: nowIso }),
         }).then((r) => r.ok));
       }
     }
