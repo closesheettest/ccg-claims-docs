@@ -89,11 +89,10 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
   const [pitch, setPitch] = useState(result?.roof?.avg_pitch_x12 ?? 6);
   const [ptCount, setPtCount] = useState(0);
   const [maskState, setMaskState] = useState("loading");
-  const [showMask, setShowMask] = useState(true);
+  const [showMask, setShowMask] = useState(false); // off by default — the read is just a reference; the salesman draws the roof
   const [buildings, setBuildings] = useState([]);     // measured buildings
   const [bLoading, setBLoading] = useState(false);
 
-  const replaceMode = mode === "redraw";
   const buildMode = mode === "buildings";
   modeRef.current = mode;
 
@@ -229,7 +228,6 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
   const secSurfaceSq = (s) => sq(s.area_m2 * slopeFactor(+s.pitch)); // flat sf ≈ 1
   const addedSlopedSurfaceSq = sections.filter((s) => !isFlatSec(s)).reduce((a, s) => a + secSurfaceSq(s), 0);
   const addedFlatSurfaceSq = sections.filter(isFlatSec).reduce((a, s) => a + secSurfaceSq(s), 0);
-  const baseTotal = result?.roof?.surface_squares || 0;
   const baseSloped = result?.materials?.sloped || {};
   const baseFlat = result?.materials?.flat || {};
   const slopedWaste = baseSloped.waste_pct ?? 12;
@@ -242,8 +240,11 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
   const bFlatM = buildings.reduce((a, b) => a + b.flat_m, 0);
   const bFlatO = buildings.reduce((a, b) => a + b.flat_o, 0);
 
-  const adjSlopedMeasured = replaceMode ? addedSlopedSurfaceSq : (baseSloped.measured_squares || 0) + addedSlopedSurfaceSq;
-  const adjFlatMeasured = replaceMode ? addedFlatSurfaceSq : (baseFlat.measured_squares || 0) + addedFlatSurfaceSq;
+  // What the salesman TRACES is the measurement — we never add the automated read on
+  // top of it. Adding double-counted: tracing the whole roof read ~2× the real squares
+  // (drew 20 sq, matched Roofr's 19.8, but the card showed 40). Draw = the number.
+  const adjSlopedMeasured = addedSlopedSurfaceSq;
+  const adjFlatMeasured = addedFlatSurfaceSq;
   const adjSlopedOrder = adjSlopedMeasured * (1 + slopedWaste / 100);
   const adjFlatOrder = adjFlatMeasured * (1 + flatWaste / 100);
   const adjustedTotal = adjSlopedMeasured + adjFlatMeasured;
@@ -270,7 +271,7 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
       onAdjust(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sections, pitch, replaceMode, buildings]);
+  }, [sections, pitch, buildings]);
 
   return (
     <div style={{ marginTop: 16, border: "1px solid #e5e7eb", borderRadius: 14, overflow: "hidden", fontFamily: FONT }}>
@@ -285,14 +286,13 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
         {/* mode toggle */}
         <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
           <button onClick={() => { cancelDraw(); setMode("add"); }} style={seg(mode === "add")}>➕ Add area</button>
-          <button onClick={() => { cancelDraw(); setMode("redraw"); }} style={seg(mode === "redraw")}>⟳ Redraw roof</button>
           <button onClick={() => { cancelDraw(); setMode("buildings"); }} style={seg(mode === "buildings")}>🏠 Buildings</button>
         </div>
 
         {!buildMode && (
           <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#475569", marginBottom: 12 }}>
             <input type="checkbox" checked={showMask} onChange={(e) => setShowMask(e.target.checked)} disabled={maskState !== "ready"} />
-            <span>Show what the read captured (<span style={{ color: "#16a34a", fontWeight: 700 }}>green</span>) — {maskState === "loading" ? "loading…" : maskState === "none" ? "not available" : "trace only what's outside it"}</span>
+            <span>Show what the read captured (<span style={{ color: "#16a34a", fontWeight: 700 }}>green</span>) — {maskState === "loading" ? "loading…" : maskState === "none" ? "not available" : "reference only; trace the whole roof yourself"}</span>
           </label>
         )}
 
@@ -369,10 +369,10 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
             </>
           ) : (
             <>
-              <Row label="Automated read" value={`${r2(baseTotal)} sq`} muted={replaceMode} />
-              {addedSlopedSurfaceSq > 0 && <Row label={`${replaceMode ? "Traced" : "You added"} · pitched → shingle`} value={`${replaceMode ? "" : "+ "}${r2(addedSlopedSurfaceSq)} sq`} accent="#16a34a" />}
-              {addedFlatSurfaceSq > 0 && <Row label={`${replaceMode ? "Traced" : "You added"} · flat → membrane`} value={`${replaceMode ? "" : "+ "}${r2(addedFlatSurfaceSq)} sq`} accent="#0284c7" />}
-              <Row label="Adjusted total" value={`${r2(adjustedTotal)} sq`} big />
+              {addedSlopedSurfaceSq > 0 && <Row label="Traced · pitched → shingle" value={`${r2(addedSlopedSurfaceSq)} sq`} accent="#16a34a" />}
+              {addedFlatSurfaceSq > 0 && <Row label="Traced · flat → membrane" value={`${r2(addedFlatSurfaceSq)} sq`} accent="#0284c7" />}
+              {sections.length === 0 && <Row label="Draw the roof to measure" value="—" muted />}
+              <Row label="Total" value={`${r2(adjustedTotal)} sq`} big />
               <div style={{ borderTop: "1px dashed #bae6fd", marginTop: 8, paddingTop: 8 }}>
                 {adjSlopedMeasured > 0 && <Row label={`Shingle order (w/ ${slopedWaste}% waste)`} value={`${r2(adjSlopedOrder)} sq`} accent="#2563eb" />}
                 {adjFlatMeasured > 0 && <Row label={`Membrane order (w/ ${flatWaste}% waste)`} value={`${r2(adjFlatOrder)} sq`} accent="#0891b2" />}
@@ -383,7 +383,7 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
         <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 8 }}>
           {buildMode
             ? "Each building is measured on its own (squares + pitch). Sum only the ones you want. Nothing is saved."
-            : `Draw pitched and flat sections separately — each counts by its own pitch (flat → membrane/metal, sloped → shingle). ${replaceMode ? "Redraw replaces the automated number." : "Add mode adds on top."} Nothing is saved.`}
+            : `Draw pitched and flat sections separately — each counts by its own pitch (flat → membrane/metal, sloped → shingle). What you trace is the measurement. Nothing is saved.`}
         </div>
       </div>
     </div>

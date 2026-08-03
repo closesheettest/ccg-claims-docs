@@ -293,9 +293,11 @@ function Bucket({ title, b, accent }) {
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, padding: "3px 0" }}>
         <span style={{ color: "#64748b" }}>Waste</span><b>{b.waste_pct != null ? `${b.waste_pct}%` : "—"}</b>
       </div>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15, padding: "6px 0 0", marginTop: 6, borderTop: "1px dashed #e5e7eb" }}>
-        <span style={{ color: "#0f172a", fontWeight: 700 }}>Order</span>
-        <b style={{ color: accent, fontSize: 17 }}>{b.order_squares ?? "—"} sq</b>
+      {/* The number the rep actually prices/orders off — big, bold, unmissable so it's
+          never confused with the raw Measured squares above it. */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "11px 13px", marginTop: 10, borderRadius: 9, background: accent }}>
+        <span style={{ color: "#fff", fontWeight: 900, fontSize: 14.5, lineHeight: 1.15, letterSpacing: ".01em" }}>PRICE THE ROOF<br />OFF THIS NUMBER</span>
+        <b style={{ color: "#fff", fontSize: 27, fontWeight: 900, whiteSpace: "nowrap", lineHeight: 1 }}>{b.order_squares ?? "—"} sq</b>
       </div>
     </div>
   );
