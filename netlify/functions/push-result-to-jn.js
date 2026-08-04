@@ -83,14 +83,23 @@ exports.handler = async (event) => {
     let jnUpdated = false;
     let jnNoteAdded = false;
     let jnError = null;
+    // GUARD: never overwrite a WON/installed job with "Lost" (same installed-deal
+    // wipe class as the BTR-NI guards on retail-not-interested / pa-dead-triage).
+    const PROTECTED_STATUS = /install|new roof|\bsold\b|sitsold|signed|paid|collect payment/i;
     try {
-      const r = await fetch(`${JN_BASE}/jobs/${insp.jn_job_id}`, {
-        method: "PUT",
-        headers: jnHeaders,
-        body: JSON.stringify({ jnid: insp.jn_job_id, cf_string_34: "Lost", status_name: "Lost" }),
-      });
-      if (r.ok) jnUpdated = true;
-      else jnError = `cf_string_34/status PUT failed (${r.status}): ${(await r.text()).slice(0, 200)}`;
+      const curR = await fetch(`${JN_BASE}/jobs/${insp.jn_job_id}`, { headers: jnHeaders });
+      const curStatus = String((curR.ok ? await curR.json().catch(() => ({})) : {}).status_name || "");
+      if (PROTECTED_STATUS.test(curStatus)) {
+        jnError = `Refused: job is "${curStatus}" (won/installed) — not overwriting with Lost.`;
+      } else {
+        const r = await fetch(`${JN_BASE}/jobs/${insp.jn_job_id}`, {
+          method: "PUT",
+          headers: jnHeaders,
+          body: JSON.stringify({ jnid: insp.jn_job_id, cf_string_34: "Lost", status_name: "Lost" }),
+        });
+        if (r.ok) jnUpdated = true;
+        else jnError = `cf_string_34/status PUT failed (${r.status}): ${(await r.text()).slice(0, 200)}`;
+      }
     } catch (e) {
       jnError = `cf_string_34 PUT exception: ${e.message}`;
     }
