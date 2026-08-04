@@ -850,6 +850,20 @@ function visitNeedsWork(v) {
   return age != null && age >= GOBACK_AGING_DAYS ? "aging" : null;
 }
 
+// The "what happened with this appointment?" accountability gate — outcome buttons.
+// `status` is written VERBATIM to the JN job (must match harvest-appt-status.js's
+// ALLOWED whitelist and the office's JobNimbus status dropdown).
+const APPT_OUTCOMES = [
+  { status: "Sit - Sold", label: "✅ Sit – Sold", color: "#047857" },
+  { status: "Sit - Pending", label: "🕓 Sit – Pending", color: "#2563eb" },
+  { status: "Sit - No Sale", label: "➖ Sit – No Sale", color: "#6b7280" },
+  { status: "No Sit- Need to Reschedule", label: "🔁 No-Sit – Reschedule", color: "#b45309" },
+  { status: "No Sit - Rescheduled", label: "🔁 No-Sit – Rescheduled", color: "#b45309" },
+  { status: "No Show- H/O", label: "🚪 No Show – H/O", color: "#dc2626" },
+  { status: "Refused Appointment", label: "🚫 Refused Appt", color: "#dc2626" },
+  { status: "Credit Denial", label: "💳 Credit Denial", color: "#7c3aed" },
+];
+
 export default function CanvassMap() {
   const mapEl = useRef(null);
   const map = useRef(null);
@@ -970,6 +984,11 @@ export default function CanvassMap() {
   const [hasApptsToday, setHasApptsToday] = useState(false); // rep has ≥1 JN appointment today → they Plan-your-day, not Start-my-day
   const [todayAppts, setTodayAppts] = useState([]);          // today's JN appts (for the auto-detect "you have an appt" banner)
   const [apptBannerDismissed, setApptBannerDismissed] = useState(false); // rep closed the "you have an appt" prompt this session
+  // "What happened?" accountability gate — job ids the rep closed out this session, plus
+  // in-flight / error UI state. A PAST appt still "Appointment Scheduled" blocks the start.
+  const [apptGateResolved, setApptGateResolved] = useState(() => new Set());
+  const [apptGateBusy, setApptGateBusy] = useState(false);
+  const [apptGateErr, setApptGateErr] = useState("");
   const [visitToken, setVisitToken] = useState("");    // token to drive the visit-action endpoints
   const visitsLayer = useRef(null);
   const visitsLoaded = useRef(false);
@@ -1986,6 +2005,13 @@ export default function CanvassMap() {
   // so an appt just starting still counts; matches openApptPlan's own start-time filter.
   const upcomingAppts = todayAppts.filter((a) => typeof a.lat === "number" && typeof a.lng === "number" && a.at_ms >= Date.now() - 30 * 60000);
   const hasApptToday = upcomingAppts.length > 0 || testAppts.length > 0;
+  // Accountability gate: a PAST appointment (its time is behind us, 30-min grace) that JN
+  // still shows as "Appointment Scheduled" is UNACCOUNTED — the rep must say what happened
+  // before starting. Already-resolved ones (No-Sit, Sold, …) and ones the rep closed this
+  // session are skipped. Location isn't required — it's about accountability, not routing.
+  const unaccountedAppts = todayAppts.filter((a) => a.jn_job_id && a.at_ms < Date.now() - 30 * 60000
+    && /appointment scheduled/i.test(String(a.status || "")) && !apptGateResolved.has(a.jn_job_id));
+  const apptToAccount = (auth.rt && dayMode === null && unaccountedAppts[0]) || null;
   // JUNIOR-only restriction: with an appt today, a junior is FORCED into "Plan your day"
   // (Route-an-area hidden) so their day stays structured. SENIORS always keep Route-an-area
   // — they choose to route or plan. (Sam, a senior, lost his rectangle; this fixes it.)
@@ -2649,6 +2675,44 @@ export default function CanvassMap() {
   }
   // Pull the rep's appts (time + location), then weave door-knocking into the gaps
   // (buildApptPlan) between their chosen start and end times. Appts are anchor stops.
+  // Accountability gate — write the rep's chosen outcome to the appt's JN job, then
+  // unlock (the resolved job drops out of unaccountedAppts). Pin updates server-side.
+  async function setApptOutcome(status) {
+    if (!apptToAccount || apptGateBusy) return;
+    setApptGateBusy(true); setApptGateErr("");
+    try {
+      const r = await fetch("/.netlify/functions/harvest-appt-status", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rt: auth.rt, jn_job_id: apptToAccount.jn_job_id, status }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.ok) { setApptGateErr(d.error || "Couldn't save — try again."); setApptGateBusy(false); return; }
+      const id = apptToAccount.jn_job_id;
+      setApptGateResolved((s) => { const n = new Set(s); n.add(id); return n; });
+    } catch { setApptGateErr("Network hiccup — try again."); }
+    setApptGateBusy(false);
+  }
+  // "Already statused in JobNimbus" — re-read JN's current status; unlock only if it's no
+  // longer "Appointment Scheduled" (they really did close it out somewhere else).
+  async function apptAlreadyStatused() {
+    if (!apptToAccount || apptGateBusy) return;
+    setApptGateBusy(true); setApptGateErr("");
+    try {
+      const r = await fetch("/.netlify/functions/harvest-appt-status", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rt: auth.rt, jn_job_id: apptToAccount.jn_job_id, recheck: true }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (d.ok && d.resolved) {
+        const id = apptToAccount.jn_job_id;
+        setApptGateResolved((s) => { const n = new Set(s); n.add(id); return n; });
+      } else {
+        setApptGateErr(`Still shows "${(d && d.status_name) || "Appointment Scheduled"}" in JobNimbus — pick an outcome, or set it in JN first.`);
+      }
+    } catch { setApptGateErr("Network hiccup — try again."); }
+    setApptGateBusy(false);
+  }
+
   async function planAroundAppts() {
     if ((!auth.rt && !testMode) || planningAppts) return;
     const startMs = hmToMsToday(planStartHM) || Date.now();
@@ -3663,6 +3727,36 @@ export default function CanvassMap() {
             style={{ position: "absolute", left: 12, bottom: 68, zIndex: 600, background: "#16a34a", color: "#fff", border: "none", borderRadius: 999, padding: "12px 18px", fontSize: 14, fontWeight: 800, fontFamily: "'Oswald', sans-serif", boxShadow: "0 3px 12px rgba(0,0,0,.28)", cursor: "pointer" }}>
             ▶ Start my day
           </button>
+        )}
+        {/* ── "What happened with this appointment?" accountability gate ──
+            A PAST appointment JN still shows as "Appointment Scheduled" blocks the
+            whole map until the rep closes it out (or confirms they did in JN). */}
+        {apptToAccount && (
+          <div style={{ position: "fixed", inset: 0, zIndex: 4000, background: "rgba(15,23,42,.74)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+            <div style={{ background: "#fff", borderRadius: 16, maxWidth: 460, width: "100%", padding: "20px 18px", boxShadow: "0 14px 52px rgba(0,0,0,.45)", maxHeight: "92vh", overflowY: "auto" }}>
+              <div style={{ fontSize: 19, fontWeight: 800, fontFamily: "'Oswald', sans-serif", color: "#0f172a", marginBottom: 3 }}>What happened with this appointment?</div>
+              <div style={{ fontSize: 13, color: "#64748b", marginBottom: 12 }}>Close out your earlier appointment before you start today.</div>
+              <div style={{ background: "#f1f5f9", borderRadius: 10, padding: "10px 12px", marginBottom: 14 }}>
+                <div style={{ fontWeight: 800, color: "#0f172a", fontSize: 15 }}>{apptToAccount.name || "Appointment"}</div>
+                {apptToAccount.address ? <div style={{ fontSize: 12.5, color: "#64748b", marginTop: 1 }}>{apptToAccount.address}</div> : null}
+                <div style={{ fontSize: 12.5, color: "#64748b", marginTop: 3 }}>📅 Scheduled <b>{new Date(apptToAccount.at_ms).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })}</b> today</div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                {APPT_OUTCOMES.map((o) => (
+                  <button key={o.status} type="button" disabled={apptGateBusy} onClick={() => setApptOutcome(o.status)}
+                    style={{ background: o.color, color: "#fff", border: "none", borderRadius: 10, padding: "13px 8px", fontSize: 12.5, fontWeight: 700, fontFamily: "'Oswald', sans-serif", cursor: apptGateBusy ? "default" : "pointer", opacity: apptGateBusy ? 0.55 : 1, lineHeight: 1.15 }}>
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+              <button type="button" disabled={apptGateBusy} onClick={apptAlreadyStatused}
+                style={{ width: "100%", marginTop: 10, background: "#fff", color: "#0f172a", border: "2px solid #cbd5e1", borderRadius: 10, padding: "12px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", cursor: apptGateBusy ? "default" : "pointer" }}>
+                ✓ Already statused in JobNimbus
+              </button>
+              {apptGateErr ? <div style={{ marginTop: 10, color: "#b91c1c", fontSize: 12.5, fontWeight: 600, lineHeight: 1.35 }}>{apptGateErr}</div> : null}
+              {apptGateBusy ? <div style={{ marginTop: 8, color: "#64748b", fontSize: 12.5 }}>Saving…</div> : null}
+            </div>
+          </div>
         )}
         {/* 📇 Referral — enter a vouched-for lead ANY time (planning or mid-day). It
             drops a ⭐ pin that overrides any pin there + creates the JN lead. */}

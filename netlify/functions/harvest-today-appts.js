@@ -7,7 +7,9 @@
 // address geocoded via Google (cached by jnid so we never pay twice).
 //
 //   GET ?rt=<rep token>
-//   → { ok, appts:[{ jn_job_id, name, address, lat, lng, at_ms }] }   // sorted by time
+//   → { ok, appts:[{ jn_job_id, name, address, lat, lng, at_ms, status }] }  // sorted by time
+//     (lat/lng may be null when we couldn't place it — kept for the accountability gate;
+//      status is the JN job's current status_name)
 //
 // Env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, JOBNIMBUS_API_KEY, GOOGLE_MAPS_API_KEY
 
@@ -103,24 +105,42 @@ export const handler = async (event) => {
       // silently failing) actually place on the rep's route.
       if (!geo && j.geo && Number(j.geo.lat) && Number(j.geo.lon)) geo = { lat: Number(j.geo.lat), lng: Number(j.geo.lon) };
       if (!geo && address && GOOGLE_KEY) { geo = await geocode(address); if (geo) { geocache[id] = geo; cacheDirty = true; } }
-      jobInfo[id] = { name, address, geo };
+      jobInfo[id] = { name, address, geo, status: j.status_name || null };
     } catch { /* skip this one */ }
   }));
   if (cacheDirty) writeSetting(GEOCACHE_KEY, geocache).catch(() => {});
 
-  // 4) Assemble — only appts we could place on the map.
+  // Every appt job's current JN status — the "what happened with this appointment?"
+  // accountability gate needs it to tell a still-open "Appointment Scheduled" (must be
+  // closed out) from one already resolved. Reuse the job we already fetched above; only
+  // pin-matched jobs (which skipped the fetch) need a lightweight status read.
+  const statusByJob = {};
+  await Promise.all(jobIds.map(async (id) => {
+    if (jobInfo[id] && "status" in jobInfo[id]) { statusByJob[id] = jobInfo[id].status; return; }
+    try {
+      const r = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(id)}`, { headers: jnHeaders });
+      if (r.ok) { const j = await r.json().catch(() => ({})); statusByJob[id] = j.status_name || null; }
+    } catch { /* leave undefined — gate simply won't prompt for it */ }
+  }));
+
+  // 4) Assemble. Each appt carries its JN status for the accountability gate. Appts WITH
+  // a trustworthy location can be routed (planner/banner use them); ones WITHOUT still
+  // come back (lat/lng null) so the "what happened?" gate can prompt on a past appt —
+  // the planner + banner filter by coords, so null-location appts never affect routing.
   const appts = [];
   for (const row of rows) {
     const pin = row.jobId ? pinByJob[row.jobId] : null;
+    const status = row.jobId ? (statusByJob[row.jobId] || null) : null;
     if (pin && typeof pin.latitude === "number") {
-      appts.push({ jn_job_id: row.jobId, name: pin.name || nameFromTitle(row.title), address: [pin.address, pin.city, pin.state, pin.zip].filter(Boolean).join(", "), lat: pin.latitude, lng: pin.longitude, at_ms: row.at_ms });
+      appts.push({ jn_job_id: row.jobId, name: pin.name || nameFromTitle(row.title), address: [pin.address, pin.city, pin.state, pin.zip].filter(Boolean).join(", "), lat: pin.latitude, lng: pin.longitude, at_ms: row.at_ms, status });
       continue;
     }
     const ji = row.jobId ? jobInfo[row.jobId] : null;
     if (ji && ji.geo) {
-      appts.push({ jn_job_id: row.jobId, name: ji.name || nameFromTitle(row.title), address: ji.address, lat: ji.geo.lat, lng: ji.geo.lng, at_ms: row.at_ms });
+      appts.push({ jn_job_id: row.jobId, name: ji.name || nameFromTitle(row.title), address: ji.address, lat: ji.geo.lat, lng: ji.geo.lng, at_ms: row.at_ms, status });
+      continue;
     }
-    // else: no location we can trust → leave it out (rep still sees it in JN).
+    appts.push({ jn_job_id: row.jobId, name: (ji && ji.name) || (pin && pin.name) || nameFromTitle(row.title), address: (ji && ji.address) || (pin ? [pin.address, pin.city, pin.state, pin.zip].filter(Boolean).join(", ") : ""), lat: null, lng: null, at_ms: row.at_ms, status });
   }
   appts.sort((a, b) => a.at_ms - b.at_ms);
   return cors(200, { ok: true, appts });
