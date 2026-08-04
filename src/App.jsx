@@ -16863,8 +16863,8 @@ if (!hasDamage) {
                               <div onClick={() => updateInsp("hasInsurance", "yes")} style={pill(ins === "yes", "#15803d")}>Yes</div>
                               <div onClick={() => updateInsp("hasInsurance", "no")} style={pill(ins === "no", "#b45309")}>No</div>
                             </div>
-                            {ins === "yes" && <div style={{ marginTop: 8, fontSize: 12.5, color: "#15803d", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>→ Result = <b>Damage</b>. After signing, schedule a <b>PA appointment</b> (the PA shoots photos).</div>}
-                            {ins === "no" && <div style={{ marginTop: 8, fontSize: 12.5, color: "#b45309", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>→ Result = <b>Retail</b>. After signing, schedule a <b>retail appointment</b> to sell a roof.</div>}
+                            {ins === "yes" && <div style={{ marginTop: 8, fontSize: 12.5, color: "#15803d", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>→ Result = <b>BTPA</b>. After signing, schedule a <b>PA appointment</b> (the PA shoots photos).</div>}
+                            {ins === "no" && <div style={{ marginTop: 8, fontSize: 12.5, color: "#b45309", fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>→ Result = <b>BTR</b>. After signing, schedule a <b>retail appointment</b> to sell a roof.</div>}
                             {inspSubmitAttempted && !ins && <div style={{ marginTop: 8, fontSize: 12.5, color: "#dc2626", fontWeight: 700 }}>Pick Yes or No so we know how to route this deal.</div>}
                           </div>
                         )}
@@ -19002,7 +19002,7 @@ if (!hasDamage) {
                           🏠 Record Result — {selectedInspRecord.client_name}
                         </div>
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
-                          {[{ key: "no_damage", emoji: "✅", label: "No Damage", desc: "Roof is in good condition" }, { key: "damage", emoji: "⚠️", label: "Damage Found", desc: "Storm damage confirmed" }].map(opt => (
+                          {[{ key: "no_damage", emoji: "✅", label: "ND", desc: "Roof is in good condition" }, { key: "damage", emoji: "⚠️", label: "BTPA", desc: "Storm damage confirmed" }].map(opt => (
                             <button key={opt.key} type="button" onClick={() => setResultChoice(opt.key)}
                               style={{ padding: "18px 12px", borderRadius: 16, textAlign: "center", border: resultChoice === opt.key ? `3px solid ${opt.key === "damage" ? "#dc2626" : "#199c2e"}` : "2px solid #e5e7eb", background: resultChoice === opt.key ? (opt.key === "damage" ? "#fef2f2" : "#f0fdf4") : "#fff", cursor: "pointer" }}>
                               <div style={{ fontSize: 32, marginBottom: 6 }}>{opt.emoji}</div>
