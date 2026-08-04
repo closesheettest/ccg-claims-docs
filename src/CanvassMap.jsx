@@ -793,9 +793,9 @@ function referralIcon() {
 // Post-inspection go-back visits — a squared badge (distinct from round door dots
 // and the self-gen house) in the same color/emoji as the Rep Visit Hub buckets.
 const GOBACK_META = {
-  damage:    { color: "#b8324f", emoji: "🏚️", label: "Damage",    sub: "Set the PA appointment" },
-  no_damage: { color: "#16a34a", emoji: "✅", label: "No-Damage", sub: "Referrals + send certificate" },
-  retail:    { color: "#d97706", emoji: "🏠", label: "Retail",    sub: "Schedule a retail options appt" },
+  damage:    { color: "#b8324f", emoji: "🏚️", label: "BTPA",      sub: "Set the PA appointment" },
+  no_damage: { color: "#16a34a", emoji: "✅", label: "ND",        sub: "Referrals + send certificate" },
+  retail:    { color: "#d97706", emoji: "🏠", label: "BTR",       sub: "Schedule a retail options appt" },
 };
 function gobackIcon(bucket, due) {
   const m = GOBACK_META[bucket] || GOBACK_META.damage;
