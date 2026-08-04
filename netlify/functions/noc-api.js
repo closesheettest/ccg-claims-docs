@@ -52,6 +52,7 @@ const NOC = [
   { key: "alachua", label: "Alachua County", match: ["alachua"], url: "https://app.proof.com/easy-link?ApiKey=prf_cli_WqaEkadavGjoPSFKELr4RhSW_1b929dfe" },
   { key: "baker", label: "Baker County", match: ["baker"], url: "https://app.proof.com/easy-link?ApiKey=prf_cli_rEDevKA68WUNFk1xftXxDgUD_5457a3bc" },
   { key: "bradford", label: "Bradford County", match: ["bradford"], url: "https://app.proof.com/easy-link?ApiKey=prf_cli_CuKWjX4DnmZBCfVoV7mMi81J_e7fe1920" },
+  { key: "brevard", label: "Brevard County", match: ["brevard"], url: "https://app.proof.com/easy-link?ApiKey=prf_cli_qpsMYwRVW6ZBkHjRXsXNgSaM_01cfa19d" },
   { key: "broward", label: "Broward County", match: ["broward"], url: "https://app.proof.com/easy-link?ApiKey=prf_cli_7xhGdHNzjxGBdz1SEcRyNQLP_39590b43" },
   { key: "charlotte", label: "Charlotte County", match: ["charlotte"], url: "https://app.proof.com/easy-link?ApiKey=prf_cli_VDWudCaDRa8mrUM1C4bXDQyE_57de0d7c" },
   { key: "citrus", label: "Citrus County", match: ["citrus"], url: "https://app.proof.com/easy-link?ApiKey=prf_cli_XPEg3QzE6zCe8ZCwMqMLQsVV_c3c960b3" },
