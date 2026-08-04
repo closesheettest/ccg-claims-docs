@@ -42,17 +42,24 @@ export function auditJob(job) {
   // knows to measure. Shingle / non-roof deals don't use it, so only require it
   // when a metal product is sold. Checked again after products load below.
   if (!has("# of Stories")) missing.push("# of Stories");
-  if (!pos("Roof Price ONLY")) errors.push("Roof Price ONLY is 0 / blank");
+
+  // Is this even a roof sale? A deal that sold ONLY IRBADS (attic decking) and NO
+  // roofing product isn't a roof — skip the roof-specific requirements (product,
+  // squares, roof price, colors, measurements) so a non-roof sale isn't flagged for
+  // roof stuff it doesn't have. (The IRBADS → IRBADS Area check further down still runs.)
+  const products = ["Exposed Fastener", "Standing Seam", "Shingle", "Permalock", "Tile", "Stone Coated Metal", "Modified Bitman", "TPO"];
+  const soldProducts = products.filter((p) => yes(p));
+  const nonRoofSale = soldProducts.length === 0 && yes("IRBADS");
+
+  if (!nonRoofSale && !pos("Roof Price ONLY")) errors.push("Roof Price ONLY is 0 / blank");
   // Squares can be Pitch (sloped) or Flat (flat roof) — only flag if BOTH are
   // 0/blank (a flat-only roof legitimately has Pitch 0 + Flat > 0).
-  if (!pos("# of Squares (Pitch)") && !pos("# of Squares (Flat)")) errors.push("# of Squares is 0 / blank (enter Pitch or Flat squares)");
+  if (!nonRoofSale && !pos("# of Squares (Pitch)") && !pos("# of Squares (Flat)")) errors.push("# of Squares is 0 / blank (enter Pitch or Flat squares)");
 
   // ── Roofing product + its color ──────────────────────────────────────
   // Includes the flat products (Modified Bitumen / TPO) so an all-flat roof
-  // counts as having a product selected.
-  const products = ["Exposed Fastener", "Standing Seam", "Shingle", "Permalock", "Tile", "Stone Coated Metal", "Modified Bitman", "TPO"];
-  const soldProducts = products.filter((p) => yes(p));
-  if (soldProducts.length === 0) {
+  // counts as having a product selected. Skipped entirely for a non-roof (IRBADS) sale.
+  if (!nonRoofSale && soldProducts.length === 0) {
     errors.push("No roofing product selected (Shingle / Exposed Fastener / Standing Seam / Permalock / Tile / Stone Coated Metal — or for a flat roof: Modified Bitumen / TPO)");
   }
   if (yes("Exposed Fastener") && !has("Exposed Fastener Color")) missing.push("Exposed Fastener Color");
