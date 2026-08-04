@@ -288,6 +288,9 @@ function cors(status, body) {
   return { statusCode: status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" }, body: JSON.stringify(body) };
 }
 
-// Keep the map's no-sits fresh: pull from JN twice a day (geocodes a bounded
-// batch per run + reconciles re-booked ones away).
-exports.config = { schedule: "40 7,15 * * *" };
+// NOTE: no schedule here on purpose. This worker is invoked over HTTP by the
+// admin "Sync now" button (harvest-sync-nosits?commit=1). A Netlify SCHEDULED
+// function can't also be called over HTTP — Netlify 403s the manual request —
+// so the twice-daily schedule lives in the thin wrapper cron-harvest-nosits.js,
+// which calls this worker. (Mirrors the IQ pattern: cron-harvest-leadsync →
+// harvest-sync-iq-background.)

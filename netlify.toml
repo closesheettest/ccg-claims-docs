@@ -17,10 +17,12 @@
 [functions."cron-sync-installs"]
   schedule = "30 7 * * *"
 
-# Scheduled function: pull "No Sit- Need to Reschedule" deals from JobNimbus onto
-# the Harvesting Map (geocodes a bounded batch/run, reconciles re-booked ones
-# away). Twice daily. Also declares this via exports.config.schedule.
-[functions."harvest-sync-nosits"]
+# No-sit sync: the WORKER (harvest-sync-nosits) is HTTP-invoked by the admin
+# "Sync now" button, so it must NOT be scheduled — Netlify 403s HTTP calls to a
+# scheduled function (that 403 was the "sync failed" in the admin). The twice-
+# daily schedule lives in the thin wrapper cron-harvest-nosits, which calls the
+# worker. Mirrors cron-harvest-leadsync → harvest-sync-iq-background.
+[functions."cron-harvest-nosits"]
   schedule = "40 7,15 * * *"
 
 # Scheduled function: WEEKLY push of NEW installs into RepCard as "Installed" map
