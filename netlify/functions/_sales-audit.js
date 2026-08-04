@@ -37,7 +37,10 @@ export function auditJob(job) {
   // We only act when a toggle is turned ON (yes(...)), via the conditional
   // checks below (e.g. IRBADS → IRBADS Area, Insulation → SqFt + Cost).
   // This kills the wall of unfixable "(Yes/No)" flags reps were getting.
-  if (!has("Measurements Needed?")) missing.push("Measurements Needed?");
+  // "Need Measurements? *No Shingle" (renamed in JN from "Measurements Needed?")
+  // only applies to NON-shingle METAL roofs — the rep flags it so the measurer
+  // knows to measure. Shingle / non-roof deals don't use it, so only require it
+  // when a metal product is sold. Checked again after products load below.
   if (!has("# of Stories")) missing.push("# of Stories");
   if (!pos("Roof Price ONLY")) errors.push("Roof Price ONLY is 0 / blank");
   // Squares can be Pitch (sloped) or Flat (flat roof) — only flag if BOTH are
@@ -60,15 +63,14 @@ export function auditJob(job) {
   }
   if (yes("Permalock") && !has("Permalock Colors")) missing.push("Permalock Color");
 
-  // ── Measurements rule ────────────────────────────────────────────────
-  // "Measurements Needed?" is a MOVING field: the rep sets it to "Needs
-  // Measurements", then whoever measures it flips it to "Pending" →
-  // "Done - Measured". So we do NOT require an exact value — that flagged
-  // already-measured deals (e.g. James Butler showed up just because the
-  // measurer marked it "Done - Measured"). Rule per Neal: blank = error,
-  // any value filled in = fine. The blank case is already covered by the
-  // always-required `has("Measurements Needed?")` check above, so there's
-  // nothing extra to flag for Exposed Fastener / Standing Seam here.
+  // ── Measurements rule (METAL only) ───────────────────────────────────
+  // "Need Measurements? *No Shingle" (renamed in JN from "Measurements Needed?")
+  // is a MOVING field for METAL roofs: the rep sets it to "Needs Measurements",
+  // the measurer flips it to "Pending" → "Done - Measured". Any value = fine,
+  // BLANK = flag — but only for metal (Exposed Fastener / Standing Seam / Permalock
+  // / Stone Coated Metal). Shingle, tile, flat, and non-roof deals don't use it.
+  const metalSold = yes("Exposed Fastener") || yes("Standing Seam") || yes("Permalock") || yes("Stone Coated Metal");
+  if (metalSold && !has("Need Measurements? *No Shingle")) missing.push("Need Measurements? *No Shingle");
 
   // ── Flat-roof products ───────────────────────────────────────────────
   if (yes("Modified Bitman")) {
