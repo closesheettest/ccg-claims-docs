@@ -20,6 +20,9 @@ const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": 
 const JN_BASE = "https://app.jobnimbus.com/api1";
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const NI_STATUS = "BTR - NI";
+// Won/terminal statuses a BTR-NI flip must never overwrite (a sold/installed/paid
+// deal wiped to "BTR - NI" is data loss). Mirrors retail-not-interested.
+const PROTECTED_STATUS = /install|new roof|\bsold\b|sitsold|signed|paid|collect payment/i;
 
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return cors(200, "");
@@ -72,8 +75,13 @@ exports.handler = async (event) => {
     if (action === "btr_ni") {
       let jnSet = false;
       if (insp.jn_job_id && JN_KEY) {
+        const jh = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
+        // GUARD: never flip a WON deal (sold / installed / paid) to BTR-NI.
+        const cur = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(insp.jn_job_id)}`, { headers: jh });
+        const curStatus = String((cur.ok ? await cur.json().catch(() => ({})) : {}).status_name || "");
+        if (PROTECTED_STATUS.test(curStatus)) return cors(409, JSON.stringify({ ok: false, protected: true, current_status: curStatus, error: `This deal is "${curStatus}" — a won/installed deal can't go BTR-NI. Left unchanged.` }));
         const r = await fetch(`${JN_BASE}/jobs/${encodeURIComponent(insp.jn_job_id)}`, {
-          method: "PUT", headers: { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" },
+          method: "PUT", headers: jh,
           body: JSON.stringify({ status_name: NI_STATUS }),
         });
         jnSet = r.ok;

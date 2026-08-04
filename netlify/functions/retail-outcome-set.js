@@ -24,6 +24,9 @@ const OUT = {
   no_sale: { status: "Sit - No Sale", label: "Sit - No Sale" },
   ni:      { status: "BTR - NI",      label: "Not Interested" },
 };
+// Won/terminal statuses a retail SIT outcome must never overwrite (the
+// "Install Complete - Collect Payment" → "BTR - NI" data-loss incident).
+const PROTECTED_STATUS = /install|new roof|\bsold\b|sitsold|signed|paid|collect payment/i;
 
 export const handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return cors(200, "");
@@ -42,6 +45,13 @@ export const handler = async (event) => {
   try {
     const insp = (await sbGet(`inspections?id=eq.${encodeURIComponent(inspectionId)}&select=id,jn_job_id,pa_notes_log&limit=1`))[0];
     if (!insp) return cors(404, JSON.stringify({ ok: false, error: "inspection not found" }));
+    // GUARD: a retail SIT outcome must never be recorded on an already-WON/installed
+    // job — check the JN status BEFORE writing anything, and refuse if it's won.
+    if (insp.jn_job_id && JN_KEY) {
+      const cur = await jnFetch(JN_KEY, `jobs/${encodeURIComponent(insp.jn_job_id)}`);
+      const curStatus = String((cur.ok ? await cur.json().catch(() => ({})) : {}).status_name || "");
+      if (PROTECTED_STATUS.test(curStatus)) return cors(409, JSON.stringify({ ok: false, protected: true, current_status: curStatus, error: `This deal is "${curStatus}" — a won/installed deal can't take a retail outcome. Left unchanged.` }));
+    }
     const nowIso = new Date().toISOString();
     const log = Array.isArray(insp.pa_notes_log) ? insp.pa_notes_log : [];
     log.push({ at: nowIso, text: `🏠 Retail outcome by ${repName}: ${OUT[outcome].label}`, stage: null });

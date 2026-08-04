@@ -19,6 +19,11 @@ import { jnFetch } from "./_jn.js";
 const JN_KEY = process.env.JOBNIMBUS_API_KEY;
 const jnH = { Authorization: `bearer ${JN_KEY}`, "Content-Type": "application/json" };
 const NI_STATUS = "BTR - NI";
+// Won/terminal statuses that must NEVER be overwritten by a back-to-retail flip.
+// A sold/installed/paid deal getting wiped to "BTR - NI" is data loss (the
+// "Install Complete - Collect Payment" → "BTR - NI" incident). Shared shape with
+// pa-dead-triage / retail-outcome-set.
+const PROTECTED_STATUS = /install|new roof|\bsold\b|sitsold|signed|paid|collect payment/i;
 
 export const handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return cors(200, "");
@@ -39,6 +44,14 @@ export const handler = async (event) => {
     // 1. Set the JN job status to "BTR - NI" (the source of truth the reports read).
     let jnSet = false;
     if (insp.jn_job_id) {
+      // GUARD: never flip a WON deal (sold / installed / paid) back to retail. Read
+      // the job's CURRENT status first; if it's already won, refuse — this is how an
+      // "Install Complete - Collect Payment" job got wrongly wiped to BTR-NI.
+      const cur = await jnFetch(JN_KEY, `jobs/${encodeURIComponent(insp.jn_job_id)}`);
+      const curStatus = String((cur.ok ? await cur.json().catch(() => ({})) : {}).status_name || "");
+      if (PROTECTED_STATUS.test(curStatus)) {
+        return cors(409, JSON.stringify({ ok: false, protected: true, current_status: curStatus, error: `This deal is "${curStatus}" — a won/installed deal can't be marked Not Interested. Left unchanged.` }));
+      }
       const r = await jnFetch(JN_KEY, `jobs/${encodeURIComponent(insp.jn_job_id)}`, {
         method: "PUT", body: JSON.stringify({ status_name: NI_STATUS }),
       });
