@@ -801,14 +801,26 @@ function buildCertificateHTML({ record, inspectorName, inspectionDateISO, logoUr
   const inspector = inspectorName || "Hank Smith";
   const isRetail = variant === "retail";
   const isNoDamage = variant === "no_damage";
-  // Tile vs shingle/metal findings — driven by the roof type captured at
-  // intake (record.roof_type). Defaults to shingle when unset.
-  const isTile = String(record.roof_type || "").trim().toLowerCase() === "tile";
-  const rows = isNoDamage
+  // Findings rows by roof type (record.roof_type, captured at inspection). Tile has
+  // its own dedicated set; Shingle uses the default. For Metal / TPO / Modified
+  // Bitumen we start from the default set but OVERRIDE the material + condition rows
+  // so the cert REFERENCES the real roofing system instead of saying "shingle"
+  // (the Louis Calloway TPO-read-as-shingle fix). Defaults to shingle when unset.
+  const rtKey = String(record.roof_type || "shingle").trim().toLowerCase();
+  const isTile = rtKey === "tile";
+  const baseRows = isNoDamage
     ? (isTile ? INSP_ROWS_NO_DAMAGE_TILE : INSP_ROWS_NO_DAMAGE)
     : isRetail
     ? (isTile ? INSP_ROWS_RETAIL_TILE : INSP_ROWS_RETAIL)
     : (isTile ? INSP_ROWS_DAMAGE_TILE : INSP_ROWS_DAMAGE);
+  const ROOF_SYSTEM = { shingle: "Asphalt Shingle Roofing System", metal: "Metal Roofing System", tile: "Tile Roofing System", tpo: "TPO Single-Ply Membrane Roofing System", "modified bitumen": "Modified Bitumen (Flat) Roofing System" };
+  const roofSystemLabel = ROOF_SYSTEM[rtKey] || `${record.roof_type} Roofing System`;
+  const condCategory = isTile ? "Tile Condition" : rtKey === "shingle" ? "Shingle Condition" : "Roof Surface Condition";
+  const rows = (rtKey === "shingle" || isTile) ? baseRows : baseRows.map((r) => {
+    if (r.category === "Roofing Material Type") return { ...r, finding: roofSystemLabel };
+    if (r.category === "Shingle Condition") return { ...r, category: condCategory };
+    return r;
+  });
   // Banner copy/colors per variant: green "NO DAMAGE FOUND" for a passing
   // roof, gray "NONE FOUND" for retail (failed but no storm damage), red
   // "DAMAGE FOUND" for storm damage.
