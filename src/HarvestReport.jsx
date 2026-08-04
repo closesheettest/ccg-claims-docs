@@ -57,6 +57,11 @@ export default function HarvestReport() {
   const scopeZone = useMemo(() => {
     try { return (new URLSearchParams(window.location.search).get("zone") || "").trim(); } catch { return ""; }
   }, []);
+  // ?embed=1 → hide the harvest nav bar so the report sits cleanly inside an
+  // iframe (the regional-manager dashboard embeds it scoped to their team).
+  const embed = useMemo(() => {
+    try { return !!(new URLSearchParams(window.location.search).get("embed")); } catch { return false; }
+  }, []);
 
   // Rep → team map from the TMS rep-zones bridge (same source the manager team map uses).
   // A rep can appear more than once (e.g. moved teams); prefer the active, JN-linked row.
@@ -353,7 +358,7 @@ export default function HarvestReport() {
 
   return (
     <div style={{ maxWidth: 940, margin: "0 auto", padding: "20px 16px 60px", fontFamily: FONT }}>
-      <HarvestNav active="report" />
+      {!embed && <HarvestNav active="report" />}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 6 }}>
         <div style={{ fontSize: 22, fontWeight: 800, fontFamily: OSWALD }}>📊 Rep Activity{scopeZone ? <span style={{ color: "#64748b", fontWeight: 700, fontSize: 16 }}> — {scopeZone}</span> : null}</div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
