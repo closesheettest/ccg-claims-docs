@@ -289,6 +289,14 @@ export default function RoofMeasureEditor({ result, onClose, onAdjust }) {
           <button onClick={() => { cancelDraw(); setMode("buildings"); }} style={seg(mode === "buildings")}>🏠 Buildings</button>
         </div>
 
+        {/* Show the Solar-API "captured" read (green) as a reference — handy for showing
+            someone what was auto-detected so they can trace the missing areas. */}
+        {!buildMode && (
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#475569", marginBottom: 12 }}>
+            <input type="checkbox" checked={showMask} onChange={(e) => setShowMask(e.target.checked)} disabled={maskState !== "ready"} />
+            <span>Show what the read captured (<span style={{ color: "#16a34a", fontWeight: 700 }}>green</span>) — {maskState === "loading" ? "loading…" : maskState === "none" ? "not available" : "reference only; trace the whole roof yourself"}</span>
+          </label>
+        )}
 
         {/* BUILDINGS MODE */}
         {buildMode ? (
