@@ -2790,9 +2790,9 @@ function fmtShort(d) {
 }
 
 const STATUS_META = {
-  damage:    { label: "Damage",    color: "#dc2626", bg: "#fee2e2", emoji: "⚠️" },
-  no_damage: { label: "No Damage", color: "#16a34a", bg: "#dcfce7", emoji: "✅" },
-  retail:    { label: "Retail",    color: "#b45309", bg: "#fef3c7", emoji: "🏠" },
+  damage:    { label: "BTPA",      color: "#dc2626", bg: "#fee2e2", emoji: "⚠️" },
+  no_damage: { label: "ND",        color: "#16a34a", bg: "#dcfce7", emoji: "✅" },
+  retail:    { label: "BTR",       color: "#b45309", bg: "#fef3c7", emoji: "🏠" },
   cancelled: { label: "Cancelled", color: "#6b7280", bg: "#f3f4f6", emoji: "🚫" },
 };
 
@@ -3038,9 +3038,9 @@ function InspectorReports({ me, onBack }) {
               </div>
             )}
             <div style={{ fontSize: 10, color: "#6b7280", marginTop: 10, display: "flex", gap: 12 }}>
-              <span><span style={{ display: "inline-block", width: 10, height: 10, background: STATUS_META.damage.color, borderRadius: 2, marginRight: 4 }}></span>Damage</span>
+              <span><span style={{ display: "inline-block", width: 10, height: 10, background: STATUS_META.damage.color, borderRadius: 2, marginRight: 4 }}></span>BTPA</span>
               <span><span style={{ display: "inline-block", width: 10, height: 10, background: STATUS_META.no_damage.color, borderRadius: 2, marginRight: 4 }}></span>No damage</span>
-              <span><span style={{ display: "inline-block", width: 10, height: 10, background: STATUS_META.retail.color, borderRadius: 2, marginRight: 4 }}></span>Retail</span>
+              <span><span style={{ display: "inline-block", width: 10, height: 10, background: STATUS_META.retail.color, borderRadius: 2, marginRight: 4 }}></span>BTR</span>
             </div>
           </section>
 
@@ -3799,9 +3799,9 @@ export function ManagerInspectorReports() {
               </div>
             )}
             <div style={{ fontSize: 10, color: "#6b7280", marginTop: 10, display: "flex", gap: 12 }}>
-              <span><span style={{ display: "inline-block", width: 10, height: 10, background: STATUS_META.damage.color, borderRadius: 2, marginRight: 4 }}></span>Damage</span>
+              <span><span style={{ display: "inline-block", width: 10, height: 10, background: STATUS_META.damage.color, borderRadius: 2, marginRight: 4 }}></span>BTPA</span>
               <span><span style={{ display: "inline-block", width: 10, height: 10, background: STATUS_META.no_damage.color, borderRadius: 2, marginRight: 4 }}></span>No damage</span>
-              <span><span style={{ display: "inline-block", width: 10, height: 10, background: STATUS_META.retail.color, borderRadius: 2, marginRight: 4 }}></span>Retail</span>
+              <span><span style={{ display: "inline-block", width: 10, height: 10, background: STATUS_META.retail.color, borderRadius: 2, marginRight: 4 }}></span>BTR</span>
             </div>
           </section>
 
@@ -5771,9 +5771,9 @@ export function ConfirmResultsPanel() {
                                 fontWeight: changed ? 700 : 400,
                               }}
                             >
-                              <option value="damage">Damage</option>
-                              <option value="no_damage">No Damage</option>
-                              <option value="retail">Retail</option>
+                              <option value="damage">BTPA</option>
+                              <option value="no_damage">ND</option>
+                              <option value="retail">BTR</option>
                               <option value="lost">Lost</option>
                             </select>
                           </label>
@@ -6538,9 +6538,9 @@ export function SitSoldPaReportPanel() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(120px, 1fr))", gap: 12, marginBottom: 16 }}>
         {[
           { key: "all", label: "All Sit Sold PA", count: counts.total, bg: "#eef1f8", color: "#1a2e5a" },
-          { key: "damage", label: "Damage", count: counts.damage, bg: "#fef2f2", color: "#991b1b" },
-          { key: "retail", label: "Retail", count: counts.retail, bg: "#fef3c7", color: "#92400e" },
-          { key: "no_damage", label: "No Damage", count: counts.no_damage, bg: "#dcfce7", color: "#065f46" },
+          { key: "damage", label: "BTPA", count: counts.damage, bg: "#fef2f2", color: "#991b1b" },
+          { key: "retail", label: "BTR", count: counts.retail, bg: "#fef3c7", color: "#92400e" },
+          { key: "no_damage", label: "ND", count: counts.no_damage, bg: "#dcfce7", color: "#065f46" },
           { key: "no_result", label: "No Result", count: counts.no_result, bg: "#f3f4f6", color: "#374151" },
         ].map((tile) => (
           <button key={tile.key} type="button" onClick={() => setResultFilter(tile.key)}
