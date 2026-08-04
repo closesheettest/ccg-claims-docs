@@ -15,6 +15,10 @@ const OUTCOME_LABELS = { appt: "Appts", iq_ni: "IQ not int.", insp_ni: "Not inte
   damage_observed: "🏚️ Damage observed", roof_fine: "✅ Roof looks fine" };
 // Friendly names for a pin's ORIGINAL status (for the New-Roof breakdown).
 const STATUS_LABEL = { iq: "IQ", iq_ni: "IQ – Not Interested", no_sit_reschedule: "No-sit – need to reschedule", insp: "Inspection Lead", appt: "Appointment", insp_pending: "Pending signature", insp_sold: "Inspection Sold", clover: "Clover Leaf", damage_observed: "Damage observed" };
+// Team display order for the by-zone grouping. Anything else (extra named zones)
+// sorts after these alphabetically; reps with no zone match land in "Unzoned" last.
+const ZONE_ORDER = ["Zone 1", "Zone 2", "Zone 3", "Zone 4", "St Pete", "Orlando", "Jacksonville"];
+const REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/functions/rep-zones?include_inactive=1";
 
 // The date window for a report period. Weeks start Monday. Returns { gte, lt } Date
 // bounds (lt is exclusive); null bound = open-ended. Custom uses the two date inputs.
@@ -47,6 +51,31 @@ export default function HarvestReport() {
   const [openRep, setOpenRep] = useState(null); // expanded rep row
   const [openStop, setOpenStop] = useState(null); // expanded stop-by-stop line (shows arrived + status sub-events)
   const [auditOff, setAuditOff] = useState(false); // location columns not migrated yet
+  const [zoneByRep, setZoneByRep] = useState({}); // rep name (lower) → zone/team label
+  // Optional ?zone=<team> scope. Admin sees ALL teams grouped; a regional manager's
+  // dashboard loads this same report with their team pinned so they see only their reps.
+  const scopeZone = useMemo(() => {
+    try { return (new URLSearchParams(window.location.search).get("zone") || "").trim(); } catch { return ""; }
+  }, []);
+
+  // Rep → team map from the TMS rep-zones bridge (same source the manager team map uses).
+  // A rep can appear more than once (e.g. moved teams); prefer the active, JN-linked row.
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch(REP_ZONES_URL);
+        const d = await r.json().catch(() => ({}));
+        const strong = {}, weak = {};
+        for (const rep of (d.reps || [])) {
+          const nm = String(rep.name || "").trim().toLowerCase();
+          if (!nm || !rep.zone) continue;
+          if (rep.active && rep.jobnimbus_id) { if (!(nm in strong)) strong[nm] = rep.zone; }
+          else if (!(nm in weak)) weak[nm] = rep.zone;
+        }
+        setZoneByRep({ ...weak, ...strong }); // strong (active+JN) wins over weak
+      } catch { /* leave empty — everyone falls into "Unzoned" */ }
+    })();
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -247,6 +276,30 @@ export default function HarvestReport() {
       .sort((a, b) => new Date(b.last) - new Date(a.last));
   }, [viewRows]);
 
+  // Group the reps by TEAM (zone), each with a subtotal. Admin sees every team;
+  // with ?zone= set (the manager view) only that team is kept. Reps whose name
+  // doesn't map to a zone land in "Unzoned" so nobody silently drops off.
+  const byZone = useMemo(() => {
+    const groups = {};
+    for (const r of byRep) {
+      const zone = zoneByRep[String(r.name || "").trim().toLowerCase()] || "Unzoned";
+      (groups[zone] || (groups[zone] = [])).push(r);
+    }
+    const extra = Object.keys(groups).filter((z) => !ZONE_ORDER.includes(z) && z !== "Unzoned").sort();
+    const order = [...ZONE_ORDER, ...extra, "Unzoned"].filter((z) => groups[z]);
+    const scoped = scopeZone ? order.filter((z) => z.toLowerCase() === scopeZone.toLowerCase()) : order;
+    return scoped.map((zone) => {
+      const reps = groups[zone];
+      const t = { visits: 0, rounds: 0, notHome: 0, offSpot: 0, farCount: 0, pinsVisited: 0, outcomes: {} };
+      for (const r of reps) {
+        t.visits += r.visits || 0; t.notHome += r.notHome || 0; t.offSpot += r.offSpot || 0;
+        t.farCount += r.farCount || 0; t.pinsVisited += r.pinsVisited || 0;
+        for (const o of OUTCOMES) t.outcomes[o] = (t.outcomes[o] || 0) + (r.outcomes[o] || 0);
+      }
+      return { zone, reps, totals: t };
+    });
+  }, [byRep, zoneByRep, scopeZone]);
+
   // "Dropping the ball" data point: doors we found already had a NEW ROOF
   // (a competitor got it), broken down by what the pin WAS — e.g. how many of
   // our no-sits we lost because we didn't stay on them. Scoped to the view:
@@ -272,7 +325,8 @@ export default function HarvestReport() {
     return s.size;
   }, [viewRows]);
 
-  const flaggedReps = useMemo(() => byRep.filter((r) => r.flagged), [byRep]);
+  // Derive from byZone so a scoped (manager) view only flags reps on their own team.
+  const flaggedReps = useMemo(() => byZone.flatMap((z) => z.reps).filter((r) => r.flagged), [byZone]);
 
   const fmt = (iso) => { try { return new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch { return "—"; } };
   const fmtT = (iso) => { try { return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" }); } catch { return ""; } };
@@ -301,7 +355,7 @@ export default function HarvestReport() {
     <div style={{ maxWidth: 940, margin: "0 auto", padding: "20px 16px 60px", fontFamily: FONT }}>
       <HarvestNav active="report" />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 6 }}>
-        <div style={{ fontSize: 22, fontWeight: 800, fontFamily: OSWALD }}>📊 Rep Activity</div>
+        <div style={{ fontSize: 22, fontWeight: 800, fontFamily: OSWALD }}>📊 Rep Activity{scopeZone ? <span style={{ color: "#64748b", fontWeight: 700, fontSize: 16 }}> — {scopeZone}</span> : null}</div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
           {[["today", "Today"], ["yesterday", "Yesterday"], ["this_week", "This week"], ["last_week", "Last week"], ["custom", "From–To"], ["all", "All time"]].map(([k, l]) => (
             <button key={k} type="button" onClick={() => setPeriod(k)}
@@ -392,16 +446,16 @@ export default function HarvestReport() {
 
       {err && <div style={{ color: "#b91c1c", fontSize: 13.5, marginBottom: 12 }}>{err}</div>}
       {rows === null && !err ? <div style={{ color: "#94a3b8", fontSize: 13 }}>Loading…</div> : null}
-      {rows && byRep.length === 0 && !err && <div style={{ color: "#64748b", fontSize: 13.5, background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 12, padding: "18px 16px" }}>No activity yet for this period. Reps' visits and status changes show up here as they work the map.</div>}
+      {rows && byZone.length === 0 && !err && <div style={{ color: "#64748b", fontSize: 13.5, background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 12, padding: "18px 16px" }}>No activity yet for this period{scopeZone ? ` for ${scopeZone}` : ""}. Reps' visits and status changes show up here as they work the map.</div>}
 
-      {byRep.length > 0 && (
+      {byZone.length > 0 && (
         <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
           <button type="button" onClick={() => {
-            const cols = ["Rep", "Visits", "Avg at spot (s)", "Rounds", ...OUTCOMES.map((o) => OUTCOME_LABELS[o] || o), "Not home", "Off-spot", "Far", "Last active"];
+            const cols = ["Team", "Rep", "Visits", "Avg at spot (s)", "Rounds", ...OUTCOMES.map((o) => OUTCOME_LABELS[o] || o), "Not home", "Off-spot", "Far", "Last active"];
             const esc = (c) => { const s = String(c ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
             const lines = [cols.map(esc).join(",")];
-            for (const r of byRep) {
-              lines.push([r.name, r.visits, r.avgSpot ?? "", r.rounds ?? "", ...OUTCOMES.map((o) => r.outcomes[o] || 0), r.notHome || 0, r.offSpot || 0, r.farCount || 0, r.last ? new Date(r.last).toLocaleString() : ""].map(esc).join(","));
+            for (const zg of byZone) for (const r of zg.reps) {
+              lines.push([zg.zone, r.name, r.visits, r.avgSpot ?? "", r.rounds ?? "", ...OUTCOMES.map((o) => r.outcomes[o] || 0), r.notHome || 0, r.offSpot || 0, r.farCount || 0, r.last ? new Date(r.last).toLocaleString() : ""].map(esc).join(","));
             }
             const blob = new Blob([lines.join("\n")], { type: "text/csv" });
             const a = document.createElement("a");
@@ -413,7 +467,7 @@ export default function HarvestReport() {
           </button>
         </div>
       )}
-      {byRep.length > 0 && (
+      {byZone.length > 0 && (
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5 }}>
             <thead>
@@ -429,7 +483,14 @@ export default function HarvestReport() {
               </tr>
             </thead>
             <tbody>
-              {byRep.map((r) => {
+              {byZone.map((zg) => (
+                <React.Fragment key={`team-${zg.zone}`}>
+                  <tr>
+                    <td colSpan={(auditOff ? 6 : 7) + OUTCOMES.length} style={{ padding: "12px 10px 6px", fontFamily: OSWALD, fontWeight: 800, fontSize: 14.5, color: "#0f172a", background: "#f1f5f9", borderTop: "2px solid #cbd5e1" }}>
+                      🗺 {zg.zone} <span style={{ color: "#64748b", fontWeight: 600, fontSize: 12 }}>· {zg.reps.length} rep{zg.reps.length !== 1 ? "s" : ""}</span>
+                    </td>
+                  </tr>
+                  {zg.reps.map((r) => {
                 const open = openRep === r.name;
                 const colSpan = (auditOff ? 6 : 7) + OUTCOMES.length;
                 return (
@@ -533,6 +594,18 @@ export default function HarvestReport() {
                 </React.Fragment>
                 );
               })}
+                  <tr style={{ borderTop: "1px solid #cbd5e1", background: "#f8fafc" }}>
+                    <td style={{ padding: "8px 10px", fontWeight: 800, color: "#334155", fontFamily: OSWALD, letterSpacing: "0.02em" }}>{zg.zone} total</td>
+                    <td style={{ padding: "8px 10px", fontWeight: 800 }}>{zg.totals.visits}</td>
+                    <td style={{ padding: "8px 10px", color: "#cbd5e1" }}>—</td>
+                    <td style={{ padding: "8px 10px", color: "#cbd5e1" }}>—</td>
+                    {OUTCOMES.map((o) => <td key={o} style={{ padding: "8px 10px", fontWeight: zg.totals.outcomes[o] ? 800 : 400, color: zg.totals.outcomes[o] ? "#0f172a" : "#cbd5e1" }}>{zg.totals.outcomes[o] || 0}</td>)}
+                    <td style={{ padding: "8px 10px", fontWeight: zg.totals.notHome ? 800 : 400, color: zg.totals.notHome ? "#0f172a" : "#cbd5e1" }}>{zg.totals.notHome || 0}</td>
+                    {!auditOff && <td style={{ padding: "8px 10px", fontWeight: zg.totals.offSpot ? 800 : 400, color: zg.totals.farCount ? "#b91c1c" : zg.totals.offSpot ? "#b45309" : "#cbd5e1" }}>{zg.totals.offSpot || 0}</td>}
+                    <td style={{ padding: "8px 10px" }}></td>
+                  </tr>
+                </React.Fragment>
+              ))}
             </tbody>
           </table>
         </div>
