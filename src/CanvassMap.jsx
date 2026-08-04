@@ -1125,6 +1125,7 @@ export default function CanvassMap() {
     // (no ?test=, managers exploring) and office/admin still see everything.
     const repView = auth.rt ? me?.level !== "admin" : (demoMode && !!testLevel);
     if (!repView) return true;                                          // office / admin
+    if (p && p.status === "install_home") return true;                  // our own job site — address isn't a lead to gate
     if (isSelfGenPin(p) && ownsPin(p)) return true;                     // their own door
     return dayMode === "active" && (route || []).some((s) => s.id === p.id);
   };
@@ -1977,10 +1978,14 @@ export default function CanvassMap() {
   // Any appointment today — a real JN appt OR a practice test appt. With an appointment
   // the rep plans the day AROUND it ("📅 Plan your day"), so "Route an area" is hidden
   // (routing a raw box would ignore the appt). testAppts is only ever set in test/practice.
-  // Only a PLACEABLE appointment (one with a real location the planner can drop on the map)
-  // counts here. An appt with no geocoded location can't be planned around, so it must never
-  // trap a rep with no way to start.
-  const hasApptToday = todayAppts.some((a) => typeof a.lat === "number" && typeof a.lng === "number") || testAppts.length > 0;
+  // Only a PLACEABLE appointment (a real location the planner can drop on the map) that is
+  // still AHEAD counts. A PAST appointment — a prior day's that lingered (a no-sit that got
+  // rescheduled keeps its OLD date_start), or one the rep opens the map well after its time —
+  // must NOT trigger "plan your day": the rep is treated as having NO appointment, so they get
+  // the normal start (Route an area) instead of a planner with nothing to route. 30-min grace
+  // so an appt just starting still counts; matches openApptPlan's own start-time filter.
+  const upcomingAppts = todayAppts.filter((a) => typeof a.lat === "number" && typeof a.lng === "number" && a.at_ms >= Date.now() - 30 * 60000);
+  const hasApptToday = upcomingAppts.length > 0 || testAppts.length > 0;
   // JUNIOR-only restriction: with an appt today, a junior is FORCED into "Plan your day"
   // (Route-an-area hidden) so their day stays structured. SENIORS always keep Route-an-area
   // — they choose to route or plan. (Sam, a senior, lost his rectangle; this fixes it.)
@@ -3613,11 +3618,11 @@ export default function CanvassMap() {
         {/* Auto-detect "you have an appointment" — shows the moment the map opens for a
             rep who has a JN appt today but ISN'T on a manager-assigned day (those reps
             get the purple banner above). No need to know to tap the button first. */}
-        {dayMode === null && !selecting && !(assignedIds && assignedIds.size > 0) && todayAppts.length > 0 && !apptBannerDismissed && (auth.rt || testMode) && (
+        {dayMode === null && !selecting && !(assignedIds && assignedIds.size > 0) && upcomingAppts.length > 0 && !apptBannerDismissed && (auth.rt || testMode) && (
           <div style={{ position: "absolute", left: 12, right: 12, top: 56, zIndex: 595, background: "#7c3aed", color: "#fff", padding: "11px 14px", borderRadius: 12, boxShadow: "0 3px 12px rgba(0,0,0,.28)", display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ flex: 1, fontSize: 13.5, fontWeight: 700, lineHeight: 1.3 }}>
-              📅 You have {todayAppts.length} appointment{todayAppts.length > 1 ? "s" : ""} today — first at{" "}
-              <b>{new Date(todayAppts[0].at_ms).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })}</b>. Plan your doors around it?
+              📅 You have {upcomingAppts.length} appointment{upcomingAppts.length > 1 ? "s" : ""} today — first at{" "}
+              <b>{new Date(upcomingAppts[0].at_ms).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })}</b>. Plan your doors around it?
             </div>
             <button type="button" onClick={openApptPlan}
               style={{ background: "#fff", color: "#6d28d9", border: "none", borderRadius: 999, padding: "9px 15px", fontSize: 13, fontWeight: 800, fontFamily: "'Oswald', sans-serif", cursor: "pointer", whiteSpace: "nowrap" }}>
