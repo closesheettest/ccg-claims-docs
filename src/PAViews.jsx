@@ -1675,7 +1675,7 @@ function PADecisionRow({ deal, priorPaName, busy, onPool, onBackToRep, onDismiss
   const [photosErr, setPhotosErr] = useState(null);
   const addr = [deal.address, deal.city, deal.state, deal.zip].filter(Boolean).join(", ");
   const signedDisp = fmtSigned(deal.signed_at);
-  const resultLabel = { damage: "Damage", no_damage: "No Damage", retail: "Retail", lost: "Lost" }[deal.result] || (deal.result || "—");
+  const resultLabel = { damage: "BTPA", no_damage: "ND", retail: "BTR", lost: "Lost" }[deal.result] || (deal.result || "—");
   const resultColor = deal.result === "damage" ? "#991b1b" : deal.result === "retail" ? "#1e40af" : "#475569";
   const resultBg = deal.result === "damage" ? "#fef2f2" : deal.result === "retail" ? "#eff6ff" : "#f1f5f9";
   const resultBorder = deal.result === "damage" ? "#fca5a5" : deal.result === "retail" ? "#bfdbfe" : "#e2e8f0";

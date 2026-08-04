@@ -10,7 +10,7 @@ import { DamagePanel, NoDamagePanel, RetailPanel } from "./VisitActions";
 
 const FN = "/.netlify/functions";
 const NAVY = "#1a2e5a";
-const TYPE_LABEL = { damage: "Damage", no_damage: "No Damage", retail: "Retail" };
+const TYPE_LABEL = { damage: "BTPA", no_damage: "ND", retail: "BTR" };
 
 // "Go back" label for a review_availability ("Wed · 5 PM", "Mon, Tue, Wed, Thu,
 // Fri · 5 PM", "Any day · 2 PM"). When the homeowner is open to MULTIPLE days,

@@ -4532,9 +4532,9 @@ const ADMIN_REPORTS = [
 
 // Colors for result-count chips in Smart Q&A answers (no shared STATUS_META exists).
 const ADMIN_RESULT_META = {
-  damage:    { label: "Damage",    color: "#dc2626" },
-  no_damage: { label: "No Damage", color: "#16a34a" },
-  retail:    { label: "Retail",    color: "#b45309" },
+  damage:    { label: "BTPA",      color: "#dc2626" },
+  no_damage: { label: "ND",        color: "#16a34a" },
+  retail:    { label: "BTR",       color: "#b45309" },
   lost:      { label: "Lost",      color: "#6b7280" },
 };
 
@@ -17322,9 +17322,9 @@ if (!hasDamage) {
                     ) : (
                       <div style={{ display: "grid", gap: 16 }}>
                         {[
-                          { key: "damage",   label: "Damage Found",         emoji: "🚨", bg: "#fef2f2", border: "#fca5a5", titleColor: "#991b1b" },
-                          { key: "nodamage", label: "No Damage",            emoji: "✅", bg: "#f0fdf4", border: "#bbf7d0", titleColor: "#166534" },
-                          { key: "retail",   label: "Retail (Wear & Tear)", emoji: "🏠", bg: "#fffbeb", border: "#fde68a", titleColor: "#92400e" },
+                          { key: "damage",   label: "BTPA",                 emoji: "🚨", bg: "#fef2f2", border: "#fca5a5", titleColor: "#991b1b" },
+                          { key: "nodamage", label: "ND",                   emoji: "✅", bg: "#f0fdf4", border: "#bbf7d0", titleColor: "#166534" },
+                          { key: "retail",   label: "BTR (Wear & Tear)",    emoji: "🏠", bg: "#fffbeb", border: "#fde68a", titleColor: "#92400e" },
                         ].map(group => (
                           <div key={group.key} style={{ background: group.bg, border: `2px solid ${group.border}`, borderRadius: 14, padding: "16px 18px" }}>
                             <div style={{ fontSize: 16, fontWeight: 700, color: group.titleColor, fontFamily: "'Oswald', sans-serif", marginBottom: 14, letterSpacing: "0.04em", textTransform: "uppercase" }}>
@@ -18385,9 +18385,9 @@ if (!hasDamage) {
     <span style={{ fontSize: 11, fontFamily: "'Oswald', sans-serif", color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>Filter:</span>
     {[
       { key: "all",        label: "All",         bg: "#0a0a0a", color: "#fff" },
-      { key: "damage",     label: "⚠️ Damage",    bg: "#dc2626", color: "#fff" },
-      { key: "no_damage",  label: "✅ No Damage", bg: "#199c2e", color: "#fff" },
-      { key: "retail",     label: "🏠 Retail",    bg: "#d97706", color: "#fff" },
+      { key: "damage",     label: "⚠️ BTPA",      bg: "#dc2626", color: "#fff" },
+      { key: "no_damage",  label: "✅ ND",        bg: "#199c2e", color: "#fff" },
+      { key: "retail",     label: "🏠 BTR",       bg: "#d97706", color: "#fff" },
       { key: "pending",    label: "Pending",     bg: "#6b7280", color: "#fff" },
       { key: "cancelled",  label: "❌ Cancelled", bg: "#991b1b", color: "#fff" },
     ].map(f => (
@@ -19354,9 +19354,9 @@ if (!hasDamage) {
                           </div>
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 14 }}>
                             {[
-                              { label: "Damage",     count: analyticsData.counts.damage,    pct: analyticsData.pct.damage,    denom: analyticsData.resulted, bg: "#fef2f2", color: "#dc2626" },
-                              { label: "No Damage",  count: analyticsData.counts.no_damage, pct: analyticsData.pct.no_damage, denom: analyticsData.resulted, bg: "#f0fdf4", color: "#199c2e" },
-                              { label: "Retail",     count: analyticsData.counts.retail,    pct: analyticsData.pct.retail,    denom: analyticsData.resulted, bg: "#fff7ed", color: "#d97706" },
+                              { label: "BTPA",       count: analyticsData.counts.damage,    pct: analyticsData.pct.damage,    denom: analyticsData.resulted, bg: "#fef2f2", color: "#dc2626" },
+                              { label: "ND",         count: analyticsData.counts.no_damage, pct: analyticsData.pct.no_damage, denom: analyticsData.resulted, bg: "#f0fdf4", color: "#199c2e" },
+                              { label: "BTR",        count: analyticsData.counts.retail,    pct: analyticsData.pct.retail,    denom: analyticsData.resulted, bg: "#fff7ed", color: "#d97706" },
                               { label: "Pending",    count: analyticsData.counts.pending,   pct: analyticsData.pct.pending,   denom: analyticsData.total,    bg: "#f3f4f6", color: "#6b7280" },
                               { label: "Cancelled",  count: analyticsData.cancelledTotal ?? 0, raw: true, sub: "cancelled / lost", bg: "#f3f4f6", color: "#6b7280" },
                               { label: "Review to cancel", count: analyticsData.reviewTotal ?? 0, raw: true, sub: "awaiting manager", bg: "#fffbeb", color: "#b45309" },
@@ -19392,9 +19392,9 @@ if (!hasDamage) {
                             <div style={{ display: "grid", gridTemplateColumns: "2fr 0.7fr 0.9fr 0.9fr 0.9fr 0.9fr 0.9fr 0.9fr 0.9fr 0.9fr", gap: 8, padding: "8px 12px", background: "#f3f4f6", borderRadius: 8, fontSize: 11, fontWeight: 700, color: "#6b7280", fontFamily: "'Oswald', sans-serif", letterSpacing: "0.04em", textTransform: "uppercase" }}>
                               <div>Rep</div>
                               <div style={{ textAlign: "right" }}>Total</div>
-                              <div style={{ textAlign: "center" }}>Damage</div>
-                              <div style={{ textAlign: "center" }}>No Dmg</div>
-                              <div style={{ textAlign: "center" }}>Retail</div>
+                              <div style={{ textAlign: "center" }}>BTPA</div>
+                              <div style={{ textAlign: "center" }}>ND</div>
+                              <div style={{ textAlign: "center" }}>BTR</div>
                               <div style={{ textAlign: "center" }}>Pending</div>
                               <div style={{ textAlign: "center" }}>Cancelled</div>
                               <div style={{ textAlign: "center" }}>Review</div>
@@ -20295,9 +20295,9 @@ if (!hasDamage) {
                     <Label>Status</Label>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 14 }}>
                       {[
-                        { key: "Damage", emoji: "⚠️", color: "#dc2626" },
-                        { key: "No Damage", emoji: "✅", color: "#16a34a" },
-                        { key: "Retail", emoji: "🏠", color: "#d97706" },
+                        { key: "Damage", label: "BTPA", emoji: "⚠️", color: "#dc2626" },
+                        { key: "No Damage", label: "ND", emoji: "✅", color: "#16a34a" },
+                        { key: "Retail", label: "BTR", emoji: "🏠", color: "#d97706" },
                       ].map(s => {
                         const active = bulkResult === s.key;
                         return (
@@ -20311,7 +20311,7 @@ if (!hasDamage) {
                               fontWeight: 700, fontSize: 13, color: active ? s.color : "#374151",
                               textTransform: "uppercase", letterSpacing: "0.04em",
                             }}>
-                            {s.emoji} {s.key}
+                            {s.emoji} {s.label}
                           </button>
                         );
                       })}
