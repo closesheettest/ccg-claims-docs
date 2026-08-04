@@ -421,16 +421,21 @@ async function findExistingAppt(contactId) {
     return best;
   } catch { return null; }
 }
-// Most-recent JN job attached to a contact — used to REUSE an existing job when
-// JN rejects a new one as a duplicate name (the homeowner already has a job).
+// Most-recent REUSABLE (retail, location 1) job on a contact — used to REUSE an
+// existing job when JN rejects a new one as a duplicate name. RETAIL OVERRIDES
+// INSURANCE: skip an insurance job (location 3, e.g. Sit Sold PA) so a retail
+// appointment never overwrites it (JN rejects a retail status on an insurance-
+// workflow job → "sync failed"). Returning null makes the caller create a
+// SEPARATE retail job — both live under one contact.
 async function findRecentJobForContact(contactId) {
   try {
     const jf = encodeURIComponent(JSON.stringify({ must: [{ term: { "primary.id": contactId } }] }));
-    const r = await fetch(`${JN_BASE}/jobs?size=5&sort=-date_created&filter=${jf}`, { headers: jnH });
+    const r = await fetch(`${JN_BASE}/jobs?size=10&sort=-date_created&filter=${jf}`, { headers: jnH });
     if (!r.ok) return null;
     const d = await r.json().catch(() => ({}));
-    const j = (d.results || d.jobs || d.data || [])[0];
-    return j ? (j.jnid || j.id) : null;
+    const jobs = (d.results || d.jobs || d.data || []);
+    const retail = jobs.find((j) => Number(j && j.location && j.location.id) === RETAIL_LOCATION);
+    return retail ? (retail.jnid || retail.id) : null;
   } catch { return null; }
 }
 // Find an existing JN contact by phone (last 10 digits) or exact display name,

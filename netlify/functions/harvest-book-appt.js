@@ -267,12 +267,17 @@ async function jnGet(path) {
   if (!r.ok) return {};
   return r.json().catch(() => ({}));
 }
-// Most-recent JN job on a contact — to REUSE when JN rejects a duplicate name.
+// Most-recent REUSABLE (retail, location 1) job on a contact — to REUSE when JN
+// rejects a duplicate name. RETAIL OVERRIDES INSURANCE: skip an insurance job
+// (location 3, e.g. Sit Sold PA) so a retail appointment never overwrites it (JN
+// rejects a retail status on an insurance-workflow job → "sync failed"). Returning
+// null makes the caller create a SEPARATE retail job — both live under one contact.
 async function findRecentJobForContact(contactId) {
   const jf = encodeURIComponent(JSON.stringify({ must: [{ term: { "primary.id": contactId } }] }));
-  const d = await jnGet(`jobs?size=5&sort=-date_created&filter=${jf}`).catch(() => ({}));
-  const j = (d.results || d.jobs || d.data || [])[0];
-  return j ? (j.jnid || j.id) : null;
+  const d = await jnGet(`jobs?size=10&sort=-date_created&filter=${jf}`).catch(() => ({}));
+  const jobs = (d.results || d.jobs || d.data || []);
+  const retail = jobs.find((j) => Number(j && j.location && j.location.id) === RETAIL_LOCATION);
+  return retail ? (retail.jnid || retail.id) : null;
 }
 async function findExistingContact(phone, fullName) {
   const digits = String(phone || "").replace(/\D/g, "");
