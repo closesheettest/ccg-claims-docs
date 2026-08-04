@@ -4137,7 +4137,7 @@ function GuidedIntakeFlow({
         <div>
           <Label>Roof Type *</Label>
           <div style={{ display: "flex", gap: 10 }}>
-            {[["Shingle", "🔨 Shingle"], ["Tile", "🧱 Tile"]].map(([val, label]) => {
+            {[["Shingle", "Shingle"], ["Metal", "Metal"], ["Tile", "Tile"], ["TPO", "TPO"], ["Modified Bitumen", "Mod Bit"]].map(([val, label]) => {
               const sel = data.roof_type === val;
               return (
                 <button key={val} type="button" onClick={() => update({ roof_type: val })}
@@ -14882,7 +14882,7 @@ if (!hasDamage) {
                     <div>
                       <Label>Roof Type</Label>
                       <div style={{ display: "flex", gap: 10 }}>
-                        {[["Shingle", "🔨 Shingle"], ["Tile", "🧱 Tile"]].map(([val, label]) => {
+                        {[["Shingle", "Shingle"], ["Metal", "Metal"], ["Tile", "Tile"], ["TPO", "TPO"], ["Modified Bitumen", "Mod Bit"]].map(([val, label]) => {
                           const sel = data.roof_type === val;
                           return (
                             <button key={val} type="button" onClick={() => update("roof_type", val)}
@@ -16764,7 +16764,7 @@ if (!hasDamage) {
                     <div>
                       <Label>Roof Type *</Label>
                       <div style={{ display: "flex", gap: 10 }}>
-                        {[["Shingle", "🔨 Shingle"], ["Tile", "🧱 Tile"]].map(([val, label]) => {
+                        {[["Shingle", "Shingle"], ["Metal", "Metal"], ["Tile", "Tile"], ["TPO", "TPO"], ["Modified Bitumen", "Mod Bit"]].map(([val, label]) => {
                           const sel = inspData.roof_type === val;
                           const err = inspSubmitAttempted && !inspData.roof_type;
                           return (
