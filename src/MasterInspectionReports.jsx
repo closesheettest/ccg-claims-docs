@@ -166,22 +166,47 @@ function DealList({ title, sub, rows, cols = [] }) {
   );
 }
 
-function RetailBars({ retail, compact }) {
-  const order = ["sold", "btr_appt", "ni", "no_sale", "pending"];
-  const total = retail.total || 1;
+// BTR funnel — TWO stages, so the percentages are honest (per Neal):
+//   ① Inspection → Appointment: of the leads WORKED, how many became an appointment
+//      vs declined it. (Deals that later sold/no-saled DID reach an appointment.)
+//   ② Appointment → Sale: of the appointments that SAT, how many sold.
+function RetailBars({ retail }) {
+  const b = retail.buckets || {};
+  const total = retail.total || 0;
+  const g = (k) => Number(b[k] || 0);
+  const notWorked = g("pending");
+  const worked = Math.max(0, total - notWorked);
+  const reached = g("btr_appt") + g("sold") + g("no_sale");   // reached an appointment
+  const declined = g("ni");                                    // worked, declined the appointment
+  const sat = g("sold") + g("no_sale");                        // appointment actually sat
+  const pct = (n, d) => (d > 0 ? Math.round((n / d) * 1000) / 10 : 0);
+  const Bar = ({ label, n, d, color }) => (
+    <div style={{ marginBottom: 9 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, fontWeight: 700, color: "#334155", marginBottom: 3 }}>
+        <span>{label}</span><span>{n} · {pct(n, d)}%</span>
+      </div>
+      <div style={{ height: 9, background: "#f1f5f9", borderRadius: 999, overflow: "hidden" }}>
+        <div style={{ height: "100%", width: `${d > 0 ? (n / d) * 100 : 0}%`, background: color, borderRadius: 999 }} />
+      </div>
+    </div>
+  );
+  const card = { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14, padding: "16px 18px" };
   return (
-    <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14, padding: "16px 18px" }}>
-      <div style={{ fontSize: 15, fontWeight: 800, fontFamily: OSWALD, marginBottom: 10 }}>BTR breakdown — {retail.total} deals</div>
-      {order.map((k) => (
-        <div key={k} style={{ marginBottom: 9 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, fontWeight: 700, color: "#334155", marginBottom: 3 }}>
-            <span>{retail.labels[k]}</span><span>{retail.buckets[k]} · {retail.pct[k]}%</span>
-          </div>
-          <div style={{ height: 9, background: "#f1f5f9", borderRadius: 999, overflow: "hidden" }}>
-            <div style={{ height: "100%", width: `${(retail.buckets[k] / total) * 100}%`, background: RETAIL_COLOR[k], borderRadius: 999 }} />
-          </div>
-        </div>
-      ))}
+    <div style={{ display: "grid", gap: 12 }}>
+      <div style={card}>
+        <div style={{ fontSize: 15, fontWeight: 800, fontFamily: OSWALD }}>① Inspection → Appointment</div>
+        <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 10 }}>Of <b>{worked}</b> worked retail leads (the go-back). {notWorked} not worked yet.</div>
+        <Bar label="Got an appointment" n={reached} d={worked} color="#2563eb" />
+        <Bar label="Not interested — declined" n={declined} d={worked} color="#64748b" />
+        <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>Not worked yet: <b>{notWorked}</b> of {total} total BTR</div>
+      </div>
+      <div style={card}>
+        <div style={{ fontSize: 15, fontWeight: 800, fontFamily: OSWALD }}>② Appointment → Sale</div>
+        <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 10 }}>Of <b>{reached}</b> appointments — {sat} have sat, {g("btr_appt")} still to sit.</div>
+        <Bar label="Sold" n={g("sold")} d={sat} color="#16a34a" />
+        <Bar label="No sale" n={g("no_sale")} d={sat} color="#b45309" />
+        <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>Close rate (of {sat} sat): <b style={{ color: "#16a34a" }}>{pct(g("sold"), sat)}%</b> · {g("btr_appt")} still on the calendar</div>
+      </div>
     </div>
   );
 }
