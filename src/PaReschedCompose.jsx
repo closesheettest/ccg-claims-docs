@@ -110,10 +110,19 @@ export default function PaReschedCompose() {
             : !cands.length ? <div style={{ color: "#94a3b8", padding: "14px 0" }}>No candidates — nobody is sitting unsigned right now.</div>
             : (
             <>
-              <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-                <button onClick={() => setSel(new Set(cands.map((c) => c.appt_id)))} style={miniBtn}>Select all</button>
-                <button onClick={() => setSel(new Set())} style={miniBtn}>Clear</button>
-              </div>
+              {(() => {
+                const fs = cands.filter((c) => c.pa_is_five_star);
+                const other = cands.filter((c) => !c.pa_is_five_star && (c.company || c.pa));
+                const un = cands.filter((c) => !c.pa_is_five_star && !c.company && !c.pa);
+                return (
+                  <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
+                    <button onClick={() => setSel(new Set(cands.map((c) => c.appt_id)))} style={miniBtn}>Select all</button>
+                    <button onClick={() => setSel(new Set())} style={miniBtn}>Clear</button>
+                    {fs.length > 0 && <button onClick={() => setSel((s) => { const n = new Set(s); fs.forEach((c) => n.delete(c.appt_id)); return n; })} style={miniBtn}>Uncheck ★ Five Star ({fs.length})</button>}
+                    <span style={{ fontSize: 12, color: "#94a3b8" }}>★ {fs.length} Five Star · {other.length} other PA · {un.length} unassigned</span>
+                  </div>
+                );
+              })()}
               <div style={{ display: "grid", gap: 10 }}>
                 {cands.map((c) => {
                   const on = sel.has(c.appt_id);
@@ -124,9 +133,16 @@ export default function PaReschedCompose() {
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontWeight: 800 }}>{c.name} <span style={{ fontSize: 12, fontWeight: 700, color: "#94a3b8" }}>· {c.days_since}d ago</span>
                           {c.reschedule_sent_at && <span style={{ fontSize: 11, fontWeight: 800, color: "#7c3aed", background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 999, padding: "1px 7px", marginLeft: 6 }}>link sent</span>}
+                          {c.pa_is_five_star
+                            ? <span title="Already with Five Star — you may want to skip" style={pill5("#065f46", "#d1fae5", "#6ee7b7")}>★ Five Star</span>
+                            : c.company
+                              ? <span title="Assigned to a non–Five Star (paused) PA — reschedules to Five Star" style={pill5("#9a3412", "#ffedd5", "#fed7aa")}>{c.company}</span>
+                              : c.pa
+                                ? <span title="PA assigned but no company on file" style={pill5("#475569", "#f1f5f9", "#e2e8f0")}>PA · no company</span>
+                                : <span title="No PA assigned" style={pill5("#475569", "#f1f5f9", "#e2e8f0")}>Unassigned</span>}
                         </div>
                         <div style={{ fontSize: 12.5, color: "#64748b" }}>{[c.address, c.city].filter(Boolean).join(", ")}{c.phone ? ` · ${c.phone}` : ""}</div>
-                        <div style={{ fontSize: 12, color: "#94a3b8" }}>{c.rep ? `rep ${c.rep}` : ""}{c.pa ? `${c.rep ? " · " : ""}PA ${c.pa}` : (c.company ? `${c.rep ? " · " : ""}${c.company}` : "")}{c.stage ? ` · stage ${String(c.stage).replace(/_/g, " ")}` : ""}</div>
+                        <div style={{ fontSize: 12, color: "#94a3b8" }}>{c.rep ? `rep ${c.rep}` : ""}{c.pa ? `${c.rep ? " · " : ""}PA ${c.pa}` : ""}{c.stage ? ` · stage ${String(c.stage).replace(/_/g, " ")}` : ""}</div>
                         {Array.isArray(c.notes) && c.notes.length > 0
                           ? <div style={{ marginTop: 5, borderLeft: "3px solid #e2e8f0", paddingLeft: 8, display: "grid", gap: 2 }}>
                               {c.notes.map((n, i) => <div key={i} style={{ fontSize: 12, color: "#475569", lineHeight: 1.4 }}>{n.text}</div>)}
@@ -170,3 +186,4 @@ function Card({ title, children }) {
 const Tok = ({ t }) => <code style={{ fontSize: 12, background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 6, padding: "1px 5px", color: "#0f172a" }}>{t}</code>;
 const lbl = { display: "block", fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: ".05em", color: "#64748b", marginBottom: 4 };
 const miniBtn = { fontFamily: OSWALD, fontSize: 12.5, fontWeight: 800, color: NAVY, background: "#fff", border: `1.5px solid ${NAVY}`, borderRadius: 8, padding: "5px 12px", cursor: "pointer" };
+const pill5 = (color, bg, border) => ({ fontSize: 11, fontWeight: 800, color, background: bg, border: `1px solid ${border}`, borderRadius: 999, padding: "1px 7px", marginLeft: 6, whiteSpace: "nowrap" });
