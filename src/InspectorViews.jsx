@@ -4366,6 +4366,28 @@ function InspectorJobDetail({ me, jobId, onBack, mapReturn }) {
     }
   }
 
+  // "Gated — need gate code" disposition. The property is behind a gate the
+  // inspector can't get through. Unlike Lost/Cancel, this KEEPS the roof on the
+  // list — it just logs the gate code (or "need code") to the record + JobNimbus
+  // so the office can chase the code and re-dispatch. Note is optional.
+  async function submitGated() {
+    setSubmitting(true); setSubmitMsg(null);
+    try {
+      const res = await fetch("/.netlify/functions/inspector-gated", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inspectionId: jobId, note: noNote.trim(), inspector_name: me.name }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.ok) { setSubmitMsg({ kind: "error", text: body.error || `Failed: ${res.status}` }); setSubmitting(false); return; }
+      setSubmitMsg({ kind: "success", text: "🔒 Logged as gated — the office will get the gate code. This roof stays on your list to inspect once we're in." });
+      finishBack(true, 1800);
+    } catch (e) {
+      setSubmitMsg({ kind: "error", text: e.message || "Unknown error" });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   // Mark the job Lost (homeowner backed out). No photos — just a required
   // reason. Saves the reason to our records and, server-side, flips the JN
   // job to "Lost" and drops the reason in as a JN Note.
@@ -4728,10 +4750,11 @@ function InspectorJobDetail({ me, jobId, onBack, mapReturn }) {
           <section style={{ padding: 16, background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", display: "grid", gap: 12 }}>
             <div style={{ fontSize: 20, fontWeight: 700, fontFamily: "'Oswald', sans-serif" }}>Why didn't the inspection happen?</div>
             <div style={{ fontSize: 13.5, color: "#6b7280" }}>A note is required — it's pushed to JobNimbus so the office knows what happened.</div>
-            <textarea value={noNote} onChange={(e) => setNoNote(e.target.value)} rows={4} placeholder="e.g. House is tarped, estimate already in progress." disabled={submitting}
+            <textarea value={noNote} onChange={(e) => setNoNote(e.target.value)} rows={4} placeholder="e.g. House is tarped, estimate already in progress. For a gate: type the GATE CODE here if you have it." disabled={submitting}
               style={{ width: "100%", padding: 12, fontSize: 15, border: "1px solid #d1d5db", borderRadius: 8, resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }} />
             <button type="button" disabled={off} onClick={() => submit({ resultOverride: "damage", noteOverride: noNote.trim(), skipPaHandoff: true })} style={noBtn("#dc2626", off)}>⚠️ Tarp on roof / obvious damage → log as Damage</button>
             <button type="button" disabled={off} onClick={() => submit({ resultOverride: "retail", noteOverride: noNote.trim() })} style={noBtn("#b45309", off)}>🏠 Back to Retail</button>
+            <button type="button" disabled={submitting} onClick={submitGated} style={noBtn("#4f46e5", submitting)}>🔒 Gated — can't get in / need gate code <span style={{ fontWeight: 600, opacity: 0.85 }}>(stays on your list)</span></button>
             <button type="button" disabled={off} onClick={() => submit({ cancelRequest: true, noteOverride: noNote.trim() })} style={noBtn("#6b7280", off)}>🚫 Homeowner cancelled — send to manager to review</button>
             <button type="button" disabled={submitting} onClick={() => setStage({ kind: "continue_gate" })} style={{ ...secondaryBtn, opacity: submitting ? 0.55 : 1 }}>← Back</button>
             {submitMsg && (
