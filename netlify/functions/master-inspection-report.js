@@ -128,9 +128,10 @@ export const handler = async (event) => {
     //    signed/refused), or a RETAIL roof the rep hasn't gone back to work yet. This
     //    is the post-inspection to-do backlog.
     const needs_goback_status = live
-      .filter((i) => (i.result === "damage" && !(apptByInsp[i.id] || []).length && paOutcome(i) === "pending")
-        || (i.result === "retail" && !i.retail_outcome))
-      .map((i) => ({ ...card(i), result: i.result, need: i.result === "damage" ? "Needs PA appointment" : "Needs rep go-back (BTR)" }))
+      .filter((i) => (i.result === "damage" && !(apptByInsp[i.id] || []).length && paOutcome(i) === "pending")   // BTPA — no PA appt yet
+        || (i.result === "retail" && !i.retail_outcome)                                                          // BTR — rep hasn't worked it
+        || (i.result === "no_damage" && !i.referral_outcome))                                                    // ND — no referral go-back yet
+      .map((i) => ({ ...card(i), result: i.result, need: i.result === "damage" ? "Needs PA appointment" : i.result === "no_damage" ? "Needs referral go-back" : "Needs rep go-back (BTR)" }))
       .sort((a, b) => (a.result || "").localeCompare(b.result || ""));
 
     // 3) RETAIL breakdown + percentages. retail_outcome: ni / no_sale / sold / btr_appt / (null = pending)

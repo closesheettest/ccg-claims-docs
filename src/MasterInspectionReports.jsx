@@ -45,6 +45,9 @@ function Grouped({ groups, renderRow, keyFn }) {
 const OUT_COLOR = { signed: "#16a34a", refused: "#b91c1c", pending: "#d97706" };
 const OUT_LABEL = { signed: "✅ Signed", refused: "❌ Refused", pending: "⏳ No outcome" };
 const RETAIL_COLOR = { ni: "#64748b", btr_appt: "#2563eb", sold: "#16a34a", no_sale: "#b45309", pending: "#94a3b8" };
+// Inspection-result display labels (per bossman): Damage → BTPA, Retail → BTR, No Damage → ND.
+const GOBACK_LABEL = { damage: "BTPA", retail: "BTR", no_damage: "ND" };
+const GOBACK_COLOR = { damage: "#b91c1c", retail: "#0891b2", no_damage: "#64748b" };
 
 export default function MasterInspectionReports() {
   const [data, setData] = useState(null);
@@ -94,7 +97,7 @@ export default function MasterInspectionReports() {
 
       {tab === "overview" && <Overview data={data} onJump={setTab} />}
       {tab === "needs_inspection" && <DealList title="Still need to be inspected" sub="Signed jobs with no inspection completed yet." rows={data.needs_inspection} cols={[["signed_at", "Signed", fmtDate], ["inspector", "Inspector"]]} />}
-      {tab === "needs_goback" && <DealList title="Inspected — still need a go-back status" sub="Result recorded, but the go-back isn't done: damage with no PA appointment, or retail the rep hasn't gone back to work." rows={data.needs_goback_status} cols={[["result", "Result"], ["need", "Needs"]]} />}
+      {tab === "needs_goback" && <NeedsGoBack rows={data.needs_goback_status} />}
       {tab === "retail" && <Retail retail={data.retail} />}
       {tab === "damage" && <Damage damage={data.damage} />}
       {tab === "pa_passed" && <PaPassed rows={data.pa_passed} />}
@@ -179,6 +182,47 @@ function RetailBars({ retail, compact }) {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+// Inspected — still needs a go-back, split by result with filter buttons (BTPA / BTR / ND).
+function NeedsGoBack({ rows }) {
+  const [filter, setFilter] = useState("all");
+  const order = ["damage", "retail", "no_damage"];
+  const counts = {}; order.forEach((k) => { counts[k] = 0; });
+  (rows || []).forEach((r) => { if (counts[r.result] != null) counts[r.result]++; });
+  const list = filter === "all" ? (rows || []) : (rows || []).filter((r) => r.result === filter);
+  const pill = (active, color) => ({
+    fontFamily: OSWALD, fontSize: 12.5, fontWeight: 800, padding: "7px 13px", borderRadius: 999, cursor: "pointer",
+    border: `2px solid ${color}`, background: active ? color : "#fff", color: active ? "#fff" : color, whiteSpace: "nowrap",
+  });
+  const row = (r) => (
+    <div key={r.id} style={rowCard}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 800 }}>{r.name}</div>
+        <div style={{ fontSize: 12.5, color: "#64748b" }}>{[r.address, r.city].filter(Boolean).join(", ")}</div>
+      </div>
+      <div style={{ textAlign: "right", fontSize: 12 }}>
+        <div><span style={{ color: "#94a3b8" }}>Result: </span><b style={{ color: GOBACK_COLOR[r.result] || "#0f172a" }}>{GOBACK_LABEL[r.result] || r.result}</b></div>
+        <div><span style={{ color: "#94a3b8" }}>Needs: </span><b>{r.need}</b></div>
+      </div>
+    </div>
+  );
+  return (
+    <div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+        <button onClick={() => setFilter("all")} style={pill(filter === "all", "#334155")}>All · {(rows || []).length}</button>
+        {order.map((k) => (
+          <button key={k} onClick={() => setFilter(k)} style={pill(filter === k, GOBACK_COLOR[k])}>{GOBACK_LABEL[k]} · {counts[k]}</button>
+        ))}
+      </div>
+      <Section
+        title={`Inspected — still need a go-back status (${list.length})`}
+        sub={filter === "all" ? "Result recorded, but the go-back isn't done — BTPA (damage, no PA appt), BTR (retail, not worked), ND (no damage, no referral go-back). Grouped by zone → rep."
+          : `Only ${GOBACK_LABEL[filter]} — grouped by zone → rep.`}>
+        {!list.length ? <Empty /> : <Grouped groups={twoLevel(list, (r) => r.zone, (r) => r.rep || "—")} renderRow={row} />}
+      </Section>
     </div>
   );
 }
