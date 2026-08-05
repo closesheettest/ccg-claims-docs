@@ -153,8 +153,8 @@ export const handler = async (event) => {
       const a = latestAppt(i.id);
       const co = i.pa_company_id ? coName[i.pa_company_id] : null;
       const pn = i.pa_id ? paName[i.pa_id] : null;
-      if (a) withApptArr.push({ ...card(i), pa: pn, company: co, start_at: a.start_at, appt_status: a.status });
-      else needApptArr.push({ ...card(i), pa: pn, company: co, assigned: !!(i.pa_id || i.pa_company_id) });
+      if (a) withApptArr.push({ ...card(i), pa: pn, company: co, start_at: a.start_at, appt_status: a.status, stage: i.pa_stage || null, notes: recentNotes(i) });
+      else needApptArr.push({ ...card(i), pa: pn, company: co, assigned: !!(i.pa_id || i.pa_company_id), stage: i.pa_stage || null, notes: recentNotes(i) });
     }
     const damage = {
       total: damageDeals.length,

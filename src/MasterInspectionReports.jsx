@@ -218,6 +218,7 @@ function Damage({ damage }) {
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: 800 }}>{r.name}</div>
         <div style={{ fontSize: 12.5, color: "#64748b" }}>{[r.address, r.city].filter(Boolean).join(", ")}</div>
+        <NotesBlock r={r} />
       </div>
       <div style={{ textAlign: "right", fontSize: 12.5 }}>
         <div>{r.company || r.pa || (r.assigned ? "Assigned" : <span style={{ color: "#b45309", fontWeight: 800 }}>Unassigned</span>)}</div>
@@ -230,6 +231,7 @@ function Damage({ damage }) {
         <div style={{ fontWeight: 800 }}>{r.name}</div>
         <div style={{ fontSize: 12.5, color: "#64748b" }}>{[r.address, r.city].filter(Boolean).join(", ")}</div>
         <div style={{ fontSize: 12, color: "#94a3b8" }}>{r.pa || r.company || "PA"}</div>
+        <NotesBlock r={r} />
       </div>
       <div style={{ textAlign: "right", fontSize: 12.5 }}>
         <div><b>{fmtDateTime(r.start_at)}</b></div>
