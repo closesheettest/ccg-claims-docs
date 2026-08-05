@@ -53,7 +53,9 @@ exports.handler = async () => {
       const d = await r.json().catch(() => ({}));
       for (const job of (d.results || d.jobs || [])) statusById[job.jnid || job.id] = job.status_name;
     }
-    let updated = 0, statusUpdated = 0; const byOutcome = {};
+    // Build the change set first, then write in PARALLEL batches — sequential PATCHes
+    // over ~200 deals blows past Netlify's 10s cap.
+    const patches = [];
     for (const row of rows) {
       const live = statusById[row.jn_job_id] || null;
       const outcome = outcomeFor(live);
@@ -62,11 +64,16 @@ exports.handler = async () => {
       if (outcome && outcome !== row.retail_outcome) {              // terminal outcome (incl. credit_denial)
         patch.retail_outcome = outcome; patch.retail_outcome_at = new Date().toISOString(); patch.retail_outcome_by = "JN sync";
       }
-      if (!Object.keys(patch).length) continue;
-      const up = await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(row.id)}`, {
-        method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify(patch),
-      });
-      if (up.ok) { if (patch.retail_outcome) { updated++; byOutcome[outcome] = (byOutcome[outcome] || 0) + 1; } if (patch.jn_status) statusUpdated++; }
+      if (Object.keys(patch).length) patches.push({ id: row.id, patch, outcome: patch.retail_outcome ? outcome : null });
+    }
+    let updated = 0, statusUpdated = 0; const byOutcome = {};
+    for (let i = 0; i < patches.length; i += 25) {
+      await Promise.all(patches.slice(i, i + 25).map(async (p) => {
+        const up = await fetch(`${SB_URL}/rest/v1/inspections?id=eq.${encodeURIComponent(p.id)}`, {
+          method: "PATCH", headers: { ...sb, Prefer: "return=minimal" }, body: JSON.stringify(p.patch),
+        });
+        if (up.ok) { if (p.outcome) { updated++; byOutcome[p.outcome] = (byOutcome[p.outcome] || 0) + 1; } if (p.patch.jn_status) statusUpdated++; }
+      }));
     }
     return j(200, { ok: true, checked: rows.length, updated, status_updated: statusUpdated, byOutcome });
   } catch (e) {
