@@ -23,6 +23,7 @@ export default function PaReschedule() {
   const [err, setErr] = useState("");
   const [booking, setBooking] = useState("");
   const [done, setDone] = useState(null);
+  const [zoom, setZoom] = useState(null);   // enlarged damage photo (URL) or null
 
   useEffect(() => {
     if (!token) { setErr("This link is missing its code — please use the link from your text or email."); return; }
@@ -66,11 +67,41 @@ export default function PaReschedule() {
   if (!appt) return <Wrap><Msg text="Loading your appointment…" plain /></Wrap>;
 
   const dayKeys = Object.keys(byDay).sort();
+  const firstName = (appt.name || "there").split(" ")[0];
+  const photos = Array.isArray(appt.photos) ? appt.photos : [];
+  const isDamage = appt.result === "damage";
   return (
     <Wrap>
-      <div style={{ fontSize: 22, fontWeight: 900, fontFamily: OSWALD, color: NAVY }}>Reschedule your appointment</div>
+      {/* 1) THE PROOF — why they need this appointment: their own roof, documented. */}
+      {isDamage && (
+        <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 14, padding: "12px 14px", marginBottom: 16 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 800, color: "#b91c1c", textTransform: "uppercase", letterSpacing: ".04em" }}>⚠️ Inspection result</div>
+          <div style={{ fontSize: 20, fontWeight: 900, fontFamily: OSWALD, color: "#991b1b", marginTop: 3 }}>Your roof came back with damage</div>
+          <div style={{ fontSize: 14, color: "#7f1d1d", marginTop: 6, lineHeight: 1.5 }}>
+            Hi {firstName} — our inspector documented damage on your roof{appt.address ? <> at <b>{[appt.address, appt.city].filter(Boolean).join(", ")}</b></> : ""}. This is often covered by your insurance, and a licensed <b>Public Adjuster</b> can file the claim for you.
+          </div>
+        </div>
+      )}
+
+      {photos.length > 0 && (
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 13, fontWeight: 800, fontFamily: OSWALD, color: NAVY, marginBottom: 8 }}>What our inspector found on your roof</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
+            {photos.map((u, i) => (
+              <button key={i} onClick={() => setZoom(u)} style={{ padding: 0, border: "none", borderRadius: 10, overflow: "hidden", aspectRatio: "1 / 1", cursor: "pointer", background: "#e2e8f0" }}>
+                <img src={u} alt={`Roof photo ${i + 1}`} loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+              </button>
+            ))}
+          </div>
+          <div style={{ fontSize: 11.5, color: "#94a3b8", marginTop: 6 }}>Tap any photo to enlarge.</div>
+        </div>
+      )}
+
+      {/* 2) THE ASK — schedule with the Public Adjuster (reschedule the missed appt). */}
+      <div style={{ fontSize: 22, fontWeight: 900, fontFamily: OSWALD, color: NAVY }}>Schedule with your Public Adjuster</div>
       <div style={{ fontSize: 14.5, color: "#334155", marginTop: 6, lineHeight: 1.5 }}>
-        Hi {(appt.name || "there").split(" ")[0]} — we missed you for your roof adjuster appointment{appt.address ? <> at <b>{[appt.address, appt.city].filter(Boolean).join(", ")}</b></> : ""}. Pick a new time that works for you:
+        {isDamage ? <>We missed you last time — pick a new time and a Public Adjuster will meet you to get your claim started:</>
+                  : <>Hi {firstName} — we missed you for your roof adjuster appointment{appt.address ? <> at <b>{[appt.address, appt.city].filter(Boolean).join(", ")}</b></> : ""}. Pick a new time that works for you:</>}
       </div>
       {err && <div style={{ color: "#b91c1c", fontSize: 13.5, marginTop: 12, fontWeight: 700 }}>{err}</div>}
       {slots === null ? <Msg text="Finding open times…" plain />
@@ -90,6 +121,12 @@ export default function PaReschedule() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {zoom && (
+        <div onClick={() => setZoom(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.88)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 50, cursor: "zoom-out" }}>
+          <img src={zoom} alt="Roof damage" style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 10 }} />
         </div>
       )}
     </Wrap>

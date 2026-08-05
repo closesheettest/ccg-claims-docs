@@ -33,9 +33,27 @@ export const handler = async (event) => {
     if (!appt) return cors(404, JSON.stringify({ ok: false, error: "This reschedule link isn't valid." }));
 
     if (action === "load") {
-      let city = null;
-      if (appt.inspection_id) { const i = (await sbGet(`inspections?id=eq.${encodeURIComponent(appt.inspection_id)}&select=city&limit=1`))[0]; city = i && i.city || null; }
-      return cors(200, JSON.stringify({ ok: true, appt: { name: appt.homeowner_name, address: appt.address, city, old_start_at: appt.start_at } }));
+      // Pull the inspection so the landing page can SHOW the homeowner why they need
+      // this appointment: their damage photos + the fact it came back damaged. This is
+      // the "here's the proof" persuasion before the "pick a time" ask.
+      let city = null, result = null, photos = [];
+      if (appt.inspection_id) {
+        const i = (await sbGet(`inspections?id=eq.${encodeURIComponent(appt.inspection_id)}&select=city,result,inspection_photos&limit=1`))[0];
+        city = (i && i.city) || null;
+        result = (i && i.result) || null;
+        let items = i && i.inspection_photos;
+        if (typeof items === "string") { try { items = JSON.parse(items); } catch { items = []; } }
+        if (Array.isArray(items) && items.length) {
+          // Lead with the actual damage shots; push context photos (house number,
+          // address, overview, selfies/ID) to the end. Cap at 12 for a tidy gallery.
+          const isContext = (l) => /house ?number|address|overview|street\b|front of|selfie|driver|license|\bid\b/i.test(String(l || ""));
+          const damage = items.filter((p) => p && p.path && !isContext(p.label));
+          const context = items.filter((p) => p && p.path && isContext(p.label));
+          const urls = await signSupabasePhotos([...damage, ...context].slice(0, 12), SB_URL, sb);
+          photos = urls;
+        }
+      }
+      return cors(200, JSON.stringify({ ok: true, appt: { name: appt.homeowner_name, address: appt.address, city, old_start_at: appt.start_at, result, photos } }));
     }
     if (action === "slots") {
       const visitTok = await getSetting("visit_token") || await getSetting("dialer_token");
@@ -91,6 +109,25 @@ async function callScheduler(payload) {
     const r = await fetch(`${BASE}/.netlify/functions/pa-schedule-api`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     return await r.json().catch(() => ({ ok: false, error: "scheduler error" }));
   } catch (e) { return { ok: false, error: e.message || "scheduler error" }; }
+}
+// Temporary signed URLs for app-captured inspection photos (private Storage bucket)
+// so the homeowner's browser can show them in <img src>. Mirrors pa-load-claim.js.
+async function signSupabasePhotos(items, sbUrl, sbHeaders) {
+  const out = [];
+  for (const p of (items || []).slice(0, 12)) {
+    if (!p?.path) continue;
+    const bucket = p.bucket || "signed-documents";
+    try {
+      const res = await fetch(`${sbUrl}/storage/v1/object/sign/${bucket}/${p.path}`, {
+        method: "POST", headers: sbHeaders, body: JSON.stringify({ expiresIn: 3600 }),
+      });
+      if (!res.ok) continue;
+      const b = await res.json().catch(() => ({}));
+      const rel = b.signedURL || b.signedUrl;
+      if (rel) out.push(rel.startsWith("http") ? rel : `${sbUrl}/storage/v1${rel.startsWith("/") ? "" : "/"}${rel}`);
+    } catch { /* skip */ }
+  }
+  return out;
 }
 async function getSetting(key) { const rows = await sbGet(`app_settings?key=eq.${encodeURIComponent(key)}&select=value&limit=1`); return rows[0]?.value || null; }
 async function sbGet(path) { const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: sb }); if (!r.ok) return []; return r.json().catch(() => []); }
