@@ -68,6 +68,25 @@ function paOutcome(insp) {
   return "pending"; // no outcome recorded yet
 }
 
+// The last few PA notes (newest first, deduped) — the human story behind the deal:
+// why it refused, what happened at the appointment, whether it's waiting on docs, etc.
+function recentNotes(insp) {
+  let log = insp.pa_notes_log;
+  if (typeof log === "string") { try { log = JSON.parse(log); } catch { log = []; } }
+  if (!Array.isArray(log)) return [];
+  const out = [], seen = new Set();
+  for (const e of log.slice().reverse()) {
+    const text = String((e && e.text) || "").trim();
+    if (!text) continue;
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue; // drop the duplicate "stage" echoes the pipeline logs
+    seen.add(key);
+    out.push({ text: text.slice(0, 240), stage: (e && e.stage) || null, at: (e && e.at) || null });
+    if (out.length >= 4) break;
+  }
+  return out;
+}
+
 const person = (insp) => insp.client_name || insp.homeowner_name || "—";
 const rep = (insp) => insp.sales_rep_name || insp.original_sales_rep_name || null;
 
@@ -78,7 +97,7 @@ export const handler = async (event) => {
     const nowMs = Date.now();
     const zoneByRep = await fetchZoneByRep();
     const [inspections, appts, pas, companies] = await Promise.all([
-      sbGetAll("inspections?select=id,jn_job_id,address,city,county,latitude,longitude,client_name,mobile,email,sales_rep_name,original_sales_rep_name,signed_at,docs_signed,date,inspection_date,result_at,inspector_name,result,inspection_result,jn_status,retail_outcome,retail_outcome_at,result_task_jnid,result_task_at,cancelled_at,cancel_review_pending,lost_reason,pa_id,pa_company_id,pa_status,pa_signed_at,pa_stage,pa_fields"),
+      sbGetAll("inspections?select=id,jn_job_id,address,city,county,latitude,longitude,client_name,mobile,email,sales_rep_name,original_sales_rep_name,signed_at,docs_signed,date,inspection_date,result_at,inspector_name,result,inspection_result,jn_status,retail_outcome,retail_outcome_at,result_task_jnid,result_task_at,cancelled_at,cancel_review_pending,lost_reason,pa_id,pa_company_id,pa_status,pa_signed_at,pa_stage,pa_fields,pa_notes_log,pa_status_notes,pa_decision_reason,correction_note,referral_outcome"),
       sbGetAll("pa_appointments?select=id,pa_id,pa_company_id,inspection_id,homeowner_name,homeowner_phone,address,start_at,end_at,status,booked_by,notes,created_at"),
       sbGetAll("pas?select=id,name,phone,email,pa_company_id"),
       sbGetAll("pa_companies?select=id,name"),
@@ -166,6 +185,13 @@ export const handler = async (event) => {
           filed_at: toISO(f.pa_filed),    // when the claim was filed
           booked_at: toISO(a.created_at), // when the appointment was set
           rep: insp ? rep(insp) : null,
+          // The STORY behind the verdict — so the office can see WHY it's refused /
+          // what "no outcome" actually means (PA showed? homeowner no-showed?) instead
+          // of a bare label. PA pipeline stage + the recent PA notes + the appt note.
+          stage: insp ? (insp.pa_stage || null) : null,
+          reason: insp ? (insp.pa_status_notes || insp.lost_reason || insp.pa_decision_reason || insp.correction_note || null) : null,
+          notes: insp ? recentNotes(insp) : [],
+          appt_note: a.notes || null,
         };
       })
       .sort((a, b) => (b.start_at || "").localeCompare(a.start_at || ""));

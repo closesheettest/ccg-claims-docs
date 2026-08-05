@@ -232,6 +232,30 @@ function Damage({ damage }) {
   );
 }
 
+// The story behind a PA appointment — its pipeline stage + the recent PA notes, so
+// the office can see WHY it refused / what "no outcome" actually means, instead of a
+// bare verdict. "No notes logged" is itself the answer: nobody recorded what happened.
+function NotesBlock({ r }) {
+  const cap = (s) => String(s || "").replace(/_/g, " ");
+  const notes = Array.isArray(r.notes) ? r.notes : [];
+  return (
+    <>
+      {r.stage && <div style={{ fontSize: 11.5, fontWeight: 800, color: "#7c3aed", marginTop: 3, textTransform: "capitalize" }}>PA stage: {cap(r.stage)}</div>}
+      {notes.length > 0 ? (
+        <div style={{ marginTop: 5, borderLeft: "3px solid #e2e8f0", paddingLeft: 8, display: "grid", gap: 3 }}>
+          {notes.map((n, i) => (
+            <div key={i} style={{ fontSize: 12, color: "#475569", lineHeight: 1.4 }}>
+              {n.stage && <b style={{ color: "#94a3b8", fontWeight: 800 }}>[{cap(n.stage)}] </b>}{n.text}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={{ fontSize: 11.5, color: "#cbd5e1", marginTop: 4, fontStyle: "italic" }}>No notes logged — no record of what happened.</div>
+      )}
+    </>
+  );
+}
+
 function PaPassed({ rows }) {
   const renderRow = (r) => (
     <div key={r.appt_id} style={rowCard}>
@@ -239,6 +263,7 @@ function PaPassed({ rows }) {
         <div style={{ fontWeight: 800 }}>{r.name} <span style={{ fontSize: 12, fontWeight: 800, color: OUT_COLOR[r.outcome] }}>· {OUT_LABEL[r.outcome]}</span></div>
         <div style={{ fontSize: 12.5, color: "#64748b" }}>{[r.address, r.city].filter(Boolean).join(", ")}</div>
         {r.rep && <div style={{ fontSize: 12, color: "#94a3b8" }}>rep {r.rep}</div>}
+        <NotesBlock r={r} />
       </div>
       <div style={{ textAlign: "right", fontSize: 12 }}>
         <div><span style={{ color: "#94a3b8" }}>Appt: </span><b>{fmtDateTime(r.start_at)}</b></div>
@@ -262,6 +287,7 @@ function Missed({ rows }) {
         <div style={{ fontWeight: 800 }}>{r.name}</div>
         <div style={{ fontSize: 12.5, color: "#64748b" }}>{[r.address, r.city].filter(Boolean).join(", ")}</div>
         <div style={{ fontSize: 12, color: "#94a3b8" }}>{r.phone ? r.phone : ""}{r.rep ? `${r.phone ? " · " : ""}rep ${r.rep}` : ""}</div>
+        <NotesBlock r={r} />
       </div>
       <div style={{ textAlign: "right", fontSize: 12 }}>
         <div style={{ color: "#b91c1c", fontWeight: 800 }}>Missed {fmtDateTime(r.start_at)}</div>
