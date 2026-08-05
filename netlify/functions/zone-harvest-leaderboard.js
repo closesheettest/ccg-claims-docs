@@ -4,10 +4,13 @@
 //   1. MAP bookings — a rep books (or reschedules) an appointment off a pin;
 //      harvest-book-appt.js / harvest-book-btr-appt.js log a canvass_activity
 //      row { to_status:'appt' } with a harvest origin (iq/fb/ai/no-sit/self_gen).
-//   2. JOBNIMBUS bookings (reverse direction, per Neal) — an appointment TASK
-//      created in the window whose job carries "Sales Rep Harvested" = Yes,
-//      credited to the job's sales rep. Deduped against map bookings by
-//      jn_job_id; one credit per job.
+//   2. JOBNIMBUS bookings (reverse direction, per Neal) — an appointment booked
+//      in the window on a job whose SOURCE is a harvested lead (Self Generated,
+//      Instant Quote, Facebook, AI, Harvesting, Referral), credited to the job's
+//      sales rep. Inspection/BTR follow-ups are NOT harvest. Deduped against map
+//      bookings by jn_job_id; one credit per job.
+// Credit is by lead SOURCE, not rep level — juniors self-generate and work IQ
+// pins too, so they count here as well (the Jr/Sr badge on the board flags who).
 // Tallied per period, ranked by zone with a per-rep drill-down.
 //
 //   GET /.netlify/functions/zone-harvest-leaderboard[?period=week|month|...]
@@ -30,12 +33,6 @@ const TMS_REP_ZONES_URL = "https://trainingmanagementsys.netlify.app/.netlify/fu
 // JN-side harvested appointments (see below): the appointment TASK types that
 // mean "an appointment got made", and the job flag that marks it harvest work.
 const APPT_TASK_TYPES = new Set(["Initial Appointment", "Reset Appointment", "Appointment"]);
-const isYes = (v) => v === true || v === "true" || v === "Yes" || v === "yes" || v === 1;
-function fieldByLabel(job, label) {
-  if (label in job) return job[label];
-  for (const [k, v] of Object.entries(job)) if (k.trim().replace(/^\*|\*$/g, "").trim() === label) return v;
-  return undefined;
-}
 // A harvested appointment is credited to the period in which it was SET (booked) —
 // NOT when the appointment itself is scheduled. So a deal booked this month whose
 // appointment is next month still counts THIS month. We use the job's date_created
@@ -120,8 +117,11 @@ export const handler = async (event) => {
       if (a.pin_id) { if (seenPins.has(a.pin_id)) continue; seenPins.add(a.pin_id); }
       const jr = isJunior(a.rep_name);
       const zone = zoneOf(a.rep_name);
-      if (auditOn) auditRows.push({ origin: "map", rep: (a.rep_name || "—").trim() || "—", level: jr ? "junior" : (zone ? "senior" : "unknown"), zone: zone || null, kind: a.from_status, when: a.created_at, pin_id: a.pin_id, counted: !jr && !!zone, excluded: jr ? "junior" : (!zone ? "no-zone" : null) });
-      if (jr) continue;   // JR = BTR pins only, never harvest
+      // Credit is by the PIN's harvest origin (from_status), NOT the rep's level —
+      // juniors self-generate and work IQ pins too (per Neal); the Jr/Sr badge on
+      // the board shows who's a junior. BTR/inspection pins never reach here — the
+      // query already restricts from_status to iq/fb/ai/no-sit/self-gen.
+      if (auditOn) auditRows.push({ origin: "map", rep: (a.rep_name || "—").trim() || "—", level: jr ? "junior" : (zone ? "senior" : "unknown"), zone: zone || null, kind: a.from_status, when: a.created_at, pin_id: a.pin_id, counted: !!zone, excluded: !zone ? "no-zone" : null });
       if (!zone) { unattributed++; continue; }
       const z = agg[zone] || (agg[zone] = { count: 0, byRep: {}, deals: [] });
       z.count += 1;
@@ -143,8 +143,9 @@ export const handler = async (event) => {
     if (auditOn) for (const r of auditRows) if (r.origin === "map" && r.pin_id) r.label = pinAddr[r.pin_id] || "Map lead";
 
     // ── JN-SIDE HARVESTED APPOINTMENTS (reverse direction, per Neal) ─────────
-    // Appointments made directly IN JobNimbus count too, when the job's
-    // "Sales Rep Harvested" field = Yes — credited to the job's sales rep. Same
+    // Appointments made directly IN JobNimbus count too, when the job's SOURCE is
+    // a harvested lead (Self Generated / Instant Quote / Facebook / AI / Harvesting
+    // / Referral) — credited to the job's sales rep, junior or senior. Same
     // philosophy as the pin reverse-sync: work done in JN still lands on the
     // board. Booking time = the appt TASK's created date in the window (matches
     // how map bookings count). Deduped against map bookings via the booked
@@ -173,8 +174,19 @@ export const handler = async (event) => {
         // tasks created this window catch any harvest job whose source isn't
         // "Harvesting" — belt + suspenders, so we never count fewer than before.
         const candidates = new Map();
-        const srcFilter = encodeURIComponent(JSON.stringify({ must: [{ match_phrase: { source_name: "Harvesting" } }] }));
-        for (let page = 0; page < 25; page++) {
+        // Pull every HARVEST-source job — not just "Harvesting". Instant Quote,
+        // Self Generated, Facebook, and Referral are harvest too, so they must be
+        // durable (survive their appt task completing when the rep sits the deal).
+        // Referral / IQ counted for juniors too now (per Neal). Inspection / BTR are
+        // NOT harvest and are dropped at the counting gate below regardless.
+        const srcFilter = encodeURIComponent(JSON.stringify({ must: [{ bool: { minimum_should_match: 1, should: [
+          { match_phrase: { source_name: "Harvesting" } },
+          { match_phrase: { source_name: "Instant Quote" } },
+          { match_phrase: { source_name: "Self Generated" } },
+          { match_phrase: { source_name: "Facebook" } },
+          { match_phrase: { source_name: "Referral" } },
+        ] } }] }));
+        for (let page = 0; page < 40; page++) {
           const r = await fetch(`${JN_BASE}/jobs?size=100&from=${page * 100}&sort=-date_updated&date_updated_after=${sinceSec}&filter=${srcFilter}`, { headers: jnHeaders });
           if (!r.ok) break;
           const d = await r.json().catch(() => ({}));
@@ -225,23 +237,33 @@ export const handler = async (event) => {
 
         // Count each harvest job once, off durable dates — survives task
         // completion and Sit/Sold advancement.
+        //
+        // HARVEST = the lead's SOURCE, not the rep's level. Self-Gen, Instant Quote,
+        // Facebook, AI, Harvesting, and Referral are harvested leads and count for
+        // junior AND senior (the Jr/Sr badge on the board flags who). Inspection/BTR
+        // follow-ups are NOT harvest and never count here.
+        const isHarvestSource = (s) => /self.?gen|instant\s*quote|harvest|facebook|\bai\b|referral/i.test(String(s || ""));
+        // Booking signal for the period. An appt TASK created in the window is a
+        // booking for every source. A rep's OWN job (self-gen / harvesting / referral)
+        // is created when they set the appt, so its creation date counts too. An
+        // Instant Quote / Facebook lead is created when the homeowner submits (NOT a
+        // booking), so it only counts off a real appt task in the window — never off
+        // its creation date.
+        const creationIsBooking = (s) => /self.?gen|harvest|referral/i.test(String(s || ""));
         for (const [id, job] of candidates) {
           if (!job || mapJobIds.has(id)) continue;
-          if (!isYes(fieldByLabel(job, "Sales Rep Harvested"))) continue;   // office didn't flag it harvested
-          // Credit the period the appt was SET (booked), not when it's scheduled.
-          // taskJobIds = jobs whose appointment TASK was CREATED in this window — the
-          // true "set date" (works even for an IQ job created months before the appt
-          // was booked). Fall back to the job's own creation date so a harvest job whose
-          // task the scan missed still counts. date_start (the appt date) is never used.
-          if (!taskJobIds.has(id) && !harvestInWindow(job, startSec, endSec)) continue;
+          const src = job.source_name || "";
           const rep = (job.sales_rep_name || "").trim();
           const jr = isJunior(rep);
           const zone = zoneOf(rep);
+          const harvestSrc = isHarvestSource(src);
+          // date_start (the appt date) is never used for period bucketing.
+          const bookedInWindow = taskJobIds.has(id) || (creationIsBooking(src) && harvestInWindow(job, startSec, endSec));
           const bookedSec = taskJobIds.get(id) || Number(job.date_created) || 0;
           const bookedISO = bookedSec ? new Date(bookedSec * 1000).toISOString() : null;
-          if (auditOn) auditRows.push({ origin: "jn", label: titleAddr(jobAddress(job)), rep: rep || null, level: jr ? "junior" : (zone ? "senior" : "unknown"), zone: zone || null, source: job.source_name || null, status: job.status_name || null, booked: bookedISO, by_task: taskJobIds.has(id), job_created: harvestWhen(job), counted: !jr && !!zone, excluded: jr ? "junior" : (!zone ? "no-zone" : null) });
-          if (jr) continue;   // JR harvest credit is a mis-flagged BTR/inspection deal — never count it
-          if (!zone) { unattributed++; continue; }
+          const excluded = !harvestSrc ? "not-harvest-source" : !bookedInWindow ? "no-booking-in-window" : !zone ? "no-zone" : null;
+          if (auditOn) auditRows.push({ origin: "jn", label: titleAddr(jobAddress(job)), rep: rep || null, level: jr ? "junior" : (zone ? "senior" : "unknown"), zone: zone || null, source: src || null, status: job.status_name || null, booked: bookedISO, by_task: taskJobIds.has(id), job_created: harvestWhen(job), counted: !excluded, excluded });
+          if (excluded) { if (excluded === "no-zone") unattributed++; continue; }
           const z = agg[zone] || (agg[zone] = { count: 0, byRep: {}, deals: [] });
           z.count += 1;
           z.byRep[rep || "—"] = (z.byRep[rep || "—"] || 0) + 1;
