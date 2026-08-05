@@ -184,12 +184,30 @@ function RetailBars({ retail, compact }) {
 }
 
 function Retail({ retail }) {
+  const [filter, setFilter] = useState("all");
+  const order = ["sold", "btr_appt", "ni", "no_sale", "pending"];
+  const labels = retail.labels || {};
+  const buckets = retail.buckets || {};
+  const deals = filter === "all" ? retail.deals : (retail.deals || []).filter((d) => (d.outcome || "pending") === filter);
+  const pill = (active, color) => ({
+    fontFamily: OSWALD, fontSize: 12.5, fontWeight: 800, padding: "7px 13px", borderRadius: 999, cursor: "pointer",
+    border: `2px solid ${color}`, background: active ? color : "#fff", color: active ? "#fff" : color, whiteSpace: "nowrap",
+  });
   return (
     <div>
       <RetailBars retail={retail} />
       <div style={{ height: 14 }} />
-      <DealList title="BTR deals" sub="Every BTR-track deal and its current outcome." rows={retail.deals}
-        cols={[["outcome", "Outcome"], ["outcome_at", "When", fmtDate]]} />
+      {/* Outcome filter — press one to narrow the deal list to just those (still grouped zone → rep). */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+        <button onClick={() => setFilter("all")} style={pill(filter === "all", "#334155")}>All · {retail.total}</button>
+        {order.filter((k) => buckets[k] != null).map((k) => (
+          <button key={k} onClick={() => setFilter(k)} style={pill(filter === k, RETAIL_COLOR[k])}>{labels[k] || k} · {buckets[k]}</button>
+        ))}
+      </div>
+      <DealList
+        title={filter === "all" ? "BTR deals" : (labels[filter] || "BTR deals")}
+        sub={filter === "all" ? "Every BTR-track deal and its current outcome — grouped by zone → rep." : `Only ${String(labels[filter] || "").toLowerCase()} — grouped by zone → rep.`}
+        rows={deals} cols={[["outcome", "Outcome"], ["outcome_at", "When", fmtDate]]} />
     </div>
   );
 }
