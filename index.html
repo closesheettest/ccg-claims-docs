@@ -43,14 +43,18 @@
           // too late for the phone to see the swap.
           if (params.get("mode") === "harvest") {
             var ml = document.querySelector('link[rel="manifest"]');
-            if (ml) ml.setAttribute("href", "/manifest-harvest.webmanifest");
+            var idp = params.get("rt") || params.get("admin") || params.get("manager");
+            // BAKE the rep's identity into the installed icon's start_url (via the
+            // harvest-manifest function) so the home-screen app opens THEIR map. A
+            // home-screen app has isolated storage — it can't recover the token from
+            // localStorage — so the token must live in the manifest itself. Tokenless
+            // (office) keeps the static manifest.
+            if (ml) ml.setAttribute("href", idp ? ("/.netlify/functions/harvest-manifest?" + location.search.slice(1)) : "/manifest-harvest.webmanifest");
             // DoorDispatcher branding on the map: swap the browser-tab favicon to
             // the Doorpin (the rest of the app keeps the U.S. Shingle icon).
             var fav = document.querySelector('link[rel="icon"]');
             if (fav) { fav.setAttribute("href", "/doordispatcher-icon.svg"); fav.setAttribute("type", "image/svg+xml"); }
-            if (params.get("rt") || params.get("admin") || params.get("manager")) {
-              localStorage.setItem("harvest_home", location.href);
-            }
+            if (idp) { localStorage.setItem("harvest_home", location.href); }
           }
           var standalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
           var launched = standalone || params.get("app") === "1";
