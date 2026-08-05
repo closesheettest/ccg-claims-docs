@@ -75,7 +75,7 @@ export default function MasterInspectionReports() {
     ["needs_inspection", `Needs Inspecting (${c.needs_inspection})`],
     ["needs_goback", `Needs Go-Back Status (${c.needs_goback_status})`],
     ["retail", `BTR (${c.retail})`],
-    ["damage", `BTPA (${c.damage})`],
+    ["damage", `BTPA (${c.damage_with_appt})`],
     ["pa_passed", `PA Appts Passed (${c.pa_passed})`],
     ["missed", `⚠️ Missed PA (${c.missed_pa})`],
     ["inspectors", `👷 Inspectors (${c.inspectors})`],
@@ -349,11 +349,10 @@ function Damage({ damage }) {
   );
   return (
     <div>
-      <Section title={`Damage — needs a PA appointment (${damage.needs_appt.length})`} sub="Damage found, no PA appointment booked yet. By zone → rep.">
-        {!damage.needs_appt.length ? <Empty /> : <Grouped groups={twoLevel(damage.needs_appt, (r) => r.zone, (r) => r.rep || "—")} renderRow={needRow} />}
-      </Section>
-      <div style={{ height: 16 }} />
-      <Section title={`Damage — has a PA appointment (${damage.with_appt.length})`} sub="Damage deals with a PA appointment on the books. By zone → rep.">
+      <div style={{ background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 10, padding: "9px 12px", fontSize: 12.5, color: "#475569", marginBottom: 12 }}>
+        Damage deals with a PA appointment (the PA is working these). Damage deals still needing their first PA appointment live under <b>Needs Go-Back Status → BTPA</b> (that's the rep's go-back).
+      </div>
+      <Section title={`Damage — has a PA appointment (${damage.with_appt.length})`} sub="Damage deals with a PA appointment on the books — the PA pipeline. By zone → rep.">
         {!damage.with_appt.length ? <Empty /> : <Grouped groups={twoLevel(damage.with_appt, (r) => r.zone, (r) => r.rep || "—")} renderRow={haveRow} />}
       </Section>
     </div>
