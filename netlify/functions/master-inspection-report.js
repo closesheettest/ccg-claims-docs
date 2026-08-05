@@ -142,7 +142,7 @@ export const handler = async (event) => {
     const pct = {}; for (const k of Object.keys(buckets)) pct[k] = Math.round((buckets[k] / rTotal) * 1000) / 10;
     const retail = {
       total: retailDeals.length, labels: RB, buckets, pct,
-      deals: retailDeals.map((i) => ({ ...card(i), outcome: i.retail_outcome || "pending", outcome_at: toISO(i.retail_outcome_at) }))
+      deals: retailDeals.map((i) => ({ ...card(i), outcome: i.retail_outcome || "pending", outcome_at: toISO(i.retail_outcome_at), jn_status: i.jn_status || null, notes: recentNotes(i) }))
         .sort((a, b) => (b.outcome_at || "").localeCompare(a.outcome_at || "")),
     };
 
@@ -153,8 +153,8 @@ export const handler = async (event) => {
       const a = latestAppt(i.id);
       const co = i.pa_company_id ? coName[i.pa_company_id] : null;
       const pn = i.pa_id ? paName[i.pa_id] : null;
-      if (a) withApptArr.push({ ...card(i), pa: pn, company: co, start_at: a.start_at, appt_status: a.status, stage: i.pa_stage || null, notes: recentNotes(i) });
-      else needApptArr.push({ ...card(i), pa: pn, company: co, assigned: !!(i.pa_id || i.pa_company_id), stage: i.pa_stage || null, notes: recentNotes(i) });
+      if (a) withApptArr.push({ ...card(i), pa: pn, company: co, start_at: a.start_at, appt_status: a.status, stage: i.pa_stage || null, notes: recentNotes(i), signed: paOutcome(i) === "signed" });
+      else needApptArr.push({ ...card(i), pa: pn, company: co, assigned: !!(i.pa_id || i.pa_company_id), stage: i.pa_stage || null, notes: recentNotes(i), signed: paOutcome(i) === "signed" });
     }
     const damage = {
       total: damageDeals.length,
@@ -182,6 +182,7 @@ export const handler = async (event) => {
           start_at: a.start_at,
           appt_status: a.status,          // scheduled / done / cancelled
           outcome,                        // signed / refused / pending (derived from inspection)
+          signed: outcome === "signed",   // did they sign PA paperwork? not-signed = reschedule candidate
           filed_at: toISO(f.pa_filed),    // when the claim was filed
           booked_at: toISO(a.created_at), // when the appointment was set
           rep: insp ? rep(insp) : null,

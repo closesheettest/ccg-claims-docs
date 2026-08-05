@@ -193,6 +193,24 @@ function Retail({ retail }) {
     fontFamily: OSWALD, fontSize: 12.5, fontWeight: 800, padding: "7px 13px", borderRadius: 999, cursor: "pointer",
     border: `2px solid ${color}`, background: active ? color : "#fff", color: active ? "#fff" : color, whiteSpace: "nowrap",
   });
+  const retailRow = (r) => (
+    <div key={r.id} style={rowCard}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 800 }}>{r.name}</div>
+        <div style={{ fontSize: 12.5, color: "#64748b" }}>{[r.address, r.city].filter(Boolean).join(", ")}</div>
+        {r.jn_status && <div style={{ fontSize: 11.5, fontWeight: 800, color: "#0891b2", marginTop: 2 }}>Status: {r.jn_status}</div>}
+        {Array.isArray(r.notes) && r.notes.length > 0 && (
+          <div style={{ marginTop: 5, borderLeft: "3px solid #e2e8f0", paddingLeft: 8, display: "grid", gap: 3 }}>
+            {r.notes.map((n, i) => <div key={i} style={{ fontSize: 12, color: "#475569", lineHeight: 1.4 }}>{n.text}</div>)}
+          </div>
+        )}
+      </div>
+      <div style={{ textAlign: "right", fontSize: 12 }}>
+        <div><span style={{ color: "#94a3b8" }}>Outcome: </span><b>{r.outcome}</b></div>
+        <div><span style={{ color: "#94a3b8" }}>When: </span>{fmtDate(r.outcome_at)}</div>
+      </div>
+    </div>
+  );
   return (
     <div>
       <RetailBars retail={retail} />
@@ -204,10 +222,11 @@ function Retail({ retail }) {
           <button key={k} onClick={() => setFilter(k)} style={pill(filter === k, RETAIL_COLOR[k])}>{labels[k] || k} · {buckets[k]}</button>
         ))}
       </div>
-      <DealList
-        title={filter === "all" ? "BTR deals" : (labels[filter] || "BTR deals")}
-        sub={filter === "all" ? "Every BTR-track deal and its current outcome — grouped by zone → rep." : `Only ${String(labels[filter] || "").toLowerCase()} — grouped by zone → rep.`}
-        rows={deals} cols={[["outcome", "Outcome"], ["outcome_at", "When", fmtDate]]} />
+      <Section
+        title={`${filter === "all" ? "BTR deals" : (labels[filter] || "BTR deals")} (${deals.length})`}
+        sub={filter === "all" ? "Every BTR-track deal — its current JobNimbus status + outcome, grouped by zone → rep." : `Only ${String(labels[filter] || "").toLowerCase()} — each with its current JobNimbus status, grouped by zone → rep.`}>
+        {!deals.length ? <Empty /> : <Grouped groups={twoLevel(deals, (r) => r.zone, (r) => r.rep || "—")} renderRow={retailRow} />}
+      </Section>
     </div>
   );
 }
@@ -260,6 +279,11 @@ function NotesBlock({ r }) {
   const notes = Array.isArray(r.notes) ? r.notes : [];
   return (
     <>
+      {typeof r.signed === "boolean" && (
+        <div style={{ fontSize: 12, fontWeight: 800, marginTop: 3, color: r.signed ? "#16a34a" : "#9a3412" }}>
+          {r.signed ? "✅ Signed PA paperwork" : "❌ No PA paperwork signed — reschedule candidate"}
+        </div>
+      )}
       {r.stage && <div style={{ fontSize: 11.5, fontWeight: 800, color: "#7c3aed", marginTop: 3, textTransform: "capitalize" }}>PA stage: {cap(r.stage)}</div>}
       {notes.length > 0 ? (
         <div style={{ marginTop: 5, borderLeft: "3px solid #e2e8f0", paddingLeft: 8, display: "grid", gap: 3 }}>
