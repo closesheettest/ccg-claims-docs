@@ -153,8 +153,11 @@ export const handler = async (event) => {
       const a = latestAppt(i.id);
       const co = i.pa_company_id ? coName[i.pa_company_id] : null;
       const pn = i.pa_id ? paName[i.pa_id] : null;
-      if (a) withApptArr.push({ ...card(i), pa: pn, company: co, start_at: a.start_at, appt_status: a.status, stage: i.pa_stage || null, notes: recentNotes(i), signed: paOutcome(i) === "signed" });
-      else needApptArr.push({ ...card(i), pa: pn, company: co, assigned: !!(i.pa_id || i.pa_company_id), stage: i.pa_stage || null, notes: recentNotes(i), signed: paOutcome(i) === "signed" });
+      // Only surface a PA stage when a PA is actually ASSIGNED — a stale "active" on
+      // an unassigned deal is misleading (nobody's on it). Guard on pa_id/company.
+      const assigned = !!(i.pa_id || i.pa_company_id);
+      if (a) withApptArr.push({ ...card(i), pa: pn, company: co, start_at: a.start_at, appt_status: a.status, stage: assigned ? (i.pa_stage || null) : null, notes: recentNotes(i), signed: paOutcome(i) === "signed" });
+      else needApptArr.push({ ...card(i), pa: pn, company: co, assigned, stage: assigned ? (i.pa_stage || null) : null, notes: recentNotes(i), signed: paOutcome(i) === "signed" });
     }
     const damage = {
       total: damageDeals.length,
