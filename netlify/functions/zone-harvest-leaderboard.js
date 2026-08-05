@@ -67,6 +67,30 @@ function titleAddr(s) {
     .replace(/\b(N|S|E|W|Ne|Nw|Se|Sw)\b/g, (m) => m.toUpperCase());
 }
 
+// The kind of pin behind a credit, shown next to each address in the drill-down
+// so a manager can see whether it was self-generated, an IQ lead, a referral, etc.
+function pinType(src) {
+  const s = String(src || "").toLowerCase();
+  if (/self.?gen/.test(s)) return "Self-Gen";
+  if (/instant\s*quote/.test(s)) return "Instant Quote";
+  if (/facebook/.test(s)) return "Facebook";
+  if (/\bai\b/.test(s)) return "AI";
+  if (/referral/.test(s)) return "Referral";
+  if (/harvest/.test(s)) return "Harvesting";
+  return String(src || "").trim();
+}
+// Map-side pins carry the origin as a from_status code, not a source name.
+function pinTypeFromStatus(fs) {
+  switch (String(fs || "").toLowerCase()) {
+    case "iq": return "Instant Quote";
+    case "fb": return "Facebook";
+    case "ai": return "AI";
+    case "self_gen": return "Self-Gen";
+    case "no_sit_reschedule": return "No-Sit Rebook";
+    default: return "";
+  }
+}
+
 const ZONE_TEAMS = { "Zone 1": "SQUAD", "Zone 2": "SitSold", "Zone 3": "SHARKS", "Zone 4": "HURRICANE" };
 const ZONE_ORDER = ["Zone 1", "Zone 2", "Zone 3", "Zone 4"];
 
@@ -127,7 +151,7 @@ export const handler = async (event) => {
       z.count += 1;
       const rep = (a.rep_name || "—").trim() || "—";
       z.byRep[rep] = (z.byRep[rep] || 0) + 1;
-      mapDealRefs.push({ zone, rep, pin_id: a.pin_id });
+      mapDealRefs.push({ zone, rep, pin_id: a.pin_id, from: a.from_status });
     }
     // Resolve pin → street address (and jn_job_id for JN-side dedup) once.
     const pinAddr = {};
@@ -139,7 +163,7 @@ export const handler = async (event) => {
         for (const p of rows) { if (p.address) pinAddr[p.id] = titleAddr(`${p.address}${p.city ? ", " + p.city : ""}`); if (p.jn_job_id) mapJobIds.add(p.jn_job_id); }
       }
     }
-    for (const d of mapDealRefs) { const z = agg[d.zone]; if (z) z.deals.push({ rep: d.rep, label: pinAddr[d.pin_id] || "Map lead" }); }
+    for (const d of mapDealRefs) { const z = agg[d.zone]; if (z) z.deals.push({ rep: d.rep, label: pinAddr[d.pin_id] || "Map lead", source: pinTypeFromStatus(d.from) }); }
     if (auditOn) for (const r of auditRows) if (r.origin === "map" && r.pin_id) r.label = pinAddr[r.pin_id] || "Map lead";
 
     // ── JN-SIDE HARVESTED APPOINTMENTS (reverse direction, per Neal) ─────────
@@ -267,7 +291,7 @@ export const handler = async (event) => {
           const z = agg[zone] || (agg[zone] = { count: 0, byRep: {}, deals: [] });
           z.count += 1;
           z.byRep[rep || "—"] = (z.byRep[rep || "—"] || 0) + 1;
-          z.deals.push({ rep: rep || "—", label: titleAddr(jobAddress(job)) });
+          z.deals.push({ rep: rep || "—", label: titleAddr(jobAddress(job)), source: pinType(src) });
           jnCounted += 1;
         }
       }
