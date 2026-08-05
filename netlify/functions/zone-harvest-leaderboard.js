@@ -5,12 +5,14 @@
 //      harvest-book-appt.js / harvest-book-btr-appt.js log a canvass_activity
 //      row { to_status:'appt' } with a harvest origin (iq/fb/ai/no-sit/self_gen).
 //   2. JOBNIMBUS bookings (reverse direction, per Neal) — an appointment booked
-//      in the window on a job whose SOURCE is a harvested lead (Self Generated,
-//      Instant Quote, Facebook, AI, Harvesting, Referral), credited to the job's
-//      sales rep. Inspection/BTR follow-ups are NOT harvest. Deduped against map
-//      bookings by jn_job_id; one credit per job.
-// Credit is by lead SOURCE, not rep level — juniors self-generate and work IQ
-// pins too, so they count here as well (the Jr/Sr badge on the board flags who).
+//      in the window on a FIELD-GENERATED job: source "Harvesting" (a door knocked
+//      off the map) or "Self Generated" (a drop pin), credited to the job's sales
+//      rep. Inbound COMPANY call-ins passed out (Instant Quote / Facebook / AI) and
+//      Referral are NOT counted here — the rep didn't generate them in the field.
+//      Deduped against map bookings by jn_job_id; one credit per job.
+// THE RULE: if the rep generated it in the field / worked the pin on the map, it
+// counts — junior or senior (the Jr/Sr badge flags who). A lead that called in and
+// was scheduled in JN (reverse-synced) is not the rep's field work, so it's out.
 // Tallied per period, ranked by zone with a per-rep drill-down.
 //
 //   GET /.netlify/functions/zone-harvest-leaderboard[?period=week|month|...]
@@ -67,26 +69,27 @@ function titleAddr(s) {
     .replace(/\b(N|S|E|W|Ne|Nw|Se|Sw)\b/g, (m) => m.toUpperCase());
 }
 
-// The kind of pin behind a credit, shown next to each address in the drill-down
-// so a manager can see whether it was self-generated, an IQ lead, a referral, etc.
+// The MAP PIN behind a credit, shown next to each address in the drill-down so a
+// manager sees exactly which kind of pin the rep worked. Never says "Harvesting" —
+// a plain canvassed door off the map is a "Knock pin". (Referral is excluded from
+// the board entirely — a call-in referral is a company lead, not harvested.)
 function pinType(src) {
   const s = String(src || "").toLowerCase();
-  if (/self.?gen/.test(s)) return "Self-Gen";
-  if (/instant\s*quote/.test(s)) return "Instant Quote";
-  if (/facebook/.test(s)) return "Facebook";
-  if (/\bai\b/.test(s)) return "AI";
-  if (/referral/.test(s)) return "Referral";
-  if (/harvest/.test(s)) return "Harvesting";
+  if (/self.?gen/.test(s)) return "Drop pin";
+  if (/instant\s*quote/.test(s)) return "IQ pin";
+  if (/facebook/.test(s)) return "FB pin";
+  if (/\bai\b/.test(s)) return "AI pin";
+  if (/harvest/.test(s)) return "Knock pin";
   return String(src || "").trim();
 }
 // Map-side pins carry the origin as a from_status code, not a source name.
 function pinTypeFromStatus(fs) {
   switch (String(fs || "").toLowerCase()) {
-    case "iq": return "Instant Quote";
-    case "fb": return "Facebook";
-    case "ai": return "AI";
-    case "self_gen": return "Self-Gen";
-    case "no_sit_reschedule": return "No-Sit Rebook";
+    case "iq": return "IQ pin";
+    case "fb": return "FB pin";
+    case "ai": return "AI pin";
+    case "self_gen": return "Drop pin";
+    case "no_sit_reschedule": return "Knock pin";
     default: return "";
   }
 }
@@ -167,14 +170,14 @@ export const handler = async (event) => {
     if (auditOn) for (const r of auditRows) if (r.origin === "map" && r.pin_id) r.label = pinAddr[r.pin_id] || "Map lead";
 
     // ── JN-SIDE HARVESTED APPOINTMENTS (reverse direction, per Neal) ─────────
-    // Appointments made directly IN JobNimbus count too, when the job's SOURCE is
-    // a harvested lead (Self Generated / Instant Quote / Facebook / AI / Harvesting
-    // / Referral) — credited to the job's sales rep, junior or senior. Same
-    // philosophy as the pin reverse-sync: work done in JN still lands on the
-    // board. Booking time = the appt TASK's created date in the window (matches
-    // how map bookings count). Deduped against map bookings via the booked
-    // pins' jn_job_id, and one credit per JOB. Best-effort: a JN hiccup never
-    // breaks the board.
+    // Appointments made directly IN JobNimbus count too, but ONLY when the job is
+    // FIELD-GENERATED — source "Harvesting" (knocked off the map) or "Self Generated"
+    // (drop pin) — credited to the job's sales rep, junior or senior. An inbound
+    // company lead that called in and got scheduled (Instant Quote / Facebook / AI /
+    // Referral reverse-synced) is NOT the rep's field work and does not count here.
+    // Booking time = the appt TASK's created date in the window (matches how map
+    // bookings count). Deduped against map bookings via the booked pins' jn_job_id,
+    // and one credit per JOB. Best-effort: a JN hiccup never breaks the board.
     let jnCounted = 0;
     try {
       if (JN_KEY) {
@@ -198,17 +201,16 @@ export const handler = async (event) => {
         // tasks created this window catch any harvest job whose source isn't
         // "Harvesting" — belt + suspenders, so we never count fewer than before.
         const candidates = new Map();
-        // Pull every HARVEST-source job — not just "Harvesting". Instant Quote,
-        // Self Generated, Facebook, and Referral are harvest too, so they must be
-        // durable (survive their appt task completing when the rep sits the deal).
-        // Referral / IQ counted for juniors too now (per Neal). Inspection / BTR are
-        // NOT harvest and are dropped at the counting gate below regardless.
+        // JN-side credits count only FIELD-GENERATED sources — work the rep did out in
+        // the field: "Harvesting" (a door knocked off the map) and "Self Generated" (a
+        // drop pin). Instant Quote / Facebook / AI are inbound COMPANY leads that called
+        // in and were passed out — NOT harvested — so they are NOT pulled here. (A rep
+        // who actually knocks an IQ/FB pin on the MAP is caught on the map side via
+        // canvass_activity and still counts.) Referral is excluded for now — can't yet
+        // tell a rep-generated field referral from a call-in.
         const srcFilter = encodeURIComponent(JSON.stringify({ must: [{ bool: { minimum_should_match: 1, should: [
           { match_phrase: { source_name: "Harvesting" } },
-          { match_phrase: { source_name: "Instant Quote" } },
           { match_phrase: { source_name: "Self Generated" } },
-          { match_phrase: { source_name: "Facebook" } },
-          { match_phrase: { source_name: "Referral" } },
         ] } }] }));
         for (let page = 0; page < 40; page++) {
           const r = await fetch(`${JN_BASE}/jobs?size=100&from=${page * 100}&sort=-date_updated&date_updated_after=${sinceSec}&filter=${srcFilter}`, { headers: jnHeaders });
@@ -262,18 +264,19 @@ export const handler = async (event) => {
         // Count each harvest job once, off durable dates — survives task
         // completion and Sit/Sold advancement.
         //
-        // HARVEST = the lead's SOURCE, not the rep's level. Self-Gen, Instant Quote,
-        // Facebook, AI, Harvesting, and Referral are harvested leads and count for
-        // junior AND senior (the Jr/Sr badge on the board flags who). Inspection/BTR
-        // follow-ups are NOT harvest and never count here.
-        const isHarvestSource = (s) => /self.?gen|instant\s*quote|harvest|facebook|\bai\b|referral/i.test(String(s || ""));
+        // JN-side HARVEST = FIELD-GENERATED work only, for junior AND senior alike
+        // (the Jr/Sr badge flags who): "Harvesting" (a door knocked off the map) and
+        // "Self Generated" (a drop pin). Instant Quote / Facebook / AI are inbound
+        // COMPANY call-ins passed out — NOT the rep's field work — so they're excluded
+        // here; a rep who actually KNOCKS an IQ/FB pin on the map is credited via the
+        // map side instead. Referral is excluded FOR NOW — we can't yet tell a rep-
+        // generated field referral from a call-in (coming: a "referral?" flag in the
+        // rep dashboard's retail-appt flow). Inspection/BTR follow-ups never count.
+        const isHarvestSource = (s) => /self.?gen|harvest/i.test(String(s || ""));
         // Booking signal for the period. An appt TASK created in the window is a
-        // booking for every source. A rep's OWN job (self-gen / harvesting / referral)
-        // is created when they set the appt, so its creation date counts too. An
-        // Instant Quote / Facebook lead is created when the homeowner submits (NOT a
-        // booking), so it only counts off a real appt task in the window — never off
-        // its creation date.
-        const creationIsBooking = (s) => /self.?gen|harvest|referral/i.test(String(s || ""));
+        // booking. A rep's OWN field job (self-gen / harvesting) is created when they
+        // set the appt, so its creation date counts as the booking too.
+        const creationIsBooking = (s) => /self.?gen|harvest/i.test(String(s || ""));
         for (const [id, job] of candidates) {
           if (!job || mapJobIds.has(id)) continue;
           const src = job.source_name || "";
