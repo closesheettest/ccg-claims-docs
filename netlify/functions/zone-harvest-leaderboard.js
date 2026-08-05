@@ -79,16 +79,12 @@ const PIN_LABEL = {
   self_gen: "Drop Pin", no_sit_reschedule: "No-Sit Rebook", insp: "Inspection Lead",
   referral: "Referral", clover: "Clover Pin", damage_observed: "Damage Pin",
 };
-function pinLabel(fromStatus, srcName) {
+function pinLabel(fromStatus) {
   const f = String(fromStatus || "").toLowerCase();
-  if (PIN_LABEL[f]) return PIN_LABEL[f];
-  // Fallback to the JN source only when the pin's original status isn't on its log.
-  const s = String(srcName || "").toLowerCase();
-  if (/self.?gen/.test(s)) return "Drop Pin";
-  if (/instant\s*quote/.test(s)) return "IQ Pin";
-  if (/facebook/.test(s)) return "Facebook Pin";
-  if (/\bai\b/.test(s)) return "AI Pin";
-  return "Field lead";
+  // A drop pin (self_gen) worked ON the map → "Drop Pin". A credit we can't find on
+  // the map at all (no pin / no status log) → the rep entered that appointment
+  // himself → "Self Generated". (Per Neal.)
+  return PIN_LABEL[f] || "Self Generated";
 }
 
 const ZONE_TEAMS = { "Zone 1": "SQUAD", "Zone 2": "SitSold", "Zone 3": "SHARKS", "Zone 4": "HURRICANE" };
@@ -163,7 +159,7 @@ export const handler = async (event) => {
         for (const p of rows) { if (p.address) pinAddr[p.id] = titleAddr(`${p.address}${p.city ? ", " + p.city : ""}`); if (p.jn_job_id) mapJobIds.add(p.jn_job_id); }
       }
     }
-    for (const d of mapDealRefs) { const z = agg[d.zone]; if (z) z.deals.push({ rep: d.rep, label: pinAddr[d.pin_id] || "Map lead", source: pinLabel(d.from, null) }); }
+    for (const d of mapDealRefs) { const z = agg[d.zone]; if (z) z.deals.push({ rep: d.rep, label: pinAddr[d.pin_id] || "Map lead", source: pinLabel(d.from) }); }
     if (auditOn) for (const r of auditRows) if (r.origin === "map" && r.pin_id) r.label = pinAddr[r.pin_id] || "Map lead";
 
     // ── JN-SIDE HARVESTED APPOINTMENTS (reverse direction, per Neal) ─────────
@@ -314,7 +310,7 @@ export const handler = async (event) => {
               if (p.jn_job_id) pinFromByJob[p.jn_job_id] = from;
             }
           }
-          for (const x of jnDealsToLabel) x.obj.source = pinLabel(pinFromByJob[x.jobid], x.src);
+          for (const x of jnDealsToLabel) x.obj.source = pinLabel(pinFromByJob[x.jobid]);
         }
       }
     } catch { /* board still renders from map bookings alone */ }
