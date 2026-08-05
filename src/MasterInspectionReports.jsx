@@ -75,7 +75,7 @@ export default function MasterInspectionReports() {
     ["needs_inspection", `Needs Inspecting (${c.needs_inspection})`],
     ["needs_goback", `Needs Go-Back Status (${c.needs_goback_status})`],
     ["retail", `BTR (${c.retail})`],
-    ["damage", `Damage / PA (${c.damage})`],
+    ["damage", `BTPA (${c.damage})`],
     ["pa_passed", `PA Appts Passed (${c.pa_passed})`],
     ["missed", `⚠️ Missed PA (${c.missed_pa})`],
     ["inspectors", `👷 Inspectors (${c.inspectors})`],
@@ -326,7 +326,7 @@ function Damage({ damage }) {
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: 800 }}>{r.name}</div>
         <div style={{ fontSize: 12.5, color: "#64748b" }}>{[r.address, r.city].filter(Boolean).join(", ")}</div>
-        <NotesBlock r={r} />
+        <NotesBlock r={r} needsAppt />
       </div>
       <div style={{ textAlign: "right", fontSize: 12.5 }}>
         <div>{r.company || r.pa || (r.assigned ? "Assigned" : <span style={{ color: "#b45309", fontWeight: 800 }}>Unassigned</span>)}</div>
@@ -363,14 +363,16 @@ function Damage({ damage }) {
 // The story behind a PA appointment — its pipeline stage + the recent PA notes, so
 // the office can see WHY it refused / what "no outcome" actually means, instead of a
 // bare verdict. "No notes logged" is itself the answer: nobody recorded what happened.
-function NotesBlock({ r }) {
+function NotesBlock({ r, needsAppt }) {
   const cap = (s) => String(s || "").replace(/_/g, " ");
   const notes = Array.isArray(r.notes) ? r.notes : [];
   return (
     <>
       {typeof r.signed === "boolean" && (
-        <div style={{ fontSize: 12, fontWeight: 800, marginTop: 3, color: r.signed ? "#16a34a" : "#9a3412" }}>
-          {r.signed ? "✅ Signed PA paperwork" : "❌ No PA paperwork signed — reschedule candidate"}
+        <div style={{ fontSize: 12, fontWeight: 800, marginTop: 3, color: r.signed ? "#16a34a" : needsAppt ? "#b45309" : "#9a3412" }}>
+          {r.signed ? "✅ Signed PA paperwork"
+            : needsAppt ? "◻︎ No PA appointment yet — rep still needs to set the first one"
+            : "❌ No PA paperwork signed — reschedule candidate"}
         </div>
       )}
       {r.stage && <div style={{ fontSize: 11.5, fontWeight: 800, color: "#7c3aed", marginTop: 3, textTransform: "capitalize" }}>PA stage: {cap(r.stage)}</div>}
