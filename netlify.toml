@@ -237,7 +237,10 @@
 [functions."cron-harvest-leadsync"]
   schedule = "*/30 11-23,0-1 * * *"
 
-# Scheduled function: daily Venice roof-age scrub via Shovels.ai (free-tier safe,
-# 45 pins/day, credit-throttled). Roofing permit 2012+ = new roof -> pin -> new_roof.
-[functions."cron-shovels-venice-scrub"]
-  schedule = "0 14 * * *"
+# Venice roof-age scrub via Shovels.ai — PAUSED 2026-08-05. Shovels returns
+# "NOT FOUND" for every Venice address (Sarasota County permit coverage gap), so it
+# validated nothing and burned ~1 credit/pin. Logic lives in the callable worker
+# shovels-venice-scrub (run by hand for testing). Re-enable by restoring this
+# schedule block AND the export const config in cron-shovels-venice-scrub.js.
+# [functions."cron-shovels-venice-scrub"]
+#   schedule = "0 14 * * *"
